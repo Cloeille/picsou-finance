@@ -335,8 +335,10 @@ async def _fetch_loan_details(
     Personal and home loans each read their own app with its own token. Without a token
     provider a loan is null and imported (legacy). A token that cannot be minted leaves every
     loan of that product unavailable with its code; a detail that cannot be read leaves only
-    its own loan unavailable. A `SessionExpired` propagates: the session itself is dead, and
-    the caller replays or fails.
+    its own loan unavailable. A `SessionExpired` while minting a token, or from the
+    personal-loan app, propagates: the session itself is dead, and the caller replays or
+    fails. A 401 from the home-loan app (another OAuth client on BPCE hosts) leaves only
+    that loan unavailable.
     """
     loans = [a for a in accounts if a["kind"] == "LOAN"]
     details: dict = {a["externalId"]: None for a in loans}
@@ -367,12 +369,19 @@ async def _fetch_loan_details(
             else:
                 url = base_url + LOAN_DETAIL_PATH + urllib.parse.quote(contract_id, safe="")
                 parse = accounts_parser.parse_loan_detail
-            # A 401 raises `replay.SessionExpired`, which is not caught here.
+            # A 401 raises `replay.SessionExpired`. On the personal-loan app it means the
+            # session is dead and propagates. The home-loan app is another OAuth client on
+            # BPCE hosts, whose token was just minted from the live session: its refusal
+            # leaves only this loan unavailable.
             try:
                 payload = await _get_json(client, url, {}, bearer=token)
                 details[ext] = parse(payload)
             except (FetchError, accounts_parser.ParseError) as exc:
                 unavailable[ext] = exc.code
+            except replay.SessionExpired:
+                if product != "HOME":
+                    raise
+                unavailable[ext] = UpstreamUnavailable.code
     return details, unavailable
 
 

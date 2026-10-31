@@ -192,7 +192,7 @@ bank files them under another id, the import fails with
 
 ## Safety
 
-- SSRF guard: authorize, token, SAML and the `action` URLs returned by the bank must be `https` on `*.caisse-epargne.fr` (default port, no userinfo, no apex). A URL that fails is rejected before any request is sent. Redirects are never followed.
+- SSRF guard: authorize, token, SAML and the `action` URLs returned by the bank must be `https` on `*.caisse-epargne.fr` (default port, no userinfo, no apex), or on exactly one of the two home-loan hosts `www.as-ext-bad-me.bpce.fr` and `www.rs-ext-bad-me.bpce.fr` (never a wildcard on `bpce.fr`). A URL that fails is rejected before any request is sent. Redirects are never followed.
 - Finite timeouts (10 s connect, 25 s per request), response bodies capped at 1 MiB, the httpx client is always closed.
 - Cookies, SAML payloads, codes, tokens and authorize parameters are never logged or returned. The access token lives only in an in-memory cache until `expires_in - 30 s` (at most 64 entries) and is never returned by the API.
 - Read-only target: the OAuth/SAML replay POSTs and, for `/accounts`, GET data calls only. No balance, label, IBAN or token is ever logged.

@@ -572,6 +572,14 @@ def _add_months(day: date, months: int) -> date:
     return date(year, month + 1, min(day.day, calendar.monthrange(year, month + 1)[1]))
 
 
+def _eur_amount(value: Any, where: str) -> Decimal:
+    """A positive `{value, currencyCode}` in euros: the loan account and its Debt are in EUR."""
+    amount = _positive_amount(value, where)
+    if value.get("currencyCode") != "EUR":
+        raise ParseError(INVALID_LOAN_DETAIL, f"{where}.currencyCode: expected EUR")
+    return amount
+
+
 def parse_home_loan_detail(payload: Any) -> dict:
     """`loan/v1/loans` -> the `loan` block of a LOAN account, same shape as a personal loan.
 
@@ -582,7 +590,7 @@ def parse_home_loan_detail(payload: Any) -> dict:
     contract = _object(loan.get("contractCharacteristic"), INVALID_LOAN_DETAIL, "loan.contractCharacteristic")
     money = _object(loan.get("financialInformation"), INVALID_LOAN_DETAIL, "loan.financialInformation")
 
-    borrowed = _positive_amount(money.get("amountBorrowed"), "loan.financialInformation.amountBorrowed")
+    borrowed = _eur_amount(money.get("amountBorrowed"), "loan.financialInformation.amountBorrowed")
     duration = money.get("duration")
     if isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0:
         raise ParseError(INVALID_LOAN_DETAIL, "loan.financialInformation.duration: expected a positive integer")
@@ -590,10 +598,21 @@ def parse_home_loan_detail(payload: Any) -> dict:
     rate = percent / 100
     if not 0 <= rate <= 1:
         raise ParseError(INVALID_LOAN_DETAIL, "loan.financialInformation.nextDuedateRate: expected a rate between 0 and 100 %")
-    installment = _positive_amount(
-        money.get("nextDuedateAmount"), "loan.financialInformation.nextDuedateAmount"
-    )
+    installment = _eur_amount(money.get("nextDuedateAmount"), "loan.financialInformation.nextDuedateAmount")
     last_due = _iso_date(money.get("lastDuedate"), INVALID_LOAN_DETAIL, "loan.financialInformation.lastDuedate")
+    signature = _iso_date(
+        contract.get("subscriptionDate"), INVALID_LOAN_DETAIL, "loan.contractCharacteristic.subscriptionDate"
+    )
+    try:
+        first_due = _add_months(last_due, -(duration - 1))
+    except ValueError:
+        raise ParseError(
+            INVALID_LOAN_DETAIL, "loan.financialInformation.duration: first due date out of range"
+        ) from None
+    if first_due < signature:
+        raise ParseError(
+            INVALID_LOAN_DETAIL, "loan.financialInformation: first due date before the subscription date"
+        )
 
     # As for a personal loan, any excess of the installment over the annuity is
     # the borrower insurance. A home loan's insurance is often taken elsewhere:
@@ -609,10 +628,8 @@ def parse_home_loan_detail(payload: Any) -> dict:
         "interestRate": rate,
         "monthlyPayment": installment,
         "insuranceMonthly": insurance,
-        "signatureDate": _iso_date(
-            contract.get("subscriptionDate"), INVALID_LOAN_DETAIL, "loan.contractCharacteristic.subscriptionDate"
-        ),
-        "firstDueDate": _add_months(last_due, -(duration - 1)),
+        "signatureDate": signature,
+        "firstDueDate": first_due,
         "lastDueDate": last_due,
         "durationMonths": duration,
         "linkedIban": None,

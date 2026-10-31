@@ -113,6 +113,31 @@ class HomeLoanDetailTest(unittest.TestCase):
                     parse_home_loan_detail(d)
                 self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
 
+    def test_an_amount_in_another_currency_is_refused(self):
+        for field in ("amountBorrowed", "nextDuedateAmount"):
+            with self.subTest(field=field):
+                d = detail()
+                d["loan"]["financialInformation"][field]["currencyCode"] = "CHF"
+                with self.assertRaises(ParseError) as caught:
+                    parse_home_loan_detail(d)
+                self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
+
+    def test_a_duration_reaching_before_year_one_is_refused(self):
+        d = detail()
+        d["loan"]["financialInformation"]["duration"] = 30000
+
+        with self.assertRaises(ParseError) as caught:
+            parse_home_loan_detail(d)
+        self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
+
+    def test_a_first_due_date_before_the_subscription_is_refused(self):
+        d = detail()
+        d["loan"]["contractCharacteristic"]["subscriptionDate"] = "2023-01-02"
+
+        with self.assertRaises(ParseError) as caught:
+            parse_home_loan_detail(d)
+        self.assertEqual(caught.exception.code, accounts_parser.INVALID_LOAN_DETAIL)
+
 
 class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -156,6 +181,23 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(LOAN_ID, [a["externalId"] for a in result["accounts"]])
         self.assertTrue(result["accounts"])
         self.assertEqual(self.home_requests, [])
+
+    async def test_a_401_on_the_home_loan_detail_leaves_only_the_loan_unavailable(self):
+        def refuse(request: httpx.Request) -> httpx.Response:
+            if request.url.host == HOME_HOST:
+                self.home_requests.append(request)
+                return httpx.Response(401)
+            return self.ce.handle(request)
+
+        result = await fetcher.fetch_import(
+            SECRET_TOKEN, transport=httpx.MockTransport(refuse), today=TODAY,
+            loan_token=loan_token_provider([]), home_loan_token=self.home_token([]),
+        )
+
+        self.assertEqual(len(self.home_requests), 1)
+        self.assertIn(LOAN_ID, [u["externalId"] for u in result["unavailable"]])
+        self.assertNotIn(LOAN_ID, [a["externalId"] for a in result["accounts"]])
+        self.assertTrue(result["accounts"])
 
     @staticmethod
     def home_token(calls: list, *, raises: Exception | None = None):
