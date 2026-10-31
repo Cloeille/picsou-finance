@@ -21,6 +21,8 @@ import java.util.Optional;
 @Component
 public class AiChatModelFactory {
     private static final Logger log = LoggerFactory.getLogger(AiChatModelFactory.class);
+    /** Ample for the categorizer's one-line JSON answer and the admin "Reply OK" test. */
+    static final int ANTHROPIC_MAX_TOKENS = 1024;
 
     public Optional<ChatModel> build(AiProviderConfig cfg) {
         if (cfg == null) return Optional.empty();
@@ -39,8 +41,11 @@ public class AiChatModelFactory {
                 case ANTHROPIC -> {
                     AnthropicApi api = AnthropicApi.builder()
                         .baseUrl(cfg.effectiveBaseUrl()).apiKey(key).build();
+                    // Anthropic rejects a request without max_tokens. Passing our own defaultOptions
+                    // replaces the builder's (which carried DEFAULT_MAX_TOKENS), so set it here.
                     yield Optional.of(AnthropicChatModel.builder().anthropicApi(api)
-                        .defaultOptions(AnthropicChatOptions.builder().model(cfg.effectiveModel()).build())
+                        .defaultOptions(AnthropicChatOptions.builder().model(cfg.effectiveModel())
+                            .maxTokens(ANTHROPIC_MAX_TOKENS).build())
                         .build());
                 }
                 case OLLAMA -> {

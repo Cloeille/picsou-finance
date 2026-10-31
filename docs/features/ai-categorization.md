@@ -48,7 +48,7 @@ inbox can render "AI: Transport · 92%" and pre-select that category — accepti
 ### Key files
 
 - `backend/.../port/TransactionCategorizerPort.java` — the provider-agnostic port; `categorize()` returns `CategorizationResult` (slug + confidence + prompt + token usage)
-- `backend/.../adapter/SpringAiCategorizer.java` — Spring AI `ChatClient` implementation; reads `ChatResponse` usage via `responseEntity`
+- `backend/.../adapter/SpringAiCategorizer.java` — Spring AI `ChatClient` implementation; parses the first non-blank generation with a `BeanOutputConverter` and reads `ChatResponse` usage
 - `backend/.../adapter/NoopCategorizer.java` — default when no provider is configured
 - `backend/.../adapter/DynamicTransactionCategorizer.java` — `TransactionCategorizerPort` bean; delegates to cached categorizer from `AiConfigProvider`
 - `backend/.../config/AiCategorizationConfig.java` — wires the `TransactionCategorizerPort` as a `DynamicTransactionCategorizer` (resolves the provider at call time via `AiConfigProvider`)
@@ -142,7 +142,19 @@ served by `GET /api/admin/ai-calls` (admin-only).
 - **Audit log holds financial data.** `ai_call_log` contains the full prompt (which includes
   merchant label + amount). The endpoint is admin-only; retention is capped at 2000 rows to bound
   exposure.
-- **Do not bump Spring AI past 1.0.x** (targets Boot 3.4 / Spring 6.2; 1.1.x conflicts — see pom).
+- **Anthropic requires `max_tokens`.** `AnthropicChatModel.builder()` carries `maxTokens=500` in
+  its default options, but `AiChatModelFactory` passes its own `defaultOptions` (for the model id),
+  which *replaces* them — so the factory sets `maxTokens` itself. Without it every Anthropic call
+  fails with `400 max_tokens: Field required`.
+- **Thinking models put an empty generation first.** Claude Haiku 5.5 (and the other Claude 5.x
+  models) think by default; with the default `display: omitted` the thinking block has empty text,
+  and Spring AI maps it to the *first* `Generation`. `ChatClient...responseEntity()` and
+  `.content()` read only that one, so the categorizer and the admin Test button use
+  `SpringAiCategorizer.answerText()`, which takes the first generation with non-blank text.
+  Disabling thinking is not an option: Opus 5.5 / Sonnet 5.5 reject `thinking: disabled` with a 400.
+- **Spring AI is on 1.1.x** since the MCP keep-alive fix — see
+  [ADR](../decisions/2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md); the two Anthropic
+  pitfalls above were observed on 1.1.8.
 - **Only slugged categories are offered** to the model in v1 (the default taxonomy); user-created
   categories without a slug are not AI-targetable yet.
 
@@ -156,6 +168,9 @@ served by `GET /api/admin/ai-calls` (admin-only).
   exceeds 2000.
 - `BudgetSeedWriteOnReadPostgresTest` — boots the full context with the three provider starters
   present and runs `V41`+`V42` on real Postgres (verifies `none` keeps startup clean).
+- `SpringAiCategorizerTest` — a thinking-block-first response is parsed from the text block; no
+  text at all is an `ERROR`; `unknown` yields no suggestion.
+- `AiChatModelFactoryTest` — the Anthropic model carries `maxTokens`.
 - `CategorizeTab.test.tsx` — suggestion pre-selects the dropdown + renders the chip; the
   "Categorize with AI" button is gated on the setting; progress indicator renders while status is
   `RUNNING`.

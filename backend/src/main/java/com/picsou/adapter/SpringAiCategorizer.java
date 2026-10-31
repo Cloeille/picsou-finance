@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.converter.BeanOutputConverter;
 
 import java.util.List;
 import java.util.Locale;
@@ -30,6 +32,8 @@ public class SpringAiCategorizer implements TransactionCategorizerPort {
         Decide primarily from the merchant name. If none clearly fits, use the slug "unknown".
         Return the chosen slug and a confidence between 0 and 1.""";
 
+    private static final BeanOutputConverter<Answer> OUTPUT = new BeanOutputConverter<>(Answer.class);
+
     private final ChatClient chatClient;
 
     public SpringAiCategorizer(ChatModel chatModel) {
@@ -53,17 +57,16 @@ public class SpringAiCategorizer implements TransactionCategorizerPort {
         try {
             String userPrompt = buildUserPrompt(input, categories, examples);
             fullPrompt = SYSTEM + "\n\n" + userPrompt;
-            var re = chatClient.prompt()
+            // Not responseEntity(): it parses getResult(), the FIRST generation, which for a
+            // thinking model (Claude Haiku 5.5 thinks by default) is an empty thinking block.
+            ChatResponse resp = chatClient.prompt()
                 .system(SYSTEM)
-                .user(userPrompt)
+                .user(userPrompt + "\n" + OUTPUT.getFormat())
                 .call()
-                .responseEntity(Answer.class);
-            Answer answer = re.entity();
-            ChatResponse resp = re.response();
+                .chatResponse();
             long ms = (System.nanoTime() - t0) / 1_000_000;
 
             Integer pt = null, ct = null, tt = null;
-            String respText = null;
             if (resp != null) {
                 var meta = resp.getMetadata();
                 if (meta != null) {
@@ -74,10 +77,13 @@ public class SpringAiCategorizer implements TransactionCategorizerPort {
                         tt = asInt(u.getTotalTokens());
                     }
                 }
-                if (resp.getResult() != null && resp.getResult().getOutput() != null) {
-                    respText = resp.getResult().getOutput().getText();
-                }
             }
+            String respText = answerText(resp);
+            if (respText == null) {
+                return new CategorizationResult(Optional.empty(), fullPrompt, null, pt, ct, tt, ms,
+                    "ERROR", "The model returned no text answer.");
+            }
+            Answer answer = OUTPUT.convert(respText);
 
             Optional<CategorySuggestion> sug = toSuggestion(answer);
             return new CategorizationResult(sug, fullPrompt, respText, pt, ct, tt, ms,
@@ -88,6 +94,20 @@ public class SpringAiCategorizer implements TransactionCategorizerPort {
             return new CategorizationResult(Optional.empty(), fullPrompt, null, null, null, null, ms, "ERROR",
                 e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         }
+    }
+
+    /**
+     * The model's answer: the first generation carrying non-blank text, or {@code null}. Spring AI
+     * maps every content block to a generation, so an Anthropic thinking block (empty text with
+     * the default {@code display: omitted}) comes first and must be skipped.
+     */
+    public static String answerText(ChatResponse resp) {
+        if (resp == null) return null;
+        for (Generation g : resp.getResults()) {
+            String text = g.getOutput() == null ? null : g.getOutput().getText();
+            if (text != null && !text.isBlank()) return text;
+        }
+        return null;
     }
 
     /** Extract slug-normalize/unknown/empty logic from the model's raw answer. */
