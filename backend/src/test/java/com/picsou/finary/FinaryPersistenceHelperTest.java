@@ -1,10 +1,14 @@
 package com.picsou.finary;
 
+import com.picsou.adapter.CoinGeckoPriceProvider;
+import com.picsou.adapter.YahooFinancePriceProvider;
+import com.picsou.adapter.YahooFinanceStubs;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.BalanceSnapshot;
 import com.picsou.model.Transaction;
 import com.picsou.repository.BalanceSnapshotRepository;
+import com.picsou.repository.PriceSnapshotRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.PriceService;
 import org.junit.jupiter.api.Test;
@@ -24,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -112,8 +117,8 @@ class FinaryPersistenceHelperTest {
             Transaction.builder().account(account).date(threeDaysAgo).amount(BigDecimal.ONE)
                 .nativeCurrency("EUR").build()));
         when(balanceSnapshotRepository.findRecentByAccountId(1L, LocalDate.of(2000, 1, 1))).thenReturn(List.of());
-        when(priceService.getPriceEur("USD")).thenReturn(new BigDecimal("0.9"));
-        when(priceService.getPriceEur("GBP")).thenReturn(new BigDecimal("1.2"));
+        when(priceService.getFxRateEur("USD")).thenReturn(new BigDecimal("0.9"));
+        when(priceService.getFxRateEur("GBP")).thenReturn(new BigDecimal("1.2"));
 
         helper.reconstructSnapshotsFromDb(account);
 
@@ -130,13 +135,47 @@ class FinaryPersistenceHelperTest {
     }
 
     @Test
+    void reconstructSnapshotsFromDb_convertsWithTheExchangeRate_notTheQuoteOfTheEtfTickeredUsd() {
+        LocalDate yesterday = LocalDate.now().minusDays(1);
+        LocalDate twoDaysAgo = LocalDate.now().minusDays(2);
+        // "USD" is also the ProShares Ultra Semiconductors ETF, quoted at $100.
+        YahooFinancePriceProvider yahoo = YahooFinanceStubs.provider(url -> {
+            if (url.contains("/USDEUR")) return """
+                {"chart":{"result":[{"meta":{"regularMarketPrice":0.9,"currency":"EUR"}}]}}""";
+            if (url.contains("/chart/USD")) return """
+                {"chart":{"result":[{"meta":{"regularMarketPrice":100.0,"currency":"USD"}}]}}""";
+            return null;
+        });
+        FinaryPersistenceHelper realFx = new FinaryPersistenceHelper(balanceSnapshotRepository,
+            transactionRepository, new PriceService(mock(CoinGeckoPriceProvider.class), yahoo,
+                mock(PriceSnapshotRepository.class)));
+        Account account = Account.builder().id(1L).name("Checking").currency("EUR")
+            .currentBalance(new BigDecimal("1000")).build();
+        when(transactionRepository.findByAccountIdOrderByDateDesc(1L)).thenReturn(List.of(
+            Transaction.builder().account(account).date(yesterday).amount(new BigDecimal("100"))
+                .nativeCurrency("USD").build(),
+            Transaction.builder().account(account).date(twoDaysAgo).amount(BigDecimal.ONE)
+                .nativeCurrency("EUR").build()));
+        when(balanceSnapshotRepository.findRecentByAccountId(1L, LocalDate.of(2000, 1, 1))).thenReturn(List.of());
+
+        realFx.reconstructSnapshotsFromDb(account);
+
+        ArgumentCaptor<BalanceSnapshot> saved = ArgumentCaptor.forClass(BalanceSnapshot.class);
+        verify(balanceSnapshotRepository, atLeastOnce()).save(saved.capture());
+        Map<LocalDate, BigDecimal> byDate = saved.getAllValues().stream()
+            .collect(Collectors.toMap(BalanceSnapshot::getDate, BalanceSnapshot::getBalance));
+        // Before yesterday's $100 at 0.9: €910, not 1000 - 100 × (100 × 0.9).
+        assertThat(byDate.get(twoDaysAgo)).isEqualByComparingTo("910");
+    }
+
+    @Test
     void reconstructSnapshotsFromDb_aborts_ratherThanWritingAnUnconvertedAmountAsEur() {
         Account account = Account.builder().id(1L).name("Checking").currency("EUR")
             .currentBalance(new BigDecimal("1000")).build();
         when(transactionRepository.findByAccountIdOrderByDateDesc(1L)).thenReturn(List.of(
             Transaction.builder().account(account).date(LocalDate.now().minusDays(1))
                 .amount(new BigDecimal("100")).nativeCurrency("USD").build()));
-        when(priceService.getPriceEur("USD")).thenReturn(null);
+        when(priceService.getFxRateEur("USD")).thenReturn(null);
 
         assertThatThrownBy(() -> helper.reconstructSnapshotsFromDb(account))
             .isInstanceOf(SyncException.class)

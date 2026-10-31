@@ -29,9 +29,11 @@ import java.util.regex.Pattern;
  * {@link AccountHolding} rows and records leftover cash on the account.
  *
  * <p>Holdings and cash are replaced wholesale, so only a complete snapshot may replace them: one
- * that carries every list Finary always sends on a portfolio account ({@code securities},
- * {@code cryptos}, {@code fonds_euro}, {@code fiats}), even empty. A payload missing any of them
- * cannot tell an emptied group from an omitted one, so the existing holdings and cash are kept.
+ * that carries every list this importer reads ({@code securities}, {@code cryptos},
+ * {@code fonds_euro}, {@code fiats}, {@code generic_assets}, {@code scpis},
+ * {@code precious_metals}), even empty, and a EUR value on every cash line. A payload missing any
+ * of them cannot tell an emptied group from an omitted one, or state the cash, so the existing
+ * holdings and cash are kept.
  * Values are stored as EUR only from {@code display_*} fields, and only once the
  * caller has proven the display currency is EUR; otherwise nothing is changed. Cash-like
  * lines (fiats, "Solde Espèces") are not persisted as holdings — they go into
@@ -63,8 +65,13 @@ public class FinaryHoldingsImporter {
                 account.getId());
             return 0;
         }
-        List<FinaryPositionDto> positions = collectPositions(finaryAcc);
         BigDecimal cash = sumCash(finaryAcc);
+        if (cash == null) {
+            log.warn("Keeping the holdings of account {}: a cash line has no EUR value",
+                account.getId());
+            return 0;
+        }
+        List<FinaryPositionDto> positions = collectPositions(finaryAcc);
 
         account.setCashBalance(cash.signum() == 0 ? null : cash);
 
@@ -136,7 +143,8 @@ public class FinaryHoldingsImporter {
 
     static boolean isCompleteSnapshot(FinaryAccountDto acc) {
         return acc.securities() != null && acc.cryptos() != null && acc.fondsEuro() != null
-            && acc.fiats() != null;
+            && acc.fiats() != null && acc.genericAssets() != null && acc.scpis() != null
+            && acc.preciousMetals() != null;
     }
 
     // HoldingDedup reads an unknown average as zero, which would turn one line of unknown cost
@@ -166,17 +174,18 @@ public class FinaryHoldingsImporter {
         }
     }
 
+    /** Null when a cash line has no EUR value: counting it as zero would understate the cash. */
     BigDecimal sumCash(FinaryAccountDto acc) {
+        List<FinaryPositionDto> lines = new ArrayList<>();
+        addAll(lines, acc.fiats());
+        collectPositions(acc).stream().filter(FinaryHoldingsImporter::isCash).forEach(lines::add);
         BigDecimal cash = BigDecimal.ZERO;
-        List<FinaryPositionDto> fiats = new ArrayList<>();
-        addAll(fiats, acc.fiats());
-        for (FinaryPositionDto fiat : fiats) {
-            cash = cash.add(nvl(eurValue(fiat)));
-        }
-        for (FinaryPositionDto position : collectPositions(acc)) {
-            if (isCash(position)) {
-                cash = cash.add(nvl(eurValue(position)));
+        for (FinaryPositionDto line : lines) {
+            BigDecimal value = eurValue(line);
+            if (value == null) {
+                return null;
             }
+            cash = cash.add(value);
         }
         return cash;
     }
@@ -289,10 +298,6 @@ public class FinaryHoldingsImporter {
 
     static BigDecimal decimal(Double value) {
         return value == null ? null : BigDecimal.valueOf(value);
-    }
-
-    private static BigDecimal nvl(BigDecimal value) {
-        return value != null ? value : BigDecimal.ZERO;
     }
 
     private static String nvl(String value) {

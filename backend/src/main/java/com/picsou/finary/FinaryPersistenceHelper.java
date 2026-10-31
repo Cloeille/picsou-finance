@@ -45,7 +45,7 @@ public class FinaryPersistenceHelper {
         if (amount == null || currency == null || currency.isBlank() || "EUR".equalsIgnoreCase(currency)) {
             return amount;
         }
-        BigDecimal rate = priceService.getPriceEur(currency.toUpperCase(Locale.ROOT));
+        BigDecimal rate = priceService.getFxRateEur(currency.toUpperCase(Locale.ROOT));
         if (rate == null) {
             throw new SyncException("No EUR rate for " + currency
                 + " -- cannot rebuild the balance history, try again once the rate is available");

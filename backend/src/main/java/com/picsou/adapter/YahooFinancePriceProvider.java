@@ -257,7 +257,7 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
      * is unknown — preserves the pre-fix behavior for cassé payloads).
      * Returns null when a real fetch fails — caller must handle.
      */
-    BigDecimal getFxRateToEur(String currency) {
+    public BigDecimal getFxRateToEur(String currency) {
         if (currency == null || currency.isBlank() || "EUR".equalsIgnoreCase(currency)) {
             return BigDecimal.ONE;
         }

@@ -82,6 +82,15 @@ public class PriceService {
         return quote == null ? null : quote.price();
     }
 
+    /**
+     * EUR per unit of {@code currency}, from the {@code {CURRENCY}EUR=X} pair. Not
+     * {@link #getPriceEur}: that prices an asset, and a currency code can also be a ticker
+     * ({@code USD} is a ProShares ETF). Null when the rate is unavailable.
+     */
+    public BigDecimal getFxRateEur(String currency) {
+        return yahoo.getFxRateToEur(currency);
+    }
+
     /** {@link #getPriceEur} with the freshness attached. Null when nothing can be resolved. */
     public Quote getQuote(String ticker) {
         return singleQuote(ticker, false);

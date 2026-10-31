@@ -12,6 +12,8 @@ import com.picsou.model.AccountType;
 import com.picsou.repository.AccountHoldingRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -174,6 +176,49 @@ class FinaryHoldingsImporterTest {
         verify(holdingRepository, never()).save(any());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"generic_assets", "scpis", "precious_metals"})
+    void importHoldings_keepsExistingHoldingsAndCash_whenFinaryOmitsAnyImportedGroup(String omitted) {
+        Account account = account();
+        account.setCashBalance(new BigDecimal("500"));
+        List<FinaryPositionDto> empty = List.of();
+        FinaryAccountDto finary = accountDto(empty, empty, empty, empty,
+            omitted.equals("generic_assets") ? null : empty,
+            omitted.equals("scpis") ? null : empty,
+            omitted.equals("precious_metals") ? null : empty);
+
+        int saved = importer.importHoldings(account, finary, true);
+
+        assertThat(saved).isZero();
+        assertThat(account.getCashBalance()).isEqualByComparingTo("500");
+        verify(holdingRepository, never()).deleteByAccountId(any());
+        verify(holdingRepository, never()).save(any());
+    }
+
+    @Test
+    void importHoldings_keepsExistingHoldingsAndCash_whenAFiatHasNoEurValue() {
+        assertKeepsExisting(portfolio(
+            List.of(security("AXA", null, 1, 90, 100, 10)), null, null, List.of(withoutEurValue(fiat(100)))));
+    }
+
+    @Test
+    void importHoldings_keepsExistingHoldingsAndCash_whenACashSecurityHasNoEurValue() {
+        assertKeepsExisting(portfolio(
+            List.of(security("AXA", null, 1, 90, 100, 10), withoutEurValue(cashSecurity(100))), null, null, null));
+    }
+
+    private void assertKeepsExisting(FinaryAccountDto finary) {
+        Account account = account();
+        account.setCashBalance(new BigDecimal("500"));
+
+        int saved = importer.importHoldings(account, finary, true);
+
+        assertThat(saved).isZero();
+        assertThat(account.getCashBalance()).isEqualByComparingTo("500");
+        verify(holdingRepository, never()).deleteByAccountId(any());
+        verify(holdingRepository, never()).save(any());
+    }
+
     @Test
     void importHoldings_keepsExistingHoldingsAndCash_whenTheDisplayCurrencyIsUnverified() {
         Account account = account();
@@ -321,10 +366,21 @@ class FinaryHoldingsImporterTest {
             List<FinaryPositionDto> cryptos,
             List<FinaryPositionDto> fondsEuro,
             List<FinaryPositionDto> fiats) {
+        return accountDto(securities, cryptos, fondsEuro, fiats, null, null, null);
+    }
+
+    private static FinaryAccountDto accountDto(
+            List<FinaryPositionDto> securities,
+            List<FinaryPositionDto> cryptos,
+            List<FinaryPositionDto> fondsEuro,
+            List<FinaryPositionDto> fiats,
+            List<FinaryPositionDto> genericAssets,
+            List<FinaryPositionDto> scpis,
+            List<FinaryPositionDto> preciousMetals) {
         return new FinaryAccountDto(
             "acc-1", "PEA", null, 1000.0, 1000.0, null,
             new FinaryAccountCurrency("EUR", "€"), false,
-            1000.0, securities, cryptos, fondsEuro, fiats, null, null, null);
+            1000.0, securities, cryptos, fondsEuro, fiats, genericAssets, scpis, preciousMetals);
     }
 
     /** A complete snapshot: the lists left null here are sent empty, as Finary does. */
@@ -333,7 +389,16 @@ class FinaryHoldingsImporterTest {
             List<FinaryPositionDto> cryptos,
             List<FinaryPositionDto> fondsEuro,
             List<FinaryPositionDto> fiats) {
-        return accountDto(orEmpty(securities), orEmpty(cryptos), orEmpty(fondsEuro), orEmpty(fiats));
+        return accountDto(orEmpty(securities), orEmpty(cryptos), orEmpty(fondsEuro), orEmpty(fiats),
+            List.of(), List.of(), List.of());
+    }
+
+    private static FinaryPositionDto withoutEurValue(FinaryPositionDto p) {
+        return new FinaryPositionDto(
+            p.id(), p.name(), p.type(), p.quantity(),
+            p.buyingPrice(), p.buyingValue(), p.currentPrice(), p.currentValue(), p.unrealizedPnl(),
+            null, null, null, null,
+            p.security(), p.crypto(), p.fiat(), p.currentUpnl(), null);
     }
 
     private static List<FinaryPositionDto> orEmpty(List<FinaryPositionDto> list) {
