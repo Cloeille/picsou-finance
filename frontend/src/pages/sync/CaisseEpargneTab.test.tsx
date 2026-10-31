@@ -15,12 +15,11 @@ vi.mock('@/lib/api-client', () => ({
 }))
 
 // Interpolation options are appended to the key so tests can assert on them.
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string, options?: Record<string, unknown>) =>
-      options && Object.keys(options).length > 0 ? `${key} ${JSON.stringify(options)}` : key,
-  }),
-}))
+vi.mock('react-i18next', () => {
+  const t = (key: string, options?: Record<string, unknown>) =>
+    options && Object.keys(options).length > 0 ? `${key} ${JSON.stringify(options)}` : key
+  return { useTranslation: () => ({ t }) }
+})
 
 const { CaisseEpargneTab } = await import('./CaisseEpargneTab')
 
@@ -53,7 +52,7 @@ function renderTab(props: { onConnected?: () => void } = {}) {
   function Wrapper({ children }: { children: ReactNode }) {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   }
-  render(<CaisseEpargneTab {...props} />, { wrapper: Wrapper })
+  return render(<CaisseEpargneTab {...props} />, { wrapper: Wrapper })
 }
 
 function problem(status: number, code: string, headers: Record<string, string> = {}) {
@@ -428,7 +427,7 @@ describe('CaisseEpargneTab', () => {
       expect(screen.getByTestId('caisse-epargne-countdown')).toHaveTextContent('2:28')
     })
 
-    it('makes one long complete call and never polls or retries it', async () => {
+    it('makes one long complete call without replaying authentication', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
       apiPost
         .mockResolvedValueOnce({ data: INITIATED })
@@ -447,6 +446,138 @@ describe('CaisseEpargneTab', () => {
         await vi.advanceTimersByTimeAsync(5 * 60_000)
       })
 
+      expect(apiPost).toHaveBeenCalledTimes(3)
+    })
+
+    it.each([
+      ['a network error', new Error('Network Error')],
+      ['a 502', problem(502, 'UPSTREAM_UNAVAILABLE')],
+      ['a 504', problem(504, 'UPSTREAM_UNAVAILABLE')],
+    ])('keeps waiting after %s and queues the first sync once the session is active', async (_, failure) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const onConnected = vi.fn()
+      let isActive = false
+      let syncStatus = 'IDLE'
+      apiGet.mockImplementation(async () => ({ data: { ...DISCONNECTED, isActive, syncStatus } }))
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
+        .mockRejectedValueOnce(failure)
+        .mockResolvedValueOnce({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } })
+      renderTab({ onConnected })
+      await toSecurPass()
+
+      await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(3))
+      expect(screen.getByText('sync.caisseEpargne.securPassPrompt')).toBeInTheDocument()
+      expect(screen.queryByLabelText('sync.caisseEpargne.customerId')).not.toBeInTheDocument()
+      expect(screen.queryByText('sync.caisseEpargne.errors.serverError')).not.toBeInTheDocument()
+      const initialStatusCalls = apiGet.mock.calls.length
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000)
+      })
+      expect(apiGet).toHaveBeenCalledTimes(initialStatusCalls)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_000)
+      })
+      expect(apiGet).toHaveBeenCalledTimes(initialStatusCalls + 2)
+      expect(apiPost).toHaveBeenCalledTimes(3)
+
+      isActive = true
+      syncStatus = 'RUNNING'
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+
+      expect(screen.queryByText('sync.caisseEpargne.securPassPrompt')).not.toBeInTheDocument()
+      expect(apiPost.mock.calls.map(c => c[0])).toEqual([
+        '/caisse-epargne/auth/initiate',
+        '/caisse-epargne/auth/keypad',
+        '/caisse-epargne/auth/complete',
+        '/caisse-epargne/sync',
+      ])
+      expect(onConnected).not.toHaveBeenCalled()
+
+      syncStatus = 'SUCCESS'
+      await act(async () => {
+        await queryClient.invalidateQueries()
+        await vi.advanceTimersByTimeAsync(30_000)
+      })
+      expect(onConnected).toHaveBeenCalledTimes(1)
+      expect(apiPost.mock.calls.filter(c => c[0] === '/caisse-epargne/sync')).toHaveLength(1)
+    })
+
+    it.each([
+      ['a network error', new Error('Network Error')],
+      ['a 502', problem(502, 'UPSTREAM_UNAVAILABLE')],
+      ['a 504', problem(504, 'UPSTREAM_UNAVAILABLE')],
+    ])('reports the approval timeout 180 seconds after %s if no session appears', async (_, failure) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
+        .mockRejectedValueOnce(failure)
+      renderTab()
+      await toSecurPass()
+      await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(3))
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(177_000)
+      })
+      expect(screen.getByText('sync.caisseEpargne.securPassPrompt')).toBeInTheDocument()
+      expect(screen.queryByText('sync.caisseEpargne.errors.appValidationTimeout')).not.toBeInTheDocument()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+
+      expect(screen.getByText('sync.caisseEpargne.errors.appValidationTimeout')).toBeInTheDocument()
+      expect(screen.getByLabelText('sync.caisseEpargne.customerId')).toBeInTheDocument()
+      expect(screen.queryByText('sync.caisseEpargne.securPassPrompt')).not.toBeInTheDocument()
+
+      apiGet.mockResolvedValue({ data: { ...DISCONNECTED, isActive: true } })
+      const statusCallsAtTimeout = apiGet.mock.calls.length
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+      expect(apiGet).toHaveBeenCalledTimes(statusCallsAtTimeout)
+      expect(apiPost).toHaveBeenCalledTimes(3)
+    })
+
+    it.each(['timeout', 'unmount'])('does not sync if a status response arrives after %s', async (end) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      let resolveStatus!: (value: { data: typeof DISCONNECTED }) => void
+      const pendingStatus = new Promise<{ data: typeof DISCONNECTED }>(resolve => {
+        resolveStatus = resolve
+      })
+      apiGet
+        .mockResolvedValueOnce({ data: DISCONNECTED })
+        .mockReturnValue(pendingStatus)
+      apiPost
+        .mockResolvedValueOnce({ data: INITIATED })
+        .mockResolvedValueOnce({ data: KEYPAD_DONE })
+        .mockRejectedValueOnce(new Error('Network Error'))
+      const { unmount } = renderTab()
+      await toSecurPass()
+      await screen.findByText('sync.caisseEpargne.securPassPrompt')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000)
+      })
+      expect(apiGet).toHaveBeenCalledTimes(2)
+
+      if (end === 'unmount') unmount()
+      else {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(177_000)
+        })
+        expect(screen.getByText('sync.caisseEpargne.errors.appValidationTimeout')).toBeInTheDocument()
+      }
+
+      const statusCallsAfterRecovery = apiGet.mock.calls.length
+      await act(async () => {
+        resolveStatus({ data: { ...DISCONNECTED, isActive: true } })
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+      expect(apiGet).toHaveBeenCalledTimes(statusCallsAfterRecovery)
       expect(apiPost).toHaveBeenCalledTimes(3)
     })
 

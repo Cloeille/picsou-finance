@@ -92,6 +92,23 @@ Login is three backend calls that drive the sidecar's browser login (`POST /init
 - On success `completeAuth` stores the encrypted session through `storeSession` and does **not** queue a sync (sync stays on demand). A failed login never deactivates or deletes an existing session; only a sync that ends `SESSION_EXPIRED` or `INVALID_SESSION_STATE` does.
 - Timeouts: `/initiate` 90 s, `/keypad` 70 s, `/complete` 170 s (above the sidecar's 150 s wait for the phone).
 
+### Recovering a lost completion response
+
+The panel queues the first sync once after login. Both a successful `/auth/complete`
+response and an active session discovered through `/status` use the same first-sync path.
+A bank session can expire after a few minutes, so the panel starts this sync as soon as
+login is confirmed. The parent view is notified only after that first sync succeeds.
+
+If the completion response is lost (no HTTP response, 502 or 504), the panel keeps the
+Sécur'Pass approval card. It polls `/status` every 3 seconds for up to 180 seconds after
+the loss, covering the backend's 170-second completion window with a margin.
+If no active session appears, the panel shows the approval timeout and returns to the
+login form. Other completion errors are shown immediately.
+
+Recovery never replays `/auth/initiate`, `/auth/keypad` or `/auth/complete`.
+It stops on success, timeout or unmount, and late status responses cannot queue a sync.
+The approval countdown still reflects the sidecar's 150-second human wait.
+
 ### Sidecar to backend error mapping
 
 | Sidecar | Backend code |
@@ -121,4 +138,4 @@ The login codes are in `CaisseEpargneErrorCode` and in the `last_sync_error` CHE
 
 ## Verification boundaries
 
-Covered offline: sidecar login and read path against canned pages and responses, adapter against canned responses, session state machine, service mapping and atomicity (rollback with a real `TransactionTemplate`), controller rate limits, login service/adapter, the sync tab and login panel (vitest), the Caisse d'Epargne migrations on real PostgreSQL (Testcontainers) and the entity/schema validation. Not covered: any call to the real sidecar or bank, the real `/accounts` payload beyond the contract in the slice spec, and card `accountIds=<cardPfmId>` (marked UNVERIFIED in the sidecar).
+Covered offline: sidecar login and read path against canned pages and responses, adapter against canned responses, session state machine, service mapping and atomicity (rollback with a real `TransactionTemplate`), controller rate limits, login service/adapter, the sync tab and login panel (vitest, including recovery and timeout after a network error, 502 or 504), the Caisse d'Epargne migrations on real PostgreSQL (Testcontainers) and the entity/schema validation. Not covered: any call to the real sidecar or bank, the real `/accounts` payload beyond the contract in the slice spec, and card `accountIds=<cardPfmId>` (marked UNVERIFIED in the sidecar).

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   AlertTriangle,
   Landmark,
@@ -63,6 +63,10 @@ interface KeypadPad {
 /** The sidecar waits this long for the human to approve on the phone (COMPLETE_WAIT_SECONDS). */
 const HUMAN_WAIT_SECONDS = 150
 
+/** Allow the backend's 170 s completion window and a margin for a lost response. */
+const LOST_CONFIRMATION_WAIT_MS = 180_000
+const LOST_CONFIRMATION_POLL_MS = 3_000
+
 const KNOWN_CODES = new Set([
   "INVALID_CREDENTIALS",
   "KEYPAD_CHANGED",
@@ -121,6 +125,7 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   const [keypadSecondsLeft, setKeypadSecondsLeft] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [secondsLeft, setSecondsLeft] = useState(0)
+  const [lostConfirmationAt, setLostConfirmationAt] = useState<number | null>(null)
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
   // Synchronous guard: state updates are async, so a fast double click could
   // otherwise reach the bank twice.
@@ -128,14 +133,17 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   // Set once the login completed and its first sync was queued: the caller is told
   // "connected" only when that sync succeeded, so the accounts exist by then.
   const notifyConnectedOnSuccess = useRef(false)
+  const firstSyncStarted = useRef(false)
 
   const status = useCaisseEpargneSessionStatus()
   const complete = useCompleteCaisseEpargneAuth()
   const sync = useSyncCaisseEpargne()
   const logout = useClearCaisseEpargneSession()
   const { mutate: completeMutate } = complete
+  const { mutate: syncMutate } = sync
+  const { refetch: refetchStatus } = status
 
-  const messageForCode = (value: string | null | undefined) => {
+  const messageForCode = useCallback((value: string | null | undefined) => {
     switch (value) {
       case "INVALID_CREDENTIALS":
         return t("sync.caisseEpargne.errors.invalidCredentials")
@@ -161,11 +169,11 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
       default:
         return null
     }
-  }
+  }, [t])
 
   // Never shows a raw backend message: the bank's own detail can carry
   // internals, and an unknown failure gets the generic text.
-  const formatError = (value: unknown) => {
+  const formatError = useCallback((value: unknown) => {
     if (getErrorStatus(value) === 429) {
       const seconds = retryAfterSeconds(value)
       return seconds
@@ -177,7 +185,49 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
     return (
       messageForCode(errorCodeOf(value)) ?? t("sync.caisseEpargne.errors.serverError")
     )
-  }
+  }, [messageForCode, t])
+
+  const startFirstSync = useCallback(() => {
+    if (firstSyncStarted.current) return
+    firstSyncStarted.current = true
+    setLostConfirmationAt(null)
+    setAuthState("IDLE")
+    setCustomerId("")
+    void refetchStatus()
+    // A fresh session holds no accounts yet. Both completion paths queue one
+    // first sync, and the caller is told only once its accounts exist.
+    syncMutate(undefined, {
+      onSuccess: () => {
+        notifyConnectedOnSuccess.current = true
+      },
+      onError: (value) => setError(formatError(value)),
+    })
+  }, [formatError, refetchStatus, syncMutate])
+
+  useEffect(() => {
+    if (lostConfirmationAt === null) return
+    let cancelled = false
+    const timer = setInterval(() => {
+      if (Date.now() - lostConfirmationAt >= LOST_CONFIRMATION_WAIT_MS) {
+        cancelled = true
+        clearInterval(timer)
+        setLostConfirmationAt(null)
+        setError(t("sync.caisseEpargne.errors.appValidationTimeout"))
+        setAuthState("ERROR")
+        return
+      }
+      void refetchStatus().then(({ data }) => {
+        if (cancelled || !data?.isActive) return
+        cancelled = true
+        clearInterval(timer)
+        startFirstSync()
+      })
+    }, LOST_CONFIRMATION_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [lostConfirmationAt, refetchStatus, startFirstSync, t])
 
   const connected = status.data?.isActive === true
   const syncStatus = status.data?.syncStatus ?? "IDLE"
@@ -235,24 +285,19 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   }
 
   const awaitSecurPass = (processId: string) => {
-    // One call, no polling: the backend holds it open while the human approves.
+    // One completion call: only session status may be polled if its answer is lost.
     completeMutate(
       { processId },
       {
-        onSuccess: () => {
-          setAuthState("IDLE")
-          setCustomerId("")
-          void status.refetch()
-          // A fresh session holds no account yet: queue the first sync once (never
-          // retried), and tell the caller only when it succeeded.
-          sync.mutate(undefined, {
-            onSuccess: () => {
-              notifyConnectedOnSuccess.current = true
-            },
-            onError: (value) => setError(formatError(value)),
-          })
-        },
+        onSuccess: startFirstSync,
         onError: (value) => {
+          const httpStatus = getErrorStatus(value)
+          if (httpStatus === undefined || httpStatus === 502 || httpStatus === 504) {
+            // iOS can drop Safari's request during app approval while the backend
+            // still stores the session. Check status without replaying the login.
+            setLostConfirmationAt(Date.now())
+            return
+          }
           setError(formatError(value))
           setAuthState("ERROR")
         },
@@ -263,6 +308,7 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   const submit = async () => {
     if (submitting.current) return
     submitting.current = true
+    firstSyncStarted.current = false
     setError(null)
     setAuthState("SUBMITTING")
     try {
