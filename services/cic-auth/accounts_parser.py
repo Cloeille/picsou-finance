@@ -124,6 +124,22 @@ def _has_account_data(fragment: str) -> bool:
     )
 
 
+# What the backend calls each in-scope table: it closes an account no longer
+# listed only when the table of its category was read.
+CATEGORY_GROUPS = {CHECKING_CATEGORY: "CHECKING", SAVINGS_CATEGORY: "SAVINGS"}
+
+
+def categories_read(page: str) -> list[str]:
+    """The in-scope tables present on the page, an empty one included, as CHECKING / SAVINGS.
+
+    A table with no row says the customer holds no account of that kind any more;
+    a table absent from the page says nothing, so the backend leaves that
+    category's accounts as they were.
+    """
+    found = {_category(table.group("body")) for table in _TABLE_RE.finditer(page)}
+    return [group for name, group in CATEGORY_GROUPS.items() if name in found]
+
+
 def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
     """Return the in-scope accounts and the names of the categories skipped."""
     if _DOCUMENT_END_RE.search(page) is None:

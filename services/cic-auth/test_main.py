@@ -6,6 +6,7 @@ login form, mobile confirmation or SMS code, remembered-device cookie,
 """
 
 import json
+import re
 import unittest
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
@@ -22,6 +23,7 @@ from fixtures import (
     LOGIN_PAGE_WRONG_PASSWORD,
     MOBILE_CONFIRMATION_PAGE,
     SMS_CONFIRMATION_PAGE,
+    accounts_table,
     transaction_state,
 )
 
@@ -341,6 +343,58 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual([account["type"] for account in response.json()], ["CHECKING", "LIVRET_A", "LDDS", "PEL"])
         self.assertTrue(all(account["snapshotComplete"] for account in response.json()))
+
+        listing = self.client.post("/accounts/listing", json={"sessionState": session}, headers=HEADERS)
+        self.assertEqual(listing.status_code, 200, listing.text)
+        self.assertEqual([account["type"] for account in listing.json()["accounts"]],
+                         ["CHECKING", "LIVRET_A", "LDDS", "PEL"])
+        self.assertEqual(listing.json()["categoriesRead"], ["CHECKING", "SAVINGS"])
+
+    def test_the_listing_reports_only_the_tables_on_the_page(self):
+        # The savings table is missing: the backend must not read that as "no livret any more".
+        self.bank.accounts_page = re.sub(
+            r"<table[^>]*>\s*<caption[^>]*>\s*<span[^>]*>[^<]*cat&#233;gorie : Livrets.*?</table>",
+            "", ACCOUNTS_PAGE, flags=re.DOTALL)
+        self.assertNotIn("LIVRET A", self.bank.accounts_page)
+        session = self.confirm()
+
+        listing = self.client.post("/accounts/listing", json={"sessionState": session}, headers=HEADERS)
+
+        self.assertEqual(listing.status_code, 200, listing.text)
+        self.assertEqual([account["type"] for account in listing.json()["accounts"]], ["CHECKING"])
+        self.assertEqual(listing.json()["categoriesRead"], ["CHECKING"])
+
+    def test_the_listing_reports_an_empty_savings_table_as_read(self):
+        session = self.confirm()
+        table_start = ACCOUNTS_PAGE.index('<table ', ACCOUNTS_PAGE.index('</table>'))
+        self.bank.accounts_page = (
+            ACCOUNTS_PAGE[:table_start]
+            + accounts_table("Livrets et comptes d&#39;épargne", "")
+            + ACCOUNTS_PAGE[ACCOUNTS_PAGE.index('</form>'):]
+        )
+
+        listing = self.client.post("/accounts/listing", json={"sessionState": session}, headers=HEADERS)
+
+        self.assertEqual(listing.status_code, 200, listing.text)
+        self.assertEqual([account["type"] for account in listing.json()["accounts"]], ["CHECKING"])
+        self.assertTrue(listing.json()["accounts"][0]["snapshotComplete"])
+        self.assertEqual(listing.json()["categoriesRead"], ["CHECKING", "SAVINGS"])
+
+    def test_the_listing_rejects_a_partial_page_before_reporting_categories(self):
+        session = self.confirm()
+        table_start = ACCOUNTS_PAGE.index('<table ', ACCOUNTS_PAGE.index('</table>'))
+        prefix, remaining = ACCOUNTS_PAGE.split("ei_comptescontrats", 1)
+        for page in (
+            ACCOUNTS_PAGE[:table_start],
+            ACCOUNTS_PAGE[:ACCOUNTS_PAGE.index('>LIVRET A</span>')],
+            prefix + "ei_comptescontrats" + remaining.replace("ei_comptescontrats", "ei_savingscontracts", 1),
+        ):
+            with self.subTest(page=page):
+                self.bank.accounts_page = page
+
+                listing = self.client.post("/accounts/listing", json={"sessionState": session}, headers=HEADERS)
+
+                self.assertEqual((listing.status_code, listing.json()), (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
 
     def test_only_checked_boxes_are_sent(self):
         [form] = main.parse_forms(

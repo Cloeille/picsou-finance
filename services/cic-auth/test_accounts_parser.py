@@ -3,7 +3,7 @@
 import unittest
 from decimal import Decimal
 
-from accounts_parser import AccountsFormatError, account_type, parse_accounts, parse_amount
+from accounts_parser import AccountsFormatError, account_type, categories_read, parse_accounts, parse_amount
 from fixtures import ACCOUNTS_PAGE, account_row, accounts_table
 
 
@@ -276,6 +276,16 @@ class PageTest(unittest.TestCase):
         accounts, _ = parse_accounts(f"<html><body>{page}</body></html>")
 
         self.assertEqual([account["id"] for account in accounts], ["1000000012345602"])
+
+    def test_the_tables_read_are_reported_an_empty_one_included(self):
+        current = accounts_table("Comptes courants", account_row(0, "COMPTE COURANT", "10000 000123456 01", "+1,00 EUR"))
+        empty_savings = accounts_table("Livrets et comptes d&#39;épargne", "")
+
+        self.assertEqual(categories_read(ACCOUNTS_PAGE), ["CHECKING", "SAVINGS"])
+        # The customer closed their last livret: the table is there, with no row.
+        self.assertEqual(categories_read(current + empty_savings), ["CHECKING", "SAVINGS"])
+        # The savings table is missing: nothing is said about the livrets.
+        self.assertEqual(categories_read(current), ["CHECKING"])
 
     def test_a_page_without_contract_table_is_a_format_change(self):
         with self.assertRaises(AccountsFormatError):

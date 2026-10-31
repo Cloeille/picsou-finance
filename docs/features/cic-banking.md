@@ -34,8 +34,9 @@ balance.
   page ends immediately after its opening tag or caption, before any account data appears.
   The accounts page must end with an explicit `</html>` tag before any snapshot is certified.
   A cut between tables or inside a table's opening tag therefore also fails with HTTP 502,
-  even when all preceding tables are complete. A complete page containing only checking accounts
-  remains valid, so accounts absent from that complete fetch can still be closed.
+  even when all preceding tables are complete. A complete page with a checking table and no savings
+  table remains valid. Absent checking accounts can be closed, while savings accounts remain
+  unchanged because their category was not read.
   The check also rejects rows cut off before their closing tags, including unfinished title or
   balance spans. It never certifies the earlier complete tables as a partial snapshot.
   Existing balances and snapshots remain unchanged.
@@ -48,7 +49,16 @@ balance.
   V121 `cic_session`. `/api/cic/*`, `/api/cic/auth/complete` given 180 s in nginx.
   `/auth/initiate` and `/auth/reconnect` share 5 password checks per IP per 15 min; `/auth/complete`
   has its own 10, so retyped SMS codes do not use them up. An account a complete fetch no longer
-  lists is closed at zero (balance 0, zero snapshot), not soft-deleted, so it can come back.
+  lists is closed at zero (balance 0, zero snapshot), not soft-deleted, so it can come back; only
+  when the table of its category (current or savings) was read. `/accounts/listing` answers
+  `{accounts, categoriesRead}`, `categoriesRead` naming the in-scope tables the page carried, an
+  empty one included: closing the last livret leaves an empty savings table and closes the account,
+  while a table missing from the page leaves its accounts as they were. Page validation completes
+  before `/accounts/listing` reports any accounts or categories. An incomplete or malformed page
+  returns `UPSTREAM_FORMAT_CHANGED` without a partial listing. `/accounts` still serves
+  the bare list for backends that predate it, and the adapter falls back to that list when an older
+  sidecar answers 404 on `/accounts/listing`; without the tables, a category counts as read when
+  another account of it came back.
   Savings labels are typed with accents and typographic apostrophes folded.
 - **Frontend**: `CicPanel` (`SidecarSessionPanel` + app push / SMS), tab `cic` on `/sync`. While
   the user approves the push in the CIC app, iOS drops Safari's pending `/auth/complete` request; the
@@ -107,7 +117,11 @@ two in Settings → Accounts.
   midway through the first savings title's class, or after its balance. Complete checking-only
   pages still return certified snapshots. Parser coverage also
   rejects an empty, unterminated contract table and an unfinished orphan account row.
+  `/accounts/listing` coverage distinguishes empty savings tables from missing ones and rejects
+  truncated pages and renamed account tables before returning category evidence.
 - `CicAdapterTest` preserves the format-change error across the sidecar boundary.
   `CicSyncServiceTest` checks that a failed fetch leaves existing balances and snapshots untouched.
+  It also covers category-aware closure with explicit table reporting and legacy bare-list responses,
+  and rejects incomplete accounts before any account writes.
 - `CicControllerTest` exercises the shared initiate/reconnect quota and independent completion
   quota through HTTP. `RateLimitConfigCicTest` checks both capacities and their 15-minute refill.

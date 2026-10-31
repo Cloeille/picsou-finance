@@ -314,15 +314,15 @@ public class CicSyncService {
             return;
         }
         try {
-            List<CicPort.AccountData> fetched;
+            CicPort.AccountListing fetched;
             try {
                 fetched = port.fetchAccounts(job.plainState());
             } catch (SyncException ex) {
                 if (codeOf(ex) != CicErrorCode.SESSION_EXPIRED) throw ex;
                 fetched = reauthenticateAndFetch(job);
             }
-            List<PreparedAccount> prepared = prepareAccounts(fetched);
-            if (commitAccounts(job, prepared)) {
+            List<PreparedAccount> prepared = prepareAccounts(fetched.accounts());
+            if (commitAccounts(job, prepared, fetched.categoriesRead())) {
                 log.info("CIC sync completed (member={}; accounts={})", job.memberId(), prepared.size());
             } else {
                 log.info("Discarded stale CIC sync result (member={})", job.memberId());
@@ -343,7 +343,7 @@ public class CicSyncService {
      * for its remembered-device cookie; a login that still asks for a second
      * factor cannot be finished unattended and reads as an expired session.
      */
-    private List<CicPort.AccountData> reauthenticateAndFetch(SyncJob job) {
+    private CicPort.AccountListing reauthenticateAndFetch(SyncJob job) {
         CicSession session = requireTransactionResult(txTemplate.execute(
             status -> sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
         )).orElse(null);
@@ -455,7 +455,7 @@ public class CicSyncService {
         return List.copyOf(prepared);
     }
 
-    private boolean commitAccounts(SyncJob job, List<PreparedAccount> prepared) {
+    private boolean commitAccounts(SyncJob job, List<PreparedAccount> prepared, Set<String> categoriesRead) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
             Optional<CicSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(),
@@ -486,7 +486,7 @@ public class CicSyncService {
             for (PreparedAccount data : prepared) {
                 upsertAccount(data, member, job.memberId(), syncedAt);
             }
-            closeUnlistedAccounts(prepared, imported, job.memberId(), syncedAt);
+            closeUnlistedAccounts(prepared, imported, categoriesRead, job.memberId(), syncedAt);
 
             session.markSuccessful(syncedAt);
             sessionRepository.save(session);
@@ -532,14 +532,34 @@ public class CicSyncService {
      * account is closed at zero rather than soft deleted: a soft-deleted account
      * reads as removed by the user and would never be imported again, while an
      * account can come back.
+     *
+     * <p>The page lists current accounts and savings accounts in two separate
+     * tables, and a customer may hold only one of the two. An account is closed
+     * only when the table of its category was read: the sidecar reports the
+     * tables present, an empty one included, so closing the last livret closes it
+     * here too, while a whole table missing from the page (a partial render, a
+     * renamed caption the sidecar did not catch) leaves that category's accounts
+     * as they were rather than zeroing every livret. A sidecar that does not
+     * report the tables falls back to the accounts it returned: a category counts
+     * as read when another account of it came back.
      */
-    private void closeUnlistedAccounts(List<PreparedAccount> prepared, List<Account> imported, Long memberId,
-                                       Instant syncedAt) {
+    private void closeUnlistedAccounts(List<PreparedAccount> prepared, List<Account> imported,
+                                       Set<String> reportedCategories, Long memberId, Instant syncedAt) {
         Set<String> listed = new HashSet<>();
-        prepared.forEach(account -> listed.add(account.externalId()));
+        Set<String> returnedCategories = new HashSet<>();
+        prepared.forEach(account -> {
+            listed.add(account.externalId());
+            returnedCategories.add(categoryOf(account.type()));
+        });
+        Set<String> categoriesRead = reportedCategories != null ? reportedCategories : returnedCategories;
         for (Account account : imported) {
             String externalId = account.getExternalAccountId();
             if (externalId == null || !externalId.startsWith(EXTERNAL_ID_PREFIX) || listed.contains(externalId)) {
+                continue;
+            }
+            if (!categoriesRead.contains(categoryOf(account.getType()))) {
+                log.info("CIC returned no account of an imported account's category, keeping it (member={}; account={})",
+                    memberId, account.getId());
                 continue;
             }
             if (account.getCurrentBalance() != null && account.getCurrentBalance().signum() == 0) {
@@ -553,6 +573,11 @@ public class CicSyncService {
             Account saved = accountRepository.save(account);
             accountService.upsertSnapshot(saved, BigDecimal.ZERO, LocalDate.now());
         }
+    }
+
+    /** The table an account type comes from on the page: {@code CHECKING} or {@code SAVINGS}. */
+    private static String categoryOf(AccountType type) {
+        return type == AccountType.CHECKING ? "CHECKING" : "SAVINGS";
     }
 
     private void markFailed(SyncJob job, CicErrorCode code) {
