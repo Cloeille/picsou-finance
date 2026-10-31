@@ -28,18 +28,72 @@ class CicAdapterTest {
     @Test
     void fetchAccounts_mapsTheSidecarContract() {
         CicAdapter adapter = adapter(new ArrayList<>(), HttpStatus.OK, """
-            [{"externalId":"cic_1000000012345602","name":"Livret A","type":"LIVRET_A",
-              "balanceEur":5000.00,"snapshotComplete":true}]
+            {"accounts":[{"externalId":"cic_1000000012345602","name":"Livret A","type":"LIVRET_A",
+              "balanceEur":5000.00,"snapshotComplete":true}],
+             "categoriesRead":["CHECKING","SAVINGS"]}
             """);
 
-        var accounts = adapter.fetchAccounts("state");
+        var listing = adapter.fetchAccounts("state");
 
-        assertThat(accounts).singleElement().satisfies(account -> {
+        assertThat(listing.categoriesRead()).containsExactlyInAnyOrder("CHECKING", "SAVINGS");
+        assertThat(listing.accounts()).singleElement().satisfies(account -> {
             assertThat(account.externalId()).isEqualTo("cic_1000000012345602");
             assertThat(account.type()).isEqualTo(com.picsou.model.AccountType.LIVRET_A);
             assertThat(account.balanceEur()).isEqualByComparingTo("5000");
             assertThat(account.snapshotComplete()).isTrue();
         });
+    }
+
+    @Test
+    void fetchAccounts_fallsBackToTheBareListOfAnOlderSidecar() throws Exception {
+        List<String> paths = new ArrayList<>();
+        List<String> accountsBodies = new ArrayList<>();
+        ExchangeFunction exchange = request -> {
+            paths.add(request.url().getPath());
+            if (request.url().getPath().equals("/accounts/listing")) {
+                return Mono.just(ClientResponse.create(HttpStatus.NOT_FOUND)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .body("{\"detail\":\"Not Found\"}")
+                    .build());
+            }
+            MockClientHttpRequest recorder = new MockClientHttpRequest(request.method(), request.url());
+            request.writeTo(recorder, ExchangeStrategies.withDefaults()).block();
+            accountsBodies.add(recorder.getBodyAsString().block());
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("""
+                    [{"externalId":"cic_1000000012345602","name":"Livret A","type":"LIVRET_A",
+                      "balanceEur":5000.00,"snapshotComplete":true}]
+                    """)
+                .build());
+        };
+        CicAdapter adapter = new CicAdapter(WebClient.builder().exchangeFunction(exchange).build(), JSON);
+
+        var listing = adapter.fetchAccounts("state");
+
+        assertThat(paths).containsExactly("/accounts/listing", "/accounts");
+        assertThat(listing.accounts()).hasSize(1);
+        assertThat(listing.categoriesRead()).isNull();
+        assertThat(accountsBodies).hasSize(1);
+        assertThat(JSON.readTree(accountsBodies.get(0)).path("sessionState").asText()).isEqualTo("state");
+    }
+
+    @Test
+    void fetchAccounts_keepsAnErrorOfTheListingItself() {
+        CicAdapter adapter = adapter(new ArrayList<>(), HttpStatus.UNAUTHORIZED, "{\"detail\":\"SESSION_EXPIRED\"}");
+
+        assertThatThrownBy(() -> adapter.fetchAccounts("state"))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CicErrorCode.SESSION_EXPIRED.name()));
+    }
+
+    @Test
+    void fetchAccounts_refusesAnEmptyListing() {
+        CicAdapter adapter = adapter(new ArrayList<>(), HttpStatus.OK, "{\"accounts\":[],\"categoriesRead\":[\"SAVINGS\"]}");
+
+        assertThatThrownBy(() -> adapter.fetchAccounts("state"))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CicErrorCode.PORTFOLIO_INCOMPLETE.name()));
     }
 
     @Test
@@ -89,6 +143,16 @@ class CicAdapterTest {
         assertThatThrownBy(() -> adapter.completeAuth("p1", null))
             .isInstanceOfSatisfying(SyncException.class, error ->
                 assertThat(error.getCode()).isEqualTo(CicErrorCode.APP_VALIDATION_CANCELLED.name()));
+    }
+
+    @Test
+    void anUnparsedAccountsPageFailsTheFetch() {
+        CicAdapter adapter = adapter(new ArrayList<>(), HttpStatus.BAD_GATEWAY,
+            "{\"detail\":\"UPSTREAM_FORMAT_CHANGED\"}");
+
+        assertThatThrownBy(() -> adapter.fetchAccounts("state"))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CicErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
     }
 
     @Test

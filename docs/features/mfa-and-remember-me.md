@@ -1,6 +1,6 @@
 # Feature: 2FA (TOTP) and Remember Me
 
-> Last updated: 2026-07-04
+> Last updated: 2026-10-31
 > Status: ✅ Implemented (2026-04-26)
 >
 > Implementation notes vs. original design:
@@ -421,7 +421,7 @@ All UIs are mobile-responsive (per repo convention).
 - **MFA challenge cookie cleared on `mfaVerifyBuckets` lockout**: critical — otherwise the user is permanently stuck at the MFA screen until 5-min cookie expires anyway, but explicit clearing makes the UX cleaner (returns straight to `/login`).
 - **Demo mode**: enrollment must be rejected with 403 ProblemDetail "MFA is disabled in demo mode" to avoid leaking enrollment state in the shared demo instance.
 - **Multi-tab restore grace window (addressed)**: multiple tabs restored at once each present the *same* `persistent_token` to `PersistentTokenAuthFilter`/`validateAndRotate`; the first request rotates it and the rest used to look like a replayed token, tripping theft detection and revoking the whole series (logging the user out everywhere). Two changes fix this: (1) the rotate path is **serialized** with a row-level lock (`PersistentSessionRepository.findBySeriesIdForUpdate`, `@Lock(PESSIMISTIC_WRITE)`), so concurrent restores no longer both read the pre-rotation state and orphan each other's token; (2) `validateAndRotate` remembers the immediately-previous token hash (`previous_token_hash`/`previous_token_at`, migration `V58`) and accepts it for `app.persistent-session.rotation-grace-seconds` (default 30s). The previous slot is **anchored** — armed only when the *current* token is presented (a genuine rotation), and left untouched on a previous-token (grace) acceptance. So it keeps pointing at the one pre-burst token: every tab in the burst is accepted (not just the first two), and replaying the previous token cannot slide the window forward. The persistent cookie is shared across tabs and converges on the latest rotated value; a token presented after the window still trips theft detection.
-- **Known follow-up, not yet addressed**: the session-probe (`useSessionProbe`) only runs from `RequireAuth` — `PublicOnly` never probes, so opening `/login` directly after a restart shows the form despite a restorable session, and `RequireAdmin` doesn't either; a single probe at app bootstrap shared by all three guards would be more consistent than probing only from `RequireAuth`.
+- **Guards share the session probe.** `RequireAuth` restores an empty store before redirecting. `PublicOnly` also probes before showing the login form, except in demo mode or on the MFA challenge page. Demo mode renders ordinary protected pages immediately, so `RequireAdmin` waits for the shared probe and for `RequireAuth` to set the user before checking the role. This preserves a direct `/admin` visit in a fresh demo tab without granting access to a member.
 - **Frontend language**: per project memory, all `docs/` files are English; **UI copy is French** (matching existing pages); all locale files (`frontend/src/i18n/locales/{fr,en,de,es}.json`) must be updated.
 
 ## Tests

@@ -154,6 +154,15 @@ public class RateLimitConfig {
         return boundedBucketStore();
     }
 
+    /**
+     * Per-IP CIC second-factor rate limiter, kept apart from the login budget so a
+     * confirmation or a retyped SMS code is never refused once the phone was notified.
+     */
+    @Bean("cicCompleteBuckets")
+    public Map<String, Bucket> cicCompleteBuckets() {
+        return boundedBucketStore();
+    }
+
     @Bean("cmesAuthBuckets")
     public Map<String, Bucket> cmesAuthBuckets() {
         return boundedBucketStore();
@@ -462,6 +471,11 @@ public class RateLimitConfig {
     /** CIC online banking: same platform and same lockout as Épargne Salariale. */
     public static Bucket createCicAuthBucket() {
         return createCmesAuthBucket();
+    }
+
+    /** CIC second factor: same platform and same budget as Épargne Salariale's. */
+    public static Bucket createCicCompleteBucket() {
+        return createCmesCompleteBucket();
     }
 
     /** Five password checks per 15 minutes: only {@code /auth/initiate} sends the password. */

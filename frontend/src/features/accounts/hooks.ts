@@ -561,7 +561,7 @@ export function useUpdateScpiPosition() {
       queryClient.invalidateQueries({ queryKey: ['accounts', variables.id] })
       queryClient.invalidateQueries({ queryKey: scpiFundsKey })
       queryClient.invalidateQueries({ queryKey: ['real-estate'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      void invalidatePortfolioDependentQueries(queryClient, [variables.id])
       queryClient.invalidateQueries({ queryKey: ['analysis'] })
       // The declared distribution and its frequency drive the SCPI dividend forecast.
       queryClient.invalidateQueries({ queryKey: ['dividends'] })
