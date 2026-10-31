@@ -538,6 +538,197 @@ class AmexSyncServiceTest {
         verify(transactionWriter, org.mockito.Mockito.never()).replaceRecentTransactions(any(), any(), any());
     }
 
+    // ─── Issue #245: statement payment, then a re-sync where AMEX re-describes stored charges ───
+
+    @Test
+    void resyncAfterPayment_relabelledPurchasesStayOneRowEachAndBalanceIsStoredAsReported() {
+        AmexPort.Transaction anchor = charge(40, "STATEMENT PERIOD PURCHASE", "-9.00");
+        AmexPort.Transaction payment = charge(20, "PRELEVEMENT AUTOMATIQUE ENREGISTRE-MERCI", "1500.00");
+        AmexPort.Transaction subscription = charge(15, "ANTHROPIC PBC", "-20.00");
+        AmexPort.Transaction tickets = charge(14, "TICKETNET", "-45.00");
+        AmexPort.Transaction coffee = charge(10, "COFFEE SHOP", "-3.50");
+        List<Transaction> stored = routineSync(
+            List.of(), new BigDecimal("-68.50"), coffee, tickets, subscription, payment, anchor).upserts();
+        Category leisure = Category.builder().id(1L).build();
+        stored.stream().filter(tx -> tx.getAmount().signum() < 0 && tx.getDescription().matches("ANTHROPIC.*|TICKETNET"))
+            .forEach(tx -> categorise(tx, leisure));
+        List<Transaction> firstSyncRows = List.copyOf(stored);
+
+        // Second sync: two new purchases, and the two stored ones come back re-described.
+        AmexPort.Transaction groceries = charge(5, "GROCERY STORE", "-12.30");
+        AmexPort.Transaction bakery = charge(3, "BAKERY", "-7.00");
+        BigDecimal debtSincePayment = new BigDecimal("-87.80");
+        Reconciliation second = routineSync(stored, debtSincePayment,
+            bakery, groceries, coffee,
+            charge(14, "TICKETNET SITE INTERNET NANTERRE", "-45.00"),
+            charge(15, "ANTHROPIC* CLAUDE SUB   SAN FRANCISCO", "-20.00"),
+            payment, anchor);
+
+        // one row per purchase: the re-described charges kept their row, so did their category
+        assertThat(second.obsolete()).isEmpty();
+        assertThat(second.upserts()).hasSize(7).extracting(Transaction::getExternalId).doesNotHaveDuplicates();
+        assertThat(second.upserts()).containsAll(firstSyncRows);
+        assertThat(second.upserts()).filteredOn(tx -> tx.getCategoryRef() != null)
+            .extracting(Transaction::getDescription)
+            .containsExactlyInAnyOrder("TICKETNET SITE INTERNET NANTERRE", "ANTHROPIC* CLAUDE SUB   SAN FRANCISCO");
+        assertThat(second.upserts()).filteredOn(tx -> tx.getCategoryRef() == null && tx.getAmount().signum() < 0)
+            .extracting(Transaction::getDescription)
+            .containsExactlyInAnyOrder("STATEMENT PERIOD PURCHASE", "COFFEE SHOP", "GROCERY STORE", "BAKERY");
+
+        // The backend stores the sidecar balance verbatim; the sidecar self-check
+        // (services/amex-auth/main.py) is what pins the 2x formula.
+        ArgumentCaptor<Account> saved = ArgumentCaptor.forClass(Account.class);
+        verify(accountRepository, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+        assertThat(saved.getValue().getCurrentBalance()).isEqualByComparingTo(debtSincePayment);
+    }
+
+    @Test
+    void relabelledCharge_inAHistoryImportKeepsTheStoredRow() {
+        AmexPort.Transaction before = charge(8, "TICKETNET", "-45.00");
+        AmexPort.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
+        List<Transaction> stored = historySync(List.of(anchor, before));
+        categorise(stored.getLast(), Category.builder().id(1L).build());
+
+        List<Transaction> saved = historySync(
+            List.of(anchor, charge(8, "TICKETNET SITE INTERNET NANTERRE", "-45.00")),
+            stored);
+
+        assertThat(saved).containsExactly(stored.getLast());
+        assertThat(stored.getLast().getDescription()).isEqualTo("TICKETNET SITE INTERNET NANTERRE");
+        assertThat(stored.getLast().getCategoryRef()).isNotNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void twoMerchantsRelabelledOnTheSameDayForTheSameAmount_neverSwapCategoryOrSeries(boolean reversed) {
+        AmexPort.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
+        List<Transaction> stored = routineSync(List.of(), anchor,
+            charge(4, "ANTHROPIC PBC", "-20.00"), charge(4, "TICKETNET", "-20.00")).upserts();
+        Transaction anthropic = stored.stream().filter(tx -> tx.getDescription().equals("ANTHROPIC PBC")).findFirst().orElseThrow();
+        Transaction ticketnet = stored.stream().filter(tx -> tx.getDescription().equals("TICKETNET")).findFirst().orElseThrow();
+        anthropic.setId(1L);
+        categorise(anthropic, Category.builder().id(1L).build());
+        anthropic.setRecurringSeriesId(101L);
+        ticketnet.setId(2L);
+        categorise(ticketnet, Category.builder().id(2L).build());
+        ticketnet.setRecurringSeriesId(202L);
+
+        AmexPort.Transaction anthropicRelabelled = charge(4, "ANTHROPIC* CLAUDE SUB   SAN FRANCISCO", "-20.00");
+        AmexPort.Transaction ticketnetRelabelled = charge(4, "TICKETNET SITE INTERNET NANTERRE", "-20.00");
+        Reconciliation second = reversed
+            ? routineSync(stored, anchor, anthropicRelabelled, ticketnetRelabelled)
+            : routineSync(stored, anchor, ticketnetRelabelled, anthropicRelabelled);
+
+        List<Transaction> rows = new java.util.ArrayList<>(stored);
+        second.upserts().stream().filter(tx -> !stored.contains(tx)).forEach(rows::add);
+        assertThat(rows).filteredOn(tx -> tx.getRecurringSeriesId() != null)
+            .extracting(tx -> tx.getDescription().split("[ *]")[0], Transaction::getRecurringSeriesId, tx -> tx.getCategoryRef().getId())
+            .containsOnly(
+                org.assertj.core.groups.Tuple.tuple("ANTHROPIC", 101L, 1L),
+                org.assertj.core.groups.Tuple.tuple("TICKETNET", 202L, 2L));
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void identicalPurchases_oneRelabelled_neverSwapCategoryOrSeries(boolean history, boolean reversed) {
+        // The derived id numbers repeats of a label in response order, so the "TICKETNET" still
+        // reported takes occurrence 0 whichever purchase AMEX relabelled: nothing says which
+        // stored row the relabelled charge is.
+        AmexPort.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
+        AmexPort.Transaction ticket = charge(4, "TICKETNET", "-45.00");
+        List<Transaction> stored = routineSync(List.of(), anchor, ticket, ticket).upserts();
+        Transaction first = stored.get(1);
+        Transaction second = stored.get(2);
+        first.setId(1L);
+        categorise(first, Category.builder().id(1L).build());
+        first.setRecurringSeriesId(101L);
+        second.setId(2L);
+        categorise(second, Category.builder().id(2L).build());
+        second.setRecurringSeriesId(202L);
+
+        AmexPort.Transaction relabelled = charge(4, "TICKETNET SITE INTERNET NANTERRE", "-45.00");
+        List<AmexPort.Transaction> response = reversed
+            ? List.of(anchor, ticket, relabelled)
+            : List.of(anchor, relabelled, ticket);
+        List<Transaction> saved = history
+            ? historySync(response, stored)
+            : routineSync(stored, response.toArray(AmexPort.Transaction[]::new)).upserts();
+
+        List<Transaction> rows = new java.util.ArrayList<>(stored);
+        saved.stream().filter(tx -> !stored.contains(tx)).forEach(rows::add);
+        assertThat(rows).filteredOn(tx -> tx.getRecurringSeriesId() != null)
+            .extracting(Transaction::getDescription, Transaction::getRecurringSeriesId, tx -> tx.getCategoryRef().getId())
+            .containsExactlyInAnyOrder(
+                org.assertj.core.groups.Tuple.tuple("TICKETNET", 101L, 1L),
+                org.assertj.core.groups.Tuple.tuple("TICKETNET", 202L, 2L));
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void relabelOntoAnotherStoredPurchasesLabel_neverSwapsCategoryOrSeries(boolean history, boolean reversed) {
+        // The first purchase is relabelled to the second one's stored label, so it reports under
+        // the second one's id, and the second one under a label nobody stores.
+        AmexPort.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
+        List<Transaction> stored = routineSync(List.of(), anchor,
+            charge(4, "TICKETNET", "-45.00"), charge(4, "TICKETNET SITE INTERNET NANTERRE", "-45.00")).upserts();
+        Transaction first = stored.get(1);
+        Transaction second = stored.get(2);
+        first.setId(1L);
+        categorise(first, Category.builder().id(1L).build());
+        first.setRecurringSeriesId(101L);
+        second.setId(2L);
+        categorise(second, Category.builder().id(2L).build());
+        second.setRecurringSeriesId(202L);
+
+        AmexPort.Transaction firstRelabelled = charge(4, "TICKETNET SITE INTERNET NANTERRE", "-45.00");
+        AmexPort.Transaction secondRelabelled = charge(4, "TICKETNET EVENEMENT 123 NANTERRE", "-45.00");
+        List<AmexPort.Transaction> response = reversed
+            ? List.of(anchor, secondRelabelled, firstRelabelled)
+            : List.of(anchor, firstRelabelled, secondRelabelled);
+        List<Transaction> saved = history
+            ? historySync(response, stored)
+            : routineSync(stored, response.toArray(AmexPort.Transaction[]::new)).upserts();
+
+        List<Transaction> rows = new java.util.ArrayList<>(stored);
+        saved.stream().filter(tx -> !stored.contains(tx)).forEach(rows::add);
+        assertThat(rows).filteredOn(tx -> tx.getRecurringSeriesId() != null)
+            .extracting(Transaction::getDescription, Transaction::getRecurringSeriesId, tx -> tx.getCategoryRef().getId())
+            .containsExactlyInAnyOrder(
+                org.assertj.core.groups.Tuple.tuple("TICKETNET", 101L, 1L),
+                org.assertj.core.groups.Tuple.tuple("TICKETNET SITE INTERNET NANTERRE", 202L, 2L));
+    }
+
+    @Test
+    void newPurchases_areNotMergedIntoARowThatDiffersByDateOrAmount() {
+        AmexPort.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
+        List<Transaction> stored = routineSync(List.of(), anchor, charge(4, "TICKETNET", "-45.00")).upserts();
+
+        Reconciliation second = routineSync(stored, anchor,
+            charge(4, "TICKETNET SITE INTERNET NANTERRE", "-45.10"),
+            charge(3, "TICKETNET SITE INTERNET NANTERRE", "-45.00"));
+
+        assertThat(second.upserts()).extracting(Transaction::getDescription)
+            .containsExactlyInAnyOrder("COFFEE SHOP", "TICKETNET SITE INTERNET NANTERRE",
+                "TICKETNET SITE INTERNET NANTERRE");
+        assertThat(second.upserts()).doesNotContain(stored.getLast());
+        assertThat(stored.getLast().getDescription()).isEqualTo("TICKETNET");
+    }
+
+    @Test
+    void storedRowNearTheEdgeOfThePage_isNotTakenForARelabelledCharge() {
+        // The posted feed is one page cut on the posting date while rows carry the charge date: a
+        // stored row within the settlement window of the page's oldest charge may simply sit past
+        // the cut, so it cannot be told apart from a second genuine purchase.
+        AmexPort.Transaction onPage = charge(12, "COFFEE SHOP", "-3.50");
+        List<Transaction> stored = routineSync(List.of(), onPage, charge(8, "BAKERY", "-8.00")).upserts();
+
+        Reconciliation second = routineSync(stored, onPage, charge(8, "BAKERY AND CAFE", "-8.00"));
+
+        assertThat(second.upserts()).extracting(Transaction::getDescription)
+            .containsExactlyInAnyOrder("COFFEE SHOP", "BAKERY AND CAFE");
+        assertThat(stored.getLast().getDescription()).isEqualTo("BAKERY");
+    }
+
     private record Reconciliation(List<Transaction> obsolete, List<Transaction> upserts) {}
 
     private Reconciliation routineSync(List<Transaction> stored, AmexPort.Transaction... response) {
@@ -545,9 +736,23 @@ class AmexSyncServiceTest {
     }
 
     private Reconciliation routineSync(List<Transaction> stored, boolean pendingComplete, AmexPort.Transaction... response) {
+        return routineSync(stored, pendingComplete, new BigDecimal("-100.00"), response);
+    }
+
+    private Reconciliation routineSync(List<Transaction> stored, BigDecimal balance, AmexPort.Transaction... response) {
+        return routineSync(stored, true, balance, response);
+    }
+
+    private Reconciliation routineSync(
+        List<Transaction> stored,
+        boolean pendingComplete,
+        BigDecimal balance,
+        AmexPort.Transaction... response
+    ) {
         arrangeSync(stored);
         when(port.fetchAccounts("plain-state"))
-            .thenReturn(List.of(accountData("amex_1", LocalDate.now().plusDays(5).toString(), pendingComplete, response)));
+            .thenReturn(List.of(accountData(
+                "amex_1", LocalDate.now().plusDays(5).toString(), pendingComplete, balance, response)));
 
         service.queueSync(7L);
 
@@ -622,11 +827,21 @@ class AmexSyncServiceTest {
         boolean pendingComplete,
         AmexPort.Transaction... transactions
     ) {
+        return accountData(externalId, dueDate, pendingComplete, new BigDecimal("-100.00"), transactions);
+    }
+
+    private AmexPort.AccountData accountData(
+        String externalId,
+        String dueDate,
+        boolean pendingComplete,
+        BigDecimal balance,
+        AmexPort.Transaction... transactions
+    ) {
         return new AmexPort.AccountData(
             externalId,
             "American Express",
             com.picsou.model.AccountType.CREDIT_CARD,
-            new BigDecimal("-100.00"),
+            balance,
             new BigDecimal("75.00"),
             new BigDecimal("42.50"),
             dueDate,

@@ -91,11 +91,33 @@ export const adminApi = {
   listAiCalls: (limit: number, offset: number) =>
     api.get<AiCallLogPage>('/admin/ai-calls', { params: { limit, offset } }).then(r => r.data),
 
+  getInstanceStatus: () =>
+    api.get<InstanceStatus>('/admin/instance-status', { skipGlobalErrorRedirect: true }).then(r => r.data),
+
   getEbCallLog: () =>
     api.get<EbCallEntry[]>('/admin/enablebanking/call-log').then(r => r.data),
 
   clearEbCallLog: () =>
     api.delete<void>('/admin/enablebanking/call-log').then(r => r.data),
+}
+
+export type SidecarIssueCode = 'SIDECAR_UNREACHABLE' | 'SIDECAR_OUTDATED'
+
+export interface InstanceStatusIssue {
+  code: SidecarIssueCode
+  sidecar: string
+  expectedBase: string | null
+}
+
+export interface InstanceStatusUpdate {
+  latestVersion: string
+  releaseUrl: string
+}
+
+export interface InstanceStatus {
+  currentVersion: string
+  update: InstanceStatusUpdate | null
+  issues: InstanceStatusIssue[]
 }
 
 export interface EbCallEntry {

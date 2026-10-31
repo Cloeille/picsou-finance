@@ -248,6 +248,64 @@ class RevolutSyncServiceTest {
     }
 
     @Test
+    void sync_passesEachLegsCurrencyToTheImporterSoAForeignExchangeLegIsNotBooked() {
+        when(categorizationService.loadContext(MEMBER_ID)).thenReturn(
+            new CategorizationService.CategorizationContext(List.of(), Map.of()));
+        LocalDate date = LocalDate.of(2026, 9, 20);
+        RevolutTxn eurLeg = new RevolutTxn("exchange-id", date, "Exchanged from BTC", bd("3000"), null, null, "EUR");
+        RevolutTxn btcLeg = new RevolutTxn("exchange-id", date, "Exchanged to EUR", bd("-0.05"), null, null, "BTC");
+        when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID)).thenReturn(List.of(
+            new RevolutAccountData("wallet-eur", "EUR", AccountType.CHECKING, null, bd("10"), "EUR", null,
+                List.of(eurLeg)),
+            new RevolutAccountData("wallet-crypto", "Crypto", AccountType.CHECKING, null, bd("0"), "EUR", null,
+                List.of(btcLeg))));
+        when(accountRepository.findByExternalAccountIdAndMemberId(anyString(), eq(MEMBER_ID)))
+            .thenReturn(Optional.empty());
+        when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(anyString(), eq(MEMBER_ID)))
+            .thenReturn(false);
+        when(transactionRepository.findByAccountIdAndIsManualFalse(anyLong())).thenReturn(List.of());
+        when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(member()));
+        stubSaveAssignsIncrementingIds(new AtomicLong(960));
+        stubToResponseMirrorsAccount();
+
+        service.sync(MEMBER_ID, PHONE, PASSCODE, false);
+
+        ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, times(1)).save(saved.capture());
+        assertThat(saved.getValue().getDescription()).isEqualTo("Exchanged from BTC");
+        assertThat(saved.getValue().getNativeCurrency()).isEqualTo("EUR");
+    }
+
+    @Test
+    void sync_dropsAForeignExchangeLegThatCameWithoutItsCurrency() {
+        when(categorizationService.loadContext(MEMBER_ID)).thenReturn(
+            new CategorizationService.CategorizationContext(List.of(), Map.of()));
+        LocalDate date = LocalDate.of(2026, 9, 20);
+        RevolutTxn soldWithoutCurrency = new RevolutTxn("sold", date, "Exchanged to EUR", bd("-50000"), null);
+        RevolutTxn boughtWithoutCurrency = new RevolutTxn("bought", date, " exchanged  from EUR ", bd("1000"), null);
+        RevolutTxn eurCredit = new RevolutTxn("eur-credit", date, "Exchanged to EUR", bd("3000"), null);
+        RevolutTxn coffee = new RevolutTxn("coffee", date, "Coffee", bd("-3"), null);
+        when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID)).thenReturn(List.of(
+            new RevolutAccountData("wallet-eur", "EUR", AccountType.CHECKING, null, bd("10"), "EUR", null,
+                List.of(soldWithoutCurrency, boughtWithoutCurrency, eurCredit, coffee))));
+        when(accountRepository.findByExternalAccountIdAndMemberId(anyString(), eq(MEMBER_ID)))
+            .thenReturn(Optional.empty());
+        when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(anyString(), eq(MEMBER_ID)))
+            .thenReturn(false);
+        when(transactionRepository.findByAccountIdAndIsManualFalse(anyLong())).thenReturn(List.of());
+        when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(member()));
+        stubSaveAssignsIncrementingIds(new AtomicLong(970));
+        stubToResponseMirrorsAccount();
+
+        service.sync(MEMBER_ID, PHONE, PASSCODE, false);
+
+        ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, times(2)).save(saved.capture());
+        assertThat(saved.getAllValues()).extracting(Transaction::getExternalId)
+            .containsExactlyInAnyOrder("eur-credit", "coffee");
+    }
+
+    @Test
     void sync_classifiesOnlyVerifiedMirroredTransferLegsAcrossAccounts() {
         Category transfer = Category.builder().name("Internal transfer").slug("virement-interne")
             .kind(CategoryKind.TRANSFER).build();

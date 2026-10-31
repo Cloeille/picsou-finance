@@ -35,10 +35,10 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-picsou}?sslmode=prefer
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-picsou}
-      # POSTGRES_PASSWORD intentionally not forwarded here: the entrypoint
-      # resolves it from env or /data/.secrets/postgres_password and exports
-      # SPRING_DATASOURCE_PASSWORD itself. The app reads $POSTGRES_PASSWORD
-      # internally via application.yml.
+      # Match the database service fallback; entrypoint forwards this to Spring
+      # unless explicitly overridden.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-picsou}
+      # application.yml reads SPRING_DATASOURCE_PASSWORD, not POSTGRES_PASSWORD.
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       TR_AUTH_URL: http://tr-auth:8001
       # Opt-in anonymous telemetry: empty DSN = feature fully inactive (docs/features/telemetry.md)
@@ -111,11 +111,33 @@ services:
     depends_on:
       - app
 
+  # Shared sidecar base images (services/base). Never started (`scale: 0`).
+  # `docker compose pull` fetches them by name; their layers are the ones the
+  # published sidecars are built from, so nothing is downloaded twice.
+  # `--build` builds them before the sidecars (Compose v2.33+).
+  sidecar-python:
+    image: ghcr.io/cloeille/picsou-finance/sidecar-python:latest
+    build:
+      context: ../services/base
+      target: python
+    scale: 0
+
+  sidecar-chromium:
+    image: ghcr.io/cloeille/picsou-finance/sidecar-chromium:latest
+    build:
+      context: ../services/base
+      target: chromium
+    scale: 0
+
   tr-auth:
     image: ghcr.io/cloeille/picsou-finance/tr-auth:latest
     build:
       context: ../services/tr-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -141,6 +163,10 @@ services:
     build:
       context: ../services/bourso-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -150,6 +176,10 @@ services:
     build:
       context: ../services/caisse-epargne-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -159,6 +189,10 @@ services:
     build:
       context: ../services/bourse-direct-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -168,6 +202,10 @@ services:
     build:
       context: ../services/amundi-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -177,6 +215,10 @@ services:
     build:
       context: ../services/fortuneo-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -189,6 +231,10 @@ services:
     build:
       context: ../services/corum-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -198,6 +244,10 @@ services:
     build:
       context: ../services/sofidy-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -218,6 +268,10 @@ services:
     build:
       context: ../services/degiro-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -231,12 +285,9 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-picsou}
       POSTGRES_USER: ${POSTGRES_USER:-picsou}
-      # Fallback order: user-supplied POSTGRES_PASSWORD env > default literal
-      # 'picsou'. On first-boot zero-config flows, the app entrypoint writes
-      # the same auto-generated password to /data/.secrets/postgres_password
-      # and the operator is instructed to source it into .env (see
-      # docs/features/setup-wizard.md). On existing installs, .env already
-      # sets POSTGRES_PASSWORD so this fallback never triggers.
+      # Both app and database receive the supplied password, or 'picsou' when
+      # POSTGRES_PASSWORD is unset or empty. The entrypoint persists that value
+      # in /data/.secrets/postgres_password for first-boot use.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-picsou}
     volumes:
       - pgdata:/var/lib/postgresql/data

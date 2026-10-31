@@ -1,0 +1,2 @@
+# Installed on top of requirements.txt in the `chromium` target only.
+playwright==1.52.0

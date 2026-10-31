@@ -9,8 +9,13 @@ import com.picsou.dto.AiCallLogPage;
 import com.picsou.dto.AiTestResponse;
 import com.picsou.dto.EnableBankingImportRequest;
 import com.picsou.dto.EnableBankingKeypairResponse;
+import com.picsou.dto.InstanceStatusResponse;
+import com.picsou.dto.ReleaseUpdate;
+import com.picsou.dto.SidecarIssue;
+import com.picsou.dto.SidecarIssueCode;
 import com.picsou.service.AiCallLogService;
 import com.picsou.service.EnableBankingKeyPairService;
+import com.picsou.service.InstanceStatusService;
 import com.picsou.service.IntegrationsService;
 import com.picsou.service.SetupService;
 import com.picsou.telemetry.TelemetryService;
@@ -39,6 +44,7 @@ class AdminControllerTest {
     @Mock AiConfigProvider aiConfigProvider;
     @Mock AiCallLogService aiCallLogService;
     @Mock TelemetryService telemetryService;
+    @Mock InstanceStatusService instanceStatusService;
 
     @InjectMocks AdminController controller;
 
@@ -245,5 +251,19 @@ class AdminControllerTest {
 
         assertThat(result).isEqualTo(samplePage);
         verify(aiCallLogService).list(50, 0);
+    }
+
+    @Test
+    void instanceStatus_returnsServiceResult() {
+        var body = new InstanceStatusResponse(
+            "1.1.0",
+            new ReleaseUpdate("1.2.0", "https://github.com/Cloeille/picsou-finance/releases/tag/1.2.0"),
+            List.of(new SidecarIssue(SidecarIssueCode.SIDECAR_UNREACHABLE, "corum-auth", "sidecar-chromium")));
+        when(instanceStatusService.status()).thenReturn(body);
+
+        var response = controller.instanceStatus();
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(body);
     }
 }

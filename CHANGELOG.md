@@ -23,6 +23,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no printing), so whoever solves the captcha cannot reach another member's saved session. See
   [ADR](docs/decisions/2026-10-21-revolut-captcha-hand-off.md) and
   [feature note](docs/features/revolut-sidecar.md).
+- **Received dividends are recognised.** When a dividend lands on a compte-titres or a PEA,
+  Picsou matches it to the dividend history it already holds, marks it as a dividend and files
+  it under capital income. `GET /api/dividends/received` lists them, with the same id as the
+  forecast line they fulfil, including a dividend you entered by hand without a ticker. A
+  deposit that merely has a similar amount, or shares one word with a holding's name, is left
+  alone, and so is a category you picked yourself, including one chosen when adding or editing
+  a transaction by hand. Fortuneo and BoursoBank dividends are recognised as soon as their sync
+  finishes, a later Fortuneo or Finary sync keeps the dividends it already recognised, and
+  London lines quoted in pence are matched in pounds. When Fortuneo later reports the row as
+  something other than a dividend, it leaves capital income.
+
+- **Instance-status alert for admins.** An admin sees a pop-up when a sidecar the household
+  uses does not answer, or still runs an image from before the shared base images (typically
+  a build that failed because `sidecar-python` or `sidecar-chromium` was missing), with the
+  commands that fix it. The same pop-up announces a newer Picsou release, read from GitHub at
+  most once every 6 hours; `APP_UPDATE_CHECK_ENABLED=false` turns that call off. See
+  [feature note](docs/features/admin-instance-status.md).
+- **Shared sidecar base images.** Nine sidecars now build on two shared images,
+  `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
+  install downloads and stores Chromium and the Python packages once instead of once per
+  sidecar. Amex and Revolut keep their own image (Camoufox). See
+  [ADR](docs/decisions/2026-10-21-shared-sidecar-base-image.md).
 - **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
   the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
   and SCPI distributions, from the annual distribution per share and the frequency you enter
@@ -212,6 +234,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **American Express no longer stores a second copy of a charge AMEX re-describes.** A
+  charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
+  `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its
+  category, so budgets counted it twice. The stored row now takes the new label and keeps its
+  category; two identical purchases on the same day stay two rows. A relabelled charge is
+  matched only when it is the one purchase stored and the one reported for its date and amount,
+  so no charge takes another's category or recurring series. Copies stored before the
+  fix are not removed automatically, since nothing tells them from a genuine second purchase;
+  delete them by hand (#245).
+- **BoursoBank sync no longer fails when the dashboard lists children's accounts.** A holder
+  who manages a minor's accounts gets a "Comptes de mes enfants" panel, which the connector
+  did not know: its cards failed the completeness check and the whole sync stopped with
+  `UPSTREAM_FORMAT_CHANGED`, the holder's own PEA included. These accounts are now skipped,
+  like loans and insurance, since they belong to the child.
+- **Account edit and delete buttons on touch screens.** On the Accounts page these buttons
+  only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
+  the card's corner could still hit delete). They now stay visible on touch screens and when
+  keyboard focus is inside the card.
+
 - **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
   Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
   Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
@@ -298,6 +339,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#174](https://github.com/Cloeille/picsou-finance/issues/174))
 
 ### Security
+
+- **Sidecars share one dependency pin set.** Bourse Direct, Fortuneo, Trade Republic and
+  DEGIRO move from fastapi 0.111 (and the Starlette range with published DoS advisories it
+  pulled in) to fastapi 0.141, uvicorn 0.52 and pydantic 2.13, DEGIRO and Trade Republic
+  from httpx 0.27 to 0.28, and Trade Republic from Playwright 1.44 to 1.52. These four no
+  longer get uvicorn's `[standard]` extras (uvloop, httptools, websockets) that fastapi 0.111
+  pulled in: they run on the default asyncio loop and h11, like the other sidecars already did. A future
+  bump is one line in `services/base/requirements*.txt` for all nine sidecars.
 
 - **Every connector sidecar now checks the shared `APP_SIDECAR_API_KEY`.** The
   Trade Republic, Revolut, BoursoBank, Bourse Direct, Amundi, Fortuneo and DEGIRO
@@ -499,6 +548,19 @@ information architecture.
   [feature note](docs/features/ibkr-sync.md).
 ### Fixed
 
+- **Docker deployments with a custom PostgreSQL password no longer crash-loop because Spring uses `picsou`.**
+  The entrypoint now forwards the resolved PostgreSQL password to Spring, while
+  preserving an explicit Spring datasource password override. The database's
+  own password must still be configured to match.
+- **A Trade Republic position that never gets a price no longer fails the whole
+  sync.** The read waited for every ticker subscription to answer, bounded only by
+  a timeout on the gap between two frames, and answered tickers keep streaming
+  deltas: with one silent subscription (a delisted share, a contingent value
+  right) the gap never opened, the 45-second hard timeout failed the sync and no
+  account was stored, right after a successful login. The read now stops after 30
+  seconds in total and persists what answered; the silent position falls back to
+  its average buy-in price, as a missing ticker price already did. A WebSocket
+  error mid-read still keeps what arrived instead of failing the sync.
 - **A BoursoBank contract invested in a single fund syncs instead of failing the
   whole import** ([#154](https://github.com/Cloeille/picsou-finance/issues/154)).
   Its trading summary reports the contract balance and one `fund` node, with no

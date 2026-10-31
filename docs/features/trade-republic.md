@@ -1,6 +1,6 @@
 # Feature: Trade Republic Sync
 
-> Last updated: 2026-08-09
+> Last updated: 2026-10-08 (WebSocket read capped on total elapsed time)
 
 ## Context
 
@@ -199,17 +199,16 @@ TRAdapter.refreshSession() --> retry with new token
 
 ## Docker / deployment
 
-The `tr-auth` sidecar uses `python:3.12-slim` as base (not the official `mcr.microsoft.com/playwright/python` image) — see [ADR 2026-04-25](../decisions/2026-04-25-tr-auth-sidecar-slim-image.md) for the size rationale (969MB → 547MB release archive). Only Chromium is installed; Firefox and WebKit are skipped. The container runs as a non-root user (`trauth`). Two ordering rules matter:
+The `tr-auth` sidecar builds on the shared `chromium` base (`services/base`, see [ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md)): Python 3.12 slim bookworm, Playwright 1.52 and Chromium only, shared with the other browser sidecars. Its own Dockerfile adds only the `trauth` user and `main.py`. The two rules below now live in `services/base/Dockerfile` (Chromium in `/opt/playwright-browsers`, world-readable). The original size rationale is in [ADR 2026-04-25](../decisions/2026-04-25-tr-auth-sidecar-slim-image.md). Two ordering rules matter:
 
 1. **Chromium system deps must be `apt-get install`-ed manually.** `playwright install --with-deps` would be simpler but fails on Debian bookworm because it tries to install Ubuntu-only font packages (`ttf-unifont`, `ttf-ubuntu-font-family`). The Dockerfile lists the working subset explicitly.
-2. **`PLAYWRIGHT_BROWSERS_PATH` must be set BEFORE `playwright install chromium` runs**, so the browser lands in a directory owned by `trauth`:
+2. **`PLAYWRIGHT_BROWSERS_PATH` must be set BEFORE `playwright install chromium` runs**, so the browser lands in `/opt/playwright-browsers`, made world-readable for every sidecar user. Never `chown` it from a sidecar Dockerfile: that copies Chromium into a new layer per sidecar.
 
 ```dockerfile
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/playwright-browsers
-RUN pip install --no-cache-dir -r requirements.txt \
-    && playwright install chromium
-RUN chown -R trauth:trauth /app
-USER trauth
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+RUN pip install --no-cache-dir -r /opt/sidecar-base/requirements-chromium.txt \
+    && playwright install chromium \
+    && chmod -R a+rX /opt/playwright-browsers
 ```
 
 Without rule 2, Playwright installs to `/root/.cache/ms-playwright/`, which the `trauth` user cannot read → every `/initiate` call throws an unhandled exception → FastAPI returns 500 with no useful error message.
@@ -225,8 +224,8 @@ Both also forward `APP_SIDECAR_API_KEY`. The sidecar refuses to start without it
 - **An error frame on the portfolio subscription is not an empty portfolio.** `<id> E {...}` (or a payload that does not parse) answers the subscription, so the sync's wait does not hang on it, but `TradeRepublicAdapter.shouldPersist` skips the account: persisting it as empty made the service delete every holding and snapshot the securities at zero, cash pocket kept, so a PEA looked like cash only until the next successful sync. The account keeps the previous sync's data and the warning names it. A genuinely emptied portfolio (an answer that parsed with no positions) still persists. Each subscription counts once toward the wait, whatever the number of frames it sends: an error or delta frame after an answer must not complete the wait while another account is still silent.
 - **tr-auth must be running**: The Python sidecar must be accessible at `app.tr-auth.url` (default `http://tr-auth:8001`). If it is down, auth calls will timeout after 60 seconds.
 - **Local Maven dev uses localhost**: `application-dev.yml` overrides `app.tr-auth.url` to `http://127.0.0.1:8001` because `tr-auth` is a Docker-internal DNS name. When running the backend with `mvn spring-boot:run`, start the sidecar separately on port 8001.
-- **tr-auth 500 = Playwright crash**: A generic 500 from the sidecar almost always means the Chromium browser could not launch. Check `PLAYWRIGHT_BROWSERS_PATH` is set and `chown` covers it (see Docker section above). Run `docker logs <tr-auth-container>` to confirm.
-- **Dockerfile changes need an explicit rebuild**: `docker compose up -d` does NOT rebuild existing images. After editing `services/tr-auth/Dockerfile`, run `docker compose build tr-auth && docker compose up -d tr-auth`. Symptom of a stale image: `docker compose ps` shows `tr-auth` with a SHA-only `IMAGE` column instead of a tagged name (`picsou-tr-auth` / `docker-tr-auth`), and the runtime error references a path that doesn't match the current Dockerfile (e.g. `/home/trauth/.cache/ms-playwright/` when the new Dockerfile sets `PLAYWRIGHT_BROWSERS_PATH=/app/playwright-browsers`).
+- **tr-auth 500 = Playwright crash**: A generic 500 from the sidecar almost always means the Chromium browser could not launch. Check `PLAYWRIGHT_BROWSERS_PATH` is `/opt/playwright-browsers` and readable by `trauth` (see Docker section above). Run `docker logs <tr-auth-container>` to confirm.
+- **Dockerfile changes need an explicit rebuild**: `docker compose up -d` does NOT rebuild existing images. After editing `services/tr-auth/Dockerfile`, run `docker compose build tr-auth && docker compose up -d tr-auth`. Symptom of a stale image: `docker compose ps` shows `tr-auth` with a SHA-only `IMAGE` column instead of a tagged name (`picsou-tr-auth` / `docker-tr-auth`), and the runtime error references a path that doesn't match the current Dockerfile (e.g. `/home/trauth/.cache/ms-playwright/` when the shared base sets `PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers`).
 - **Input validation is strict**: `InitiateAuthRequest` and `CompleteAuthRequest` DTOs enforce `@NotBlank` on all fields. Empty or null values result in a 422 response before reaching the service layer. Ensure frontend sends valid non-blank values.
 - **Initiation errors are not TAN prompts**: a failed `/tr/auth/initiate` call
   has no reliable `processId`, so frontend screens must keep the user on the
@@ -236,7 +235,7 @@ Both also forward `APP_SIDECAR_API_KEY`. The sidecar refuses to start without it
 - **Error message parsing on frontend**: Error handling extracts specific error codes from deeply nested JSON responses (e.g., `NUMBER_INVALID`, `PIN_INVALID`, `VALIDATION_CODE_INVALID`). The backend wraps every TR error in a `SyncException`, which `GlobalExceptionHandler` maps to **HTTP 422** with the code in the ProblemDetail `detail` — so the shared `formatTrAuthError()` (`frontend/src/lib/errors.ts`) matches TR codes on both 422 and 5xx via a single `matchTrDetail()` helper. It is used by `TradeRepublicTab`, `AddAccountModal` **and** `SyncAllModal` (the modal surfaces auth and per-row sync errors inline). If the sidecar changes the error response format, update `matchTrDetail()`.
 - **Session lifetime is TR's call, not ours**: the stored `expiresAt` (+2 h) is a heuristic; sync always *tries* (refreshing on `SESSION_EXPIRED`) and only a TR-rejected refresh clears the session. If TR invalidates refresh tokens quickly, the user still has to re-authenticate — but that decision now comes from TR's actual response, not a hard-coded clock.
 - **WebSocket protocol is reverse-engineered**: The TR WebSocket API is undocumented. Raw responses are logged at INFO level. If TR changes the protocol, the adapter will break and need updating.
-- **timeout-driven completion**: The WebSocket session completes when either all data is received (cash + all portfolios + all tickers) or a 30-second timeout is hit.
+- **timeout-driven completion**: The WebSocket session completes when either all data is received (cash + all portfolios + all tickers) or 30 seconds have elapsed in total (`untilAnsweredOrCapped`). The bound is on elapsed time, not on the gap between two frames: answered tickers keep streaming deltas, so a gap timeout never fires while one position is ticking, and a single subscription TR never answers (a delisted share, a contingent value right) used to hold the read open until the 45s hard timeout failed the whole sync with nothing stored. The silent position falls back to `averageBuyIn`. An error on the stream (socket drop, a frame that fails to process) also ends the read and keeps the frames received so far, logged at WARN with the error type only.
 - **TR WebSocket API breaks without notice**: Trade Republic removed `compactPortfolio` on 2026-06-21 (protocol v31) and replaced it with `compactPortfolioByType`. The JSON structure changed: positions are now nested under `categories[].positions[]` and use `isin` instead of `instrumentId`. Reference project for future breaks: [pytr-org/pytr](https://github.com/pytr-org/pytr) — they track TR API changes in commit history.
 - **`compactPortfolioByType` requires `secAccNo`**: Unlike the old `compactPortfolio` which had a generic no-secAccNo fallback, `compactPortfolioByType` is always per-securities-account. If `secAccNos` is empty (no securities sub-account in JWT), the portfolio subscription is skipped entirely — only cash is returned.
 - **Multiple sub-portfolios / PEA**: The adapter extracts wrapper-specific `secAccNo` values from the JWT (`act.acc.owner.default.sec[]`) and subscribes to each one separately via per-account `compactPortfolioByType`. `default` maps to `TR Titres` (`COMPTE_TITRES`); `tax_wrapper_fr` maps to `TR PEA` (`PEA`). This avoids merging CTO and PEA holdings into a single securities account. If extraction fails, portfolio is skipped (no fallback subscription).

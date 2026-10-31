@@ -1,5 +1,6 @@
 """HTTP-level tests for the Amundi sidecar's shared-key boundary."""
 
+import os
 import unittest
 from unittest.mock import patch
 
@@ -54,11 +55,20 @@ class SidecarAuthenticationTest(unittest.TestCase):
                         )
 
     def test_health_is_accessible_without_a_key(self):
-        with self.client as client:
-            response = client.get("/health")
+        with patch.dict(os.environ):
+            os.environ.pop("PICSOU_SIDECAR_BASE", None)
+            with self.client as client:
+                response = client.get("/health")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
+
+    def test_health_reports_the_shared_base_when_set(self):
+        with patch.dict(os.environ, {"PICSOU_SIDECAR_BASE": "sidecar-chromium"}):
+            with self.client as client:
+                response = client.get("/health")
+
+        self.assertEqual(response.json(), {"status": "ok", "base": "sidecar-chromium"})
 
     def test_authorized_request_reaches_request_validation_without_a_challenge(self):
         with self.client as client:

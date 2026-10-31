@@ -2152,6 +2152,20 @@
       "next": "Next",
       "empty": "No AI calls recorded yet.",
       "loading": "Loading…"
+    },
+    "instanceStatus": {
+      "title": "Instance status",
+      "description": "A sidecar is misconfigured, or a newer release is available.",
+      "issuesTitle": "Configuration problem",
+      "unreachable": "This sidecar is not responding. The container is missing, or an old one is still running.",
+      "unreachableWithBase": "This sidecar is not responding. The shared base image is probably missing, so the build failed and the old container kept running — or none exists.",
+      "outdated": "This sidecar answers, but it is not running on the expected shared base image.",
+      "expectedBase": "Expected shared base image:",
+      "fixIntro": "To fix it, refresh the images, then restart:",
+      "fixBuildIntro": "When building from source, with Compose v2.33 or newer (it builds sidecar-python and sidecar-chromium first):",
+      "updateTitle": "Update available",
+      "releaseNotes": "Release notes",
+      "later": "Later"
     }
   },
   "error": {

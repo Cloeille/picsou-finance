@@ -27,16 +27,23 @@ public interface RevolutPort {
         String description,
         BigDecimal amount,
         String counterparty,
-        CategoryKind kind
+        CategoryKind kind,
+        /** The leg's own currency; null means the pocket's. */
+        String currency
     ) {
         public RevolutTxn(String externalId, LocalDate date, String description, BigDecimal amount,
                           String counterparty) {
-            this(externalId, date, description, amount, counterparty, null);
+            this(externalId, date, description, amount, counterparty, null, null);
+        }
+
+        public RevolutTxn(String externalId, LocalDate date, String description, BigDecimal amount,
+                          String counterparty, CategoryKind kind) {
+            this(externalId, date, description, amount, counterparty, kind, null);
         }
 
         public SidecarTransaction toSidecarTransaction() {
             return new SidecarTransaction(externalId, date, description, amount, counterparty,
-                kind == null ? null : kind.name());
+                kind == null ? null : kind.name(), currency);
         }
     }
 

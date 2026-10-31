@@ -1,10 +1,12 @@
 import type { QueryClient } from '@tanstack/react-query'
+import { useAppStore } from '@/stores/app-store'
 import { useProfileStore } from '@/stores/profile-store'
 
 /**
  * Wipes all per-user client state so nothing leaks across the auth boundary on a
  * shared family browser:
  *
+ *  - a telemetry consent closed unanswered, so the next admin is asked again,
  *  - the persisted impersonation target (`activeMemberId`, kept in localStorage
  *    by the profile store), and
  *  - the React Query cache, whose data query keys are NOT scoped by user
@@ -22,5 +24,6 @@ import { useProfileStore } from '@/stores/profile-store'
  */
 export function resetClientState(queryClient: QueryClient) {
   useProfileStore.getState().reset()
+  useAppStore.setState({ telemetryConsentDismissed: false })
   queryClient.clear()
 }

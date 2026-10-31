@@ -64,20 +64,39 @@ PostgreSQL 16 and the optional Caddy TLS proxy use upstream images.
 | Nginx | 8080 (public) | Serves SPA, proxies `/api/*` and `/actuator` to backend |
 | Java (Spring Boot) | 9090 (internal) | Backend API |
 
+### Shared sidecar bases — `services/base/Dockerfile`
+
+Every sidecar except amex-auth and revolut-auth (Camoufox) builds `FROM` one of
+two shared bases, built from one pin set (`services/base/requirements*.txt`):
+`python` (Python 3.12 slim bookworm, fastapi, uvicorn, pydantic, httpx) and
+`chromium` (the same plus Playwright 1.52 and Chromium in
+`/opt/playwright-browsers`). A sidecar Dockerfile only adds its user and code.
+The publish workflow pushes `sidecar-python` and `sidecar-chromium` first and
+builds every sidecar from them by digest, so a pull stores Chromium once. With
+`docker compose up --build`, the build-only services `sidecar-python` and
+`sidecar-chromium` (`scale: 0`, never started) are built first; this
+needs Compose v2.33+ (`additional_contexts: service:`), tested on 5.6.0.
+`docker compose pull` needs no particular version. It also pulls the two bases
+by name (`ghcr.io/cloeille/picsou-finance/sidecar-*:latest`); their layers are
+the ones the published sidecars are built from, so nothing is downloaded twice. See
+[ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md).
+A sidecar whose base is missing, or still on a pre-base image, is reported to the admin
+by the [instance-status alert](./admin-instance-status.md).
+
 ### tr-auth sidecar — `services/tr-auth/Dockerfile`
 
-Based on `python:3.12-slim`. Installs only Chromium (not Firefox/WebKit) via `playwright install chromium`, with system deps pre-installed via apt. The sidecar exposes port 8001 and is reached by the backend via `TR_AUTH_URL=http://tr-auth:8001`.
+Built on the shared `chromium` base (Chromium only, no Firefox/WebKit). The sidecar exposes port 8001 and is reached by the backend via `TR_AUTH_URL=http://tr-auth:8001`.
 
 ### Bourse Direct sidecar — `services/bourse-direct-auth/Dockerfile`
 
-Based on `python:3.12-slim-bookworm`, with Chromium only. It runs as a
+Built on the shared `chromium` base. It runs as a
 dedicated non-root user and is reached by the backend at
 `BOURSE_DIRECT_AUTH_URL=http://bourse-direct-auth:8001`. Compose does not
 publish its port, so login, 2FA and portfolio endpoints remain internal.
 
 ### Fortuneo sidecar — `services/fortuneo-auth/Dockerfile`
 
-Based on `python:3.12-slim-bookworm`, with Chromium only. It runs as a
+Built on the shared `chromium` base. It runs as a
 dedicated non-root user and is reached by the backend at
 `FORTUNEO_AUTH_URL=http://fortuneo-auth:8001`. Compose does not publish its
 port. Its API is attached to `fortuneo-auth-net`, an internal network shared
@@ -124,6 +143,21 @@ On first boot, auto-generates three secrets into `/data/.secrets/` (mounted name
 - `POSTGRES_PASSWORD` — 24-byte base64
 
 On subsequent boots, re-reads from the files. If the env var is already set by the operator, it is respected and written to the file for consistency. Secrets are **never** regenerated once created — doing so would invalidate JWTs and corrupt all encrypted data in the DB.
+
+After resolving these secrets, the entrypoint exports `SPRING_DATASOURCE_PASSWORD`
+from `POSTGRES_PASSWORD`, so Spring uses the supplied, persisted or generated
+password rather than its literal `picsou` fallback. An explicit non-empty
+`SPRING_DATASOURCE_PASSWORD` takes precedence; an empty value uses the resolved
+PostgreSQL password.
+
+This does not synchronize or rotate the database container's password. Set
+`POSTGRES_PASSWORD` in `docker/.env` to the actual database password before
+starting the stack. Compose explicitly passes `${POSTGRES_PASSWORD:-picsou}`
+to both the app and PostgreSQL, so an unset or empty password retains their
+shared `picsou` default rather than generating a different app-side secret.
+Standalone image runs still generate a password when none is supplied; that
+password must match the external database. Changing an environment variable
+does not change the password of an already initialized database volume.
 
 ### TLS — the optional `tls` compose profile
 

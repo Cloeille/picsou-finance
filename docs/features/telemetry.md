@@ -35,7 +35,9 @@ disabled. No Flyway migration is involved.
   their next visit (first launch, or the first visit after the update that ships this feature). It
   lists what is shared and what never is, with two explicit buttons: *Enable* / *No thanks*.
   Members never see it. Closing it without answering keeps it `UNSET` (off) and asks again on the
-  next page load. In demo mode it never shows.
+  next page load or the next sign-in. That closed state lives in the app store
+  (`telemetryConsentDismissed`, not persisted), so dialogs that wait for this one, such as the
+  instance-status alert, follow its real visibility. In demo mode it never shows.
 - **Settings.** *Administration → Anonymous telemetry* has a switch, disabled with an explanation
   when no DSN is configured. Turning it off takes effect immediately: the backend closes its SDK
   in-process and the browser closes its SDK on the spot.
