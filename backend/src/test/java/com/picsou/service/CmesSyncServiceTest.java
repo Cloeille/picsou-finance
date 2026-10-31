@@ -49,6 +49,7 @@ import static org.mockito.Mockito.when;
 @SuppressWarnings("unchecked")
 class CmesSyncServiceTest {
     private static final String PEG_ID = "cmes_12345_PEG";
+    private static final String LABEL_ID = "cmes_12345_plan-d-pargne-groupe-0123456789abcdef";
     private static final String CREDENTIALS_JSON = "{\"login\":\"12345678\",\"password\":\"secret\"}";
 
     @Mock CmesPort port;
@@ -107,7 +108,7 @@ class CmesSyncServiceTest {
 
     @Test
     void queueSync_refusesAPlanWhoseFundsDoNotAddUp() {
-        CmesPort.PlanData broken = new CmesPort.PlanData(PEG_ID, "Plan d'épargne groupe", "PEG", null,
+        CmesPort.PlanData broken = new CmesPort.PlanData(PEG_ID, null, "Plan d'épargne groupe", "PEG", null,
             new BigDecimal("9999.99"), pegPlan().positions(), true);
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
@@ -352,6 +353,44 @@ class CmesSyncServiceTest {
     }
 
     @Test
+    void anAccountStillCarryingThePlansEarlierIdMovesToItsNewIdWithItsHistory() {
+        arrangeCommittableSync(pegPlan(LABEL_ID, PEG_ID));
+        Account imported = Account.builder()
+            .id(20L)
+            .externalAccountId(PEG_ID)
+            .provider(CmesSyncService.PROVIDER)
+            .currentBalance(new BigDecimal("1400.00"))
+            .build();
+        when(accountRepository.findByExternalAccountIdAndMemberId(PEG_ID, 7L)).thenReturn(Optional.of(imported));
+        when(accountRepository.findAllByMemberIdAndProvider(7L, CmesSyncService.PROVIDER))
+            .thenReturn(List.of(imported));
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue()).isSameAs(imported);
+        assertThat(imported.getExternalAccountId()).isEqualTo(LABEL_ID);
+        // Moved, not closed: the plan is still listed under its new id.
+        assertThat(imported.getCurrentBalance()).isEqualByComparingTo("1500.50");
+        verify(accountService).upsertSnapshot(eq(imported), eq(new BigDecimal("1500.50")), any(), eq(LocalDate.now()));
+    }
+
+    @Test
+    void aPlanWhoseAccountWasDeletedUnderItsEarlierIdIsNotImportedAgain() {
+        arrangeQueuedSession(activeSession(member()));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        when(port.fetchPlans("plain-state")).thenReturn(List.of(pegPlan(LABEL_ID, PEG_ID)));
+        when(accountRepository.findByExternalAccountIdAndMemberId(any(), eq(7L))).thenReturn(Optional.empty());
+        when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(anyString(), eq(7L)))
+            .thenAnswer(invocation -> PEG_ID.equals(invocation.getArgument(0)));
+
+        CmesSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CmesSyncStatus.SUCCESS);
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
     void aScheduledResyncAsksForReauthenticationOnceTheSessionIsGone() {
         CmesSession session = activeSession(member());
         session.markQueued();
@@ -419,8 +458,13 @@ class CmesSyncServiceTest {
     }
 
     private CmesPort.PlanData pegPlan() {
+        return pegPlan(PEG_ID, null);
+    }
+
+    private CmesPort.PlanData pegPlan(String externalId, String legacyExternalId) {
         return new CmesPort.PlanData(
-            PEG_ID,
+            externalId,
+            legacyExternalId,
             "Plan d'épargne groupe",
             "PEG",
             "ACME INDUSTRIES",

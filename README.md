@@ -112,6 +112,7 @@ Picsou publishes pre-built, multi-arch (amd64/arm64) images to the GitHub Contai
 | `ghcr.io/cloeille/picsou-finance/bourso-auth` | BoursoBank login/2FA sidecar |
 | `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth` | Caisse d'Epargne read-only sidecar (no in-app login yet) |
 | `ghcr.io/cloeille/picsou-finance/fortuneo-auth` | Fortuneo login/2FA and portfolio sidecar |
+| `ghcr.io/cloeille/picsou-finance/cmes-auth` | Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar |
 
 The app and every `*-auth` sidecar authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`. Compose refuses to start without it, and each sidecar refuses any request that does not carry it. Set it once before the first launch:
 

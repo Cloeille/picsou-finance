@@ -35,7 +35,7 @@ public class SyncTools {
 
     static final Set<String> BANK_SOURCES = Set.of("enable-banking", "enable-banking-retry", SimplefinSyncService.SOURCE);
     static final Set<String> BROKER_SOURCES = Set.of(
-        "trade-republic", "bourso", "bourse-direct", "amundi", "fortuneo", "amex", "ibkr", "degiro");
+        "trade-republic", "bourso", "bourse-direct", "amundi", "cmes", "fortuneo", "amex", "ibkr", "degiro");
     static final Set<String> EXCHANGE_SOURCES = Set.of("crypto-exchanges");
     static final Set<String> WALLET_SOURCES = Set.of("wallets");
 
@@ -77,7 +77,7 @@ public class SyncTools {
 
     @Tool(name = "trigger_broker_sync",
         description = "Refresh the authenticated member's existing broker connections: Trade Republic, "
-            + "BoursoBank, Bourse Direct, Amundi, Fortuneo, American Express, IBKR, and DEGIRO when the session is "
+            + "BoursoBank, Bourse Direct, Amundi, Crédit Mutuel / CIC Épargne Salariale, Fortuneo, American Express, IBKR, and DEGIRO when the session is "
             + "still active. Does not re-authenticate. Returns one status line per source." + SHARED_COOLDOWN_DESCRIPTION)
     @RequiresScope(Scopes.SYNC_TRIGGER)
     public String triggerBrokerSync() {

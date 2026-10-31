@@ -176,7 +176,7 @@ class FlowTest(unittest.TestCase):
         response = self.client.post("/positions", json={"sessionState": session}, headers=HEADERS)
         self.assertEqual(response.status_code, 200, response.text)
         [plan] = response.json()
-        self.assertEqual(plan["externalId"], "cmes_12345_PEG")
+        self.assertEqual(plan["externalId"], main.plan_external_id("12345", "Plan d'épargne groupe"))
         self.assertEqual(plan["employer"], "ACME INDUSTRIES")
         self.assertEqual(Decimal(plan["balanceEur"]), Decimal("1500.50"))
         self.assertEqual(
@@ -331,22 +331,57 @@ class FlowTest(unittest.TestCase):
 
         self.assertEqual((response.status_code, response.json()), (401, {"detail": "SESSION_EXPIRED"}))
 
-    def test_two_plans_of_the_same_kind_keep_distinct_ids(self):
+    def plans_listed(self, *labels: str) -> list[dict]:
+        self.site.situation = situation_page("".join(plan_table(label, "0,00", "") for label in labels))
+        response = self.client.post("/positions", json={"sessionState": self.session}, headers=HEADERS)
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    def test_a_plan_keeps_its_id_while_other_plans_come_and_go(self):
+        self.session = self.confirm()
+        company, inter_company = "Plan d&#39;&#233;pargne entreprise", "Plan d&#39;&#233;pargne interentreprises"
+
+        [alone] = self.plans_listed(company)
+        together = self.plans_listed(company, inter_company)
+        [other_alone] = self.plans_listed(inter_company)
+
+        self.assertEqual([plan["externalId"] for plan in together], [alone["externalId"], other_alone["externalId"]])
+        self.assertNotEqual(alone["externalId"], other_alone["externalId"])
+        self.assertTrue(alone["externalId"].startswith("cmes_12345_plan-d-pargne-entreprise-"))
+
+    def test_labels_that_slug_alike_keep_distinct_ids(self):
+        self.session = self.confirm()
+
+        plans = self.plans_listed("Plan d&#39;&#233;pargne entreprise ACME+A", "Plan d&#39;&#233;pargne entreprise ACME A")
+
+        self.assertEqual(len({plan["externalId"] for plan in plans}), 2)
+
+    def test_two_plans_sharing_an_id_are_refused(self):
+        self.session = self.confirm()
         self.site.situation = situation_page(
-            plan_table("Plan d&#39;&#233;pargne groupe ACME", "0,00", "")
-            + plan_table("Plan d&#39;&#233;pargne groupe GLOBEX", "0,00", "")
+            plan_table("Plan d&#39;&#233;pargne groupe", "0,00", "")
             + plan_table("Plan d&#39;&#233;pargne entreprise", "0,00", "")
         )
-        session = self.confirm()
 
-        response = self.client.post("/positions", json={"sessionState": session}, headers=HEADERS)
+        with patch.object(main, "plan_external_id", lambda number, label: f"cmes_{number}_same"):
+            response = self.client.post("/positions", json={"sessionState": self.session}, headers=HEADERS)
 
-        self.assertEqual(response.status_code, 200, response.text)
-        ids = [plan["externalId"] for plan in response.json()]
-        self.assertEqual(len(set(ids)), 3)
-        self.assertTrue(all(plan_id.startswith("cmes_12345_PEG-") for plan_id in ids[:2]))
-        # A kind held by one plan keeps the id it always had.
-        self.assertEqual(ids[2], "cmes_12345_PEE")
+        self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
+
+    def test_each_plan_names_the_id_earlier_builds_gave_it(self):
+        self.session = self.confirm()
+
+        [single] = self.plans_listed("Plan d&#39;&#233;pargne groupe")
+        shared = self.plans_listed("Plan d&#39;&#233;pargne groupe ACME", "Plan d&#39;&#233;pargne groupe GLOBEX")
+        colliding = self.plans_listed("Plan d&#39;&#233;pargne groupe A+B", "Plan d&#39;&#233;pargne groupe A B")
+
+        self.assertEqual(single["legacyExternalId"], "cmes_12345_PEG")
+        self.assertEqual(
+            [plan["legacyExternalId"] for plan in shared],
+            ["cmes_12345_PEG-plan-d-pargne-groupe-acme", "cmes_12345_PEG-plan-d-pargne-groupe-globex"],
+        )
+        # Earlier builds gave both the same id: neither may claim the old account.
+        self.assertEqual([plan["legacyExternalId"] for plan in colliding], [None, None])
 
     def test_an_entity_encoded_skip_link_is_found(self):
         page = '<a href="/skip.html">Passer cette &eacute;tape</a>'

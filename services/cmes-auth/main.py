@@ -30,6 +30,7 @@ logged; neither are cookies, field values or financial responses.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -231,6 +232,7 @@ class PlanPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     externalId: str = Field(min_length=1, max_length=100)
+    legacyExternalId: str | None = Field(default=None, max_length=100)
     name: str = Field(min_length=1, max_length=200)
     planKind: str | None = Field(default=None, max_length=30)
     employer: str | None = Field(default=None, max_length=200)
@@ -685,13 +687,35 @@ def _require_logged_in(stage: str, response: httpx.Response) -> None:
 # ─── Positions ──────────────────────────────────────────────────────────────
 
 
-def plan_external_id(number: str, plan: dict, shared_kind: bool = False) -> str:
-    """`cmes_<number>_<KIND>`, stable across syncs. A kind held by several plans
-    (two PEG from two employers) adds the plan's name so each keeps its own id."""
-    name = re.sub(r"[^a-z0-9]+", "-", plan["name"].lower()).strip("-")
-    kind = plan["planKind"]
-    slug = (f"{kind}-{name}" if shared_kind else kind) if kind else name
-    return f"cmes_{number}_{slug}"[:100]
+def _slug(label: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
+
+
+def plan_external_id(number: str, label: str) -> str:
+    """`cmes_<number>_<slug>-<digest>`, from the saver number and the plan's full
+    label alone: a plan keeps its id whatever other plans the page lists beside
+    it. The slug only helps a human reading the table; the digest of the exact
+    label keeps apart two labels that slug alike ("ACME+A" and "ACME A")."""
+    digest = hashlib.sha256(label.encode()).hexdigest()[:16]
+    return f"cmes_{number}_{_slug(label)[:40].rstrip('-')}-{digest}"
+
+
+def legacy_external_ids(number: str, plans: list[dict]) -> list[str | None]:
+    """The ids earlier builds gave these plans, so the backend can move an
+    account still carrying one to its new id with its history.
+
+    Those ids were `cmes_<number>_<KIND>`, with the name added only when another
+    plan of the same fetch shared the kind. An id two plans of this fetch would
+    both claim names neither: None, and the backend leaves the old account be.
+    """
+    kinds = Counter(plan["planKind"] for plan in plans)
+    ids = []
+    for plan in plans:
+        kind, name = plan["planKind"], _slug(plan["name"])
+        slug = (f"{kind}-{name}" if kinds[kind] > 1 else kind) if kind else name
+        ids.append(f"cmes_{number}_{slug}"[:100])
+    claimed = Counter(ids)
+    return [legacy if claimed[legacy] == 1 else None for legacy in ids]
 
 
 async def _situation(client: httpx.AsyncClient) -> str:
@@ -717,12 +741,15 @@ async def _collect_plans(client: httpx.AsyncClient) -> list[PlanPayload]:
     page = await _situation(client)
     employer, number = parse_profile(page)
     plans = parse_situation(page)
-    kinds = Counter(plan["planKind"] for plan in plans)
+    external_ids = [plan_external_id(number, plan["name"]) for plan in plans]
+    if len(set(external_ids)) != len(external_ids):
+        raise UpstreamError("UPSTREAM_FORMAT_CHANGED", "Two plans share an external id")
     payloads = []
-    for plan in plans:
+    for plan, external_id, legacy_id in zip(plans, external_ids, legacy_external_ids(number, plans)):
         positions = [await fetch_fund(client, fund) for fund in plan["funds"]]
         payloads.append({
-            "externalId": plan_external_id(number, plan, kinds[plan["planKind"]] > 1),
+            "externalId": external_id,
+            "legacyExternalId": legacy_id,
             "name": plan["name"],
             "planKind": plan["planKind"],
             "employer": employer,
@@ -806,7 +833,8 @@ def _http_error(exc: Exception) -> HTTPException:
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok"}
+    base = os.environ.get("PICSOU_SIDECAR_BASE")
+    return {"status": "ok", "base": base} if base else {"status": "ok"}
 
 
 @app.post("/initiate", response_model=InitiateResponse)

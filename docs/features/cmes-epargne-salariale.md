@@ -27,8 +27,9 @@ speaks HTTPS with `httpx`, on the shared `sidecar-python` base.
    (`SOSD_OTP_CancelTransaction`).
    **Code by SMS** (seen live on a CIC saver's access): the same page instead holds a form with
    `otp_password`. `/initiate` answers `mfaType: "SMS"`, `/complete` posts the code with the
-   page's hidden fields and no button (the page's buttons ask for another channel or a new
-   code). A wrong code brings the same form back with an error: `INVALID_OTP`, and the attempt
+   page's hidden fields and its named submit button, `_FID_CheckOrDeliverBackup`, as the browser
+   sends it. That button is what checks the code: a post without it only refreshes the page, and
+   the site answers it by sending a new SMS. A wrong code brings the same form back with an error: `INVALID_OTP`, and the attempt
    stays open for another try (if the pending pool is full it cannot be kept, and is disposed of).
    Digipass and Safetrans answer `MFA_TYPE_UNSUPPORTED`. A polling request that fails withdraws
    the confirmation from the phone before reporting the error, like the timeout does.
@@ -45,9 +46,20 @@ speaks HTTPS with `httpx`, on the shared `sidecar-python` base.
    since the form carries the page state, and the button is sent with the value it was served
    with. A fund page that lands on the login or strong-authentication page reads as
    `SESSION_EXPIRED`, so the backend logs in again.
-5. **Plan ids**: `cmes_<saver number>_<KIND>` (PEE, PEG, PERCOL…). When several plans of one
-   fetch share a kind (two PEG from two employers), each gets `cmes_<number>_<KIND>-<name slug>`;
-   a plan without a known kind uses its name slug.
+5. **Plan ids**: `cmes_<saver number>_<label slug>-<digest>`, where the digest is the first 16
+   hex characters of the SHA-256 of the plan's full label. The id depends on the saver number
+   and that label only, never on the other plans listed beside it, so a plan keeps its id when
+   another plan opens or closes. The slug (40 characters at most) is for a human reading the
+   table; the digest keeps apart labels that slug alike ("ACME+A" and "ACME A"). The page never
+   lists one label twice, and `/positions` refuses a fetch where two plans would share an id
+   (`UPSTREAM_FORMAT_CHANGED`). The site shows no plan identifier of its own: the plan rows only
+   carry positional ids.
+   Earlier builds used `cmes_<number>_<KIND>`, adding the name slug only when another plan of the
+   same fetch shared the kind. That id changed as plans came and went, and "Plan d'épargne
+   entreprise" and "Plan d'épargne interentreprises" could take each other's. Each plan also
+   carries `legacyExternalId`, the id those builds would give it in this fetch (null when two
+   plans of the fetch would claim the same one), so the backend can move an old account to the
+   new id. It can go once every deployment has synced on this version.
 
 Every read is reconciled: the funds must add up to the plan total, units × unit value must give
 the fund value, and the fund page must agree with the situation page. Anything else fails the
@@ -73,6 +85,10 @@ could not log in again. Rate limits per IP: `/auth/initiate` 5 per 15 min (each 
 password to the site, which locks an access after a few failures); `/auth/complete` has its own
 budget of 10 per 15 min.
 
+An account still carrying a plan's `legacyExternalId` moves to the new id on the first sync:
+same row, so its snapshots and history stay with the plan, and the close-at-zero below does not
+see it as unlisted. A plan whose account was soft-deleted under either id is not imported again.
+
 A plan that a complete fetch no longer lists (closed or transferred) is closed at zero: balance
 0, holdings removed, a zero snapshot for the day. It is not soft-deleted, since a soft-deleted
 account reads as removed by the user and is never imported again; a plan that reappears is
@@ -91,7 +107,20 @@ With `otpRetryable`, a wrong SMS code keeps the attempt and the panel stays on t
 
 The "Sync all" modal lists CMES: a live session syncs in place (`POST /cmes/sync`), also from
 the "Sync all" button. An expired session routes to the `cmes` tab, including one whose first
-sync expired before any account was created (a stored session is never `IDLE`).
+sync expired before any account was created (a stored session is never `IDLE`). Demo mode
+answers every `/cmes/*` call with the disconnected status (`frontend/src/demo/index.ts`), so the
+modal lists no CMES row there.
+
+### Other surfaces
+
+- **Account deletion** (`AccountConnectionService`): `cmes_` accounts resolve to the member's
+  CMES connection. Deleting the last one also deletes the session and its stored credentials
+  (`clearSession`), so the scheduled sync stops; while another plan remains, the session stays.
+- **MCP**: `get_sync_status` reports a `cmes` line, with `INVALID_CREDENTIALS` read as
+  `NEEDS_REAUTH` like `SESSION_EXPIRED` (the rejected password was cleared, only the saver can
+  give it again). `trigger_broker_sync` includes `cmes`.
+- **Instance status**: `cmes-auth` is probed on the `sidecar-python` base whenever a CMES session
+  is stored; `/health` reports the base from `PICSOU_SIDECAR_BASE`.
 
 ## Key files
 
@@ -103,7 +132,13 @@ sync expired before any account was created (a stored session is never `IDLE`).
 - `docker/nginx.conf`, `frontend/nginx.conf`: `/api/cmes/auth/complete` gets 180 s, the
   confirmation can take two minutes.
 
+## Deployment
+
+The `cmes-auth` image is built on `services/base` (target `python`) like the other browserless
+sidecars and published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. Compose starts it with no
+published port; the backend reaches it at `CMES_AUTH_URL` (default `http://cmes-auth:8001`) with
+the shared `APP_SIDECAR_API_KEY`. See `docs/features/docker-deployment.md`.
+
 ## Not covered yet
 
 - Operations history, and the per-maturity breakdown (availability dates) of each fund.
-- The account-page disconnect action does not list this source yet.

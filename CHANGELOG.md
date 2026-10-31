@@ -32,8 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   received by SMS. While the site remembers the device, the daily sync logs in again with the
   stored credentials without asking; once it asks for a new confirmation, the sync reports the
   session as expired and the saver reconnects from the CMES tab. A plan the site no longer lists
-  is closed at zero instead of keeping its last balance. It is listed in the dashboard's
-  *Sync all* modal like the other session connectors.
+  is closed at zero instead of keeping its last balance. Each plan's id comes from its full
+  label alone, so it stays the same when another plan opens or closes; an account created with
+  an earlier id moves to the new one with its history. It is listed in the dashboard's
+  *Sync all* modal, MCP `get_sync_status` and `trigger_broker_sync`, and the admin
+  instance-status check like the other session connectors. Deleting its last account also
+  removes the stored session and credentials.
   See [docs](docs/features/cmes-epargne-salariale.md).
 - **Shared sidecar base images.** Nine sidecars now build on two shared images,
   `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker

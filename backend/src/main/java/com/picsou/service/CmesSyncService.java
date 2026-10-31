@@ -396,6 +396,7 @@ public class CmesSyncService {
 
             prepared.add(new PreparedPlan(
                 externalId,
+                plan.legacyExternalId() == null ? null : stableExternalId(plan.legacyExternalId()),
                 accountName(plan),
                 plan.balanceEur(),
                 investedAmount(plan, positions),
@@ -511,23 +512,36 @@ public class CmesSyncService {
         }));
     }
 
+    /**
+     * Earlier builds derived a plan's id from its family and the other plans
+     * listed beside it. An account still carrying such an id moves to the plan's
+     * new id here, so its history follows the plan instead of a fresh account
+     * starting next to a zeroed one. A deleted account stays deleted under
+     * either id.
+     */
     private void upsertAccount(PreparedPlan data, FamilyMember member, Long memberId, Instant syncedAt) {
+        String legacyId = data.legacyExternalId();
         Optional<Account> existing = accountRepository
-            .findByExternalAccountIdAndMemberId(data.externalId(), memberId);
+            .findByExternalAccountIdAndMemberId(data.externalId(), memberId)
+            .or(() -> legacyId == null
+                ? Optional.empty()
+                : accountRepository.findByExternalAccountIdAndMemberId(legacyId, memberId));
         if (existing.isEmpty()
-            && accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), memberId)) {
+            && (accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), memberId)
+                || (legacyId != null
+                    && accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(legacyId, memberId)))) {
             log.info("CMES skipped a soft-deleted account (member={})", memberId);
             return;
         }
 
         Account account = existing.orElseGet(() -> Account.builder()
             .member(member)
-            .externalAccountId(data.externalId())
             .provider(PROVIDER)
             .currency("EUR")
             .isManual(false)
             .color(ACCOUNT_COLOR)
             .build());
+        account.setExternalAccountId(data.externalId());
         account.setName(data.name());
         account.setType(AccountType.EMPLOYEE_SAVINGS);
         account.setProvider(PROVIDER);
@@ -705,10 +719,6 @@ public class CmesSyncService {
         }
     }
 
-    public void resyncIfSessionActive(Long memberId) {
-        resyncReporting(memberId); // ignore return
-    }
-
     private SessionStatusResponse toStatus(CmesSession session) {
         return new SessionStatusResponse(
             session.isActive(),
@@ -814,6 +824,7 @@ public class CmesSyncService {
     private record SyncJob(Long sessionId, Long memberId, String plainState) {}
     private record PreparedPlan(
         String externalId,
+        String legacyExternalId,
         String name,
         BigDecimal balanceEur,
         BigDecimal investedAmountEur,
