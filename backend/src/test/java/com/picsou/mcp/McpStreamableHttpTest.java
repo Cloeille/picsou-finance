@@ -120,11 +120,15 @@ class McpStreamableHttpTest {
                     {"jsonrpc":"2.0","id":2,"method":"tools/list"}
                     """));
                 assertThat(catalogue.path("result").path("tools").findValuesAsText("name"))
-                    .contains("list_accounts");
+                    .contains("list_accounts", "list_goals");
 
-                JsonNode accounts = rpc(post(http, bearer, session, """
+                HttpResponse<String> accountsResponse = post(http, bearer, session, """
                     {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_accounts","arguments":{}}}
-                    """));
+                    """);
+                assertThat(accountsResponse.headers().firstValue("Content-Type").orElse(""))
+                    .as("A tool call completes as a stream, through the ASYNC dispatch")
+                    .startsWith("text/event-stream");
+                JsonNode accounts = rpc(accountsResponse);
                 assertThat(accounts.path("result").path("isError").asBoolean()).isFalse();
                 String text = accounts.path("result").path("content").get(0).path("text").asText();
                 assertThat(mapper.readTree(text).findValuesAsText("name")).containsExactly(ownAccountName);
@@ -133,8 +137,10 @@ class McpStreamableHttpTest {
                 JsonNode denied = rpc(post(http, bearer, session, """
                     {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"list_goals","arguments":{}}}
                     """));
-                assertThat(denied.path("result").path("isError").asBoolean() || denied.hasNonNull("error"))
-                    .as("A token without goals:read must not read goals").isTrue();
+                assertThat(denied.path("result").path("isError").asBoolean())
+                    .as("A token without goals:read must be refused the tool").isTrue();
+                assertThat(denied.path("result").path("content").get(0).path("text").asText())
+                    .contains("goals:read");
 
                 HttpResponse<String> api = http.send(HttpRequest.newBuilder(base().resolve("/api/accounts"))
                     .timeout(Duration.ofSeconds(30)).header("Authorization", "Bearer " + bearer).GET().build(),
@@ -146,6 +152,9 @@ class McpStreamableHttpTest {
                     .header("Mcp-Session-Id", session).header("MCP-Protocol-Version", "2025-11-25")
                     .DELETE().build(), HttpResponse.BodyHandlers.ofString());
                 assertThat(closed.statusCode()).isEqualTo(200);
+                assertThat(post(http, bearer, session, """
+                    {"jsonrpc":"2.0","id":5,"method":"tools/list"}
+                    """).statusCode()).as("A closed session is gone").isEqualTo(404);
             }
         }
     }
