@@ -163,7 +163,7 @@ async def test_unrelated_frame_url_containing_hcaptcha(page):
 async def test_challenge_inserted_after_first_poll(page):
     await page.set_content('<main>Waiting</main>')
     assert not await captcha.visible(page)
-    async with page.expect_event("framenavigated", predicate=lambda frame: "hcaptcha.com" in frame.url):
+    async with page.expect_event("framenavigated", predicate=lambda frame: captcha._is_hcaptcha_url(frame.url)):
         await page.evaluate("""() => {
             const frame = document.createElement('iframe');
             frame.src = 'https://hcaptcha.com/challenge';
