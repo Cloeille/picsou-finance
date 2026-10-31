@@ -62,6 +62,10 @@ jobs:
             docker-entrypoint:
               - *workflows
               - 'docker/**'
+              - 'docker-compose.yml'
+              - 'frontend/Dockerfile'
+              - 'frontend/nginx.conf'
+              - 'frontend/picsou-realip.conf'
             backend:
               - *workflows
               - 'backend/**'
@@ -156,8 +160,26 @@ jobs:
         run: python3 -m pip install pytest
       - name: Test preflight ordering, failure isolation, and API readiness
         run: python3 -m pytest docker/tests/test_deploy.py -v
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      # A cold build downloads every Maven and bun dependency, and Maven Central answers
+      # shared runner IPs with 429 Too Many Requests. Reusing the layers of the release
+      # build (docker.yml, scope `app`) and of earlier smoke builds keeps registries out
+      # of the run unless backend/pom.xml, frontend/package.json or frontend/bun.lock
+      # changed, or the cached layers are missing (evicted or cache unavailable).
+      # mode=max is required: the dependency layers live in the build stages, not the
+      # final image. ignore-error keeps a cache export failure from failing the job.
       - name: Build the real release image for migration smoke tests
-        run: docker build --tag picsou-release-smoke:test --file docker/Dockerfile .
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          tags: picsou-release-smoke:test
+          load: true
+          cache-from: |
+            type=gha,scope=release-smoke
+            type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=release-smoke,ignore-error=true
       - name: Exercise packaged CLI, repeat deployment, and incompatible-schema isolation
         env:
           PICSOU_RELEASE_TEST_IMAGE: picsou-release-smoke:test
@@ -176,8 +198,14 @@ jobs:
           python-version: '3.12'
       - name: Check entrypoint syntax
         run: bash -n docker/entrypoint.sh
+      - name: Install Docker proxy test runner
+        run: python3 -m pip install pytest
       - name: Test secrets passed to the backend process
         run: python -m unittest discover -s docker/tests -p 'test_entrypoint.py' -v
+      - name: Test trusted proxy client address forwarding
+        run: |
+          docker info > /dev/null
+          python3 -m pytest docker/tests/test_proxy_client_ip.py -v
 
   backend:
     needs: changes

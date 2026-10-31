@@ -1,6 +1,6 @@
 # Feature: Migration-safe release deployment
 
-> Last updated: 2026-10-16
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -16,15 +16,27 @@ only as a temporary workaround for issue #174, not a lasting production migratio
 
 ## Usage
 
-Run from a checkout containing these tools on the Docker host. Requires Bash, Docker Compose v2,
+Run from a checkout containing these tools on the Docker host. Requires Bash, Docker Compose v2.17+,
 `flock`, `curl`, Python 3 (private Compose override generation), PostgreSQL-owner privileges to create/drop a temporary database, and sufficient
 space for a full backup plus a restored copy. Configure `docker/.env` and matching sidecars as usual.
+The proxy health wait uses `up --wait --wait-timeout`, supported since
+[Compose v2.17.0](https://github.com/docker/compose/releases/tag/v2.17.0).
 No provider login is performed by preflight. Use an image built from this change or a later release;
 earlier images do not contain the standalone CLI and fail before app replacement.
 On a completely new installation, supply the documented bootstrap admin configuration or complete
 the setup wizard before expecting API 401. While setup is incomplete, the real backend returns
 503 `setup_required`; migrations may already have succeeded, but this tool intentionally does not
 declare the application ready. Complete setup and rerun the idempotent workflow.
+
+Before upgrading, check the new `tls-proxy` subnet `172.30.253.0/29` against existing
+Docker, LAN, and VPN networks. The app always joins this bridge, so this check applies to
+non-TLS installs too. If Docker reports `networks have overlapping IPv4`, both `deploy.sh` and
+`docker compose up -d` cannot proceed. If it conflicts, set `PICSOU_PROXY_SUBNET`, `PICSOU_PROXY_IP`,
+and `PICSOU_PROXY_IP_RANGE` together in your existing `docker/.env` before running the upgrade.
+Choose an unused subnet, a usable proxy address within it, and an automatic allocation range
+inside that subnet. Keep the proxy address and gateway outside the range, with at least two
+usable addresses in the range for the live app and a migration container. See the
+[proxy network requirements](./docker-deployment.md#trusted-proxy-client-addresses).
 
 ```sh
 bash docker/deploy.sh ghcr.io/cloeille/picsou-finance:1.1.0 \
@@ -72,10 +84,18 @@ such as `/var/backups/picsou`, not a shared directory like `/var/backups` or `$H
    the same image. Flyway executes packaged SQL, with strict validation, out-of-order migrations,
    and the existing narrowly matched legacy-renumbering callback. No baseline, clean, or broad
    history repair is attempted.
-5. Recreate only `app` with the pinned image. Require that this project's `app` container is
-   running the candidate image ID, then probe `/api/auth/me` without credentials. A bounded wait
-   must receive HTTP **401**. Static HTML 200, redirects, gateway 502, and connection failure never
-   report success.
+5. Recreate `app` with the pinned image. Require that this project's `app` container is
+   running the candidate image ID. If a bundled TLS `proxy` was running when deployment started,
+   force-recreate it with `--no-deps` to apply its current networks and Caddyfile without
+   replacing the pinned app again. This migrates older, default-network-only Caddy containers
+   to `tls-proxy`, where `app-tls` resolves and Caddy uses nginx's trusted peer address.
+   Certificate and configuration volumes are preserved. Wait up to 60 seconds for the recreated
+   proxy's health check with `--wait --wait-timeout 60`; recreation or health failure exits nonzero
+   with a TLS proxy error before probing the API, even if the app's published HTTP port responds.
+   Stopped or absent proxies remain untouched, even when the `tls` profile is enabled.
+   Then probe `/api/auth/me` without credentials.
+   A bounded wait must receive HTTP **401**. Static HTML 200, redirects, gateway 502, and connection
+   failure never report success.
 
 On every exit, success or failure, an `EXIT` trap drops the temporary database and removes the
 temporary credentials/configuration. The backup is retained. A `SIGKILL` or power loss skips the
@@ -160,7 +180,12 @@ container. Do not put passwords in command arguments or print `compose config` i
 - `python3 -m pytest docker/tests/test_deploy.py -v`: real shell script exercised against command
   doubles, checking ordering, failure isolation, cleanup, image pinning, real API readiness gates,
   refusal of an unknown Compose project, the post-cutover image check, the backup-directory mode,
-  the previous-image record, and the free-space check. CI also runs `shellcheck -x docker/deploy.sh`.
+  the previous-image record, and the free-space check. It also checks that a running TLS proxy
+  is recreated after the app check and before the API probe, while migration or cutover failures
+  leave it untouched and proxy recreation or health-wait failures return nonzero without reporting
+  deployment success. Absent proxies are not started.
+  Stopped proxies stay stopped with no TLS profile, `--profile tls`, or `COMPOSE_PROFILES=tls`.
+  CI also runs `shellcheck -x docker/deploy.sh`.
 - `ReleaseMigrationCliConfigurationTest` (no Docker): Spring Boot naming-strategy parity, the
   discovered named enums, and redaction of an unreachable connection.
 - `ReleaseMigrationCliTest`: real PostgreSQL migration chain, repeated migration, lower-version gaps,
@@ -169,8 +194,11 @@ container. Do not put passwords in command arguments or print `compose config` i
   full isolated production Compose smoke test using synthetic data. It covers refusal of an unknown
   project without `--fresh`, the packaged JAR via
   Spring Boot's `PropertiesLauncher`, normal entrypoint/API 401, repeat deployment with data preserved,
+  an upgrade from the old default-network-only Caddy layout to `tls-proxy` with the current
+  `app-tls` upstream, HTTPS API 401 using the preserved internal CA,
   missing physical schema and future-history failures that leave the running API untouched. CI builds
-  the actual release image and runs it. With no image supplied, only this expensive integration test skips.
+  the actual release image (layer-cached, see [Docker deployment](./docker-deployment.md#tests)) and
+  runs it. With no image supplied, only this expensive integration test skips.
 - Migration CLI errors return nonzero with an allow-listed diagnosis; tests assert that it names the
   table, column, migration or enum while never containing the JDBC URL, user name or password.
 - Not covered: an image pulled from a registry under the containerd image store. The script checks

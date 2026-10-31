@@ -89,6 +89,12 @@ two months at 12 percent has an exact annuity of `51.005`, rounded to `51.01`,
 leaving insurance of `28.99` from a payment of 80. Tiny positive rates remain
 supported. A loan of 12,000.24 over 48 months at `2e-100` percent with a payment
 of 280 gives an annuity of `250.01` and insurance of `29.99`.
+
+Both loan parsers accept integer durations from 1 through 600 months (50 years).
+The ceiling bounds the cost of the exact rational annuity fallback. A duration of
+601 months or more raises `INVALID_LOAN_DETAIL` before date or insurance
+calculations, leaving only that loan unavailable.
+
 An amount of 10^26 or more still cannot be
 rounded to the cent and refuses the detail (`INVALID_LOAN_DETAIL`).
 A detail that cannot be read (loan OAuth refused, 5xx, format change) leaves the
@@ -112,9 +118,10 @@ month (a loan due on the 31st and ending 2042-05-31 over 4 installments starts
 2042-02-28; the backend takes the due day back from the last due date). The
 backend also leaves the Debt as it was when an amount does not fit its
 `NUMERIC(20, 8)` columns (10^12 or more), so the import goes on. A
-duration that puts that date out of range refuses the detail
-(`INVALID_LOAN_DETAIL`). The debit account comes without
-its IBAN, so `linkedIban` is null and the backend keeps whatever account the
+duration within the 600-month limit can still put the first due date before
+year 1 when the last due date is early enough. This refuses only that loan's
+detail (`INVALID_LOAN_DETAIL`); the other accounts are still imported. The debit
+account comes without its IBAN, so `linkedIban` is null and the backend keeps whatever account the
 user linked the loan's Debt to (often the financed property). As for a personal
 loan, the insurance is the installment minus the annuity, both to the cent:
 `0.00` when they match (e.g. the insurance is taken elsewhere), nothing when the
