@@ -29,6 +29,7 @@ CREATE TABLE account (
     member_id  BIGINT  NOT NULL DEFAULT 1,
     is_manual  BOOLEAN NOT NULL DEFAULT TRUE,
     card_nature VARCHAR(20),
+    hidden     BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at TIMESTAMP
 );
 

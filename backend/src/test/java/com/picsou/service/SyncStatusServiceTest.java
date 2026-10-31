@@ -19,6 +19,8 @@ import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.WalletAddressRepository;
 import com.picsou.model.BoursoSyncStatus;
 import com.picsou.model.AmundiSyncStatus;
+import com.picsou.model.CmesSyncStatus;
+import com.picsou.port.CmesErrorCode;
 import com.picsou.model.BourseDirectSyncStatus;
 import com.picsou.model.FortuneoSyncStatus;
 import com.picsou.model.AmexSyncStatus;
@@ -51,6 +53,7 @@ class SyncStatusServiceTest {
     @Mock BoursoSyncService boursoSyncService;
     @Mock BourseDirectSyncService bourseDirectSyncService;
     @Mock AmundiSyncService amundiSyncService;
+    @Mock CmesSyncService cmesSyncService;
     @Mock FortuneoSyncService fortuneoSyncService;
     @Mock AmexSyncService amexSyncService;
     @Mock IbkrConnectionRepository ibkrConnectionRepository;
@@ -66,7 +69,7 @@ class SyncStatusServiceTest {
     void setUp() {
         service = new SyncStatusService(
             revolutSyncService, requisitionRepository, tradeRepublicSyncService, tradeRepublicSessionRepository,
-            boursoSyncService, bourseDirectSyncService, amundiSyncService, fortuneoSyncService,
+            boursoSyncService, bourseDirectSyncService, amundiSyncService, cmesSyncService, fortuneoSyncService,
             amexSyncService, ibkrConnectionRepository, simplefinConnectionRepository, cryptoExchangeSyncService,
             walletAddressRepository,
             finarySessionRepository, degiroSessionRepository);
@@ -81,6 +84,7 @@ class SyncStatusServiceTest {
             new BourseDirectSyncService.SessionStatusResponse(false, null, BourseDirectSyncStatus.IDLE, null, null, null));
         when(amundiSyncService.getStatus(MID)).thenReturn(
             new AmundiSyncService.SessionStatusResponse(false, AmundiSyncStatus.IDLE, null, null, null));
+        when(cmesSyncService.getStatus(MID)).thenReturn(CmesSyncService.SessionStatusResponse.inactive());
         when(fortuneoSyncService.getStatus(MID)).thenReturn(
             new FortuneoSyncService.SessionStatusResponse(false, null, FortuneoSyncStatus.IDLE, null, null, null));
         when(amexSyncService.getStatus(MID)).thenReturn(
@@ -119,6 +123,21 @@ class SyncStatusServiceTest {
             false, AmexSyncStatus.FAILED, null, SYNCED_AT, AmexErrorCode.SESSION_EXPIRED));
         String expired = service.describe(MID);
         assertThat(expired).contains("amex: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true — SESSION_EXPIRED");
+    }
+
+    @Test
+    void cmesReportsItsConnectionAndAskForAReconnectionOnceItsPasswordIsRejected() {
+        assertThat(service.describe(MID)).contains("cmes: NOT_CONNECTED lastSync=none reauth=false");
+
+        when(cmesSyncService.getStatus(MID)).thenReturn(new CmesSyncService.SessionStatusResponse(
+            true, CmesSyncStatus.SUCCESS, null, SYNCED_AT, null));
+        assertThat(service.describe(MID)).contains("cmes: CONNECTED lastSync=2026-10-04T06:00:00Z reauth=false");
+
+        // The rejected password was forgotten: only the saver can give it again.
+        when(cmesSyncService.getStatus(MID)).thenReturn(new CmesSyncService.SessionStatusResponse(
+            false, CmesSyncStatus.FAILED, null, SYNCED_AT, CmesErrorCode.INVALID_CREDENTIALS));
+        assertThat(service.describe(MID))
+            .contains("cmes: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true — INVALID_CREDENTIALS");
     }
 
     @Test

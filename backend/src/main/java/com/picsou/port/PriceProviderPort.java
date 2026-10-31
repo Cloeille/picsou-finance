@@ -24,6 +24,13 @@ public interface PriceProviderPort {
     boolean supports(String ticker);
 
     /**
+     * Whether this provider prices {@code ticker} as a crypto asset. Crypto-only callers ask
+     * this, not {@link #supports}: a symbol the crypto source cannot map may still be a listed
+     * equity (REG is RealToken's governance token and Regency Centers on Nasdaq).
+     */
+    boolean supportsCrypto(String ticker);
+
+    /**
      * Daily historical prices in EUR for a ticker over {@code [from, to]}.
      * Returns an empty map for an expected upstream failure (the caller treats
      * anything thrown as a genuine bug).

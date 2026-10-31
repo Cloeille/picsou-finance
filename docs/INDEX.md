@@ -80,6 +80,7 @@
 | 2026-10-16 | [CORUM and Sofidy syncs create and link their SCPI accounts](./decisions/2026-10-16-scpi-sync-creates-accounts.md) | Active |
 | 2026-10-08 | [Rehearse release migrations before replacing the production API](./decisions/2026-10-08-rehearse-release-migrations.md) | Active |
 | 2026-10-21 | [Sidecars build on two shared base images](./decisions/2026-10-21-shared-sidecar-base-image.md) | Active |
+| 2026-10-27 | [Spring AI 1.1 for the MCP SSE keep-alive](./decisions/2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md) | Active |
 
 ## Feature notes
 
@@ -90,7 +91,7 @@
 | Remote-MCP OAuth (claude.ai connector) | 2026-07-12 | [mcp-oauth-remote.md](./features/mcp-oauth-remote.md) |
 | Internationalization (FR/EN/DE/ES) | 2026-09-02 | [i18n.md](./features/i18n.md) |
 | Frontend utilities (lib/utils.ts) | 2026-08-07 | [frontend-utils.md](./features/frontend-utils.md) |
-| Demo mode | 2026-08-13 | [demo-mode.md](./features/demo-mode.md) |
+| Demo mode | 2026-08-17 | [demo-mode.md](./features/demo-mode.md) |
 | Theme (dark / light / system) + theme-adaptive rendering | 2026-06-02 | [theme-persistence.md](./features/theme-persistence.md) |
 | Dashboard — Time range isolation | 2026-04-13 | [dashboard-time-range-isolation.md](./features/dashboard-time-range-isolation.md) |
 | Bank sync | 2026-08-11 | [bank-sync.md](./features/bank-sync.md) |
@@ -106,6 +107,7 @@
 | Interactive Brokers (IBKR) sync | 2026-07-19 | [ibkr-sync.md](./features/ibkr-sync.md) |
 | DEGIRO sync | 2026-08-05 | [degiro-sync.md](./features/degiro-sync.md) |
 | Amundi Épargne Salariale sync | 2026-08-09 | [amundi-epargne-salariale.md](./features/amundi-epargne-salariale.md) |
+| Crédit Mutuel / CIC Épargne Salariale sync | 2026-10-24 | [cmes-epargne-salariale.md](./features/cmes-epargne-salariale.md) |
 | American Express France credit-card sidecar | 2026-09-28 | [amex-sidecar.md](./features/amex-sidecar.md) |
 | Trade Republic — Holdings deduplication | 2026-05-18 | [trade-republic-holding-deduplication.md](./features/trade-republic-holding-deduplication.md) |
 | ISIN → Ticker conversion | 2026-08-10 | [ISIN_TO_TICKER_CONVERSION.md](./features/ISIN_TO_TICKER_CONVERSION.md) |
@@ -118,9 +120,9 @@
 | Savings goals | 2026-06-02 | [goals.md](./features/goals.md) |
 | Goals — Grid view (donuts) | 2026-06-02 | [goal-calendar-donut.md](./features/goal-calendar-donut.md) |
 | Price service | 2026-08-07 | [price-service.md](./features/price-service.md) |
-| Live prices (holdings) | 2026-05-19 | [live-prices-holdings.md](./features/live-prices-holdings.md) |
+| Live prices (holdings) | 2026-10-31 | [live-prices-holdings.md](./features/live-prices-holdings.md) |
 | Security Insight (asset type + ETF composition) | 2026-06-02 | [security-insight.md](./features/security-insight.md) |
-| Finary import + auto-sync | 2026-04-21 | [finary-import.md](./features/finary-import.md) |
+| Finary import + auto-sync | 2026-08-17 | [finary-import.md](./features/finary-import.md) |
 | HomeBank iOS and desktop history import (.hbk / encrypted .hbexport / .qif) | 2026-10-05 | [homebank-import.md](./features/homebank-import.md) |
 | Manual transactions + holdings derivation | 2026-09-02 | [manual-transactions.md](./features/manual-transactions.md) |
 | Transactions — global view (all accounts) | 2026-06-28 | [transactions-global-view.md](./features/transactions-global-view.md) |

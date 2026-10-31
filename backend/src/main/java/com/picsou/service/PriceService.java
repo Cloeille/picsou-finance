@@ -88,6 +88,15 @@ public class PriceService {
         return quote == null ? null : quote.price();
     }
 
+    /**
+     * EUR per unit of {@code currency}, from the {@code {CURRENCY}EUR=X} pair. Not
+     * {@link #getPriceEur}: that prices an asset, and a currency code can also be a ticker
+     * ({@code USD} is a ProShares ETF). Null when the rate is unavailable.
+     */
+    public BigDecimal getFxRateEur(String currency) {
+        return priceProvider.getFxRateToEur(currency);
+    }
+
     /** {@link #getPriceEur} with the freshness attached. Null when nothing can be resolved. */
     public Quote getQuote(String ticker) {
         return singleQuote(ticker, false);
@@ -146,7 +155,7 @@ public class PriceService {
                 resolved.put(upper, new Quote(BigDecimal.ONE, today, true));
                 continue;
             }
-            if (cryptoOnly && !priceProvider.supports(upper)) {
+            if (cryptoOnly && !priceProvider.supportsCrypto(upper)) {
                 continue;
             }
             CachedPrice cached = priceCache.get(upper);
@@ -170,7 +179,7 @@ public class PriceService {
             .collect(Collectors.toCollection(TreeSet::new));
 
         if (!fetchable.isEmpty()) {
-            Map<String, BigDecimal> live = fetchLive(fetchable, cryptoOnly);
+            Map<String, BigDecimal> live = new HashMap<>(priceProvider.getPricesEur(fetchable));
             Instant fetchedAt = Instant.now();
             for (String ticker : fetchable) {
                 BigDecimal price = live.get(ticker);
@@ -213,17 +222,6 @@ public class PriceService {
         }
 
         return resolved;
-    }
-
-    /** One batched provider call — the composite routes crypto vs stock internally. */
-    private Map<String, BigDecimal> fetchLive(Set<String> tickers, boolean cryptoOnly) {
-        Set<String> fetchable = cryptoOnly
-            ? tickers.stream().filter(priceProvider::supports)
-                .collect(Collectors.toCollection(TreeSet::new))
-            : tickers;
-
-        if (fetchable.isEmpty()) return Map.of();
-        return new HashMap<>(priceProvider.getPricesEur(fetchable));
     }
 
     /**
@@ -280,7 +278,7 @@ public class PriceService {
 
         Set<String> unresolved = tickers.stream()
             .map(t -> t.toUpperCase(Locale.ROOT))
-            .filter(priceProvider::supports)
+            .filter(priceProvider::supportsCrypto)
             .filter(t -> !quotes.containsKey(t))
             .collect(Collectors.toCollection(TreeSet::new));
         if (unresolved.isEmpty()) return quotes;
@@ -321,6 +319,9 @@ public class PriceService {
             String upper = ticker.toUpperCase(Locale.ROOT);
             if ("EUR".equals(upper)) {
                 result.put(upper, BigDecimal.ONE);
+                continue;
+            }
+            if (cryptoOnly && !priceProvider.supportsCrypto(upper)) {
                 continue;
             }
             CachedPrice cached = priceCache.get(upper);
@@ -441,6 +442,7 @@ public class PriceService {
         for (String ticker : tickers) {
             String upper = ticker.toUpperCase(Locale.ROOT);
             if ("EUR".equals(upper)) continue;
+            if (cryptoOnly && !priceProvider.supportsCrypto(upper)) continue;
 
             if (alreadyCovered(upper, from, to)) {
                 skipped++;
@@ -550,5 +552,16 @@ public class PriceService {
 
         String upper = ticker.toUpperCase(Locale.ROOT);
         return priceProvider.getIntradayPricesEur(upper, from, to);
+    }
+
+    /**
+     * {@link #getIntradayPricesEur} for a ticker known to be crypto: a coin CoinGecko does not map
+     * gets no series rather than the hourly closes of the stock sharing its symbol.
+     */
+    public Map<LocalDateTime, BigDecimal> getCryptoIntradayPricesEur(String ticker, LocalDateTime from, LocalDateTime to) {
+        if (ticker == null || !priceProvider.supportsCrypto(ticker.toUpperCase(Locale.ROOT))) {
+            return Map.of();
+        }
+        return getIntradayPricesEur(ticker, from, to);
     }
 }

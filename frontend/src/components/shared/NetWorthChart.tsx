@@ -383,7 +383,7 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
         <AreaChart data={filteredData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
         <defs>
           <linearGradient id="fillTotal" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="var(--color-total)" stopOpacity={0.32} />
+            <stop offset="5%" stopColor="var(--color-total)" style={{ stopOpacity: 'var(--chart-area-opacity)' }} />
             <stop offset="95%" stopColor="var(--color-total)" stopOpacity={0.04} />
           </linearGradient>
           {/* Subtle horizontal fade applied to the projection band so its right

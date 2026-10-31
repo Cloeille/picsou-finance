@@ -54,6 +54,7 @@ services:
       SOFIDY_AUTH_URL: http://sofidy-auth:8001
       AMEX_AUTH_URL: http://amex-auth:8001
       DEGIRO_AUTH_URL: http://degiro-auth:8001
+      CMES_AUTH_URL: http://cmes-auth:8001
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
     depends_on:
       - db
@@ -68,6 +69,7 @@ services:
       - sofidy-auth
       - amex-auth
       - degiro-auth
+      - cmes-auth
     networks:
       - default
       - fortuneo-auth-net
@@ -262,6 +264,19 @@ services:
     image: ghcr.io/cloeille/picsou-finance/degiro-auth:latest
     build:
       context: ../services/degiro-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+
+  cmes-auth:
+    image: ghcr.io/cloeille/picsou-finance/cmes-auth:latest
+    build:
+      context: ../services/cmes-auth
       dockerfile: Dockerfile
       args:
         SIDECAR_BASE: sidecar-python

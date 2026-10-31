@@ -36,6 +36,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 /** Synthetic QIF import against a throwaway PostgreSQL started by Testcontainers. Runs in CI. */
 @DataJpaTest(showSql = false)
@@ -70,6 +71,12 @@ class HomeBankQifPersistenceTest {
 
     @TestConfiguration(proxyBeanMethods = false)
     static class Configuration {
+        /** The fixtures are EUR, so FinaryPersistenceHelper never asks for an FX rate. */
+        @Bean
+        PriceService priceService() {
+            return mock(PriceService.class);
+        }
+
         @Bean
         HomeBankImportService homeBankImportService(HomeBankFileParser parser, AccountRepository accounts,
                 CategoryRepository categories, TransactionRepository transactions, FamilyMemberRepository members,

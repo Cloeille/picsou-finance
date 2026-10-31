@@ -46,6 +46,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 /**
  * End-to-end HomeBank persistence (real Flyway migrations, {@code ddl-auto=validate}, rollback and
@@ -86,6 +87,12 @@ class HomeBankImportPersistenceTest {
 
     @TestConfiguration(proxyBeanMethods = false)
     static class TestServiceConfiguration {
+        /** The fixtures are EUR, so FinaryPersistenceHelper never asks for an FX rate. */
+        @Bean
+        PriceService priceService() {
+            return mock(PriceService.class);
+        }
+
         @Bean
         HomeBankImportService homeBankImportService(HomeBankFileParser parser, AccountRepository accounts,
                 CategoryRepository categories, TransactionRepository transactions, FamilyMemberRepository members,

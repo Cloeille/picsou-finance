@@ -26,6 +26,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commands that fix it. The same pop-up announces a newer Picsou release, read from GitHub at
   most once every 6 hours; `APP_UPDATE_CHECK_ENABLED=false` turns that call off. See
   [feature note](docs/features/admin-instance-status.md).
+- **Crédit Mutuel / CIC Épargne Salariale sync.** A browserless `cmes-auth` sidecar reads the
+  saver's space (www.creditmutuel-ere.fr) and imports each plan (PEE, PEG, PERCOL) with its funds:
+  units, unit value and gain. The login is confirmed once, in the bank's app or with a code
+  received by SMS. While the site remembers the device, the daily sync logs in again with the
+  stored credentials without asking; once it asks for a new confirmation, the sync reports the
+  session as expired and the saver reconnects from the CMES tab. A plan the site no longer lists
+  is closed at zero instead of keeping its last balance. Each plan's id comes from its full
+  label alone, so it stays the same when another plan opens or closes; an account created with
+  an earlier id moves to the new one with its history only if it also carries that plan's name,
+  so a closed plan's history never passes to another plan of the same family. It is listed in the dashboard's
+  *Sync all* modal, MCP `get_sync_status` and `trigger_broker_sync`, and the admin
+  instance-status check like the other session connectors. Deleting its last account also
+  removes the stored session and credentials, and cancels a login still waiting for the
+  phone, so a late approval stores nothing. A plan deleted under its new id stays deleted
+  even while an account from an earlier id is still there.
+  See [docs](docs/features/cmes-epargne-salariale.md).
 - **Shared sidecar base images.** Nine sidecars now build on two shared images,
   `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per
@@ -236,6 +252,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the switches follow the dark theme, category names are no longer cut short on mobile,
   and the "À catégoriser" count sits next to its label.
   ([#283](https://github.com/Cloeille/picsou-finance/issues/283))
+- **First Trade Republic login after a fresh start.** On a cold `tr-auth` container the first
+  login often failed with "please check your credentials" although the phone number and PIN
+  were right: the headless browser had not yet received the AWS WAF token, so Trade Republic's
+  firewall rejected the request. `tr-auth` now waits for the token and retries with a second
+  browser before contacting Trade Republic, and still answers within the backend's 60 s wait.
+  A firewall rejection now reads "Trade Republic blocked the request. Retry in a minute."
+  A Trade Republic timeout or a broken browser no longer reads as a credentials error.
+  (#266)
+- **Primary blue and chart strokes are readable in dark mode.** The dark theme's primary blue
+  was darker than the light one, so blue text, badges ("This device", AI category
+  suggestions) and progress bars sat at about 2:1 on the dark cards, and the dashed "Capital
+  invested" line kept its light-mode dark green. Dark mode now uses a lighter blue with navy
+  labels on blue buttons that stay readable on hover, a lighter chart ramp, and a fainter
+  net-worth area so the "Capital invested" line stands out where it crosses it; every primary
+  text, badge and bar clears WCAG AA. Light mode is unchanged. The demo's Revolut accounts now use the indigo a real
+  Revolut sync assigns (#275).
 - **American Express no longer stores a second copy of a charge AMEX re-describes.** A
   charge that came back under a new label between two syncs (`ANTHROPIC PBC` then
   `ANTHROPIC* CLAUDE SUB   SAN FRANCISCO`) was inserted beside the stored one without its
@@ -250,11 +282,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   did not know: its cards failed the completeness check and the whole sync stopped with
   `UPSTREAM_FORMAT_CHANGED`, the holder's own PEA included. These accounts are now skipped,
   like loans and insurance, since they belong to the child.
+- **Upgrading a 1.0.11–1.0.18 database to 1.1.0.** The backend no longer stops at boot with 13
+  Flyway checksum mismatches (V38, V51, V54–V64). Merging main into 1.1.0 had moved these
+  migrations to new versions, and edited comments in five of them. Before Flyway validates, the
+  backend now moves each of those history rows to its new version, so nothing re-runs, and then
+  applies the 1.1.0 migrations the database never ran
+  ([#265](https://github.com/Cloeille/picsou-finance/issues/265)). Before upgrading, run the
+  duplicate-account check in the
+  [upgrade note](docs/features/docker-deployment.md#upgrading-a-10x-database-to-110): these
+  databases now run V47, which deletes active accounts sharing an external id and member, so the
+  backend refuses to migrate while such duplicates exist, including one synced in while the
+  upgrade runs. Do not run `flyway repair`, and keep
+  Flyway enabled.
+- **Sidebar style prompt shows what each style looks like.** The two miniatures in the
+  first-launch "choose your sidebar style" window now match the real sidebars: logo on the left
+  beside the privacy toggle, two-line nav items, a full-height column with the member row and
+  settings gear at the bottom for the current style, and a shorter card ending on the member row,
+  with Settings among the items, for the classic one. The classic sidebar also stopped cutting
+  long nav subtitles ("Répartition & diversification"); they now wrap to a second line.
+
 - **Account edit and delete buttons on touch screens.** On the Accounts page these buttons
   only appeared on mouse hover, so a phone or tablet never showed them (while a blind tap in
   the card's corner could still hit delete). They now stay visible on touch screens and when
   keyboard focus is inside the card.
-
+- **Hidden accounts no longer count in the budget.** Hiding an account already took it out of
+  the dashboard and allocation views, but its transactions still fed spending, cashflow,
+  envelopes and recurring detection. When the same bank account is synced by two connectors
+  and one copy is hidden, every movement was counted twice. Opening the hidden account itself
+  still lists its transactions.
+- **MCP calls no longer time out after a few idle minutes.** The MCP SSE stream stayed silent
+  between two replies, so clients dropped it as idle (Claude Code after about 6 minutes, the
+  Python MCP SDK after 300 s) and the next call timed out. The server now pings every open
+  session every 60 s (`MCP_KEEP_ALIVE_INTERVAL`). This moves the backend to Spring AI 1.1.8 and
+  Spring Boot 3.5.16; the transport stays HTTP+SSE on `/mcp`. See
+  [ADR](docs/decisions/2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md).
 - **Add account and Sync all now list every sidecar connector.** American Express, CORUM and
   Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
   Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
@@ -624,6 +685,24 @@ information architecture.
   envelope, a drop that never happened. The cash pocket now counts in the hourly
   value and in the invested amount, as the daily chart's today point already did,
   so the gain is unchanged and the two charts agree.
+- **The 24H chart costs a Finary line the way the daily chart does.** A security Finary
+  reports with a value and a gain but no buying value has no average buy-in, and the
+  hourly points charged it nothing, so its whole value read as a gain. They now take the
+  provider's cost (value minus gain) first, as the daily valuation already did. A line
+  with neither a buying value nor a gain takes the daily chart's neutral baseline, the
+  account balance, instead of counting as free units. The average buy-in is read as the
+  EUR figure it is stored as: a Finary wallet put back in USD no longer converts it a
+  second time, which turned an 80 EUR cost into 72 EUR and an 8 EUR gain nobody made.
+- **A crypto token is never priced as the stock that shares its symbol.** The crypto-only
+  price lookups asked the combined price provider whether it supported a symbol, and
+  that provider accepts any stock symbol, so a token CoinGecko does not map reached
+  Yahoo Finance. A Finary wallet holding 10 REG (RealToken, worth 10 EUR) was valued at
+  Regency Centers' share price, 600 EUR, and the daily snapshot recorded it. Crypto
+  lookups, the hourly crypto refresh, the crypto history backfill and the 24H chart's
+  hourly series now stop at CoinGecko, and an unmapped token keeps the value its
+  connector reported. The account page and the portfolio no longer replace that value
+  with a generic live quote either: a crypto account keeps the backend's crypto-only
+  valuation, while a stock sharing the symbol in another account still refreshes live.
 - **Trade Republic and DEGIRO daily snapshots now cost today's positions, not
   yesterday's.** Both syncs took the day's snapshot before replacing the holdings,
   and the snapshot derives its invested amount from the holdings in the table, so
@@ -667,9 +746,19 @@ information architecture.
 - **Mapping a Finary account onto a bank or broker account no longer steals that
   account from its connector.** The Finary id replaced the connector's external
   id, and the connector then created a duplicate at its next sync.
+- **A Finary spreadsheet import no longer maps a row onto an account with a longer
+  name.** The preview looked accounts up with an id that carried the category twice, so
+  a `Savings` row named "Emergency" was matched to the account imported earlier as
+  "Savings Emergency". Accepting the suggestion replaced that account's balance and its
+  synced transactions. The preview now looks up the id the import stores.
 - **A rebuilt Finary or manual-cash history dates each balance at the end of its
   day.** The rebuilt snapshot for a day held the balance before that day's
   transactions, so every point of the rebuilt history was one day off.
+- **A Finary position without a quantity no longer deletes the account's holdings.**
+  The import skipped the line, then replaced the holdings with what was left, so one
+  share Finary sent with `quantity: null` vanished with its cost basis. Such a payload
+  now keeps the account's holdings and cash as they were; an explicit zero still
+  closes the position.
 - The account-deletion dialog scrolls on short screens and wraps long action
   labels without horizontal overflow.
 - Account deletion preserves the last active administrator even when other

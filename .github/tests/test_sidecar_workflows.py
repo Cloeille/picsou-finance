@@ -24,7 +24,14 @@ def _load(path):
 
 
 def _run_commands(job):
-    return "\n".join(step.get("run", "") for step in job["steps"])
+    return "\n".join(step.get("run", "") for step in job.get("steps", []))
+
+
+def _builds_then_runs_image(job, service):
+    commands = _run_commands(job)
+    build = commands.find(f"docker build --tag picsou-{service}:test services/{service}")
+    run = commands.find("docker run", build) if build != -1 else -1
+    return run != -1 and f"picsou-{service}:test" in commands[run:]
 
 
 class SidecarWorkflowInventoryTest(unittest.TestCase):
@@ -69,6 +76,28 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
                 self.assertEqual(entry["context"], f"services/{service}")
                 self.assertEqual(entry["image"], f"${{{{ github.repository }}}}/{service}")
                 self.assertEqual(entry["versioned"], False)
+
+    def test_every_published_sidecar_runs_its_image_tests_before_publishing(self):
+        matrix = _load(DOCKER_WORKFLOW)["jobs"]["build"]["strategy"]["matrix"]["include"]
+        published = sorted(
+            Path(entry["context"]).name
+            for entry in matrix
+            if entry.get("context", "").startswith("services/")
+        )
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        gate = set(jobs["docker"]["needs"])
+        self.assertIn("revolut-auth", published)
+        for service in published:
+            with self.subTest(service=service):
+                testing = {name for name, job in jobs.items() if _builds_then_runs_image(job, service)}
+                self.assertTrue(testing, f"no CI job runs tests in the {service} image")
+                self.assertTrue(gate & testing, f"publishing does not wait for the {service} image tests")
+
+    def test_revolut_job_runs_the_whole_test_directory_in_the_image(self):
+        commands = _run_commands(_load(CI_WORKFLOW)["jobs"]["revolut-auth-sidecar"])
+
+        self.assertIn("services/revolut-auth/tests:/app/tests:ro", commands)
+        self.assertIn("python -m pytest -p no:cacheprovider -p no:logging --asyncio-mode=auto -v tests", commands)
 
     def test_publish_workflow_keeps_both_platforms_and_branch_tagging(self):
         job_text = DOCKER_WORKFLOW.read_text(encoding="utf-8")
@@ -116,7 +145,7 @@ def _shared_base_services():
 class SharedSidecarBaseTest(unittest.TestCase):
     def test_every_non_camoufox_sidecar_builds_on_a_shared_base(self):
         services = _shared_base_services()
-        self.assertEqual(len(services), 9)
+        self.assertEqual(len(services), 10)
         for service in services:
             with self.subTest(service=service):
                 text = (ROOT / "services" / service / "Dockerfile").read_text(encoding="utf-8")

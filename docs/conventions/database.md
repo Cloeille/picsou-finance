@@ -66,8 +66,10 @@ V{n}__description.sql
 | `V30__account_soft_delete.sql` | Soft-delete (`deleted_at`) on `account` |
 | `V31__price_cleanup_gate.sql` | Gate column controlling price-snapshot cleanup |
 | `V32__goal_history_start.sql` | `history_start` column anchoring goal trajectory charts |
+| … | Later numbered migrations continue sequentially (V37+) |
+| `V119__widen_holding_ticker.sql` | `account_holding.ticker` 30→100, `name` 100→255 (Finary RealT codes) |
 
-Note: V8 is absent by design (skipped — never rolled into another migration).
+Note: V8 is absent by design (skipped — never rolled into another migration). Numbering after V32 is not contiguous (V33–V36 unused).
 
 ### Writing a new migration
 
@@ -81,7 +83,9 @@ Note: V8 is absent by design (skipped — never rolled into another migration).
 a version collision. Flyway resolves applied rows by version: the old row stops matching any file
 and the renamed file runs a second time. When it happened anyway (commit 2839c94 moved 1.1.0's
 V80, V81 and V86–V88 to V93–V99), the repair is a Flyway callback that rewrites those history rows
-before validation, matching old version, description and checksum together; see
+before validation, matching old version, description and checksum together. Merging main into
+1.1.0 did it again to the 1.0.x releases' V38 and V54–V64 (#265), and also edited comments in
+applied files: a comment change alters the checksum just like a SQL change. See
 `LegacyMigrationRenumberingCallback` and
 [the upgrade note](../features/docker-deployment.md#upgrading-a-110-install-that-applied-the-old-v80v88-numbering).
 
