@@ -1,10 +1,10 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-10-08 (migration-safe release deployment)
+> Last updated: 2026-10-31 (Crédit Mutuel / CIC Épargne Salariale sidecar)
 
 ## Context
 
-Picsou deploys as the app and ten authentication sidecars orchestrated by `docker/docker-compose.yml`:
+Picsou deploys as the app and twelve authentication sidecars orchestrated by `docker/docker-compose.yml`:
 - **`picsou:latest`** — main app: frontend (Nginx) + backend (Spring Boot), no Python. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
@@ -13,16 +13,18 @@ Picsou deploys as the app and ten authentication sidecars orchestrated by `docke
 - **`caisse-epargne-auth`** — browserless Caisse d'Epargne read sidecar (session replay, no in-app login yet), published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
+- **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (Compose sets `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
 - **`amex-auth`** — American Express login and account sidecar, built with Camoufox/Firefox, published as `ghcr.io/cloeille/picsou-finance/amex-auth`.
 - **`degiro-auth`** — browserless DEGIRO authentication and portfolio sidecar, published as `ghcr.io/cloeille/picsou-finance/degiro-auth`.
 
 All sidecars use the Docker workflow's shared `linux/amd64,linux/arm64` platforms
 and tag strategy. AMEX pins Camoufox `152.0.4-beta.30` and selects the Linux
 archive matching the container architecture (`x86_64` or `arm64`).
-Its GeoIP database is downloaded from the upstream release's direct
-`GeoLite2-City.mmdb` asset URL, without querying the unauthenticated GitHub
-releases API. Download failures still fail the build; no token is baked into
-the image and GeoIP support is retained.
+AMEX and Revolut (each through its `pin_camoufox.py`) download the GeoIP
+database from the upstream release's direct `GeoLite2-City.mmdb` asset URL,
+without querying the unauthenticated GitHub releases API, whose per-IP quota
+shared CI runners exhaust. Download failures still fail the build; no token is
+baked into the image and GeoIP support is retained.
 A push to `1.1.0` publishes `:1.1.0`; `:latest` follows main
 or version-tag pushes, not release-branch pushes. The deployment Compose file
 offers both `image:` and `build:` for AMEX and DEGIRO, like the other sidecars.
@@ -109,11 +111,12 @@ applies through `SidecarBaseUrl`.
 ### Sidecar shared secret — `APP_SIDECAR_API_KEY`
 
 The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank,
-Bourse Direct, Amundi, Fortuneo, DEGIRO, AMEX, CORUM, Sofidy) share one secret.
+Bourse Direct, Amundi, Fortuneo, DEGIRO, AMEX, CORUM, Sofidy, Crédit Mutuel / CIC
+Épargne Salariale) share one secret.
 Generate it with `openssl rand -base64 32`. Both Compose files forward it
 explicitly to the app and to every sidecar service they define, and refuse to
 start when it is missing or empty. The root `docker-compose.yml` defines all
-ten sidecars, as does `docker/docker-compose.yml`. Both explicitly set
+twelve sidecars, as does `docker/docker-compose.yml`. Both explicitly set
 `DEGIRO_AUTH_URL` on the backend rather than relying on its application default.
 Both AMEX service definitions use `init: true` so an init process reaps orphaned
 browser children during repeated logins. The entrypoint does not generate the
@@ -282,6 +285,7 @@ docker compose -f docker/docker-compose.yml up
   → fortuneo-auth (uvicorn:8001, internal only)
   → corum-auth (uvicorn:8001, internal only)
   → sofidy-auth (uvicorn:8001, internal only)
+  → cmes-auth (uvicorn:8001, internal only)
   → amex-auth (uvicorn:8001, internal only)
   → degiro-auth (uvicorn:8001, internal only)
   → postgres:16-alpine (:5432)
@@ -314,6 +318,7 @@ docker save ghcr.io/cloeille/picsou-finance:latest \
   ghcr.io/cloeille/picsou-finance/fortuneo-auth:latest \
   ghcr.io/cloeille/picsou-finance/corum-auth:latest \
   ghcr.io/cloeille/picsou-finance/sofidy-auth:latest \
+  ghcr.io/cloeille/picsou-finance/cmes-auth:latest \
   ghcr.io/cloeille/picsou-finance/amex-auth:latest \
   ghcr.io/cloeille/picsou-finance/degiro-auth:latest \
   | gzip > picsou-release.tar.gz
@@ -323,7 +328,7 @@ docker load < picsou-release.tar.gz
 
 ### Pulling from GHCR
 
-The app and all eleven sidecar images are published by `.github/workflows/docker.yml`
+The app and all twelve sidecar images are published by `.github/workflows/docker.yml`
 (matrix build, one entry per image) **only after CI is green**: backend tests, frontend
 lint/typecheck/unit, Playwright e2e, every sidecar's image tests, the Compose sidecar build
 and the workflow inventory. `ci.yml` calls that workflow on a successful `push` to `main` or a
@@ -344,6 +349,7 @@ docker pull ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/fortuneo-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/corum-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/sofidy-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/cmes-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0
 ```
@@ -360,7 +366,10 @@ Merging main into 1.1.0 (1906d3a) moved migrations that the 1.0.11–1.0.18 rele
 applied: V38 to V94, V54–V63 to V56–V65, V64 to V96. It also added comments to V51 and V55–V58,
 which changes their checksum but not their SQL. The 1.1.0 image then stopped at boot with
 `Migration checksum mismatch` on up to 13 versions
-([#265](https://github.com/Cloeille/picsou-finance/issues/265)).
+([#265](https://github.com/Cloeille/picsou-finance/issues/265)). Release 1.0.6 had applied today's
+V36 `transaction security name` as V33 (1.0.7 renamed it, see the CHANGELOG entry for 1.0.7);
+today's V33 is `budget foundation`, so a 1.0.6 database failed validation too. It is handled the
+same way.
 
 The same callback as below now handles these rows. It moves each one to its new version and, for
 the five edited files, stores the new checksum. A row moves only when its old version,
@@ -405,8 +414,10 @@ you want to keep its own `external_account_id`. Renaming an account does not hel
 V47, ignore the name. Re-run the query and upgrade only once it returns no rows. Rehearse on a
 restored copy.
 
-Covered: every 1.0.x release tag. `nightly` images of main between two tags are matched row by
-row, so a build between 1.0.15 and 1.0.16 that applied only one of V51 and V64 is handled too.
+Covered: every 1.0.x release, including 1.0.6, whose V33 is moved to V36 (1.0.6 has no git tag;
+1.0.2–1.0.5 applied no migration beyond 1.0.1's V32). `nightly` images of main between two tags
+are matched row by row, so a build between 1.0.15 and 1.0.16 that applied only one of V51 and
+V64 is handled too.
 Builds of main from before cfc70930 shipped two V57 files and could not boot, so they left no
 history to repair. A row whose checksum matches no released file is left alone, and Flyway still
 rejects it.
@@ -519,11 +530,13 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - Backend unit tests run separately via `./mvnw test` (not in Docker build — skipped with `-DskipTests`).
 - `LegacyMigrationRenumberingTest` (Testcontainers) upgrades databases built under the old V80–V88
   numbering and a fresh database to head, and checks that a second start changes nothing. It also
-  builds 1.0.18 and 1.0.11 databases from those releases' files (the five comment-edited 1.0.18
-  files are kept verbatim under `src/test/resources/db/legacy-1.0.18`), upgrades them, and
-  compares the resulting schema with a fresh database, and checks that a 1.0.18 database with
-  duplicate external account ids stops before V47 without losing an account, also when a second
-  connection commits the duplicate after the first check, and that account writes wait for V47.
+  builds 1.0.18, 1.0.15, 1.0.11 and 1.0.6 databases from those releases' files (the five
+  comment-edited 1.0.18 files are kept verbatim under `src/test/resources/db/legacy-1.0.18`),
+  upgrades them, and compares the resulting schema with a fresh database. It also checks that a
+  1.0.18 database with duplicate external account ids stops before V47 without losing an account,
+  also when a second connection commits the duplicate after the first check, and that account
+  writes wait for V47. With a Flyway target below V47, or a baseline at or above V47 (`47.0`
+  included), the check is skipped.
 
 ## Links
 

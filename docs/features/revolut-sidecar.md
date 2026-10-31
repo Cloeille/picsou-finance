@@ -145,7 +145,11 @@ installing pinned `pytest` and `pytest-asyncio`, and image publishing waits for 
   regression tests (concurrent-sync 409, stale-lock removal, progress read-back; wallet-parent +
   same-currency sum; shared-key 401 challenge, `/health` exemption, startup refusal);
   run `.venv/bin/python tests/test_*.py` (anyio, no pytest).
-- `services/revolut-auth/Dockerfile` — Camoufox image (Firefox deps + Xvfb + `camoufox fetch`).
+- `services/revolut-auth/Dockerfile` — Camoufox image (Firefox deps + Xvfb + `pin_camoufox.py`).
+- `services/revolut-auth/pin_camoufox.py` — build-time install of the pinned Camoufox
+  `152.0.4-beta.30` browser, its default addons, and the GeoIP database from the release's direct
+  asset URL (camoufox's own `download_mmdb()` queries the rate-limited GitHub releases API);
+  covered by `tests/test_pin_camoufox.py`.
 - `backend/.../adapter/RevolutAdapter.java` — `SidecarWebClientFactory` client → sidecar `/sync` (480 s
   timeout) + a best-effort `/progress` poll side-channel relayed into `SyncProgressService`; maps
   `401`/`408`/`409`/`503`. A 401 carrying the `Picsou-Sidecar-Key` challenge is a key mismatch

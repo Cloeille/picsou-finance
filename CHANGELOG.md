@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Caisse d'Epargne home loans.** A home loan listed in the synthesis was reported as
+  unsupported. The sidecar now reads its detail from the bank's home-loan app (amount borrowed,
+  rate, installment, insurance, first and last due dates) and imports it like a personal loan.
+  A property you linked the mortgage to stays linked when the loan syncs again. A loan due on
+  the 31st keeps that due day in its schedule, even after a shorter month, and a detail with
+  figures out of range, or amounts too large to store, leaves only that loan's details aside
+  instead of failing the import.
+
 - **Received dividends are recognised.** When a dividend lands on a compte-titres or a PEA,
   Picsou matches it to the dividend history it already holds, marks it as a dividend and files
   it under capital income. `GET /api/dividends/received` lists them, with the same id as the
@@ -26,6 +34,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commands that fix it. The same pop-up announces a newer Picsou release, read from GitHub at
   most once every 6 hours; `APP_UPDATE_CHECK_ENABLED=false` turns that call off. See
   [feature note](docs/features/admin-instance-status.md).
+- **Caisse d'Epargne in *Sync all*.** The dashboard's *Sync all* modal lists Caisse d'Epargne
+  like the other session connectors: a live session syncs in place, an expired one opens the
+  Caisse d'Epargne tab, where the keypad and Sécur'Pass login run, and *Sync all* skips it.
+- **Crédit Mutuel / CIC Épargne Salariale sync.** A browserless `cmes-auth` sidecar reads the
+  saver's space (www.creditmutuel-ere.fr) and imports each plan (PEE, PEG, PERCOL) with its funds:
+  units, unit value and gain. The login is confirmed once, in the bank's app or with a code
+  received by SMS. While the site remembers the device, the daily sync logs in again with the
+  stored credentials without asking; once it asks for a new confirmation, the sync reports the
+  session as expired and the saver reconnects from the CMES tab. A plan the site no longer lists
+  is closed at zero instead of keeping its last balance. Each plan's id comes from its full
+  label alone, so it stays the same when another plan opens or closes; an account created with
+  an earlier id moves to the new one with its history only if it also carries that plan's name,
+  so a closed plan's history never passes to another plan of the same family. It is listed in the dashboard's
+  *Sync all* modal, MCP `get_sync_status` and `trigger_broker_sync`, and the admin
+  instance-status check like the other session connectors. Deleting its last account also
+  removes the stored session and credentials, and cancels a login still waiting for the
+  phone, so a late approval stores nothing. A plan deleted under its new id stays deleted
+  even while an account from an earlier id is still there.
+  See [docs](docs/features/cmes-epargne-salariale.md).
 - **Shared sidecar base images.** Nine sidecars now build on two shared images,
   `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per
@@ -220,6 +247,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Phone layout: page margins, the end of each page, and Family.** On a phone, pages ran 4 px
+  from the screen edge while the bottom bar sat 16 px in, and the last card of every page
+  touched the bar. Pages now keep the bar's 16 px margin on every side and end 16 px above it.
+  Family, missing from the bottom bar, now has its own entry
+  and is highlighted on its page. The FR/EN switch made room for it and left the bar; the
+  language stays available in Settings, with all four languages.
 - **First Trade Republic login after a fresh start.** On a cold `tr-auth` container the first
   login often failed with "please check your credentials" although the phone number and PIN
   were right: the headless browser had not yet received the AWS WAF token, so Trade Republic's
@@ -261,6 +294,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   migrations to new versions, and edited comments in five of them. Before Flyway validates, the
   backend now moves each of those history rows to its new version, so nothing re-runs, and then
   applies the 1.1.0 migrations the database never ran
+- **Upgrading a 1.0.6–1.0.18 database to 1.1.0.** The backend no longer stops at boot with
+  Flyway checksum mismatches (V33 on 1.0.6; V38, V51, V54–V64 on 1.0.11–1.0.18). Merging main
+  into 1.1.0 had moved these migrations to new versions, and edited comments in five of them;
+  1.0.6 had applied today's V36 as V33. Before Flyway validates, the backend now moves each of
+  those history rows to its new version, so nothing re-runs, and then applies the 1.1.0
+  migrations the database never ran
   ([#265](https://github.com/Cloeille/picsou-finance/issues/265)). Before upgrading, run the
   duplicate-account check in the
   [upgrade note](docs/features/docker-deployment.md#upgrading-a-10x-database-to-110): these

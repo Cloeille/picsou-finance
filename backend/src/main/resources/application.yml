@@ -206,6 +206,8 @@ app:
     url: ${DEGIRO_AUTH_URL:http://degiro-auth:8001}
   amundi-auth:
     url: ${AMUNDI_AUTH_URL:http://amundi-auth:8001}
+  cmes-auth:
+    url: ${CMES_AUTH_URL:http://cmes-auth:8001}
   amex-auth:
     url: ${AMEX_AUTH_URL:http://amex-auth:8001}
   fortuneo-auth:

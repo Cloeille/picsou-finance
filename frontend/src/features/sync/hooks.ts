@@ -15,6 +15,7 @@ import {
   bourseDirectApi,
   degiroApi,
   amundiApi,
+  cmesApi,
   amexApi,
   fortuneoApi,
   corumApi,
@@ -49,6 +50,7 @@ export const syncKeys = {
   bourseDirect: () => [...syncKeys.all, 'bourse-direct'] as const,
   degiro: () => [...syncKeys.all, 'degiro'] as const,
   amundi: () => [...syncKeys.all, 'amundi'] as const,
+  cmes: () => [...syncKeys.all, 'cmes'] as const,
   amex: () => [...syncKeys.all, 'amex'] as const,
   fortuneo: () => [...syncKeys.all, 'fortuneo'] as const,
   corum: () => [...syncKeys.all, 'corum'] as const,
@@ -586,6 +588,60 @@ export function useClearBourseDirectSession() {
   })
 }
 
+
+// ---------------------------------------------------------------------------
+// Crédit Mutuel Épargne Salariale
+// ---------------------------------------------------------------------------
+
+export function useCmesStatus() {
+  return useSidecarSessionStatus(syncKeys.cmes(), cmesApi.getStatus)
+}
+
+export function useInitiateCmesAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ login, password }: { login: string; password: string }) =>
+      cmesApi.initiateAuth(login, password),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.cmes() })
+    },
+  })
+}
+
+export function useCompleteCmesAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ processId, code }: { processId: string; code?: string }) =>
+      cmesApi.completeAuth(processId, code),
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.cmes(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.cmes() })
+    },
+  })
+}
+
+export function useSyncCmes() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: cmesApi.sync,
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.cmes(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.cmes() })
+    },
+  })
+}
+
+export function useClearCmesSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: cmesApi.clearSession,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.cmes() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
 
 // ---------------------------------------------------------------------------
 // Amundi Épargne Salariale

@@ -11,6 +11,7 @@ import com.picsou.repository.AmundiSessionRepository;
 import com.picsou.repository.BoursoSessionRepository;
 import com.picsou.repository.BourseDirectSessionRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.CmesSessionRepository;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.FortuneoSessionRepository;
@@ -277,6 +278,7 @@ class InstanceStatusServiceTest {
         MockEnvironment env = new MockEnvironment()
             .withProperty("app.bourso-auth.url", "http://property-bourso")
             .withProperty("app.sofidy-auth.url", "http://sofidy")
+            .withProperty("app.cmes-auth.url", "http://cmes")
             .withProperty("app.degiro-auth.url", "http://degiro")
             .withProperty("app.tr-auth.url", "http://tr")
             .withProperty("app.caisse-epargne-auth.url", "http://caisse")
@@ -297,6 +299,7 @@ class InstanceStatusServiceTest {
         var fortuneo = mock(FortuneoSessionRepository.class);
         var corum = mock(CorumSessionRepository.class);
         var sofidy = mock(SofidySessionRepository.class);
+        var cmes = mock(CmesSessionRepository.class);
         when(tr.count()).thenReturn(1L);
         when(bourso.count()).thenReturn(2L);
         when(caisse.count()).thenReturn(3L);
@@ -308,12 +311,13 @@ class InstanceStatusServiceTest {
         when(fortuneo.count()).thenReturn(9L);
         when(corum.count()).thenReturn(10L);
         when(sofidy.count()).thenReturn(11L);
+        when(cmes.count()).thenReturn(12L);
 
         InstanceStatusService wired = new InstanceStatusService(
             disabledReleases(),
             setup,
             env,
-            tr, bourso, caisse, revolut, bourse, degiro, amundi, amex, fortuneo, corum, sofidy,
+            tr, bourso, caisse, revolut, bourse, degiro, amundi, amex, fortuneo, corum, sofidy, cmes,
             "1.1.0");
 
         assertThat(wired.targets())
@@ -321,6 +325,7 @@ class InstanceStatusServiceTest {
             .containsExactly(
                 tuple("bourso-auth", "sidecar-python"),
                 tuple("sofidy-auth", "sidecar-python"),
+                tuple("cmes-auth", "sidecar-python"),
                 tuple("degiro-auth", "sidecar-python"),
                 tuple("tr-auth", "sidecar-chromium"),
                 tuple("caisse-epargne-auth", "sidecar-chromium"),
@@ -339,6 +344,7 @@ class InstanceStatusServiceTest {
 
         assertThat(byName(wired, "tr-auth").url().get()).isEqualTo("http://tr");
         assertThat(byName(wired, "sofidy-auth").url().get()).isEqualTo("http://sofidy");
+        assertThat(byName(wired, "cmes-auth").url().get()).isEqualTo("http://cmes");
         assertThat(byName(wired, "degiro-auth").url().get()).isEqualTo("http://degiro");
         assertThat(byName(wired, "caisse-epargne-auth").url().get()).isEqualTo("http://caisse");
         assertThat(byName(wired, "revolut-auth").url().get()).isEqualTo("http://revolut");
@@ -359,6 +365,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "fortuneo-auth").sessions().getAsLong()).isEqualTo(9L);
         assertThat(byName(wired, "corum-auth").sessions().getAsLong()).isEqualTo(10L);
         assertThat(byName(wired, "sofidy-auth").sessions().getAsLong()).isEqualTo(11L);
+        assertThat(byName(wired, "cmes-auth").sessions().getAsLong()).isEqualTo(12L);
     }
 
     private static AppSetting setting(String value) {
