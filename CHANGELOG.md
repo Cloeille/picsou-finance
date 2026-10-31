@@ -406,13 +406,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
   Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
   of disappearing.
-- **Revolut tells you when it asks for a captcha instead of counting down for a push that never
-  comes.** Revolut can answer the phone number with an image challenge; the sidecar used to type
-  nothing further, then show "Approve the connection in your Revolut app… (300s left)" until it
-  timed out. It now stops at once and every Revolut sync screen says Revolut is asking for a human
-  verification and that no approval was sent. A sign-in page the sidecar does not recognise, or a
-  step of it that times out (previously an unexplained server error), is reported the same way.
-  Solving the challenge from Picsou is not available yet. See
+- **Revolut stops the approval wait when a captcha blocks login.** A visible challenge now takes
+  precedence over passcode fields and is checked again after passcode entry and during approval.
+  The sidecar returns `HUMAN_VERIFICATION_REQUIRED` and clears the countdown when a challenge
+  appears later. The error text reports the blocked sign-in without claiming whether a push was
+  sent. An unknown post-phone page or a login step that times out returns
+  `UPSTREAM_FORMAT_CHANGED`. Human challenge completion remains unavailable. See
   [feature note](docs/features/revolut-sidecar.md).
 - **BoursoBank account names show apostrophes and ampersands as typed.** A name such as
   `LIVRET D'EPARGNE` was stored as `LIVRET D&#039;EPARGNE` and shown that way in the

@@ -1345,7 +1345,7 @@
         "harvesting": "Fetching your accounts… ({{count}} found)"
       },
       "errors": {
-        "humanVerificationRequired": "Revolut te pide demostrar que eres humano (captcha) y Picsou no puede hacerlo por ti. No se envió ninguna aprobación a tu teléfono. Inténtalo de nuevo más tarde.",
+        "humanVerificationRequired": "Revolut te pide demostrar que eres humano (captcha) y Picsou no puede hacerlo por ti. El inicio de sesión no puede continuar. Inténtalo de nuevo más tarde.",
         "upstreamFormatChanged": "El inicio de sesión no se completó. Comprueba tu número de teléfono e inténtalo de nuevo."
       },
       "selection": {
