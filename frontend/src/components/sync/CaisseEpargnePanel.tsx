@@ -284,6 +284,8 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
           if (isLostRequest(value)) {
             // Keep the waiting card: the session status tells whether it went through.
             recovered.current = false
+            // The panel waits up to the recovery window from now: show that, not a frozen 0:00.
+            setSecondsLeft(LOST_COMPLETION_WAIT_MS / 1_000)
             setLostCompletionAt(Date.now())
             return
           }
