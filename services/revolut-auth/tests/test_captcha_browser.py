@@ -18,7 +18,8 @@ pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def browser():
-    async with AsyncCamoufox(headless=True) as instance:
+    async with AsyncCamoufox(
+            headless=True, firefox_user_prefs={"layout.css.getBoxQuads.enabled": True}) as instance:
         yield instance
 
 
@@ -60,6 +61,38 @@ async def test_hidden_ancestor(page, style):
         f'<div style="{style}"><iframe src="https://hcaptcha.com/challenge" '
         'style="width:400px;height:300px"></iframe></div>')
     assert not await captcha.visible(page)
+
+
+@pytest.mark.parametrize(("ancestor_style", "expected"), [
+    ("visibility:hidden", True),
+    ("visibility:collapse", True),
+    ("display:none", False),
+    ("opacity:0", False),
+])
+async def test_frame_visibility_overrides_ancestor_visibility(page, ancestor_style, expected):
+    await page.set_content(
+        f'<div style="{ancestor_style}"><iframe src="https://hcaptcha.com/challenge" '
+        'style="border:0;width:400px;height:300px;visibility:visible"></iframe></div>')
+    assert await captcha.visible(page) is expected
+
+
+@pytest.mark.parametrize("transform", ["none", "scale(2)", "scale(0.5)", "rotate(90deg)"])
+@pytest.mark.parametrize("dimension", ["height", "width"])
+@pytest.mark.parametrize(("extent", "padding", "expected"), [
+    (2, 0, False),
+    (6, 0, True),
+    (12, 10, False),
+    (16, 10, True),
+])
+async def test_clipped_frame_requires_visible_content(
+        page, transform, dimension, extent, padding, expected):
+    await page.set_content(
+        f'<div style="width:404px;height:304px;{dimension}:{extent}px;overflow:hidden;'
+        f'margin:100px;transform-origin:top left;transform:{transform}">'
+        '<iframe src="https://hcaptcha.com/challenge" '
+        f'style="display:block;width:400px;height:300px;border:2px solid transparent;padding:{padding}px">'
+        '</iframe></div>')
+    assert await captcha.visible(page) is expected
 
 
 @pytest.mark.parametrize(("position", "wrapper_style", "expected"), [

@@ -188,6 +188,7 @@ def _camoufox(member_id: str, headless: bool):
     locks are cleared first so a previously-killed browser doesn't wedge this launch."""
     _clear_stale_locks(member_id)
     return AsyncCamoufox(headless=headless, humanize=True, os="linux", geoip=True,
+                         firefox_user_prefs={"layout.css.getBoxQuads.enabled": True},
                          persistent_context=True, user_data_dir=_profile_dir(member_id))
 
 

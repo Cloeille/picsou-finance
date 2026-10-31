@@ -6,24 +6,31 @@ from urllib.parse import urlsplit
 _VISIBLE_RECT = """
 frame => {
     if (frame.clientWidth <= 1 || frame.clientHeight <= 1) return null;
+    const visibility = getComputedStyle(frame).visibility;
+    if (visibility === 'hidden' || visibility === 'collapse') return null;
     for (let el = frame; el; el = el.parentElement) {
         const style = getComputedStyle(el);
-        if (style.display === 'none' || style.visibility === 'hidden' ||
-            style.visibility === 'collapse' || Number(style.opacity) === 0) return null;
+        if (style.display === 'none' || Number(style.opacity) === 0) return null;
     }
+    // Observer bounds include borders; content bounds must use the same transformed coordinates.
+    const content = frame.getBoxQuads({box: 'content'})[0].getBounds();
     // The browser clips transformed padding boxes along the containing-block chain.
     return new Promise(resolve => {
         const observer = new IntersectionObserver(([entry]) => {
             observer.disconnect();
             const box = entry.boundingClientRect;
             const clip = entry.intersectionRect;
+            const left = Math.max(clip.left, content.left);
+            const top = Math.max(clip.top, content.top);
+            const right = Math.min(clip.right, content.right);
+            const bottom = Math.min(clip.bottom, content.bottom);
             if (box.width <= 1 || box.height <= 1 ||
-                clip.width <= 1 || clip.height <= 1) {
+                right - left <= 1 || bottom - top <= 1) {
                 resolve(null);
                 return;
             }
-            resolve([(clip.left - box.left) / box.width, (clip.top - box.top) / box.height,
-                     (clip.right - box.left) / box.width, (clip.bottom - box.top) / box.height]);
+            resolve([(left - box.left) / box.width, (top - box.top) / box.height,
+                     (right - box.left) / box.width, (bottom - box.top) / box.height]);
         });
         observer.observe(frame);
     });

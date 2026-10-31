@@ -418,6 +418,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   offscreen, clipped, and one-pixel frames no longer block sign-in. Only hCaptcha hosts count.
   Overflow clipping follows CSS containing blocks and transformed padding boxes, so visible positioned
   challenges are detected and borders around empty wrappers do not trigger a false challenge.
+  A frame can restore visibility inside a hidden ancestor. Only visible iframe content counts,
+  excluding its own border and padding after transforms.
   A detected challenge keeps the existing `HUMAN_VERIFICATION_REQUIRED` error. Manual challenge
   completion remains unavailable.
 - **BoursoBank account names show apostrophes and ampersands as typed.** A name such as

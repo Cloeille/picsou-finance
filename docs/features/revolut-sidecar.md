@@ -1,6 +1,6 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-10-31 (hCaptcha clipping follows containing blocks and transformed padding boxes)
+> Last updated: 2026-10-31 (hCaptcha visibility overrides and transformed iframe content bounds)
 > Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
 > approval session.
 
@@ -252,12 +252,19 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   which ends the wait at once. The detector walks `page.frames` and matches only HTTP or HTTPS
   URLs on `hcaptcha.com` or its subdomains. A URL containing that string on another host does
   not count. Each matching frame and its parent frames must have visible screen space in common.
-  The detector checks ancestor opacity, display, and visibility. A one-shot `IntersectionObserver`
+  The detector checks the frame's computed visibility and ancestor opacity and display. An iframe
+  with `visibility:visible` can override an ancestor's `visibility:hidden` or `visibility:collapse`.
+  Ancestor `display:none` and zero opacity still hide the frame. A one-shot `IntersectionObserver`
   applies overflow clipping and viewport bounds, then disconnects. The browser follows the CSS
   containing-block chain, so a fixed or absolute frame can escape an ancestor's overflow clip when
   its containing block is outside that ancestor. A transformed ancestor that establishes the
   containing block still clips the frame. Overflow clips at the transformed padding box, excluding
   borders. A zero-height wrapper with only a border does not expose a challenge.
+  The observer's border-box intersection is restricted to the iframe's transformed content bounds,
+  obtained through Camoufox's `getBoxQuads({box: 'content'})`. Browser launch and the offline fixture
+  enable Firefox's `layout.css.getBoxQuads.enabled` preference for this geometry API.
+  A strip showing only the iframe's own border or padding does not expose a challenge.
+  The visible content must exceed one pixel on both axes.
   Zero-size and one-pixel content frames do not count, even when their borders have a larger box.
   Playwright's `:visible` alone includes transparent and offscreen elements and cannot inspect nested
   documents. Frame elements are released after each check. A detached frame is ignored for that poll.
@@ -288,6 +295,8 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   CSS visibility, nested documents, and a challenge inserted after the first poll. Positioned-frame
   fixtures cover escaped overflow and clips imposed by positioned or transformed containing blocks.
   Bordered-wrapper fixtures cover empty and partially visible padding boxes with scaling and rotation.
+  Visibility-override fixtures retain ancestor display and opacity checks. Bordered-iframe fixtures
+  cover strips with no content and partially visible content on both axes under scaling and rotation.
   The tests route all browser requests to local fixture responses and never contact Revolut or hCaptcha.
   Human challenge completion and the proposed Camofox runtime evaluation remain follow-up work.
 - **Backend and UI carry the code, not the sentence.** `RevolutAdapter` maps `403`/`424` to
