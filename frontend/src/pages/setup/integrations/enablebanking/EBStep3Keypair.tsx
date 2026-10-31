@@ -1,9 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Copy, Download, KeyRound, Loader2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { formatApiError } from '@/lib/errors'
 import { EBSubstepShell } from './EBSubstepShell'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'
+import type { EnableBankingKeyMode } from '@/stores/setup-flow-store'
 import {
   useGenerateEnableBankingKeyPair,
   useImportEnableBankingPrivateKey,
@@ -14,8 +17,6 @@ interface Props {
   onBack: () => void
 }
 
-type Mode = 'generate' | 'import'
-
 export function EBStep3Keypair({ onNext, onBack }: Props) {
   const { t } = useTranslation()
   const draft = useSetupFlowStore((s) => s.ebDraft)
@@ -23,26 +24,20 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
   const generate = useGenerateEnableBankingKeyPair()
   const importKey = useImportEnableBankingPrivateKey()
 
-  const [mode, setMode] = useState<Mode>('generate')
+  const [mode, setMode] = useState<EnableBankingKeyMode>(draft.keyPair?.mode ?? 'import')
   const [copied, setCopied] = useState(false)
   const [privatePem, setPrivatePem] = useState('')
   const [importError, setImportError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  /**
-   * Auto-generate on mount only in "generate" mode, and only if we don't
-   * already have a public key in the draft (back-nav guard).
-   */
-  useEffect(() => {
-    if (mode !== 'generate') return
-    if (draft.publicKeyPem || generate.isPending || generate.isSuccess || generate.isError) return
+  const handleGenerate = () => {
     generate.mutate(undefined, {
-      onSuccess: (data) => updateEbDraft({ publicKeyPem: data.publicKeyPem }),
+      onSuccess: (data) => updateEbDraft({ keyPair: { mode: 'generate', publicKeyPem: data.publicKeyPem } }),
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode])
+  }
 
-  const pem = draft.publicKeyPem
+  const pem = draft.keyPair?.mode === mode ? draft.keyPair.publicKeyPem : null
+  const pending = generate.isPending || importKey.isPending
 
   const handleCopy = async () => {
     if (!pem) return
@@ -79,7 +74,10 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (ev) => setPrivatePem((ev.target?.result as string) ?? '')
+    reader.onload = () => {
+      if (typeof reader.result === 'string') setPrivatePem(reader.result)
+    }
+    reader.onerror = () => setImportError(t('setup.enablebanking.keypair.importError'))
     reader.readAsText(file)
   }
 
@@ -89,27 +87,26 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
     importKey.mutate(
       { privatePem: privatePem.trim() },
       {
-        onSuccess: (data) => updateEbDraft({ publicKeyPem: data.publicKeyPem }),
+        onSuccess: (data) => {
+          setPrivatePem('')
+          if (fileInputRef.current) fileInputRef.current.value = ''
+          updateEbDraft({ keyPair: { mode: 'import', publicKeyPem: data.publicKeyPem } })
+        },
         onError: (err) => {
-          const msg = (err as { response?: { data?: { detail?: string } } })
-            ?.response?.data?.detail
-          setImportError(msg ?? t('setup.enablebanking.keypair.importError'))
+          setImportError(formatApiError(err, t, 'setup.enablebanking.keypair.importError'))
         },
       }
     )
   }
 
-  const handleSwitchMode = (next: Mode) => {
+  const handleSwitchMode = (next: EnableBankingKeyMode) => {
+    if (next === mode || pending) return
     setMode(next)
     setPrivatePem('')
     setImportError(null)
-    if (next === 'generate') {
-      // Clear draft public key so the auto-generate effect fires cleanly.
-      updateEbDraft({ publicKeyPem: null })
-    } else {
-      // Switching to import: clear any previously generated public key.
-      updateEbDraft({ publicKeyPem: null })
-    }
+    generate.reset()
+    importKey.reset()
+    updateEbDraft({ keyPair: null })
   }
 
   return (
@@ -121,22 +118,12 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
           </span>
         </div>
 
-        {/* Mode toggle */}
-        <div className="flex rounded-lg border border-border/60 p-1 gap-1">
-          <button
-            type="button"
-            onClick={() => handleSwitchMode('generate')}
-            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-              mode === 'generate'
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {t('setup.enablebanking.keypair.modeGenerate')}
-          </button>
+        <div className="flex flex-col rounded-lg border border-border/60 p-1 gap-1">
           <button
             type="button"
             onClick={() => handleSwitchMode('import')}
+            disabled={pending}
+            aria-pressed={mode === 'import'}
             className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
               mode === 'import'
                 ? 'bg-primary text-primary-foreground'
@@ -145,9 +132,21 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
           >
             {t('setup.enablebanking.keypair.modeImport')}
           </button>
+          <button
+            type="button"
+            onClick={() => handleSwitchMode('generate')}
+            disabled={pending}
+            aria-pressed={mode === 'generate'}
+            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              mode === 'generate'
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t('setup.enablebanking.keypair.modeGenerate')}
+          </button>
         </div>
 
-        {/* ── GENERATE MODE ── */}
         {mode === 'generate' && (
           <>
             <div className="text-center space-y-2">
@@ -166,14 +165,17 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
               </div>
             )}
 
+            {!pem && !generate.isPending && (
+              <Button className="w-full" onClick={handleGenerate}>
+                {t('setup.enablebanking.keypair.generateCta')}
+              </Button>
+            )}
+
             {generate.isError && !pem && (
               <div className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-center">
-                <p className="text-sm text-destructive">
-                  {t('setup.enablebanking.keypair.error')}
+                <p role="alert" className="text-sm text-destructive">
+                  {formatApiError(generate.error, t, 'setup.enablebanking.keypair.error')}
                 </p>
-                <Button variant="outline" size="sm" onClick={() => generate.mutate()}>
-                  {t('setup.enablebanking.test.retry')}
-                </Button>
               </div>
             )}
 
@@ -206,7 +208,6 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
           </>
         )}
 
-        {/* ── IMPORT MODE ── */}
         {mode === 'import' && (
           <>
             <div className="text-center space-y-2">
@@ -220,11 +221,12 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
 
             {!pem && (
               <div className="space-y-3">
-                {/* File picker */}
                 <input
                   ref={fileInputRef}
                   type="file"
                   accept=".pem,application/x-pem-file,text/plain"
+                  aria-label={t('setup.enablebanking.keypair.chooseFile')}
+                  disabled={pending}
                   className="hidden"
                   onChange={handleFileChange}
                 />
@@ -232,25 +234,28 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
                   type="button"
                   variant="outline"
                   className="w-full"
+                  disabled={pending}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <Upload className="mr-2 h-4 w-4" />
                   {t('setup.enablebanking.keypair.chooseFile')}
                 </Button>
 
-                {/* Or paste */}
                 <p className="text-center text-xs text-muted-foreground">
                   {t('setup.enablebanking.keypair.orPaste')}
                 </p>
+                <Label htmlFor="eb-private-pem">{t('setup.enablebanking.keypair.privateKeyLabel')}</Label>
                 <textarea
+                  id="eb-private-pem"
                   value={privatePem}
+                  disabled={pending}
                   onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setPrivatePem(e.target.value)}
                   placeholder={"-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"}
                   className="w-full rounded-xl border border-border/60 bg-muted/40 p-3 font-mono text-[11px] leading-snug min-h-[140px] resize-none"
                 />
 
                 {importError && (
-                  <p className="text-sm text-destructive">{importError}</p>
+                  <p role="alert" className="text-sm text-destructive">{importError}</p>
                 )}
 
                 <Button
@@ -283,17 +288,16 @@ export function EBStep3Keypair({ onNext, onBack }: Props) {
           </>
         )}
 
-        {/* Navigation */}
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-          <Button type="button" variant="ghost" onClick={onBack} className="w-full sm:w-auto">
+          <Button type="button" variant="ghost" disabled={pending} onClick={onBack} className="w-full sm:w-auto">
             {t('setup.enablebanking.back')}
           </Button>
           <Button
             onClick={onNext}
-            disabled={!pem}
+            disabled={!pem || pending}
             className="w-full rounded-full sm:w-auto"
           >
-            {t('setup.enablebanking.keypair.uploadedCta')}
+            {t(mode === 'import' ? 'setup.enablebanking.continue' : 'setup.enablebanking.keypair.uploadedCta')}
           </Button>
         </div>
       </div>

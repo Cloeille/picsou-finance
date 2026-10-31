@@ -118,6 +118,16 @@ describe('safeBackendMessage — leak guard', () => {
 })
 
 describe('formatApiError — status-aware translated output', () => {
+  it.each(['ERR_NETWORK', 'ECONNABORTED', 'ETIMEDOUT'])('explains a %s failure reaching the Picsou server', (code) => {
+    expect(formatApiError({ code, message: 'Network Error' }, t)).toBe('common.errors.network')
+  })
+
+  it('preserves HTTP error handling when a transport code accompanies a response', () => {
+    expect(formatApiError({ code: 'ERR_NETWORK', response: { status: 429 } }, t)).toBe('common.errors.tooManyRequests')
+    expect(formatApiError({ code: 'ECONNABORTED', response: { status: 400, data: { detail: 'Invalid application ID' } } }, t))
+      .toBe('Invalid application ID')
+  })
+
   it('maps 401/429/5xx to generic translated keys, ignoring any backend body', () => {
     expect(formatApiError({ response: { status: 401, data: { detail: 'x' } } }, t)).toBe('common.errors.unauthorized')
     expect(formatApiError({ response: { status: 429 } }, t)).toBe('common.errors.tooManyRequests')
