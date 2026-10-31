@@ -18,6 +18,13 @@ spec:
   tls:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- if not .Values.ingress.hosts }}
+  defaultBackend:
+    service:
+      name: {{ $svc }}
+      port:
+        name: http
+  {{- else }}
   rules:
     {{- range .Values.ingress.hosts }}
     - host: {{ .host | quote }}
@@ -33,4 +40,5 @@ spec:
                   name: http
           {{- end }}
     {{- end }}
+{{- end }}
 {{- end }}

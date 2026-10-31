@@ -76,6 +76,41 @@ class UpgradeSafetyTest(unittest.TestCase):
                     result = self.render(*args)
                     self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_ingress_without_hosts_routes_to_the_app_default_backend(self):
+        for empty in ("null", "[]"):
+            with self.subTest(empty=empty):
+                result = self.render("--set", "ingress.enabled=true",
+                                     "--set-json", f"ingress.hosts={empty}")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                ingress = subprocess.run(
+                    ["yq", "-o=json", 'select(.kind == "Ingress")', "-"],
+                    input=result.stdout, check=True, capture_output=True, text=True,
+                )
+                spec = json.loads(ingress.stdout)["spec"]
+                self.assertEqual(spec.get("defaultBackend"), {
+                    "service": {"name": "picsou", "port": {"name": "http"}},
+                })
+                self.assertNotIn("rules", spec)
+
+    def test_ingress_preserves_configured_host_and_path_rules(self):
+        result = self.render("--set", "ingress.enabled=true", "--set-json",
+                             'ingress.hosts=[{"host":"synthetic.example",'
+                             '"paths":[{"path":"/finance","pathType":"Prefix"}]}]')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        ingress = subprocess.run(
+            ["yq", "-o=json", 'select(.kind == "Ingress")', "-"],
+            input=result.stdout, check=True, capture_output=True, text=True,
+        )
+        spec = json.loads(ingress.stdout)["spec"]
+        self.assertNotIn("defaultBackend", spec)
+        self.assertEqual(spec["rules"], [{
+            "host": "synthetic.example",
+            "http": {"paths": [{
+                "path": "/finance", "pathType": "Prefix",
+                "backend": {"service": {"name": "picsou", "port": {"name": "http"}}},
+            }]},
+        }])
+
     def test_exposure_with_hostnames_still_renders(self):
         for args in (
             ["--set", "httpRoute.enabled=true", "--set", "httpRoute.parentRefs[0].name=gateway",

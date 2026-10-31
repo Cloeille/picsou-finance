@@ -64,6 +64,49 @@ CHART_VALUES = textwrap.dedent(
 )
 
 
+# Frozen inventory: live Compose additions must not fail customization assertions.
+CUSTOM_COMPOSE = textwrap.dedent(
+    """\
+    services:
+      app:
+        environment:
+          REVOLUT_AUTH_URL: http://revolut-auth:8002
+          FORTUNEO_AUTH_URL: http://fortuneo-auth:8001
+          AMEX_AUTH_URL: http://amex-auth:8001
+      revolut-auth:
+        image: synthetic
+        volumes: [profiles:/data/revolut-profiles]
+        environment:
+          APP_SIDECAR_API_KEY: synthetic
+      fortuneo-auth:
+        image: synthetic
+        networks: [private]
+        environment:
+          APP_SIDECAR_API_KEY: synthetic
+      amex-auth:
+        image: synthetic
+        init: true
+        environment:
+          APP_SIDECAR_API_KEY: synthetic
+    """
+)
+
+CUSTOM_VALUES = textwrap.dedent(
+    """\
+    sidecars:
+      revolut-auth:
+        urlEnv: REVOLUT_AUTH_URL
+        port: 8002
+      fortuneo-auth:
+        urlEnv: FORTUNEO_AUTH_URL
+        port: 8001
+      amex-auth:
+        urlEnv: AMEX_AUTH_URL
+        port: 8001
+    """
+)
+
+
 @unittest.skipUnless(shutil.which("yq"), "yq v4 is required")
 class SyncSidecarsTest(unittest.TestCase):
     def setUp(self):
@@ -95,6 +138,23 @@ class SyncSidecarsTest(unittest.TestCase):
         with patch(__name__ + ".ROOT", self.tmp), patch(__name__ + ".VALUES", self.values):
             self.test_repository_inventory_check_succeeds()
 
+    def test_inventory_tests_allow_a_new_standard_compose_sidecar(self):
+        compose = (ROOT / "docker/docker-compose.yml").read_text()
+        compose = compose.replace(
+            "    environment:\n",
+            "    environment:\n      SYNTHETIC_AUTH_URL: http://synthetic-auth:8001\n", 1,
+        )
+        self.compose.write_text(compose.replace(
+            "services:\n", "services:\n  synthetic-auth:\n    image: synthetic\n", 1,
+        ))
+        self.values.write_text(VALUES.read_text())
+        result = self.run_script("--check", "--github")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("::warning title=Helm chart: synthetic-auth::", result.stdout)
+        with patch(__name__ + ".ROOT", self.tmp), patch(__name__ + ".VALUES", self.values):
+            self.test_repository_inventory_check_succeeds()
+            self.test_supported_repository_customizations_do_not_warn()
+
     def test_repository_inventory_rejects_script_errors(self):
         self.compose.unlink()
         with patch(__name__ + ".ROOT", self.tmp), patch(__name__ + ".VALUES", self.values):
@@ -102,13 +162,15 @@ class SyncSidecarsTest(unittest.TestCase):
                 self.test_repository_inventory_check_succeeds()
 
     def test_supported_repository_customizations_do_not_warn(self):
-        result = self.run_script("--check", "--github",
-                                 compose=ROOT / "docker/docker-compose.yml", values=VALUES)
+        self.compose.write_text(CUSTOM_COMPOSE)
+        self.values.write_text(CUSTOM_VALUES)
+        result = self.run_script("--check", "--github")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("::warning", result.stdout)
 
     def test_acknowledgements_apply_only_to_known_keys_on_known_sidecars(self):
-        compose = (ROOT / "docker/docker-compose.yml").read_text()
+        compose = CUSTOM_COMPOSE
+        self.values.write_text(CUSTOM_VALUES)
         for name, setting in (("revolut-auth", "    init: true\n"),
                               ("fortuneo-auth", "    volumes: [cache:/cache]\n"),
                               ("amex-auth", "    environment:\n      EXTRA_MODE: synthetic\n")):
@@ -120,7 +182,7 @@ class SyncSidecarsTest(unittest.TestCase):
                 else:
                     changed = compose.replace(f"  {name}:\n", f"  {name}:\n" + setting)
                 self.compose.write_text(changed)
-                result = self.run_script("--check", "--github", values=VALUES)
+                result = self.run_script("--check", "--github")
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
                 self.assertIn(f"::warning title=Helm chart: {name}::", result.stdout)
 

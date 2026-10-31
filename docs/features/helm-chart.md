@@ -35,6 +35,8 @@ One release creates:
   migration Job for PostgreSQL), optional restriction of the app's own ingress.
 - **Ingress or HTTPRoute** — optional, TLS terminated by the controller. NOTES accept empty or
   null hostname lists and direct operators to their controller or Gateway listener address.
+  Empty or null `ingress.hosts` routes requests to the app through the Ingress default backend;
+  nonempty lists retain their configured host and path rules.
 
 ### Publishing
 
@@ -51,6 +53,8 @@ Before packaging, `sync-sidecars.sh --apply` adds to the packaged copy the stand
 `values.yaml` does not list yet and disables entries removed from Compose, preserving their other
 settings. A port or URL-variable mismatch fails publishing (including for custom sidecars), so
 known-broken wiring requires an explicit chart correction. `--check` remains warning-only in CI.
+Live inventory tests accept exit 0 or 2; supported customization checks use a frozen synthetic
+inventory so new Compose sidecars cannot turn inventory drift into a release-blocking test failure.
 `global.imageRepository` is set to `ghcr.io/<repository>`, where
 this run pushed the images, so a chart published from a fork runs that fork's images (nothing is
 committed back). The `helm-chart` job of `ci.yml`

@@ -101,6 +101,10 @@ an internal CA, a wildcard Secret.
   with `app.env.PICSOU_PROXY_IP` only when the controller reaches Picsou from a
   single stable address. HTTPS detection does not depend on it.
 
+With `ingress.enabled=true`, an empty or null `ingress.hosts` list routes requests
+to the app through the Ingress default backend. A nonempty list uses its configured
+host and path rules.
+
 For the Gateway API, set `httpRoute.enabled=true` and `httpRoute.parentRefs`
 instead of the Ingress.
 
@@ -289,8 +293,9 @@ review those when changing Compose storage, isolation or process handling.
 CI runs it in both directions. On a pull request, the `helm-chart` job reports
 differences as warnings and never fails because of them. The repository inventory
 test accepts exit codes 0 (in sync) and 2 (drift), while script errors still fail
-that check. Helm validation is independent of `ci-ok` and image publishing, so a
-chart failure does not block application releases.
+that check. Supported customization tests use a frozen synthetic inventory so
+new Compose sidecars cannot make those assertions block releases. Helm validation
+is independent of `ci-ok` and image publishing, so a chart failure does not block application releases.
 When publishing, stale entries are disabled in the packaged values so removed images
 are never deployed. Port or URL-variable mismatches fail publishing and must be
 corrected in the chart before retrying, including for custom sidecars.
