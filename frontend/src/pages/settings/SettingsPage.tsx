@@ -61,13 +61,13 @@ function ToggleGroup({
   onChange: (value: string) => void
 }) {
   return (
-    <div className="inline-flex items-center rounded-2xl bg-muted p-1">
+    <div className="flex w-full items-center rounded-2xl bg-muted p-1 @xl:inline-flex @xl:w-auto">
       {options.map((opt) => (
         <button
           key={opt.value}
           type="button"
           onClick={() => onChange(opt.value)}
-          className={`inline-flex h-10 min-w-24 items-center justify-center rounded-xl px-8 text-sm font-medium transition-[background-color,color] ${
+          className={`inline-flex h-10 flex-1 basis-0 items-center justify-center whitespace-nowrap rounded-xl px-4 text-sm font-medium transition-[background-color,color] @xl:min-w-24 @xl:flex-none @xl:basis-auto @xl:px-8 ${
             value === opt.value
               ? 'bg-primary text-primary-foreground'
               : 'text-muted-foreground hover:text-foreground'
@@ -219,9 +219,9 @@ export function SettingsPage() {
         title={t('settings.appearance')}
         description={t('settings.appearanceDescription')}
       >
-        <div className="space-y-6">
+        <div className="@container space-y-6">
           {/* Theme */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:justify-between">
             <Label className="text-sm font-medium">{t('settings.theme')}</Label>
             <ToggleGroup
               options={themeOptions}
@@ -231,7 +231,7 @@ export function SettingsPage() {
           </div>
 
           {/* Language */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:justify-between">
             <Label className="text-sm font-medium">{t('settings.language')}</Label>
             <ToggleGroup
               options={localeOptions}
@@ -241,7 +241,7 @@ export function SettingsPage() {
           </div>
 
           {/* Date format */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:justify-between">
             <Label className="text-sm font-medium">{t('settings.dateFormat')}</Label>
             <ToggleGroup
               options={dateFormatOptions}
@@ -253,7 +253,7 @@ export function SettingsPage() {
           {/* Amounts. Duplicated from the sidebar's eye button on purpose: that button lives in
               a sidebar that is hidden below 768px, and shoulder-surfing is likelier on a phone
               than at a desk. */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:justify-between">
             <Label className="text-sm font-medium">{t('settings.amounts')}</Label>
             <ToggleGroup
               options={amountsOptions}
@@ -263,7 +263,7 @@ export function SettingsPage() {
           </div>
 
           {/* Sidebar style */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:justify-between">
             <Label className="text-sm font-medium">{t('settings.sidebarStyle')}</Label>
             <ToggleGroup
               options={sidebarStyleOptions}

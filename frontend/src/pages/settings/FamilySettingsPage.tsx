@@ -244,12 +244,13 @@ function SharingCard({ resourceType, title }: { resourceType: string; title: str
         <CardTitle className="text-sm">{title}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {(['NONE', 'ALL', 'MANUAL'] as const).map((level) => (
             <Button
               key={level}
               variant={currentLevel === level ? 'default' : 'outline'}
               size="sm"
+              className="flex-1 basis-0 px-4 sm:flex-none sm:basis-auto sm:px-8"
               onClick={() => handleLevelChange(level)}
             >
               {level === 'NONE' ? t('family.settings.shareNone') :

@@ -48,6 +48,12 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
+vi.stubGlobal('ResizeObserver', class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+})
+
 const { AccountsPage } = await import('./AccountsPage')
 
 function property(id: number, balanceEur: number, costBasis?: number): Account {
