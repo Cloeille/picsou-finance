@@ -164,7 +164,13 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
             "python", "chromium", "publish", "app-version", "image-tag", "chart-release-version",
         })
         self.assertEqual(chart["needs"], ["base", "build"])
-        self.assertIn("needs.base.outputs.image-tag", build["steps"][-1]["with"]["tags"])
+        metadata = next(step for step in build["steps"] if step.get("id") == "meta")
+        self.assertIn(
+            "type=raw,value=${{ needs.base.outputs.image-tag }}",
+            metadata["with"]["tags"].splitlines(),
+        )
+        # All image references must pass through metadata-action's lowercase normalization.
+        self.assertEqual(build["steps"][-1]["with"]["tags"], "${{ steps.meta.outputs.tags }}")
         self.assertIn("needs.base.outputs.app-version", build["steps"][-1]["with"]["build-args"])
         self.assertNotIn("GITHUB_SHA", _run_commands(chart))
         self.assertNotIn("GITHUB_REF", _run_commands(chart))

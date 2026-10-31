@@ -50,7 +50,9 @@ and publishes to `oci://ghcr.io/<owner>/charts/picsou`:
   commit.
 
 The `base` job computes the app build version and immutable image tag once. Both the image
-matrix and the chart consume those outputs, and every image explicitly publishes that tag.
+matrix and the chart consume those outputs, and every image explicitly publishes that tag through
+`docker/metadata-action` as a raw tag entry. The build step uses only metadata-action's tag output,
+which lowercases repository names so mixed-case GitHub owners and forks publish valid image references.
 
 Before packaging, `sync-sidecars.sh --apply` adds to the packaged copy the standard sidecars that
 `values.yaml` does not list yet and disables entries removed from Compose, preserving their other
