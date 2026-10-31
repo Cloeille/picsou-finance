@@ -40,6 +40,8 @@ balance.
   case-insensitive currency code or a `€`, `$`, or `£` symbol on either side of the amount,
   including whole-number amounts. Numeric runs are tokenized once so long text without a
   currency does not trigger quadratic regex retries.
+  Alphabetic currency prefixes must be whole words, so a date such as `31 mars 2026`
+  in a layout table is not mistaken for an `ARS` balance.
   Alphabetic currency tokens must belong to the local ISO 4217 code set, taken from
   [SIX List One](https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml)
   published on 2026-09-17. Ordinary text such as `© 2026 CIC` does not count as money. Scanning

@@ -84,7 +84,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Script and style bodies are excluded before table and marker detection, so JavaScript
   replacement strings, class references, and CSS selectors do not
   block imports. Alphabetic currency tokens are checked against ISO 4217 codes, so footer text
-  such as `© 2026 CIC` does not block imports. Account and balance markers must be class tokens
+  such as `© 2026 CIC` does not block imports. Currency prefixes must be whole words, so French
+  dates such as `31 mars 2026` in layout tables do not block imports either.
+  Account and balance markers must be class tokens
   on actual elements; commented markup, attribute text, and partial class names are ignored.
   Balance text is extracted with an HTML parser, so amounts in comments or quoted attributes,
   including values containing `>`, do not block valid imports.

@@ -72,7 +72,7 @@ _CURRENCY_CODES = frozenset((
 # Consume each numeric run once, even when it has no currency. Optional currency
 # tokens cannot force retries at every digit of a long nonmonetary run.
 _BALANCE_RE = re.compile(
-    r"(?:(?P<prefix>[A-Z]{3}\b|[€$£])\s*+[+-]?\s*+)?"
+    r"(?:(?P<prefix>\b[A-Z]{3}\b|[€$£])\s*+[+-]?\s*+)?"
     r"(?P<number>\d[\d\s.,]*+)(?P<suffix>[A-Z]{3}\b|[€$£])?",
     re.IGNORECASE,
 )

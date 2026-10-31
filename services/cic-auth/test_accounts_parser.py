@@ -83,6 +83,12 @@ class PageTest(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
 
+    def test_a_french_date_in_a_layout_table_keeps_all_accounts(self):
+        table = '<table class="layout"><tr><td>Mis à jour le 31 mars 2026</td></tr></table>'
+        page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+
+        self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
+
     def test_plain_text_currency_balances_still_fail_in_account_containers(self):
         for currency in ("EUR", "USD", "GBP", "CHF", "JPY", "AED", "XCG", "ZWG"):
             amount = f"12,34 {currency}"
@@ -657,7 +663,7 @@ class PageTest(unittest.TestCase):
                 )
 
     def test_unknown_rows_with_prefix_or_lowercase_currency_fail(self):
-        for amount in ("EUR 1 234,56", "€ 1 234", "1 234,56 eur", "eur 1 234,56",
+        for amount in ("EUR 1 234,56", "ARS 2026", "ars 2026", "€ 1 234", "1 234,56 eur", "eur 1 234,56",
                        "$1 234", "£1 234", "€ -1 234", "EUR -1 234,56"):
             with self.subTest(amount=amount):
                 self.assert_unknown_row_fails(f"<td>{amount}</td>")
