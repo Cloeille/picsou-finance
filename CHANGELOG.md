@@ -307,9 +307,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   then run out of order. Instances held on 1.0.18 can upgrade directly. V47, one of them, no longer
   deletes accounts on such a database: two accounts from different banks, or a manual account,
   sharing an external id are both kept, and genuine duplicates of one synced account are merged
-  with their transactions, balance history and family sharing. V77, which a 1.0.11–1.0.15
+  with their transactions, balance history and family sharing. V77, which a 1.0.0–1.0.15
   database also runs for the first time, no longer merges a manual account into synced accounts
-  that carry the same external id and provider.
+  that carry the same external id and provider. A guard that runs around both migrations does
+  this; V47 and V77 keep their 1.1.0 content and checksum, so neither blocks a return to 1.1.0.
   ([#265](https://github.com/Cloeille/picsou-finance/issues/265))
 
 ### Security

@@ -1,6 +1,7 @@
 package com.picsou.migration;
 
 import com.picsou.config.LegacyMigrationRenumberingCallback;
+import com.picsou.config.OutOfOrderAccountMigrationGuard;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.output.MigrateResult;
 import org.junit.jupiter.api.Test;
@@ -92,12 +93,9 @@ class LegacyMigrationRenumberingTest {
         Map.entry("V65__constrain_bourse_direct_sync_errors.sql", "V63__constrain_bourse_direct_sync_errors.sql"),
         Map.entry("V96__backfill_trade_republic_valuations.sql", "V64__backfill_trade_republic_valuations.sql"));
 
-    /**
-     * Versions 1.0.18 shipped under the number and content they still have. V77 had its merge
-     * narrowed since, so it comes from legacy-migrations/1.0.18.
-     */
+    /** Versions 1.0.18 shipped under the number and content they still have. */
     private static final IntPredicate UNCHANGED_SINCE_1_0_18 = v -> v <= 32 || v == 36 || v == 37
-        || v == 50 || v == 52 || v == 53 || (v >= 66 && v <= 80 && v != 72 && v != 77) || v == 86 || v == 87;
+        || v == 50 || v == 52 || v == 53 || (v >= 66 && v <= 80 && v != 72) || v == 86 || v == 87;
 
     /** Release 1.0.11 (#265), the oldest the renumbering covers: it predates V77. */
     private static final IntPredicate UNCHANGED_SINCE_1_0_11 = v -> v <= 32 || v == 36 || v == 37 || v == 50;
@@ -228,6 +226,17 @@ class LegacyMigrationRenumberingTest {
             "14 2026-01-01 14", "14 2026-01-02 13");
         assertThat(query(url, "SELECT resource_type || ' ' || resource_id FROM shared_resource "
             + "ORDER BY resource_type, resource_id")).containsExactly("ACCOUNT 14", "ACCOUNT 16", "GOAL 13");
+        assertThat(withShippedV47AndV77(url).validateWithResult().invalidMigrations).extracting(m -> m.version).isEmpty();
+    }
+
+    @Test
+    void aRelease110DatabaseStillValidatesAgainstTheShippedV47AndV77() throws Exception {
+        String url = createDatabase("release_1_1_0");
+        migrateLegacy(url, version -> version != 47 && version != 77, Map.of(), "/legacy-migrations/1.1.0");
+
+        upgrade(url).migrate();
+
+        assertThat(withShippedV47AndV77(url).validateWithResult().invalidMigrations).extracting(m -> m.version).isEmpty();
     }
 
     @Test
@@ -272,13 +281,23 @@ class LegacyMigrationRenumberingTest {
         assertThat(query(url, history)).isEqualTo(before);
     }
 
-    /** The application's Flyway: current files, out-of-order, and the renumbering callback. */
+    /** The application's Flyway: current files, out-of-order, and its callbacks. */
     private static Flyway upgrade(String url) {
         return Flyway.configure()
             .dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword())
             .locations("classpath:db/migration")
             .outOfOrder(true)
-            .callbacks(new LegacyMigrationRenumberingCallback())
+            .callbacks(new LegacyMigrationRenumberingCallback(), new OutOfOrderAccountMigrationGuard())
+            .load();
+    }
+
+    /** The current files with V47 and V77 as 1.1.0 shipped them, for a 1.1.0 binary's validation. */
+    private static Flyway withShippedV47AndV77(String url) throws Exception {
+        Path files = legacyTree(version -> version != 47 && version != 77, Map.of(), "/legacy-migrations/1.1.0");
+        return Flyway.configure()
+            .dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword())
+            .locations("filesystem:" + files)
+            .outOfOrder(true)
             .load();
     }
 
@@ -298,6 +317,19 @@ class LegacyMigrationRenumberingTest {
      */
     private static int migrateLegacy(String url, IntPredicate unchanged, Map<String, String> renamed,
                                      String legacyResources) throws Exception {
+        Path legacy = legacyTree(unchanged, renamed, legacyResources);
+        Flyway.configure()
+            .dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword())
+            .locations("filesystem:" + legacy)
+            .load()
+            .migrate();
+        try (Stream<Path> files = Files.list(legacy)) {
+            return (int) files.count();
+        }
+    }
+
+    private static Path legacyTree(IntPredicate unchanged, Map<String, String> renamed,
+                                   String legacyResources) throws Exception {
         Path legacy = Files.createTempDirectory("legacy-migrations");
         try (Stream<Path> files = Files.list(resourceDirectory("/db/migration"))) {
             for (Path file : files.toList()) {
@@ -316,14 +348,7 @@ class LegacyMigrationRenumberingTest {
                 }
             }
         }
-        Flyway.configure()
-            .dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword())
-            .locations("filesystem:" + legacy)
-            .load()
-            .migrate();
-        try (Stream<Path> files = Files.list(legacy)) {
-            return (int) files.count();
-        }
+        return legacy;
     }
 
     private static Path resourceDirectory(String name) throws URISyntaxException {

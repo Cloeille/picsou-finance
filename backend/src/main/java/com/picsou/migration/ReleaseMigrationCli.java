@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import com.picsou.config.LegacyMigrationRenumberingCallback;
+import com.picsou.config.OutOfOrderAccountMigrationGuard;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 import jakarta.persistence.Entity;
@@ -147,7 +148,7 @@ public final class ReleaseMigrationCli {
             .ignoreMigrationPatterns(new String[0])
             .loggers("slf4j");
         if (migrate) {
-            configuration.callbacks(new LegacyMigrationRenumberingCallback());
+            configuration.callbacks(new LegacyMigrationRenumberingCallback(), new OutOfOrderAccountMigrationGuard());
         }
         return configuration.load();
     }

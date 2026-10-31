@@ -344,8 +344,8 @@ operators started it with `SPRING_FLYWAY_ENABLED=false` as a workaround.
 
 The backend now repairs the history itself. Before Flyway validates, `LegacyMigrationRenumberingCallback`
 moves each legacy row to its new version, inside Flyway's transaction. A row is moved only when its
-old version, description and checksum all match one of the renamed files, and only when the new
-version is not in the history yet. On a fresh or already repaired database it does nothing. When it
+old version, description and checksum all match one of the renamed files, and only when no other
+row holds the new version. On a fresh or already repaired database it does nothing. When it
 moves rows it logs them once at INFO:
 
 ```
@@ -371,17 +371,25 @@ the 1.1.0-only migrations out of order. Do not run `flyway repair` instead: it w
 1.1.0 migrations as applied although they never ran. Only databases from 1.0.11 on are affected.
 1.0.10 and earlier carry the current numbering.
 
-One of those out-of-order migrations, V47, adds the unique index on synced accounts. On a 1.0.x
-database it keeps every account that differs in provider or is manual. It merges only active synced
-accounts that share member, external id and provider, into the highest id, moving their
-transactions, snapshots, holdings and other dependent rows the way V77 does, and repointing
-manual family sharing at the survivor. A 1.1.0 database already ran an earlier V47 that deleted
-duplicates without merging them, and the callback gives that row the current checksum.
+One of those out-of-order migrations, V47, adds the unique index on synced accounts. As 1.1.0
+shipped it, V47 deletes every active account that shares an external id with a higher id, whatever
+its provider, manual accounts included. A 1.0.0–1.0.15 database also runs V77 for the first time,
+which merges a manual account into synced accounts that carry the same external id and provider.
+`OutOfOrderAccountMigrationGuard` runs SQL from `db/out-of-order-guard/` just before and just after
+each of them, inside the migration's transaction:
 
-A database from 1.0.11 to 1.0.15 also runs V77 for the first time. V77 merges synced accounts
-that share member, external id and provider, and leaves a manual account carrying the same external
-id alone. Databases from 1.0.16 on, and 1.1.0, already ran an earlier V77 that could merge such a
-manual account into the synced group. The callback gives that row the current checksum.
+- Before V47 it merges active synced accounts that share member, external id and provider into
+  the highest id. It moves their transactions, snapshots, holdings and other dependent rows the
+  way V77 does, and repoints manual family sharing at the survivor. It then clears the external id
+  of the accounts V47 would still delete. After V47 it gives V47's index V72's definition and
+  restores those external ids, so accounts at different banks and manual accounts are kept.
+- Before V77 it clears the external id of manual accounts, and restores it after V77.
+
+V47 and V77 stay byte-identical to the 1.1.0 files and keep their checksums, so neither stops a
+1.1.0 image from validating the history after this upgrade. A 1.0.x image cannot validate it: its
+files sit at the versions
+the callback moved the rows away from. To go back to 1.0.x, restore the backup taken before the
+upgrade.
 
 **If you disabled Flyway as a workaround:**
 
@@ -471,7 +479,8 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - Backend unit tests run separately via `./mvnw test` (not in Docker build — skipped with `-DskipTests`).
 - `LegacyMigrationRenumberingTest` (Testcontainers) upgrades databases built under the old V80–V88
   numbering, a 1.0.18 database, and a fresh database to head, and checks that a second start
-  changes nothing.
+  changes nothing. It also checks that a 1.1.0 or 1.0.18 database upgraded to head still validates
+  against the V47 and V77 that 1.1.0 shipped.
 
 ## Links
 
