@@ -149,6 +149,11 @@ public class RateLimitConfig {
      * 15 minutes. Every attempt sends the password to the site, which locks an
      * access after a few wrong passwords.
      */
+    @Bean("cicAuthBuckets")
+    public Map<String, Bucket> cicAuthBuckets() {
+        return boundedBucketStore();
+    }
+
     @Bean("cmesAuthBuckets")
     public Map<String, Bucket> cmesAuthBuckets() {
         return boundedBucketStore();
@@ -452,6 +457,11 @@ public class RateLimitConfig {
                 .refillIntervally(5, Duration.ofMinutes(15))
                 .build())
             .build();
+    }
+
+    /** CIC online banking: same platform and same lockout as Épargne Salariale. */
+    public static Bucket createCicAuthBucket() {
+        return createCmesAuthBucket();
     }
 
     /** Five password checks per 15 minutes: only {@code /auth/initiate} sends the password. */

@@ -34,6 +34,7 @@ class MemberSyncServiceTest {
     @Mock private BourseDirectSyncService bourseDirectSyncService;
     @Mock private AmundiSyncService amundiSyncService;
     @Mock private CmesSyncService cmesSyncService;
+    @Mock private CicSyncService cicSyncService;
     @Mock private FortuneoSyncService fortuneoSyncService;
     @Mock private AmexSyncService amexSyncService;
     @Mock private IbkrSyncService ibkrSyncService;
@@ -52,10 +53,12 @@ class MemberSyncServiceTest {
             revolutSyncService, syncService, trSyncService, boursoSyncService,
             bourseDirectSyncService, amundiSyncService, fortuneoSyncService, amexSyncService,
             ibkrSyncService, simplefinSyncService, cryptoExchangeSyncService, walletSyncService,
-            finaryApiSyncService, degiroSyncService, new ReceivedDividendClassifier(dividendReceiptService), cmesSyncService
+            finaryApiSyncService, degiroSyncService, new ReceivedDividendClassifier(dividendReceiptService), cmesSyncService, cicSyncService
         );
         lenient().when(cmesSyncService.resyncReporting(anyLong())).thenReturn(
             new SourceSyncResult("cmes", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
+        lenient().when(cicSyncService.resyncReporting(anyLong())).thenReturn(
+            new SourceSyncResult("cic", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
     }
 
     @Test
@@ -78,9 +81,10 @@ class MemberSyncServiceTest {
 
         List<SourceSyncResult> results = memberSyncService.resyncScheduled(memberId);
 
-        assertEquals(16, results.size());
+        assertEquals(17, results.size());
         assertEquals("cmes", results.get(15).source());
         verify(cmesSyncService).resyncReporting(memberId);
+        assertEquals("cic", results.get(16).source());
         assertEquals("revolut", results.get(0).source());
         assertEquals("enable-banking", results.get(1).source());
         assertEquals("enable-banking-retry", results.get(2).source());

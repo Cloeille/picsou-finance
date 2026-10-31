@@ -128,7 +128,7 @@ Both the "is this a known crypto?" check and the display name come from `CoinGec
 
 `resolve()` normalizes the input (`trim().toUpperCase(Locale.ROOT)`) once at the top and reuses that value for the cache key, the crypto-symbol match, and the OpenFIGI fallback ticker — earlier the cache/fallback used the raw input, so case/whitespace variants of the same ISIN (or a real ISIN differing only by case) created duplicate cache entries and duplicate OpenFIGI calls. `Locale.ROOT` avoids the Turkish-locale `i`/`İ` hazard on `toUpperCase`.
 
-The `XF000` marker itself lives in one place: `OpenFigiIsinConverter.isTrCryptoIsin()` (prefix-based, case-insensitive), which `TradeRepublicAdapter` also calls to route these holdings to TR's own exchange (`TRD0`). The two TR-crypto detection sites (the adapter's exchange choice and this converter's parse) share that predicate/prefix so they can't drift.
+The `XF000` marker lives in one place, the converter's `TR_CRYPTO_ISIN_PREFIX` constant, which `TR_CRYPTO_ISIN_PATTERN` is built from. `TradeRepublicAdapter` no longer reads it: it asks TR's `instrument` topic which venue prices each ISIN instead of choosing one from the prefix (GH #268).
 
 **Backfill:** because the resolved ticker is persisted on each `Transaction`, manual crypto transactions entered *before* this behavior existed carry the fake ISIN (`XF000BTC0017`) as their ticker and would no longer aggregate with new `BTC` rows (`HoldingComputeService` groups by exact ticker). Migration `V51__backfill_tr_crypto_transaction_tickers.sql` rewrites those historical rows to the resolved symbol for the crypto set known at that release; derived `account_holding` rows self-heal on the next recompute.
 

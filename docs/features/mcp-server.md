@@ -252,8 +252,8 @@ sessions/credentials as the documented side effect of deleting a connection's la
   broker-tool refresh are preserved through `MemberSyncService`, immediately after Fortuneo and
   before IBKR. Full sync includes it once; `get_sync_status` exposes its queue/failure state and
   last completion time. These calls only reuse the stored session, never initiate authentication.
-- **Triggers never connect a source, but two log in again.** When their session has expired,
-  BoursoBank and Crédit Mutuel / CIC Épargne Salariale log in again with their stored credentials
+- **Triggers only reuse existing connections.** When their session has expired,
+  BoursoBank, Crédit Mutuel / CIC Épargne Salariale, and CIC log in again with their stored credentials
   (`reauthenticateAndFetch`). No source completes a new second factor: one that asks for it reads
   as `NEEDS_REAUTH`.
 - **SimpleFIN is a bank source.** `MemberSyncService` runs it right after IBKR. Full sync includes
@@ -268,8 +268,8 @@ sessions/credentials as the documented side effect of deleting a connection's la
   failed exchange cannot roll back a successful neighbour. Transient connector errors do not ask
   the user to reconnect; `NEEDS_REAUTH` is reserved for authentication/session-expiry codes.
 - **Inactive browser sessions preserve their stored failure reason.** BoursoBank, Bourse Direct,
-  Amundi, Crédit Mutuel / CIC Épargne Salariale (`cmes`) and Fortuneo report `NEEDS_REAUTH` for
-  `SESSION_EXPIRED` (also `INVALID_CREDENTIALS` for BoursoBank and `cmes`, which clear a rejected
+  Amundi, Crédit Mutuel / CIC Épargne Salariale (`cmes`), CIC (`cic`), and Fortuneo report `NEEDS_REAUTH` for
+  `SESSION_EXPIRED` (also `INVALID_CREDENTIALS` for BoursoBank, `cmes`, and `cic`, which clear a rejected
   password), `FAILED` for another stored error, and `SKIPPED_NOT_CONNECTED` only when no error is
   recorded. Database failures and sync exceptions retain their throwable in server logs; raw
   database messages are never returned in their MCP summary.
