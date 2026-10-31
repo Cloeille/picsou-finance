@@ -84,9 +84,32 @@ class SyncSidecarsTest(unittest.TestCase):
         result = self.run_script(*args, "--json")
         return result.returncode, {(f["sidecar"], f["kind"]) for f in json.loads(result.stdout)}
 
-    def test_the_repository_chart_lists_every_compose_sidecar(self):
-        result = self.run_script("--check", compose=ROOT / "docker/docker-compose.yml", values=VALUES)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    def single(self, service, chart_entry="", url="http://x-auth:8001"):
+        """Findings (kind -> detail) for one Compose sidecar and its chart entry."""
+        indent = lambda text: textwrap.indent(textwrap.dedent(text), "    ")
+        self.compose.write_text(
+            "services:\n  app:\n    image: app\n    environment:\n"
+            f"      X_AUTH_URL: {url}\n  x-auth:\n" + indent(service),
+            encoding="utf-8",
+        )
+        self.values.write_text(
+            "sidecars:\n  x-auth:\n    enabled: true\n    urlEnv: X_AUTH_URL\n    port: 8001\n"
+            + indent(chart_entry),
+            encoding="utf-8",
+        )
+        result = self.run_script("--check", "--json")
+        return {f["kind"]: f["detail"] for f in json.loads(result.stdout)}
+
+    def test_the_repository_files_are_compared_without_failing(self):
+        # Differences are warnings (ADR 4): only 0 and 2 are allowed, and the findings stay parseable.
+        result = self.run_script("--check", "--json", compose=ROOT / "docker/docker-compose.yml", values=VALUES)
+        self.assertIn(result.returncode, (0, 2), result.stdout + result.stderr)
+        self.assertIsInstance(json.loads(result.stdout), list)
+
+    def test_the_repository_chart_has_no_drift_for_sidecars_it_lists(self):
+        result = self.run_script("--check", "--json", compose=ROOT / "docker/docker-compose.yml", values=VALUES)
+        drift = [f for f in json.loads(result.stdout) if f["kind"] == "drift"]
+        self.assertEqual(drift, [])
 
     def test_check_reports_each_kind_of_difference(self):
         code, found = self.findings("--check")
@@ -121,6 +144,39 @@ class SyncSidecarsTest(unittest.TestCase):
         self.compose.write_text(COMPOSE.replace("http://known-auth:8001", "http://known-auth:9000"), encoding="utf-8")
         _, found = self.findings("--check")
         self.assertIn(("known-auth", "mismatch"), found)
+
+    def test_json_stays_parseable_with_github_mode(self):
+        result = self.run_script("--check", "--json", "--github")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(len(json.loads(result.stdout)), 4)
+
+    def test_a_chart_sidecar_the_app_no_longer_points_at_is_unwired(self):
+        self.compose.write_text(COMPOSE.replace("      KNOWN_AUTH_URL: http://known-auth:8001\n", ""), encoding="utf-8")
+        _, found = self.findings("--check")
+        self.assertIn(("known-auth", "unwired"), found)
+
+    def test_an_https_app_url_is_parsed(self):
+        self.assertIn("port 9000", self.single("image: x\n", url="https://x-auth:9000")["mismatch"])
+        self.assertEqual(self.single("image: x\n", url="https://x-auth:8001"), {})
+
+    def test_a_compose_volume_needs_persistence_in_the_chart_entry(self):
+        service = "image: x\nvolumes: [data:/data]\n"
+        self.assertIn("volumes", self.single(service)["drift"])
+        self.assertEqual(self.single(service, "persistence:\n  enabled: true\n"), {})
+
+    def test_compose_init_needs_share_process_namespace_in_the_chart_entry(self):
+        service = "image: x\ninit: true\n"
+        self.assertIn("shareProcessNamespace", self.single(service)["drift"])
+        self.assertEqual(self.single(service, "shareProcessNamespace: true\n"), {})
+
+    def test_a_compose_variable_needs_an_env_or_extra_env_entry_in_the_chart_entry(self):
+        service = "image: x\nenvironment:\n  APP_SIDECAR_API_KEY: k\n  MODE: \"1\"\n"
+        self.assertIn("MODE", self.single(service)["drift"])
+        self.assertEqual(self.single(service, "env:\n  MODE: \"1\"\n"), {})
+        self.assertEqual(self.single(service, "extraEnv:\n  - name: MODE\n    value: \"1\"\n"), {})
+
+    def test_compose_networks_are_not_drift_for_a_chart_sidecar(self):
+        self.assertEqual(self.single("image: x\nnetworks: [isolated]\n"), {})
 
     def test_github_mode_emits_warnings_but_never_for_added_sidecars(self):
         result = self.run_script("--apply", "--github")
