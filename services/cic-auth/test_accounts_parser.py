@@ -152,6 +152,38 @@ class PageTest(unittest.TestCase):
                 self.assertEqual(accounts, parse_accounts(ACCOUNTS_PAGE)[0])
                 self.assertEqual(skipped, ["autres contrats liés", "unnamed"])
 
+    def test_script_balance_selectors_do_not_change_the_accounts(self):
+        page = ACCOUNTS_PAGE + '<script>document.querySelectorAll(".ei_sdsf_solde");</script>'
+
+        self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
+
+    def test_style_balance_selectors_do_not_change_the_accounts(self):
+        page = ACCOUNTS_PAGE + '<style>.ei_sdsf_solde { text-align: right; }</style>'
+
+        self.assertEqual(parse_accounts(page), parse_accounts(ACCOUNTS_PAGE))
+
+    def test_script_and_style_bodies_are_ignored_before_finding_contract_tables(self):
+        table = accounts_table("Nouveaux comptes", account_row(9, "LIVRET A", "10000 000999999 01", "+12,34 EUR"))
+
+        for tag in ("script", "SCRIPT", "style", "STYLE"):
+            with self.subTest(tag=tag):
+                self.assertEqual(
+                    parse_accounts(ACCOUNTS_PAGE + f"<{tag}>{table}</{tag}>"),
+                    parse_accounts(ACCOUNTS_PAGE),
+                )
+
+    def test_balance_marker_names_are_not_balances_without_element_classes(self):
+        for marker in ("ei_sdsf_montant", "ei_sdsf_solde"):
+            for fragment in (
+                f"<p>{marker}</p>",
+                f'<div data-marker="{marker}"></div>',
+                f'<div class="prefix-{marker}-suffix">Aide</div>',
+                f'<div title=\'class="{marker}"\'>Aide</div>',
+                f'<!-- <span class="{marker}">N/A</span> -->',
+            ):
+                with self.subTest(fragment=fragment):
+                    self.assertEqual(parse_accounts(ACCOUNTS_PAGE + fragment), parse_accounts(ACCOUNTS_PAGE))
+
     def test_plain_text_money_between_scripts_still_fails_the_page(self):
         table = (
             '<table class="layout"><tr><td><script>name.replace(/(a)/, "$1");</script>'

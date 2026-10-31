@@ -25,6 +25,7 @@ in a supported category. Silently dropping an account would hide an incomplete s
 import html as html_module
 import re
 from decimal import Decimal, InvalidOperation
+from html.parser import HTMLParser
 from typing import Literal
 
 AccountKind = Literal[
@@ -46,7 +47,10 @@ _ROW_RE = re.compile(r"<tr\b[^>]*>(?P<row>.*?)</tr>", re.DOTALL)
 _TITLE_RE = re.compile(r'class="[^"]*\bei_sdsf_title\b[^"]*"[^>]*>(?P<title>.*?)</span>', re.DOTALL)
 _NUMBER_RE = re.compile(r'class="[^"]*\bdoux\b[^"]*"[^>]*>(?P<number>.*?)</span>', re.DOTALL)
 _AMOUNT_RE = re.compile(r'class="[^"]*\bei_sdsf_montant\b[^"]*"[^>]*>(?P<amount>.*?)</span>', re.DOTALL)
-_SCRIPT_RE = re.compile(r"<script\b[^>]*>.*?</script\s*>", re.IGNORECASE | re.DOTALL)
+_SCRIPT_STYLE_RE = re.compile(
+    r"<(?P<tag>script|style)\b[^>]*>.*?</(?P=tag)\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
 _TAG_RE = re.compile(r"<[^>]+>")
 _MONEY_RE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<value>\d[\d\s.]*(?:,\d+)?)\s*(?P<currency>[A-Z]{3}|€)$")
 # Symbol-first amounts need cents to distinguish balances from references like "$1".
@@ -72,8 +76,18 @@ class AccountsFormatError(Exception):
         self.code = code
 
 
+class _BalanceMarkerParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.found = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        classes = next((value for name, value in attrs if name == "class"), None)
+        self.found |= bool(classes and {"ei_sdsf_montant", "ei_sdsf_solde"}.intersection(classes.split()))
+
+
 def _text(fragment: str) -> str:
-    return " ".join(html_module.unescape(_TAG_RE.sub(" ", _SCRIPT_RE.sub(" ", fragment))).split())
+    return " ".join(html_module.unescape(_TAG_RE.sub(" ", _SCRIPT_STYLE_RE.sub(" ", fragment))).split())
 
 
 def parse_amount(raw: str) -> Decimal:
@@ -110,7 +124,9 @@ def _category(table: str) -> str:
 
 
 def _has_balance(fragment: str) -> bool:
-    return bool(_AMOUNT_RE.search(fragment) or "ei_sdsf_solde" in fragment or _BALANCE_RE.search(_text(fragment)))
+    marker = _BalanceMarkerParser()
+    marker.feed(fragment)
+    return marker.found or bool(_BALANCE_RE.search(_text(fragment)))
 
 
 def _has_account_data(fragment: str) -> bool:
@@ -119,6 +135,7 @@ def _has_account_data(fragment: str) -> bool:
 
 def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
     """Return the in-scope accounts and the names of the categories skipped."""
+    page = _SCRIPT_STYLE_RE.sub(" ", page)
     tables = list(_TABLE_RE.finditer(page))
     if not tables:
         raise AccountsFormatError(FORMAT_CHANGED, "No contract table on the accounts page")
