@@ -1,6 +1,6 @@
 # Feature: Bank Sync
 
-> Last updated: 2026-10-31 (uid-first matching and connector coexistence)
+> Last updated: 2026-10-31 (uid-first matching and safe Revolut reconnects)
 
 > **Status (1.0.0).** Enable Banking is the only enabled provider. The Powens
 > adapter ships in the codebase but is **experimental and untested** —
@@ -45,13 +45,15 @@ Picsou now handles this with a two-pronged strategy:
    stored accounts by **uid and member** first, falling back to **IBAN, currency, and member**
    only when the current uid has no active match. This preserves a legacy Enable Banking row
    without an IBAN when a Revolut sidecar row already has the incoming IBAN and currency.
-   Updates write the incoming IBAN only if no other active account for that member has the
-   same IBAN and currency. Both rows keep their identities and history; the sidecar's IBAN
-   lookup remains unambiguous on later syncs. Different currency subaccounts can share an
-   IBAN, so IBAN alone does not identify an account. On a successful
-   IBAN and currency match, the stored `uid` is refreshed in place. A missing currency defaults
-   to `EUR` before matching, account creation, and updates. The soft-delete guard uses the same IBAN,
-   currency, and member key alongside the exact uid check. Deleting one currency subaccount
+   Updates write the incoming IBAN only if no other active or soft-deleted account for that
+   member has the same IBAN and currency. A deleted sidecar still reserves that key because
+   an explicit Revolut reconnect restores its original row. Both rows keep their identities
+   and history; the sidecar's IBAN lookup remains unambiguous after reconnect and on later syncs.
+   Different currency subaccounts can share an IBAN, so IBAN alone does not identify an account.
+   On a successful IBAN and currency match, the stored `uid` is refreshed in place.
+   A missing currency defaults to `EUR` before matching, account creation, and updates.
+   The soft-delete guard uses the same IBAN, currency, and member key alongside the exact uid check.
+   Deleting one currency subaccount
    does not block another currency sharing its IBAN. Each account keeps its native balance;
    its snapshot is converted to EUR using that account's currency.
    When the guard skips a deleted account, the INFO log contains only the IBAN's
@@ -197,7 +199,12 @@ Another upgrade regression starts with a legacy Enable Banking row without an IB
 a Revolut sidecar row with that IBAN and currency. Repeated Enable Banking syncs preserve both
 uids and update only the legacy row, for both matching and differing provider names. A following
 Revolut discovery and sync still finds and updates only the sidecar row.
-A deleted sidecar row does not prevent IBAN backfill onto the active legacy row.
+A deleted sidecar row with the same member, IBAN, and currency blocks IBAN backfill onto
+the active legacy row. Regressions exercise both a direct Revolut reconnect with explicit
+credentials and voluntary discovery confirmation after repeated Enable Banking syncs.
+Each reconnect restores the sidecar's original row and updates its balance and snapshot;
+the legacy row keeps its uid, balance, and snapshot on the following Enable Banking sync.
+A deleted row in another currency or belonging to another member does not block backfill.
 Live bank behavior remains unverified.
 
 ### Country selection

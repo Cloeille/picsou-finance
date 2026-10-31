@@ -467,7 +467,7 @@ public class SyncService {
      *       Currency distinguishes subaccounts sharing an IBAN, which remains stable even
      *       when the provider uid changes (e.g. Boursorama after EB v0.16.4).
      *       An IBAN match refreshes the stored uid. An exact uid match only accepts the
-     *       incoming IBAN if no other active account has that IBAN and currency.</li>
+     *       incoming IBAN if no other active or deleted account has that IBAN and currency.</li>
      * </ol>
      * Soft-delete guards check both keys when no active account matches.
      *
@@ -510,9 +510,11 @@ public class SyncService {
             account.setLastSyncedAt(Instant.now());
             // Refresh uid in case the provider rotated it (EB v0.16.4 Boursorama case)
             account.setExternalAccountId(data.externalId());
-            // Legacy EB and sidecar rows can coexist. Keep their IBAN lookup unambiguous.
+            // A deleted sidecar can be restored on reconnect, so it still reserves its IBAN.
             if (data.iban() != null && !accountRepository.existsByIbanAndCurrencyAndMemberIdAndIdNot(
-                data.iban(), currency, member.getId(), account.getId())) {
+                data.iban(), currency, member.getId(), account.getId()) &&
+                !accountRepository.existsSoftDeletedByIbanAndCurrencyAndMemberId(
+                    data.iban(), currency, member.getId())) {
                 account.setIban(data.iban());
             }
             // Backfill the bank logo on a pre-logo account once the requisition has one.

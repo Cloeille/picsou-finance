@@ -299,11 +299,59 @@ class SyncServiceCurrencyMatchTest {
         assertSnapshot(gbp, "240");
     }
 
-    @Test
-    void resyncAll_legacyUidWithDeletedSidecar_backfillsIban() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void resyncAll_legacyUidWithDeletedSidecar_preservesAccountsOnRevolutReconnect(boolean confirmSelection) {
         Account legacy = persistAccount("uid-legacy", "EUR", null);
         legacy.setIban(null);
         Account deleted = persistAccount("revolut-deleted", "EUR", Instant.now());
+        deleted.setProvider("Revolut");
+        deleted.setCurrentBalance(new BigDecimal("50"));
+        accountService.upsertSnapshotFromNative(deleted, new BigDecimal("50"), LocalDate.now());
+        entityManager.flush();
+        entityManager.clear();
+        when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(data("uid-legacy", "EUR", "100")));
+
+        syncAndReload();
+        syncAndReload();
+
+        assertThat(accountRepository.findByIdAndMemberId(deleted.getId(), member.getId())).isEmpty();
+        SyncProgressService progress = new SyncProgressService();
+        RevolutSyncService revolut = revolutService(progress, List.of(wallet("revolut-deleted", "EUR", "125")));
+        if (confirmSelection) {
+            assertThat(progress.startIfIdle(member.getId(), SyncProvider.REVOLUT)).isTrue();
+            revolut.discover(member.getId(), "+33000000000", "000000");
+            assertThat(progress.status(member.getId(), SyncProvider.REVOLUT).error()).isNull();
+            assertThat(revolut.confirmSync(member.getId(), List.of("revolut-deleted"), false, true)).hasSize(1);
+        } else {
+            assertThat(revolut.sync(member.getId(), "+33000000000", "000000", false)).hasSize(1);
+        }
+        entityManager.flush();
+        entityManager.clear();
+        syncAndReload();
+
+        Account updatedLegacy = accountRepository.findByExternalAccountIdAndMemberId("uid-legacy", member.getId())
+            .orElseThrow();
+        assertThat(updatedLegacy.getId()).isEqualTo(legacy.getId());
+        assertThat(updatedLegacy.getIban()).isNull();
+        assertThat(updatedLegacy.getCurrentBalance()).isEqualByComparingTo("100");
+        assertSnapshot(updatedLegacy, "100");
+        Account restoredSidecar = accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", member.getId())
+            .orElseThrow();
+        assertThat(restoredSidecar.getId()).isEqualTo(deleted.getId());
+        assertThat(restoredSidecar.getExternalAccountId()).isEqualTo("revolut-deleted");
+        assertThat(restoredSidecar.getCurrentBalance()).isEqualByComparingTo("125");
+        assertSnapshot(restoredSidecar, "125");
+        assertThat(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId()))
+            .extracting(Account::getId).containsExactlyInAnyOrder(legacy.getId(), deleted.getId());
+        assertThat(snapshotRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void resyncAll_legacyUidWithDeletedSidecarInOtherCurrency_backfillsIban() {
+        Account legacy = persistAccount("uid-legacy", "EUR", null);
+        legacy.setIban(null);
+        Account deleted = persistAccount("revolut-deleted", "GBP", Instant.now());
         deleted.setProvider("Revolut");
         entityManager.flush();
         entityManager.clear();
@@ -314,9 +362,32 @@ class SyncServiceCurrencyMatchTest {
         Account updated = accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", member.getId())
             .orElseThrow();
         assertThat(updated.getId()).isEqualTo(legacy.getId());
-        assertThat(updated.getExternalAccountId()).isEqualTo("uid-legacy");
         assertThat(updated.getCurrentBalance()).isEqualByComparingTo("100");
         assertThat(accountRepository.findByIdAndMemberId(deleted.getId(), member.getId())).isEmpty();
+        assertSnapshot(updated, "100");
+    }
+
+    @Test
+    void resyncAll_legacyUidWithDeletedSidecarForOtherMember_backfillsIban() {
+        Account legacy = persistAccount("uid-legacy", "EUR", null);
+        legacy.setIban(null);
+        FamilyMember otherMember = entityManager.persist(FamilyMember.builder()
+            .displayName("Other synthetic member").build());
+        Account deleted = accountRepository.saveAndFlush(Account.builder()
+            .member(otherMember).name("Synthetic EUR").type(AccountType.CHECKING)
+            .currency("EUR").externalAccountId("revolut-deleted").iban(IBAN)
+            .provider("Revolut").deletedAt(Instant.now()).build());
+        entityManager.flush();
+        entityManager.clear();
+        when(bankConnector.fetchBalances(SESSION_ID)).thenReturn(List.of(data("uid-legacy", "EUR", "100")));
+
+        syncAndReload();
+
+        Account updated = accountRepository.findByIbanAndCurrencyAndMemberId(IBAN, "EUR", member.getId())
+            .orElseThrow();
+        assertThat(updated.getId()).isEqualTo(legacy.getId());
+        assertThat(updated.getCurrentBalance()).isEqualByComparingTo("100");
+        assertThat(accountRepository.findByIdAndMemberId(deleted.getId(), otherMember.getId())).isEmpty();
         assertSnapshot(updated, "100");
     }
 

@@ -292,6 +292,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and converting the current day's snapshot to EUR, so later syncs keep those accounts separate.
   Revolut discovery and sync use the same currency-aware match for these imported accounts.
   Deleting or voluntarily restoring one currency does not affect another sharing its IBAN.
+  IBAN backfill respects deleted accounts, so reconnecting Revolut restores its original
+  row without creating an ambiguous active match.
   Caisse d'Epargne loans link to the member's EUR account when currencies share an IBAN,
   keeping the import from failing on multiple matches. Revolut converts native balances to
   EUR before writing snapshots, keeping their value and invested amount in the same currency.
