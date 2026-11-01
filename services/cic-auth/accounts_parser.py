@@ -16,17 +16,18 @@ table per category, each with an invisible caption naming it:
         ...
 
 Only current accounts and savings accounts are in scope. Other tables are
-skipped only when their rows contain no account data. An unrecognized category
-with account data fails the whole page, as does a balance-bearing row that
-cannot be read. Silently dropping an account would hide an incomplete sync.
+skipped only when their rows contain no account-number markers or balance data.
+A title alone can be a contract or offer link, including with an empty balance cell.
+An unrecognized category with a balance fails the whole page,
+as does account data in unrecognized table or row blocks or an unreadable
+account row in a supported category. Silently dropping an account would hide an incomplete sync.
 """
 
 import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
+from html.parser import HTMLParser
 from typing import Literal
-
-from euro_information.forms import html_text as _text
 
 AccountKind = Literal[
     "CHECKING", "SAVINGS", "LIVRET_A", "LDDS", "LEP", "LIVRET_JEUNE", "PEL", "CEL"
@@ -52,9 +53,29 @@ _ROW_RE = re.compile(r"<tr\b[^>]*>(?P<row>.*?)</tr>", re.DOTALL | re.IGNORECASE)
 _TITLE_RE = re.compile(r'class="[^"]*\bei_sdsf_title\b[^"]*"[^>]*>(?P<title>.*?)</span>', re.DOTALL)
 _NUMBER_RE = re.compile(r'class="[^"]*\bdoux\b[^"]*"[^>]*>(?P<number>.*?)</span>', re.DOTALL)
 _AMOUNT_RE = re.compile(r'class="[^"]*\bei_sdsf_montant\b[^"]*"[^>]*>(?P<amount>.*?)</span>', re.DOTALL)
-_ACCOUNT_MARKER_RE = re.compile(r'class="[^"]*\b(?:ei_sdsf_title|doux|ei_sdsf_montant)\b')
 _MONEY_RE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<value>\d[\d\s.]*(?:,\d+)?)\s*(?P<currency>[A-Z]{3}|€)$")
-_BALANCE_RE = re.compile(r"\d[\d\s.,]*\s*(?:[A-Z]{3}\b|€)")
+# ISO 4217 List One (SIX, 2026-09-17). Words such as "CIC" are not currencies.
+_CURRENCY_CODES = frozenset((
+    "AED AFN ALL AMD AOA ARS AUD AWG AZN BAM BBD BDT BHD BIF BMD BND BOB BOV BRL BSD "
+    "BTN BWP BYN BZD CAD CDF CHE CHF CHW CLF CLP CNY COP COU CRC CUP CVE CZK DJF DKK "
+    "DOP DZD EGP ERN ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD HNL HTG HUF "
+    "IDR ILS INR IQD IRR ISK JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD KZT LAK LBP "
+    "LKR LRD LSL LYD MAD MDL MGA MKD MMK MNT MOP MRU MUR MVR MWK MXN MXV MYR MZN NAD "
+    "NGN NIO NOK NPR NZD OMR PAB PEN PGK PHP PKR PLN PYG QAR RON RSD RUB RWF SAR SBD "
+    "SCR SDG SEK SGD SHP SLE SOS SRD SSP STN SVC SYP SZL THB TJS TMT TND TOP TRY TTD "
+    "TWD TZS UAH UGX USD USN UYI UYU UYW UZS VED VES VND VUV WST XAD XAF XAG XAU XBA "
+    "XBB XBC XBD XCD XCG XDR XOF XPD XPF XPT XSU XTS XUA XXX YER ZAR ZMW ZWG"
+).split())
+# Consume each numeric run once, even when it has no currency. Optional currency
+# tokens cannot force retries at every digit of a long nonmonetary run.
+# Only EUR is case-insensitive: other lowercase ISO codes collide with prose.
+_BALANCE_RE = re.compile(
+    r"(?:(?P<prefix>\b(?:[A-Z]{3}|(?i:EUR))\b|[€$£])\s*+[+-]?\s*+)?"
+    r"(?P<number>\d[\d\s.,]*+)(?P<suffix>(?:[A-Z]{3}|(?i:EUR))\b|[€$£])?",
+)
+_EURO_WORD_RE = re.compile(r"\beuros?\b", re.IGNORECASE)
+_AMBIGUOUS_CURRENCY_PREFIXES = frozenset({"ALL", "SOS", "TOP"})
+_BARE_DECIMAL_RE = re.compile(r",\d{2}\b(?!\s*+%)")
 
 # Ordered: the first match wins, so the specific products come before the
 # generic "livret".
@@ -72,6 +93,128 @@ class AccountsFormatError(Exception):
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code = code
+
+
+class _PageParser(HTMLParser):
+    """Remove hidden markup while preserving the original account HTML."""
+
+    def __init__(self, page: str):
+        super().__init__()
+        self.page = page
+        self.line_offsets = [0] + [match.end() for match in re.finditer("\n", page)]
+        self.hidden: list[tuple[int, int]] = []
+        self.ignored: tuple[str, int] | None = None
+
+    def _offset(self) -> int:
+        line, column = self.getpos()
+        return self.line_offsets[line - 1] + column
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in ("script", "style") and self.ignored is None:
+            self.ignored = (tag, self._offset())
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.ignored is not None and tag == self.ignored[0]:
+            self.hidden.append((self.ignored[1], self.page.index(">", self._offset()) + 1))
+            self.ignored = None
+
+    def handle_comment(self, data: str) -> None:
+        if self.ignored is None:
+            start = self._offset()
+            # HTMLParser also reports bogus declarations (<!help>) as comments.
+            content_start = start + (4 if self.page.startswith("<!--", start) else 2)
+            end = self.page.find(">", content_start + len(data))
+            self.hidden.append((start, len(self.page) if end == -1 else end + 1))
+
+    def visible_html(self) -> str:
+        self.feed(self.page)
+        self.close()
+        if self.ignored is not None:
+            self.hidden.append((self.ignored[1], len(self.page)))
+        parts = []
+        end = 0
+        for start, stop in self.hidden:
+            parts.append(self.page[end:start])
+            end = stop
+        parts.append(self.page[end:])
+        return " ".join(parts)
+
+
+class _TextParser(HTMLParser):
+    # Void elements never enclose title or balance text.
+    _VOID_TAGS = frozenset((
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    ))
+
+    def __init__(self):
+        super().__init__()
+        self.parts: list[str] = []
+        self.outside_title_parts: list[str] = []
+        self.classes: set[str] = set()
+        self.ignored_tag: str | None = None
+        self.in_title = False
+        self.implicitly_closed_title = False
+        self.in_balance_cell = False
+        self.has_balance_text = False
+        self.stack: list[tuple[str, bool, bool]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self.ignored_tag is not None:
+            return
+        if tag in ("script", "style"):
+            self.ignored_tag = tag
+            return
+        # HTMLParser does not close cells implicitly. A missing </span> or </td>
+        # must not let a product title hide the balance in the next cell.
+        if tag in ("td", "th"):
+            for open_tag, _, _ in reversed(self.stack):
+                if open_tag in ("td", "th"):
+                    self.implicitly_closed_title |= self.in_title
+                    self.handle_endtag(open_tag)
+                    break
+        classes = next((value for name, value in attrs if name == "class"), None)
+        tokens = set(classes.split()) if classes else set()
+        self.classes.update(tokens)
+        if tag not in self._VOID_TAGS:
+            self.stack.append((tag, self.in_title, self.in_balance_cell))
+            self.in_title |= "ei_sdsf_title" in tokens
+            self.in_balance_cell |= "ei_sdsf_solde" in tokens
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.ignored_tag is not None:
+            if tag == self.ignored_tag:
+                self.ignored_tag = None
+            return
+        for index in range(len(self.stack) - 1, -1, -1):
+            open_tag, was_title, was_balance = self.stack[index]
+            if open_tag == tag:
+                if self.in_title and not was_title and index < len(self.stack) - 1:
+                    self.implicitly_closed_title = True
+                self.in_title = was_title
+                self.in_balance_cell = was_balance
+                del self.stack[index:]
+                break
+
+    def handle_data(self, data: str) -> None:
+        if self.ignored_tag is not None:
+            return
+        if self.in_balance_cell and data.strip():
+            self.has_balance_text = True
+        self.parts.append(data)
+        if not self.in_title:
+            self.outside_title_parts.append(data)
+
+
+def _parse_text(fragment: str) -> _TextParser:
+    parser = _TextParser()
+    parser.feed(fragment)
+    parser.close()
+    return parser
+
+
+def _text(fragment: str) -> str:
+    return " ".join(" ".join(_parse_text(fragment).parts).split())
 
 
 def parse_amount(raw: str) -> Decimal:
@@ -113,11 +256,67 @@ def _category(table: str) -> str:
     return match.group("name").strip().lower().replace("’", "'") if match else ""
 
 
-def _has_account_data(fragment: str) -> bool:
-    return bool(
-        _ACCOUNT_MARKER_RE.search(fragment)
-        or "ei_sdsf_solde" in fragment or _BALANCE_RE.search(_text(fragment))
-    )
+def _has_money(text: str, *, explicit: bool = False, contract: bool = True) -> bool:
+    for match in _BALANCE_RE.finditer(text):
+        # Reject quantities such as "SOS 24h/24" after consuming the run, so
+        # boundary failures cannot restart the regex at every following digit.
+        following = text[match.end():match.end() + 1]
+        if (not match.group("suffix") and match.group("number")[-1].isdigit()
+                and following and (following.isalnum() or following in "_/")):
+            continue
+        currencies = (match.group("prefix"), match.group("suffix"))
+        if not any(token and (token in "€$£" or token.upper() in _CURRENCY_CODES)
+                   for token in currencies):
+            continue
+        decimal = re.search(r"[.,]\d", match.group("number"))
+        # Some ISO codes are also words used in offer and help text. Keep their
+        # short whole-number forms skippable, but fail closed for other currencies.
+        suffix = match.group("suffix")
+        currency_suffix = suffix and (suffix in "€$£" or suffix.upper() in _CURRENCY_CODES)
+        large_whole = len(re.sub(r"\s", "", match.group("number"))) >= 4
+        prefix = match.group("prefix")
+        if (not contract and not currency_suffix and prefix in _AMBIGUOUS_CURRENCY_PREFIXES
+                and not decimal and not large_whole):
+            continue
+        # A title can contain a year and a currency ("Contrat 2024 USD").
+        # Grouped thousands, decimal punctuation, or a symbol distinguish money.
+        if (not explicit or any(token in ("€", "$", "£") for token in currencies)
+                or decimal
+                or re.fullmatch(r"\d{1,3}(?:\s+\d{3})+", match.group("number").strip())):
+            return True
+    return False
+
+
+def _balance_data(parser: _TextParser, *, contract: bool = True) -> bool:
+    # Number markers and nonempty balance elements must fail closed even when
+    # the amount format changed. Empty elements still accompany title-only links.
+    return (bool(parser.classes & {"ei_sdsf_montant", "doux"})
+            or parser.has_balance_text
+            or _has_money(" ".join(parser.outside_title_parts), contract=contract)
+            # An unterminated title cannot safely exclude whole-number balances.
+            or _has_money(" ".join(parser.parts), contract=contract,
+                          explicit=not (parser.in_title or parser.implicitly_closed_title)))
+
+
+def _has_balance(fragment: str) -> bool:
+    parser = _parse_text(fragment)
+    outside_title = " ".join(parser.outside_title_parts)
+    # Unknown rows may expose a balance without a currency or class marker.
+    # Reuse numeric runs to avoid retrying a decimal regex at every digit.
+    # Check each decimal token because one numeric run can span several cells.
+    # An adjacent % excludes only that token; markers still win.
+    return (_balance_data(parser, contract=False)
+            or any(_BARE_DECIMAL_RE.search(
+                       match.group("number") + outside_title[match.end():match.end() + 1])
+                   # Currency words must follow an amount, not just occur in prose.
+                   or _EURO_WORD_RE.match(outside_title, match.end())
+                   for match in _BALANCE_RE.finditer(outside_title)))
+
+
+def _has_account_data(fragment: str, *, contract: bool = False) -> bool:
+    parser = _parse_text(fragment)
+    return (bool(parser.classes & {"ei_sdsf_title", "doux", "ei_sdsf_solde"})
+            or _balance_data(parser, contract=contract))
 
 
 # What the backend calls each in-scope table: it closes an account no longer
@@ -132,44 +331,61 @@ def categories_read(page: str) -> list[str]:
     a table absent from the page says nothing, so the backend leaves that
     category's accounts as they were.
     """
+    page = _PageParser(page).visible_html()
     found = {_category(table.group("body")) for table in _TABLE_RE.finditer(page)}
     return [group for name, group in CATEGORY_GROUPS.items() if name in found]
 
 
 def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
     """Return the in-scope accounts and the names of the categories skipped."""
+    accounts, skipped, _ = parse_accounts_listing(page)
+    return accounts, skipped
+
+
+def parse_accounts_listing(page: str) -> tuple[list[dict], list[str], list[str]]:
+    """Validate once and return accounts, skipped categories, and categories read."""
     if _DOCUMENT_END_RE.search(page) is None:
         raise AccountsFormatError(FORMAT_CHANGED, "Incomplete accounts page")
 
+    page = _PageParser(page).visible_html()
     tables = list(_TABLE_RE.finditer(page))
     if not tables:
         raise AccountsFormatError(FORMAT_CHANGED, "No contract table on the accounts page")
-
     # A certified partial page would zero accounts the backend no longer sees.
     if any(not table.group("closing_tag") for table in tables):
         raise AccountsFormatError(FORMAT_CHANGED, "Unterminated contract table on the accounts page")
     remainder = _TABLE_RE.sub("", page)
     if any(_has_account_data(match.group("body")) for match in _UNPARSED_CONTAINER_RE.finditer(remainder)):
-        raise AccountsFormatError(FORMAT_CHANGED, "Account data outside a recognized contract table")
+        raise AccountsFormatError(FORMAT_CHANGED, "Account data outside the contract tables")
 
     accounts: list[dict] = []
     skipped: list[str] = []
     seen: set[str] = set()
+    found: set[str] = set()
     for table in tables:
         body = table.group("body")
         category = _category(body)
-        supported = category in (CHECKING_CATEGORY, SAVINGS_CATEGORY)
-        if _has_account_data(_ROW_RE.sub("", body)):
+        supported = category in CATEGORY_GROUPS
+        if supported:
+            found.add(category)
+        if _has_account_data(_ROW_RE.sub("", body), contract=supported):
             raise AccountsFormatError(FORMAT_CHANGED, "Account data outside a recognized account row")
         for row in _ROW_RE.finditer(body):
             cells = row.group("row")
+            if not supported:
+                # A title without an account number or balance can be an offer link.
+                if _has_balance(cells):
+                    # Product titles may contain holder names and balances.
+                    raise AccountsFormatError(
+                        FORMAT_CHANGED,
+                        f"An account table has an unrecognized category {category[:60] or 'unnamed'!r}",
+                    )
+                continue
             title = _TITLE_RE.search(cells)
             number = _NUMBER_RE.search(cells)
             amount = _AMOUNT_RE.search(cells)
-            if not _has_account_data(cells):
+            if not _has_account_data(cells, contract=True):
                 continue
-            if not supported:
-                raise AccountsFormatError(FORMAT_CHANGED, "An account table has an unrecognized category")
             if (title is None or number is None or amount is None
                     or any(len(pattern.findall(cells)) > 1 for pattern in (_TITLE_RE, _NUMBER_RE, _AMOUNT_RE))):
                 raise AccountsFormatError(FORMAT_CHANGED, "An account row has no unique title, number, or balance")
@@ -190,4 +406,4 @@ def parse_accounts(page: str) -> tuple[list[dict], list[str]]:
             })
         if not supported:
             skipped.append(category or "unnamed")
-    return accounts, skipped
+    return accounts, skipped, [group for name, group in CATEGORY_GROUPS.items() if name in found]

@@ -107,19 +107,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Its last balance no longer counts toward net worth.
   Deleting its last account removes the session and credentials and revokes pending logins,
   including a confirmation already in progress or a stored-credentials reconnect still reading
-  its password. Unreadable account rows and unrecognized tables containing account data fail the
-  whole import, including renamed tables, rows outside the parser's selectors, and truncated
-  account tables or rows, preserving existing balances and snapshots. Recognized contract tables
-  also fail when cut off after their opening tag or caption, before any account markers appear.
-  The accounts page must end with its closing HTML tag, so cuts between tables or within their
-  opening tags also fail without changing balances or snapshots. Complete pages containing only
-  checking accounts remain valid.
+  its password. Unreadable account rows and unrecognized tables containing balances fail the
+  whole import. Contract links without balances are skipped in unnamed or unsupported tables.
+  Account-number markers and nonempty balance cells in those tables also fail the import,
+  including bare numeric balances on any element carrying the balance class.
+  Unknown-category errors name only the category, limited to 60 characters, so product titles
+  containing holder names or balances do not reach logs. Skipped-category log entries also
+  limit each category to 60 characters. Plain-text balances, including dollar
+  and pound symbols, and account data in unrecognized table or row blocks cannot be silently dropped.
+  Summary totals, promotions, and grey-text elements outside tables or rows are ignored.
+  Complete document and table endings and unique account-row fields remain required; category
+  reporting distinguishes missing tables from present empty ones before a snapshot is certified.
+  Uppercase currency codes are accepted before or after the number, as are currency
+  symbols, including whole-number amounts; `EUR` also accepts lowercase.
+  Ordinary words such as `ils`, uppercase offers such as `TOP 10` or `ALL 3 offres`,
+  and help text such as `SOS 112` or `SOS 24h/24` in layout tables do not block imports.
+  Only the ambiguous currency prefixes `TOP`, `ALL`, and `SOS` in layout tables and
+  unknown-category captions or rows require decimal punctuation or at least four digits;
+  short offer prose such as `TOP 3` and `ALL 4 YOU` does not block imports. Other recognized
+  prefixes also detect small whole-number balances such as `EUR 0`, `EUR 12`, `eur 999`, and
+  `USD 500`. Number-first amounts and currency symbols still count there.
+  Unknown rows with bare French decimal amounts or numeric amounts followed by the whole
+  currency word `euro` or `euros` (case-insensitive) outside the title fail closed,
+  even without a balance class or currency symbol. Balance-free offer text mentioning Europe
+  or "Montants en euros" no longer blocks imports. Advertised percentages such as
+  "À partir de 2,99 % TAEG" and "Taux annuel : 3,50 %" also preserve imports when no
+  account markers or balances are present. Each decimal is checked separately, so a percentage
+  cannot hide a bare decimal balance before it, including in a preceding cell.
+  Account endpoints collect categories during
+  validation so the full page is preprocessed only once. Money nested in product titles
+  is detected when it includes decimal punctuation, a symbol, or grouped thousands such as
+  `1 234 EUR`; a title such as `Contrat 2024 USD` remains a link.
+  Malformed title markup cannot hide whole-number balances, including when an enclosing end
+  tag or the next cell implicitly closes the title. Markers and both text
+  variants are collected in one HTML pass per fragment.
+  Numeric runs are scanned once to avoid quadratic retries on long text without currency.
+  The merged parser retains regression coverage for captionless rows with account markers or
+  balances, script text with dollar signs, and bounded category diagnostics.
+  These checks also run with the shared authentication routes and sidecar health contract.
+  The log-privacy test captures rejected pages from the shared client logger.
+  Comments and script and style bodies are excluded with an HTML parser before table and
+  marker detection. Fake script or style openings inside comments or attributes cannot hide
+  accounts from either account response or category discovery. JavaScript
+  replacement strings, class references, and CSS selectors do not
+  block imports. Alphabetic currency tokens are checked against ISO 4217 codes, so footer text
+  such as `© 2026 CIC` does not block imports. Currency prefixes must be whole words, so French
+  dates such as `31 mars 2026` in layout tables do not block imports either.
+  Account and balance markers must be class tokens
+  on actual elements; commented markup, attribute text, and partial class names are ignored.
+  Balance text is extracted with an HTML parser, so amounts in comments or quoted attributes,
+  including values containing `>`, do not block valid imports.
+  Truncated pages, renamed account tables, and rows outside the parser's selectors fail
+  without changing balances or snapshots. Contract tables cut off before any account markers
+  also fail. Complete pages containing only checking accounts remain valid.
   Completion has its own 10-attempt quota per IP per 15 minutes,
   separate from the five password checks shared by initiate and reconnect.
   Savings captions accept typographic apostrophes. Savings labels with accents or typographic
   apostrophes are recognized. The CIC panel is now translated into German and Spanish.
-  A wrong SMS code can be corrected
-  without another login, and expired attempts have their pending passwords cleared every minute.
+  A wrong SMS code can be corrected without another login, and expired attempts have their
+  pending passwords cleared every minute.
   Rejected credentials make the session inactive and require credential entry, including after an
   explicit reconnect, without erasing a newer login's password. Expired sessions stay in *Sync all*
   before their first import. MCP `get_sync_status`

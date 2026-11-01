@@ -48,7 +48,7 @@ from euro_information.client import (
 from picsou_sidecar import configure_logging, create_app, otp_field_detail
 from pydantic import BaseModel, ConfigDict, Field
 
-from accounts_parser import AccountKind, AccountsFormatError, categories_read, parse_accounts
+from accounts_parser import AccountKind, AccountsFormatError, parse_accounts_listing
 
 log = configure_logging("cic-auth", quiet=("httpx",))
 
@@ -126,10 +126,10 @@ async def _accounts_page(client: httpx.AsyncClient) -> str:
 
 async def _collect_accounts(client: httpx.AsyncClient) -> AccountsResponse:
     page = await _accounts_page(client)
-    accounts, skipped = parse_accounts(page)
+    accounts, skipped, categories = parse_accounts_listing(page)
     if skipped:
         # Category names only: insurance, links to sister sites and the like.
-        log.info("CIC: skipped out-of-scope categories %s", skipped)
+        log.info("CIC: skipped out-of-scope categories %s", [category[:60] for category in skipped])
     if not accounts:
         raise UpstreamError("PORTFOLIO_INCOMPLETE", "No current or savings account on the page")
     return AccountsResponse(
@@ -143,7 +143,7 @@ async def _collect_accounts(client: httpx.AsyncClient) -> AccountsResponse:
             })
             for account in accounts
         ],
-        categoriesRead=categories_read(page),
+        categoriesRead=categories,
     )
 
 

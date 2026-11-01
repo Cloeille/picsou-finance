@@ -19,6 +19,7 @@ from euro_information import forms
 from fastapi.testclient import TestClient
 
 import main
+from accounts_parser import _PageParser
 from fixtures import (
     ACCOUNTS_PAGE,
     AUTHORITY_MANAGEMENT_PAGE,
@@ -257,6 +258,54 @@ class FlowTest(unittest.TestCase):
 
         self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
 
+    def test_unknown_product_names_and_balances_do_not_reach_logs(self):
+        session = self.confirm()
+        title = "Assurance 12 500,00 EUR M EXAMPLE"
+        row = f'<tr><td><span class="ei_sdsf_title">{title}</span></td></tr>'
+        table = accounts_table("Nouveaux contrats", row)
+        self.bank.accounts_page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+
+        for path in ("/accounts", "/accounts/listing"):
+            with self.subTest(path=path), self.assertLogs(euro_client.log, level="WARNING") as logs:
+                response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+            self.assertEqual((response.status_code, response.json()),
+                             (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
+            message = " ".join(logs.output)
+            self.assertIn("nouveaux contrats", message)
+            for private_text in (title, "12 500", "EXAMPLE", "Assurance"):
+                self.assertNotIn(private_text, message)
+
+    def test_skipped_categories_are_bounded_in_logs(self):
+        session = self.confirm()
+        category = "x" * 60 + "synthetic-private-suffix" * 20
+        row = '<tr><td><span class="ei_sdsf_title">Nos offres</span></td></tr>'
+        table = accounts_table(category, row)
+        self.bank.accounts_page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+
+        for path in ("/accounts", "/accounts/listing"):
+            with self.subTest(path=path), self.assertLogs(main.log, level="INFO") as logs:
+                response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+            self.assertEqual(response.status_code, 200, response.text)
+            message = " ".join(logs.output)
+            self.assertIn("x" * 60, message)
+            self.assertNotIn("synthetic-private-suffix", message)
+
+    def test_unknown_balances_cannot_certify_a_partial_snapshot(self):
+        session = self.confirm()
+        for cells in ('<td>EUR 0</td>', '<td>EUR 12</td>', '<td>eur 999</td>',
+                      '<td>USD 500</td>', '<td>1 234,56</td><td>3,50 %</td>',
+                      '<td>3,50 %</td><td>1 234,56</td>'):
+            for category in ("", "Nouveaux comptes"):
+                row = ('<tr><td><span class="ei_sdsf_title">LIVRET X</span></td>'
+                       + cells + '</tr>')
+                table = accounts_table(category, row)
+                self.bank.accounts_page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+                for path in ("/accounts", "/accounts/listing"):
+                    with self.subTest(cells=cells, category=category, path=path):
+                        response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+                        self.assertEqual((response.status_code, response.json()),
+                                         (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
+
     def test_a_renamed_savings_table_cannot_certify_a_partial_snapshot(self):
         session = self.confirm()
         prefix, remaining = ACCOUNTS_PAGE.split("ei_comptescontrats", 1)
@@ -354,6 +403,93 @@ class FlowTest(unittest.TestCase):
         self.assertEqual([account["type"] for account in listing.json()["accounts"]],
                          ["CHECKING", "LIVRET_A", "LDDS", "PEL"])
         self.assertEqual(listing.json()["categoriesRead"], ["CHECKING", "SAVINGS"])
+
+    def test_incidental_page_content_and_title_only_contracts_preserve_certified_accounts(self):
+        session = self.confirm()
+        fragments = (
+            '<table class="layout"><tr><td>Depuis 2026 ils proposent. '
+            'SOS 24h/24. Top 10</td></tr></table>',
+            '<table class="layout"><tr><td>TOP 10 des offres</td></tr></table>',
+            '<table class="layout"><tr><td>ALL 3 offres</td></tr></table>',
+            '<table class="layout"><tr><td>SOS 112</td></tr></table>',
+            accounts_table("Offres TOP 3", '<tr><td><a href="/offres">'
+                           '<span class="ei_sdsf_title">Nos offres</span>'
+                           '<span>Formule ALL 4 YOU</span></a></td></tr>'),
+            "<p>Total : 10 135,06 EUR</p>",
+            '<div class="doux">Mentions légales</div>',
+            "<p>Jusqu'à 80 € offerts</p>",
+            '<table class="ei_comptescontrats"><tr><td>'
+            '<span class="ei_sdsf_title">Vos contrats et nos offres</span></td>'
+            '<td class="ei_sdsf_solde"></td></tr></table>',
+            '<table class="ei_comptescontrats"><tr><td>'
+            '<span class="ei_sdsf_title">Contrat 2024 USD</span></td></tr></table>',
+        )
+        self.bank.accounts_page = ACCOUNTS_PAGE.replace("</body>", "".join(fragments) + "</body>")
+
+        for path in ("/accounts", "/accounts/listing"):
+            with self.subTest(path=path):
+                response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+
+                self.assertEqual(response.status_code, 200, response.text)
+                payload = response.json()
+                accounts = payload if path == "/accounts" else payload["accounts"]
+                self.assertEqual([account["type"] for account in accounts], ["CHECKING", "LIVRET_A", "LDDS", "PEL"])
+                self.assertTrue(all(account["snapshotComplete"] for account in accounts))
+                if path == "/accounts/listing":
+                    self.assertEqual(payload["categoriesRead"], ["CHECKING", "SAVINGS"])
+
+    def test_fake_script_openings_preserve_both_account_responses(self):
+        session = self.confirm()
+        self.bank.accounts_page = ACCOUNTS_PAGE.replace(
+            "<body>", '<body><!-- <script> --><div title="<style>">Aide</div>',
+        ).replace("</body>", "<script>ignored</script><style>ignored</style></body>")
+
+        for path in ("/accounts", "/accounts/listing"):
+            with self.subTest(path=path):
+                response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+                self.assertEqual(response.status_code, 200, response.text)
+                payload = response.json()
+                accounts = payload if path == "/accounts" else payload["accounts"]
+                self.assertEqual([account["type"] for account in accounts], ["CHECKING", "LIVRET_A", "LDDS", "PEL"])
+                self.assertTrue(all(account["snapshotComplete"] for account in accounts))
+                if path == "/accounts/listing":
+                    self.assertEqual(payload["categoriesRead"], ["CHECKING", "SAVINGS"])
+
+    def test_whole_number_balances_in_titles_cannot_certify_a_partial_snapshot(self):
+        session = self.confirm()
+        for title in ('<span class="ei_sdsf_title">LIVRET X 1234 EUR',
+                      '<span class="ei_sdsf_title">LIVRET X <span>1 234 EUR</span></span>'):
+            for category in ("", "Nouveaux comptes"):
+                table = accounts_table(category, f"<tr><td>{title}</td></tr>")
+                self.bank.accounts_page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+                for path in ("/accounts", "/accounts/listing"):
+                    with self.subTest(title=title, category=category, path=path):
+                        response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+                        self.assertEqual((response.status_code, response.json()),
+                                         (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
+
+    def test_account_endpoints_preprocess_the_accounts_page_once(self):
+        session = self.confirm()
+        for path in ("/accounts", "/accounts/listing"):
+            with self.subTest(path=path), patch.object(
+                _PageParser, "visible_html", autospec=True,
+                side_effect=_PageParser.visible_html,
+            ) as visible_html:
+                response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+                self.assertEqual(response.status_code, 200, response.text)
+                visible_html.assert_called_once()
+
+    def test_unmarked_balances_in_unknown_tables_cannot_certify_a_snapshot(self):
+        session = self.confirm()
+        for amount in ("+1 234,56", "1 234,56 euros"):
+            table = accounts_table("", '<tr><td><span class="ei_sdsf_title">LIVRET X</span>'
+                                   f'</td><td>{amount}</td></tr>')
+            self.bank.accounts_page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+            for path in ("/accounts", "/accounts/listing"):
+                with self.subTest(amount=amount, path=path):
+                    response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+                    self.assertEqual((response.status_code, response.json()),
+                                     (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
 
     def test_the_listing_reports_only_the_tables_on_the_page(self):
         # The savings table is missing: the backend must not read that as "no livret any more".

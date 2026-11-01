@@ -24,27 +24,87 @@ balance.
 - **Accounts**: `/fr/banque/comptes-et-contrats.html`, one `table.ei_comptescontrats` per category,
   captioned "Liste des comptes liés à la catégorie : …". "Comptes courants" rows are `CHECKING`;
   "Livrets et comptes d'épargne" rows are typed from their label (Livret A, LDDS, LEP, Livret Jeune,
-  PEL, CEL, else `SAVINGS`). Category names accept straight and typographic apostrophes. Tables
-  outside these categories are skipped only when their rows contain no account or balance data,
-  such as links to employee savings. An unnamed or unrecognized table with account data fails the
-  whole page. A balance-bearing row that cannot be read also fails the page, including one whose
-  title marker is missing or whose label is empty. Header and action rows without account or
-  balance markers are skipped. Before certifying `snapshotComplete`, the parser also checks
-  tables and rows outside its recognized selectors. Account or balance data in a renamed table,
-  an orphan row, or unparsed markup inside a contract table fails the fetch with
-  `UPSTREAM_FORMAT_CHANGED`. Every recognized contract table must have a closing tag, even if the
-  page ends immediately after its opening tag or caption, before any account data appears.
-  The accounts page must end with an explicit `</html>` tag before any snapshot is certified.
-  A cut between tables or inside a table's opening tag therefore also fails with HTTP 502,
-  even when all preceding tables are complete. A complete page with a checking table and no savings
-  table remains valid. Absent checking accounts can be closed, while savings accounts remain
-  unchanged because their category was not read.
-  The check also rejects rows cut off before their closing tags, including unfinished title or
-  balance spans. It never certifies the earlier complete tables as a partial snapshot.
-  Existing balances and snapshots remain unchanged.
-  Unrelated tables without account data and summary amounts outside tables or rows are ignored.
-  Each account row must have one title, number, and balance; malformed row boundaries cannot merge
-  multiple accounts into a single parsed record.
+  PEL, CEL, else `SAVINGS`). Product labels ignore accents and typographic apostrophes. Category
+  names accept straight and typographic apostrophes. Tables
+  outside these categories are skipped only when their rows contain no account-number markers
+  or balance data. A product title alone, such as "Vos contrats et nos offres", can be a
+  contract or offer link without a balance, including when accompanied by an empty `ei_sdsf_solde` cell.
+  An actual `doux` account-number
+  marker or any visible non-whitespace text in an `ei_sdsf_solde` element fails closed, including
+  bare numeric balances without a currency. Product-title text requires decimal punctuation,
+  a currency symbol, or a whole number with grouped thousands (at least four digits) to count as
+  money. A name such as "Contrat 2024 USD" is not a balance, while nested text such as
+  "1 234 EUR" or "1 234,56 EUR" is. Amount markers
+  still count even inside titles. Balance elements can be cells, spans, divs, or other
+  containers. Unbalanced title markup cannot suppress balances in following cells;
+  an unterminated title is also scanned for whole-number balances, even if an enclosing end tag
+  or a new `td` or `th` implicitly closes it. Empty balance cells remain
+  account markers in supported
+  tables and unrecognized table or row blocks, preserving strict completeness checks.
+  An unnamed or unrecognized table with a balance fails the whole page. Its error names the
+  normalized category, truncated to 60 characters. Skipped-category log entries use the same
+  60-character limit. Product titles are omitted because they
+  can contain holder names and balances that must not reach sidecar logs. Balance
+  detection collects element class tokens, balance-element text, and text with and without
+  titles in one HTML parse per fragment. Unknown rows also fail on visible French decimal
+  amounts (a comma and two decimal digits) or a numeric amount followed by the whole currency
+  word `euro` or `euros` (case-insensitive) outside the title,
+  even without a currency symbol or balance class. Other plain-text money requires an uppercase ISO currency code
+  (except `EUR`, which remains case-insensitive) or a `€`, `$`, or `£` symbol on either side of the amount,
+  including whole-number amounts. Numeric runs are tokenized once so long text without a
+  currency does not trigger quadratic regex retries.
+  Balance-free offer text such as "Découvrez nos offres en Europe" or "Montants en euros"
+  remains skippable; `1 EURO` and `1 234,56 euros` still fail closed.
+  Explicit percentages such as "À partir de 2,99 % TAEG" or "Taux annuel : 3,50 %"
+  are excluded only from the bare-decimal fallback, with or without whitespace before `%`.
+  Account markers, populated balance elements, currency amounts, and other bare monetary
+  decimals in the same row still fail closed, including a balance before a percentage.
+  The percentage exclusion applies to each decimal token, even when text from separate cells
+  joins into one numeric run.
+  Outside supported contract tables, the ambiguous currency prefixes `TOP`, `ALL`, and `SOS`
+  require decimal punctuation or at least four digits in the amount. Uppercase prose such as
+  `TOP 3`, `ALL 4 YOU`, or `SOS 112` therefore preserves the accounts in layout tables,
+  unknown-category captions, and offer subtitles. Other recognized currency prefixes count
+  even for small whole-number balances such as `EUR 0`, `EUR 12`, `eur 999`, and `USD 500`.
+  Number-first amounts and currency symbols still fail closed, as do decimal amounts such as
+  `EUR 12,34` and larger whole-number balances such as `ARS 2026` or `EUR 1 234`.
+  Supported contract tables retain strict whole-number prefix detection. Class-marked account
+  numbers, amounts, and nonempty balance elements fail closed regardless of these text rules.
+  Arbitrary visible text outside a title remains allowed so help text does not block imports.
+  Alphabetic currency prefixes must be whole words, so a date such as `31 mars 2026`
+  in a layout table is not mistaken for an `ARS` balance. Lowercase words such as
+  `ils`, `top`, `mur`, or `all` are not currency tokens. A number immediately
+  followed by a unit, as in `SOS 24h/24`, is not a balance.
+  Alphabetic currency tokens must belong to the local ISO 4217 code set, taken from
+  [SIX List One](https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml)
+  published on 2026-09-17. Ordinary text such as `© 2026 CIC` does not count as money. Scanning
+  continues after nonmonetary text, so a later visible balance still fails the page.
+  An HTML parser identifies comments and script and style bodies before table discovery and
+  marker detection, preserving the remaining source markup. A fake `<script>` or `<style>`
+  opening inside a comment or quoted attribute cannot consume visible contract tables up to
+  a later closing tag. Account parsing and category discovery use the same preprocessing. JavaScript
+  replacement strings such as `"$1"`, `"$1$2"`, and `"$1 $2"`, CSS selectors, and markup inside these
+  bodies cannot be mistaken for accounts or balances. Account titles, account numbers, and balances
+  are detected in leftover `<table>` or `<tr>` blocks through parsed element class tokens. Marker
+  names in text, unrelated attributes, partial class names, or comments do not count as element classes.
+  Plain-text balances are read from parsed HTML text nodes, excluding comments, attribute values,
+  and script and style bodies. A `>` inside a quoted attribute cannot expose a hidden amount as text.
+  Visible balances and actual account markers in those leftover table or row blocks still fail
+  the page. Summary amounts, promotions, and grey-text (`doux`) elements outside tables or rows
+  are ignored, as are unrelated tables without account data.
+  Before certifying `snapshotComplete`, the page must end with an explicit `</html>` tag and
+  every recognized contract table must have a closing tag, even an empty one. Account data
+  outside a complete row within a contract table also fails with `UPSTREAM_FORMAT_CHANGED`.
+  Cuts between tables, inside table openings, or within account rows cannot certify a partial
+  snapshot. Supported categories require exactly one title, number, and readable euro balance
+  per account row, including when only a title remains. A missing row end cannot merge two accounts
+  into one. Header and action rows without account or balance markers
+  are skipped. A complete checking-only page remains valid.
+  `/accounts/listing` returns the accounts and `categoriesRead` (`CHECKING` / `SAVINGS`),
+  distinguishing a present empty table from a missing category. This evidence is returned only
+  after parsing succeeds. Both account endpoints collect categories during account validation,
+  preprocessing the full page once instead of parsing it again for category discovery.
+  `/accounts` keeps its existing bare-list response for older backends.
   External id `cic_<account number digits>`.
 - **Backend**: `CicSyncService`, shaped like `CmesSyncService` (stored credentials, re-login with the
   previous session, daily source `cic`), balance-only accounts with `upsertSnapshot`. Migration
@@ -120,14 +180,23 @@ two in Settings → Accounts.
   `InstanceStatusServiceTest` covers CIC's registry entry, URL and session-count supplier;
   `test_sidecar_auth.py` runs the shared `SidecarAuthContract`, which covers both health
   responses, and CI checks the built CIC image inherits `PICSOU_SIDECAR_BASE=sidecar-python`.
-- `services/cic-auth/test_accounts_parser.py` and `test_main.py` reject incomplete markup before
-  `/accounts` can return a certified snapshot, including every cut before and throughout the
-  savings-table opening tag, after the last table, after the savings caption,
-  midway through the first savings title's class, or after its balance. Complete checking-only
-  pages still return certified snapshots. Parser coverage also
-  rejects an empty, unterminated contract table and an unfinished orphan account row.
-  `/accounts/listing` coverage distinguishes empty savings tables from missing ones and rejects
-  truncated pages and renamed account tables before returning category evidence.
+- `services/cic-auth/test_accounts_parser.py` retains the contract-link, currency, class-token,
+  and hidden-markup cases alongside the restored completeness checks. It rejects truncated
+  documents and tables, orphan or unparsed account rows, and merged account rows. Cuts
+  before and throughout the savings-table opening, after its caption, inside a title class,
+  after a balance, and after the last table cannot certify a snapshot. Totals,
+  promotional amounts, and legal text outside tables or rows preserve all parsed accounts.
+  Title-only contracts with empty balance cells or currency codes in their names are skipped,
+  while visible balances after nested or malformed titles still fail the whole page.
+  Non-cell balance elements, uppercase layout prose that overlaps ISO codes, comments and
+  attributes containing fake script or style openings, and privacy of unknown-category error
+  messages have explicit regression cases.
+- `services/cic-auth/test_main.py` checks that incomplete and renamed tables return HTTP 502
+  before a snapshot or category evidence is certified. Unknown-category warnings from the shared
+  `euro-information` logger omit product names and balances. Complete checking-only pages remain
+  valid, and listing responses distinguish missing savings tables from empty ones. Both account
+  endpoints preserve accounts behind fake script openings and reject whole-number balances in
+  malformed titles or grouped amounts nested in closed titles before certifying a snapshot.
 - `CicAdapterTest` preserves the format-change error across the sidecar boundary.
   `CicSyncServiceTest` checks that a failed fetch leaves existing balances and snapshots untouched.
   It also covers category-aware closure with explicit table reporting and legacy bare-list responses,
