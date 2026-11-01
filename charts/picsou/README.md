@@ -28,6 +28,9 @@ helm install picsou oci://ghcr.io/cloeille/charts/picsou --devel -n picsou --cre
 
 Pre-releases are ignored unless asked for (`--devel`, or a version constraint
 that allows them), so the main channel never replaces a release by accident.
+Main versions bump the patch of the highest valid tagged version core, including
+prerelease tags (for example, `1.3.0-rc.1` leads to `1.3.1-main.…`). This keeps
+new main builds above published release candidates.
 With Argo CD, `targetRevision: "1.*"` follows releases and `">=0.0.0-0"` follows
 main. A chart published from main pins the images of its own commit rather than
 `nightly`, so a given chart version always deploys the same code.
@@ -142,13 +145,19 @@ The guard uses `lookup`, which is unavailable in offline rendering. For
 `secrets.existingSecret`, coordinate the same server and Secret updates yourself.
 An external database still accepts an explicit password without this guard.
 
-After rotating `secrets.existingSecret`, restart the app and all enabled sidecars
-together so they load the same key. This also applies to External Secrets and
-Sealed Secrets. The chart checksum tracks inline values only; changing an external
-Secret does not trigger a rollout, even on a later Helm upgrade. For a release
-named `picsou` in namespace `picsou`, run:
+Secret changes require an explicit rollout, whether supplied inline or through
+`secrets.existingSecret`, External Secrets or Sealed Secrets. The chart deliberately
+publishes no secret-derived pod checksum: even a hash can reveal a weak password
+through offline guessing. Rotating app-only keys must not restart browser sidecars
+and interrupt login sessions. For JWT or database password changes, restart only
+the app after updating the Secret. After rotating the sidecar API key, restart the
+app and all enabled sidecars together so they load the same key. For a release
+named `picsou` in namespace `picsou`, choose the matching rollout:
 
 ```bash
+# JWT or database password rotation: app only
+kubectl -n picsou rollout restart deployment -l app.kubernetes.io/instance=picsou,app.kubernetes.io/component=app
+# Sidecar API key rotation: app and all sidecars
 kubectl -n picsou rollout restart deployment -l app.kubernetes.io/instance=picsou
 ```
 
@@ -256,6 +265,12 @@ like the image entrypoint. Kubernetes gives explicit `env` entries precedence ov
 `envFrom`; use `app.env` or `app.extraEnv` to override generated datasource values.
 Use `app.podAnnotations` for mesh opt-outs such as `sidecar.istio.io/inject: "false"`
 so the migration pod can finish without a long-running injected proxy.
+The generated Secret remains an ordinary kept resource. Do not turn it into a
+pre-upgrade hook: [Helm defaults hooks](https://helm.sh/docs/topics/charts_hooks/#hook-deletion-policies)
+to `before-hook-creation`, deleting the
+previous Secret even with `resource-policy: keep`. A failed recreation could lose
+the stored credentials.
+
 Secrets, ConfigMaps and volumes needed by the hook must already exist before the
 upgrade: a pre-upgrade hook runs before Helm updates ordinary release resources.
 
@@ -335,7 +350,12 @@ sidecars:
 
 Sidecar Service names stay single-label (`<release>-bourso-auth`) and the app
 reaches them in its own namespace: the backend accepts plain HTTP to a sidecar
-only on such a name, everything else must be HTTPS. Per-sidecar `resources`,
+on such a name or loopback; other hosts require HTTPS. Fullnames must start with
+a lowercase letter so Java parses these hosts; set `fullnameOverride` when a
+release name starts with a digit. Disabled sidecars receive
+`http://127.0.0.1:<port>` so backend defaults cannot send credentials to a similarly
+named Service in the namespace. Explicit `app.env`/`app.extraEnv` URL overrides
+still take precedence. Per-sidecar `resources`,
 `securityContext` and `podSecurityContext` are merged over `sidecarDefaults`.
 
 Revolut stores browser profiles on a PVC at `/data/revolut-profiles`. Its pod

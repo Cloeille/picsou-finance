@@ -19,7 +19,9 @@ One release creates:
   cannot override the three selector labels on the app or migration pod.
 - **sidecars** — one Deployment and Service per entry of `sidecars` (the `*-auth` services of
   the Compose file), each toggled by `enabled`. The app receives the matching
-  `*_AUTH_URL` for every enabled sidecar. `revolut-auth` gets a PVC for its browser profiles.
+  `*_AUTH_URL` for every sidecar: the release Service when enabled, loopback
+  (`http://127.0.0.1:<port>`) when disabled, preventing fallback to unrelated Services.
+  Explicit app environment overrides still take precedence. `revolut-auth` gets a PVC for its browser profiles.
   Its pod sets `fsGroup: 1000` so the non-root process can write to a fresh volume through
   a supplemental group, including with an existing claim. This requires storage that supports
   `fsGroup` permissions, or a directory provisioned with write access for that group.
@@ -46,8 +48,8 @@ The `chart` job of `.github/workflows/docker.yml` runs after every image of the 
 and publishes to `oci://ghcr.io/<owner>/charts/picsou`:
 
 - a version tag publishes the chart under that version, `appVersion` = the release;
-- a push to `main` publishes `<latest release + 1 patch>-main.<UTC commit timestamp>.g<short sha>`, a
-  pre-release that sorts above the latest release and that Helm only installs with `--devel`, with
+- a push to `main` publishes `<highest tagged version core + 1 patch>-main.<UTC commit timestamp>.g<short sha>`, a
+  pre-release that sorts above all valid release and prerelease tags and that Helm only installs with `--devel`, with
   `appVersion` = `sha-<short sha>`, the image tag `docker/metadata-action` gives every image of the
   commit.
 
@@ -58,8 +60,8 @@ including no leading zeros in numeric prerelease identifiers; invalid tags skip
 chart publishing.
 
 The `base` job computes the app build version and immutable image tag once. Both the image
-matrix and the chart consume those outputs, and every image explicitly publishes that tag through
-`docker/metadata-action` as a raw tag entry. The build step uses only metadata-action's tag output,
+matrix and the chart consume those outputs. Every image publishes the pinned tag through
+`docker/metadata-action`'s existing SHA and SemVer entries without duplicate raw entries. The build step uses only metadata-action's tag output,
 which lowercases repository names so mixed-case GitHub owners and forks publish valid image references.
 
 Before packaging, `sync-sidecars.sh --apply` adds to the packaged copy the standard sidecars that
@@ -112,7 +114,7 @@ helm upgrade
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
 | TLS on the Ingress/Gateway, no Caddy | Clusters already have a controller and a certificate source (cert-manager, internal CA); the chart only needs `X-Forwarded-Proto` | Shipping the Caddy terminator of the `tls` Compose profile |
-| Sidecar Services named `<release>-<sidecar>`, URLs without a domain | `SidecarBaseUrl` accepts plain HTTP only on a single-label host; the fullname is capped at 40 characters so the longest name stays a valid DNS label | Cluster FQDNs (`*.svc.cluster.local`), which would require HTTPS between pods |
+| Sidecar Services named `<release>-<sidecar>`, URLs without a domain | `SidecarBaseUrl` accepts plain HTTP only on a single-label host; the fullname starts with a lowercase letter for Java URI parsing and is capped at 40 characters so the longest name stays a valid DNS label | Cluster FQDNs (`*.svc.cluster.local`), which would require HTTPS between pods |
 | JWT and encryption keys left to the entrypoint by default | Matches Compose and keeps the encryption key off any value the chart could regenerate | Generating them in the chart Secret, which a `helm template` renderer would rotate on every sync and make stored secrets unreadable |
 | `lookup` + `helm.sh/resource-policy: keep` for the generated Secret | Values survive upgrades and uninstall | Regenerating on each upgrade |
 | Chart version and `appVersion` stamped at publish time | One chart per release and per commit of main, each pinned to its own images, without a manual bump | A version kept in `Chart.yaml` and bumped by hand |
@@ -150,6 +152,9 @@ helm upgrade
   The app migrates the new empty database on startup; once ready, re-enable the Job
   for subsequent upgrades. This does not transfer existing data; plan a separate
   backup and restore if the existing database must be preserved.
+- **Generated Secrets stay ordinary kept resources.** A Secret hook without a delete
+  policy defaults to `before-hook-creation`; that deletion ignores `resource-policy: keep`.
+  A failed recreation could lose credentials. Keep the ordinary Secret and migration guard.
 - **Generated database credentials must precede the migration hook.** Upgrades reject a
   missing generated `postgres-password` or a different inline password before starting
   the Job. Before switching away from `secrets.existingSecret`, provision the generated
@@ -162,6 +167,9 @@ helm upgrade
   so slow migrations and database outages hold readiness without restarting the app.
   TCP liveness remains enabled. PostgreSQL uses `pg_isready` startup checks every
   ten seconds, with 60 failures allowed before liveness takes over during recovery.
+- **Fullnames must start with a lowercase letter.** Java cannot parse a single-label
+  sidecar URL host starting with a digit; rendering fails with a clear error. Set a
+  letter-prefixed `fullnameOverride` for numeric release names.
 - **Long resource names use a hash.** Fullnames up to 40 characters stay unchanged;
   longer ones use a 33-character prefix plus a hyphen and six-character hash.
   Previously truncated names change on upgrade; plan existing claim and Secret
@@ -175,11 +183,13 @@ helm upgrade
   into the corresponding Secret keys, or leave those keys absent with persistent `/data`.
   Never generate replacement keys: environment values override the files and lose access to
   existing encrypted credentials.
-- **External Secret rotation requires a rollout.** The checksum covers inline chart values,
-  not changes to `secrets.existingSecret`. After rotating the sidecar key, restart the app
-  and every enabled sidecar together, including with External Secrets or Sealed Secrets.
-  A `lookup` checksum could only notice rotation during a Helm run and is unavailable to
-  offline GitOps renderers. See the chart README for the rollout command.
+- **All Secret rotation requires an explicit rollout.** No pod annotation hashes secret
+  values: a plaintext-derived checksum would let pod readers guess weak passwords offline.
+  Inline and external Secret changes therefore require an operator rollout. For JWT or
+  database password changes, restart only the app; unrelated keys must not interrupt
+  sidecar browser sessions. For sidecar API key rotation, restart the app and enabled
+  sidecars together. See the chart README for the command. Never rotate the encryption
+  key without a data migration.
 - **Explicit app environment entries replace chart defaults by name.** This includes app keys,
   sidecar URLs and the Enable Banking private key path. `app.extraEnv` wins over `app.env`;
   duplicate names within `extraEnv` fail rendering with a clear error. The environment is
@@ -257,7 +267,8 @@ helm upgrade
   It also checks database TLS mounts, environment overrides and password fallback, migration
   scheduling, labels and quoted mesh annotations, missing or changing generated database
   passwords on upgrade (including explicit password and external Secret overrides),
-  numeric and null inline secrets, stored-key fallback, all generated
+  numeric and null inline secrets, stored-key fallback, numeric fullname rejection,
+  disabled-sidecar loopback URLs, explicit Secret rotation without password fingerprints, all generated
   app environment overrides, duplicate-name rejection, and health-test images and scheduling.
   Review regressions also verify stored-password mismatch rejection, the zero/one replica
   boundary, reserved pod labels, app readiness without a startup deadline, PostgreSQL recovery

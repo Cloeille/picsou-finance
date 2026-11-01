@@ -322,8 +322,9 @@ sidecars:
 
 # Any sidecar entry also accepts: image.repository (default
 # <global.imageRepository>/<sidecar>), image.tag, image.pullPolicy,
-# resources, env (map), extraEnv, podAnnotations, nodeSelector, tolerations and
-# affinity, overriding sidecarDefaults.
+# resources, env (map), extraEnv, podAnnotations, nodeSelector, tolerations,
+# affinity, podSecurityContext, securityContext, persistence, shareProcessNamespace,
+# readinessProbe and livenessProbe, overriding sidecarDefaults.
 
 # ── PostgreSQL ─────────────────────────────────────────────────────────────
 #

@@ -20,7 +20,8 @@ bootstrap. A chart that does not move with them breaks silently.
 2. **Publish it from CI** (`chart` job of `.github/workflows/docker.yml`) once every image of the
    commit is pushed, to `oci://ghcr.io/<owner>/charts/picsou`:
    - a version tag publishes that version, `appVersion` = the release;
-   - a push to `main` publishes a pre-release `<latest release + 1 patch>-main.<timestamp>.g<sha>`
+   - a push to `main` publishes a pre-release `<highest tagged version core + 1 patch>-main.<timestamp>.g<sha>`
+     (including prerelease tags, so an RC cannot freeze the main channel),
      using the UTC commit timestamp rather than job execution time, pinned to the commit's `sha-<short>` images.
    Version, `appVersion` and `global.imageRepository` are stamped at publish time; nothing is
    committed back.

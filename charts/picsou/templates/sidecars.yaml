@@ -27,11 +27,12 @@ spec:
       {{- include "picsou.selectorLabels" (dict "ctx" $ "component" $name) | nindent 6 }}
   template:
     metadata:
+      {{- with $sc.podAnnotations }}
       annotations:
-        {{- include "picsou.secretChecksum" $ | nindent 8 }}
-        {{- range $k, $v := $sc.podAnnotations }}
+        {{- range $k, $v := . }}
         {{ $k }}: {{ toString $v | quote }}
         {{- end }}
+      {{- end }}
       labels:
         {{- include "picsou.selectorLabels" (dict "ctx" $ "component" $name) | nindent 8 }}
     spec:

@@ -30,6 +30,46 @@ class ReviewRegressionsTest(unittest.TestCase):
         )
         return [json.loads(line) for line in parsed.stdout.splitlines() if line != "null"]
 
+    def test_numeric_fullnames_fail_with_an_actionable_error(self):
+        for release, args in (("2picsou", []),
+                              ("picsou", ["--set", "fullnameOverride=2picsou"])):
+            result = subprocess.run(["helm", "template", release, str(CHART), *args],
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("fullname must start with a lowercase letter", result.stderr)
+        self.resources("--set", "fullnameOverride=p2picsou")
+
+    def test_disabled_sidecar_uses_loopback_and_preserves_explicit_override(self):
+        for source in (None, "env", "extraEnv"):
+            args = ["--set", "sidecars.bourso-auth.enabled=false"]
+            if source == "env":
+                args += ["--set", "app.env.BOURSO_AUTH_URL=https://operator.example"]
+            elif source == "extraEnv":
+                args += ["--set-json", 'app.extraEnv=[{"name":"BOURSO_AUTH_URL",'
+                         '"value":"https://operator.example"}]']
+            resources = self.resources(*args)
+            self.assertFalse(any(r["kind"] == "Service" and
+                                 r["metadata"]["name"] == "picsou-bourso-auth" for r in resources))
+            app = next(r for r in resources if r["kind"] == "Deployment" and
+                       r["metadata"]["name"] == "picsou")
+            env = {e["name"]: e for e in app["spec"]["template"]["spec"]["containers"][0]["env"]}
+            self.assertEqual(env["BOURSO_AUTH_URL"]["value"],
+                             "https://operator.example" if source else "http://127.0.0.1:8001")
+            self.assertEqual(env["TR_AUTH_URL"]["value"], "http://picsou-tr-auth:8001")
+
+    def test_inline_secret_rotation_exposes_no_fingerprint_or_implicit_rollout(self):
+        def pod_templates(*args):
+            return {r["metadata"]["name"]: r["spec"]["template"] for r in self.resources(*args)
+                    if r["kind"] == "Deployment"}
+
+        original = pod_templates()
+        for key in ("postgresPassword", "jwtSecret", "cryptoEncryptionKey", "sidecarApiKey"):
+            with self.subTest(key=key):
+                # Rotation is explicit: unrelated keys must never interrupt browser sessions.
+                self.assertEqual(pod_templates("--set", f"secrets.{key}=synthetic-rotation"), original)
+        for pod in original.values():
+            self.assertNotIn("checksum/secret", pod["metadata"].get("annotations", {}))
+
     def test_migration_inherits_quoted_pod_annotations(self):
         resources = self.configured_resources({"app": {"podAnnotations": {
             "sidecar.istio.io/inject": "false", "example.org/revision": 2}}})

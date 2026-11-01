@@ -173,10 +173,6 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
                 "publish": "true", "app-version": "nightly-0123456", "image-tag": "sha-0123456",
                 "chart-release-version": "",
             },
-            ("branch", "feature/version-test"): {
-                "publish": "false", "app-version": "feature-version-test-0123456",
-                "image-tag": "sha-0123456", "chart-release-version": "",
-            },
         }
         for ref, expected in cases.items():
             with self.subTest(ref=ref):
@@ -191,10 +187,9 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         })
         self.assertEqual(chart["needs"], ["base", "build"])
         metadata = next(step for step in build["steps"] if step.get("id") == "meta")
-        self.assertIn(
-            "type=raw,value=${{ needs.base.outputs.image-tag }}",
-            metadata["with"]["tags"].splitlines(),
-        )
+        self.assertIn("type=sha,format=short", metadata["with"]["tags"].splitlines())
+        self.assertIn("type=semver,pattern={{version}}", metadata["with"]["tags"].splitlines())
+        self.assertNotIn("type=raw,value=${{", DOCKER_WORKFLOW.read_text())
         # All image references must pass through metadata-action's lowercase normalization.
         self.assertEqual(build["steps"][-1]["with"]["tags"], "${{ steps.meta.outputs.tags }}")
         self.assertIn("needs.base.outputs.app-version", build["steps"][-1]["with"]["build-args"])
@@ -215,7 +210,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
             git.write_text(
                 "#!/bin/sh\n"
                 "case \"$*\" in\n"
-                "  'tag --list') printf '%s\\n' v1.2.3 1.9.09 2.0.0 v2.0.1-rc.1 not-a-version ;;\n"
+                "  'tag --list') printf '%s\\n' v1.2.3 1.9.09 2.0.0 v2.0.1-rc.1 8.0.0-rc.01 not-a-version ;;\n"
                 "  'show -s --format=%cd --date=format-local:%Y%m%d%H%M%S HEAD')\n"
                 "    [ \"$TZ\" = UTC ] || exit 94\n"
                 "    echo 20261031010203 ;;\n"
@@ -227,7 +222,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
             values = self.run_chart_version("", command_directory=directory)
 
         self.assertEqual(values["publish"], "true")
-        self.assertEqual(values["version"], "2.0.1-main.20261031010203.g0123456")
+        self.assertEqual(values["version"], "2.0.2-main.20261031010203.g0123456")
 
     def test_chart_version_enforces_semver_prerelease_identifiers(self):
         valid = ("1.2.3", "1.2.3-rc.1", "1.2.3-main.20261101010203.g0123456")

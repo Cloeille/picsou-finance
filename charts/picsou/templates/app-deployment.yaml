@@ -21,11 +21,12 @@ spec:
       {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "app") | nindent 6 }}
   template:
     metadata:
+      {{- with .Values.app.podAnnotations }}
       annotations:
-        {{- include "picsou.secretChecksum" . | nindent 8 }}
-        {{- range $k, $v := .Values.app.podAnnotations }}
+        {{- range $k, $v := . }}
         {{ $k }}: {{ toString $v | quote }}
         {{- end }}
+      {{- end }}
       labels:
         {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "app") | nindent 8 }}
         {{- with omit .Values.app.podLabels "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}

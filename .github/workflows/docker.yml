@@ -35,20 +35,14 @@ jobs:
         shell: bash
         run: |
           short_sha="${GITHUB_SHA::7}"
+          publish=true
           chart_release_version=""
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            publish=true
             app_version="${GITHUB_REF_NAME#v}"
             image_tag="$app_version"
             chart_release_version="$app_version"
-          elif [[ "$GITHUB_REF_NAME" == "main" ]]; then
-            publish=true
-            app_version="nightly-${short_sha}"
-            image_tag="sha-${short_sha}"
           else
-            publish=false
-            safe_ref="${GITHUB_REF_NAME//\//-}"
-            app_version="${safe_ref}-${short_sha}"
+            app_version="nightly-${short_sha}"
             image_tag="sha-${short_sha}"
           fi
           {
@@ -93,7 +87,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha,format=short
-            type=raw,value=${{ steps.versions.outputs.image-tag }}
 
       - name: Build and push the python base
         id: python
@@ -124,7 +117,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha,format=short
-            type=raw,value=${{ steps.versions.outputs.image-tag }}
 
       - name: Build and push the chromium base
         id: chromium
@@ -269,7 +261,7 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ env.REGISTRY }}/${{ matrix.image }}
-          # Keep the chart's pinned tag inside metadata-action so image names are lowercased.
+          # metadata-action emits the pinned sha/semver tag and lowercases image names.
           tags: |
             type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/main' }}
             type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}
@@ -279,7 +271,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha,format=short
-            type=raw,value=${{ needs.base.outputs.image-tag }}
 
       - name: Build and push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -333,7 +324,6 @@ jobs:
           number='(0|[1-9][0-9]*)'
           non_numeric='[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*'
           prerelease_identifier="(${number}|${non_numeric})"
-          release="^${number}\.${number}\.${number}$"
           semver="^${number}\.${number}\.${number}(-${prerelease_identifier}(\.${prerelease_identifier})*)?$"
           if [[ "$PUBLISH" != "true" ]]; then
             echo "publish=false" >> "$GITHUB_OUTPUT"
@@ -342,13 +332,14 @@ jobs:
           if [[ -n "$RELEASE_VERSION" ]]; then
             version="$RELEASE_VERSION"
           else
-            # Next patch after the latest release, so it sorts above that release.
+            # Next patch after the highest tagged core, including prereleases.
+            # Bump past RCs too so they cannot freeze the main channel.
             # The short sha gets a letter prefix: a numeric pre-release identifier
             # cannot start with 0.
             latest=$(git tag --list | sed 's/^v//' \
               | while IFS= read -r candidate; do
-                  if [[ "$candidate" =~ $release ]]; then
-                    echo "$candidate"
+                  if [[ "$candidate" =~ $semver ]]; then
+                    echo "${candidate%%-*}"
                   fi
                 done \
               | sort -V | tail -1)

@@ -9,7 +9,8 @@ Chart name, truncated to fit a DNS label.
 Fully qualified release name. Long names use a prefix and hash to avoid collisions.
 Kept to 40 characters so that
 "<fullname>-caisse-epargne-auth" still fits in a 63-character DNS label: the
-backend only accepts plain HTTP to a sidecar on a single-label host name.
+backend accepts these plain HTTP URLs only on a single-label host name.
+Java URI also requires that label to start with a letter.
 */}}
 {{- define "picsou.fullname" -}}
 {{- $full := .Values.fullnameOverride }}
@@ -19,6 +20,9 @@ backend only accepts plain HTTP to a sidecar on a single-label host name.
 {{- if not (contains $name .Release.Name) }}
 {{- $full = printf "%s-%s" .Release.Name $name }}
 {{- end }}
+{{- end }}
+{{- if not (regexMatch "^[a-z]" $full) }}
+{{- fail "Picsou fullname must start with a lowercase letter so Java can parse sidecar URL hosts; set fullnameOverride to a letter-prefixed name" }}
 {{- end }}
 {{- if gt (len $full) 40 }}
 {{- printf "%s-%s" ($full | trunc 33 | trimSuffix "-") ($full | sha256sum | trunc 6) }}
@@ -133,15 +137,6 @@ Image reference. Call with (dict "ctx" $ "image" .Values.app.image).
 {{- with $params }}?{{ . }}{{ end }}
 {{- end }}
 
-{{/*
-Restarts app and sidecar pods when inline secret values change. Hashes values,
-not the rendered Secret: generated values are random on first render. External
-Secret rotations require an operator rollout of the app and all sidecars.
-*/}}
-{{- define "picsou.secretChecksum" -}}
-checksum/secret: {{ .Values.secrets | toYaml | sha256sum }}
-{{- end }}
-
 {{/* Shared datasource defaults. Explicit user entries replace defaults by name. */}}
 {{- define "picsou.database.env" -}}
 {{- $overrides := deepCopy (.Values.app.env | default dict) }}
@@ -225,9 +220,12 @@ checksum/secret: {{ .Values.secrets | toYaml | sha256sum }}
       key: crypto-encryption-key
       optional: {{ .Values.app.persistence.enabled }}
 {{- range $name, $sc := .Values.sidecars }}
-{{- if $sc.enabled }}
 - name: {{ $sc.urlEnv }}
+{{- if $sc.enabled }}
   value: {{ printf "http://%s:%v" (include "picsou.sidecarName" (dict "ctx" $ "name" $name)) $sc.port | quote }}
+{{- else }}
+  # Never let a disabled integration resolve a different stack's Service.
+  value: {{ printf "http://127.0.0.1:%v" $sc.port | quote }}
 {{- end }}
 {{- end }}
 {{- with .Values.app.enableBanking.existingSecret }}
