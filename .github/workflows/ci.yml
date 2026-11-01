@@ -19,7 +19,7 @@ jobs:
   # large for the files API (3000 files) skip the filter, which selects every job.
   changes:
     runs-on: ubuntu-latest
-    permissions: {pull-requests: read}
+    permissions: {contents: read, pull-requests: read}
     outputs:
       # The jobs to run, as a JSON list; `all` is 'true' when the filter did not run.
       all: ${{ steps.filter.outcome == 'skipped' }}
@@ -56,9 +56,10 @@ jobs:
       - name: Select the jobs and the sidecar matrix
         id: sidecars
         env:
-          ALL: ${{ steps.filter.outcome == 'skipped' }}
+          # Over 1000 paths, every sidecar runs: the list stays under the 128 KiB env limit.
+          ALL: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.sidecar_count >= 1000 }}
           CHANGES: ${{ steps.filter.outputs.changes }}
-          FILES: ${{ steps.filter.outputs.sidecar_files }}
+          FILES: ${{ steps.filter.outputs.sidecar_count < 1000 && steps.filter.outputs.sidecar_files || '[]' }}
         run: python3 .github/scripts/sidecars.py --select
   release-deployment:
     needs: changes
@@ -334,7 +335,7 @@ jobs:
             $needs.changes.outputs as $out
             | [$needs | to_entries[] | .key as $job
                 | select(.value.result != "success" and (.value.result != "skipped"
-                    or $out.all == "true" or ($out.jobs // "[]" | fromjson | index($job)) != null))
+                    or $out.all == "true" or ($out.jobs // "" | if . == "" then "[]" else . end | fromjson | index($job)) != null))
                 | "\(.key): \(.value.result)"]
             | if . == [] then true else error("not green: \(join(", "))") end'
 

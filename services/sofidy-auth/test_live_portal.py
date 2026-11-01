@@ -16,8 +16,9 @@ captured from a real account -- the associate code, the holder's name, the fund
 names, the quantities and the prices -- belongs in a committed file.
 
 It is a script rather than a unittest: it costs a real login and a real
-verification email, so it must never run in CI, where `ci.yml` mounts only
-`test_positions_parser.py` and `test_live_contract.py`.
+verification email, so it must never run in CI. CI runs `unittest discover` in this
+folder; this module defines no TestCase, so discovery imports it and runs nothing.
+Keep it that way.
 """
 
 import asyncio

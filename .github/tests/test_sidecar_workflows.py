@@ -273,7 +273,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
 
     def test_every_sidecar_image_test_mounts_the_test_only_helpers_read_only(self):
         services = [entry["service"] for entry in _inventory()]
-        self.assertEqual(len(services), 13)
+        self.assertEqual(len(services), len(list((ROOT / "services").glob("*-auth/Dockerfile"))))
         for service in services:
             with self.subTest(service=service):
                 commands = _sidecar_steps(service)
@@ -481,9 +481,9 @@ class CiJobSelectionTest(unittest.TestCase):
         self.assertEqual(_filter_step(jobs)["with"]["list-files"], "json")
         sidecars = next(step for step in jobs[SELECTOR]["steps"] if step.get("id") == "sidecars")
         self.assertEqual(sidecars["env"], {
-            "ALL": "${{ steps.filter.outcome == 'skipped' }}",
+            "ALL": "${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.sidecar_count >= 1000 }}",
             "CHANGES": "${{ steps.filter.outputs.changes }}",
-            "FILES": "${{ steps.filter.outputs.sidecar_files }}",
+            "FILES": "${{ steps.filter.outputs.sidecar_count < 1000 && steps.filter.outputs.sidecar_files || '[]' }}",
         })
         self.assertEqual(sidecars["run"].strip(), "python3 .github/scripts/sidecars.py --select")
         for name in _selectable(jobs):
@@ -719,7 +719,7 @@ def _shared_base_services():
 class SharedSidecarBaseTest(unittest.TestCase):
     def test_every_sidecar_builds_on_a_shared_base(self):
         services = _shared_base_services()
-        self.assertEqual(len(services), 13)
+        self.assertEqual(len(services), len(list((ROOT / "services").glob("*-auth/Dockerfile"))))
         for service in services:
             with self.subTest(service=service):
                 text = (ROOT / "services" / service / "Dockerfile").read_text(encoding="utf-8")
