@@ -14,7 +14,8 @@ If `/initiate` cannot park an attempt because that pool is full, it returns
 HTTP 503 `UPSTREAM_UNAVAILABLE` and closes its context, browser and Camoufox
 manager. A wrong OTP returns HTTP 401 `INVALID_OTP` and keeps the attempt for
 retry when capacity allows; if other logins have filled the pool during
-completion, the unparked attempt releases those same resources.
+completion, re-parking returns HTTP 503 `UPSTREAM_UNAVAILABLE`, releases those
+same resources, and removes the attempt.
 
 The user selects SMS (default) or e-mail for AMEX's one-time code. On AMEX's verify page the channels are radio inputs labelled with the masked phone number and masked e-mail address; the sidecar picks the e-mail channel when the label contains `@`, otherwise the phone (SMS) channel, then clicks **Continuer**. The older option-button markup is still handled. Logs never include labels, ids, phone numbers or e-mail addresses. The browser completes login and OTP, then captures value-free JSON response diagnostics from American Express domains while the dashboard loads. Account discovery falls back to the servicing balances API; missing enrichments remain null and never fail a sync.
 

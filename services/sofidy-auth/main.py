@@ -378,14 +378,10 @@ async def complete(req: CompleteRequest) -> dict:
     finally:
         # A wrong code is retryable: the portal keeps the same attempt open.
         # Disposing it here would turn the next code into an expired attempt.
-        restored = False
-        try:
-            if retryable:
-                await _pending.put_or_raise(req.processId, state, "TOO_MANY_PENDING")
-                restored = True
-        finally:
-            if not restored:
-                await _dispose_pending_state(state)
+        if retryable:
+            await _pending.repark(req.processId, state, "TOO_MANY_PENDING")
+        else:
+            await _dispose_pending_state(state)
 
 
 @app.post("/positions", response_model=SnapshotPayload)

@@ -10,7 +10,7 @@ import logging
 import os
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -107,6 +107,42 @@ class PendingStoreTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resource.closed, 0)
         self.assertNotIn("b", store)
 
+    async def test_repark_keeps_resources_until_the_retry_is_taken(self):
+        store = _store(max_size=1)
+        resource = FakeResource()
+        state = {"created_at": time.time(), "resource": resource}
+        await store.put_or_raise("retry", state)
+        self.assertIs(await store.take("retry"), state)
+        await store.repark("retry", state)
+        self.assertEqual(resource.closed, 0)
+        self.assertIs(await store.take("retry"), state)
+        await _dispose(state)
+        self.assertEqual(resource.closed, 1)
+
+    async def test_repark_disposes_a_refused_retry_once_and_preserves_capacity_detail(self):
+        for detail in ("UPSTREAM_UNAVAILABLE", "TOO_MANY_PENDING"):
+            with self.subTest(detail=detail):
+                store = _store(max_size=1)
+                await store.put_or_raise("other", {"created_at": time.time()})
+                resource = FakeResource()
+                with self.assertRaises(HTTPException) as raised:
+                    await store.repark("retry", {"created_at": time.time(), "resource": resource}, detail)
+                self.assertEqual((raised.exception.status_code, raised.exception.detail), (503, detail))
+                self.assertEqual(resource.closed, 1)
+                self.assertNotIn("retry", store)
+                self.assertIn("other", store)
+
+    async def test_repark_disposes_on_sweep_failure_or_cancellation(self):
+        for failure in (RuntimeError("sweep failed"), asyncio.CancelledError()):
+            with self.subTest(failure=type(failure).__name__):
+                store = _store()
+                resource = FakeResource()
+                store.expire = AsyncMock(side_effect=failure)
+                with self.assertRaises(type(failure)):
+                    await store.repark("retry", {"created_at": time.time(), "resource": resource})
+                self.assertEqual(resource.closed, 1)
+                self.assertNotIn("retry", store)
+
     async def test_a_full_store_refuses_without_storing(self):
         store = _store(max_size=1)
         self.assertTrue(await store.put("a", {"created_at": time.time()}))
@@ -144,16 +180,20 @@ class PendingStoreTest(unittest.IsolatedAsyncioTestCase):
         async def expire():
             nonlocal calls
             calls += 1
-            raise RuntimeError("sweep failed")
+            raise RuntimeError("sensitive https://synthetic.example/?token=secret")
 
         store.expire = expire
-        with self.assertLogs("test", logging.WARNING):
+        with self.assertLogs("test", logging.WARNING) as captured:
             task = asyncio.create_task(store.sweeper())
             while calls < 3:
                 await asyncio.sleep(0)
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await task
+        for record in captured.records:
+            self.assertEqual(record.getMessage(), "Pending sweep failed error_type=RuntimeError")
+            self.assertIsNone(record.exc_info)
+            self.assertIsNone(record.stack_info)
 
     async def test_disposal_failure_keeps_unvisited_states_for_later_cleanup(self):
         for operation in ("expire", "close_all"):

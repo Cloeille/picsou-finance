@@ -644,7 +644,11 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 completion takes an attempt. Expired states are disposed and returned as missing,
 without waiting for the background sweep. Parking first expires old entries, then
 checks capacity. Routes use `put_or_raise()` so a full store answers 503 with the
-provider's existing capacity detail; callers dispose resources if parking fails.
+provider's existing capacity detail; callers dispose resources if initial parking
+fails. Retrying routes transfer ownership to `repark()`, which disposes the state
+if parking fails or is cancelled. A failed background sweep logs only the exception
+type, keeping upstream URLs and exception messages out of logs, and continues
+with the next sweep.
 A retryable OTP whose state cannot be parked also answers 503 instead of promising
 a retry for an attempt that no longer exists. Initiation also sweeps before
 opening a new upstream client or browser.

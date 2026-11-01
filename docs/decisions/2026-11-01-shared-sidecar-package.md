@@ -23,18 +23,25 @@ byte-identical (issue #338, part of #326).
   the shared-key contract as one test class. Each sidecar keeps its routes,
   parsers and what its pending state pins (`dispose`).
 - **`services/base/euro_information`** holds the CIC / Crédit Mutuel login and
-  second-factor client. What differs per bank is a frozen `Site`; each sidecar
-  keeps its own routes and parsers.
+  second-factor client and HTML-to-text normalization. What differs per bank
+  is a frozen `Site`; each sidecar keeps its own routes and parsers.
 - Both packages ship in the `python` base image through a `.pth` file under
   `/opt/sidecar-base/lib`, so the `chromium` base and every sidecar built on it
   get them. The sidecar test jobs set `PYTHONPATH=/app`, which a `PYTHONPATH`
   install would hide. AMEX and Revolut keep their own Python and Camoufox pins
-  and copy only that directory from the `python` base (`SIDECAR_LIB`).
+  and copy only that directory from the `python` base (`SIDECAR_LIB`). The base
+  image copies the Euro-Information runtime modules explicitly, leaving its
+  shared test-fixture module out of production images; the two relevant CI jobs
+  mount that module read-only for their test runs.
 - Every sidecar's `test_sidecar_auth.py` binds the contract to its app; the
   `sidecar-package` CI job tests the package on its own.
 - `take()` disposes expired states and returns them as missing; `put()` expires
   old states before checking capacity. Routes use `put_or_raise()` to report a
-  full store with 503 while retaining responsibility for refused resources.
+  full store with 503 while retaining responsibility for refused resources on
+  initial parking. Retrying routes instead transfer ownership to `repark()`,
+  which disposes a state if parking fails or is cancelled. The sweeper logs only
+  the exception type on failure, since upstream exception text can contain URLs
+  or credentials, then continues with the next sweep.
 - Pending expiry and shutdown remove and dispose of one state at a time. If
   disposal raises or is cancelled, unvisited states remain in the store for a
   later sweep or shutdown cleanup. Disposers remain responsible for releasing

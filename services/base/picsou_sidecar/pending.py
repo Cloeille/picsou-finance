@@ -57,6 +57,16 @@ class PendingStore:
         if not await self.put(process_id, state):
             raise HTTPException(status_code=503, detail=detail)
 
+    async def repark(self, process_id: str, state: State, detail: str = "UPSTREAM_UNAVAILABLE") -> None:
+        """Take ownership of a retry, disposing it if parking fails or is cancelled."""
+        parked = False
+        try:
+            await self.put_or_raise(process_id, state, detail)
+            parked = True
+        finally:
+            if not parked:
+                await self._dispose(state)
+
     async def take(self, process_id: str) -> State | None:
         """Transfer a live state to its caller, disposing an expired one once."""
         async with self._lock:
@@ -91,8 +101,9 @@ class PendingStore:
             await asyncio.sleep(self.sweep_seconds)
             try:
                 await self.expire()
-            except Exception:
+            except Exception as exc:
                 # One bad sweep must not end the task: without it, expired states
                 # keep their resources until shutdown and `max_size` eventually
                 # rejects every new login.
-                self._log.warning("Pending sweep failed", exc_info=True)
+                # Upstream exceptions may contain URLs or credentials.
+                self._log.warning("Pending sweep failed error_type=%s", type(exc).__name__)

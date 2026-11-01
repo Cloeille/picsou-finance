@@ -24,7 +24,9 @@ import asyncio
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+SERVICE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SERVICE_DIR)
+sys.path.insert(0, os.path.abspath(os.path.join(SERVICE_DIR, "..", "base")))
 
 import main as service  # noqa: E402
 from positions_parser import parse_portfolio  # noqa: E402

@@ -957,15 +957,11 @@ async def complete(req: CompleteRequest) -> dict:
         log.error("Unexpected AMEX authentication completion failure error_type=%s", _safe_error_type(exc))
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
     finally:
-        parked = False
-        try:
-            if keep_pending:
-                state["created_at"] = time.time()
-                await _pending.put_or_raise(req.processId, state)
-                parked = True
-        finally:
-            if not parked:
-                await _dispose_pending_state(state)
+        if keep_pending:
+            state["created_at"] = time.time()
+            await _pending.repark(req.processId, state)
+        else:
+            await _dispose_pending_state(state)
 
 
 # ─── Accounts ───────────────────────────────────────────────────────────────

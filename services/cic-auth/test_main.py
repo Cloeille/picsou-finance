@@ -199,7 +199,7 @@ class FlowTest(unittest.TestCase):
 
         with (
             patch.object(main._pending, "put", AsyncMock(return_value=False)),
-            patch.object(euro_client, "dispose_pending_state", dispose),
+            patch.object(main._pending, "_dispose", dispose),
         ):
             wrong = self.client.post("/complete", json={"processId": process, "code": "000000"}, headers=HEADERS)
 

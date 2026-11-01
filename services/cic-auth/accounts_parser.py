@@ -21,11 +21,12 @@ with account data fails the whole page, as does a balance-bearing row that
 cannot be read. Silently dropping an account would hide an incomplete sync.
 """
 
-import html as html_module
 import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
 from typing import Literal
+
+from euro_information.forms import html_text as _text
 
 AccountKind = Literal[
     "CHECKING", "SAVINGS", "LIVRET_A", "LDDS", "LEP", "LIVRET_JEUNE", "PEL", "CEL"
@@ -52,7 +53,6 @@ _TITLE_RE = re.compile(r'class="[^"]*\bei_sdsf_title\b[^"]*"[^>]*>(?P<title>.*?)
 _NUMBER_RE = re.compile(r'class="[^"]*\bdoux\b[^"]*"[^>]*>(?P<number>.*?)</span>', re.DOTALL)
 _AMOUNT_RE = re.compile(r'class="[^"]*\bei_sdsf_montant\b[^"]*"[^>]*>(?P<amount>.*?)</span>', re.DOTALL)
 _ACCOUNT_MARKER_RE = re.compile(r'class="[^"]*\b(?:ei_sdsf_title|doux|ei_sdsf_montant)\b')
-_TAG_RE = re.compile(r"<[^>]+>")
 _MONEY_RE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<value>\d[\d\s.]*(?:,\d+)?)\s*(?P<currency>[A-Z]{3}|€)$")
 _BALANCE_RE = re.compile(r"\d[\d\s.,]*\s*(?:[A-Z]{3}\b|€)")
 
@@ -72,10 +72,6 @@ class AccountsFormatError(Exception):
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code = code
-
-
-def _text(fragment: str) -> str:
-    return " ".join(html_module.unescape(_TAG_RE.sub(" ", fragment)).split())
 
 
 def parse_amount(raw: str) -> Decimal:

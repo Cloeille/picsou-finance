@@ -705,10 +705,10 @@ async def finish_login(site: Site, store: PendingStore, req: CompleteRequest) ->
     except UpstreamError as exc:
         if exc.code == "INVALID_OTP" and state["kind"] == "SMS":
             # A mistyped code leaves the request open on the site: keep it so
-            # the customer can type the code again. Only a stored attempt is kept:
-            # if the pool refuses it, `finally` still closes its client.
-            await _park(store, req.processId, client, state)
+            # the customer can type the code again. Transfer ownership before
+            # awaiting: repark disposes the client itself if parking fails.
             keep_state = True
+            await store.repark(req.processId, state)
         raise
     finally:
         if not keep_state:

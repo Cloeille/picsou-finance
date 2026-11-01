@@ -24,7 +24,9 @@ RUN pip install --no-cache-dir -r /opt/sidecar-base/requirements.txt
 # for CIC and Credit Mutuel. A .pth file rather than PYTHONPATH: the sidecar test
 # jobs set PYTHONPATH=/app, which would hide them.
 COPY picsou_sidecar /opt/sidecar-base/lib/picsou_sidecar
-COPY euro_information /opt/sidecar-base/lib/euro_information
+# Copy runtime modules explicitly: euro_information/testing.py contains shared
+# test fixtures and must remain outside production images.
+COPY euro_information/__init__.py euro_information/client.py euro_information/forms.py /opt/sidecar-base/lib/euro_information/
 RUN echo /opt/sidecar-base/lib > "$(python -c 'import site; print(site.getsitepackages()[0])')/picsou-sidecar.pth" \
     && python -c "import picsou_sidecar"
 
