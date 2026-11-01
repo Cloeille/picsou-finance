@@ -1,5 +1,4 @@
-# One pin set for every sidecar built on services/base (all but amex-auth and
-# revolut-auth, which need Camoufox and Playwright 1.55). Bumping a pin here
+# One common pin set for every sidecar built on services/base. Bumping a pin here
 # updates every sidecar at once; CI reruns all of their tests.
 #
 # fastapi 0.111 bundled python-multipart, orjson and ujson as hard dependencies

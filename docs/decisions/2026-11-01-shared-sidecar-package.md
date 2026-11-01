@@ -26,10 +26,9 @@ byte-identical (issue #338, part of #326).
   second-factor client and HTML-to-text normalization. What differs per bank
   is a frozen `Site`; each sidecar keeps its own routes and parsers.
 - Both packages ship in the `python` base image through a `.pth` file under
-  `/opt/sidecar-base/lib`, so the `chromium` base and every sidecar built on it
-  get them. The sidecar test jobs set `PYTHONPATH=/app`, which a `PYTHONPATH`
-  install would hide. AMEX and Revolut keep their own Python and Camoufox pins
-  and copy only that directory from the `python` base (`SIDECAR_LIB`). The base
+  `/opt/sidecar-base/lib`, so the `chromium` and `camoufox` bases and every
+  sidecar built on them (AMEX and Revolut included) get them. The sidecar test
+  jobs set `PYTHONPATH=/app`, which a `PYTHONPATH` install would hide. The base
   image copies the Euro-Information runtime modules explicitly. Its build context
   excludes local bytecode and both packages' test helpers; CI mounts the shared
   auth contract and the relevant Euro-Information fixtures read-only for tests.

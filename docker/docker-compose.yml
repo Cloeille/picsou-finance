@@ -132,6 +132,13 @@ services:
       target: chromium
     scale: 0
 
+  sidecar-camoufox:
+    image: ghcr.io/cloeille/picsou-finance/sidecar-camoufox:latest
+    build:
+      context: ../services/base
+      target: camoufox
+    scale: 0
+
   tr-auth:
     image: ghcr.io/cloeille/picsou-finance/tr-auth:latest
     build:
@@ -151,9 +158,9 @@ services:
       context: ../services/revolut-auth
       dockerfile: Dockerfile
       args:
-        SIDECAR_LIB: sidecar-python
+        SIDECAR_BASE: sidecar-camoufox
       additional_contexts:
-        sidecar-python: service:sidecar-python
+        sidecar-camoufox: service:sidecar-camoufox
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -261,9 +268,9 @@ services:
       context: ../services/amex-auth
       dockerfile: Dockerfile
       args:
-        SIDECAR_LIB: sidecar-python
+        SIDECAR_BASE: sidecar-camoufox
       additional_contexts:
-        sidecar-python: service:sidecar-python
+        sidecar-camoufox: service:sidecar-camoufox
     restart: unless-stopped
     init: true
     environment:

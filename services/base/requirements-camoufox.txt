@@ -1,0 +1,5 @@
+# Installed on top of requirements.txt in the `camoufox` target only.
+# Camoufox 0.4.11 speaks an older Juggler protocol: Playwright 1.60+ breaks
+# Browser.setDefaultViewport / setContrast. Keep this pair reviewed together.
+camoufox[geoip]==0.4.11
+playwright==1.55.0

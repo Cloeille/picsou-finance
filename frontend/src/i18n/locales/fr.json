@@ -2257,7 +2257,7 @@
       "outdated": "Ce sidecar répond, mais il ne tourne pas sur l'image de base partagée attendue.",
       "expectedBase": "Image de base partagée attendue :",
       "fixIntro": "Pour corriger, mettez à jour les images, puis relancez :",
-      "fixBuildIntro": "Depuis les sources, avec Compose v2.33 ou plus récent (il construit d'abord sidecar-python et sidecar-chromium) :",
+      "fixBuildIntro": "Depuis les sources, avec Compose v2.33 ou plus récent (il construit d'abord sidecar-python, sidecar-chromium et sidecar-camoufox) :",
       "updateTitle": "Mise à jour disponible",
       "releaseNotes": "Notes de version",
       "later": "Plus tard"

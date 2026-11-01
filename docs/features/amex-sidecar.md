@@ -25,6 +25,20 @@ The current card balance is inferred from the servicing balances. When `remainin
 
 Backend sync persists these optional fields on `account`, exposes them through account responses (`paymentDueAmount`, `paymentDueDate`, `rewardPoints`), and produces a one-off negative budget occurrence when amount is positive and due date is in range. Missing values preserve the latest known enrichment.
 
+### Shared browser image
+
+AMEX and Revolut inherit the same `camoufox` target from `services/base`, passed
+by immutable digest when published. It provides the common FastAPI/uvicorn pins,
+Playwright 1.55.0, Camoufox 0.4.11, pinned Firefox 152.0.4-beta.30, GeoIP, addons
+and Xvfb. The shared installer selects the x86_64 or arm64 release for the target
+CPU. Browser assets are read from `/opt/camoufox-cache/camoufox` by the existing
+non-root `amex` user, without a second download in the service layer.
+
+`services/base/entrypoint.sh` retains port 8001, display :98 and screen
+1366x768x24. It removes stale display locks and fails before starting the API if
+Xvfb does not become ready. Login and OTP code are unchanged. See
+[docker-deployment.md](./docker-deployment.md#shared-sidecar-bases--servicesbasedockerfile).
+
 ### History recovery
 
 `POST /api/amex/history-recovery` (Sync page → AMEX tab, secondary action) reuses the current session — no new credential prompt — and asks the sidecar for up to 1,000 posted and pending transactions. The result is merged into existing transactions without deleting manual ones; transactions without an AMEX id get a deterministic `amex_tx_` (posted) or `amex_txp_` (pending) identity, so re-running recovery is idempotent. This is an upstream request bound, not a guarantee: AMEX only returns what its transaction API exposes, and the UI says older transactions may be unavailable.
@@ -76,6 +90,14 @@ Demo mode ships a fictional AMEX card (account 12, with history and transactions
 - Debt is shown signed (negative) like every other liability in Picsou; the amount to pay is shown as a positive amount to settle.
 
 ## Tests
+
+- `services/base/test_pin_camoufox.py` covers release pinning, both CPU architectures,
+  architecture aliases, unsupported architectures and direct GeoIP downloads.
+- `services/base/test_entrypoint.py` checks both Dockerfile configurations against fixed
+  values, stale-lock restart and explicit display-start failures using synthetic subprocesses.
+- `services/base/smoke_camoufox.py` launches headless and headful Firefox against
+  offline HTML, resolving a fixed IP through the installed GeoIP database. CI runs it in both
+  non-root service images on native ARM64 and on AMD64.
 
 - `AmexSyncServiceTest`, `AmexAdapterTest`, `AmexControllerTest`
 - `RecurringSeriesServiceTest`, `HistoryServiceTest`, `AccountServiceTest` (card sign)

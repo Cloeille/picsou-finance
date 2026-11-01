@@ -1,10 +1,10 @@
+import platform
+
 from camoufox.pkgman import CamoufoxFetcher, Version
 from camoufox.locale import MMDB_FILE, geoip_allowed, webdl
 from camoufox.addons import maybe_download_addons, DefaultAddons
 
-# camoufox.locale.download_mmdb() finds this asset through the unauthenticated GitHub
-# releases API, whose per-IP quota shared CI runners exhaust (403 rate limit exceeded).
-# The release's direct asset URL is a plain download with no API call.
+# Use the direct asset URL: GitHub API quotas are shared by CI runners.
 MMDB_URL = (
     'https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/'
     'GeoLite2-City.mmdb'
@@ -12,9 +12,26 @@ MMDB_URL = (
 
 
 class Pinned(CamoufoxFetcher):
+    @staticmethod
+    def get_platform_arch():
+        machine = platform.machine().lower()
+        architectures = {
+            'x86_64': 'x86_64',
+            'amd64': 'x86_64',
+            'aarch64': 'arm64',
+            'arm64': 'arm64',
+        }
+        try:
+            return architectures[machine]
+        except KeyError:
+            raise RuntimeError(f'Unsupported architecture: {machine}') from None
+
     def fetch_latest(self):
         self._version_obj = Version(release='beta.30', version='152.0.4')
-        self._url = 'https://github.com/daijro/camoufox/releases/download/v152.0.4-beta.30/camoufox-152.0.4-beta.30-lin.x86_64.zip'
+        self._url = (
+            'https://github.com/daijro/camoufox/releases/download/'
+            f'v152.0.4-beta.30/camoufox-152.0.4-beta.30-lin.{self.arch}.zip'
+        )
 
 
 def download_mmdb():

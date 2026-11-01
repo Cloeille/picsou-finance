@@ -21,8 +21,6 @@ DOCKER_COMPOSE = ROOT / "docker/docker-compose.yml"
 APPLICATION_YML = ROOT / "backend/src/main/resources/application.yml"
 APPLICATION_DEV_YML = ROOT / "backend/src/main/resources/application-dev.yml"
 BASE_DOCKERFILE = "services/base/Dockerfile"
-# Camoufox sidecars keep their own Firefox and Playwright pin.
-OWN_BASE = {"amex-auth", "revolut-auth"}
 
 
 def _load(path):
@@ -161,6 +159,63 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         self.assertIn("services/revolut-auth/tests:/app/tests:ro", commands)
         self.assertIn("python -m pytest -p no:cacheprovider -p no:logging --asyncio-mode=auto -v tests", commands)
 
+    def test_revolut_job_preserves_the_legacy_profile_owner(self):
+        commands = _run_commands(_load(CI_WORKFLOW)["jobs"]["revolut-auth-sidecar"])
+
+        self.assertIn(
+            "docker run --rm --network none --entrypoint sh picsou-revolut-auth:test "
+            "-c 'test \"$(id -u)\" = 999'",
+            commands,
+        )
+
+    def test_camoufox_starts_on_a_native_arm64_runner(self):
+        job = _load(CI_WORKFLOW)["jobs"]["camoufox-arm64-smoke"]
+        commands = _run_commands(job)
+
+        self.assertEqual(job["runs-on"], "ubuntu-24.04-arm")
+        self.assertIn('test "$(uname -m)" = aarch64', commands)
+        self.assertIn("docker build --target camoufox --tag picsou-sidecar-camoufox services/base", commands)
+        for service in ("amex-auth", "revolut-auth"):
+            with self.subTest(service=service):
+                image = f"picsou-{service}:arm64-smoke"
+                self.assertIn(f"docker build --tag {image} services/{service}", commands)
+                self.assertIn(image, commands)
+        self.assertEqual(commands.count("--network none"), 2)
+        self.assertIn('test "$(id -u)" -ne 0', commands)
+        self.assertIn("/opt/sidecar-base/entrypoint.sh", commands)
+        self.assertIn("python /opt/sidecar-base/smoke_camoufox.py", commands)
+
+    def test_camoufox_starts_on_amd64_in_each_built_sidecar(self):
+        for service in ("amex-auth", "revolut-auth"):
+            with self.subTest(service=service):
+                job = _load(CI_WORKFLOW)["jobs"][f"{service}-sidecar"]
+                commands = _run_commands(job)
+                image = f"picsou-{service}:test"
+                self.assertEqual(job["runs-on"], "ubuntu-latest")
+                self.assertIn(f"docker run --rm --network none --entrypoint sh {image}", commands)
+                self.assertIn('test "$(uname -m)" = x86_64', commands)
+                self.assertIn('test "$PICSOU_SIDECAR_BASE" = sidecar-camoufox', commands)
+                self.assertIn("python /opt/sidecar-base/smoke_camoufox.py", commands)
+
+    def test_shared_camoufox_tests_run_in_the_base_image(self):
+        commands = _run_commands(_load(CI_WORKFLOW)["jobs"]["amex-auth-sidecar"])
+
+        self.assertIn("--env PYTHONPATH=/opt/sidecar-base", commands)
+        self.assertIn("services:/services:ro", commands)
+        self.assertIn("-m unittest -v test_entrypoint test_pin_camoufox", commands)
+
+    def test_every_shared_base_test_module_runs_once_in_ci(self):
+        # The package tests run in the python base, the Camoufox ones in the
+        # camoufox base: a new services/base test module must be added to one.
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        modules = []
+        for job in ("sidecar-package", "amex-auth-sidecar"):
+            for line in _run_commands(jobs[job]).splitlines():
+                if "-m unittest -v test_" in line:
+                    modules += line.split("-m unittest -v ", 1)[1].split()
+        expected = sorted(path.stem for path in (ROOT / "services/base").glob("test_*.py"))
+        self.assertEqual(sorted(modules), expected)
+
     def test_every_sidecar_image_test_mounts_the_shared_auth_contract_read_only(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         services = sorted(path.parent.name for path in (ROOT / "services").glob("*-auth/Dockerfile"))
@@ -181,8 +236,9 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
             "type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}",
             job_text,
         )
-        self.assertEqual(job_text.count("type=semver,pattern={{version}}"), 3)
-        self.assertEqual(job_text.count("type=sha,format=short"), 3)
+        # One tag set per published image family: the three bases and the build matrix.
+        self.assertEqual(job_text.count("type=semver,pattern={{version}}"), 4)
+        self.assertEqual(job_text.count("type=sha,format=short"), 4)
 
     def test_publish_versions_are_computed_once_for_images_and_chart(self):
         sha = "0123456789abcdef"
@@ -205,7 +261,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         build = workflow["jobs"]["build"]
         chart = workflow["jobs"]["chart"]
         self.assertEqual(set(base["outputs"]), {
-            "python", "chromium", "app-version", "image-tag", "chart-release-version",
+            "python", "chromium", "camoufox", "app-version", "image-tag", "chart-release-version",
         })
         self.assertEqual(chart["needs"], ["base", "build"])
         version = next(step for step in chart["steps"] if step.get("id") == "version")
@@ -398,8 +454,18 @@ class CiJobSelectionTest(unittest.TestCase):
             "charts/picsou/templates/sidecars.yaml": {"helm-chart"},
             "services/sofidy-auth/main.py": {"sofidy-sidecar", "backend"} | services,
             "services/tr-auth/main.py": {"tr-auth-sidecar"} | services,
-            "services/base/requirements.txt": sidecars | {"backend", "sidecar-package"} | services,
-            "services/base/picsou_sidecar/app.py": sidecars | {"backend", "sidecar-package"} | services,
+            "services/amex-auth/main.py": {"amex-auth-sidecar", "camoufox-arm64-smoke"}
+            | services,
+            "services/revolut-auth/main.py": {"revolut-auth-sidecar", "camoufox-arm64-smoke"}
+            | services,
+            "services/revolut-auth/Dockerfile": {"revolut-auth-sidecar", "amex-auth-sidecar", "camoufox-arm64-smoke"}
+            | services,
+            "services/base/requirements.txt": sidecars
+            | {"backend", "camoufox-arm64-smoke", "sidecar-package"}
+            | services,
+            "services/base/picsou_sidecar/app.py": sidecars
+            | {"backend", "camoufox-arm64-smoke", "sidecar-package"}
+            | services,
             ".github/workflows/ci.yml": _selectable(jobs),
             ".github/tests/test_sidecar_workflows.py": _selectable(jobs),
         }
@@ -512,9 +578,9 @@ class AppImageBuildTest(unittest.TestCase):
 
 
 def _sidecar_base(service):
-    """The base target a sidecar Dockerfile builds on, or None for its own base."""
+    """The shared base target a sidecar Dockerfile builds on."""
     text = (ROOT / "services" / service / "Dockerfile").read_text(encoding="utf-8")
-    match = re.search(r"(?m)^ARG SIDECAR_BASE=picsou-sidecar-(python|chromium)$", text)
+    match = re.search(r"(?m)^ARG SIDECAR_BASE=picsou-sidecar-(python|chromium|camoufox)$", text)
     return match.group(1) if match else None
 
 
@@ -522,14 +588,13 @@ def _shared_base_services():
     return sorted(
         path.parent.name
         for path in (ROOT / "services").glob("*-auth/Dockerfile")
-        if path.parent.name not in OWN_BASE
     )
 
 
 class SharedSidecarBaseTest(unittest.TestCase):
-    def test_every_non_camoufox_sidecar_builds_on_a_shared_base(self):
+    def test_every_sidecar_builds_on_a_shared_base(self):
         services = _shared_base_services()
-        self.assertEqual(len(services), 11)
+        self.assertEqual(len(services), 13)
         for service in services:
             with self.subTest(service=service):
                 text = (ROOT / "services" / service / "Dockerfile").read_text(encoding="utf-8")
@@ -551,22 +616,19 @@ class SharedSidecarBaseTest(unittest.TestCase):
         }
         for service in _shared_base_services():
             with self.subTest(service=service):
-                expected = "chromium" if service in uses_playwright else "python"
+                if service in {"amex-auth", "revolut-auth"}:
+                    expected = "camoufox"
+                else:
+                    expected = "chromium" if service in uses_playwright else "python"
                 self.assertEqual(_sidecar_base(service), expected)
-
-    def test_camoufox_sidecars_keep_their_own_base(self):
-        for service in OWN_BASE:
-            with self.subTest(service=service):
-                self.assertIsNone(_sidecar_base(service))
-                self.assertTrue((ROOT / "services" / service / "requirements.txt").exists())
 
     def test_publish_passes_each_sidecar_its_base_by_digest(self):
         workflow = _load(DOCKER_WORKFLOW)
         self.assertEqual(workflow["jobs"]["build"]["needs"], "base")
         outputs = workflow["jobs"]["base"]["outputs"]
-        self.assertTrue({"python", "chromium"} <= set(outputs))
+        self.assertTrue({"python", "chromium", "camoufox"} <= set(outputs))
         steps = {step.get("id"): step for step in workflow["jobs"]["base"]["steps"]}
-        for target in ("python", "chromium"):
+        for target in ("python", "chromium", "camoufox"):
             with self.subTest(target=target):
                 self.assertEqual(steps[target]["with"]["target"], target)
                 self.assertEqual(steps[target]["with"]["context"], "services/base")
@@ -578,12 +640,13 @@ class SharedSidecarBaseTest(unittest.TestCase):
         )
         self.assertIn("needs.base.outputs[matrix.base]", build_args)
         matrix = {entry["name"]: entry for entry in workflow["jobs"]["build"]["strategy"]["matrix"]["include"]}
+        self.assertEqual(
+            {matrix[service]["base"] for service in ("amex-auth", "revolut-auth")},
+            {"camoufox"},
+        )
         for service in _shared_base_services():
             with self.subTest(service=service):
                 self.assertEqual(matrix[service].get("base"), _sidecar_base(service))
-        for service in OWN_BASE:
-            with self.subTest(service=service):
-                self.assertNotIn("base", matrix[service])
 
     def test_ci_builds_the_base_before_each_sidecar_image(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
@@ -602,7 +665,7 @@ class SharedSidecarBaseTest(unittest.TestCase):
     def test_compose_builds_the_base_for_each_sidecar(self):
         for path in [DOCKER_COMPOSE]:
             compose = _load(path)["services"]
-            for target in ("python", "chromium"):
+            for target in ("python", "chromium", "camoufox"):
                 with self.subTest(compose_file=path.relative_to(ROOT), base=target):
                     base = compose[f"sidecar-{target}"]
                     self.assertEqual(base["build"]["target"], target)
