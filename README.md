@@ -114,12 +114,16 @@ Picsou publishes pre-built, multi-arch (amd64/arm64) images to the GitHub Contai
 | `ghcr.io/cloeille/picsou-finance/fortuneo-auth` | Fortuneo login/2FA and portfolio sidecar |
 | `ghcr.io/cloeille/picsou-finance/cmes-auth` | Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar |
 
-The app and every `*-auth` sidecar authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`. Compose refuses to start without it, and each sidecar refuses any request that does not carry it. Set it once before the first launch:
+Bank connectors (the `*-auth` sidecars) are opt-in: with no profile, Compose pulls and runs only the app and the database. Pick the banks you sync through a connector with `COMPOSE_PROFILES` (comma-separated), or `all-connectors` for every one. Profiles: `amex`, `amundi`, `bourse-direct`, `bourso`, `caisse-epargne`, `cic`, `cmes`, `corum`, `degiro`, `fortuneo`, `revolut`, `sofidy`, `tr` (Trade Republic). The app and the enabled connectors authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`, required as soon as one connector is enabled; each connector refuses to start without it. Set both once before the first launch:
 
 ```bash
 [ -f docker/.env ] || cp docker/.env.example docker/.env
-printf '\nAPP_SIDECAR_API_KEY=%s\n' "$(openssl rand -base64 32)" >> docker/.env
+printf '\nCOMPOSE_PROFILES=%s\nAPP_SIDECAR_API_KEY=%s\n' bourso,revolut "$(openssl rand -base64 32)" >> docker/.env
 ```
+
+Compose reads `COMPOSE_PROFILES` from `docker/.env`, so every later `pull`, `up` and `down` covers the same connectors. Enable another bank by adding it to the list and running `pull` then `up -d`. Syncing a bank whose connector is off shows that bank's "unavailable" error.
+
+> Upgrading an install that ran every connector? Add `COMPOSE_PROFILES=all-connectors` (or your banks) to `docker/.env` first; see the CHANGELOG.
 
 ```bash
 docker compose -f docker/docker-compose.yml pull    # fetch the published images from GHCR
@@ -370,7 +374,8 @@ cp docker/.env.example docker/.env
 
 | Variable | When to set | Description |
 |----------|-------------|-------------|
-| `APP_SIDECAR_API_KEY` | Always (required) | `openssl rand -base64 32`. Shared by the app and every `*-auth` sidecar; recreate them together after a rotation |
+| `COMPOSE_PROFILES` | To enable connectors | Comma-separated connector profiles (`bourso,revolut`, …) or `all-connectors`. Empty: app and database only |
+| `APP_SIDECAR_API_KEY` | When a connector is enabled | `openssl rand -base64 32`. Shared by the app and every enabled `*-auth` sidecar; recreate them together after a rotation |
 | `POSTGRES_PASSWORD` | Override auto-gen | Strong random password |
 | `JWT_SECRET` | Override auto-gen | `openssl rand -base64 48` |
 | `CRYPTO_ENCRYPTION_KEY` | Override auto-gen | `openssl rand -base64 32` |

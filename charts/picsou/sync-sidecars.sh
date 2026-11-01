@@ -5,7 +5,8 @@
 # (`${VAR:http://host:port}`), the single place where sidecar URLs are set.
 #
 # A sidecar is "standard" when its Compose service has nothing but an image, a
-# build, a restart policy and APP_SIDECAR_API_KEY: the chart's generic sidecar
+# build, a restart policy, Compose profiles and APP_SIDECAR_API_KEY (the chart
+# enables sidecars with `sidecars.<name>.enabled` instead): the chart's generic sidecar
 # template covers it. A missing sidecar with anything else (volumes, networks,
 # init, extra variables, …) needs a chart change by hand, so its settings are
 # reported and never guessed.
@@ -119,7 +120,7 @@ for name in $compose_sidecars; do
 
   # Keys the generic template does not reproduce.
   extra_keys=$(yq -r ".services[\"$name\"] | keys | .[]
-    | select(. != \"image\" and . != \"build\" and . != \"restart\" and . != \"environment\")" "$compose" | tr '\n' ' ')
+    | select(. != \"image\" and . != \"build\" and . != \"restart\" and . != \"environment\" and . != \"profiles\")" "$compose" | tr '\n' ' ')
   extra_env=$(yq -r ".services[\"$name\"].environment // {} | keys | .[]
     | select(. != \"APP_SIDECAR_API_KEY\")" "$compose" | tr '\n' ' ')
 
