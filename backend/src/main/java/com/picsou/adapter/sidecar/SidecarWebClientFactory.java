@@ -21,9 +21,12 @@ import java.util.function.Consumer;
  *   <li>the base URL is validated at bean-construction time, so a deployment
  *       that would put credentials on a real network never starts
  *       ({@link SidecarBaseUrl});</li>
- *   <li>every request carries the shared secret, so a container that can reach
- *       port 8001 cannot drive the sidecar or replay a captured
- *       {@code sessionState};</li>
+ *   <li>every request carries the shared secret when one is configured, so a
+ *       container that can reach port 8001 cannot drive the sidecar or replay a
+ *       captured {@code sessionState}. A blank key is accepted so the backend boots
+ *       with no connector enabled; each sidecar refuses to start without the key,
+ *       so a keyless backend can never reach a running one, and no empty header is
+ *       ever sent;</li>
  *   <li>the sidecar's own rejection of that secret is turned into a
  *       {@link SidecarAuthenticationException} before any adapter sees it, so a
  *       key mismatch can never be mistaken for the bank rejecting a password.</li>
@@ -50,14 +53,7 @@ public class SidecarWebClientFactory {
     private final String apiKey;
 
     public SidecarWebClientFactory(@Value("${app.sidecar.api-key:}") String apiKey) {
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException(
-                "APP_SIDECAR_API_KEY is required: it is the shared secret that authenticates Picsou "
-                    + "to its connector sidecars, which carry your bank credentials. Generate one "
-                    + "with: openssl rand -base64 32 -- and set it as APP_SIDECAR_API_KEY in both the "
-                    + "backend and every *-auth service.");
-        }
-        this.apiKey = apiKey.trim();
+        this.apiKey = apiKey == null || apiKey.isBlank() ? null : apiKey.trim();
     }
 
     public WebClient create(String sidecarName, String baseUrl) {
@@ -71,8 +67,10 @@ public class SidecarWebClientFactory {
     public WebClient create(String sidecarName, String baseUrl, Consumer<WebClient.Builder> customizer) {
         WebClient.Builder builder = WebClient.builder()
             .baseUrl(SidecarBaseUrl.validate(sidecarName, baseUrl))
-            .defaultHeader(API_KEY_HEADER, apiKey)
             .filter(rejectOnBadKey(sidecarName));
+        if (apiKey != null) {
+            builder.defaultHeader(API_KEY_HEADER, apiKey);
+        }
         customizer.accept(builder);
         return builder.build();
     }
