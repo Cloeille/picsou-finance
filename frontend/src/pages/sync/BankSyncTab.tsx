@@ -2,14 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from '@/components/shared/BankCountrySelect'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { InstitutionSearch } from '@/components/sync/InstitutionSearch'
 import {
-  Search,
   RefreshCw,
   Trash2,
   Landmark,
@@ -26,7 +24,6 @@ import {
   useInitiateBankSync,
   useReconnectBankSync,
   useRetryBankSync,
-  useSearchInstitutions,
 } from '@/features/sync/hooks'
 
 type CallbackStatus = 'completing' | 'done' | 'error'
@@ -60,8 +57,6 @@ export function BankSyncTab() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
 
-  const [searchQuery, setSearchQuery] = useState('')
-  const [country, setCountry] = useState(DEFAULT_BANK_COUNTRY)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [callbackStatus, setCallbackStatus] = useState<CallbackStatus | null>(null)
   const [callbackError, setCallbackError] = useState<string | null>(null)
@@ -94,14 +89,6 @@ export function BankSyncTab() {
     }
   }, [searchParams, completeCallback])
 
-  const searchEnabled = searchQuery.trim().length >= 2
-
-  const {
-    data: institutions,
-    isError: searchFailed,
-    isLoading: searchLoading,
-    error: searchError,
-  } = useSearchInstitutions(searchQuery.trim(), country)
   const { data: connections, isLoading: connectionsLoading } = useBankSyncStatus()
   const initiateMutation = useInitiateBankSync()
   const retryMutation = useRetryBankSync()
@@ -218,68 +205,11 @@ export function BankSyncTab() {
         </Card>
       )}
 
-      {/* Search section */}
-      <div className="space-y-3">
-        <label className="text-sm font-medium">{t('sync.banks.search')}</label>
-        <div className="flex items-start gap-2">
-          <div className="relative flex-1">
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
-            />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t('sync.banks.searchPlaceholder')}
-              className="pl-10"
-            />
-          </div>
-          <BankCountrySelect value={country} onChange={setCountry} />
-        </div>
-
-        {/* Search results */}
-        {searchLoading && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
-
-        {searchEnabled && searchFailed && !searchLoading && (
-          <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            <span className="flex-1">{formatApiError(searchError, t, 'sync.banks.searchError')}</span>
-          </div>
-        )}
-
-        {searchEnabled && !searchFailed && institutions && institutions.length > 0 && (
-          <div className="space-y-2">
-            {institutions.map(inst => (
-              <Card key={inst.id} size="sm">
-                <CardContent className="grid grid-cols-[minmax(0,1fr)_2.5rem_auto] items-center gap-4 py-2">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <Landmark className="size-5 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 text-sm font-medium leading-5">{inst.name}</span>
-                    {inst.psuType === 'business' && (
-                      <Badge variant="outline" title={t('sync.banks.proBadgeTitle')}>
-                        {t('sync.banks.proBadge')}
-                      </Badge>
-                    )}
-                  </div>
-                  <span className="justify-self-center text-xs text-muted-foreground">{inst.country}</span>
-                  <Button
-                    size="sm"
-                    className="justify-self-end"
-                    onClick={() =>
-                      handleInitiate(inst.id, inst.name)
-                    }
-                    disabled={initiateMutation.isPending}
-                  >
-                    {t('sync.banks.connect')}
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-
-        {searchEnabled && !searchFailed && institutions && institutions.length === 0 && !searchLoading && (
-          <p className="text-sm text-muted-foreground">{t('sync.banks.noConnections')}</p>
-        )}
-      </div>
+      <InstitutionSearch
+        layout="page"
+        onConnect={handleInitiate}
+        connecting={initiateMutation.isPending}
+      />
 
       {/* Active connections */}
       <div className="space-y-3">

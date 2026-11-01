@@ -1,6 +1,6 @@
 # Feature: Add Account Modal
 
-> Last updated: 2026-10-07
+> Last updated: 2026-11-01
 
 ## Context
 
@@ -15,12 +15,27 @@ The `AddAccountModal` is a state-machine dialog with two levels:
 
 ### Key files
 
-- `frontend/src/components/shared/AddAccountModal.tsx` — main component (contains all sub-wizards; `SOURCES` array drives the selector grid)
+- `frontend/src/components/shared/AddAccountModal.tsx` — dialog shell: `SOURCES` drives the selector grid, `PANEL_STEPS` renders every Panel-only step (Back button + `<XPanel onConnected={handleDone} />`) from one table
+- `frontend/src/components/shared/AddAccountWizards.tsx` — the modal-only wrappers (`BankWizard`, `ExchangeWizard`, `WalletWizard`, `TradeRepublicWizard`, `RevolutWizard`, `FinaryWizard`) plus `BackButton` / `SuccessState`. They hold what is specific to the modal (Back button, success screen, banner style); the flows themselves are the shared components below
 - `frontend/src/pages/accounts/AccountsPage.tsx` — wires `AddAccountModal` for create, keeps `AccountForm` for edit
 - `frontend/src/features/sync/hooks.ts` — all sync mutation hooks reused by the wizards (built on `useInvalidatingMutation`)
 - `frontend/src/components/ui/input-otp.tsx` — shadcn InputOTP component (installed for TR PIN and verification code)
-- `frontend/src/components/sync/IbkrPanel.tsx` — extracted IBKR connection panel (source of truth shared with `IbkrTab`)
-- `frontend/src/components/sync/SimplefinPanel.tsx` — SimpleFIN connection panel, shared with `SimplefinTab` the same way
+
+### Components shared with the Sync page
+
+The modal and the `/sync` tabs render the same components, so a fix lands on both screens. Where the two screens differ on purpose, the component takes a `variant: 'page' | 'modal'` prop (or a small explicit prop) instead of being copied.
+
+| Shared piece | Used by the modal in | Used by the Sync page in |
+|---|---|---|
+| `components/sync/*Panel.tsx` (IBKR, SimpleFIN, Bourso, Caisse d'Epargne, Bourse Direct, DEGIRO, Amundi, Fortuneo, Amex, CORUM, Sofidy) | `PANEL_STEPS` | the matching `*Tab` |
+| `components/sync/InstitutionSearch.tsx` | `BankWizard` (`layout="modal"`) | `BankSyncTab` (`layout="page"`) |
+| `components/sync/CryptoExchangeForm.tsx` | `ExchangeWizard` | `CryptoExchangeTab` |
+| `components/sync/CryptoWalletForm.tsx` | `WalletWizard` | `CryptoWalletTab` |
+| `components/sync/TradeRepublicLogin.tsx` (+ `MaskedOTPSlot.tsx`) | `TradeRepublicWizard` | `TradeRepublicTab` |
+| `features/sync/use-revolut-discovery.ts` + `components/sync/RevolutCredentialsForm.tsx` | `RevolutWizard` | `RevolutTab` |
+| `features/sync/use-finary-import.ts` + `components/sync/FinaryImportSteps.tsx` | `FinaryWizard` | `FinaryTab` |
+
+What stays per screen: the success screen after `onSuccess` (modal), the Cancel button (tab), the error banner style, and the way a Finary session is opened and re-synced (the modal checks TOTP after login; the tab uses auto-sync and can delete the connection). Revolut also differs in what happens to a finished discovery: the tab persists everything found, the modal offers only accounts not yet imported through `RevolutSelectionCard`.
 
 ### Flow
 
@@ -50,7 +65,7 @@ AccountsPage → "Add account" button
 
 ### Error handling
 
-Each wizard owns its error state as a local `useState<string | null>`. On mutation failure, the backend `detail` field is extracted (falling back to `err.message`, then a translated i18n key). Errors are shown in a dismissible red banner inside the wizard, and cleared on the next attempt.
+Each shared form owns its error state as a local `useState<string | null>` (the wallet and exchange forms, the bank wizard, Revolut). On mutation failure, the backend `detail` field is extracted (falling back to `err.message`, then a translated i18n key). Errors are shown in a dismissible red banner inside the wizard, and cleared on the next attempt.
 
 The Trade Republic wizard follows the same state rules as the dedicated Sync
 page: initiation errors keep the phone/PIN form visible and clear any stale
@@ -117,7 +132,7 @@ four locales, and the partial maps are gone.
 
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
-| Single file with sub-components | All wizards share the same imports, hooks, and patterns | Separate file per wizard |
+| Flows live in `components/sync/` and are shared with the tabs | One copy to fix; `variant` props keep each screen's look | A modal-only copy of each flow (what this replaced) |
 | `InputOTP` for TR PIN and verification code | shadcn component, consistent UX for digit-only inputs | Regular password input |
 | `AccountForm` reused for manual | Already existed, handles validation and color picking | Inline form in the modal |
 | Per-wizard error state (no global overlay) | Global `isPending` unmounts the wizard, losing error state (React no-op on unmounted setter) | Global `onPending` callback |
@@ -154,7 +169,7 @@ assurance-vie and carries an opening date.
 
 - `frontend/src/lib/utils.test.ts` — `formatCurrency` regression case: an invalid code does not throw
   and the raw code appears in the output (issue #9).
-- `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases; Bourse Direct, Amundi, IBKR, SimpleFIN, Amex, CORUM, and Sofidy wizard flow tests (mock panel → `onOpenChange(false)`).
+- `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases; exchange, bank and Finary wizard cases; Bourse Direct, Amundi, IBKR, SimpleFIN, Amex, CORUM, and Sofidy wizard flow tests (mock panel → `onOpenChange(false)`).
 - `backend/src/test/java/com/picsou/validation/CurrencyValidatorTest.java` — accepts valid ISO 4217
   codes, rejects unknown ones, leaves null/blank to `@NotBlank`.
 
