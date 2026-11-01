@@ -282,7 +282,7 @@ Exactly one `Strict-Transport-Security` line when enabled, none when disabled.
 In this image nginx is the only emitter the browser ever sees: it adds the header to every response
 including proxied ones, and strips the backend's copy on `/api` and `/actuator`
 (`proxy_hide_header`) so it is never sent twice. The backend has its own gate on the same variable,
-which is what the split-stack deployment relies on — to check that one, ask the backend directly,
+which is what a bare-metal deployment behind your own proxy relies on — to check that one, ask the backend directly,
 bypassing nginx:
 
 ```bash
@@ -305,7 +305,7 @@ default). Set `PICSOU_PROXY_IP` in `docker/.env` to the proxy's exact IPv4 addre
 Picsou's nginx, then recreate the app. nginx accepts forwarded client addresses only from that
 peer; direct connections retain their connection address. The bundled `tls` profile configures
 its dedicated proxy address automatically. See [proxy configuration](docs/features/docker-deployment.md#trusted-proxy-client-addresses)
-for subnet overrides and the split development stack.
+for subnet overrides.
 
 Picsou uses the forwarded public scheme, host and port for same-origin HTTPS requests. For a
 same-origin deployment leave `ALLOWED_ORIGINS` blank and let the wizard handle it, and keep

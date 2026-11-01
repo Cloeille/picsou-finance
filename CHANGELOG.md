@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Split Docker stack.** The root `docker-compose.yml`, `backend/Dockerfile`,
+  `frontend/Dockerfile`, `frontend/nginx.conf`, `frontend/picsou-realip.conf`, both
+  `Dockerfile.dev` and `backend/watch-and-compile.sh` are gone; they duplicated the
+  supported stack and still installed with npm. `docker/docker-compose.yml` is the only
+  stack and `docker/nginx.conf` the only nginx config. The supported stack retains
+  main's shared sidecar bases and explicit proxy trust configuration. **Migration** if you ran
+  `docker compose up` from the repository root:
+  1. Dump the database: `docker compose exec db pg_dump -U <user> <db> > picsou.sql`.
+     The old stack's volume is `<checkout-dir>_pgdata`; the new one is `docker_pgdata`.
+  2. Copy the root `.env` to `docker/.env` (the old stack read `./.env`). Keep
+     `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY`: without them the new stack generates
+     fresh ones and the stored bank secrets no longer decrypt.
+  3. Start `docker compose -f docker/docker-compose.yml up -d db`, load the dump with
+     `docker compose -f docker/docker-compose.yml exec -T db psql -U <user> <db> < picsou.sql`,
+     then `up -d`. The app is now on port `8080` instead of `5173`.
+
+  For local development, run the backend with `mvn spring-boot:run -Dspring-boot.run.profiles=dev`
+  and the frontend with `bun run dev` (CONTRIBUTING.md).
 - Unused frontend scaffolding for self-service login deletion, its demo handler, and
   draft documentation. No available screen or backend endpoint is removed.
 
@@ -312,6 +330,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gain new transactions. Loan accounts can't receive an Actual import.
 
 ### Changed
+
+- **Sidecar URLs are set only in `application.yml`.** Compose and `docker/entrypoint.sh` no longer
+  set any `*_AUTH_URL`; `application.yml` holds every default. A `*_AUTH_URL` in your `.env`
+  still overrides it. The image's old `TR_AUTH_URL`/`REVOLUT_AUTH_URL` loopback fallbacks
+  are gone; they pointed at no process since the sidecars left the image. The `dev` profile
+  now gives every connector its own `127.0.0.1` port: Amundi 8003, CMES 8009, Revolut 8010,
+  DEGIRO 8011, CIC 8012 and AMEX 8013 were missing and fell back to Docker names that do
+  not resolve outside Compose.
 
 - **Sidecars share their plumbing.** The bank sidecars' key check, health endpoint, request
   log, log sanitising and pending-login store now live once, in `services/base/picsou_sidecar`,

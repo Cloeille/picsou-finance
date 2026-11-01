@@ -156,7 +156,7 @@ modal lists no CMES row there.
   `service/CmesSyncService.java`, `controller/CmesController.java`, `model/CmesSession.java`,
   `db/migration/V117__cmes_session.sql`, `V120__cmes_session_invalid_otp.sql`.
 - `frontend/src/components/sync/CmesPanel.tsx`, `features/sync/{api,hooks}.ts`.
-- `docker/nginx.conf`, `frontend/nginx.conf`: `/api/cmes/auth/complete` gets 180 s, the
+- `docker/nginx.conf`: `/api/cmes/auth/complete` gets 180 s, the
   confirmation can take two minutes.
 
 ## Deployment

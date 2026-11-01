@@ -100,7 +100,7 @@ Properties B (no `?memberId=` override) and C (scope-only authorities, never `RO
 - `features/connectedApps/` + `pages/settings/sections/ConnectedAppsSection.tsx`.
 
 **Reverse proxy**
-- `frontend/nginx.conf` + `docker/nginx.conf` — `location /.well-known/oauth-` → backend.
+- `docker/nginx.conf` — `location /.well-known/oauth-` → backend.
 
 ## Gotchas / Pitfalls
 
