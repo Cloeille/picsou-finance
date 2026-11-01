@@ -382,7 +382,9 @@ names never collide.
 ### Keeping up with the Compose file
 
 `sync-sidecars.sh` compares the `*-auth` services of `docker/docker-compose.yml`
-with the `sidecars` map (requires [yq](https://github.com/mikefarah/yq) v4):
+with the `sidecars` map. It reads each sidecar's URL variable and port from the
+`app.*.url` entries of `backend/src/main/resources/application.yml` (override with
+`--app-config`; requires [yq](https://github.com/mikefarah/yq) v4):
 
 ```bash
 charts/picsou/sync-sidecars.sh --check   # report, exit 2 on differences

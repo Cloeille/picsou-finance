@@ -1,6 +1,6 @@
 # Feature: Embedded MCP server + scoped access-keys
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-01
 
 ## Context
 
@@ -96,7 +96,7 @@ Three security properties are guaranteed structurally (not by per-call checks):
 - `i18n/locales/{en,fr}.json` — the `accessKeys.*` namespace.
 
 **Deployment — reverse proxy** (the public `https://<host>/mcp` path; see Gotchas)
-- `frontend/nginx.conf` + `docker/nginx.conf` — `location /mcp` → backend, SSE-tuned (`proxy_buffering off`, `proxy_read_timeout 3600s`, HTTP/1.1).
+- `docker/nginx.conf` — `location /mcp` → backend, SSE-tuned (`proxy_buffering off`, `proxy_read_timeout 3600s`, HTTP/1.1).
 - `frontend/vite.config.ts` — dev proxy `/mcp` → `VITE_API_TARGET`.
 
 The create access-key dialog is intentionally wider than the default dialog
@@ -249,7 +249,7 @@ sessions/credentials as the documented side effect of deleting a connection's la
 - **The reverse proxy must forward `/mcp` with SSE settings.** An MCP client connects to the public origin
   (`https://<host>/mcp`), not the backend port, so nginx/Vite must route `/mcp` to the backend with
   `proxy_buffering off` + a long `proxy_read_timeout` (the GET `/mcp` stream is long-lived) — otherwise the
-  SSE events are withheld and the stream stalls. Configured in `frontend/nginx.conf`, `docker/nginx.conf`,
+  SSE events are withheld and the stream stalls. Configured in `docker/nginx.conf`
   and the Vite dev proxy (`frontend/vite.config.ts`). Forgetting it yields a `404` (or, if `/` is a SPA
   fallback, an HTML page) on `/mcp` while the backend is perfectly healthy on `:8080/mcp`.
 - **MCP sync triggers share one per-member cooldown.** `trigger_full_sync` and the four older
@@ -308,10 +308,10 @@ sessions/credentials as the documented side effect of deleting a connection's la
 - **Transport selection requires recreating the app container.** SSE uses `GET /mcp` and `POST /mcp/message`.
   Streamable HTTP uses `POST`, `GET`, and `DELETE /mcp`. Switching modes requires updating SSE-only
   clients. Both stay under `/mcp/**` so Property A's prefix check covers them.
-- **Nginx must proxy `/mcp`, not only `/api`.** The all-in-one image and the split-stack frontend
-  both serve the SPA via `try_files` for unmatched paths. Without an explicit `location /mcp`
-  block, clients receive `index.html` (HTTP 200 HTML) instead of the MCP transport. Both
-  `docker/nginx.conf` and `frontend/nginx.conf` proxy `/mcp` to the backend with SSE-friendly
+- **Nginx must proxy `/mcp`, not only `/api`.** The image's nginx serves the SPA via
+  `try_files` for unmatched paths. Without an explicit `location /mcp`
+  block, clients receive `index.html` (HTTP 200 HTML) instead of the MCP transport.
+  `docker/nginx.conf` proxies `/mcp` to the backend with SSE-friendly
   settings (`proxy_buffering off`, long `proxy_read_timeout`).
 - **The SSE stream needs the server keep-alive.** Between two replies the stream carries nothing, and
   clients abort a response body that stays silent: Bun's `fetch` (Claude Code) after ~6 min, the

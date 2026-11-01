@@ -217,9 +217,7 @@ RUN pip install --no-cache-dir -r /opt/sidecar-base/requirements-chromium.txt \
 
 Without rule 2, Playwright installs to `/root/.cache/ms-playwright/`, which the `trauth` user cannot read → every `/initiate` call throws an unhandled exception → FastAPI returns 500 with no useful error message.
 
-Both compose files (`docker-compose.yml` at repo root and `docker/docker-compose.yml`) reference `services/tr-auth/Dockerfile`, so a fix here applies to both.
-
-Both also forward `APP_SIDECAR_API_KEY`. The sidecar refuses to start without it and answers every route except `/health` with a 401 `Picsou-Sidecar-Key` challenge unless the backend presents it; see [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
+`docker/docker-compose.yml` builds `services/tr-auth/Dockerfile` and forwards `APP_SIDECAR_API_KEY`. The sidecar refuses to start without it and answers every route except `/health` with a 401 `Picsou-Sidecar-Key` challenge unless the backend presents it; see [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
 
 ## Gotchas / Pitfalls
 
