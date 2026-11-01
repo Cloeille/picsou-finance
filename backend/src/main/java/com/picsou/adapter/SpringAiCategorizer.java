@@ -4,11 +4,15 @@ import com.picsou.port.TransactionCategorizerPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.converter.BeanOutputConverter;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -29,6 +33,8 @@ public class SpringAiCategorizer implements TransactionCategorizerPort {
         Choose exactly ONE category from the provided list, using only the given category slugs.
         Decide primarily from the merchant name. If none clearly fits, use the slug "unknown".
         Return the chosen slug and a confidence between 0 and 1.""";
+
+    private static final BeanOutputConverter<Answer> OUTPUT = new BeanOutputConverter<>(Answer.class);
 
     private final ChatClient chatClient;
 
@@ -51,19 +57,19 @@ public class SpringAiCategorizer implements TransactionCategorizerPort {
         String fullPrompt = null;
         long t0 = System.nanoTime();
         try {
-            String userPrompt = buildUserPrompt(input, categories, examples);
+            // The JSON format instructions are part of what the model sees, so of the audit too.
+            String userPrompt = buildUserPrompt(input, categories, examples) + "\n" + OUTPUT.getFormat();
             fullPrompt = SYSTEM + "\n\n" + userPrompt;
-            var re = chatClient.prompt()
+            // Not responseEntity(): it parses getResult(), the FIRST generation, which for a
+            // thinking model (Claude Haiku 5.5 thinks by default) is an empty thinking block.
+            ChatResponse resp = chatClient.prompt()
                 .system(SYSTEM)
                 .user(userPrompt)
                 .call()
-                .responseEntity(Answer.class);
-            Answer answer = re.entity();
-            ChatResponse resp = re.response();
+                .chatResponse();
             long ms = (System.nanoTime() - t0) / 1_000_000;
 
             Integer pt = null, ct = null, tt = null;
-            String respText = null;
             if (resp != null) {
                 var meta = resp.getMetadata();
                 if (meta != null) {
@@ -74,10 +80,13 @@ public class SpringAiCategorizer implements TransactionCategorizerPort {
                         tt = asInt(u.getTotalTokens());
                     }
                 }
-                if (resp.getResult() != null && resp.getResult().getOutput() != null) {
-                    respText = resp.getResult().getOutput().getText();
-                }
             }
+            String respText = answerText(resp);
+            if (respText == null) {
+                return new CategorizationResult(Optional.empty(), fullPrompt, null, pt, ct, tt, ms,
+                    "ERROR", "The model returned no text answer.");
+            }
+            Answer answer = OUTPUT.convert(respText);
 
             Optional<CategorySuggestion> sug = toSuggestion(answer);
             return new CategorizationResult(sug, fullPrompt, respText, pt, ct, tt, ms,
@@ -88,6 +97,29 @@ public class SpringAiCategorizer implements TransactionCategorizerPort {
             return new CategorizationResult(Optional.empty(), fullPrompt, null, null, null, null, ms, "ERROR",
                 e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         }
+    }
+
+    /**
+     * The model's answer: the first non-thinking generation carrying non-blank text, or
+     * {@code null}. Spring AI maps every Anthropic content block to a generation, so a thinking
+     * block comes first: its text is empty under the default {@code display: omitted}, but holds
+     * a reasoning summary under {@code display: summarized}. Spring AI tags those generations with
+     * a {@code signature} property ({@code data} for a redacted one), which is how they are skipped.
+     */
+    public static String answerText(ChatResponse resp) {
+        if (resp == null) return null;
+        for (Generation g : resp.getResults()) {
+            AssistantMessage out = g.getOutput();
+            if (out == null || isThinking(out)) continue;
+            String text = out.getText();
+            if (text != null && !text.isBlank()) return text;
+        }
+        return null;
+    }
+
+    private static boolean isThinking(AssistantMessage out) {
+        Map<String, Object> props = out.getMetadata();
+        return props != null && (props.containsKey("signature") || props.containsKey("data"));
     }
 
     /** Extract slug-normalize/unknown/empty logic from the model's raw answer. */

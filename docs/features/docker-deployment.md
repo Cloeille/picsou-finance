@@ -86,6 +86,11 @@ AMEX and Revolut use `camoufox`, including the target CPU's x86_64 or arm64 brow
 Their shared browser/addons live in `/opt/camoufox-cache/camoufox`, readable by
 both service users; GeoIP is downloaded once into the Camoufox package directory.
 A sidecar Dockerfile only adds its user and code.
+The base build context excludes local bytecode and test helpers (`picsou_sidecar/contract.py`
+and `euro_information/testing.py`). CI mounts the helpers read-only for image tests;
+they are absent from published images. The shared packages (`picsou_sidecar`,
+`euro_information`) live in the `python` base, so `chromium`, `camoufox` and every
+sidecar built on them get them.
 
 The publish workflow pushes `sidecar-python`, `sidecar-chromium` and
 `sidecar-camoufox` first, then passes their immutable digests to the sidecar
@@ -160,7 +165,10 @@ cannot read the app's `/data/.secrets/` volume.
   route except the exact `/health` path, including `/docs` and
   `/openapi.json`, requires the header. A constant-time comparison
   (`secrets.compare_digest`) runs in an HTTP middleware, before routing, body
-  parsing or any upstream work.
+  parsing or any upstream work. That middleware lives once, in the shared
+  `services/base/picsou_sidecar` package, and every sidecar's
+  `test_sidecar_auth.py` runs the same contract (`picsou_sidecar.contract`)
+  against its own app.
 - A missing or wrong key returns HTTP 401 `{"detail": "UNAUTHORIZED"}` with
   `WWW-Authenticate: Picsou-Sidecar-Key`. The backend matches on that challenge
   and raises `SidecarAuthenticationException` (`SIDECAR_UNAUTHORIZED`), so a key
@@ -657,6 +665,24 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
   also when a second connection commits the duplicate after the first check, and that account
   writes wait for V47. With a Flyway target below V47, or a baseline at or above V47 (`47.0`
   included), the check is skipped.
+
+### Shared pending-login lifecycle
+
+`services/base/picsou_sidecar.PendingStore` enforces each sidecar's TTL when a
+completion takes an attempt. Expired states are disposed and returned as missing,
+without waiting for the background sweep. Parking inserts immediately when there is
+room, so retries do not wait for unrelated expired browsers to close. Only a full
+store expires old entries and rechecks capacity under the lock, since another
+request may fill a reclaimed slot during disposal. Routes use `put_or_raise()` so
+a still-full store answers 503 with the provider's existing capacity detail;
+callers dispose resources if initial parking
+fails. Retrying routes transfer ownership to `repark()`, which disposes the state
+if parking fails or is cancelled. A failed background sweep logs only the exception
+type, keeping upstream URLs and exception messages out of logs, and continues
+with the next sweep.
+A retryable OTP whose state cannot be parked also answers 503 instead of promising
+a retry for an attempt that no longer exists. Initiation also sweeps before
+opening a new upstream client or browser.
 
 ## Links
 

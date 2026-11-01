@@ -145,7 +145,19 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
 
         self.assertIn("--env PYTHONPATH=/opt/sidecar-base", commands)
         self.assertIn("services:/services:ro", commands)
-        self.assertIn("-m unittest discover -s /services/base -p 'test_*.py' -v", commands)
+        self.assertIn("-m unittest -v test_entrypoint test_pin_camoufox", commands)
+    def test_every_sidecar_image_test_mounts_the_shared_auth_contract_read_only(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        services = sorted(path.parent.name for path in (ROOT / "services").glob("*-auth/Dockerfile"))
+        self.assertEqual(len(services), 13)
+        for service in services:
+            with self.subTest(service=service):
+                job = next(job for job in jobs.values() if _builds_then_runs_image(job, service))
+                self.assertIn(
+                    "services/base/picsou_sidecar/contract.py:"
+                    "/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro",
+                    _run_commands(job),
+                )
 
     def test_publish_workflow_keeps_both_platforms_and_branch_tagging(self):
         job_text = DOCKER_WORKFLOW.read_text(encoding="utf-8")
@@ -288,7 +300,10 @@ class CiJobSelectionTest(unittest.TestCase):
             "services/revolut-auth/Dockerfile": {"revolut-auth-sidecar", "amex-auth-sidecar", "camoufox-arm64-smoke"}
             | services,
             "services/base/requirements.txt": sidecars
-            | {"backend", "camoufox-arm64-smoke"}
+            | {"backend", "camoufox-arm64-smoke", "sidecar-package"}
+            | services,
+            "services/base/picsou_sidecar/app.py": sidecars
+            | {"backend", "camoufox-arm64-smoke", "sidecar-package"}
             | services,
             ".github/workflows/ci.yml": _gated(jobs),
             ".github/tests/test_sidecar_workflows.py": _gated(jobs),

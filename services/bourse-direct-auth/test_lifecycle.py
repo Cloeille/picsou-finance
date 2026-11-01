@@ -1,20 +1,16 @@
-import asyncio
+import os
 import time
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from main import (
     PENDING_TTL_SECONDS,
-    _cleanup_expired,
-    _close_all_pending,
     _close_resources,
     _pending,
-    _pending_lock,
     _portfolio_http_exception,
-    _take_pending,
     _wait_for_session_state,
     app,
 )
@@ -57,42 +53,28 @@ class FakeAuthenticatedPage:
 
 class PendingAuthenticationLifecycleTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        await _close_all_pending()
+        await _pending.close_all()
 
     async def asyncTearDown(self):
-        await _close_all_pending()
+        await _pending.close_all()
 
     async def test_expired_authentication_closes_every_browser_resource(self):
         context = FakeResource("close")
         browser = FakeResource("close")
         playwright = FakeResource("stop")
-        async with _pending_lock:
-            _pending["expired"] = {
-                "context": context,
-                "browser": browser,
-                "playwright": playwright,
-                "created_at": time.time() - PENDING_TTL_SECONDS - 1,
-            }
+        await _pending.put("expired", {
+            "context": context,
+            "browser": browser,
+            "playwright": playwright,
+            "created_at": time.time() - PENDING_TTL_SECONDS - 1,
+        })
 
-        await _cleanup_expired()
+        await _pending.expire()
 
         self.assertNotIn("expired", _pending)
         self.assertEqual(context.calls, 1)
         self.assertEqual(browser.calls, 1)
         self.assertEqual(playwright.calls, 1)
-
-    async def test_pending_authentication_can_only_be_claimed_once(self):
-        state = {"created_at": time.time()}
-        async with _pending_lock:
-            _pending["process"] = state
-
-        first, second = await asyncio.gather(
-            _take_pending("process"),
-            _take_pending("process"),
-        )
-
-        self.assertEqual(sum(value is state for value in (first, second)), 1)
-        self.assertEqual(sum(value is None for value in (first, second)), 1)
 
     async def test_cleanup_failure_is_logged_at_warning_level(self):
         with self.assertLogs("bourse-direct-auth", level="WARNING") as captured:
@@ -120,7 +102,7 @@ class PendingAuthenticationLifecycleTest(unittest.IsolatedAsyncioTestCase):
 
 class RequestContractTest(unittest.TestCase):
     def setUp(self):
-        key_patch = patch("main.SIDECAR_API_KEY", "test-key")
+        key_patch = patch.dict(os.environ, {"APP_SIDECAR_API_KEY": "test-key"})
         key_patch.start()
         self.addCleanup(key_patch.stop)
 
@@ -130,6 +112,50 @@ class RequestContractTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "INVALID_DATA")
+
+    def test_initiate_disposes_expired_attempt_before_starting_a_browser(self):
+        context = FakeResource("close")
+        browser = FakeResource("close")
+        playwright = FakeResource("stop")
+        state = {
+            "context": context,
+            "browser": browser,
+            "playwright": playwright,
+            "created_at": time.time(),
+        }
+        manager = MagicMock()
+        observed_at_browser_start = {}
+
+        async def record_pending_state():
+            observed_at_browser_start["state_present"] = "expired" in _pending
+            observed_at_browser_start["resource_calls"] = (
+                context.calls,
+                browser.calls,
+                playwright.calls,
+            )
+            raise RuntimeError("browser startup stopped by test")
+
+        manager.start = AsyncMock(side_effect=record_pending_state)
+        with (
+            patch("main.async_playwright", return_value=manager),
+            patch("main.log.exception"),
+            patch.object(_pending, "sweep_seconds", 3_600),
+            TestClient(app, headers=SIDECAR_HEADERS) as client,
+        ):
+            client.portal.call(_pending.put, "expired", state)
+            state["created_at"] = time.time() - PENDING_TTL_SECONDS - 1
+            response = client.post(
+                "/initiate",
+                json={"login": "synthetic-login", "password": "synthetic-password"},
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json(), {"detail": "INTERNAL_ERROR"})
+        manager.start.assert_awaited_once_with()
+        self.assertEqual(observed_at_browser_start, {
+            "state_present": False,
+            "resource_calls": (1, 1, 1),
+        })
 
     def test_malformed_otp_is_mapped_to_invalid_otp(self):
         with TestClient(app, headers=SIDECAR_HEADERS) as client:

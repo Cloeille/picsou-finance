@@ -153,9 +153,8 @@ The remaining live acceptance needs a maintainer with existing recent activity;
 do not generate financial activity just to exercise this connector.
 
 Run the Python tests with real installed dependencies:
-`python -m pytest -p no:logging --asyncio-mode=auto -q tests` from
-`services/revolut-auth/`. Disabling pytest's logging plugin lets the existing
-root-formatter installation test inspect the application's own logger. CI's
+`PYTHONPATH=../base python -m pytest -p no:logging --asyncio-mode=auto -q tests` from
+`services/revolut-auth/`. CI's
 `revolut-auth-sidecar` job runs the same command inside the built image, after
 installing pinned `pytest` and `pytest-asyncio`, and image publishing waits for it.
 
@@ -167,10 +166,12 @@ installing pinned `pytest` and `pytest-asyncio`, and image publishing waits for 
 - `services/revolut-auth/tests/{test_profile_lock.py,test_harvest_shape.py,test_sidecar_auth.py}` —
   regression tests (concurrent-sync 409, stale-lock removal, progress read-back; wallet-parent +
   same-currency sum; shared-key 401 challenge, `/health` exemption, startup refusal);
-  run `.venv/bin/python tests/test_*.py` (anyio, no pytest).
+  run `PYTHONPATH=../base .venv/bin/python tests/test_<name>.py` from
+  `services/revolut-auth/` (anyio, no pytest).
 - `services/revolut-auth/Dockerfile` — thin non-root layer on the same `camoufox`
   base digest as AMEX. Common FastAPI/uvicorn pins come from `services/base/requirements.txt`;
-  the old per-sidecar requirements and browser downloads are removed.
+  `picsou_sidecar` comes from the same base (no `SIDECAR_LIB` copy); the old
+  per-sidecar requirements and browser downloads are removed.
 - `services/base/pin_camoufox.py` — installs Firefox 152.0.4-beta.30 for the target
   CPU (`lin.x86_64` or `lin.arm64`), GeoIP and addons once in the base. The GeoIP
   download uses a direct release asset URL to avoid GitHub API rate limits.
