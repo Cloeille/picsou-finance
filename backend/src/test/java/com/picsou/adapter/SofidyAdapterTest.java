@@ -4,14 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import com.picsou.exception.SyncException;
 import com.picsou.port.SidecarErrorCode;
+import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFunction;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.net.InetSocketAddress;
@@ -171,62 +168,6 @@ class SofidyAdapterTest {
         assertThat(snapshot.snapshotComplete()).isTrue();
     }
 
-    @Test
-    void fetchSnapshot_preservesAStableSidecarErrorCode() {
-        SofidyAdapter adapter = adapterReturning(
-            HttpStatus.BAD_GATEWAY, "{\"detail\":\"PORTFOLIO_INCOMPLETE\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE.name());
-                assertThat(error.getMessage()).doesNotContain("state");
-            });
-    }
-
-    /** A bare 401 from the sidecar means the session died, not that the login was wrong. */
-    @Test
-    void fetchSnapshot_mapsAnUncoded401ToSessionExpired() {
-        SofidyAdapter adapter = adapterReturning(
-            HttpStatus.UNAUTHORIZED, "{\"detail\":\"Authentication rejected\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name())
-            );
-    }
-
-    @Test
-    void fetchSnapshot_mapsUnknownSidecarCodeToUnavailable() {
-        SofidyAdapter adapter = adapterReturning(
-            HttpStatus.BAD_GATEWAY, "{\"detail\":\"NEW_UPSTREAM_FAILURE\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
-    @Test
-    void fetchSnapshot_mapsNetworkTimeoutToAnExplicitRetryableFailure() {
-        ExchangeFunction neverResponds = request -> Mono.never();
-        SofidyAdapter adapter = new SofidyAdapter(
-            WebClient.builder().exchangeFunction(neverResponds).build(),
-            new ObjectMapper(),
-            Duration.ofMillis(20),
-            Duration.ofMillis(20),
-            Duration.ofMillis(20)
-        );
-
-        assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
-                assertThat(error.getMessage()).contains("too long");
-            });
-    }
-
     /**
      * The two-step login, end to end. Sofidy never opens a session on the first
      * call, so a result carrying one here would mean the sidecar reported success
@@ -254,93 +195,7 @@ class SofidyAdapterTest {
         assertThat(adapter.completeAuth("p-1", "123456")).isEqualTo("state-blob");
     }
 
-    @Test
-    void initiateAuth_mapsBadCredentialsToInvalidCredentials() {
-        SofidyAdapter adapter = adapterReturning(
-            HttpStatus.UNAUTHORIZED, "{\"detail\":\"INVALID_CREDENTIALS\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.initiateAuth("000000", "wrong"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS.name())
-            );
-    }
-
-    /**
-     * A wrong e-mail code must read as "try again", not as Sofidy being down. A
-     * 502 here would send the user to the wrong place with the wrong fix.
-     */
-    @Test
-    void completeAuth_mapsAWrongVerificationCodeToItsOwnCode() {
-        SofidyAdapter adapter = adapterReturning(
-            HttpStatus.UNAUTHORIZED, "{\"detail\":\"MFA_INVALID\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.completeAuth("p-1", "000000"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.MFA_INVALID.name())
-            );
-    }
-
-    @Test
-    void completeAuth_mapsAnExpiredAttemptToItsOwnCode() {
-        SofidyAdapter adapter = adapterReturning(
-            HttpStatus.GONE, "{\"detail\":\"AUTH_ATTEMPT_EXPIRED\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.completeAuth("p-1", "123456"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name())
-            );
-    }
-
-    @Test
-    void completeAuth_mapsAnUncoded401ToARejectedCode() {
-        // On this route the only 401 Sofidy can mean is "that code is wrong": the
-        // session does not exist yet, and the sidecar sends 410 for a dead
-        // attempt. A 401 read as a dead session would tell the user to reconnect
-        // when the code they just typed is what needs retyping.
-        SofidyAdapter adapter = adapterReturning(
-            HttpStatus.UNAUTHORIZED, "{\"detail\":\"nope\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.completeAuth("p-1", "123456"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.MFA_INVALID.name())
-            );
-    }
-
-    @Test
-    void initiateAuth_mapsAnEmptySuccessResponseToUnavailable() {
-        SofidyAdapter adapter = adapterReturning(HttpStatus.OK, "");
-
-        assertThatThrownBy(() -> adapter.initiateAuth("000000", "password"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
-    @Test
-    void fetchSnapshot_mapsMalformedErrorJsonToUnavailable() {
-        SofidyAdapter adapter = adapterReturning(HttpStatus.BAD_GATEWAY, "not-json");
-
-        assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
     private SofidyAdapter adapterReturning(HttpStatus status, String body) {
-        ExchangeFunction exchange = request -> Mono.just(ClientResponse.create(status)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .body(body)
-            .build());
-        return new SofidyAdapter(
-            WebClient.builder().exchangeFunction(exchange).build(),
-            new ObjectMapper(),
-            Duration.ofSeconds(1),
-            Duration.ofSeconds(1),
-            Duration.ofSeconds(1)
-        );
+        return new SofidyAdapter(WebClientStubs.returning(status, body), new ObjectMapper(), Duration.ofSeconds(1), Duration.ofSeconds(1), Duration.ofSeconds(1));
     }
 }

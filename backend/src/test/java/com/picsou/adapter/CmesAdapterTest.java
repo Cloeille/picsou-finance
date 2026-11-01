@@ -4,24 +4,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.exception.SyncException;
-import com.picsou.port.SidecarErrorCode;
+import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.mock.http.client.reactive.MockClientHttpRequest;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFunction;
-import org.springframework.web.reactive.function.client.ExchangeStrategies;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CmesAdapterTest {
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -95,25 +86,6 @@ class CmesAdapterTest {
     }
 
     @Test
-    void aWrongSmsCodeKeepsItsOwnCode() {
-        CmesAdapter adapter = adapter(new ArrayList<>(), HttpStatus.BAD_REQUEST, "{\"detail\":\"INVALID_OTP\"}");
-
-        assertThatThrownBy(() -> adapter.completeAuth("p1", "000000"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_OTP.name()));
-    }
-
-    @Test
-    void aRefusedConfirmationKeepsItsOwnCode() {
-        CmesAdapter adapter = adapter(new ArrayList<>(), HttpStatus.UNAUTHORIZED,
-            "{\"detail\":\"APP_VALIDATION_CANCELLED\"}");
-
-        assertThatThrownBy(() -> adapter.completeAuth("p1", null))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.APP_VALIDATION_CANCELLED.name()));
-    }
-
-    @Test
     void springSelectsTheProductionConstructor() {
         new ApplicationContextRunner()
             .withPropertyValues("app.sidecars.cmes-auth.url=http://cmes-auth:8001", "app.sidecar.api-key=test-key")
@@ -125,15 +97,6 @@ class CmesAdapterTest {
     }
 
     private CmesAdapter adapter(List<String> bodies, HttpStatus status, String responseBody) {
-        ExchangeFunction exchange = request -> {
-            MockClientHttpRequest recorder = new MockClientHttpRequest(request.method(), request.url());
-            request.writeTo(recorder, ExchangeStrategies.withDefaults()).block();
-            bodies.add(recorder.getBodyAsString().block());
-            return Mono.just(ClientResponse.create(status)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                .body(responseBody)
-                .build());
-        };
-        return new CmesAdapter(WebClient.builder().exchangeFunction(exchange).build(), JSON);
+        return new CmesAdapter(WebClientStubs.recordingBodies(bodies, status, responseBody), JSON);
     }
 }

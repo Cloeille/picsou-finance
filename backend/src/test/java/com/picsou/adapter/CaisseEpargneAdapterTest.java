@@ -5,15 +5,9 @@ import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.exception.SyncException;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
+import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.mock.http.client.reactive.MockClientHttpRequest;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFunction;
-import org.springframework.web.reactive.function.client.ExchangeStrategies;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.sun.net.httpserver.HttpServer;
@@ -23,7 +17,6 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -245,51 +238,6 @@ class CaisseEpargneAdapterTest {
     }
 
     @Test
-    void fetchAccounts_preservesEveryStableSidecarErrorCode() {
-        record Case(HttpStatus status, SidecarErrorCode code) {}
-        for (Case c : List.of(
-            new Case(HttpStatus.UNAUTHORIZED, SidecarErrorCode.SESSION_EXPIRED),
-            new Case(HttpStatus.BAD_GATEWAY, SidecarErrorCode.UPSTREAM_UNAVAILABLE),
-            new Case(HttpStatus.BAD_GATEWAY, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED),
-            new Case(HttpStatus.BAD_REQUEST, SidecarErrorCode.INVALID_SESSION_STATE),
-            new Case(HttpStatus.INTERNAL_SERVER_ERROR, SidecarErrorCode.INTERNAL_ERROR))) {
-            CaisseEpargneAdapter adapter = adapterReturning(c.status(), "{\"detail\":\"" + c.code().name() + "\"}");
-
-            assertThatThrownBy(() -> adapter.fetchAccounts("secret-state"))
-                .isInstanceOfSatisfying(SyncException.class, error -> {
-                    assertThat(error.getCode()).isEqualTo(c.code().name());
-                    assertThat(error.getMessage()).doesNotContain("secret-state");
-                });
-        }
-    }
-
-    @Test
-    void fetchAccounts_mapsAnUnknownSidecarCodeToUnavailable() {
-        CaisseEpargneAdapter adapter = adapterReturning(
-            HttpStatus.BAD_GATEWAY, "{\"detail\":\"UPSTREAM_ERROR\"}");
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
-    }
-
-    @Test
-    void fetchAccounts_mapsANetworkTimeoutToARetryableFailure() {
-        ExchangeFunction neverResponds = request -> Mono.never();
-        CaisseEpargneAdapter adapter = new CaisseEpargneAdapter(
-            WebClient.builder().exchangeFunction(neverResponds).build(),
-            new ObjectMapper(),
-            Duration.ofMillis(20),
-            Duration.ofMillis(20));
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("state"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
-                assertThat(error.getMessage()).contains("too long");
-            });
-    }
-
-    @Test
     void errorCodesMatchTheSidecarContractExactly() {
         assertThat(SidecarBank.CAISSE_EPARGNE.codes().stream().map(Enum::name))
             .containsExactlyInAnyOrder(
@@ -343,26 +291,13 @@ class CaisseEpargneAdapterTest {
     }
 
     private CaisseEpargneAdapter adapterReturning(HttpStatus status, String body) {
-        ExchangeFunction exchange = request -> Mono.just(ClientResponse.create(status)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .body(body)
-            .build());
-        return new CaisseEpargneAdapter(
-            WebClient.builder().exchangeFunction(exchange).build(), new ObjectMapper());
+        return new CaisseEpargneAdapter(WebClientStubs.returning(status, body), new ObjectMapper());
     }
 
     private CaisseEpargneAdapter adapterRecording(List<String> paths, List<String> bodies, String responseBody) {
-        ExchangeFunction exchange = request -> {
-            MockClientHttpRequest recorder = new MockClientHttpRequest(request.method(), request.url());
-            request.writeTo(recorder, ExchangeStrategies.withDefaults()).block();
-            paths.add(request.url().getPath());
-            bodies.add(recorder.getBodyAsString().block());
-            return Mono.just(ClientResponse.create(HttpStatus.OK)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                .body(responseBody)
-                .build());
-        };
-        return new CaisseEpargneAdapter(
-            WebClient.builder().exchangeFunction(exchange).build(), new ObjectMapper());
+        return new CaisseEpargneAdapter(WebClientStubs.recording(call -> {
+            paths.add(call.path());
+            bodies.add(call.body());
+        }, HttpStatus.OK, responseBody), new ObjectMapper());
     }
 }

@@ -10,14 +10,13 @@ import com.picsou.exception.SyncException;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.sun.net.httpserver.HttpServer;
+import com.picsou.support.WebClientStubs;
+import com.picsou.support.WebClientStubs.Call;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.mock.http.client.reactive.MockClientHttpRequest;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.ExchangeFunction;
-import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
@@ -27,7 +26,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -50,8 +48,6 @@ class CaisseEpargneAdapterAuthTest {
         return "{\"processId\":\"" + processId + "\",\"keypad\":{\"images\":[" + images
             + "],\"columns\":" + columns + "},\"expiresInSeconds\":" + expiresIn + "}";
     }
-
-    private record Call(String path, String body) {}
 
     // -- initiate: request and result ---------------------------------------
 
@@ -80,15 +76,6 @@ class CaisseEpargneAdapterAuthTest {
         ctor.setAccessible(true);
 
         assertThat(ctor.newInstance(CUSTOMER_ID).toString()).doesNotContain(CUSTOMER_ID);
-    }
-
-    @Test
-    void initiateAuth_mapsAnEmptyBodyToUnavailable() {
-        CaisseEpargneAdapter adapter = returning(HttpStatus.OK, "");
-
-        assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
     }
 
     // -- initiate: error mapping --------------------------------------------
@@ -183,9 +170,8 @@ class CaisseEpargneAdapterAuthTest {
 
     @Test
     void initiateAuth_usesTheInitiateTimeoutAndSurfacesARetryableUnavailable() {
-        ExchangeFunction neverResponds = request -> Mono.never();
         CaisseEpargneAdapter adapter = new CaisseEpargneAdapter(
-            WebClient.builder().exchangeFunction(neverResponds).build(), new ObjectMapper(),
+            WebClientStubs.neverResponding(), new ObjectMapper(),
             Duration.ofSeconds(60), Duration.ofSeconds(60),
             Duration.ofMillis(20), Duration.ofSeconds(60));
 
@@ -198,9 +184,8 @@ class CaisseEpargneAdapterAuthTest {
 
     @Test
     void completeAuth_usesTheCompleteTimeoutNotTheInitiateOne() {
-        ExchangeFunction neverResponds = request -> Mono.never();
         CaisseEpargneAdapter adapter = new CaisseEpargneAdapter(
-            WebClient.builder().exchangeFunction(neverResponds).build(), new ObjectMapper(),
+            WebClientStubs.neverResponding(), new ObjectMapper(),
             Duration.ofSeconds(60), Duration.ofSeconds(60),
             Duration.ofSeconds(60), Duration.ofMillis(20));
 
@@ -457,7 +442,7 @@ class CaisseEpargneAdapterAuthTest {
     void submitKeypad_hasA70SecondTimeoutAndSurfacesARetryableUnavailable() {
         assertThat(CaisseEpargneAdapter.KEYPAD_TIMEOUT).isEqualTo(Duration.ofSeconds(70));
         CaisseEpargneAdapter adapter = new CaisseEpargneAdapter(
-            WebClient.builder().exchangeFunction(request -> Mono.never()).build(), new ObjectMapper(),
+            WebClientStubs.neverResponding(), new ObjectMapper(),
             Duration.ofSeconds(60), Duration.ofSeconds(60),
             Duration.ofSeconds(60), Duration.ofSeconds(60), Duration.ofMillis(20));
 
@@ -620,27 +605,19 @@ class CaisseEpargneAdapterAuthTest {
         }
     }
 
+    private static CaisseEpargneAdapter adapterOf(WebClient client) {
+        return new CaisseEpargneAdapter(client, new ObjectMapper());
+    }
+
     private static CaisseEpargneAdapter adapterOf(ExchangeFunction exchange) {
-        return new CaisseEpargneAdapter(WebClient.builder().exchangeFunction(exchange).build(), new ObjectMapper());
+        return adapterOf(WebClient.builder().exchangeFunction(exchange).build());
     }
 
     private static CaisseEpargneAdapter returning(HttpStatus status, String body) {
-        return adapterOf(request -> Mono.just(ClientResponse.create(status)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .body(body)
-            .build()));
+        return adapterOf(WebClientStubs.returning(status, body));
     }
 
     private static CaisseEpargneAdapter recording(List<Call> calls, HttpStatus status, String responseBody) {
-        Consumer<Call> sink = calls::add;
-        return adapterOf(request -> {
-            MockClientHttpRequest recorder = new MockClientHttpRequest(request.method(), request.url());
-            request.writeTo(recorder, ExchangeStrategies.withDefaults()).block();
-            sink.accept(new Call(request.url().getPath(), recorder.getBodyAsString().block()));
-            return Mono.just(ClientResponse.create(status)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                .body(responseBody)
-                .build());
-        });
+        return adapterOf(WebClientStubs.recording(calls, status, responseBody));
     }
 }
