@@ -82,6 +82,7 @@
 | 2026-10-21 | [Sidecars build on two shared base images](./decisions/2026-10-21-shared-sidecar-base-image.md) | Active |
 | 2026-10-27 | [Spring AI 1.1 for the MCP SSE keep-alive](./decisions/2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md) | Active |
 | 2026-10-31 | [Trusted proxy client addresses](./decisions/2026-10-31-trusted-proxy-client-address.md) | Active |
+| 2026-10-31 | [Helm chart in the repository, published by CI next to the images](./decisions/2026-10-31-helm-chart-published-from-ci.md) | Active |
 | 2026-11-01 | [Sidecars share one Python package for their plumbing](./decisions/2026-11-01-shared-sidecar-package.md) | Active |
 
 ## Feature notes
@@ -142,6 +143,7 @@
 | Account visibility (hidden accounts, `/sync` Comptes tab) | 2026-07-15 | [account-visibility.md](./features/account-visibility.md) |
 | Docker deployment and migration-safe releases | 2026-10-08 | [docker-deployment.md](./features/docker-deployment.md) |
 | Production release backup, preflight, migration and rollback | 2026-10-08 | [release-deployment.md](./features/release-deployment.md) |
+| Kubernetes deployment (Helm chart) | 2026-11-01 | [helm-chart.md](./features/helm-chart.md) |
 | Navigation (sidebar + mobile bottom nav) | 2026-07-12 | [sidebar-navigation.md](./features/sidebar-navigation.md) |
 | UI control shape (shadcn theme radius) | 2026-08-10 | [ui-control-shape-system.md](./features/ui-control-shape-system.md) |
 | Privacy mode (hiding amounts for demos) | 2026-08-16 | [privacy-mode.md](./features/privacy-mode.md) |

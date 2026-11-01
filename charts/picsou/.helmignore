@@ -1,0 +1,9 @@
+.DS_Store
+.git/
+*.swp
+*.bak
+*.tmp
+*.orig
+/ci/
+sync-sidecars.sh
+/tests/
