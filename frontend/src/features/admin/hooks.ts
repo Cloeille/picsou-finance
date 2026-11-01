@@ -1,4 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { adminApi } from './api'
 import { telemetryKeys } from '@/features/telemetry/hooks'
 import type { AdminSecuritySettings, AdminEnableBankingCredentials, AdminAiRequest } from './api'
@@ -18,72 +19,68 @@ export function useAdminSettings(enabled = true) {
 }
 
 export function useUpdateSecurity() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (body: AdminSecuritySettings) => adminApi.updateSecurity(body),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.settings() }),
+    invalidates: [adminKeys.settings()],
+    awaitRefresh: true,
   })
 }
 
 export function useUpdateEnableBanking() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (body: AdminEnableBankingCredentials) => adminApi.updateEnableBanking(body),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.settings() }),
+    invalidates: [adminKeys.settings()],
+    awaitRefresh: true,
   })
 }
 
 export function useGenerateEnableBankingKeyPair() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: () => adminApi.generateEnableBankingKeyPair(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.settings() }),
+    invalidates: [adminKeys.settings()],
+    awaitRefresh: true,
   })
 }
 
 export function useImportEnableBankingPrivateKey() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (privatePem: string) => adminApi.importEnableBankingPrivateKey(privatePem),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.settings() }),
+    invalidates: [adminKeys.settings()],
+    awaitRefresh: true,
   })
 }
 
 export function useReloadCorsFromEnv() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: () => adminApi.reloadCorsFromEnv(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.settings() }),
+    invalidates: [adminKeys.settings()],
+    awaitRefresh: true,
   })
 }
 
 export function useToggleIntegration() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ key, enabled }: { key: string; enabled: boolean }) =>
       adminApi.toggleIntegration(key, enabled),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.settings() }),
+    invalidates: [adminKeys.settings()],
+    awaitRefresh: true,
   })
 }
 
 export function useUpdateAi() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (body: AdminAiRequest) => adminApi.updateAi(body),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.settings() }),
+    invalidates: [adminKeys.settings()],
+    awaitRefresh: true,
   })
 }
 
 /** Consent is instance-wide: refresh both the admin view and the config the SDK reads. */
 export function useUpdateTelemetry() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (enabled: boolean) => adminApi.updateTelemetry(enabled),
-    onSuccess: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: adminKeys.settings() }),
-        queryClient.invalidateQueries({ queryKey: telemetryKeys.config() }),
-      ]),
+    invalidates: [adminKeys.settings(), telemetryKeys.config()],
+    awaitRefresh: true,
   })
 }
 
@@ -118,9 +115,9 @@ export function useInstanceStatus(enabled = true) {
 }
 
 export function useClearEbCallLog() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: adminApi.clearEbCallLog,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...adminKeys.all, 'eb-call-log'] }),
+    invalidates: [[...adminKeys.all, 'eb-call-log']],
+    awaitRefresh: true,
   })
 }

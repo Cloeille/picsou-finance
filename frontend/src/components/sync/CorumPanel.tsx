@@ -1,13 +1,7 @@
 import { Building2 } from "lucide-react"
 import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
 import { ScpiSyncSummary } from "@/components/scpi/ScpiSyncSummary"
-import {
-  useAuthenticateCorum,
-  useClearCorumSession,
-  useCompleteCorumAuth,
-  useCorumStatus,
-  useSyncCorum,
-} from "@/features/sync/hooks"
+import { useProviderStatus } from "@/features/sync/hooks"
 
 interface CorumPanelProps {
   onConnected?: () => void
@@ -20,17 +14,13 @@ interface CorumPanelProps {
  */
 export function CorumPanel({ onConnected }: CorumPanelProps = {}) {
   // Same query as the panel's own status: the shared cache makes this free.
-  const status = useCorumStatus()
+  const status = useProviderStatus("corum")
   return (
     <SidecarSessionPanel
+      provider="corum"
       translationPrefix="sync.corum"
       fieldIdPrefix="corum"
       loginIcon={Building2}
-      useStatus={useCorumStatus}
-      useInitiateAuth={useAuthenticateCorum}
-      useCompleteAuth={useCompleteCorumAuth}
-      useSync={useSyncCorum}
-      useClearSession={useClearCorumSession}
       onConnected={onConnected}
       successSummary={<ScpiSyncSummary provider="CORUM" completedAt={status.data?.lastSyncCompletedAt} />}
     />

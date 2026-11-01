@@ -6,6 +6,7 @@ import { useAppStore } from '@/stores/app-store'
 import { safeRedirect, isOAuthAuthorizeRedirect } from '@/lib/utils'
 import { formatApiError, getErrorStatus } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
+import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -140,9 +141,7 @@ export function LoginPage() {
               </div>
 
               {error && (
-                <p role="alert" className="rounded-xl bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">
-                  {error}
-                </p>
+                <AlertBanner variant="prominent" role="alert">{error}</AlertBanner>
               )}
 
               <Button

@@ -23,10 +23,10 @@ import {
 } from "@/components/ui/dialog"
 import { caisseEpargneApi } from "@/features/sync/api"
 import {
-  useCaisseEpargneSessionStatus,
-  useClearCaisseEpargneSession,
-  useCompleteCaisseEpargneAuth,
-  useSyncCaisseEpargne,
+  useProviderClear,
+  useProviderComplete,
+  useProviderStatus,
+  useProviderSync,
 } from "@/features/sync/hooks"
 import { getErrorCode, getErrorDetail, getErrorStatus } from "@/lib/errors"
 
@@ -157,10 +157,10 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   const firstSyncStarted = useRef(false)
   const authAttempt = useRef(0)
 
-  const status = useCaisseEpargneSessionStatus()
-  const complete = useCompleteCaisseEpargneAuth()
-  const sync = useSyncCaisseEpargne()
-  const logout = useClearCaisseEpargneSession()
+  const status = useProviderStatus("caisseEpargne")
+  const complete = useProviderComplete("caisseEpargne")
+  const sync = useProviderSync("caisseEpargne")
+  const logout = useProviderClear("caisseEpargne")
   const { mutate: completeMutate } = complete
   const { mutate: syncMutate } = sync
   const { refetch: refetchStatus } = status

@@ -1,4 +1,5 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
+import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { homeBankApi } from './api'
 import type { HomeBankImportRequest } from './types'
 
@@ -16,15 +17,10 @@ export function usePreviewHomeBank() {
 }
 
 export function useImportHomeBank() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (request: HomeBankImportRequest) => homeBankApi.execute(request),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      void queryClient.invalidateQueries({ queryKey: ['budget'] })
-      void queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      // Account transaction queries are keyed ['accounts', id, 'transactions']; invalidating
-      // ['accounts'] above also refreshes every cached transaction ledger.
-    },
+    // Account transaction queries are keyed ['accounts', id, 'transactions']; invalidating
+    // ['accounts'] also refreshes every cached transaction ledger.
+    invalidates: [['accounts'], ['budget'], ['dashboard']],
   })
 }

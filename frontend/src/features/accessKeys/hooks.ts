@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
+import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { accessKeysApi, type CreateAccessKeyInput } from './api'
 
 /** Lists the current member's own access-keys (the endpoint is scoped to the caller). */
@@ -10,17 +11,17 @@ export function useAccessKeys() {
 }
 
 export function useCreateAccessKey() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (data: CreateAccessKeyInput) => accessKeysApi.create(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['accessKeys'] }),
+    invalidates: [['accessKeys']],
+    awaitRefresh: true,
   })
 }
 
 export function useRevokeAccessKey() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (id: number) => accessKeysApi.revoke(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['accessKeys'] }),
+    invalidates: [['accessKeys']],
+    awaitRefresh: true,
   })
 }

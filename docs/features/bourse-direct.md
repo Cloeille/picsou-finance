@@ -131,8 +131,9 @@ older job.
 
 `frontend/src/components/sync/BourseDirectPanel.tsx` is a thin wrapper over
 `SidecarSessionPanel`, the generic login / OTP / sync / disconnect panel shared
-with Amundi: it supplies the `sync.bourseDirect.*` i18n prefix, the icon and the
-`useBourseDirect*` hooks. Bourse Direct does not set `appPush`, so its second
+with Amundi: it supplies the `bourseDirect` provider id, the `sync.bourseDirect.*`
+i18n prefix and the icon; the session hooks come from the `bourseDirect` entry
+of `sidecarProviders`. Bourse Direct does not set `appPush`, so its second
 factor is always the six-digit code form.
 
 The reconciliation tolerance the collector uses upstream is also the one the

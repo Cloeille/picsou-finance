@@ -869,10 +869,49 @@ export interface SimplefinConnectionStatus {
   maskedToken: string | null
 }
 
-interface BoursoSessionStatusBase {
+/**
+ * Session status every browser-sidecar provider answers with: a failed sync
+ * carries one of the provider's error codes, any other state carries none.
+ * `Extra` adds the fields only some providers report.
+ */
+export type SidecarSessionStatusOf<ErrorCode extends string, Extra extends object = object> = Extra &
+  (
+    | {
+        isActive: boolean
+        lastSyncStartedAt: string | null
+        lastSyncCompletedAt: string | null
+        syncStatus: 'FAILED'
+        lastSyncError: ErrorCode
+      }
+    | {
+        isActive: boolean
+        lastSyncStartedAt: string | null
+        lastSyncCompletedAt: string | null
+        syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
+        lastSyncError: null
+      }
+  )
+
+/** What the shared panel and the status poll read from any provider's session status. */
+export interface SidecarSessionStatus {
   isActive: boolean
-  lastSyncStartedAt: string | null
+  syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED'
   lastSyncCompletedAt: string | null
+  lastSyncError: string | null
+  /** Set by providers that can log in again from stored credentials. */
+  canReconnect?: boolean
+}
+
+/** `auth/initiate` answer of a sidecar provider; `MfaType` narrows the kinds of second factor it can ask for. */
+export interface SidecarAuthInitResponse<MfaType extends string = string> {
+  processId: string | null
+  mfaRequired: boolean
+  mfaType: MfaType | null
+}
+
+/** Status field only some sidecar providers report: when the stored session lapses. */
+interface SessionExpiry {
+  expiresAt: string | null
 }
 
 export interface RevolutSessionStatus {
@@ -881,15 +920,7 @@ export interface RevolutSessionStatus {
   lastSyncedAt: string | null
 }
 
-export type BoursoSessionStatus =
-  | (BoursoSessionStatusBase & {
-      syncStatus: 'FAILED'
-      lastSyncError: BoursoErrorCode
-    })
-  | (BoursoSessionStatusBase & {
-      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
-      lastSyncError: null
-    })
+export type BoursoSessionStatus = SidecarSessionStatusOf<BoursoErrorCode>
 
 /**
  * No `INVALID_OTP`: BoursoBank's app validation is the only second factor the
@@ -915,11 +946,7 @@ export type BoursoErrorCode =
   | 'INTERNAL_ERROR'
 
 /** `mfaType` is always `APP_PUSH` when a second factor is required. */
-export interface BoursoAuthInitResponse {
-  processId: string | null
-  mfaRequired: boolean
-  mfaType: 'APP_PUSH' | null
-}
+export type BoursoAuthInitResponse = SidecarAuthInitResponse<'APP_PUSH'>
 
 /** Contract family the sidecar saw but Picsou does not import: family code only, never the id. */
 export interface CaisseEpargneUnsupportedContract {
@@ -1003,22 +1030,7 @@ export type DegiroAuthInitResponse =
   | { totpRequired: true; processId: string }
   | { totpRequired: false; processId: string | null }
 
-interface BourseDirectSessionStatusBase {
-  isActive: boolean
-  expiresAt: string | null
-  lastSyncStartedAt: string | null
-  lastSyncCompletedAt: string | null
-}
-
-export type BourseDirectSessionStatus =
-  | (BourseDirectSessionStatusBase & {
-      syncStatus: 'FAILED'
-      lastSyncError: BourseDirectErrorCode
-    })
-  | (BourseDirectSessionStatusBase & {
-      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
-      lastSyncError: null
-    })
+export type BourseDirectSessionStatus = SidecarSessionStatusOf<BourseDirectErrorCode, SessionExpiry>
 
 export type BourseDirectErrorCode =
   | 'INVALID_CREDENTIALS'
@@ -1031,28 +1043,9 @@ export type BourseDirectErrorCode =
   | 'INVALID_DATA'
   | 'INTERNAL_ERROR'
 
-export interface BourseDirectAuthInitResponse {
-  processId: string | null
-  mfaRequired: boolean
-  mfaType: string | null
-}
+export type BourseDirectAuthInitResponse = SidecarAuthInitResponse
 
-interface FortuneoSessionStatusBase {
-  isActive: boolean
-  expiresAt: string | null
-  lastSyncStartedAt: string | null
-  lastSyncCompletedAt: string | null
-}
-
-export type FortuneoSessionStatus =
-  | (FortuneoSessionStatusBase & {
-      syncStatus: 'FAILED'
-      lastSyncError: FortuneoErrorCode
-    })
-  | (FortuneoSessionStatusBase & {
-      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
-      lastSyncError: null
-    })
+export type FortuneoSessionStatus = SidecarSessionStatusOf<FortuneoErrorCode, SessionExpiry>
 
 export type FortuneoErrorCode =
   | 'INVALID_CREDENTIALS'
@@ -1066,27 +1059,9 @@ export type FortuneoErrorCode =
   | 'INVALID_DATA'
   | 'INTERNAL_ERROR'
 
-export interface FortuneoAuthInitResponse {
-  processId: string | null
-  mfaRequired: boolean
-  mfaType: string | null
-}
+export type FortuneoAuthInitResponse = SidecarAuthInitResponse
 
-interface AmundiSessionStatusBase {
-  isActive: boolean
-  lastSyncStartedAt: string | null
-  lastSyncCompletedAt: string | null
-}
-
-export type AmundiSessionStatus =
-  | (AmundiSessionStatusBase & {
-      syncStatus: 'FAILED'
-      lastSyncError: AmundiErrorCode
-    })
-  | (AmundiSessionStatusBase & {
-      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
-      lastSyncError: null
-    })
+export type AmundiSessionStatus = SidecarSessionStatusOf<AmundiErrorCode>
 
 export type AmundiErrorCode =
   | 'INVALID_CREDENTIALS'
@@ -1101,21 +1076,7 @@ export type AmundiErrorCode =
   | 'INVALID_DATA'
   | 'INTERNAL_ERROR'
 
-interface CmesSessionStatusBase {
-  isActive: boolean
-  lastSyncStartedAt: string | null
-  lastSyncCompletedAt: string | null
-}
-
-export type CmesSessionStatus =
-  | (CmesSessionStatusBase & {
-      syncStatus: 'FAILED'
-      lastSyncError: CmesErrorCode
-    })
-  | (CmesSessionStatusBase & {
-      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
-      lastSyncError: null
-    })
+export type CmesSessionStatus = SidecarSessionStatusOf<CmesErrorCode>
 
 export type CmesErrorCode =
   | 'INVALID_CREDENTIALS'
@@ -1133,29 +1094,14 @@ export type CmesErrorCode =
   | 'INTERNAL_ERROR'
 
 /** `mfaType` is `APP_PUSH` for a mobile confirmation, `SMS` for a code to type. */
-export interface CmesAuthInitResponse {
-  processId: string | null
-  mfaRequired: boolean
-  mfaType: 'APP_PUSH' | 'SMS' | null
-}
+export type CmesAuthInitResponse = SidecarAuthInitResponse<'APP_PUSH' | 'SMS'>
 
-interface CicSessionStatusBase {
-  isActive: boolean
-  lastSyncStartedAt: string | null
-  lastSyncCompletedAt: string | null
+interface CicReconnect {
   /** Credentials from the last login are stored, so a reconnect needs no typing. */
   canReconnect: boolean
 }
 
-export type CicSessionStatus =
-  | (CicSessionStatusBase & {
-      syncStatus: 'FAILED'
-      lastSyncError: CicErrorCode
-    })
-  | (CicSessionStatusBase & {
-      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
-      lastSyncError: null
-    })
+export type CicSessionStatus = SidecarSessionStatusOf<CicErrorCode, CicReconnect>
 
 export type CicErrorCode =
   | 'INVALID_CREDENTIALS'
@@ -1173,36 +1119,14 @@ export type CicErrorCode =
   | 'INTERNAL_ERROR'
 
 /** `mfaType` is `APP_PUSH` for a mobile confirmation, `SMS` for a code to type. */
-export interface CicAuthInitResponse {
-  processId: string | null
-  mfaRequired: boolean
-  mfaType: 'APP_PUSH' | 'SMS' | null
-}
+export type CicAuthInitResponse = SidecarAuthInitResponse<'APP_PUSH' | 'SMS'>
 
 /** `mfaType` is `APP_PUSH` when the user must approve in the Mon Épargne app, `SMS` otherwise. */
-export interface AmundiAuthInitResponse {
-  processId: string | null
-  mfaRequired: boolean
-  mfaType: 'APP_PUSH' | 'SMS' | null
-}
+export type AmundiAuthInitResponse = SidecarAuthInitResponse<'APP_PUSH' | 'SMS'>
 
 // --- American Express ---
 
-interface AmexSessionStatusBase {
-  isActive: boolean
-  lastSyncStartedAt: string | null
-  lastSyncCompletedAt: string | null
-}
-
-export type AmexSessionStatus =
-  | (AmexSessionStatusBase & {
-      syncStatus: 'FAILED'
-      lastSyncError: AmexErrorCode
-    })
-  | (AmexSessionStatusBase & {
-      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
-      lastSyncError: null
-    })
+export type AmexSessionStatus = SidecarSessionStatusOf<AmexErrorCode>
 
 export type AmexErrorCode =
   | 'INVALID_CREDENTIALS'
@@ -1217,11 +1141,7 @@ export type AmexErrorCode =
 export type AmexOtpMethod = 'sms' | 'email'
 
 /** `mfaType` is always `OTP` when a one-time code was sent (SMS or e-mail). */
-export interface AmexAuthInitResponse {
-  processId: string | null
-  mfaRequired: boolean
-  mfaType: string | null
-}
+export type AmexAuthInitResponse = SidecarAuthInitResponse
 
 export type SofidyErrorCode =
   | 'INVALID_CREDENTIALS'
@@ -1238,33 +1158,14 @@ export type SofidyErrorCode =
   | 'INVALID_DATA'
   | 'INTERNAL_ERROR'
 
-interface SofidySessionStatusBase {
-  isActive: boolean
-  lastSyncStartedAt: string | null
-  lastSyncCompletedAt: string | null
-}
-
-export type SofidySessionStatus =
-  | (SofidySessionStatusBase & {
-      syncStatus: 'FAILED'
-      lastSyncError: SofidyErrorCode
-    })
-  | (SofidySessionStatusBase & {
-      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
-      lastSyncError: null
-    })
+export type SofidySessionStatus = SidecarSessionStatusOf<SofidyErrorCode>
 
 /**
  * Sofidy always asks for a six-digit code by e-mail, so `mfaRequired` is
  * effectively always true. It is kept because a portal that stopped asking would
- * then work without a change here.
+ * then work without a change here. No push variant: `mfaType` is null today.
  */
-export interface SofidyAuthInitResponse {
-  processId: string | null
-  mfaRequired: boolean
-  /** No push variant: the code always arrives by e-mail, so this is null today. */
-  mfaType: 'EMAIL' | null
-}
+export type SofidyAuthInitResponse = SidecarAuthInitResponse<'EMAIL'>
 
 export type CorumErrorCode =
   | 'INVALID_CREDENTIALS'
@@ -1276,21 +1177,7 @@ export type CorumErrorCode =
   | 'INVALID_DATA'
   | 'INTERNAL_ERROR'
 
-interface CorumSessionStatusBase {
-  isActive: boolean
-  lastSyncStartedAt: string | null
-  lastSyncCompletedAt: string | null
-}
-
-export type CorumSessionStatus =
-  | (CorumSessionStatusBase & {
-      syncStatus: 'FAILED'
-      lastSyncError: CorumErrorCode
-    })
-  | (CorumSessionStatusBase & {
-      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
-      lastSyncError: null
-    })
+export type CorumSessionStatus = SidecarSessionStatusOf<CorumErrorCode>
 
 /**
  * CORUM needs no second factor, so its `authenticate` response is the session

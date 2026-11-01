@@ -5,7 +5,7 @@ import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
 import { localeFromLanguage } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
-import { yAxisWidth } from '@/lib/chart-axis'
+import { yAxisWidth, AXIS_PROPS } from '@/lib/chart-axis'
 import type { Account } from '@/types/api'
 
 interface AccountsStackedChartProps {
@@ -123,15 +123,11 @@ export function AccountsStackedChart({ accounts, data }: AccountsStackedChartPro
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis
             dataKey="date"
-            tickLine={false}
-            axisLine={false}
-            tickMargin={8}
+            {...AXIS_PROPS}
             tickFormatter={(value) => new Date(value).toLocaleDateString(locale, { month: 'short' })}
           />
           <YAxis
-            tickLine={false}
-            axisLine={false}
-            tickMargin={8}
+            {...AXIS_PROPS}
             tickFormatter={money.tick}
             width={yWidth}
           />
