@@ -204,6 +204,43 @@ class InstanceStatusServiceTest {
     }
 
     @Test
+    void slowCount_isBoundedByDeadline_andNotReported() throws Exception {
+        AtomicInteger hits = new AtomicInteger();
+        HttpServer server = health(hits, 200, "{\"status\":\"ok\",\"base\":\"sidecar-python\"}");
+        try {
+            InstantStart start = InstantStart.now();
+            var response = service(Duration.ofMillis(200), Duration.ofMillis(500),
+                slowCountTarget("cic-auth", url(server))).status();
+            assertThat(start.elapsed()).isLessThan(Duration.ofMillis(1500));
+            assertThat(hits).hasValue(0);
+            assertThat(response.issues()).isEmpty();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void slowCountOnOneTarget_doesNotMarkReachableSidecarUnreachable() throws Exception {
+        AtomicInteger slowHits = new AtomicInteger();
+        AtomicInteger healthyHits = new AtomicInteger();
+        HttpServer slow = health(slowHits, 200, "{\"status\":\"ok\",\"base\":\"sidecar-python\"}");
+        HttpServer healthy = health(healthyHits, 200, "{\"status\":\"ok\",\"base\":\"sidecar-python\"}");
+        try {
+            InstantStart start = InstantStart.now();
+            var response = service(Duration.ofMillis(200), Duration.ofMillis(500),
+                slowCountTarget("cic-auth", url(slow)),
+                target("bourso-auth", "sidecar-python", url(healthy), 1)).status();
+            assertThat(start.elapsed()).isLessThan(Duration.ofMillis(1500));
+            assertThat(healthyHits).hasValue(1);
+            assertThat(slowHits).hasValue(0);
+            assertThat(response.issues()).isEmpty();
+        } finally {
+            slow.stop(0);
+            healthy.stop(0);
+        }
+    }
+
+    @Test
     void redirect_isUnreachable() throws Exception {
         AtomicInteger followed = new AtomicInteger();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -405,6 +442,18 @@ class InstanceStatusServiceTest {
 
     private static SidecarTarget target(String name, String expectedBase, String url, long sessions) {
         return new SidecarTarget(name, expectedBase, () -> url, () -> sessions);
+    }
+
+    private static SidecarTarget slowCountTarget(String name, String url) {
+        return new SidecarTarget(name, "sidecar-python", () -> url, () -> {
+            try {
+                Thread.sleep(10_000);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(ex);
+            }
+            return 1;
+        });
     }
 
     private static String url(HttpServer server) {

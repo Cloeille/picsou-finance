@@ -326,6 +326,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CIC instance monitoring.** Admin status checks now cover all thirteen authentication
   sidecars, including CIC when a session exists. CIC's health response reports its shared
   base so an outdated image is detected alongside an unreachable sidecar.
+- **Admin instance status with slow session counts.** Slow session-count queries no longer push
+  the check past its 3 s deadline or mark reachable sidecars unreachable.
 - **BoursoBank syncs a securities account whose lines sit in several sections.** The trading
   board can split an account's positions across more than one section of its summary. Only the
   longest list was read, so the lines of the others went missing and the whole sync stopped with

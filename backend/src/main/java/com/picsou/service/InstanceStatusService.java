@@ -44,8 +44,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Admin instance check. The release check and in-use sidecar probes share one 3s
- * deadline (2s per probe). A probe failure is data, never an error response.
+ * Admin instance check. The release check, the session counts and the in-use sidecar
+ * probes share one 3s deadline (2s per probe). A probe failure is data, never an error
+ * response.
  */
 @Service
 public class InstanceStatusService {
@@ -149,23 +150,11 @@ public class InstanceStatusService {
     }
 
     private List<SidecarIssue> probeInUse(long deadlineNanos) {
-        List<SidecarTarget> inUse = new ArrayList<>();
-        for (SidecarTarget target : sidecars) {
-            try {
-                if (target.sessions().getAsLong() > 0) {
-                    inUse.add(target);
-                }
-            } catch (RuntimeException ex) {
-                log.warn("instance-status.sidecar.count_failed name={}", target.name(), ex);
-            }
-        }
-        if (inUse.isEmpty()) {
-            return List.of();
-        }
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         try {
-            List<CompletableFuture<Optional<SidecarIssue>>> futures = inUse.stream()
-                .map(target -> CompletableFuture.supplyAsync(() -> probe(target), executor))
+            List<SidecarProbe> probes = sidecars.stream().map(target -> start(target, executor)).toList();
+            List<CompletableFuture<Optional<SidecarIssue>>> futures = probes.stream()
+                .map(SidecarProbe::result)
                 .toList();
             long remaining = deadlineNanos - System.nanoTime();
             if (remaining < 0) {
@@ -183,25 +172,46 @@ public class InstanceStatusService {
                 log.warn("instance-status.probe.failed", ex);
             }
             List<SidecarIssue> issues = new ArrayList<>();
-            for (int i = 0; i < inUse.size(); i++) {
-                resultOrUnreachable(futures.get(i), inUse.get(i)).ifPresent(issues::add);
-            }
+            probes.forEach(probe -> outcome(probe).ifPresent(issues::add));
             issues.sort(Comparator.comparing(SidecarIssue::sidecar));
             return List.copyOf(issues);
         } finally {
-            // close() waits for in-flight probes and would blow the 3s bound.
+            // close() waits for in-flight counts and probes and would blow the 3s bound.
             executor.shutdownNow();
         }
     }
 
-    private static Optional<SidecarIssue> resultOrUnreachable(
-        CompletableFuture<Optional<SidecarIssue>> future,
-        SidecarTarget target
-    ) {
-        if (future.isDone() && !future.isCompletedExceptionally() && !future.isCancelled()) {
-            return future.join();
+    /** Counts sessions, then probes only if the sidecar is in use; both steps run under the shared deadline. */
+    private SidecarProbe start(SidecarTarget target, ExecutorService executor) {
+        CompletableFuture<Long> count = CompletableFuture.supplyAsync(() -> sessionCount(target), executor);
+        return new SidecarProbe(target, count,
+            count.thenApplyAsync(sessions -> sessions > 0 ? probe(target) : Optional.empty(), executor));
+    }
+
+    /** A count that fails is treated as not in use. */
+    private static long sessionCount(SidecarTarget target) {
+        try {
+            return target.sessions().getAsLong();
+        } catch (RuntimeException ex) {
+            log.warn("instance-status.sidecar.count_failed name={}", target.name(), ex);
+            return 0;
         }
-        return Optional.of(issue(target, SidecarIssueCode.SIDECAR_UNREACHABLE));
+    }
+
+    private static Optional<SidecarIssue> outcome(SidecarProbe probe) {
+        CompletableFuture<Optional<SidecarIssue>> result = probe.result();
+        if (result.isDone() && !result.isCompletedExceptionally() && !result.isCancelled()) {
+            return result.join();
+        }
+        if (!probe.count().isDone()) {
+            // Unknown whether the sidecar is in use: report nothing rather than a guess.
+            log.info("instance-status.sidecar.count_timeout name={}", probe.target().name());
+            return Optional.empty();
+        }
+        if (probe.count().isCompletedExceptionally() || probe.count().join() == 0) {
+            return Optional.empty();
+        }
+        return Optional.of(issue(probe.target(), SidecarIssueCode.SIDECAR_UNREACHABLE));
     }
 
     private Optional<SidecarIssue> probe(SidecarTarget target) {
@@ -348,4 +358,10 @@ public class InstanceStatusService {
     }
 
     private record HealthResponse(int status, byte[] body) {}
+
+    private record SidecarProbe(
+        SidecarTarget target,
+        CompletableFuture<Long> count,
+        CompletableFuture<Optional<SidecarIssue>> result
+    ) {}
 }
