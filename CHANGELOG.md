@@ -337,6 +337,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **CIC instance monitoring.** Admin status checks now cover all thirteen authentication
+  sidecars, including CIC when a session exists. CIC's health response reports its shared
+  base so an outdated image is detected alongside an unreachable sidecar.
+- **Admin instance status with slow session counts.** Slow session-count queries no longer push
+  the check past its 3 s deadline or mark reachable sidecars unreachable.
 - **Toasts follow the selected theme.** Notifications use the app's light or dark palette
   even when it differs from the OS preference, and update when the theme changes (#327).
 

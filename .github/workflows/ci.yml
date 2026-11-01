@@ -609,6 +609,13 @@ jobs:
           --workdir /tests
           picsou-cic-auth:test
           -m unittest discover -v
+      # The health tests set PICSOU_SIDECAR_BASE themselves; this checks the
+      # built image still inherits it, or the backend reports CIC as outdated.
+      - name: Check the CIC image reports the shared python base
+        run: >-
+          docker run --rm --entrypoint python picsou-cic-auth:test
+          -c "import os, sys; base = os.environ.get('PICSOU_SIDECAR_BASE');
+          sys.exit(None if base == 'sidecar-python' else f'PICSOU_SIDECAR_BASE is {base!r}, expected sidecar-python')"
 
   tr-auth-sidecar:
     needs: changes

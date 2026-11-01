@@ -11,6 +11,7 @@ import com.picsou.repository.AmundiSessionRepository;
 import com.picsou.repository.BoursoSessionRepository;
 import com.picsou.repository.BourseDirectSessionRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.CicSessionRepository;
 import com.picsou.repository.CmesSessionRepository;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
@@ -41,10 +42,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Admin instance check. The release check and in-use sidecar probes share one 3s
- * deadline (2s per probe). A probe failure is data, never an error response.
+ * Admin instance check. The release check, the session counts and the in-use sidecar
+ * probes share one 3s deadline (2s per probe). A probe failure is data, never an error
+ * response.
  */
 @Service
 public class InstanceStatusService {
@@ -62,6 +65,7 @@ public class InstanceStatusService {
     private final Duration probeTimeout;
     private final Duration overallDeadline;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final AtomicBoolean counting = new AtomicBoolean();
 
     @Autowired
     public InstanceStatusService(
@@ -80,13 +84,14 @@ public class InstanceStatusService {
         CorumSessionRepository corumSessions,
         SofidySessionRepository sofidySessions,
         CmesSessionRepository cmesSessions,
+        CicSessionRepository cicSessions,
         @Value("${info.app.version:dev}") String currentVersion
     ) {
         this(releaseCheck, currentVersion, registry(
             setupService, env,
             trSessions, boursoSessions, caisseEpargneSessions, revolutSessions, bourseDirectSessions,
             degiroSessions, amundiSessions, amexSessions, fortuneoSessions, corumSessions, sofidySessions,
-            cmesSessions
+            cmesSessions, cicSessions
         ), defaultWebClient(PROBE_TIMEOUT), PROBE_TIMEOUT, OVERALL_DEADLINE);
     }
 
@@ -147,23 +152,15 @@ public class InstanceStatusService {
     }
 
     private List<SidecarIssue> probeInUse(long deadlineNanos) {
-        List<SidecarTarget> inUse = new ArrayList<>();
-        for (SidecarTarget target : sidecars) {
-            try {
-                if (target.sessions().getAsLong() > 0) {
-                    inUse.add(target);
-                }
-            } catch (RuntimeException ex) {
-                log.warn("instance-status.sidecar.count_failed name={}", target.name(), ex);
-            }
-        }
-        if (inUse.isEmpty()) {
-            return List.of();
-        }
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         try {
-            List<CompletableFuture<Optional<SidecarIssue>>> futures = inUse.stream()
-                .map(target -> CompletableFuture.supplyAsync(() -> probe(target), executor))
+            List<SidecarProbe> probes = sidecars.stream().map(target -> start(target, executor)).toList();
+            if (!startCounts(probes, executor)) {
+                log.info("instance-status.counts.busy");
+                return List.of();
+            }
+            List<CompletableFuture<Optional<SidecarIssue>>> futures = probes.stream()
+                .map(SidecarProbe::result)
                 .toList();
             long remaining = deadlineNanos - System.nanoTime();
             if (remaining < 0) {
@@ -181,25 +178,78 @@ public class InstanceStatusService {
                 log.warn("instance-status.probe.failed", ex);
             }
             List<SidecarIssue> issues = new ArrayList<>();
-            for (int i = 0; i < inUse.size(); i++) {
-                resultOrUnreachable(futures.get(i), inUse.get(i)).ifPresent(issues::add);
-            }
+            probes.forEach(probe -> outcome(probe).ifPresent(issues::add));
             issues.sort(Comparator.comparing(SidecarIssue::sidecar));
             return List.copyOf(issues);
         } finally {
-            // close() waits for in-flight probes and would blow the 3s bound.
+            // close() waits for in-flight counts and probes and would blow the 3s bound.
             executor.shutdownNow();
         }
     }
 
-    private static Optional<SidecarIssue> resultOrUnreachable(
-        CompletableFuture<Optional<SidecarIssue>> future,
-        SidecarTarget target
-    ) {
-        if (future.isDone() && !future.isCompletedExceptionally() && !future.isCancelled()) {
-            return future.join();
+    private boolean startCounts(List<SidecarProbe> probes, ExecutorService executor) {
+        if (!counting.compareAndSet(false, true)) {
+            return false;
         }
-        return Optional.of(issue(target, SidecarIssueCode.SIDECAR_UNREACHABLE));
+        try {
+            executor.execute(() -> {
+                try {
+                    countSessions(probes);
+                } finally {
+                    counting.set(false);
+                }
+            });
+        } catch (RuntimeException ex) {
+            counting.set(false);
+            throw ex;
+        }
+        return true;
+    }
+
+    /** The count future completes later; the probe starts as soon as it does, so probes run in parallel. */
+    private SidecarProbe start(SidecarTarget target, ExecutorService executor) {
+        CompletableFuture<Long> count = new CompletableFuture<>();
+        return new SidecarProbe(target, count,
+            count.thenApplyAsync(sessions -> sessions > 0 ? probe(target) : Optional.empty(), executor));
+    }
+
+    /**
+     * Counts one sidecar after another: one pooled DB connection at a time, because an interrupted
+     * JDBC query keeps its connection. A count that fails is treated as not in use; one cut off by
+     * the deadline stays incomplete and is reported as a timeout. For the same reason only one run
+     * is in flight per instance: the next request must not start another while this one is blocked.
+     */
+    private static void countSessions(List<SidecarProbe> probes) {
+        for (SidecarProbe probe : probes) {
+            if (Thread.currentThread().isInterrupted()) {
+                return;
+            }
+            try {
+                probe.count().complete(probe.target().sessions().getAsLong());
+            } catch (RuntimeException ex) {
+                if (Thread.currentThread().isInterrupted()) {
+                    return;
+                }
+                log.warn("instance-status.sidecar.count_failed name={}", probe.target().name(), ex);
+                probe.count().complete(0L);
+            }
+        }
+    }
+
+    private static Optional<SidecarIssue> outcome(SidecarProbe probe) {
+        CompletableFuture<Optional<SidecarIssue>> result = probe.result();
+        if (result.isDone() && !result.isCompletedExceptionally() && !result.isCancelled()) {
+            return result.join();
+        }
+        if (!probe.count().isDone()) {
+            // Unknown whether the sidecar is in use: report nothing rather than a guess.
+            log.info("instance-status.sidecar.count_timeout name={}", probe.target().name());
+            return Optional.empty();
+        }
+        if (probe.count().isCompletedExceptionally() || probe.count().join() == 0) {
+            return Optional.empty();
+        }
+        return Optional.of(issue(probe.target(), SidecarIssueCode.SIDECAR_UNREACHABLE));
     }
 
     private Optional<SidecarIssue> probe(SidecarTarget target) {
@@ -296,7 +346,8 @@ public class InstanceStatusService {
         FortuneoSessionRepository fortuneoSessions,
         CorumSessionRepository corumSessions,
         SofidySessionRepository sofidySessions,
-        CmesSessionRepository cmesSessions
+        CmesSessionRepository cmesSessions,
+        CicSessionRepository cicSessions
     ) {
         return List.of(
             new SidecarTarget("bourso-auth", BASE_PYTHON,
@@ -305,6 +356,8 @@ public class InstanceStatusService {
                 () -> propertyUrl(env, "sofidy-auth"), sofidySessions::count),
             new SidecarTarget("cmes-auth", BASE_PYTHON,
                 () -> propertyUrl(env, "cmes-auth"), cmesSessions::count),
+            new SidecarTarget("cic-auth", BASE_PYTHON,
+                () -> propertyUrl(env, "cic-auth"), cicSessions::count),
             new SidecarTarget("degiro-auth", BASE_PYTHON,
                 () -> propertyUrl(env, "degiro-auth"), degiroSessions::count),
             new SidecarTarget("tr-auth", BASE_CHROMIUM,
@@ -343,4 +396,10 @@ public class InstanceStatusService {
     }
 
     private record HealthResponse(int status, byte[] body) {}
+
+    private record SidecarProbe(
+        SidecarTarget target,
+        CompletableFuture<Long> count,
+        CompletableFuture<Optional<SidecarIssue>> result
+    ) {}
 }
