@@ -92,8 +92,7 @@ spring:
 server:
   port: 8080
   # Resolve forwarded addresses and the public origin only from known nginx peers.
-  # Bundled nginx connects over loopback; the split Compose stack explicitly configures
-  # its frontend peer. Do not use Tomcat's broad private-network proxy defaults.
+  # Bundled nginx connects over loopback. Do not use Tomcat's broad private-network proxy defaults.
   # All rate limiters and audit readers share this container-resolved remote address.
   forward-headers-strategy: native
   tomcat:
@@ -138,7 +137,7 @@ app:
   #
   # Changing it also changes what "today" means for snapshots already stored under the old zone;
   # set it once, before the first sync. An unknown zone ID fails startup rather than falling back.
-  # In Docker, keep the image's TZ / -Duser.timezone in step with it (see backend/Dockerfile).
+  # In Docker, keep the image's TZ / -Duser.timezone in step with it (see docker/Dockerfile).
   timezone: ${APP_TIMEZONE:Europe/Paris}
 
   # Property valuation from French open data. No credentials of any kind: every source
