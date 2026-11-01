@@ -6,8 +6,8 @@
 # pulls these layers once for every sidecar. See
 # docs/decisions/2026-10-21-shared-sidecar-base-image.md.
 
-# 3.12.14-slim-bookworm, multi-arch index (amd64 CI and arm64 local).
-FROM python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS python
+# 3.12.16-slim-bookworm, multi-arch index (amd64 CI and arm64 local).
+FROM python:3.12-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337 AS python
 
 WORKDIR /app
 

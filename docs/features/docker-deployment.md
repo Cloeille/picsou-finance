@@ -1,6 +1,6 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-10-31 (shared Camoufox base; explicit proxy trust for client addresses)
+> Last updated: 2026-11-01 (shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
 
 ## Context
 
@@ -89,6 +89,12 @@ AMEX and Revolut use `camoufox`, including the target CPU's x86_64 or arm64 brow
 Their shared browser/addons live in `/opt/camoufox-cache/camoufox`, readable by
 both service users; GeoIP is downloaded once into the Camoufox package directory.
 A sidecar Dockerfile only adds its user and code.
+All three targets retain Python 3.12 because the pinned Pydantic core has no CPython
+3.15 wheels and the slim base lacks the native toolchain for a source build. A Python
+runtime upgrade requires compatible dependency pins and successful builds of all
+three targets on amd64 and arm64. `services/base/test_dockerfile.py` guards the supported
+runtime and Chromium's inheritance from it in the shared package CI job.
+
 The base build context excludes local bytecode and test helpers (`picsou_sidecar/contract.py`
 and `euro_information/testing.py`). CI mounts the helpers read-only for image tests;
 they are absent from published images. The shared packages (`picsou_sidecar`,

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Unused frontend scaffolding for self-service login deletion, its demo handler, and
+  draft documentation. No available screen or backend endpoint is removed.
+
 ### Added
 
 - **Helm chart.** `charts/picsou` deploys the app, every sidecar and an optional
@@ -115,7 +120,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sidecar-python`, `sidecar-chromium` and `sidecar-camoufox` (`services/base`),
   from one common pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per
-  sidecar. AMEX and Revolut share the Camoufox base. See
+  sidecar. AMEX and Revolut share the Camoufox base. All three bases retain
+  Python 3.12 for compatibility with the pinned native dependencies. See
   [ADR](docs/decisions/2026-10-21-shared-sidecar-base-image.md).
 - **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
   the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
@@ -375,7 +381,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Their shared Xvfb startup clears stale locks and refuses to start
   without a ready display. The admin status check detects older Camoufox images.
   CI adds offline browser smoke checks on native ARM64;
-  bank login compatibility remains unverified. Dependabot now covers Maven,
+  bank login compatibility remains unverified. The shared Python runtime guard
+  remains in CI alongside the separate Camoufox tests. Dependabot now covers Maven,
   bun, shared pip requirements, all Dockerfile directories and Compose images weekly.
 
 - **Caisse d'Epargne sync after Sécur'Pass approval.** If the login completion response is
@@ -1072,12 +1079,6 @@ information architecture.
   share Finary sent with `quantity: null` vanished with its cost basis. Such a payload
   now keeps the account's holdings and cash as they were; an explicit zero still
   closes the position.
-- The account-deletion dialog scrolls on short screens and wraps long action
-  labels without horizontal overflow.
-- Account deletion preserves the last active administrator even when other
-  administrator logins are inactive. Committed deletion also purges pending
-  Finary and CSV import data, with member binding and expiry checked on execute.
-
 - **BoursoBank's fraud-education interstitial no longer reads as a wrong password.**
   When the bank parks a valid login on its fraud-prevention notice, the sidecar
   returns `FRAUD_ACK_REQUIRED` and the app tells the user to validate the notice
