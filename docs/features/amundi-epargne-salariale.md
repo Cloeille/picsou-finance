@@ -56,9 +56,9 @@ listPositionsSalarieDispositifsDto[]          one entry per plan (dispositif)
   `/complete`, `/positions`, `/health`
 - `services/amundi-auth/positions_parser.py` — payload normalisation, kept free
   of FastAPI and Playwright so the rules that silently break are unit-testable
-- `backend/.../port/AmundiPort.java` — typed contract (`PlanData`, `Position`); the shared `SidecarInitiate`,
-  `SidecarErrorCode` (stable failure codes) and `SidecarBank.AMUNDI` (the codes Amundi declares)
-- `backend/.../adapter/AmundiAdapter.java` — WebClient onto the sidecar, maps
+- `backend/.../port/SidecarInitiate.java`, `SidecarErrorCode.java` (stable failure codes) and
+  `adapter/sidecar/SidecarBank.AMUNDI` (the codes Amundi declares)
+- `backend/.../adapter/AmundiAdapter.java` — nests `PlanData` and `Position`; WebClient onto the sidecar, maps
   its `detail` onto `SidecarErrorCode` through `SidecarClient`, wraps everything in `SyncException`
 - `backend/.../service/AmundiSyncService.java` — job state machine, validation,
   reconciliation, atomic persistence

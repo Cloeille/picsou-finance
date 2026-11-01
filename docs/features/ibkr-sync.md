@@ -31,8 +31,7 @@ trusted for EUR valuation.
   (lives in `com.picsou.service` with the other broker sync services)
 - `service/IbkrStatusWriter.java` — persists the `ERROR` status in its own
   `REQUIRES_NEW` transaction so it survives the sync transaction's rollback
-- `ibkr/client/IbkrFlexClient.java` — Flex Web Service HTTP + XML parsing (`IbkrFlexPort`)
-- `port/IbkrFlexPort.java` — provider abstraction + `IbkrPosition` / `IbkrAccountData`
+- `ibkr/client/IbkrFlexClient.java` — Flex Web Service HTTP + XML parsing; nests `IbkrPosition` / `IbkrAccountData`
 - `model/IbkrConnection.java`, `repository/IbkrConnectionRepository.java` — encrypted token + query id
 - `db/migration/V59__ibkr_connection.sql` — `ibkr_connection` table (originally `V57`,
   shifted to `V59` when merged into `1.1.0`, which already had `V57`/`V58` published)

@@ -127,8 +127,7 @@ The two legs are strict mirrors: the investment leg always carries the **opposit
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/adapter/TradeRepublicAdapter.java` -- WebSocket data fetching + sidecar auth delegation
-- `backend/src/main/java/com/picsou/port/TradeRepublicPort.java` -- Port interface with `TrTokens`, `TrAccountData`, `TrPosition` records
+- `backend/src/main/java/com/picsou/adapter/TradeRepublicAdapter.java` -- WebSocket data fetching + sidecar auth delegation; nests the `TrTokens`, `TrAccountData`, `TrPosition` records
 - `backend/src/main/java/com/picsou/service/TradeRepublicSyncService.java` -- Auth flow, sync orchestration, CSV import, session management
 - `backend/src/main/java/com/picsou/controller/TradeRepublicController.java` -- REST endpoints under `/api/tr/`
 - `backend/src/main/java/com/picsou/model/TradeRepublicSession.java` -- Session entity with token storage

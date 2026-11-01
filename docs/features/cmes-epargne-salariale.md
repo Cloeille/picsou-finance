@@ -152,7 +152,7 @@ modal lists no CMES row there.
 - `services/cmes-auth/{main.py,situation_parser.py,fund_parser.py}` and their tests; shared
   Euro-Information login and second-factor handling in
   `services/base/euro_information/{client.py,forms.py}`.
-- `backend/.../port/CmesPort.java`, `SidecarBank.CMES`, `adapter/CmesAdapter.java`,
+- `SidecarBank.CMES`, `adapter/CmesAdapter.java`,
   `service/CmesSyncService.java`, `controller/CmesController.java`, `model/CmesSession.java`,
   `db/migration/V117__cmes_session.sql`, `V120__cmes_session_invalid_otp.sql`.
 - `frontend/src/components/sync/CmesPanel.tsx`, `features/sync/{api,hooks}.ts`.

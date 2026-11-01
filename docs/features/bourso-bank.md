@@ -136,7 +136,7 @@ reconciliation risk; do not infer equality from date and amount alone.
 BoursoPanel (Sync tab + Add-account modal)
   → /api/bourso/*  → BoursoController → BoursoSyncService ──(executor)──▶ job
                                               │
-                                        BoursoAdapter (BoursoPort)
+                                        BoursoAdapter
                                               │ HTTP :8001
                                         bourso-auth  (FastAPI + httpx, no browser)
                                               │ HTTPS
@@ -428,7 +428,7 @@ disconnect removes saved credentials with the session.
   plus reconciliation, kept free of FastAPI and httpx so the rules that silently
   break are unit-testable
 - `services/bourso-auth/fixtures.py` — the real SVGs and a real captured dashboard
-- `backend/.../port/BoursoPort.java`, `SidecarErrorCode.java`, `adapter/sidecar/SidecarBank.java`
+- `backend/.../port/SidecarErrorCode.java`, `adapter/sidecar/SidecarBank.java`
 - `backend/.../adapter/BoursoAdapter.java` — 45 s auth / 150 s validation / 90 s accounts
 - `backend/.../service/BoursoSyncService.java` — job state machine, validation, atomic persistence
 - `backend/.../controller/BoursoController.java` — `/api/bourso/*`
