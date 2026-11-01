@@ -120,7 +120,9 @@ app:
   # /actuator/health covers the database too, so it gates readiness but not
   # liveness: a database outage must not restart the app in a loop. supervisord
   # already restarts the JVM if it dies.
-  # No startup deadline: long migrations or database outages only hold readiness.
+  # No startup probe: liveness is a TCP check on nginx, which answers at once,
+  # and readiness already holds traffic back until /actuator/health is up. One on
+  # /actuator/health would restart the pod when the database is down at startup.
   startupProbe: {}
   readinessProbe:
     httpGet:

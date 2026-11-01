@@ -132,6 +132,23 @@ class SyncSidecarsTest(unittest.TestCase):
         result = self.run_script(*args, "--json")
         return result.returncode, {(f["sidecar"], f["kind"]) for f in json.loads(result.stdout)}
 
+    def single(self, service, chart_entry="", url="http://x-auth:8001"):
+        """Return findings by kind for one generic Compose and chart sidecar."""
+        indent = lambda text: textwrap.indent(textwrap.dedent(text), "    ")
+        environment = f"    environment:\n      X_AUTH_URL: {url}\n" if url else ""
+        self.compose.write_text(
+            "services:\n  app:\n    image: app\n" + environment
+            + "  x-auth:\n" + indent(service),
+            encoding="utf-8",
+        )
+        self.values.write_text(
+            "sidecars:\n  x-auth:\n    enabled: true\n    urlEnv: X_AUTH_URL\n    port: 8001\n"
+            + indent(chart_entry),
+            encoding="utf-8",
+        )
+        result = self.run_script("--check", "--json")
+        return {f["kind"]: f["detail"] for f in json.loads(result.stdout)}
+
     def assert_sidecar_disabled(self, name):
         enabled = subprocess.run(
             ["yq", "-r", f'.sidecars["{name}"].enabled', str(self.values)],
@@ -190,6 +207,42 @@ class SyncSidecarsTest(unittest.TestCase):
         result = self.run_script("--check", "--json")
         findings = json.loads(result.stdout)
         self.assertFalse(any(f["sidecar"] == "known-auth" for f in findings), findings)
+
+    def test_a_generic_https_sidecar_url_is_parsed(self):
+        self.assertIn("port 9000", self.single(
+            "image: x\n", url="https://x-auth:9000")["mismatch"])
+        self.assertEqual(self.single("image: x\n", url="https://x-auth:8001"), {})
+
+    def test_a_generic_chart_sidecar_without_app_wiring_is_unwired(self):
+        self.assertIn("no *_AUTH_URL", self.single("image: x\n", url=None)["unwired"])
+
+    def test_a_generic_compose_volume_needs_persistence_in_the_chart_entry(self):
+        service = "image: x\nvolumes: [data:/data]\n"
+        self.assertIn("volumes", self.single(service)["drift"])
+        result = self.run_script("--apply", "--json")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assert_sidecar_disabled("x-auth")
+        self.assertIn("disabled", {f["kind"] for f in json.loads(result.stdout)})
+        self.assertEqual(self.single(service, "persistence:\n  enabled: true\n"), {})
+
+    def test_generic_compose_init_needs_share_process_namespace(self):
+        service = "image: x\ninit: true\n"
+        self.assertIn("shareProcessNamespace", self.single(service)["drift"])
+        result = self.run_script("--apply", "--json")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assert_sidecar_disabled("x-auth")
+        self.assertIn("disabled", {f["kind"] for f in json.loads(result.stdout)})
+        self.assertEqual(self.single(service, "shareProcessNamespace: true\n"), {})
+
+    def test_a_generic_compose_variable_needs_chart_env_or_extra_env(self):
+        service = "image: x\nenvironment:\n  APP_SIDECAR_API_KEY: k\n  MODE: \"1\"\n"
+        self.assertIn("MODE", self.single(service)["drift"])
+        self.assertEqual(self.single(service, "env:\n  MODE: \"1\"\n"), {})
+        self.assertEqual(self.single(
+            service, "extraEnv:\n  - name: MODE\n    value: \"1\"\n"), {})
+
+    def test_generic_compose_networks_are_covered_by_network_policies(self):
+        self.assertEqual(self.single("image: x\nnetworks: [isolated]\n"), {})
 
     def test_supported_settings_must_have_their_chart_equivalents(self):
         self.compose.write_text(CUSTOM_COMPOSE)
@@ -339,30 +392,21 @@ class SyncSidecarsTest(unittest.TestCase):
         self.assert_sidecar_disabled("known-auth")
         self.assertIn("mismatch", result.stdout)
 
-    def test_known_sidecars_report_nonstandard_compose_settings(self):
-        for setting in ('    volumes: [cache:/cache]\n',
-                        '    networks: [private]\n', '    init: true\n',
-                        '    environment:\n      EXTRA_MODE: synthetic\n'):
-            with self.subTest(setting=setting):
-                self.values.write_text(CHART_VALUES, encoding="utf-8")
-                self.compose.write_text(COMPOSE.replace(
-                    "  known-auth:\n    image: known\n    environment:\n"
-                    "      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}\n",
-                    "  known-auth:\n    image: known\n" + setting,
-                ), encoding="utf-8")
-                result = self.run_script("--check", "--github")
-                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
-                self.assertIn("::warning title=Helm chart: known-auth::", result.stdout)
-                self.assertIn("EXTRA_MODE" if "environment" in setting else setting.split(":")[0].strip(),
-                              result.stdout)
-                self.assertEqual(self.values.read_text(), CHART_VALUES)
-                result = self.run_script("--apply", "--json")
-                expected_kind = "drift" if "environment" in setting else "special"
-                self.assertEqual(result.returncode, 0, result.stderr)
-                if expected_kind == "drift":
-                    self.assert_sidecar_disabled("known-auth")
-                self.assertTrue(any(f["sidecar"] == "known-auth" and f["kind"] == expected_kind
-                                    for f in json.loads(result.stdout)))
+    def test_known_sidecars_warn_about_unknown_unsupported_keys(self):
+        self.compose.write_text(COMPOSE.replace(
+            "  known-auth:\n    image: known\n    environment:\n"
+            "      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}\n",
+            "  known-auth:\n    image: known\n    command: [synthetic]\n",
+        ), encoding="utf-8")
+        result = self.run_script("--check", "--github")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("::warning title=Helm chart: known-auth::", result.stdout)
+        self.assertIn("command", result.stdout)
+        self.assertEqual(self.values.read_text(), CHART_VALUES)
+        result = self.run_script("--apply", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any(f["sidecar"] == "known-auth" and f["kind"] == "special"
+                            for f in json.loads(result.stdout)))
 
     def test_check_github_warns_about_missing_standard_sidecars_without_editing_values(self):
         result = self.run_script("--check", "--github")

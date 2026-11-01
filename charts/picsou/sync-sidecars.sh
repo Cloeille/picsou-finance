@@ -4,13 +4,21 @@
 #
 # A sidecar is "standard" when its Compose service has nothing but an image, a
 # build, a restart policy and APP_SIDECAR_API_KEY: the chart's generic sidecar
-# template covers it. Anything else (volumes, networks, init, extra variables, …)
-# needs a chart change by hand, so it is reported and never guessed.
+# template covers it. A missing sidecar with anything else (volumes, networks,
+# init, extra variables, …) needs a chart change by hand, so its settings are
+# reported and never guessed.
+#
+# A sidecar the chart already lists is compared with its own chart entry, not
+# with the generic template: Compose volumes need persistence.enabled, `init:
+# true` needs shareProcessNamespace, and every other variable needs an env or
+# extraEnv entry, otherwise it is reported as drift. Compose networks are not
+# compared: the chart's NetworkPolicies isolate every sidecar the same way.
 #
 #   --check   report differences; exit 2 when there are any (default)
 #   --apply   add missing standard sidecars; disable stale or broken entries;
 #             warn on differences, exit 1 on usage/read errors
-#   --github  also emit GitHub Actions ::warning annotations
+#   --github  also emit GitHub Actions ::warning annotations (text output only,
+#             so that --json stays a parseable array)
 #   --json    print the findings as a JSON array instead of text
 #
 # Requires yq v4 (mikefarah). Exit 1 on usage/read/write errors.
@@ -31,7 +39,7 @@ while [ $# -gt 0 ]; do
     --json) json=true ;;
     --compose) compose=$2; shift ;;
     --values) values=$2; shift ;;
-    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
   shift
@@ -118,33 +126,22 @@ for name in $compose_sidecars; do
       sidecar_error=true
       add_finding "$name" mismatch "Compose: $url_env on port $port, chart: $chart_env on port $chart_port"
     fi
-    # Only acknowledge keys when this chart entry enables their Kubernetes
-    # equivalent. Scope this to existing entries: a missing custom sidecar still
-    # needs review before the script can infer its settings.
-    acknowledged=""
-    case "$name" in
-      revolut-auth)
-        acknowledged="volumes"
-        compose_has_volumes=$(yq -r ".services[\"$name\"].volumes // [] | length > 0" "$compose")
-        if [ "$compose_has_volumes" = true ] &&
-           [ "$(yq -r ".sidecars[\"$name\"].persistence.enabled // false" "$values")" != true ]; then
-          sidecar_error=true
-          add_finding "$name" drift "Compose volumes require sidecars.$name.persistence.enabled=true"
-        fi
-        ;;
-      fortuneo-auth) acknowledged="networks" ;; # isolation in networkpolicy.yaml
-      amex-auth)
-        acknowledged="init"
-        compose_init=$(yq -r ".services[\"$name\"].init // false" "$compose")
-        if [ "$compose_init" = true ] &&
-           [ "$(yq -r ".sidecars[\"$name\"].shareProcessNamespace // false" "$values")" != true ]; then
-          sidecar_error=true
-          add_finding "$name" drift "Compose init requires sidecars.$name.shareProcessNamespace=true"
-        fi
-        ;;
-    esac
-    extra_keys=$(printf '%s\n' "$extra_keys" | awk -v known="$acknowledged" '
-      { for (i = 1; i <= NF; i++) if ($i != known) printf "%s ", $i }')
+    # Compare capabilities for every listed sidecar, not just known service names.
+    # NetworkPolicies provide the Compose network isolation for all entries.
+    compose_has_volumes=$(yq -r ".services[\"$name\"].volumes // [] | length > 0" "$compose")
+    if [ "$compose_has_volumes" = true ] &&
+       [ "$(yq -r ".sidecars[\"$name\"].persistence.enabled // false" "$values")" != true ]; then
+      sidecar_error=true
+      add_finding "$name" drift "Compose volumes require sidecars.$name.persistence.enabled=true"
+    fi
+    compose_init=$(yq -r ".services[\"$name\"].init // false" "$compose")
+    if [ "$compose_init" = true ] &&
+       [ "$(yq -r ".sidecars[\"$name\"].shareProcessNamespace // false" "$values")" != true ]; then
+      sidecar_error=true
+      add_finding "$name" drift "Compose init requires sidecars.$name.shareProcessNamespace=true"
+    fi
+    extra_keys=$(printf '%s\n' "$extra_keys" | awk '
+      { for (i = 1; i <= NF; i++) if ($i != "volumes" && $i != "init" && $i != "networks") printf "%s ", $i }')
 
     chart_declared_env=$(
       {

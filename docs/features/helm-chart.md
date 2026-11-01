@@ -51,7 +51,10 @@ and publishes to `oci://ghcr.io/<owner>/charts/picsou`:
 - a push to `main` publishes `<highest tagged version core + 1 patch>-main.<UTC commit timestamp>.g<short sha>`, a
   pre-release that sorts above all valid release and prerelease tags and that Helm only installs with `--devel`, with
   `appVersion` = `sha-<short sha>`, the image tag `docker/metadata-action` gives every image of the
-  commit.
+  commit. The latest release comes from the tags of the checkout (`fetch-depth: 0`), not from a
+  network call: the checkout token is not persisted, so `git ls-remote` could not authenticate on a
+  private repository. The version must be a valid semantic version (no leading zero in a numeric
+  pre-release identifier), otherwise nothing is published.
 
 The chart checkout fetches full history and tags. Main version selection uses local
 `git tag --list` without a remote lookup. The timestamp comes from the HEAD commit
@@ -114,7 +117,7 @@ helm upgrade
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
 | TLS on the Ingress/Gateway, no Caddy | Clusters already have a controller and a certificate source (cert-manager, internal CA); the chart only needs `X-Forwarded-Proto` | Shipping the Caddy terminator of the `tls` Compose profile |
-| Sidecar Services named `<release>-<sidecar>`, URLs without a domain | `SidecarBaseUrl` accepts plain HTTP only on a single-label host; the fullname starts with a lowercase letter for Java URI parsing and is capped at 40 characters so the longest name stays a valid DNS label | Cluster FQDNs (`*.svc.cluster.local`), which would require HTTPS between pods |
+| Sidecar Services named `<release>-<sidecar>`, URLs without a domain | `SidecarBaseUrl` accepts plain HTTP only on a single-label host; the fullname starts with a lowercase letter for Java URI parsing and is capped at 40 characters (a 33-character prefix plus a six-character hash for longer names) so the longest name stays a valid DNS label | Cluster FQDNs (`*.svc.cluster.local`), which would require HTTPS between pods |
 | JWT and encryption keys left to the entrypoint by default | Matches Compose and keeps the encryption key off any value the chart could regenerate | Generating them in the chart Secret, which a `helm template` renderer would rotate on every sync and make stored secrets unreadable |
 | `lookup` + `helm.sh/resource-policy: keep` for the generated Secret | Values survive upgrades and uninstall | Regenerating on each upgrade |
 | Chart version and `appVersion` stamped at publish time | One chart per release and per commit of main, each pinned to its own images, without a manual bump | A version kept in `Chart.yaml` and bumped by hand |
@@ -122,7 +125,8 @@ helm upgrade
 | Standard sidecars added at publish time, never committed | New sidecars reach the main channel without a chart PR, and CI never writes to the repository | Failing pull requests that add a sidecar; a bot committing to main |
 | Pre-upgrade migration Job with the release CLI | Applies the [migration ADR](../decisions/2026-10-08-rehearse-release-migrations.md): migrate and verify before replacing the API | Relying on startup Flyway only, which fails after the old pod is gone |
 | Bundled `postgres:16-alpine` StatefulSet | Same image as Compose, no dependency on a third-party chart | Bitnami PostgreSQL subchart |
-| Liveness on TCP, readiness on `/actuator/health` | Health includes the database; a database outage must not restart the app in a loop. supervisord restarts a dead JVM | Liveness on `/actuator/health`; `/actuator/health/liveness` is not permitted by `SecurityConfig`/`SetupFilter` |
+| Liveness on TCP, readiness on `/actuator/health`, no app startup probe | Health includes the database; a database outage must not restart the app in a loop. supervisord restarts a dead JVM. Liveness is a TCP check on nginx (port 8080, the JVM listens on 9090), which answers at once, so a TCP startup probe adds nothing, and one on `/actuator/health` would restart the pod when the database is down at startup | Liveness on `/actuator/health`; `/actuator/health/liveness` is not permitted by `SecurityConfig`/`SetupFilter` |
+| Startup probe on the bundled PostgreSQL | Crash recovery after an unclean stop can outlast the liveness window; liveness starts once it succeeds | Longer `initialDelaySeconds` on liveness, which would also delay detecting a hung database |
 | `shareProcessNamespace` for `amex-auth` | Equivalent of Compose `init: true`: the pause container reaps orphaned browser processes | Patching the image with an init |
 
 ## Gotchas / Pitfalls
@@ -232,12 +236,13 @@ helm upgrade
   PostgreSQL and the sidecars (non-numeric users).
 - **Annotation values are quoted** in pod templates: `--set app.podAnnotations.x=1` would
   otherwise send a number, which the API server rejects.
-- **A sidecar that is not standard** (volumes, networks, `init`, extra variables) is left out of
+- **A missing sidecar that is not standard** (volumes, networks, `init`, extra variables) is left out of
   the published chart until `values.yaml` and the templates support it; `sync-sidecars.sh --check`
-  lists it. For existing entries, Revolut volumes require `persistence.enabled`, Amex `init: true`
+  lists it. For every existing entry, volumes require `persistence.enabled`, `init: true`
   requires `shareProcessNamespace`, and extra variables must exist in `env` or
-  `extraEnv`; missing equivalents emit `drift`. HTTP and HTTPS app URLs are recognized.
-  Fortuneo networks remain acknowledged through NetworkPolicies. These checks verify
+  `extraEnv`; missing equivalents emit `drift` and disable the entry on `--apply`.
+  HTTP and HTTPS app URLs are recognized. Compose networks are acknowledged through
+  NetworkPolicies for every sidecar; other unsupported keys still warn. These checks verify
   chart capabilities, not individual mount or network-rule equivalence. JSON mode
   emits only an array, even with `--github`; annotations are restricted to text mode.
 - **A checkout of the repository describes main** (`appVersion: nightly`, `version: 0.0.0-main`);
@@ -254,8 +259,10 @@ helm upgrade
   sidecars; `--apply` adds only standard
   sidecars, disables stale ones and keeps unrelated values byte for byte; a second `--apply`
   is a no-op; port and URL-variable mismatches disable sidecars on `--apply`, including custom ones;
-  `--github` warns about unacknowledged differences but not added sidecars; the current
-  supported inventory emits no warnings
+  generic volume, init and environment capabilities are checked for every listed entry;
+  Compose networks are acknowledged through NetworkPolicies; HTTP and HTTPS wiring is parsed;
+  `--github` warns about unacknowledged differences but not added sidecars, and JSON output
+  stays parseable with GitHub mode; the frozen supported inventory emits no warnings
 - `sync-sidecars.sh` on modified Compose files: new standard sidecar (added by `--apply`, values
   otherwise unchanged byte for byte), sidecar with a volume and extra variable (reported, not
   added), sidecar without an app URL, removed sidecar, changed port; idempotent second `--apply`

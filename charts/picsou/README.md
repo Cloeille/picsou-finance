@@ -365,6 +365,10 @@ This also applies to `persistence.existingClaim`. The storage driver must suppor
 `fsGroup` volume permissions; otherwise provision a group-writable directory
 for that group. Override `fsGroup` if your storage requires another group.
 
+Resource names are capped at 40 characters before the sidecar name: a longer
+release name is cut to 33 characters plus a hash of the full name, so two long
+names never collide.
+
 ### Keeping up with the Compose file
 
 `sync-sidecars.sh` compares the `*-auth` services of `docker/docker-compose.yml`
@@ -377,16 +381,17 @@ charts/picsou/sync-sidecars.sh --apply   # add standard sidecars, disable stale 
 
 A sidecar is standard when its Compose service has only an image, a build, a
 restart policy and `APP_SIDECAR_API_KEY`: the generic template covers it. One
-with volumes, networks, `init` or more variables needs a chart change by hand.
-For existing chart entries, Revolut volumes require `persistence.enabled` and
-Amex `init: true` requires `shareProcessNamespace: true`; missing equivalents emit
-`drift` findings. Extra environment variables must appear in `env` or `extraEnv`.
-Fortuneo's networks remain acknowledged through the chart NetworkPolicies; other
-unsupported keys still warn. The URL parser recognizes HTTP and HTTPS app wiring.
-Missing custom sidecars still require manual integration. These checks detect
-missing chart capabilities, not equivalence of individual mounts or network rules.
-`--json` always emits a JSON array, including with `--github`; GitHub annotations
-are emitted only in text mode.
+missing from the chart with volumes, networks, `init` or more variables needs a
+chart change by hand.
+Every sidecar the chart already lists is checked against its own entry, and
+reported as `drift` when the entry misses what Compose has: volumes without
+`persistence.enabled`, `init: true` without `shareProcessNamespace: true`, or a
+variable in neither `env` nor `extraEnv`. Compose networks are not compared:
+NetworkPolicies isolate every sidecar the same way. Other unsupported keys still
+warn. These checks detect missing chart capabilities, not equivalence of individual
+mounts or network rules. Missing custom sidecars still require manual integration.
+The URL parser recognizes HTTP and HTTPS app wiring. `--json` always emits a JSON
+array, including with `--github`; GitHub annotations are emitted only in text mode.
 
 CI runs it in both directions. On a pull request, the `helm-chart` job reports
 differences as warnings and never fails because of them. The repository inventory

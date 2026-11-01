@@ -305,8 +305,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          fetch-depth: 0
           persist-credentials: false
+          # All tags, to find the latest release without a network call (the
+          # checkout token is not persisted, so `git ls-remote` could not
+          # authenticate on a private repository).
+          fetch-depth: 0
 
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1

@@ -29,7 +29,8 @@ spec:
       {{- end }}
       labels:
         {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "app") | nindent 8 }}
-        {{- with omit .Values.app.podLabels "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}
+        {{- /* The selector labels above are immutable and select this pod: user labels cannot override them. */}}
+        {{- with omit (.Values.app.podLabels | default dict) "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:

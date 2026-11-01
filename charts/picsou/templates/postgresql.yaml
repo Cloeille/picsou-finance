@@ -51,7 +51,8 @@ spec:
                   key: postgres-password
             - name: PGDATA
               value: {{ $pg.pgdata | quote }}
-          # Recovery must complete before liveness can restart PostgreSQL.
+          # Crash recovery can outlast the liveness window; allow up to ten minutes
+          # before liveness can restart PostgreSQL.
           startupProbe:
             exec:
               command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1"]
