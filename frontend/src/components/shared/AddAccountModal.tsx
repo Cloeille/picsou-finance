@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type ComponentType } from 'react'
+import { useState, useRef, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Dialog,
@@ -37,8 +37,6 @@ import { useCreateAccount, useUpdateDebtMetadata } from '@/features/accounts/hoo
 import {
   useInitiateBankSync,
   useRevolutStatus,
-  useStartRevolutSync,
-  useSyncProgress,
   useConfirmRevolutSync,
   useFinaryConnectionStatus,
   useFinaryLogin,
@@ -48,10 +46,10 @@ import {
   useExecuteFinaryApiSync,
   useCheckFinaryTotp,
 } from '@/features/sync/hooks'
-import { InputOTP, InputOTPGroup } from '@/components/ui/input-otp'
-import { MaskedOTPSlot } from '@/components/sync/MaskedOTPSlot'
+import { RevolutCredentialsForm, type RevolutCredentials } from '@/components/sync/RevolutCredentialsForm'
+import { useRevolutDiscovery } from '@/features/sync/use-revolut-discovery'
 import { RevolutSelectionCard } from '@/components/sync/RevolutSelectionCard'
-import { revolutErrorLabel, revolutPhaseLabel } from '@/features/sync/revolut-phase'
+import { revolutPhaseLabel } from '@/features/sync/revolut-phase'
 import {
   Landmark,
   HousePlus,
@@ -70,13 +68,11 @@ import {
   EyeOff,
   Upload,
   RefreshCw,
-  Lock,
   AlertTriangle,
   BriefcaseBusiness,
   TrendingUp,
   PiggyBank,
 } from 'lucide-react'
-import { Checkbox } from '@/components/ui/checkbox'
 import { formatApiError } from '@/lib/errors'
 import type { AccountRequest, FinaryPreviewResponse, FinaryAccountMapping, FinaryMappingAction, FinaryImportResultResponse, AccountType } from '@/types/api'
 import { availableTargets, initialFinaryMappings } from '@/features/sync/finary-mappings'
@@ -417,54 +413,25 @@ function TradeRepublicWizard({ onBack }: { onDone: () => void; onBack: () => voi
 // Wizard: Revolut (on-demand phone+passcode sync — mirrors TradeRepublicWizard)
 // ---------------------------------------------------------------------------
 
+const EMPTY_REVOLUT_CREDENTIALS: RevolutCredentials = { phoneNumber: '', passcode: '', remember: false }
+
 function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
   const { t } = useTranslation()
-  const [phoneNumber, setPhoneNumber] = useState('')
-  const [passcode, setPasscode] = useState('')
-  const [remember, setRemember] = useState(false)
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  // Whether a discovery job is currently running — gates both the poll and the UI (mirrors RevolutTab).
-  const [isSyncing, setIsSyncing] = useState(false)
+  const [credentials, setCredentials] = useState<RevolutCredentials>(EMPTY_REVOLUT_CREDENTIALS)
   // Set once a discovery completes successfully; distinguishes a fresh mount (no result yet,
   // possibly stale cached progress from an earlier discovery elsewhere) from an actual result.
   const [resultReady, setResultReady] = useState(false)
 
   const { data: status } = useRevolutStatus()
-  const startSync = useStartRevolutSync()
-  const progress = useSyncProgress('revolut', isSyncing)
   const confirmSync = useConfirmRevolutSync()
 
+  const { errorMsg, setErrorMsg, isSyncing, progress, startPending, startDiscovery } = useRevolutDiscovery({
+    onStart: () => setResultReady(false),
+    onFinished: () => setResultReady(true),
+  })
+
   const remembered = status?.remembered ?? false
-  const busy = isSyncing || startSync.isPending
-
-  // Detect the running → done transition (mirrors RevolutTab) to stop polling and reveal
-  // the selection step once discovery is over.
-  const prevRunningRef = useRef<boolean | undefined>(undefined)
-  useEffect(() => {
-    const running = progress.data?.running
-    if (prevRunningRef.current === true && running === false) {
-      setIsSyncing(false)
-      if (progress.data?.error) {
-        // Reacting to the running → done transition detected above, not deriving render state.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setErrorMsg(revolutErrorLabel(t, progress.data))
-      } else {
-        setResultReady(true)
-      }
-    }
-    prevRunningRef.current = running
-    // progress.data is read through the running dep on purpose (see RevolutTab).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progress.data?.running])
-
-  function startDiscovery(body: { phoneNumber?: string; passcode?: string }) {
-    setErrorMsg(null)
-    setResultReady(false)
-    startSync.mutate(body, {
-      onSuccess: () => setIsSyncing(true),
-      onError: (err: unknown) => setErrorMsg(formatApiError(err, t)),
-    })
-  }
+  const busy = isSyncing || startPending
 
   function handleQuickSync() {
     startDiscovery({})
@@ -472,13 +439,13 @@ function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: () => v
 
   function handleFormSync(e: React.FormEvent) {
     e.preventDefault()
-    if (!phoneNumber || passcode.length !== 6) return
-    startDiscovery({ phoneNumber, passcode })
+    if (!credentials.phoneNumber || credentials.passcode.length !== 6) return
+    startDiscovery({ phoneNumber: credentials.phoneNumber, passcode: credentials.passcode })
   }
 
   function handleConfirm(selectedExternalIds: string[]) {
     confirmSync.mutate(
-      { selectedExternalIds, remember, voluntary: true },
+      { selectedExternalIds, remember: credentials.remember, voluntary: true },
       {
         onSuccess: onDone,
         onError: (err: unknown) => setErrorMsg(formatApiError(err, t)),
@@ -532,52 +499,13 @@ function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: () => v
               {busy ? t('sync.revolut.syncing') : t('sync.revolut.sync')}
             </Button>
           ) : (
-            <form onSubmit={handleFormSync} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="revolut-phone">
-                  <Smartphone className="size-4 inline-block mr-1" />
-                  {t('sync.revolut.phone')}
-                </Label>
-                <Input
-                  id="revolut-phone"
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  required
-                  disabled={busy}
-                  placeholder="+33..."
-                  autoFocus
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="revolut-passcode">
-                  <Lock className="size-4 inline-block mr-1" />
-                  {t('sync.revolut.passcode')}
-                </Label>
-                <InputOTP maxLength={6} value={passcode} onChange={setPasscode} disabled={busy}>
-                  <InputOTPGroup>
-                    {[0, 1, 2, 3, 4, 5].map((i) => (
-                      <MaskedOTPSlot key={i} index={i} />
-                    ))}
-                  </InputOTPGroup>
-                </InputOTP>
-              </div>
-
-              <label className="flex items-center gap-2 cursor-pointer">
-                <Checkbox
-                  checked={remember}
-                  onCheckedChange={(checked) => setRemember(checked === true)}
-                  disabled={busy}
-                />
-                <span className="text-sm text-muted-foreground">{t('sync.revolut.remember')}</span>
-              </label>
-
-              <Button type="submit" disabled={busy} className="w-full">
-                {busy && <Loader2 className="size-4 animate-spin" />}
-                {busy ? t('sync.revolut.syncing') : t('sync.revolut.sync')}
-              </Button>
-            </form>
+            <RevolutCredentialsForm
+              variant="modal"
+              value={credentials}
+              onChange={setCredentials}
+              onSubmit={handleFormSync}
+              busy={busy}
+            />
           )
         )}
       </div>
