@@ -72,7 +72,7 @@ jobs:
 
       - name: Tags for the python base
         id: meta-python
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ steps.names.outputs.python }}
           tags: |
@@ -102,7 +102,7 @@ jobs:
 
       - name: Tags for the chromium base
         id: meta-chromium
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ steps.names.outputs.chromium }}
           tags: |
@@ -257,7 +257,7 @@ jobs:
       #   - push of a version tag    -> latest + the semver (e.g. 1.0.0, 1.0, 1)
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ matrix.image }}
           # metadata-action emits the pinned sha/semver tag and lowercases image names.
