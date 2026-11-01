@@ -27,7 +27,7 @@
              (spring.ai.mcp.server.keep-alive-interval). Do NOT bump to 2.x: it requires Spring Boot 4.
              The Boot 3.5.16 BOM already manages Tomcat, Netty, Spring Security and Testcontainers
              at or above the versions this pom used to pin, so those overrides were dropped. -->
-        <spring-ai.version>1.1.8</spring-ai.version>
+        <spring-ai.version>2.0.2</spring-ai.version>
         <!-- docker-java (bundled with Testcontainers) defaults to Docker Engine API 1.32, which
              Docker Engine 25+ rejects (it requires >= 1.40; Engine >= 28 refuses outright). Pin a
              safe floor read by docker-java's `api.version` system property so the Testcontainers
