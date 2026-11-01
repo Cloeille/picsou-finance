@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Bank connectors are opt-in.** `docker compose up` now starts only the app and the
+  database: no connector image is pulled or run until you enable it, which saves up to
+  about 7.6 GB of images and 590 MB of idle RAM. Enable the banks you use with
+  `COMPOSE_PROFILES` in `docker/.env`, for example `COMPOSE_PROFILES=bourso,revolut`, or
+  `all-connectors` for every one. Profiles: `amex`, `amundi`, `bourse-direct`, `bourso`, `caisse-epargne`, `cic`, `cmes`, `corum`, `degiro`, `fortuneo`, `revolut`, `sofidy`, `tr` (Trade Republic).
+  `APP_SIDECAR_API_KEY` is now required only when a connector is enabled. Syncing a bank
+  whose connector is off shows that bank's usual "unavailable" error.
+  **Migration** for an existing install: add `COMPOSE_PROFILES=all-connectors` to
+  `docker/.env` (or list only your banks) before the next `pull` / `up -d`. Running
+  connectors keep running after the upgrade either way, but without the profile Compose
+  stops pulling, recreating and stopping them.
+
 - **One CI job for every bank connector.** The 13 copy-pasted sidecar jobs are now one
   matrix built from the `services/*-auth` folders, shared with image publishing, so adding a
   connector touches no workflow file. A change to one connector tests only that connector.

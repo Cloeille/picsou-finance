@@ -129,6 +129,25 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
             with self.subTest(path=path.relative_to(ROOT)):
                 self.assertNotRegex(path.read_text(encoding="utf-8"), r"(?m)^[^#]*_AUTH_URL")
 
+    def test_connectors_are_opt_in_through_compose_profiles(self):
+        services = _load(DOCKER_COMPOSE)["services"]
+        sidecars = sorted(name for name in services if name.endswith("-auth"))
+        self.assertEqual(services["app"]["depends_on"], ["db"])
+        for name in sidecars:
+            with self.subTest(sidecar=name):
+                self.assertEqual(services[name]["profiles"], [name.removesuffix("-auth"), "all-connectors"])
+
+    def test_the_sidecar_key_is_optional_in_compose(self):
+        # Compose interpolates services outside the active profiles too, so `:?` on any
+        # sidecar would make the key mandatory for an install without connectors. The
+        # backend and each sidecar refuse a blank key themselves.
+        compose = DOCKER_COMPOSE.read_text(encoding="utf-8")
+        self.assertNotIn("${APP_SIDECAR_API_KEY:?", compose)
+        services = _load(DOCKER_COMPOSE)["services"]
+        for name in ["app", *(n for n in services if n.endswith("-auth"))]:
+            with self.subTest(service=name):
+                self.assertEqual(services[name]["environment"]["APP_SIDECAR_API_KEY"], "${APP_SIDECAR_API_KEY:-}")
+
     def test_every_compose_sidecar_has_a_url_in_both_spring_profiles(self):
         sidecars = {name for name in _load(DOCKER_COMPOSE)["services"] if name.endswith("-auth")}
         default = _load(APPLICATION_YML)["app"]
@@ -794,9 +813,14 @@ class SharedSidecarBaseTest(unittest.TestCase):
                     base = compose[f"sidecar-{target}"]
                     self.assertEqual(base["build"]["target"], target)
                     self.assertTrue(base["build"]["context"].endswith("services/base"))
-                    # Not a profile: a profiled service is invisible to `down`/`config`
-                    # without it, and Compose then rejects the sidecars' contexts.
-                    self.assertNotIn("profiles", base)
+                    # Active with any sidecar built on it, never alone: `pull` without a
+                    # profile must not fetch a base, and a sidecar's `service:` context
+                    # must always resolve.
+                    users = {s for s in _shared_base_services() if _sidecar_base(s) == target}
+                    self.assertEqual(
+                        set(base["profiles"]),
+                        {compose[s]["profiles"][0] for s in users} | {"all-connectors"},
+                    )
                     self.assertEqual(base["scale"], 0)
                     self.assertEqual(base["image"], f"ghcr.io/cloeille/picsou-finance/sidecar-{target}:latest")
             for service in _shared_base_services():

@@ -1,10 +1,10 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-11-01 (one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
+> Last updated: 2026-11-01 (connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
 
 ## Context
 
-Picsou deploys as the app and thirteen authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
+Picsou deploys as the app, PostgreSQL and up to thirteen opt-in authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
 - **`picsou:latest`** — main app: frontend (Nginx) + backend (Spring Boot), no Python. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
@@ -122,8 +122,9 @@ The publish workflow pushes `sidecar-python`, `sidecar-chromium` and
 builds. AMEX and Revolut therefore share exactly the same base layers. With
 `docker compose up --build`, the three build-only base services (`scale: 0`,
 never started) are built first; this needs Compose v2.33+
-(`additional_contexts: service:`), tested on 5.6.0. `docker compose pull` needs
-no particular version and also pulls the bases by name
+(`additional_contexts: service:`), tested on 5.6.0. Each base carries the profiles
+of the connectors built on it, so it is active exactly when one of them is.
+`docker compose pull` needs no particular version and also pulls the active bases by name
 (`ghcr.io/cloeille/picsou-finance/sidecar-*:latest`); their layers are already
 shared with the sidecars. The new `sidecar-camoufox` package must be public on
 GHCR after its first publication, as must the other bases. See
@@ -169,14 +170,40 @@ remote sidecar URLs must use HTTPS; HTTP is accepted only for a single-label
 Compose service name or loopback development, the rule every sidecar adapter
 applies through `SidecarBaseUrl`.
 
+### Opt-in connectors — Compose profiles
+
+No connector runs by default. Each `*-auth` service has two profiles: its own name without
+`-auth` (`bourso`, `revolut`, `tr`, …) and `all-connectors`. The app depends on `db` only,
+so `docker compose up` with no profile pulls and starts the app and the database. The
+operator lists the banks in `COMPOSE_PROFILES` in `docker/.env`, which Compose reads for
+every command, so `pull`, `up` and `down` all address the same connectors.
+
+- A disabled connector's service is still resolved by Compose: its variables are
+  interpolated, so no sidecar uses `${VAR:?}`. A required variable there would make
+  every install need it, connectors or not.
+- An upgrade from a stack where the app depended on every connector leaves the running
+  connector containers untouched (`up -d` only manages active services). Without a
+  profile, Compose stops pulling, recreating or stopping them, and `down` leaves them
+  running. Existing installs set `COMPOSE_PROFILES=all-connectors`, as the CHANGELOG
+  migration says.
+- A sync against a disabled connector reaches no host. Every adapter maps that
+  connection failure to its existing unavailable error (`UPSTREAM_UNAVAILABLE`, the
+  Trade Republic or DEGIRO "service unavailable" message); none of them surfaces a 500.
+- The [instance-status alert](./admin-instance-status.md) probes only sidecars that hold
+  sessions, so a bank nobody connected never raises `SIDECAR_UNREACHABLE`. A connector
+  disabled after it was used does, which is the intended warning.
+- The Helm chart keeps its own switch, `sidecars.<name>.enabled`; `sync-sidecars.sh`
+  treats Compose `profiles` as a standard key.
+
 ### Sidecar shared secret — `APP_SIDECAR_API_KEY`
 
 The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank, Caisse d'Epargne,
 Bourse Direct, Amundi, Fortuneo, DEGIRO, AMEX, CORUM, Sofidy, Crédit Mutuel / CIC
 Épargne Salariale, CIC online banking) share one secret.
 Generate it with `openssl rand -base64 32`. `docker/docker-compose.yml` forwards it
-explicitly to the app and to every sidecar service, and refuses to
-start when it is missing or empty. Sidecar URLs are set in one place,
+explicitly to the app and to every sidecar service. It is required only when a
+connector is enabled: the app starts without it, and each sidecar refuses to start
+when it is missing or empty. Sidecar URLs are set in one place,
 `backend/src/main/resources/application.yml` (`app.<sidecar>.url`, Compose service
 name); `application-dev.yml` gives each one its own `127.0.0.1` port. Compose and the
 entrypoint set none. The AMEX service uses `init: true` so an init process reaps orphaned
@@ -185,7 +212,8 @@ shared secret: the sidecars run in separate containers and
 cannot read the app's `/data/.secrets/` volume.
 
 - The backend sends it as `X-Picsou-Sidecar-Key` on every sidecar call, through
-  `SidecarWebClientFactory`, and refuses to start when it is blank.
+  `SidecarWebClientFactory`. With a blank key it starts and sends no header; any
+  running sidecar then answers 401, which surfaces as `SIDECAR_UNAUTHORIZED`.
 - Each sidecar refuses to start when it is missing or whitespace-only. Every
   route except the exact `/health` path, including `/docs` and
   `/openapi.json`, requires the header. A constant-time comparison
@@ -399,7 +427,7 @@ and HTTPS API response through the deployment script.
 ### Key files
 
 - `docker/Dockerfile` — main image, 3-stage build
-- `docker/docker-compose.yml` — orchestration (app + proxy + connector sidecars + PostgreSQL + volumes)
+- `docker/docker-compose.yml` — orchestration (app + proxy + opt-in connector sidecars + PostgreSQL + volumes)
 - `docker/Caddyfile` — optional TLS terminator (profile `tls`)
 - `services/tr-auth/Dockerfile` — tr-auth sidecar image
 - `services/bourse-direct-auth/Dockerfile` — Bourse Direct sidecar image
@@ -411,8 +439,10 @@ and HTTPS API response through the deployment script.
 ### Flow
 
 ```
-docker compose -f docker/docker-compose.yml up
+docker compose -f docker/docker-compose.yml up        # COMPOSE_PROFILES selects the connectors
   → picsou:latest  (nginx:8080 → backend:9090 for /api, /actuator, /mcp)
+  → postgres:16-alpine (:5432)
+  enabled connectors only:
   → docker-tr-auth (uvicorn:8001)
   → revolut-auth (uvicorn:8002, internal only)
   → bourse-direct-auth (uvicorn:8001, internal only)
@@ -426,7 +456,6 @@ docker compose -f docker/docker-compose.yml up
   → cic-auth (uvicorn:8001, internal only)
   → amex-auth (uvicorn:8001, internal only)
   → degiro-auth (uvicorn:8001, internal only)
-  → postgres:16-alpine (:5432)
 ```
 
 `/mcp` is the embedded MCP HTTP+SSE transport (access-key auth). It must be proxied like
@@ -445,7 +474,7 @@ the “build this branch, do not `compose pull` GHCR `:latest`” warning are in
 ### Building a release archive
 
 ```bash
-docker compose -f docker/docker-compose.yml build
+COMPOSE_PROFILES=all-connectors docker compose -f docker/docker-compose.yml build
 docker save ghcr.io/cloeille/picsou-finance:latest \
   ghcr.io/cloeille/picsou-finance/tr-auth:latest \
   ghcr.io/cloeille/picsou-finance/revolut-auth:latest \
