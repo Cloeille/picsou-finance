@@ -99,6 +99,12 @@ Chromium navigation tests in `services/fortuneo-auth/test_navigation.py` and
 `services/bourse-direct-auth/test_navigation.py`. These offline checks cover
 browser launch and page operations, not provider login compatibility.
 
+Retain Camoufox 0.4.11 until one migration updates the installer and its tests,
+the Firefox and Playwright pins, and persistent-profile fingerprint handling.
+Camoufox 0.5.8 requires Playwright below 1.63 and removes `camoufox.locale`, which
+the current installer imports. Run the existing image smoke checks and validate
+each provider login privately before deploying that migration.
+
 All three targets retain Python 3.12 because the pinned Pydantic core has no CPython
 3.15 wheels and the slim base lacks the native toolchain for a source build. A Python
 runtime upgrade requires compatible dependency pins and successful builds of all
