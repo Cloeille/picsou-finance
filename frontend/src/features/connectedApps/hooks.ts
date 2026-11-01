@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
+import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { connectedAppsApi } from './api'
 
 /** Lists the current user's own OAuth2-connected apps (the endpoint is scoped to the caller). */
@@ -10,9 +11,9 @@ export function useConnectedApps() {
 }
 
 export function useRevokeConnectedApp() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (id: string) => connectedAppsApi.revoke(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['connectedApps'] }),
+    invalidates: [['connectedApps']],
+    awaitRefresh: true,
   })
 }
