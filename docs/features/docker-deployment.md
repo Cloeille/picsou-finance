@@ -188,7 +188,9 @@ connector.
   connector containers untouched (`up -d` only manages active services). Without a
   profile, Compose stops pulling, recreating or stopping them, and `down` leaves them
   running. Existing installs set `COMPOSE_PROFILES=all-connectors`, as the CHANGELOG
-  migration says. For a partial profile list, stop excluded containers after setting the
+  migration says. For a partial profile list, Compose leaves excluded containers running,
+  even with `up -d --remove-orphans` or `down`, because they are still services in the file.
+  They keep syncing with the app and its valid key. Stop excluded containers after setting the
   list with `docker compose -f docker/docker-compose.yml rm --stop --force <bank>-auth`.
   Repeat this when you disable a bank. `all-connectors` needs no stop step.
 - A sync against a disabled connector reaches no host. DEGIRO and Revolut show their existing

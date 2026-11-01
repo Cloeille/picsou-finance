@@ -385,6 +385,54 @@ class ErrorMappingTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(SECRET_TOKEN, str(ctx.exception))
         self.assertNotIn("secret-host-detail", str(ctx.exception))
 
+    async def test_a_failed_import_logs_its_stage_and_cause_without_upstream_data(self):
+        def timeout(request: httpx.Request) -> httpx.Response | None:
+            raise httpx.ReadTimeout("secret-host-detail " + SECRET_TOKEN)
+
+        cases = [
+            ("UPSTREAM_UNAVAILABLE stage=synthesis cause=status-403", FakeCE(synthesis_http=403), None),
+            ("UPSTREAM_UNAVAILABLE stage=synthesis cause=too-large", FakeCE(), 64),
+            ("UPSTREAM_UNAVAILABLE stage=transactions cause=status-502", FakeCE(tx_http=502), None),
+            ("UPSTREAM_UNAVAILABLE stage=transactions cause=ReadTimeout", FakeCE(tx_override=timeout), None),
+            (
+                "UPSTREAM_FORMAT_CHANGED stage=transactions cause=format",
+                FakeCE(tx_body=b'{"marker": "BODY-MARKER"}'),
+                None,
+            ),
+            (
+                "UPSTREAM_FORMAT_CHANGED stage=transactions cause=format",
+                FakeCE(tx_body=b"<html>NONJSON-MARKER</html>"),
+                None,
+            ),
+        ]
+        real_serialise = fetcher._serialise_account
+
+        def serialise_fails_on_current(account, transactions, loan=None, per=None):
+            if account["externalId"] == "1001":
+                raise TypeError("SERIALISE-MARKER")
+            return real_serialise(account, transactions, loan, per)
+
+        cases.append(("UPSTREAM_FORMAT_CHANGED stage=serialisation cause=format", FakeCE(), None))
+        for index, (expected, ce, cap) in enumerate(cases):
+            serialise = serialise_fails_on_current if "serialisation" in expected else real_serialise
+            with self.subTest(index, expected=expected), self.assertLogs("caisse-epargne-auth", "WARNING") as logs:
+                with patch.object(replay, "MAX_RESPONSE_BYTES", cap or replay.MAX_RESPONSE_BYTES), \
+                        patch.object(fetcher, "_serialise_account", serialise):
+                    with self.assertRaises(fetcher.FetchError):
+                        await run_fetch(ce)
+            rendered = "\n".join(logs.output)
+            self.assertIn(f"accounts fetch failed: {expected}", rendered)
+            for value in (
+                SECRET_TOKEN, "secret-host-detail", DATA_HOST, SYNTHESIS_PATH, TX_PATH, "1001",
+                "BODY-MARKER", "NONJSON-MARKER", "SERIALISE-MARKER",
+            ):
+                self.assertNotIn(value, rendered)
+
+    def test_a_raise_without_a_cause_logs_its_own_class_default(self):
+        self.assertEqual(fetcher.UpstreamUnavailable().cause, "unknown")
+        self.assertEqual(fetcher.UpstreamFormatChanged().cause, "format")
+        self.assertEqual(fetcher.UpstreamUnavailable(cause="status-503").cause, "status-503")
+
     async def test_non_json_or_wrong_shape_is_format_changed(self):
         cases = {
             "synthesis not json": FakeCE(synthesis_body=b"<html>"),

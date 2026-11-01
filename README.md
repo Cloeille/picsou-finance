@@ -118,16 +118,16 @@ Bank connectors (the `*-auth` sidecars) are opt-in: with no profile, Compose pul
 
 ```bash
 [ -f docker/.env ] || cp docker/.env.example docker/.env
-printf '\nAPP_SIDECAR_API_KEY=%s\n' "$(openssl rand -base64 32)" >> docker/.env
+printf '\nCOMPOSE_PROFILES=%s\nAPP_SIDECAR_API_KEY=%s\n' bourso,revolut "$(openssl rand -base64 32)" >> docker/.env
 ```
 
 Edit `docker/.env` and set `COMPOSE_PROFILES=bourso,revolut`. If the file already has a
 `COMPOSE_PROFILES` entry, edit that line instead of adding another one. Include `tls` in the
 same list when you use the Caddy proxy, for example `COMPOSE_PROFILES=bourso,revolut,tls`.
 
-Compose reads `COMPOSE_PROFILES` from `docker/.env`, so every later `pull`, `up` and `down` covers the same connectors. Enable another bank by adding it to the list and running `pull` then `up -d`. When you use a partial list, stop and remove any connector containers that are no longer listed with `docker compose -f docker/docker-compose.yml rm --stop --force <bank>-auth`. Repeat this step whenever you disable a bank. You do not need it when the list contains `all-connectors`. Syncing a bank whose connector is off shows that bank's "unavailable" error.
+Compose reads `COMPOSE_PROFILES` from `docker/.env`, so every later `pull`, `up` and `down` covers the same connectors. Enable another bank by adding it to the list and running `pull` then `up -d`. To disable a bank, remove it from the list and stop and remove its container with `docker compose -f docker/docker-compose.yml rm --stop --force <bank>-auth`. `up -d` and `down` leave a connector outside the active profiles running, and the app keeps syncing through it. Repeat the stop step whenever you disable a bank. You do not need it when the list contains `all-connectors`. Syncing a bank whose connector is not running shows that bank's "unavailable" error.
 
-> Upgrading an install that ran every connector? Set `COMPOSE_PROFILES=all-connectors` (or list your banks) in `docker/.env` first, then stop excluded connectors with `docker compose -f docker/docker-compose.yml rm --stop --force <bank>-auth`. Edit an existing `COMPOSE_PROFILES` line instead of adding a duplicate. See the CHANGELOG.
+> Upgrading an install that ran every connector? Set `COMPOSE_PROFILES=all-connectors` (or list your banks) in `docker/.env` first. If you list only some banks, stop excluded connectors with `docker compose -f docker/docker-compose.yml rm --stop --force <bank>-auth`. Edit an existing `COMPOSE_PROFILES` line instead of adding a duplicate. See the CHANGELOG.
 
 ```bash
 docker compose -f docker/docker-compose.yml pull    # fetch the published images from GHCR

@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Connection failures handled by the shared translator, Fortuneo adapter, and Revolut scheduled
   sync log one-line warnings without repeated stack traces. Trade Republic scheduled sync and
   Revolut progress polling still log their errors with stack traces.
+- **Caisse d'Epargne: a failed account import says where it failed.** The sidecar's
+  `accounts fetch failed` line now names the step (synthesis, transactions,
+  serialisation) and the cause (the bank's HTTP status, an oversized answer, or the
+  transport error class such as `ReadTimeout`). No URL, body or token is logged (#397).
 
 - **One sync-provider table in the frontend.** The browser-sidecar connectors are now
   entries in `features/sync/providers.ts` driven by generic `useProvider*` hooks, so adding
@@ -32,6 +36,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `useInvalidatingMutation`. The add-account modal reuses the Sync page's forms instead of
   copies, and error banners and chart axes use shared pieces (`AlertBanner`, `AXIS_PROPS`).
   No visible change. See [frontend conventions](docs/conventions/frontend.md).
+
+- **Bank connectors are opt-in.** `docker compose up` now starts only the app and the
+  database: no connector image is pulled or run until you enable it, which saves up to
+  about 7.6 GB of images and 590 MB of idle RAM. Enable the banks you use with
+  `COMPOSE_PROFILES` in `docker/.env`, for example `COMPOSE_PROFILES=bourso,revolut`, or
+  `all-connectors` for every one. Profiles: `amex`, `amundi`, `bourse-direct`, `bourso`, `caisse-epargne`, `cic`, `cmes`, `corum`, `degiro`, `fortuneo`, `revolut`, `sofidy`, `tr` (Trade Republic).
+  `APP_SIDECAR_API_KEY` is now required only when a connector is enabled. Syncing a bank
+  whose connector is off shows that bank's usual "unavailable" error.
+  **Migration** for an existing install: add `COMPOSE_PROFILES=all-connectors` to
+  `docker/.env` (or list only your banks) before the next `pull` / `up -d`. Running
+  connectors keep running after the upgrade either way, but without the profile Compose
+  stops pulling, recreating and stopping them. If you list only some banks, stop the
+  connectors you left out: `docker compose -f docker/docker-compose.yml rm --stop --force
+  <bank>-auth …`. Otherwise they keep running and the app still syncs through them;
+  `up -d --remove-orphans` and `down` do not stop them. `all-connectors` needs no extra
+  step. Disabling a bank later works the same way: remove it from the list, then
+  `rm --stop --force` its service.
+
 - **One CI job for every bank connector.** The 13 copy-pasted sidecar jobs are now one
   matrix built from the `services/*-auth` folders, shared with image publishing, so adding a
   connector touches no workflow file. A change to one connector tests only that connector.
