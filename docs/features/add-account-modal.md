@@ -17,7 +17,7 @@ The `AddAccountModal` is a state-machine dialog with two levels:
 
 - `frontend/src/components/shared/AddAccountModal.tsx` — main component (contains all sub-wizards; `SOURCES` array drives the selector grid)
 - `frontend/src/pages/accounts/AccountsPage.tsx` — wires `AddAccountModal` for create, keeps `AccountForm` for edit
-- `frontend/src/features/sync/hooks.ts` — all sync mutation hooks reused by the wizards
+- `frontend/src/features/sync/hooks.ts` — all sync mutation hooks reused by the wizards (built on `useInvalidatingMutation`)
 - `frontend/src/components/ui/input-otp.tsx` — shadcn InputOTP component (installed for TR PIN and verification code)
 - `frontend/src/components/sync/IbkrPanel.tsx` — extracted IBKR connection panel (source of truth shared with `IbkrTab`)
 - `frontend/src/components/sync/SimplefinPanel.tsx` — SimpleFIN connection panel, shared with `SimplefinTab` the same way

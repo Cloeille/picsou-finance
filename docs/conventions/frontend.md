@@ -54,6 +54,29 @@ export function useGoals() {
 - Stale times configured in `frontend/src/lib/constants.ts`.
 - No Redux, no Context for server data.
 
+### Mutations that refresh queries — `useInvalidatingMutation`
+
+Mutations that only need to invalidate (and optionally seed) query keys use `useInvalidatingMutation`
+(`frontend/src/hooks/use-invalidating-mutation.ts`) instead of repeating `useQueryClient()` and an
+`onSuccess` full of `invalidateQueries` calls:
+
+```typescript
+export function useUpdateAccount() {
+  return useInvalidatingMutation({
+    mutationFn: ({ id, data }: { id: number; data: AccountRequest }) => accountsApi.update(id, data),
+    invalidates: (_data, { id }) => [['accounts'], ['dashboard'], ['accounts', id]],
+  })
+}
+```
+
+- `invalidates`: a key list, or a function of the result and variables.
+- `writesTo`: key that receives the response (`setQueryData`) just before the invalidation.
+- `when: 'settled'`: invalidate after a failure too (`onSettled`) instead of only on success.
+- `awaitRefresh: true`: hold the mutation open until the refetches end. Off by default, which matches a
+  block-bodied `onSuccess`; turn it on only where the caller needs fresh data when `mutateAsync` resolves.
+- The caller's own `onSuccess` / `onSettled` still run, first. A mutation that invalidates with a
+  predicate or needs `onMutate` keeps plain `useMutation`.
+
 ### Client state — Zustand
 
 Only for auth and app-wide UI state (e.g., demo mode toggle).
@@ -114,6 +137,30 @@ shadcn components dual-export a component plus its `*Variants` cva object, which
 `react-refresh/only-export-components`. These files are **vendor-generated** (a future
 `shadcn add` overwrites them), so the rule is scoped **off** for `src/components/ui/**`
 in `eslint.config.js` rather than hand-edited. Do not add disables inside those files.
+
+## Adding a browser-sidecar provider
+
+Browser-sidecar providers (Bourse Direct, Amundi, CMES, CIC, Amex, CORUM, Sofidy...) share one set of
+session hooks and one panel. Adding a provider does not mean copying hooks:
+
+1. **Types** (`types/api.ts`): `type XSessionStatus = SidecarSessionStatusOf<XErrorCode, Extra?>` and
+   `type XAuthInitResponse = SidecarAuthInitResponse<'APP_PUSH' | 'SMS'>`, plus the `XErrorCode` union.
+2. **API** (`features/sync/api.ts`): for the standard `/x/auth/initiate`, `/x/auth/complete`, `/x/sync`,
+   `/x/status`, `DELETE /x/session` contract, `export const xApi = sidecarApi<XSessionStatus, XAuthInitResponse>('/x')`.
+   A provider that deviates (other body fields, response parsing) writes its own object.
+3. **Table entry** (`features/sync/providers.ts`): add the id to `sidecarProviders` with its query key
+   (`syncKeys`), `refreshOnSuccess` (the views a finished sync refreshes), and the `getStatus` / `initiate` /
+   `complete` / `sync` / `clear` functions, spreading `loginFlow(xApi)` for the standard shape. Quirks are
+   flags on the entry: `reconnect`, `refreshOnClear`, `settleMutations`, `singleAttemptComplete`,
+   `noSecondFactor`.
+4. **Panel**: `<SidecarSessionPanel provider="x" translationPrefix="sync.x" fieldIdPrefix="x" loginIcon={Icon} />`
+   and the `sync.x.*` i18n keys. Add the id to `SyncAllModal` through `useProviderStatus('x')` /
+   `useProviderSync('x')`.
+
+The hooks are `useProviderStatus(id)`, `useProviderInitiate(id)`, `useProviderComplete(id)`,
+`useProviderSync(id)`, `useProviderClear(id)`, `useProviderReconnect(id)`, or all at once with
+`useProviderSession(id)`; each is typed from the table entry, so `useProviderStatus('cic').data` is
+`CicSessionStatus`.
 
 ## API client
 
