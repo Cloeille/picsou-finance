@@ -369,6 +369,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **React Router v8 compatibility.** Use the DOM router provider's built-in
+  `flushSync` integration, removing an adapter whose return type broke frontend
+  compilation after the dependency upgrade.
+  Resolved frontend documentation merge conflicts while preserving the v8 routing
+  guidance and the DOM provider integration rationale.
 - Release deployment verifies that a recreated bundled TLS proxy's active configuration uses
   `app-tls:8080`, reports legacy app targets or unreadable configuration before API readiness,
   and preserves unrelated upstreams. TLS Compose tests reserve unused subnets for custom
