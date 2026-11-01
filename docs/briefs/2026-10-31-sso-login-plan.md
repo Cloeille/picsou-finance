@@ -1079,14 +1079,22 @@ Read it first; the security properties S1–S13 and the error codes are defined 
     group-managed admins;
   - `docs/features/setup-wizard.md`: the SSO admin step;
   - `docs/features/admin-recovery.md`: recovery re-creates a password for password-less admins;
+  - `docs/features/security-cors-cookies.md`: the SSO chain, its cross-site check without the
+    auth-cookie condition, the handshake session cookie and the `reauth_proof` cookie;
+  - `docs/features/data-export.md`: re-authentication with the proof, and the export dialog for
+    accounts without a password (Task 12 already documents the exporter);
   - `backend/CLAUDE.md`: the auth-flow paragraph;
   - `frontend/CLAUDE.md`: the auth guard, `/login/sso/callback` and `/login/sso-complete`;
   - `CHANGELOG.md`: an entry under `[Unreleased]` → `### Added`, as CONTRIBUTING requires for
-    user-visible changes.
+    user-visible changes;
+  - `docs/conventions/api-rest.md`: `reauth_proof` in the auth cookie table, **in a commit of its
+    own** whose message gives the reason. [CODING_RULES §0](../CODING_RULES.md) treats a
+    conventions edit next to code as a smell to justify; this one only describes the new cookie
+    and loosens no rule.
 
 - [ ] **Step 1:** Write the ADR and the feature note.
 - [ ] **Step 2:** Update the other documents and check every link.
-- [ ] **Step 3:** Report for commit.
+- [ ] **Step 3:** Report for commit, with the `api-rest.md` table edit as its own commit.
 
 ---
 
