@@ -429,6 +429,25 @@ class ReviewRegressionsTest(unittest.TestCase):
                 secret = next(r for r in resources if r["kind"] == "Secret")
                 for key in keys.values():
                     self.assertEqual(base64.b64decode(secret["data"][key]), value.encode())
+                with tempfile.TemporaryDirectory() as tmp:
+                    chart = Path(tmp) / "picsou"
+                    shutil.copytree(CHART, chart)
+                    # Simulate the installed Secret for both the resource and pre-upgrade hook.
+                    stored = '(' + json.dumps(json.dumps(secret["data"])) + ' | fromJson)'
+                    for filename, scope in (("secret.yaml", "."), ("migration-job.yaml", "$.")):
+                        template = chart / "templates" / filename
+                        template.write_text(template.read_text().replace(
+                            f'(lookup "v1" "Secret" {scope}Release.Namespace $name).data', stored))
+                    args = [arg for key in keys for arg in
+                            ("--set", f"secrets.{key}={value}")]
+                    for upgrade in ((), ("--is-upgrade",)):
+                        with self.subTest(upgrade=bool(upgrade)):
+                            resources = self.resources(*args, *upgrade, chart=chart)
+                            existing = next(r for r in resources if r["kind"] == "Secret")
+                            self.assertEqual(existing["data"], secret["data"])
+                    result = self.render("--set", "secrets.postgresPassword=87654321", chart=chart)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("ALTER ROLE", result.stderr)
 
     def test_health_test_inherits_registry_and_scheduling_settings(self):
         scheduling = {"nodeSelector": {"kubernetes.io/arch": "amd64"},

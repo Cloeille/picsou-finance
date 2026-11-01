@@ -146,7 +146,9 @@ helm upgrade
   and Secret password changes and restart consumers as needed.
 
 - **Bundled password changes require coordination.** When `lookup` finds an existing
-  password, a differing inline password fails rendering. First `ALTER ROLE`, then
+  password, a differing inline password fails rendering. Inline values are converted to
+  strings before comparison, so numeric passwords (including zero) and booleans supplied
+  through `--set` remain stable across upgrades. First `ALTER ROLE`, then
   update `postgres-password` in the Kubernetes Secret, then set the same inline value
   and restart consumers. The chart README documents the maintenance procedure.
   External databases and externally managed Secrets remain operator-managed.
@@ -274,7 +276,8 @@ helm upgrade
   It also checks database TLS mounts, environment overrides and password fallback, migration
   scheduling, labels and quoted mesh annotations, missing or changing generated database
   passwords on upgrade (including explicit password and external Secret overrides),
-  numeric and null inline secrets, stored-key fallback, numeric fullname rejection,
+  numeric and null inline secrets, existing-Secret upgrades with numeric and boolean inline
+  values, stored-key fallback, numeric fullname rejection,
   disabled-sidecar loopback URLs, explicit Secret rotation without password fingerprints, all generated
   app environment overrides, duplicate-name rejection, and health-test images and scheduling.
   Review regressions also verify stored-password mismatch rejection, the zero/one replica

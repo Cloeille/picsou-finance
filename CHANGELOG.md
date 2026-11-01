@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   isolation and a pre-upgrade Job that migrates and verifies the schema before the app is
   replaced. TLS terminates on the cluster's Ingress or Gateway. CI publishes it to
   `oci://ghcr.io/cloeille/charts/picsou` with every release, and as a pre-release pinned to the
-  commit's images with every push to `main`.
+  commit's images with every push to `main`. Numeric inline database passwords remain
+  valid on subsequent upgrades; differing stored passwords still require coordinated rotation.
   See [feature note](docs/features/helm-chart.md).
 
 - **SCPI positions over MCP.** An MCP client can now record a SCPI account's share count,
