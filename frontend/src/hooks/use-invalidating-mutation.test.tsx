@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -160,6 +160,53 @@ describe('useInvalidatingMutation', () => {
     })
     expect(done).toBe(true)
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
+  })
+
+  it('resolves only once an active query has really refetched with awaitRefresh', async () => {
+    const { client, wrapper } = setup()
+    const refetch = deferred()
+    let fetches = 0
+    const { result } = renderHook(
+      () => ({
+        query: useQuery({
+          queryKey: ['accounts'],
+          queryFn: async () => {
+            fetches += 1
+            if (fetches === 1) return 'stale'
+            await refetch.promise
+            return 'fresh'
+          },
+        }),
+        mutation: useInvalidatingMutation({
+          mutationFn: async () => 'ok',
+          invalidates: [['accounts']],
+          awaitRefresh: true,
+        }),
+      }),
+      { wrapper },
+    )
+    await waitFor(() => expect(result.current.query.data).toBe('stale'))
+
+    let done = false
+    let call!: Promise<unknown>
+    act(() => {
+      call = result.current.mutation.mutateAsync().then(() => {
+        done = true
+      })
+    })
+    await waitFor(() => expect(client.isFetching({ queryKey: ['accounts'] })).toBe(1))
+    expect(done).toBe(false)
+
+    await act(async () => {
+      refetch.resolve()
+      await call
+    })
+
+    expect(done).toBe(true)
+    expect(client.getQueryData(['accounts'])).toBe('fresh')
+    const state = client.getQueryState(['accounts'])
+    expect(state?.fetchStatus).toBe('idle')
+    expect(state?.isInvalidated).toBe(false)
   })
 
   it('invalidates on error too with when: settled', async () => {
