@@ -1,6 +1,6 @@
 # Feature: Migration-safe release deployment
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-01
 
 ## Context
 
@@ -17,7 +17,7 @@ only as a temporary workaround for issue #174, not a lasting production migratio
 ## Usage
 
 Run from a checkout containing these tools on the Docker host. Requires Bash, Docker Compose v2.17+,
-`flock`, `curl`, Python 3 (private Compose override generation), PostgreSQL-owner privileges to create/drop a temporary database, and sufficient
+`flock`, `curl`, Python 3 (private Compose override generation and active proxy config validation), PostgreSQL-owner privileges to create/drop a temporary database, and sufficient
 space for a full backup plus a restored copy. Configure `docker/.env` and matching sidecars as usual.
 The proxy health wait uses `up --wait --wait-timeout`, supported since
 [Compose v2.17.0](https://github.com/docker/compose/releases/tag/v2.17.0).
@@ -92,6 +92,11 @@ such as `/var/backups/picsou`, not a shared directory like `/var/backups` or `$H
    Certificate and configuration volumes are preserved. Wait up to 60 seconds for the recreated
    proxy's health check with `--wait --wait-timeout 60`; recreation or health failure exits nonzero
    with a TLS proxy error before probing the API, even if the app's published HTTP port responds.
+   After successful recreation, read Caddy's active JSON configuration through its container-local
+   admin API. Require at least one reverse-proxy upstream dialing exactly `app-tls:8080` and
+   reject other `app` or `app-tls` targets on any port. Unrelated upstream hosts are ignored,
+   allowing other sites on the same Caddy. An unreadable or invalid configuration exits nonzero
+   before the API probe; update the Caddyfile's `reverse_proxy` target to `app-tls:8080`.
    Stopped or absent proxies remain untouched, even when the `tls` profile is enabled.
    Then probe `/api/auth/me` without credentials.
    A bounded wait must receive HTTP **401**. Static HTML 200, redirects, gateway 502, and connection
@@ -183,7 +188,9 @@ container. Do not put passwords in command arguments or print `compose config` i
   the previous-image record, and the free-space check. It also checks that a running TLS proxy
   is recreated after the app check and before the API probe, while migration or cutover failures
   leave it untouched and proxy recreation or health-wait failures return nonzero without reporting
-  deployment success. Absent proxies are not started.
+  deployment success. Active-config checks cover nested routes, the required `app-tls:8080`
+  target, rejection of legacy/mixed app targets, unrelated upstreams, malformed or missing config,
+  and admin API query failures. Absent proxies are not started or queried.
   Stopped proxies stay stopped with no TLS profile, `--profile tls`, or `COMPOSE_PROFILES=tls`.
   CI also runs `shellcheck -x docker/deploy.sh`.
 - `ReleaseMigrationCliConfigurationTest` (no Docker): Spring Boot naming-strategy parity, the
@@ -195,7 +202,7 @@ container. Do not put passwords in command arguments or print `compose config` i
   project without `--fresh`, the packaged JAR via
   Spring Boot's `PropertiesLauncher`, normal entrypoint/API 401, repeat deployment with data preserved,
   an upgrade from the old default-network-only Caddy layout to `tls-proxy` with the current
-  `app-tls` upstream, HTTPS API 401 using the preserved internal CA,
+  `app-tls` upstream (restoring the current Caddyfile before each recreation), HTTPS API 401 using the preserved internal CA,
   missing physical schema and future-history failures that leave the running API untouched. CI builds
   the actual release image (layer-cached, see [Docker deployment](./docker-deployment.md#tests)) and
   runs it. With no image supplied, only this expensive integration test skips.

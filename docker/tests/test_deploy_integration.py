@@ -65,6 +65,7 @@ def test_packaged_release_migrates_repeats_and_preserves_api_on_bad_schema(tmp_p
   app:
     networks: !override
       default:
+        aliases: [app-tls]
       fortuneo-auth-net:
   proxy:
     networks: !override
@@ -115,6 +116,9 @@ def test_packaged_release_migrates_repeats_and_preserves_api_on_bad_schema(tmp_p
             ca_file = tmp_path / "caddy-root.crt"
             command([*legacy_compose, "cp", "proxy:/data/caddy/pki/authorities/local/root.crt", str(ca_file)])
             environment["CURL_CA_BUNDLE"] = str(ca_file)
+            # The first deploy also recreates the proxy and checks its active upstream.
+            # Keep the old network layout, with a bootstrap alias for the current Caddyfile.
+            caddyfile.write_text(current_caddyfile)
         first = command(["bash", str(REPO / "docker/deploy.sh"), "--fresh", image_id, origin,
                          str(backup_dir), *first_flags])
         assert "API returned 401" in first.stdout
