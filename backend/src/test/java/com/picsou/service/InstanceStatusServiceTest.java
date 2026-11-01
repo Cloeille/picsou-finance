@@ -32,8 +32,11 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -328,6 +331,52 @@ class InstanceStatusServiceTest {
             github.stop(0);
             sidecars.stop(0);
         }
+    }
+
+    @Test
+    void slowCount_isNotStartedAgainByTheNextRequest() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        AtomicBoolean finished = new AtomicBoolean();
+        CountDownLatch release = new CountDownLatch(1);
+        String unreachable = refusedUrl();
+        // Ignores interrupts like a JDBC call blocked on the socket.
+        SidecarTarget blocked = new SidecarTarget("bourso-auth", "sidecar-python", () -> unreachable, () -> {
+            calls.incrementAndGet();
+            boolean held = release.getCount() > 0;
+            while (true) {
+                try {
+                    release.await();
+                    break;
+                } catch (InterruptedException ignored) {
+                    // keep waiting
+                }
+            }
+            finished.set(true);
+            return held ? 1 : 0;
+        });
+        InstanceStatusService service = service(Duration.ofMillis(200), Duration.ofMillis(300), blocked);
+        try {
+            for (int i = 0; i < 2; i++) {
+                InstantStart start = InstantStart.now();
+                var response = service.status();
+                assertThat(start.elapsed()).isLessThan(Duration.ofSeconds(1));
+                assertThat(response.issues()).isEmpty();
+                assertThat(calls).hasValue(1);
+            }
+        } finally {
+            release.countDown();
+        }
+        long limit = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (!finished.get() && System.nanoTime() < limit) {
+            Thread.sleep(10);
+        }
+        assertThat(finished).isTrue();
+        // The flag is reset just after the supplier returns: retry until a new run starts.
+        while (calls.get() < 2 && System.nanoTime() < limit) {
+            service.status();
+            Thread.sleep(10);
+        }
+        assertThat(calls).hasValue(2);
     }
 
     @Test

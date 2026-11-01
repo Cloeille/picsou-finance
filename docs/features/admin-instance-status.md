@@ -35,7 +35,10 @@ including an expired session. Each in-use sidecar gets `GET /health` (2 s per pr
 parallel, 3 s overall). CIC uses `app.cic-auth.url` (`CIC_AUTH_URL`) and expects `sidecar-python`.
 The session counts run one after another in the background under the same 3 s deadline (one
 DB connection at a time): a sidecar whose count is not known by the deadline reports nothing,
-since it is unknown whether the household uses it.
+since it is unknown whether the household uses it. Only one count run is in flight at a time
+per backend: an interrupted database query keeps its connection after the response, so repeated
+requests must not each start a new run. While a previous run is still waiting on the database,
+the check starts no counts and reports no sidecar issue.
 
 - No answer, or a non-2xx answer: `SIDECAR_UNREACHABLE`.
 - A 2xx answer whose `base` field is missing or not the expected base: `SIDECAR_OUTDATED`. The
@@ -112,7 +115,8 @@ global error redirect: a 5xx on this optional check never sends the app to `/err
 - `InstanceStatusServiceTest` — all thirteen registry targets, including CIC's base, URL and
   session-count supplier; classification against stub HTTP servers, not-in-use sidecars never probed;
   session counts run one at a time; a slow count stays within the deadline and neither reports
-  its own sidecar nor marks an already counted one unreachable
+  its own sidecar nor marks an already counted one unreachable; a count still blocked on the
+  database is not started again by the next request
 - `ReleaseCheckServiceTest` — semver ordering, disabled/non-semver make no call, 6 h cache,
   GitHub errors
 - `AdminControllerTest` — endpoint returns the service result

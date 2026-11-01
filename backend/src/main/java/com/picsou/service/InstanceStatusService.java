@@ -42,6 +42,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Admin instance check. The release check, the session counts and the in-use sidecar
@@ -64,6 +65,7 @@ public class InstanceStatusService {
     private final Duration probeTimeout;
     private final Duration overallDeadline;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final AtomicBoolean counting = new AtomicBoolean();
 
     @Autowired
     public InstanceStatusService(
@@ -153,7 +155,10 @@ public class InstanceStatusService {
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         try {
             List<SidecarProbe> probes = sidecars.stream().map(target -> start(target, executor)).toList();
-            executor.execute(() -> countSessions(probes));
+            if (!startCounts(probes, executor)) {
+                log.info("instance-status.counts.busy");
+                return List.of();
+            }
             List<CompletableFuture<Optional<SidecarIssue>>> futures = probes.stream()
                 .map(SidecarProbe::result)
                 .toList();
@@ -182,6 +187,25 @@ public class InstanceStatusService {
         }
     }
 
+    private boolean startCounts(List<SidecarProbe> probes, ExecutorService executor) {
+        if (!counting.compareAndSet(false, true)) {
+            return false;
+        }
+        try {
+            executor.execute(() -> {
+                try {
+                    countSessions(probes);
+                } finally {
+                    counting.set(false);
+                }
+            });
+        } catch (RuntimeException ex) {
+            counting.set(false);
+            throw ex;
+        }
+        return true;
+    }
+
     /** The count future completes later; the probe starts as soon as it does, so probes run in parallel. */
     private SidecarProbe start(SidecarTarget target, ExecutorService executor) {
         CompletableFuture<Long> count = new CompletableFuture<>();
@@ -192,7 +216,8 @@ public class InstanceStatusService {
     /**
      * Counts one sidecar after another: one pooled DB connection at a time, because an interrupted
      * JDBC query keeps its connection. A count that fails is treated as not in use; one cut off by
-     * the deadline stays incomplete and is reported as a timeout.
+     * the deadline stays incomplete and is reported as a timeout. For the same reason only one run
+     * is in flight per instance: the next request must not start another while this one is blocked.
      */
     private static void countSessions(List<SidecarProbe> probes) {
         for (SidecarProbe probe : probes) {
