@@ -166,6 +166,7 @@ jobs:
             image: ${{ github.repository }}/revolut-auth
             context: services/revolut-auth
             dockerfile: services/revolut-auth/Dockerfile
+            lib: python
           - name: bourse-direct-auth
             image: ${{ github.repository }}/bourse-direct-auth
             context: services/bourse-direct-auth
@@ -212,6 +213,7 @@ jobs:
             image: ${{ github.repository }}/amex-auth
             context: services/amex-auth
             dockerfile: services/amex-auth/Dockerfile
+            lib: python
             versioned: false
           - name: degiro-auth
             image: ${{ github.repository }}/degiro-auth
@@ -282,6 +284,7 @@ jobs:
           build-args: |
             ${{ matrix.versioned && format('APP_VERSION={0}', needs.base.outputs.app-version) || '' }}
             ${{ matrix.base && format('SIDECAR_BASE={0}', needs.base.outputs[matrix.base]) || '' }}
+            ${{ matrix.lib && format('SIDECAR_LIB={0}', needs.base.outputs[matrix.lib]) || '' }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 

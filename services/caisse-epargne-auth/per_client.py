@@ -51,8 +51,6 @@ DETAIL_BASE = f"https://{INSURER_HOST}/etna-web/rest/v2/contratVie/load"
 
 APP_CODE = "IW4"
 JWT_HEADER = "iw4-jwt-token"
-PRODUCT_CODE = "PER"
-COMPANY_CODE = "IC"
 
 _ENTITY_CODE_RE = re.compile(r"[0-9]{5}\Z")
 _CONTRACT_ID_RE = re.compile(r"[0-9]{5} {1,16}PERIC(?P<number>[0-9]{1,64})\Z")

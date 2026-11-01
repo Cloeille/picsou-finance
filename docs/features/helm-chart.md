@@ -82,6 +82,9 @@ committed back). The `helm-chart` job of `ci.yml`
 lints and renders the chart and runs `sync-sidecars.sh --check` on pull requests that touch the
 chart, the Compose file or the workflows; differences are warnings, a broken chart fails
 that independent check. Neither `ci-ok` nor image publishing depends on `helm-chart`.
+Changes under `.github/` select every validation job, including `helm-chart` and
+`sidecar-package`. Changes under `services/base/` select the shared-package tests and
+all sidecar image tests, without selecting Helm validation.
 The repository inventory test accepts exit codes 0 (in sync) and 2 (drift), but still fails
 on script errors. All chart script tests live in `charts/picsou/tests`, outside the
 release-blocking workflow inventory suite. Synthetic fixtures test comparison and warning behavior. Rendered chart

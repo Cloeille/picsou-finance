@@ -43,17 +43,6 @@ PRODUCT_TYPE_TO_PORTFOLIO_SEGMENT: dict[str, str] = {
     "ordinary-securities-account": "compte-titres-pea",
 }
 
-# The `/mes-comptes/{segment}/situation/portefeuille-temps-reel.jsp` URL
-# segment for each securities-account family, as observed in the synthese-
-# bourse HTML fragment -- NOT the "ORD"/"PEA"/"PPE" codes that also appear
-# elsewhere in that fragment (in an unrelated `optAjax_...` element id),
-# which this parser does not rely on.
-_BOURSE_URL_SEGMENT_TO_TYPE = {
-    "compte-titres-pea": "COMPTE_TITRES",  # CTO; segment name is historical/misleading
-    "pea": "PEA",
-    "ppe": "PEA",  # PEA-PME; Picsou has no distinct type
-}
-
 
 _CURRENCY_CODE = r"(?:EUR|USD|GBP|CHF|JPY|CAD|AUD|NZD|SEK|NOK|DKK|GBX)"
 
@@ -128,23 +117,6 @@ def optional_decimal_value(raw: Any, field: str = "value") -> Decimal | None:
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         return None
     return decimal_value(raw, field)
-
-
-def account_balance(account_json: dict[str, Any]) -> Decimal | None:
-    """Extract the `balance`-named amount from an account-api account object.
-
-    Cash-type accounts (`current-account`, `cash-account`) carry a
-    `balances` array with one entry named "balance"; securities accounts
-    have no `balances` key at all. (account-api/v2/accounts is not the
-    primary data source -- see `extract_accounts_from_equipment` -- but this
-    helper is kept since the REST shape is confirmed and may be useful as a
-    cross-check or fallback.)
-    """
-    for entry in account_json.get("balances") or []:
-        if entry.get("name") == "balance":
-            amount = entry.get("amount") or {}
-            return optional_decimal_value(amount.get("value"), "balance")
-    return None
 
 
 # Equipment GraphQL category path -> Picsou AccountType. Classifying by
@@ -337,78 +309,6 @@ def fold_cash_pockets_into_securities_accounts(
     return result
 
 
-_SYNTHESE_ACCOUNT_BLOCK = re.compile(
-    r'href="[^"]*?/mes-comptes/(?P<segment>[a-z-]+)/situation/portefeuille-temps-reel\.jsp\?ca=(?P<web_id>[A-Za-z0-9_-]+)"'
-    r'[^>]*>\s*'
-    r'(?:(?!</a>).)*?'
-    r'<span class="synthese_numero_compte">\s*(?P<numero>[^<]*?)\s*</span>'
-    r'(?:(?!</a>).)*?'
-    r'<span class="synthese_compte_tiret">[^<]*</span>\s*(?P<label>[^\n<]*)\s*'
-    r'(?:(?!</a>).)*?'
-    r'<span class="synthese_solde_compte\s*">\s*(?P<solde>[^<]*?)\s*</span>'
-    r'(?:(?!</a>).)*?</a>',
-    re.DOTALL,
-)
-
-_SYNTHESE_CASH_POCKET_BLOCK = re.compile(
-    r'href="[^"]*?consulter-solde\.jsp\?ca=(?P<web_id>[A-Za-z0-9_-]+)"'
-    r'[^>]*class="synthese_compte_associe"'
-    r'(?:(?!</a>).)*?'
-    r'<span class="synthese_solde_compte_espece_associe\s*">\s*(?P<solde>[^<]*?)\s*</span>'
-    r'(?:(?!</a>).)*?</a>',
-    re.DOTALL,
-)
-
-
-def parse_bourse_synthese_table(html: str) -> list[dict[str, Any]]:
-    """Parse the `famille_bourse` HTML fragment into per-account totals.
-
-    Returns one dict per securities account:
-    ``{"webId": str, "type": "PEA" | "COMPTE_TITRES", "label": str,
-    "totalEur": Decimal, "cashWebId": str | None}``.
-
-    ``cashWebId`` is set only for a CTO row that has an associated
-    "Compte espèces" sub-row immediately following it in the fragment
-    (`synthese_compte_ligne_autre`) -- PEA/PEA-PME never have one, their
-    cash pocket is implicit. The associated cash account's own balance
-    must be fetched separately via account-api and folded into the CTO's
-    `cashBalance`; this function only resolves *which* cash account id
-    belongs to which securities account.
-
-    Raises PortfolioFormatError if an account block's total is missing or
-    malformed -- never silently drops or zeroes a valuation.
-    """
-    accounts: list[dict[str, Any]] = []
-    account_matches = list(_SYNTHESE_ACCOUNT_BLOCK.finditer(html))
-    cash_matches = list(_SYNTHESE_CASH_POCKET_BLOCK.finditer(html))
-
-    for i, match in enumerate(account_matches):
-        segment = match.group("segment")
-        account_type = _BOURSE_URL_SEGMENT_TO_TYPE.get(segment)
-        if account_type is None:
-            raise PortfolioFormatError(f"Unrecognized Fortuneo bourse account segment: {segment!r}")
-        total = decimal_value(html_lib.unescape(match.group("solde")), "totalEur")
-
-        # A cash-pocket block belongs to this account if it appears after
-        # this account's block and before the next one.
-        block_end = match.end()
-        next_start = account_matches[i + 1].start() if i + 1 < len(account_matches) else len(html)
-        cash_web_id = next(
-            (c.group("web_id") for c in cash_matches if block_end <= c.start() < next_start),
-            None,
-        )
-
-        accounts.append({
-            "webId": match.group("web_id"),
-            "type": account_type,
-            "label": html_lib.unescape(match.group("label").strip()),
-            "totalEur": total,
-            "cashWebId": cash_web_id,
-        })
-
-    return accounts
-
-
 # Each holding is a `<tr name="{code}princip" class="l1"|"l2">` row
 # (zebra-striped) on a securities account's `.../situation/` page. The
 # Equipment GraphQL query has no position field. `{code}`'s trailing 12 characters are the
@@ -536,172 +436,12 @@ _LEGACY_ACCOUNT_LINK = re.compile(
 )
 
 
-# The legacy site's own links are the only trustworthy source for where an
-# account's operation history lives: the URL shape is not guessable and has
-# already changed at least once (`situation/` vs `consulter-situation/`).
-# Matches history-like page links under /fr/prive/, so one page can report
-# which candidates exist instead of the connector guessing a path.
-_LEGACY_HISTORY_LINK = re.compile(
-    r"/fr/prive/(?P<path>[a-z0-9/-]*"
-    r"(?:historique|operation|mouvement|releve)[a-z0-9/._-]*)",
-    re.IGNORECASE,
-)
-
-
-def find_legacy_history_paths(html: str) -> list[str]:
-    """Distinct history-page *paths* linked from a legacy page, query stripped.
-
-    Discovery aid only: returns paths (never their query strings, which carry
-    account identifiers). Sorted and de-duplicated so the result is a stable,
-    loggable description of the site's structure rather than of any account.
-    """
-    return sorted({
-        match.group("path").rstrip("?&")
-        for match in _LEGACY_HISTORY_LINK.finditer(html)
-    })
-
-
 _TAGS = re.compile(r"<[^>]+>")
 _WHITESPACE = re.compile(r"\s+")
 
 
 def _text_of(fragment: str) -> str:
     return _WHITESPACE.sub(" ", html_lib.unescape(_TAGS.sub(" ", fragment))).strip()
-
-
-_FORM = re.compile(r"<form\b(?P<attrs>[^>]*)>(?P<body>.*?)</form>", re.IGNORECASE | re.DOTALL)
-_FIELD = re.compile(
-    r"<(?:input|select|textarea)\b[^>]*?\bname=[\"'](?P<name>[^\"']+)[\"']",
-    re.IGNORECASE,
-)
-_IFRAME_SRC = re.compile(r"<iframe\b[^>]*?\bsrc=[\"'](?P<src>[^\"']+)[\"']", re.IGNORECASE)
-_SELECT = re.compile(
-    r"<select\b[^>]*?\bname=[\"'](?P<name>[^\"']+)[\"'][^>]*>(?P<body>.*?)</select>",
-    re.IGNORECASE | re.DOTALL,
-)
-_OPTION_VALUE = re.compile(r"<option\b[^>]*?\bvalue=[\"'](?P<value>[^\"']*)[\"']", re.IGNORECASE)
-# A <select> on this site can enumerate the customer's own holdings: the results
-# page fills `codeReferentiel` with one option per security the account has
-# traded, each carrying its ISIN. Option values are therefore reported only for
-# the fields whose vocabulary is known to belong to the site rather than to the
-# account; everything else is reduced to how many options it had.
-_SITE_OWNED_SELECTS = frozenset({
-    "typeOperation",
-    "nbResultats",
-    "triColonne",
-    "sensTriColonne",
-})
-_INPUT = re.compile(r"<input\b(?P<attrs>[^>]*)>", re.IGNORECASE)
-_NAME_ATTR = re.compile(r"\bname=[\"']([^\"']+)[\"']", re.IGNORECASE)
-_VALUE_ATTR = re.compile(r"\bvalue=[\"']([^\"']*)[\"']", re.IGNORECASE)
-_DIGIT = re.compile(r"\d")
-_TABLE = re.compile(r"<table\b.*?</table>", re.IGNORECASE | re.DOTALL)
-_HEADER_CELL = re.compile(r"<th\b[^>]*>(.*?)</th>", re.IGNORECASE | re.DOTALL)
-_ROW = re.compile(r"<tr\b(?P<attrs>[^>]*)>(?P<body>.*?)</tr>", re.IGNORECASE | re.DOTALL)
-_CELL = re.compile(r"<t[dh]\b", re.IGNORECASE)
-_ATTR_NAME = re.compile(r"\b([a-zA-Z-]+)\s*=")
-_CLASS_ATTR = re.compile(r"\bclass=[\"']([^\"']*)[\"']", re.IGNORECASE)
-_METHOD_ATTR = re.compile(r"\bmethod=[\"']([^\"']*)[\"']", re.IGNORECASE)
-_ACTION_ATTR = re.compile(r"\baction=[\"']([^\"']*)[\"']", re.IGNORECASE)
-# Rows a legacy table uses for its own column labels. Deliberately excludes
-# "titre": in French that is as likely to mean a *security* as a heading, and
-# reading a data row's text is exactly what this must never do.
-_HEADER_ROW_CLASS = re.compile(r"\b(?:entete|en-tete|tete|header|thead|libelle-colonne)\b", re.IGNORECASE)
-
-
-def _path_of(url: str) -> str:
-    """Strip the query string: it carries the account's legacy `ca` identifier."""
-    return url.split("?", 1)[0].split("#", 1)[0]
-
-
-def describe_legacy_page_structure(html: str) -> dict[str, Any]:
-    """Describe a legacy page's *shape* so a parser can be written against it.
-
-    Reports the page's schema -- form actions and field names, iframe paths,
-    table column headers, row markup signatures and cell counts. It never
-    reports a cell value: on a securities history page every cell is a date, a
-    security name or an amount. Column labels are reported (they are the page's
-    vocabulary, not the customer's data), and only from `<th>` cells or from
-    rows a table itself marks as heading rows.
-    """
-    forms = []
-    for match in _FORM.finditer(html):
-        attrs = match.group("attrs")
-        action = _ACTION_ATTR.search(attrs)
-        method = _METHOD_ATTR.search(attrs)
-        body = match.group("body")
-        # A site-owned select's option values are a closed vocabulary -- "all
-        # operations / purchase / sale" -- and are the one thing that can say
-        # whether a dividend is selectable structurally. See _SITE_OWNED_SELECTS
-        # for why every other select is reduced to a count.
-        selects: dict[str, Any] = {}
-        for select in _SELECT.finditer(body):
-            name = select.group("name")
-            values = sorted(set(_OPTION_VALUE.findall(select.group("body"))))
-            selects[name] = (
-                values if name in _SITE_OWNED_SELECTS else f"<{len(values)} options>"
-            )
-        # Default input values are masked to their *shape* (every digit becomes
-        # N), which is what a parser needs -- "NN/NN/NNNN" says dd/mm/yyyy --
-        # without ever recording the date or amount a field was pre-filled with.
-        defaults = {}
-        for field in _INPUT.finditer(body):
-            name = _NAME_ATTR.search(field.group("attrs"))
-            value = _VALUE_ATTR.search(field.group("attrs"))
-            if name and value and value.group(1):
-                defaults[name.group(1)] = _DIGIT.sub("N", value.group(1))
-        forms.append({
-            "action": _path_of(action.group(1)) if action else None,
-            "method": (method.group(1).lower() if method else "get"),
-            "fields": sorted(set(_FIELD.findall(body))),
-            "selects": selects,
-            "default_shapes": dict(sorted(defaults.items())),
-        })
-
-    tables = []
-    for match in _TABLE.finditer(html):
-        table = match.group(0)
-        headers = [_text_of(cell) for cell in _HEADER_CELL.findall(table)]
-        headers = [header for header in headers if header]
-        row_classes: set[str] = set()
-        row_attrs: set[str] = set()
-        cells_per_row: dict[int, int] = {}
-        for row in _ROW.finditer(table):
-            attrs = row.group("attrs")
-            row_attrs.update(name.lower() for name in _ATTR_NAME.findall(attrs))
-            class_attr = _CLASS_ATTR.search(attrs)
-            if class_attr:
-                row_classes.update(class_attr.group(1).split())
-                if not headers and _HEADER_ROW_CLASS.search(class_attr.group(1)):
-                    headers = [
-                        _text_of(cell)
-                        for cell in re.findall(
-                            r"<t[dh]\b[^>]*>(.*?)</t[dh]>",
-                            row.group("body"),
-                            re.IGNORECASE | re.DOTALL,
-                        )
-                    ]
-                    headers = [header for header in headers if header]
-            count = len(_CELL.findall(row.group("body")))
-            if count:
-                cells_per_row[count] = cells_per_row.get(count, 0) + 1
-        if headers or cells_per_row:
-            tables.append({
-                "headers": headers,
-                "rows": sum(cells_per_row.values()),
-                "cells_per_row": dict(sorted(cells_per_row.items())),
-                "row_classes": sorted(row_classes),
-                # Attribute *names* only: a `name`/`id` value on a legacy row can
-                # embed a security code, which would disclose a holding.
-                "row_attrs": sorted(row_attrs),
-            })
-
-    return {
-        "bytes": len(html),
-        "forms": forms,
-        "iframes": sorted({_path_of(src) for src in _IFRAME_SRC.findall(html)}),
-        "tables": tables,
-    }
 
 
 # The securities-history results table has 10 columns. Observed body rows carry

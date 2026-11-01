@@ -17,18 +17,12 @@ Credentials, session cookies and raw financial responses are never logged.
 
 import asyncio
 import json
-import logging
-import os
-import secrets
-import time
-from contextlib import asynccontextmanager
 from decimal import Decimal
 from typing import Any
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi import HTTPException
+from picsou_sidecar import configure_logging, create_app
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from playwright.async_api import (
     Browser,
@@ -40,9 +34,7 @@ from playwright.async_api import (
 )
 from positions_parser import PositionsFormatError, parse_snapshot
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("corum-auth")
-SIDECAR_API_KEY = os.environ.get("APP_SIDECAR_API_KEY", "")
+log = configure_logging("corum-auth")
 
 BASE_URL = "https://client.corum.fr"
 LOGIN_URL = f"{BASE_URL}/connexion"
@@ -62,9 +54,6 @@ BROWSER_HEADERS = {
     "Referer": f"{BASE_URL}/",
     "Origin": BASE_URL,
 }
-# One probe tells an expired session from a live one without downloading a
-# portfolio. It is cheap and unambiguous: 200 while logged in, 401 once not.
-AUTH_PROBE_PATH = "/api/auth/isAuthenticated"
 CONTRACT_PATH = "/api/contract/active"
 # NB: no `realEstate` segment on the detail paths. The client space routes the
 # contract itself as /contract/realEstate/{code}/... but the per-fund read is
@@ -79,7 +68,6 @@ SUBMIT_TIMEOUT_SECONDS = 30
 # first authenticated call the dashboard makes, so the wait is bounded by how
 # long that dashboard takes to fire rather than by any user prompt.
 SESSION_CAPTURE_TIMEOUT_SECONDS = 30
-POSITIONS_TIMEOUT_SECONDS = 30
 
 # Every login starts a Playwright driver and a Chromium process, and the
 # backend throttles per IP, which does not bound this service in aggregate.
@@ -103,53 +91,7 @@ async def _release_browser_slot() -> None:
         _browsers = max(0, _browsers - 1)
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    if not SIDECAR_API_KEY.strip():
-        raise RuntimeError("APP_SIDECAR_API_KEY must be configured and non-blank")
-    yield
-
-
-app = FastAPI(lifespan=lifespan)
-
-
-@app.middleware("http")
-async def authenticate_sidecar_request(request: Request, call_next):
-    if request.url.path != "/health":
-        supplied_key = request.headers.get("X-Picsou-Sidecar-Key", "")
-        # Starlette exposes wire header bytes through Latin-1, not UTF-8.
-        if (
-            not SIDECAR_API_KEY.strip()
-            or not secrets.compare_digest(
-                supplied_key.encode("latin-1"), SIDECAR_API_KEY.encode("utf-8")
-            )
-        ):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "UNAUTHORIZED"},
-                headers={"WWW-Authenticate": "Picsou-Sidecar-Key"},
-            )
-    return await call_next(request)
-
-
-def _log_safe(value: str) -> str:
-    """Uvicorn percent-decodes paths, so a caller can plant CR/LF and forge
-    log lines. Strip controls and bound the length."""
-    return "".join(ch for ch in value if ch.isprintable())[:200]
-
-
-@app.middleware("http")
-async def log_request_duration(request: Request, call_next):
-    started_at = time.monotonic()
-    try:
-        return await call_next(request)
-    finally:
-        if request.url.path != "/health":
-            log.info(
-                "CORUM request completed (path=%s; duration=%.2fs)",
-                _log_safe(request.url.path),
-                time.monotonic() - started_at,
-            )
+app = create_app(request_log=(log, "CORUM"), validation_detail="INVALID_DATA")
 
 
 class LoginRequest(BaseModel):
@@ -197,14 +139,6 @@ class SnapshotPayload(BaseModel):
     # `extra="forbid"` on both sides means a mismatch surfaces as a 502 rather
     # than as a snapshot that silently carries no funds.
     holdings: list[HoldingPayload]
-
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(
-    _: Request,
-    exc: RequestValidationError,
-) -> JSONResponse:
-    return JSONResponse(status_code=400, content={"detail": "INVALID_DATA"})
 
 
 class SessionCollector:
@@ -434,12 +368,6 @@ def _decode_session(raw: str) -> tuple[dict[str, Any], str]:
     if not isinstance(storage_state, dict) or not isinstance(cookie, str) or not cookie:
         raise HTTPException(status_code=400, detail="INVALID_DATA")
     return storage_state, cookie
-
-
-@app.get("/health")
-async def health() -> dict:
-    base = os.environ.get("PICSOU_SIDECAR_BASE")
-    return {"status": "ok", "base": base} if base else {"status": "ok"}
 
 
 @app.post("/initiate", response_model=SessionResponse)

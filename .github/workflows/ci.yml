@@ -35,6 +35,7 @@ jobs:
       sofidy-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.sofidy-sidecar == 'true' }}
       amundi-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.amundi-sidecar == 'true' }}
       amex-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.amex-auth-sidecar == 'true' }}
+      sidecar-package: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.sidecar-package == 'true' }}
       degiro-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.degiro-auth-sidecar == 'true' }}
       tr-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.tr-auth-sidecar == 'true' }}
       revolut-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.revolut-auth-sidecar == 'true' }}
@@ -108,6 +109,9 @@ jobs:
               - *workflows
               - 'services/base/**'
               - 'services/amex-auth/**'
+            sidecar-package:
+              - *workflows
+              - 'services/base/**'
             degiro-auth-sidecar:
               - *workflows
               - 'services/base/**'
@@ -242,6 +246,8 @@ jobs:
           # out for real in the test suite.
           APP_SIDECAR_API_KEY: ci-test-only
           PICSOU_REQUIRE_DOCKER_TESTS: 'true'
+          # The Sofidy contract script imports the shared sidecar package.
+          PYTHONPATH: ${{ github.workspace }}/services/base
         run: mvn -B test -Dsofidy.contract.python=python3
         working-directory: backend
       - name: Require the SCPI PostgreSQL tests
@@ -306,6 +312,7 @@ jobs:
         run: >-
           docker run --rm --ipc=host
           --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/bourse-direct-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/bourse-direct-auth/test_navigation.py:/tests/test_navigation.py:ro"
           --volume "${{ github.workspace }}/services/bourse-direct-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
@@ -331,6 +338,7 @@ jobs:
         run: >-
           docker run --rm --ipc=host
           --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/fortuneo-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/fortuneo-auth/test_navigation.py:/tests/test_navigation.py:ro"
           --volume "${{ github.workspace }}/services/fortuneo-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
@@ -356,6 +364,7 @@ jobs:
         run: >-
           docker run --rm
           --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/fixtures.py:/tests/fixtures.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_virtual_pad.py:/tests/test_virtual_pad.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_accounts_parser.py:/tests/test_accounts_parser.py:ro"
@@ -388,6 +397,7 @@ jobs:
         run: >-
           docker run --rm
           --env PYTHONDONTWRITEBYTECODE=1
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services:/src/services:ro"
           --env APP_SIDECAR_API_KEY=test-key
           --workdir /src/services/caisse-epargne-auth
@@ -412,6 +422,7 @@ jobs:
           --env PYTHONPATH=/app
           --env CORUM_BROWSER_TESTS=1
           --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/corum-auth/test_positions_parser.py:/tests/test_positions_parser.py:ro"
           --volume "${{ github.workspace }}/services/corum-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
           --volume "${{ github.workspace }}/services/corum-auth/test_navigation_security.py:/tests/test_navigation_security.py:ro"
@@ -436,6 +447,7 @@ jobs:
         run: >-
           docker run --rm
           --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/sofidy-auth/test_positions_parser.py:/tests/test_positions_parser.py:ro"
           --volume "${{ github.workspace }}/services/sofidy-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
           --volume "${{ github.workspace }}/services/sofidy-auth/test_redirect_security.py:/tests/test_redirect_security.py:ro"
@@ -462,6 +474,7 @@ jobs:
         run: >-
           docker run --rm --ipc=host
           --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/amundi-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/amundi-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
           --volume "${{ github.workspace }}/services/amundi-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
@@ -478,6 +491,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Build the shared python sidecar base
+        run: docker build --target python --tag picsou-sidecar-python services/base
       - name: Build the AMEX sidecar image
         run: docker build --tag picsou-amex-auth:test services/amex-auth
       - name: Run sidecar authentication and browser pinning tests in the image
@@ -486,11 +501,32 @@ jobs:
           --entrypoint python
           --env PYTHONPATH=/app
           --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/amex-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
+          --volume "${{ github.workspace }}/services/amex-auth/test_parsers.py:/tests/test_parsers.py:ro"
           --volume "${{ github.workspace }}/services/amex-auth/test_pin_camoufox.py:/tests/test_pin_camoufox.py:ro"
           --workdir /tests
           picsou-amex-auth:test
           -m unittest discover -v
+
+  sidecar-package:
+    needs: changes
+    if: needs.changes.outputs.sidecar-package == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build the shared python sidecar base
+        run: docker build --target python --tag picsou-sidecar-python services/base
+      - name: Run the shared package tests in the base
+        run: >-
+          docker run --rm
+          --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/base:/tests:ro"
+          --workdir /tests
+          picsou-sidecar-python
+          python -m unittest discover -v
 
   degiro-auth-sidecar:
     needs: changes
@@ -510,9 +546,9 @@ jobs:
           --entrypoint python
           --env PYTHONPATH=/app
           --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/degiro-auth/test_portfolio_url.py:/tests/test_portfolio_url.py:ro"
           --volume "${{ github.workspace }}/services/degiro-auth/test_portfolio_parser.py:/tests/test_portfolio_parser.py:ro"
-          --volume "${{ github.workspace }}/services/degiro-auth/test_log_safety.py:/tests/test_log_safety.py:ro"
           --volume "${{ github.workspace }}/services/degiro-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
           --workdir /tests
           picsou-degiro-auth:test
@@ -536,6 +572,8 @@ jobs:
           --entrypoint python
           --env PYTHONPATH=/app
           --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
+          --volume "${{ github.workspace }}/services/base/euro_information/testing.py:/opt/sidecar-base/lib/euro_information/testing.py:ro"
           --volume "${{ github.workspace }}/services/cmes-auth/fixtures.py:/tests/fixtures.py:ro"
           --volume "${{ github.workspace }}/services/cmes-auth/test_parsers.py:/tests/test_parsers.py:ro"
           --volume "${{ github.workspace }}/services/cmes-auth/test_main.py:/tests/test_main.py:ro"
@@ -562,6 +600,8 @@ jobs:
           --entrypoint python
           --env PYTHONPATH=/app
           --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
+          --volume "${{ github.workspace }}/services/base/euro_information/testing.py:/opt/sidecar-base/lib/euro_information/testing.py:ro"
           --volume "${{ github.workspace }}/services/cic-auth/fixtures.py:/tests/fixtures.py:ro"
           --volume "${{ github.workspace }}/services/cic-auth/test_accounts_parser.py:/tests/test_accounts_parser.py:ro"
           --volume "${{ github.workspace }}/services/cic-auth/test_main.py:/tests/test_main.py:ro"
@@ -588,9 +628,9 @@ jobs:
           --entrypoint python
           --env PYTHONPATH=/app
           --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/main.py:/tests/main.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_complete_url.py:/tests/test_complete_url.py:ro"
-          --volume "${{ github.workspace }}/services/tr-auth/test_log_safety.py:/tests/test_log_safety.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_mask_phone.py:/tests/test_mask_phone.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_refresh_method.py:/tests/test_refresh_method.py:ro"
@@ -608,6 +648,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Build the shared python sidecar base
+        run: docker build --target python --tag picsou-sidecar-python services/base
       - name: Build the Revolut sidecar image
         run: docker build --tag picsou-revolut-auth:test services/revolut-auth
       # The async tests need pytest-asyncio, a test-only dependency the image does not ship.
@@ -617,6 +659,7 @@ jobs:
           --entrypoint sh
           --env PYTHONDONTWRITEBYTECODE=1
           --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/revolut-auth/tests:/app/tests:ro"
           picsou-revolut-auth:test
           -c "python -m pip install --user --no-cache-dir --no-warn-script-location pytest==8.4.2 pytest-asyncio==1.2.0
@@ -756,6 +799,7 @@ jobs:
       - sofidy-sidecar
       - amundi-sidecar
       - amex-auth-sidecar
+      - sidecar-package
       - degiro-auth-sidecar
       - tr-auth-sidecar
       - revolut-auth-sidecar
@@ -795,6 +839,7 @@ jobs:
       - sofidy-sidecar
       - amundi-sidecar
       - amex-auth-sidecar
+      - sidecar-package
       - degiro-auth-sidecar
       - tr-auth-sidecar
       - revolut-auth-sidecar
