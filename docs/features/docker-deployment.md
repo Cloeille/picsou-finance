@@ -52,6 +52,9 @@ or banking credentials are used.
 
 PostgreSQL 16 and the optional Caddy TLS proxy use upstream images.
 
+On Kubernetes, the Helm chart in `charts/picsou` deploys the same images; the `chart` job of
+`docker.yml` publishes it after the image builds. See [helm-chart.md](./helm-chart.md).
+
 ## How it works
 
 ### Main image — `docker/Dockerfile` (3-stage build, context: project root)

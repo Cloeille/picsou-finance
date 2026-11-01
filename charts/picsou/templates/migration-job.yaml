@@ -1,0 +1,107 @@
+{{- /*
+Runs the release migration CLI with the new image before `helm upgrade` replaces
+the app, as docker/deploy.sh does for Compose (ADR 2026-10-08): a migration or
+schema verification failure fails the upgrade and leaves the running app alone.
+Not run on install, where the database does not exist yet and the app migrates
+it on first boot.
+*/}}
+{{- if .Values.migrationJob.enabled }}
+{{- /* Ordinary Secrets are applied after this hook. Reject unsafe generated-password
+changes at render time, rather than waiting for a missing Secret or using stale data.
+Inspect the rendered env so explicit app password overrides remain supported. */}}
+{{- if and .Release.IsUpgrade (not .Values.secrets.existingSecret) (or .Values.postgresql.enabled (not .Values.externalDatabase.existingSecret)) }}
+{{- $name := include "picsou.fullname" . }}
+{{- range (include "picsou.database.env" . | fromYamlArray) }}
+{{- if and (eq .name "POSTGRES_PASSWORD") (eq .valueFrom.secretKeyRef.name $name) }}
+{{- $stored := (lookup "v1" "Secret" $.Release.Namespace $name).data | default dict }}
+{{- $password := index $stored "postgres-password" | default "" }}
+{{- $inline := $.Values.secrets.postgresPassword | include "picsou.secret.inlineValue" | b64enc }}
+{{- /* Client previews cannot look up either resource. A visible namespace still
+lets live upgrades reject a missing Secret before the pre-upgrade hook starts. */}}
+{{- if or (and (not $password) (or $stored (lookup "v1" "Namespace" "" $.Release.Namespace))) (and $password $inline (ne $inline $password)) }}
+{{- fail "migration hook requires the generated Secret postgres-password to already exist and match secrets.postgresPassword: provision or update the Secret before upgrading (see chart README, Upgrades)" }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "picsou.fullname" . }}-migrate
+  labels:
+    {{- include "picsou.componentLabels" (dict "ctx" $ "component" "migrate") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ .Values.migrationJob.activeDeadlineSeconds }}
+  template:
+    metadata:
+      {{- with .Values.app.podAnnotations }}
+      annotations:
+        {{- range $k, $v := . }}
+        {{ $k }}: {{ toString $v | quote }}
+        {{- end }}
+      {{- end }}
+      labels:
+        {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "migrate") | nindent 8 }}
+        {{- with omit .Values.app.podLabels "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      {{- with $.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ include "picsou.image" (dict "ctx" $ "image" .Values.app.image) }}
+          imagePullPolicy: {{ include "picsou.pullPolicy" (dict "ctx" $ "image" .Values.app.image) }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              # Match the image entrypoint, which this CLI invocation bypasses.
+              export SPRING_DATASOURCE_PASSWORD="${SPRING_DATASOURCE_PASSWORD:-$POSTGRES_PASSWORD}"
+              for op in migrate verify; do
+                java -XX:MaxRAMPercentage=75.0 -Dloader.main=com.picsou.migration.ReleaseMigrationCli \
+                  -cp /app/app.jar org.springframework.boot.loader.launch.PropertiesLauncher "$op"
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+          env:
+            {{- include "picsou.database.env" . | nindent 12 }}
+            {{- include "picsou.app.userEnv" . | nindent 12 }}
+          {{- with .Values.app.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.app.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.migrationJob.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.app.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
