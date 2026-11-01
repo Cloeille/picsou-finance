@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "picsou.fullname" . }}
+  labels:
+    {{- include "picsou.componentLabels" (dict "ctx" $ "component" "app") | nindent 4 }}
+  {{- with .Values.app.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.app.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.app.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "app") | nindent 4 }}

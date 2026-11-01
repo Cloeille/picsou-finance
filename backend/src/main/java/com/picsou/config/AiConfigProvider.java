@@ -137,13 +137,15 @@ public class AiConfigProvider {
                 : rawApiKeyOrBlank;
             Optional<ChatModel> built = factory.build(new AiProviderConfig(p.get(), key, model, baseUrl));
             if (built.isEmpty()) return new AiTestResponse(false, "An API key is required for " + p.get() + ".");
-            String reply = ChatClient.create(built.get())
+            // Not .content(): it reads only the first generation, empty for a thinking model.
+            String reply = SpringAiCategorizer.answerText(ChatClient.create(built.get())
                 .prompt()
                 .user("Reply with the single word: OK")
                 .call()
-                .content();
-            return new AiTestResponse(true,
-                "Connected. Model replied: " + (reply == null ? "" : reply.strip()));
+                .chatResponse());
+            // Reachable but no answer (e.g. thinking used up max_tokens): not a working setup.
+            if (reply == null) return new AiTestResponse(false, "Connected, but the model returned no text answer.");
+            return new AiTestResponse(true, "Connected. Model replied: " + reply.strip());
         } catch (Exception e) {
             return new AiTestResponse(false,
                 e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());

@@ -1,0 +1,43 @@
+{{- /* Claims are kept on uninstall: they hold the database and the encryption key. */}}
+{{- define "picsou.pvc" -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .name }}
+  labels:
+    {{- include "picsou.componentLabels" (dict "ctx" .ctx "component" .component) | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+    {{- with .p.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- toYaml (.p.accessModes | default (list "ReadWriteOnce")) | nindent 4 }}
+  {{- with .p.storageClass }}
+  storageClassName: {{ if eq . "-" }}""{{ else }}{{ . }}{{ end }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .p.size | default "1Gi" }}
+{{- end }}
+
+{{- $p := .Values.app.persistence }}
+{{- if and $p.enabled (not $p.existingClaim) }}
+{{ include "picsou.pvc" (dict "ctx" $ "component" "app" "name" (printf "%s-data" (include "picsou.fullname" .)) "p" $p) }}
+{{- end }}
+
+{{- range $name, $sc := .Values.sidecars }}
+{{- with $sc.persistence }}
+{{- if and $sc.enabled .enabled (not .existingClaim) }}
+---
+{{ include "picsou.pvc" (dict "ctx" $ "component" $name "name" (printf "%s-data" (include "picsou.sidecarName" (dict "ctx" $ "name" $name))) "p" .) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- $pg := .Values.postgresql }}
+{{- if and $pg.enabled $pg.persistence.enabled (not $pg.persistence.existingClaim) }}
+---
+{{ include "picsou.pvc" (dict "ctx" $ "component" "postgresql" "name" (printf "%s-data" (include "picsou.postgresql.fullname" .)) "p" $pg.persistence) }}
+{{- end }}

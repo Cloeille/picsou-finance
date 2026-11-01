@@ -54,8 +54,8 @@ public class SecurityConfig {
      * {@code /etc/nginx/snippets/picsou-hsts.conf} from the same {@code HSTS_ENABLED}).
      *
      * <p>Gating this matters because Spring Security's {@code HstsHeaderWriter} fires on any
-     * request where {@code isSecure()} is true, and {@code forward-headers-strategy: framework}
-     * makes that true from {@code X-Forwarded-Proto: https}. Without the gate, every
+     * request where {@code isSecure()} is true, and {@code forward-headers-strategy: native}
+     * makes that true from {@code X-Forwarded-Proto: https} sent by a configured proxy. Without the gate, every
      * {@code /api/*} response carries HSTS — and the SPA calls the API on load, so the browser
      * pins the policy on the first page view. With a locally-issued certificate that is a
      * lockout: the browser then refuses the "proceed anyway" bypass and there is no in-app

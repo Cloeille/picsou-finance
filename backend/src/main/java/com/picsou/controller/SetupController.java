@@ -53,13 +53,9 @@ import java.util.Map;
  * <h3>Rate limiting</h3>
  * 10 mutating requests per minute per client IP (see {@code setupBuckets} in
  * {@link RateLimitConfig}). {@code GET /status} is polled by the frontend
- * and is exempt. The key is {@link com.picsou.config.ClientIp#resolve}, never
- * {@code request.getRemoteAddr()} directly and never {@code X-Forwarded-For}:
- * under {@code server.forward-headers-strategy: framework} (the deployment
- * contract is nginx on the docker bridge), {@code getRemoteAddr()} itself is
- * rewritten from the client-suppliable leftmost X-Forwarded-For entry, so it
- * is no safer than trusting the header outright. {@code ClientIp} reads
- * nginx's {@code X-Real-IP} instead, which a client cannot inject.
+ * and is exempt. The key is {@link com.picsou.config.ClientIp#resolve}, which
+ * uses the container-resolved address shared with audit logging. Native forwarding
+ * accepts client addresses only from the explicitly configured nginx peers.
  */
 @RestController
 @RequestMapping("/api/setup")

@@ -1,81 +1,51 @@
-"""Shared-key authentication for every non-health HTTP path."""
+"""The Sofidy app keeps the shared sidecar-key contract."""
 
-import os
+import logging
+import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
-from fastapi.testclient import TestClient
+from fastapi import HTTPException
+from picsou_sidecar import PendingStore
 
-import main as service
+from picsou_sidecar import contract
 
-TEST_KEY = "test-key"
-AUTH_HEADER = "X-Picsou-Sidecar-Key"
-CHALLENGE = "Picsou-Sidecar-Key"
+import main
 
 
-class SidecarAuthenticationTest(unittest.TestCase):
-    def setUp(self):
-        self.key = getattr(service, "SIDECAR_API_KEY", None)
-        service.SIDECAR_API_KEY = TEST_KEY
-        self.client = TestClient(service.app, follow_redirects=False)
+class SidecarAuthTest(contract.SidecarAuthContract):
+    app = main.app
 
-    def tearDown(self):
-        self.client.close()
-        service.SIDECAR_API_KEY = self.key
 
-    def assert_unauthorized(self, response):
-        self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.headers.get("www-authenticate"), CHALLENGE)
+class PendingCapacityTest(unittest.IsolatedAsyncioTestCase):
+    async def test_wrong_code_retries_only_when_the_attempt_can_be_parked(self):
+        for full in (False, True):
+            with self.subTest(full=full):
+                store = PendingStore(dispose=main._dispose_pending_state, log=logging.getLogger("test"), max_size=1)
+                upstream = AsyncMock()
+                other = AsyncMock()
+                state = {"client": upstream, "associateCode": "123456", "password": "synthetic", "created_at": time.time()}
+                await store.put_or_raise("attempt", state)
 
-    def test_each_business_route_rejects_missing_wrong_and_empty_keys(self):
-        requests = (
-            ("/initiate", {"associateCode": "123456", "password": "pw"}),
-            ("/complete", {"processId": "id", "code": "1234"}),
-            ("/positions", {"sessionState": "{}"}),
-        )
-        for path, body in requests:
-            for headers in ({}, {AUTH_HEADER: "wrong"}, {AUTH_HEADER: ""}):
-                with self.subTest(path=path, headers=headers):
-                    self.assert_unauthorized(self.client.post(path, json=body, headers=headers))
+                async def wrong_code(*args):
+                    if full:
+                        await store.put_or_raise("other", {"client": other, "created_at": time.time()})
+                    return "wrong"
 
-    def test_malformed_json_is_rejected_by_auth_before_body_parsing(self):
-        for path in ("/initiate", "/complete", "/positions"):
-            with self.subTest(path=path):
-                response = self.client.post(path, content=b"not-json")
-                self.assert_unauthorized(response)
-
-    def test_documentation_openapi_and_unknown_paths_require_the_key(self):
-        for path in ("/docs", "/openapi.json", "/not-a-route"):
-            with self.subTest(path=path):
-                self.assert_unauthorized(self.client.get(path))
-
-    def test_only_exact_health_path_is_public(self):
-        with patch.dict(os.environ):
-            os.environ.pop("PICSOU_SIDECAR_BASE", None)
-            body = self.client.get("/health").json()
-        self.assertEqual(body, {"status": "ok"})
-        self.assert_unauthorized(self.client.get("/health/"))
-
-    def test_health_reports_the_shared_base_when_set(self):
-        with patch.dict(os.environ, {"PICSOU_SIDECAR_BASE": "sidecar-python"}):
-            body = self.client.get("/health").json()
-        self.assertEqual(body, {"status": "ok", "base": "sidecar-python"})
-
-    def test_configured_non_ascii_key_authenticates_as_utf8(self):
-        service.SIDECAR_API_KEY = "clé"
-        response = self.client.post(
-            "/initiate",
-            content=b"not-json",
-            headers=[(AUTH_HEADER.encode(), "clé".encode("utf-8"))],
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertNotEqual(response.headers.get("www-authenticate"), CHALLENGE)
-
-    def test_missing_key_refuses_application_startup(self):
-        service.SIDECAR_API_KEY = "  "
-        with self.assertRaisesRegex(RuntimeError, "APP_SIDECAR_API_KEY"):
-            with TestClient(service.app):
-                pass
+                try:
+                    with patch.object(main, "_pending", store), patch.object(main, "_post", side_effect=wrong_code):
+                        with self.assertRaises(HTTPException) as caught:
+                            await main.complete(main.CompleteRequest(processId="attempt", code="123456"))
+                    self.assertEqual(caught.exception.status_code, 503 if full else 401)
+                    self.assertEqual(caught.exception.detail, "TOO_MANY_PENDING" if full else "MFA_INVALID")
+                    if full:
+                        self.assertNotIn("attempt", store)
+                        upstream.aclose.assert_awaited_once()
+                    else:
+                        self.assertIn("attempt", store)
+                        upstream.aclose.assert_not_awaited()
+                finally:
+                    await store.close_all()
 
 
 if __name__ == "__main__":
