@@ -224,6 +224,8 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         ConcurrentHashMap<String, String> scopedCashJsonByAccount = new ConcurrentHashMap<>();
         ConcurrentHashMap<String, ConcurrentHashMap<String, JsonNode>> positionsByAccount = new ConcurrentHashMap<>();
         ConcurrentHashMap<String, BigDecimal> tickerPrices = new ConcurrentHashMap<>();
+        Set<String> bondIsins = ConcurrentHashMap.newKeySet();
+        Set<String> unpricedBondIsins = ConcurrentHashMap.newKeySet();
         ConcurrentHashMap<Integer, String> tickerSubToIsin = new ConcurrentHashMap<>();
         ConcurrentHashMap<Integer, String> instrumentSubToIsin = new ConcurrentHashMap<>();
         Set<String> resolvingIsins = ConcurrentHashMap.newKeySet();
@@ -348,7 +350,17 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                         JsonNode categories = root.path("categories");
                                         if (!categories.isMissingNode() && categories.isArray()) {
                                             for (JsonNode cat : categories) {
-                                                cat.path("positions").forEach(positions::add);
+                                                boolean bondCategory = isBond(cat.path("categoryType").asText(""));
+                                                for (JsonNode position : cat.path("positions")) {
+                                                    if (bondCategory) {
+                                                        String isin = position.path("isin").asText(
+                                                            position.path("instrumentId").asText(""));
+                                                        if (!isin.isEmpty()) {
+                                                            bondIsins.add(isin);
+                                                        }
+                                                    }
+                                                    positions.add(position);
+                                                }
                                             }
                                         } else {
                                             JsonNode posArray = root.isArray() ? root : root.path("positions");
@@ -371,6 +383,9 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                                     // Private equity funds don't have live tickers and will cause the websocket
                                                     // to hang waiting for an initial price that never comes.
                                                     String instrumentType = pos.path("instrumentType").asText("");
+                                                    if (isBond(instrumentType)) {
+                                                        bondIsins.add(isin);
+                                                    }
                                                     if ("privateFund".equals(instrumentType)) {
                                                         log.info("TR compactPortfolioByType [{}]: skipping ticker subscription for privateFund {}", account.name(), isin);
                                                     } else if (resolvingIsins.add(isin)) {
@@ -412,6 +427,11 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                 } else if (instrumentSubToIsin.containsKey(wsId)) {
                                     // Removed on the first frame so a later one cannot subscribe a second ticker.
                                     String isin = instrumentSubToIsin.remove(wsId);
+                                    if (bondIsins.contains(isin) && !isEurNominal(payload)) {
+                                        // A percentage of a non-EUR (or unknown) nominal is not a EUR
+                                        // price: leave it unpriced, the position stays valued at cost.
+                                        unpricedBondIsins.add(isin);
+                                    }
                                     String tickerId = isin + "." + tickerExchange(payload);
                                     int tid = subIdCounter.incrementAndGet();
                                     tickerSubToIsin.put(tid, isin);
@@ -429,8 +449,12 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                         try {
                                             JsonNode tickerRoot = objectMapper.readTree(payload);
                                             String priceStr = tickerRoot.path("last").path("price").asText(null);
-                                            if (priceStr != null) {
-                                                tickerPrices.put(isin, new BigDecimal(priceStr));
+                                            if (priceStr != null && unpricedBondIsins.contains(isin)) {
+                                                log.warn("TR bond {}: nominal currency is not EUR or unknown -- "
+                                                    + "current price left empty", isin);
+                                            } else if (priceStr != null) {
+                                                tickerPrices.put(isin, tickerPriceInEur(
+                                                    new BigDecimal(priceStr), bondIsins.contains(isin)));
                                             } else {
                                                 log.warn("TR ticker for {} — no last.price in: {}", isin,
                                                          payload.length() > 300 ? payload.substring(0, 300) : payload);
@@ -629,6 +653,47 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         if (first < 0) return "";
         int second = text.indexOf(' ', first + 1);
         return second < 0 ? text.substring(first + 1) : text.substring(first + 1, second);
+    }
+
+    /**
+     * Exact match on TR's type value (an {@code instrumentType} or a {@code categoryType}),
+     * never a substring: a bond ETF or bond fund is quoted per unit in EUR and must not be scaled.
+     * NOTE: "bond" is the value assumed from TR's naming, not yet confirmed on a real payload.
+     */
+    static boolean isBond(String type) {
+        return "bond".equalsIgnoreCase(type);
+    }
+
+    /**
+     * True only when TR's {@code instrument} answer names EUR as the instrument currency, so an
+     * absent or different currency fails closed (the price is left empty rather than a USD
+     * percentage stored as EUR). Looks at {@code currencyId}, {@code currency} and
+     * {@code currencies[]}.
+     */
+    boolean isEurNominal(String instrumentPayload) {
+        try {
+            JsonNode root = objectMapper.readTree(instrumentPayload);
+            for (String field : List.of("currencyId", "currency")) {
+                if (root.hasNonNull(field)) return "EUR".equalsIgnoreCase(root.path(field).asText());
+            }
+            JsonNode currencies = root.path("currencies");
+            if (currencies.isArray() && !currencies.isEmpty()) {
+                JsonNode first = currencies.get(0);
+                return "EUR".equalsIgnoreCase(first.isTextual() ? first.asText() : first.path("id").asText(""));
+            }
+        } catch (JsonProcessingException ex) {
+            log.warn("Unparsable TR instrument answer, nominal currency unknown");
+        }
+        return false;
+    }
+
+    /**
+     * TR quotes a bond's ticker as a percentage of its nominal (98.25 = 98.25 %), while
+     * {@code averageBuyIn} and {@code netSize} are already per euro of nominal (0.8941, 559.19).
+     * Left as is, the 98.25 multiplied by the nominal inflated the position value a hundredfold.
+     */
+    static BigDecimal tickerPriceInEur(BigDecimal quoted, boolean bond) {
+        return bond ? quoted.movePointLeft(2) : quoted;
     }
 
     /**
