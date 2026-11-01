@@ -518,9 +518,8 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 
 ## Verification boundaries
 
-`services/bourso-auth` — 146 tests run inside the built image in CI, plus the 9
-movement-parser tests of `test_transactions.py`, which the CI step does not
-mount yet: pad decoding
+`services/bourso-auth` — 183 tests run inside the built image in CI, including the
+9 movement-parser tests of `test_transactions.py`: pad decoding
 against the real SVGs (and its refusal on an unknown one), password encoding, the
 dashboard parsed from a real captured page including the third-party filter and
 the loan exclusion, a card that stops parsing failing the sync, reconciliation
