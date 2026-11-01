@@ -394,16 +394,31 @@ class ErrorMappingTest(unittest.IsolatedAsyncioTestCase):
             "UPSTREAM_UNAVAILABLE stage=synthesis cause=too-large": (FakeCE(), 64),
             "UPSTREAM_UNAVAILABLE stage=transactions cause=status-502": (FakeCE(tx_http=502), None),
             "UPSTREAM_UNAVAILABLE stage=transactions cause=ReadTimeout": (FakeCE(tx_override=timeout), None),
-            "UPSTREAM_FORMAT_CHANGED stage=transactions cause=format": (FakeCE(tx_body=b"{}"), None),
+            "UPSTREAM_FORMAT_CHANGED stage=transactions cause=format": (
+                FakeCE(tx_body=b'{"marker": "BODY-MARKER"}'), None
+            ),
         }
+        real_serialise = fetcher._serialise_account
+
+        def serialise_fails_on_current(account, transactions, loan=None, per=None):
+            if account["externalId"] == "1001":
+                raise TypeError("SERIALISE-MARKER")
+            return real_serialise(account, transactions, loan, per)
+
+        cases["UPSTREAM_FORMAT_CHANGED stage=serialisation cause=format"] = (FakeCE(), None)
         for expected, (ce, cap) in cases.items():
+            serialise = serialise_fails_on_current if "serialisation" in expected else real_serialise
             with self.subTest(expected), self.assertLogs("caisse-epargne-auth", "WARNING") as logs:
-                with patch.object(replay, "MAX_RESPONSE_BYTES", cap or replay.MAX_RESPONSE_BYTES):
+                with patch.object(replay, "MAX_RESPONSE_BYTES", cap or replay.MAX_RESPONSE_BYTES), \
+                        patch.object(fetcher, "_serialise_account", serialise):
                     with self.assertRaises(fetcher.FetchError):
                         await run_fetch(ce)
             rendered = "\n".join(logs.output)
             self.assertIn(f"accounts fetch failed: {expected}", rendered)
-            for value in (SECRET_TOKEN, "secret-host-detail", DATA_HOST, SYNTHESIS_PATH, TX_PATH, "1001"):
+            for value in (
+                SECRET_TOKEN, "secret-host-detail", DATA_HOST, SYNTHESIS_PATH, TX_PATH, "1001",
+                "BODY-MARKER", "SERIALISE-MARKER",
+            ):
                 self.assertNotIn(value, rendered)
 
     async def test_non_json_or_wrong_shape_is_format_changed(self):
