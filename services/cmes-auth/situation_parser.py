@@ -26,9 +26,10 @@ Every failure is explicit: a value that cannot be read fails the whole page
 rather than reading as zero, and the funds must add up to the plan total.
 """
 
-import html as html_module
 import re
 from decimal import Decimal, InvalidOperation
+
+from euro_information.forms import html_text as _text
 
 FORMAT_CHANGED = "UPSTREAM_FORMAT_CHANGED"
 INCOMPLETE = "PORTFOLIO_INCOMPLETE"
@@ -59,7 +60,6 @@ _FUND_BUTTON_RE = re.compile(r'name="(?P<button>_FID_GoFundSummary_selectedFundI
 _CELL_RE = re.compile(r"<td\b[^>]*>(?P<cell>.*?)</td>", re.DOTALL)
 _VALUE_RE = re.compile(r'<span\b[^>]*class="[^"]*\bnowrap\b[^"]*"[^>]*>(?P<amount>[^<]*)', re.DOTALL)
 _GAIN_RE = re.compile(r'<span\b[^>]*class="[^"]*\bes_pvl\b[^"]*"[^>]*>(?P<gain>[^<]*)', re.DOTALL)
-_TAG_RE = re.compile(r"<[^>]+>")
 _MONEY_RE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<value>\d[\d\s]*(?:,\d+)?)\s*€$")
 _PERCENT_RE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<value>\d+(?:,\d+)?)\s*%$")
 
@@ -70,11 +70,6 @@ class SituationFormatError(Exception):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
-
-
-def _text(fragment: str) -> str:
-    text = html_module.unescape(_TAG_RE.sub(" ", fragment))
-    return " ".join(text.replace(" ", " ").replace(" ", " ").split())
 
 
 def _decimal(digits: str, sign: str) -> Decimal:

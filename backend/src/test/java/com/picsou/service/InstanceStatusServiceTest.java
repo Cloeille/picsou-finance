@@ -11,6 +11,7 @@ import com.picsou.repository.AmundiSessionRepository;
 import com.picsou.repository.BoursoSessionRepository;
 import com.picsou.repository.BourseDirectSessionRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.CicSessionRepository;
 import com.picsou.repository.CmesSessionRepository;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
@@ -20,6 +21,9 @@ import com.picsou.repository.SofidySessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -31,8 +35,11 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -85,14 +92,35 @@ class InstanceStatusServiceTest {
         }
     }
 
-    @Test
-    void amexWithBase_isNotAnIssue() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"amex-auth", "revolut-auth"})
+    void camoufoxSidecarOnCamoufoxBase_isNotAnIssue(String sidecar) throws Exception {
         AtomicInteger hits = new AtomicInteger();
-        HttpServer server = health(hits, 200, "{\"status\":\"ok\",\"base\":\"sidecar-chromium\"}");
+        HttpServer server = health(hits, 200, "{\"status\":\"ok\",\"base\":\"sidecar-camoufox\"}");
         try {
-            var response = service(target("amex-auth", null, url(server), 1)).status();
+            var response = service(target(sidecar, "sidecar-camoufox", url(server), 1)).status();
             assertThat(hits).hasValue(1);
             assertThat(response.issues()).isEmpty();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', textBlock = """
+        amex-auth    | {"status":"ok"}
+        amex-auth    | {"status":"ok","base":"sidecar-chromium"}
+        revolut-auth | {"status":"ok"}
+        revolut-auth | {"status":"ok","base":"sidecar-chromium"}
+        """)
+    void camoufoxSidecarWithoutCamoufoxBase_isOutdated(String sidecar, String health) throws Exception {
+        AtomicInteger hits = new AtomicInteger();
+        HttpServer server = health(hits, 200, health);
+        try {
+            var response = service(target(sidecar, "sidecar-camoufox", url(server), 1)).status();
+            assertThat(hits).hasValue(1);
+            assertThat(response.issues()).containsExactly(
+                new SidecarIssue(SidecarIssueCode.SIDECAR_OUTDATED, sidecar, "sidecar-camoufox"));
         } finally {
             server.stop(0);
         }
@@ -203,6 +231,67 @@ class InstanceStatusServiceTest {
     }
 
     @Test
+    void slowCount_isBoundedByDeadline_andNotReported() throws Exception {
+        AtomicInteger hits = new AtomicInteger();
+        HttpServer server = health(hits, 200, "{\"status\":\"ok\",\"base\":\"sidecar-python\"}");
+        try {
+            InstantStart start = InstantStart.now();
+            var response = service(Duration.ofMillis(200), Duration.ofMillis(500),
+                slowCountTarget("cic-auth", url(server))).status();
+            assertThat(start.elapsed()).isLessThan(Duration.ofMillis(1500));
+            assertThat(hits).hasValue(0);
+            assertThat(response.issues()).isEmpty();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void slowCountOnOneTarget_doesNotMarkReachableSidecarUnreachable() throws Exception {
+        AtomicInteger slowHits = new AtomicInteger();
+        AtomicInteger healthyHits = new AtomicInteger();
+        HttpServer slow = health(slowHits, 200, "{\"status\":\"ok\",\"base\":\"sidecar-python\"}");
+        HttpServer healthy = health(healthyHits, 200, "{\"status\":\"ok\",\"base\":\"sidecar-python\"}");
+        try {
+            InstantStart start = InstantStart.now();
+            // Counts run in list order: the healthy target is counted before the slow one blocks the task.
+            var response = service(Duration.ofMillis(200), Duration.ofMillis(500),
+                target("bourso-auth", "sidecar-python", url(healthy), 1),
+                slowCountTarget("cic-auth", url(slow))).status();
+            assertThat(start.elapsed()).isLessThan(Duration.ofMillis(1500));
+            assertThat(healthyHits).hasValue(1);
+            assertThat(slowHits).hasValue(0);
+            assertThat(response.issues()).isEmpty();
+        } finally {
+            slow.stop(0);
+            healthy.stop(0);
+        }
+    }
+
+    @Test
+    void sessionCounts_runOneAtATime() {
+        AtomicInteger active = new AtomicInteger();
+        AtomicInteger maxActive = new AtomicInteger();
+        SidecarTarget[] targets = new SidecarTarget[6];
+        for (int i = 0; i < targets.length; i++) {
+            targets[i] = new SidecarTarget("sidecar-" + i, "sidecar-python", () -> "", () -> {
+                maxActive.accumulateAndGet(active.incrementAndGet(), Math::max);
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    active.decrementAndGet();
+                }
+                return 0;
+            });
+        }
+        var response = service(Duration.ofMillis(200), Duration.ofSeconds(3), targets).status();
+        assertThat(response.issues()).isEmpty();
+        assertThat(maxActive).hasValue(1);
+    }
+
+    @Test
     void redirect_isUnreachable() throws Exception {
         AtomicInteger followed = new AtomicInteger();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -269,6 +358,52 @@ class InstanceStatusServiceTest {
     }
 
     @Test
+    void slowCount_isNotStartedAgainByTheNextRequest() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        AtomicBoolean finished = new AtomicBoolean();
+        CountDownLatch release = new CountDownLatch(1);
+        String unreachable = refusedUrl();
+        // Ignores interrupts like a JDBC call blocked on the socket.
+        SidecarTarget blocked = new SidecarTarget("bourso-auth", "sidecar-python", () -> unreachable, () -> {
+            calls.incrementAndGet();
+            boolean held = release.getCount() > 0;
+            while (true) {
+                try {
+                    release.await();
+                    break;
+                } catch (InterruptedException ignored) {
+                    // keep waiting
+                }
+            }
+            finished.set(true);
+            return held ? 1 : 0;
+        });
+        InstanceStatusService service = service(Duration.ofMillis(200), Duration.ofMillis(300), blocked);
+        try {
+            for (int i = 0; i < 2; i++) {
+                InstantStart start = InstantStart.now();
+                var response = service.status();
+                assertThat(start.elapsed()).isLessThan(Duration.ofSeconds(1));
+                assertThat(response.issues()).isEmpty();
+                assertThat(calls).hasValue(1);
+            }
+        } finally {
+            release.countDown();
+        }
+        long limit = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (!finished.get() && System.nanoTime() < limit) {
+            Thread.sleep(10);
+        }
+        assertThat(finished).isTrue();
+        // The flag is reset just after the supplier returns: retry until a new run starts.
+        while (calls.get() < 2 && System.nanoTime() < limit) {
+            service.status();
+            Thread.sleep(10);
+        }
+        assertThat(calls).hasValue(2);
+    }
+
+    @Test
     void registry_encodesNameBaseUrlAndSessionCount() {
         AppSettingRepository settings = mock(AppSettingRepository.class);
         when(settings.findByKey(SetupService.KEY_BOURSO_AUTH_URL))
@@ -279,6 +414,7 @@ class InstanceStatusServiceTest {
             .withProperty("app.bourso-auth.url", "http://property-bourso")
             .withProperty("app.sofidy-auth.url", "http://sofidy")
             .withProperty("app.cmes-auth.url", "http://cmes")
+            .withProperty("app.cic-auth.url", "http://cic")
             .withProperty("app.degiro-auth.url", "http://degiro")
             .withProperty("app.tr-auth.url", "http://tr")
             .withProperty("app.caisse-epargne-auth.url", "http://caisse")
@@ -300,6 +436,7 @@ class InstanceStatusServiceTest {
         var corum = mock(CorumSessionRepository.class);
         var sofidy = mock(SofidySessionRepository.class);
         var cmes = mock(CmesSessionRepository.class);
+        var cic = mock(CicSessionRepository.class);
         when(tr.count()).thenReturn(1L);
         when(bourso.count()).thenReturn(2L);
         when(caisse.count()).thenReturn(3L);
@@ -312,12 +449,13 @@ class InstanceStatusServiceTest {
         when(corum.count()).thenReturn(10L);
         when(sofidy.count()).thenReturn(11L);
         when(cmes.count()).thenReturn(12L);
+        when(cic.count()).thenReturn(13L);
 
         InstanceStatusService wired = new InstanceStatusService(
             disabledReleases(),
             setup,
             env,
-            tr, bourso, caisse, revolut, bourse, degiro, amundi, amex, fortuneo, corum, sofidy, cmes,
+            tr, bourso, caisse, revolut, bourse, degiro, amundi, amex, fortuneo, corum, sofidy, cmes, cic,
             "1.1.0");
 
         assertThat(wired.targets())
@@ -326,6 +464,7 @@ class InstanceStatusServiceTest {
                 tuple("bourso-auth", "sidecar-python"),
                 tuple("sofidy-auth", "sidecar-python"),
                 tuple("cmes-auth", "sidecar-python"),
+                tuple("cic-auth", "sidecar-python"),
                 tuple("degiro-auth", "sidecar-python"),
                 tuple("tr-auth", "sidecar-chromium"),
                 tuple("caisse-epargne-auth", "sidecar-chromium"),
@@ -333,8 +472,8 @@ class InstanceStatusServiceTest {
                 tuple("amundi-auth", "sidecar-chromium"),
                 tuple("fortuneo-auth", "sidecar-chromium"),
                 tuple("corum-auth", "sidecar-chromium"),
-                tuple("amex-auth", null),
-                tuple("revolut-auth", null));
+                tuple("amex-auth", "sidecar-camoufox"),
+                tuple("revolut-auth", "sidecar-camoufox"));
 
         assertThat(byName(wired, "bourso-auth").url().get()).isEqualTo("http://setup-bourso");
         when(settings.findByKey(SetupService.KEY_BOURSO_AUTH_URL)).thenReturn(Optional.of(setting("  ")));
@@ -345,6 +484,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "tr-auth").url().get()).isEqualTo("http://tr");
         assertThat(byName(wired, "sofidy-auth").url().get()).isEqualTo("http://sofidy");
         assertThat(byName(wired, "cmes-auth").url().get()).isEqualTo("http://cmes");
+        assertThat(byName(wired, "cic-auth").url().get()).isEqualTo("http://cic");
         assertThat(byName(wired, "degiro-auth").url().get()).isEqualTo("http://degiro");
         assertThat(byName(wired, "caisse-epargne-auth").url().get()).isEqualTo("http://caisse");
         assertThat(byName(wired, "revolut-auth").url().get()).isEqualTo("http://revolut");
@@ -366,6 +506,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "corum-auth").sessions().getAsLong()).isEqualTo(10L);
         assertThat(byName(wired, "sofidy-auth").sessions().getAsLong()).isEqualTo(11L);
         assertThat(byName(wired, "cmes-auth").sessions().getAsLong()).isEqualTo(12L);
+        assertThat(byName(wired, "cic-auth").sessions().getAsLong()).isEqualTo(13L);
     }
 
     private static AppSetting setting(String value) {
@@ -398,6 +539,18 @@ class InstanceStatusServiceTest {
 
     private static SidecarTarget target(String name, String expectedBase, String url, long sessions) {
         return new SidecarTarget(name, expectedBase, () -> url, () -> sessions);
+    }
+
+    private static SidecarTarget slowCountTarget(String name, String url) {
+        return new SidecarTarget(name, "sidecar-python", () -> url, () -> {
+            try {
+                Thread.sleep(10_000);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(ex);
+            }
+            return 1;
+        });
     }
 
     private static String url(HttpServer server) {

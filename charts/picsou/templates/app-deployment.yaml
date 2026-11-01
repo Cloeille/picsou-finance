@@ -1,0 +1,122 @@
+{{- if gt (float64 .Values.app.replicaCount) 1.0 }}
+{{- fail "app.replicaCount must be 0 or 1: Flyway, secret initialization and the ReadWriteOnce /data volume do not support multiple app replicas" }}
+{{- end }}
+{{- if and (not .Values.app.persistence.enabled) (not .Values.secrets.existingSecret) (not (and .Values.secrets.jwtSecret .Values.secrets.cryptoEncryptionKey)) }}
+{{- fail "app.persistence.enabled=false requires both secrets.jwtSecret and secrets.cryptoEncryptionKey, or secrets.existingSecret containing jwt-secret and crypto-encryption-key" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "picsou.fullname" . }}
+  labels:
+    {{- include "picsou.componentLabels" (dict "ctx" $ "component" "app") | nindent 4 }}
+spec:
+  replicas: {{ .Values.app.replicaCount }}
+  # Flyway migrations and the ReadWriteOnce /data volume rule out two app
+  # versions running at the same time.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "app") | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.app.podAnnotations }}
+      annotations:
+        {{- range $k, $v := . }}
+        {{ $k }}: {{ toString $v | quote }}
+        {{- end }}
+      {{- end }}
+      labels:
+        {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "app") | nindent 8 }}
+        {{- /* The selector labels above are immutable and select this pod: user labels cannot override them. */}}
+        {{- with omit (.Values.app.podLabels | default dict) "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with $.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      {{- with .Values.app.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: app
+          image: {{ include "picsou.image" (dict "ctx" $ "image" .Values.app.image) }}
+          imagePullPolicy: {{ include "picsou.pullPolicy" (dict "ctx" $ "image" .Values.app.image) }}
+          {{- with .Values.app.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            {{- include "picsou.app.env" . | nindent 12 }}
+          {{- with .Values.app.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.app.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.app.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.app.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.app.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            {{- if .Values.app.enableBanking.existingSecret }}
+            - name: enablebanking
+              mountPath: /run/secrets/enablebanking
+              readOnly: true
+            {{- end }}
+            {{- with .Values.app.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.app.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.app.persistence.existingClaim | default (printf "%s-data" (include "picsou.fullname" .)) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- with .Values.app.enableBanking.existingSecret }}
+        - name: enablebanking
+          secret:
+            secretName: {{ . }}
+            defaultMode: 0400
+            items:
+              - key: {{ $.Values.app.enableBanking.key }}
+                path: {{ $.Values.app.enableBanking.key }}
+        {{- end }}
+        {{- with .Values.app.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.app.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

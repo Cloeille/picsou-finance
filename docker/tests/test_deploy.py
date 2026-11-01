@@ -21,6 +21,11 @@ def fake_tools(tmp_path):
 args="$*"
 if [[ "$args" == *" ps -aq db"* ]]; then [[ -n "${MOCK_NO_DB:-}" ]] || echo db-container; exit 0; fi
 if [[ "$args" == *" ps -aq app"* ]]; then [[ -n "${MOCK_NO_APP:-}" ]] || echo old-app-container; exit 0; fi
+if [[ "$args" == *" ps -aq proxy"* ]]; then printf '%s\n' "${MOCK_PROXY_CONTAINER:-}"; exit 0; fi
+if [[ "$args" == *" ps -q --status running proxy"* ]]; then
+  [[ "${MOCK_PROXY_RUNNING:-true}" == true ]] && printf '%s\n' "${MOCK_PROXY_CONTAINER:-}"
+  exit 0
+fi
 if [[ "$args" == *" ps -q db"* ]]; then echo db-container; exit 0; fi
 if [[ "$args" == *" ps -q app"* ]]; then [[ -n "${MOCK_CUTOVER_NO_APP:-}" ]] || echo new-app-container; exit 0; fi
 if [[ "$1" == inspect ]]; then
@@ -28,6 +33,15 @@ if [[ "$1" == inspect ]]; then
   [[ "$args" == *"State.Running"* ]] && { printf '%s %s\n' "${MOCK_APP_RUNNING:-true}" "${MOCK_APP_IMAGE:-sha256:$(printf '%064d' 1)}"; exit 0; }
   [[ "${!#}" == old-app-container ]] && { printf 'sha256:%064d\n' 7; exit 0; }
   exit 1
+fi
+if [[ "$args" == *"exec -T proxy wget -qO- http://127.0.0.1:2019/config/"* ]]; then
+  [[ "${MOCK_FAIL:-}" == proxy_config ]] && exit 19
+  if [[ -v MOCK_PROXY_CONFIG ]]; then
+    printf '%s\n' "$MOCK_PROXY_CONFIG"
+  else
+    printf '%s\n' '{"apps":{"http":{"servers":{"srv0":{"routes":[{"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"app-tls:8080"}]}]}]}}}}}'
+  fi
+  exit 0
 fi
 if [[ "$args" == *"pg_database_size"* ]]; then echo "${MOCK_DB_SIZE_KIB:-1024}"; exit 0; fi
 if [[ "$args" == *"df -Pk"* ]]; then echo "${MOCK_DB_FREE_KIB:-10485760}"; exit 0; fi
@@ -67,6 +81,10 @@ if [[ "$args" == *" up "* && "$args" == *" app"* ]]; then
   override=; prev=
   for arg in "$@"; do [[ $prev == -f ]] && override=$arg; prev=$arg; done
   [[ -f "$override" ]] && cp "$override" "$MOCK_LOG.cutover-override"
+fi
+if [[ "$args" == *" up "* && "$args" == *" proxy"* ]]; then
+  [[ "${MOCK_FAIL:-}" == proxy ]] && exit 19
+  [[ "$args" == *"--wait"* && "${MOCK_FAIL:-}" == proxy_wait ]] && exit 19
 fi
 exit 0
 ''')
@@ -124,11 +142,130 @@ def test_candidate_and_live_migrations_precede_pinned_app_cutover(fake_tools, tm
     assert "<--no-recreate>" in database_start
 
 
+@pytest.mark.parametrize("flags", [("--profile", "tls"), ()], ids=["cli-profile", "env-profile"])
+def test_running_tls_proxy_is_recreated_after_app_cutover_before_probe(fake_tools, tmp_path, flags):
+    result, commands, _ = run_deploy(
+        fake_tools, tmp_path, *flags, MOCK_PROXY_CONTAINER="old-proxy-container",
+        COMPOSE_PROFILES="" if flags else "tls",
+    )
+    assert result.returncode == 0, result.stderr
+    app_check = next(i for i, line in enumerate(commands) if "State.Running" in line)
+    proxy_recreate = next(i for i, line in enumerate(commands) if "<up>" in line and "<proxy>" in line)
+    probe = next(i for i, line in enumerate(commands) if line.startswith("curl"))
+    config_query = next(i for i, line in enumerate(commands) if "2019/config/" in line)
+    assert app_check < proxy_recreate < config_query < probe
+    assert "Deployment verified" in result.stdout
+    assert "<--force-recreate>" in commands[proxy_recreate]
+    assert "<--no-deps>" in commands[proxy_recreate]
+    assert "<--wait> <--wait-timeout> <60>" in commands[proxy_recreate]
+    assert "<app>" not in commands[proxy_recreate]
+
+
+@pytest.mark.parametrize(
+    "flags, compose_profiles",
+    [
+        ((), ""),
+        (("--profile", "tls"), ""),
+        ((), "tls"),
+    ],
+    ids=["no-profile", "cli-profile", "env-profile"],
+)
+def test_stopped_tls_proxy_is_not_started(fake_tools, tmp_path, flags, compose_profiles):
+    result, commands, _ = run_deploy(
+        fake_tools, tmp_path, *flags, MOCK_PROXY_CONTAINER="stopped-proxy-container",
+        MOCK_PROXY_RUNNING="false", COMPOSE_PROFILES=compose_profiles,
+    )
+    assert result.returncode == 0, result.stderr
+    assert any("<up>" in line and "<app>" in line for line in commands)
+    assert any(line.startswith("curl") for line in commands)
+    assert not any("<up>" in line and "<proxy>" in line for line in commands)
+    assert not any("2019/config/" in line for line in commands)
+
+
+def test_absent_tls_proxy_is_not_started(fake_tools, tmp_path):
+    result, commands, _ = run_deploy(fake_tools, tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert not any("<up>" in line and "<proxy>" in line for line in commands)
+    assert not any("2019/config/" in line for line in commands)
+
+
+@pytest.mark.parametrize("dial_groups, ok", [
+    ([["app-tls:8080"]], True),
+    ([["APP-TLS:8080"]], True),
+    ([["app-tls:8080", "other-service:9090"]], True),
+    ([["app:8080"]], False),
+    ([["app-tls:8080", "app:8080"]], False),
+    ([["app-tls:8080", "APP:8080"]], False),
+    ([["app-tls:8080"], ["app:8080"]], False),
+    ([["app-tls:8080", "app:9090"]], False),
+    ([["app-tls:9090"]], False),
+    ([["app-tls:8080", "APP-TLS:9090"]], False),
+    ([["other-service:9090"]], False),
+    ([[]], False),
+])
+def test_tls_proxy_active_upstreams_must_use_trusted_app_target(fake_tools, tmp_path, dial_groups, ok):
+    config = {"apps": {"http": {"servers": {"site": {"routes": [{"handle": [{
+        "handler": "subroute", "routes": [{"handle": [{
+            "handler": "reverse_proxy", "upstreams": [{"dial": dial} for dial in dials],
+        }]} for dials in dial_groups],
+    }]}]}}}}}
+    result, commands, _ = run_deploy(
+        fake_tools, tmp_path, MOCK_PROXY_CONTAINER="old-proxy-container",
+        MOCK_PROXY_CONFIG=json.dumps(config, indent=2),
+    )
+    assert result.returncode == (0 if ok else 1), result.stderr
+    if ok:
+        assert "Deployment verified" in result.stdout
+    else:
+        assert "Deployment cut over, but TLS proxy active config is invalid" in result.stderr
+        assert "Caddyfile's reverse_proxy target to app-tls:8080" in result.stderr
+        assert "Deployment verified" not in result.stdout
+        assert not any(line.startswith("curl") for line in commands)
+
+
+@pytest.mark.parametrize("config", ["not-json", "null", "{}"])
+def test_tls_proxy_invalid_active_config_does_not_report_success(fake_tools, tmp_path, config):
+    result, commands, _ = run_deploy(
+        fake_tools, tmp_path, MOCK_PROXY_CONTAINER="old-proxy-container", MOCK_PROXY_CONFIG=config,
+    )
+    assert result.returncode == 1
+    assert "TLS proxy active config is invalid" in result.stderr
+    assert "Deployment verified" not in result.stdout
+    assert not any(line.startswith("curl") for line in commands)
+
+
+def test_tls_proxy_admin_api_failure_does_not_report_success(fake_tools, tmp_path):
+    result, commands, _ = run_deploy(
+        fake_tools, tmp_path, fail="proxy_config", MOCK_PROXY_CONTAINER="old-proxy-container",
+    )
+    assert result.returncode == 1
+    assert "TLS proxy active config could not be read from the admin API" in result.stderr
+    assert "Deployment verified" not in result.stdout
+    assert not any(line.startswith("curl") for line in commands)
+
+
+@pytest.mark.parametrize("failure", ["proxy", "proxy_wait"])
+def test_tls_proxy_recreation_failure_does_not_report_success(fake_tools, tmp_path, failure):
+    result, commands, backup = run_deploy(
+        fake_tools, tmp_path, fail=failure, MOCK_PROXY_CONTAINER="old-proxy-container",
+    )
+    assert result.returncode != 0
+    assert "TLS proxy recreation or health check failed" in result.stderr
+    assert "Deployment verified" not in result.stdout
+    assert not any(line.startswith("curl") for line in commands)
+    assert list(backup.glob("picsou-*.dump"))
+    assert any("dropdb" in line for line in commands)
+    assert not list(backup.glob(".deploy-*"))
+
+
 @pytest.mark.parametrize("failure", ["pg_dump", "pg_restore", "candidate", "verify", "live"])
 def test_preflight_or_migration_failure_never_recreates_app(fake_tools, tmp_path, failure):
-    result, commands, backup = run_deploy(fake_tools, tmp_path, fail=failure)
+    result, commands, backup = run_deploy(
+        fake_tools, tmp_path, fail=failure, MOCK_PROXY_CONTAINER="old-proxy-container",
+    )
     assert result.returncode != 0
     assert not any("<up>" in line and "<app>" in line for line in commands)
+    assert not any("<up>" in line and "<proxy>" in line for line in commands)
     if failure in {"pg_restore", "candidate", "verify", "live"}:
         assert any("dropdb" in line for line in commands)
         assert list(backup.glob("picsou-*.dump"))
@@ -319,10 +456,11 @@ def test_previous_app_image_is_recorded_before_any_migration(fake_tools, tmp_pat
     {"MOCK_APP_RUNNING": "false"},
 ])
 def test_cutover_must_run_candidate_before_probe_counts(fake_tools, tmp_path, knob):
-    result, commands, _ = run_deploy(fake_tools, tmp_path, **knob)
+    result, commands, _ = run_deploy(fake_tools, tmp_path, MOCK_PROXY_CONTAINER="old-proxy-container", **knob)
     assert result.returncode != 0
     assert "Deployment verified" not in result.stdout
     assert not any(line.startswith("curl") for line in commands)
+    assert not any("<up>" in line and "<proxy>" in line for line in commands)
 
 
 def test_unrunnable_candidate_id_fails_before_backup(fake_tools, tmp_path):

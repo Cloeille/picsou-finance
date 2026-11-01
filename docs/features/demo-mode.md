@@ -22,6 +22,8 @@ VITE_DEMO_MODE=true
   → every Axios request is intercepted, resolved with mock data after a random delay (200–600 ms)
 ```
 
+Register handlers only for supported backend routes, using their response shapes.
+
 ### Auth guard
 
 `RequireAuth` (in `frontend/src/features/auth/guards.tsx`) reads `demoMode` from the store. In demo mode, it renders the app at once without waiting for `isAuthenticated`, and still runs the session probe. The demo adapter answers `POST /auth/refresh` with the demo admin (`demo`, member 1), so Settings shows the signed-in username. When no user is set, `RequireAdmin` waits for that shared probe and for `RequireAuth` to populate the store before checking the role. A direct `/admin` visit in a fresh demo tab therefore stays on the requested page. A restored member still goes to `/error/403`. A failed probe redirects through `/login` to `/`, because `PublicOnly` (login) redirects to `/` if `demoMode` is active.

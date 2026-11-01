@@ -80,6 +80,15 @@ repository query needs real JPA (non-trivial JPQL, entity mapping), reach for `@
 Postgres, **only when the behavior under test is a property of the database itself** that even H2
 would paper over.
 
+`SyncServiceCurrencyMatchTest` uses H2 for account matching and snapshot persistence. Its test-only
+`AccountEnumH2Dialect` registers `SqlTypes.NAMED_ENUM` as `VarcharJdbcType` because `Account.type`
+explicitly requests PostgreSQL's named-enum JDBC type. A VARCHAR fixture column alone does not
+override that mapping. A dedicated regression persists and reloads `AccountType.CHECKING`.
+The other cases exercise Enable Banking and Revolut matching and EUR snapshots, plus Caisse
+d'Epargne loan linking to the EUR account after a shared-IBAN import. The test sets
+`spring.jpa.properties.hibernate.dialect` to override the application's PostgreSQL dialect.
+The override stays in that context and does not validate PostgreSQL enum semantics.
+
 For that case, stand up a **Testcontainers-backed `@SpringBootTest` against a real PostgreSQL 16**,
 as `BudgetSeedWriteOnReadPostgresTest` does:
 

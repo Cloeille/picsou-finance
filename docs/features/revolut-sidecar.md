@@ -1,6 +1,6 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-10-19 (login fails fast on an hCaptcha challenge instead of waiting for a push that never comes)
+> Last updated: 2026-10-31 (hCaptcha content-quad clipping; shared architecture-aware Camoufox base; legacy Enable Banking coexistence and IBAN log privacy)
 > Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
 > approval session.
 
@@ -50,7 +50,7 @@ refreshed with `PUT /api/retail/token`. All API calls run in-page (`page.evaluat
 the app's own JS, which can't be hooked.
 
 Java maps pockets → `CHECKING` sub-accounts (parent = wallet), money-boxes → `SAVINGS`, dedups
-against Enable Banking by IBAN, and ingests transactions (feeds Budget). **Pocket nesting:** the sidecar
+against Enable Banking by IBAN, currency, and member, and ingests transactions (feeds Budget). **Pocket nesting:** the sidecar
 emits one synthetic **wallet parent** account per wallet (`externalId = wallet_id`, IBAN, `balance = sum
 of its same-currency children`); pockets/vaults carry `parentExternalId = wallet_id` and become children.
 This matters because `DashboardService`/`AccountsPage` **exclude children** (`parentAccountId != null`)
@@ -58,6 +58,29 @@ from net-worth totals — the parent must carry the sum, or balances are lost. C
 top-level (the sidecar has no FX). Credentials are stored encrypted (AES-256-GCM) only if the user ticks
 "remember"; otherwise they're passed per sync and not stored. Revolut is the **primary** source; Enable
 Banking stays as a fallback for the current account.
+
+After upgrading from an Enable Banking version that did not import IBANs, a separate legacy
+Enable Banking row can already coexist with a sidecar row for the same wallet. Enable Banking
+now prefers its exact uid and leaves its IBAN unset when the sidecar owns that IBAN and currency.
+It preserves both rows and their history without moving the uid onto the sidecar row or making
+Revolut's IBAN lookup ambiguous. If the legacy Enable Banking row is deleted, its uid blocks
+Enable Banking's IBAN fallback, so later syncs leave the sidecar row and its transactions alone.
+See [bank-sync.md](./bank-sync.md#account-matching-resilience-enable-banking-0164).
+
+Discovery and persistence use the same currency-aware IBAN match, then fall back to the external
+account id and member. EUR and GBP accounts imported by Enable Banking can share an IBAN without
+breaking Revolut's selection preview or overwriting each other's balances. Missing or blank Revolut
+currencies default to EUR; other values are trimmed and uppercased before matching and creation.
+The IBAN-based soft-delete guard also includes currency. Deleting one currency leaves other
+currencies eligible for import. Voluntary selection restores only the selected external id or
+IBAN and currency, so selecting EUR leaves a deleted GBP wallet deleted.
+When this guard skips a deleted account, its INFO log contains only
+`LogSanitizer.fingerprint(iban)` for correlation, never the full IBAN.
+
+Accounts keep their native balances. Snapshot balances and invested amounts are stored in EUR,
+using `AccountService.upsertSnapshotFromNative`. Confirming a GBP wallet with an unchanged balance
+of GBP 200 at a synthetic GBP/EUR rate of 1.20 keeps both snapshot amounts at EUR 240, including
+when Revolut matches an account previously imported by Enable Banking.
 
 ### Transactions for pockets and vaults
 
@@ -130,26 +153,38 @@ The remaining live acceptance needs a maintainer with existing recent activity;
 do not generate financial activity just to exercise this connector.
 
 Run the Python tests with real installed dependencies:
-`python -m pytest -p no:logging --asyncio-mode=auto -q tests` from
-`services/revolut-auth/`. Disabling pytest's logging plugin lets the existing
-root-formatter installation test inspect the application's own logger. CI's
+`PYTHONPATH=../base python -m pytest -p no:logging --asyncio-mode=auto -q tests` from
+`services/revolut-auth/`. CI's
 `revolut-auth-sidecar` job runs the same command inside the built image, after
 installing pinned `pytest` and `pytest-asyncio`, and image publishing waits for it.
+
+The sidecar uses `services/base/picsou_sidecar` for app creation, shared-key
+authentication, `/health`, and sanitized logging. The local `captcha` module remains
+responsible for challenge detection during screen selection, after passcode entry,
+and while polling for approval; shared app initialization does not replace it.
 
 ### Key files
 
 - `services/revolut-auth/main.py` — sidecar: `/sync`, `/progress/{memberId}`, Camoufox launch, login
   auto-fill, harvest + synthetic wallet-parent emission (`_with_wallet_parents`), per-member
   serialization + stale profile-lock clearing.
+- `services/revolut-auth/captcha.py` owns the shared challenge detector. It checks hCaptcha frame
+  URLs and visible geometry throughout login, including nested frames.
 - `services/revolut-auth/tests/{test_profile_lock.py,test_harvest_shape.py,test_sidecar_auth.py}` —
   regression tests (concurrent-sync 409, stale-lock removal, progress read-back; wallet-parent +
   same-currency sum; shared-key 401 challenge, `/health` exemption, startup refusal);
-  run `.venv/bin/python tests/test_*.py` (anyio, no pytest).
-- `services/revolut-auth/Dockerfile` — Camoufox image (Firefox deps + Xvfb + `pin_camoufox.py`).
-- `services/revolut-auth/pin_camoufox.py` — build-time install of the pinned Camoufox
-  `152.0.4-beta.30` browser, its default addons, and the GeoIP database from the release's direct
-  asset URL (camoufox's own `download_mmdb()` queries the rate-limited GitHub releases API);
-  covered by `tests/test_pin_camoufox.py`.
+  run `PYTHONPATH=../base .venv/bin/python tests/test_<name>.py` from
+  `services/revolut-auth/` (anyio, no pytest).
+- `services/revolut-auth/Dockerfile` — thin non-root layer on the same `camoufox`
+  base digest as AMEX. Common FastAPI/uvicorn pins come from `services/base/requirements.txt`;
+  `picsou_sidecar` comes from the same base (no `SIDECAR_LIB` copy); the old
+  per-sidecar requirements and browser downloads are removed. The image copies both `main.py`
+  and `captcha.py`, and uses `/opt/sidecar-base/entrypoint.sh` with port 8002, display `:99`
+  and a `1280x1024x24` Xvfb screen; no local entrypoint is needed.
+- `services/base/pin_camoufox.py` — installs Firefox 152.0.4-beta.30 for the target
+  CPU (`lin.x86_64` or `lin.arm64`), GeoIP and addons once in the base. The GeoIP
+  download uses a direct release asset URL to avoid GitHub API rate limits.
+  `services/base/test_pin_camoufox.py` covers both CPUs and direct downloads.
 - `backend/.../adapter/RevolutAdapter.java` — `SidecarWebClientFactory` client → sidecar `/sync` (480 s
   timeout) + a best-effort `/progress` poll side-channel relayed into `SyncProgressService`; maps
   `401`/`408`/`409`/`503`. A 401 carrying the `Picsou-Sidecar-Key` challenge is a key mismatch
@@ -203,7 +238,7 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 | **Camoufox** (stealth Firefox) | Revolut's anti-bot fingerprints & blocks a vanilla Playwright Chromium; a Firefox engine is accepted (the user's own Firefox browser logs in fine) | Playwright Chromium (blocked); patchright/Chromium (still Chromium); plain httpx (Bourso's approach — dies on JS challenges) |
 | **Persistent Camoufox profile per member** | Keeps fingerprint **and** cookies stable across launches, which is what keeps a session alive | Storing a `storageState` blob and replaying it from fresh instances (random fingerprint → session invalidated) |
 | **On-demand `/sync`** (reuse-or-login) | The captured session is short-lived; sync when the user asks, reuse a live session if present | Stored-session daily unattended sync (blocked until TTL is measured) |
-| `playwright==1.55.0` | Camoufox 0.4.11's Firefox speaks an older Juggler protocol | 1.60+ (breaks with `Browser.setDefaultViewport`/`setContrast` errors) |
+| `playwright==1.64.1` | Reviewed with the pinned Firefox 152.0.4-beta.30 protocol and the shared headless and headful offline smoke tests | Upgrading without testing the pinned browser |
 | Optional remembered creds (user's choice) | Convenience (1-click) vs security (re-enter) — the user decides | Always store / never store |
 | Guard PSD2 reconstruction on `RevolutSession.lastSyncedAt` | Stand down ONLY once the sidecar produced real pockets | `provider='Revolut'` account check (matches EB-synced wallets too → breaks EB-only users) |
 
@@ -245,22 +280,78 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   generic "Failed to sync Revolut accounts" message.
 - **The approval wait starts only after the passcode was typed.** Revolut can answer the phone step
   with an **hCaptcha image challenge**: the page stays on `/signin` with the phone field, an
-  `iframe[src*='hcaptcha.com']` is shown, and no push is ever sent. `_wait_for_login_screen` therefore
-  also returns `"captcha"` when a *visible* hCaptcha frame is on the page (hidden hCaptcha frames
-  exist on pages with no challenge), which ends the wait at once. The passcode inputs are checked
-  first, then the captcha, then the phone input: a profile challenged last time can show the phone
-  field with the challenge on top, which must be reported as a captcha, not typed into. The sidecar then answers a flat `403 HUMAN_VERIFICATION_REQUIRED`, and the progress phase stays
-  `LOGGING_IN`, never `AWAITING_APPROVAL`. Any other end state — no passcode screen after the phone
-  step, no passcode input to type into (`_fill_passcode` returns `False`), or a Playwright timeout in a
-  login step (the `page.goto`, the screen waits, `Locator.click`; each used to surface as a 500) —
-  answers a flat `424 UPSTREAM_FORMAT_CHANGED`. The same code also covers a rejected phone number
+  hCaptcha frame is shown, and no push is ever sent in that observed case. `_wait_for_login_screen`
+  also returns `"captcha"` when `captcha.visible(page)` finds a rendered hCaptcha frame,
+  which ends the wait at once. The detector walks `page.frames` and matches only HTTP or HTTPS
+  URLs on `hcaptcha.com` or its subdomains. A URL containing that string on another host does
+  not count. Each matching frame and its parent frames must have visible screen space in common.
+  Firefox's `checkVisibility` checks the frame's visibility and opacity, including ancestor display
+  and opacity. An iframe with `visibility:visible` can override an ancestor's `visibility:hidden`
+  or `visibility:collapse`.
+  Ancestor `display:none` and zero opacity still hide the frame. A one-shot `IntersectionObserver`
+  applies overflow clipping and viewport bounds, then disconnects. The browser follows the CSS
+  containing-block chain, so a fixed or absolute frame can escape an ancestor's overflow clip when
+  its containing block is outside that ancestor. A transformed ancestor that establishes the
+  containing block still clips the frame. Overflow clips at the transformed padding box, excluding
+  borders. A zero-height or zero-width padding box does not expose a challenge, even after rotation.
+  For `hidden`, `auto`, and `scroll` overflow, the detector rejects empty padding quads along the
+  containing-block chain before trusting the observer's axis-aligned rectangle.
+  Rotating an empty clip can give that rectangle nonzero area.
+  It checks the quad's coordinates rather than integer `clientWidth` or `clientHeight`, so a fractional
+  padding box can still expose content after scaling. Ancestors outside a positioned frame's
+  containing-block chain do not apply an overflow clip.
+  Root overflow and body overflow propagated to the viewport use the observer's viewport clip.
+  `overflow:clip` also stays with the observer because `overflow-clip-margin` can expand its clip.
+  The observer's border-box intersection is restricted to the iframe's transformed content quad,
+  obtained through Camoufox's `getBoxQuads({box: 'content'})`. The quad is clipped exactly against
+  the observer's rectangle, so a clip that exposes only an empty corner of a rotated frame's
+  axis-aligned bounds does not count. A frame with no content quad is hidden. Layout size does not
+  matter, so a sub-pixel frame scaled by its own transform still counts. Browser launch and the
+  offline fixture enable Firefox's `layout.css.getBoxQuads.enabled` preference for this geometry API.
+  Visibility and content bounds are checked again when the asynchronous observer callback runs,
+  so a frame hidden while the observation is pending does not count as an active challenge.
+  A strip showing only the iframe's own border or padding does not expose a challenge.
+  The visible content must exceed one pixel on both axes.
+  Zero-size and one-pixel content frames do not count, even when their borders have a larger box.
+  Playwright's `:visible` alone includes transparent and offscreen elements and cannot inspect nested
+  documents. Frame elements are released after each check. A detached frame is ignored for that poll.
+  Unexpected browser errors still propagate. The captcha is checked before
+  passcode and phone inputs because a challenge can block interaction with either screen.
+  The sidecar also checks immediately after passcode entry and before each approval poll.
+  A detected challenge returns a flat `403 HUMAN_VERIFICATION_REQUIRED`. If it appears during the
+  approval wait, the sidecar replaces progress with `LOGGING_IN`, removing the elapsed and remaining
+  seconds before returning the error. The backend then reports the translated terminal error.
+  The error text does not claim whether a push was sent. The visible challenge cannot establish that.
+  French sign-in errors address the member as "vous", including the blocked-sign-in message.
+  A missing passcode screen after the phone step, a missing passcode input, or a Playwright timeout
+  during login returns a flat `424 UPSTREAM_FORMAT_CHANGED`. The timeout handling covers navigation,
+  screen waits, and input interactions that previously caused a 500. The same code also covers a rejected phone number
   (Revolut keeps `/signin` with an inline error) and a slow network, so the user-facing wording says
   "the sign-in didn't go through, check your phone number" rather than blaming the page. `424` because `502` is already the harvest's
   `UPSTREAM_UNAVAILABLE`/`INVALID_DATA`, which the backend treats as a generic failure.
-  Both fail before the 300 s approval loop, so there is no countdown to show.
+  A challenge detected before approval polling never starts the countdown. A later challenge ends
+  the wait on the next poll instead of consuming the remaining 300 s budget.
   The challenge is **reported, not solved**: letting the member complete it (remote view of the sidecar
   browser) is not implemented, and no third-party solver is used. A successful login on the persistent
   profile may avoid the challenge on later syncs, which is unverified.
+  `tests/test_login_screen.py` covers captcha precedence over each passcode input shape, a challenge
+  after passcode entry, and one during approval, alongside the nominal and timeout paths. These
+  overlapping and later challenge states are synthetic regressions, not captured live bank pages.
+  `tests/test_captcha_detection.py` covers URL matching, nested frame traversal, clipping between
+  parent frames, and detachment. It can also run with `python -m unittest discover -s tests
+  -p test_captcha_detection.py`. `tests/test_captcha_browser.py` runs offline Camoufox fixtures for
+  CSS visibility, nested documents, and a challenge inserted after the first poll. Positioned-frame
+  fixtures cover escaped overflow and clips imposed by positioned or transformed containing blocks.
+  Bordered-wrapper fixtures cover empty and partially visible padding boxes with scaling and rotation.
+  Visibility-override fixtures retain ancestor display and opacity checks. Bordered-iframe fixtures
+  cover strips with no content and partially visible content on both axes under scaling and rotation.
+  Frames with sub-pixel layout size and their own scale, and clips over a rotated frame's quad or
+  only its bounding-box corner, cover the content-quad geometry.
+  The tests route all browser requests to local fixture responses and never contact Revolut or hCaptcha.
+  The fixture browser excludes Camoufox's bundled uBlock Origin (`exclude_addons=[DefaultAddons.UBO]`):
+  its blocking `webRequest` listener intermittently stalls http(s) requests, sometimes for the
+  browser's remaining life, which made `Page.set_content` time out waiting for the iframe's load event.
+  Human challenge completion and the proposed Camofox runtime evaluation remain follow-up work.
 - **Backend and UI carry the code, not the sentence.** `RevolutAdapter` maps `403`/`424` to
   `SyncException` with the code as both message and `getCode()`; `RevolutSyncService.friendly()` turns
   them into English sentences, and `discover` passes the code to `SyncProgressService.error`, which
@@ -278,8 +369,14 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   files before each launch (a browser killed mid-login — container restart, OOM — leaves them and
   wedges every later sync until the volume is cleaned by hand).
 - **The sidecar login runs headful under Xvfb** (Camoufox `headless=False`), so the image installs
-  `xvfb` and starts `Xvfb :99` directly in `entrypoint.sh` before uvicorn. Profiles persist on the
-  `revolut_profiles` docker volume.
+  `xvfb` and starts `Xvfb :99` directly through `services/base/entrypoint.sh` before uvicorn.
+  Port 8002, screen 1280x1024x24 and the 65-second keep-alive are preserved. Both services
+  clear stale Xvfb locks on restart and fail explicitly without a ready display.
+  Shared browser assets live in `/opt/camoufox-cache/camoufox`; profiles persist on the
+  `revolut_profiles` docker volume. The `revoauth` user is pinned to UID 999 to
+  retain access to volumes created by earlier images, including mode-700 member
+  directories. Its group remains automatically allocated; profile access depends
+  on the owner UID.
 - **Camoufox needs Firefox system libs** (gtk/dbus-glib/xtst/…), different from Chromium.
 - **Headless launches silently fail without GL/Mesa libs.** `_harvest_from_profile` (the
   session-reuse path tried on *every* `/sync`, before falling back to a fresh login) launches
@@ -301,10 +398,26 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 
 ## Tests
 
+- `services/revolut-auth/tests/test_captcha_browser.py` covers offline Camoufox visibility, opacity
+  changes between polls and during observation, nested frames, positioned frames escaping overflow,
+  rotated empty padding boxes, viewport overflow propagation, and fractional padding boxes that
+  expose content after scaling. `test_captcha_detection.py` covers host matching, frame traversal,
+  detached frames, and unexpected browser errors.
+- `.github/tests/test_sidecar_workflows.py` ensures the Revolut CI job checks
+  that the built image runs as UID 999, preserving ownership of existing profiles.
+- `services/base/test_entrypoint.py` covers the shared Xvfb startup, the per-service
+  settings declared in each Dockerfile (checked against fixed values), stale display cleanup
+  and explicit failures. `services/base/smoke_camoufox.py` checks the installed ELF
+  architecture and launches headless/headful Firefox against offline HTML, resolving a fixed
+  IP through the installed GeoIP database. CI runs both derived non-root images with networking disabled on native
+  ARM64 and on AMD64. These checks do not verify bank login compatibility.
+
 - `services/revolut-auth/tests/test_login_screen.py` — fake-page tests of `sync()`: known device /
   phone screen nominal paths, passcode URL before its inputs render, `?redirect=…passcode` query
   string, single-field passcode fallbacks, `504 LOGIN_SCREEN_TIMEOUT`, captcha after the phone step
   and on the first screen (also over a visible phone field; `403`, approval loop never entered),
+  captcha over each passcode input shape, after passcode entry, and during approval with countdown
+  removal, and the unchanged `408 APPROVAL_TIMEOUT` when no challenge appears,
   unknown post-phone state / missing passcode input / Playwright timeout in `goto` or a login step
   (`424`). Needs `pytest` + `pytest-asyncio` (see the run command above).
 - `RevolutAdapterTest` (`403`/`424` mapping), `RevolutSyncServiceTest` (code + friendly message on
@@ -312,6 +425,10 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   plus `SyncAllModal.test.tsx` (translated captcha message, no countdown).
 - `backend/.../service/RevolutSyncServiceTest.java` — sync mapping (pockets/vaults), IBAN dedup vs
   Enable Banking, transaction dedup, remembered-vs-not credentials, always-upsert session marker row.
+- `SyncServiceCurrencyMatchTest` persists synthetic Enable Banking accounts with a shared IBAN,
+  then runs Revolut discovery and confirmation for EUR, GBP, and missing-currency wallets. It
+  checks currency-specific updates, EUR snapshot balances and invested amounts, deletion guards,
+  and voluntary restoration against real repository queries on H2.
 - Live end-to-end (login + harvest against a real account) is still pending the account cool-down.
 - Note: 3 tests are red independently of this feature (`CashflowFlowServiceTest` ×3 — pre-existing
   budget NPE issues; verified via `git stash`). `RevolutPocketServiceTest` and

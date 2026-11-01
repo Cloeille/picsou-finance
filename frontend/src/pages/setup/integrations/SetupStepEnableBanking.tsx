@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { EBStep1Explain } from './enablebanking/EBStep1Explain'
 import { EBStep2Credentials } from './enablebanking/EBStep2Credentials'
 import { EBStep3Keypair } from './enablebanking/EBStep3Keypair'

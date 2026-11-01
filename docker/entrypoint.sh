@@ -79,6 +79,37 @@ bootstrap_secret "postgres_password" "POSTGRES_PASSWORD"     "rand -base64 24"
 # Spring reads its datasource password from this variable, not POSTGRES_PASSWORD.
 export SPRING_DATASOURCE_PASSWORD="${SPRING_DATASOURCE_PASSWORD:-$POSTGRES_PASSWORD}"
 
+# nginx only accepts a forwarded client address from a known peer. Compose
+# assigns the bundled Caddy this exact address on a dedicated network and
+# passes the same value here. A standalone image trusts no proxy by default.
+mkdir -p /etc/nginx/snippets
+TRUSTED_PROXY_SNIPPET="/etc/nginx/snippets/picsou-trusted-proxy.generated.conf"
+
+is_ipv4_literal() {
+    local address="$1"
+    local -a octets
+    local octet
+
+    # Validate the complete value before `read`: read stops at a newline and can
+    # otherwise hide a suffix, while an empty trailing field may be discarded.
+    [[ "$address" =~ ^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$ ]] || return 1
+    IFS='.' read -r -a octets <<< "$address"
+    for octet in "${octets[@]}"; do
+        (( 10#$octet <= 255 )) || return 1
+    done
+}
+
+trusted_proxy_ip="${PICSOU_PROXY_IP:-}"
+if [ -n "$trusted_proxy_ip" ]; then
+    if ! is_ipv4_literal "$trusted_proxy_ip"; then
+        echo "[entrypoint] FATAL: PICSOU_PROXY_IP must be one plain IPv4 address." >&2
+        exit 1
+    fi
+    printf 'set_real_ip_from %s;\n' "$trusted_proxy_ip" > "$TRUSTED_PROXY_SNIPPET"
+else
+    : > "$TRUSTED_PROXY_SNIPPET"
+fi
+
 # ── HSTS (opt-in) ────────────────────────────────────────────────────────
 # nginx.conf includes this snippet; empty means the header is never sent.
 #
@@ -92,7 +123,6 @@ export SPRING_DATASOURCE_PASSWORD="${SPRING_DATASOURCE_PASSWORD:-$POSTGRES_PASSW
 # Enable it only once the certificate is publicly trusted — i.e. the `tls`
 # profile with a real domain (Let's Encrypt), or an upstream proxy holding a
 # publicly-trusted cert.
-mkdir -p /etc/nginx/snippets
 HSTS_SNIPPET="/etc/nginx/snippets/picsou-hsts.conf"
 
 # Normalize: strip *surrounding* whitespace only, then lowercase, so True / TRUE
@@ -127,8 +157,6 @@ fi
 # Defaults that never changed — keep backward compatibility with the old
 # single-line entrypoint.
 export SERVER_PORT=9090
-export TR_AUTH_URL=${TR_AUTH_URL:-http://127.0.0.1:8001}
-export REVOLUT_AUTH_URL=${REVOLUT_AUTH_URL:-http://127.0.0.1:8002}
 export APP_STARTUP_SYNC_ENABLED=${APP_STARTUP_SYNC_ENABLED:-false}
 
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/picsou.conf

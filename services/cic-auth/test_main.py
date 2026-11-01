@@ -1,11 +1,12 @@
 """The sidecar's flows end to end, against a fake CIC customer site.
 
-`main._new_client` is patched to an `httpx.MockTransport` that plays the site:
+`euro_information.client.new_client` is patched to an `httpx.MockTransport` that plays the site:
 login form, mobile confirmation or SMS code, remembered-device cookie,
 "Gestion des pouvoirs" notice and the accounts page. Nothing reaches the bank.
 """
 
 import json
+import os
 import re
 import unittest
 from decimal import Decimal
@@ -13,6 +14,8 @@ from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs
 
 import httpx
+from euro_information import client as euro_client
+from euro_information import forms
 from fastapi.testclient import TestClient
 
 import main
@@ -120,20 +123,22 @@ class FakeBank:
 
 class FlowTest(unittest.TestCase):
     def setUp(self):
-        for name, value in (("SIDECAR_API_KEY", KEY), ("APP_VALIDATION_POLL_SECONDS", 0)):
-            patcher = patch.object(main, name, value)
+        for patcher in (
+            patch.dict(os.environ, {"APP_SIDECAR_API_KEY": KEY}),
+            patch.object(euro_client, "APP_VALIDATION_POLL_SECONDS", 0),
+        ):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.bank = FakeBank()
-        patcher = patch.object(main, "_new_client", self.client_factory)
+        patcher = patch.object(euro_client, "new_client", self.client_factory)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.client = TestClient(main.app)
         self.client.__enter__()
         self.addCleanup(self.client.__exit__, None, None, None)
 
-    def client_factory(self):
-        return httpx.AsyncClient(base_url=main.BASE_URL, transport=httpx.MockTransport(self.bank), follow_redirects=False)
+    def client_factory(self, site):
+        return httpx.AsyncClient(base_url=site.base_url, transport=httpx.MockTransport(self.bank), follow_redirects=False)
 
     def initiate(self, password="secret", session=None):
         body = {"login": "12345678", "password": password}
@@ -191,11 +196,11 @@ class FlowTest(unittest.TestCase):
     def test_a_wrong_code_the_full_pool_cannot_keep_is_disposed_of(self):
         self.bank.second_factor = "sms"
         process = self.initiate().json()["processId"]
-        dispose = AsyncMock(wraps=main._dispose_pending_state)
+        dispose = AsyncMock(wraps=euro_client.dispose_pending_state)
 
         with (
-            patch.object(main, "_store_pending", AsyncMock(side_effect=main.HTTPException(503, "UPSTREAM_UNAVAILABLE"))),
-            patch.object(main, "_dispose_pending_state", dispose),
+            patch.object(main._pending, "put", AsyncMock(return_value=False)),
+            patch.object(main._pending, "_dispose", dispose),
         ):
             wrong = self.client.post("/complete", json={"processId": process, "code": "000000"}, headers=HEADERS)
 
@@ -261,7 +266,7 @@ class FlowTest(unittest.TestCase):
         self.bank.accounts_page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
 
         for path in ("/accounts", "/accounts/listing"):
-            with self.subTest(path=path), self.assertLogs(main.log, level="WARNING") as logs:
+            with self.subTest(path=path), self.assertLogs(euro_client.log, level="WARNING") as logs:
                 response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
             self.assertEqual((response.status_code, response.json()),
                              (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
@@ -306,7 +311,7 @@ class FlowTest(unittest.TestCase):
     def test_an_entity_encoded_skip_link_is_found(self):
         page = '<a href="/skip.html">Passer cette &eacute;tape</a>'
 
-        self.assertEqual(main._link_with(page, "passer cette étape"), "/skip.html")
+        self.assertEqual(euro_client.link_with(page, "passer cette étape"), "/skip.html")
 
     def test_a_cut_before_or_during_the_next_table_opening_cannot_certify_a_partial_snapshot(self):
         session = self.confirm()
@@ -502,7 +507,7 @@ class FlowTest(unittest.TestCase):
                 self.assertEqual((listing.status_code, listing.json()), (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
 
     def test_only_checked_boxes_are_sent(self):
-        [form] = main.parse_forms(
+        [form] = forms.parse_forms(
             '<form action="/a">'
             '<input type="checkbox" name="consent" value="unchecked" />'
             '<input type="checkbox" name="remember" checked />'
@@ -539,7 +544,7 @@ class FlowTest(unittest.TestCase):
         self.bank.states = ["PENDING"] * 1000
         started = self.initiate()
 
-        with patch.object(main, "APP_VALIDATION_TIMEOUT_SECONDS", 0.05):
+        with patch.object(euro_client, "APP_VALIDATION_TIMEOUT_SECONDS", 0.05):
             response = self.client.post("/complete", json={"processId": started.json()["processId"]}, headers=HEADERS)
 
         self.assertEqual(response.json(), {"detail": "APP_VALIDATION_TIMEOUT"})

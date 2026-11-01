@@ -21,6 +21,7 @@ class EntrypointDatasourcePasswordTest(unittest.TestCase):
         self.secrets_dir = self.data_dir / ".secrets"
         self.nginx_dir = self.root / "nginx" / "snippets"
         self.nginx_dir.mkdir(parents=True)
+        self.trusted_proxy_snippet = self.nginx_dir / "picsou-trusted-proxy.generated.conf"
         self.result_file = self.root / "environment.json"
         self.supervisord_stub = self.root / "supervisord"
         self.supervisord_stub.write_text(
@@ -37,6 +38,8 @@ class EntrypointDatasourcePasswordTest(unittest.TestCase):
         replacements = (
             ('SECRETS_DIR="/data/.secrets"', f'SECRETS_DIR="{self.secrets_dir}"'),
             ('mkdir -p /etc/nginx/snippets', f'mkdir -p "{self.nginx_dir}"'),
+            ('TRUSTED_PROXY_SNIPPET="/etc/nginx/snippets/picsou-trusted-proxy.generated.conf"',
+             f'TRUSTED_PROXY_SNIPPET="{self.trusted_proxy_snippet}"'),
             ('HSTS_SNIPPET="/etc/nginx/snippets/picsou-hsts.conf"', f'HSTS_SNIPPET="{self.nginx_dir}/picsou-hsts.conf"'),
         )
         for original, replacement in replacements:
@@ -148,6 +151,42 @@ class EntrypointDatasourcePasswordTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.captured_environment()["SPRING_DATASOURCE_PASSWORD"], "picsou")
+
+    def test_standalone_image_has_no_trusted_proxy_by_default(self):
+        result = self.run_entrypoint()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.trusted_proxy_snippet.read_text(encoding="utf-8"), "")
+
+    def test_exact_compose_proxy_address_is_written_to_nginx_snippet(self):
+        result = self.run_entrypoint(PICSOU_PROXY_IP="172.30.253.2")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.trusted_proxy_snippet.read_text(encoding="utf-8"),
+            "set_real_ip_from 172.30.253.2;\n",
+        )
+
+    def test_invalid_proxy_address_refuses_to_start(self):
+        invalid_values = (
+            "proxy",
+            "172.30.253.0/29",
+            "172.30.253.256",
+            "172.30.253.02",
+            "172.30.253.2.",
+            " 172.30.253.2",
+            "172.30.253.2 ",
+            "172.30.253.2\nset_real_ip_from 0.0.0.0/0;",
+            "172.30.253.2; include /tmp/injected.conf",
+            "2001:db8::2",
+        )
+
+        for value in invalid_values:
+            with self.subTest(value=value):
+                result = self.run_entrypoint(PICSOU_PROXY_IP=value)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("PICSOU_PROXY_IP must be one plain IPv4 address", result.stderr)
+                self.assertNotIn(value, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

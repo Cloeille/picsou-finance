@@ -11,13 +11,13 @@
 | Zustand | v5 | Client state (auth, app settings) |
 | shadcn/ui | latest | Component library (Radix primitives) |
 | Tailwind CSS | v4 | Styling |
-| React Router | v7 | Routing with lazy code splitting |
+| React Router | v8 | Routing with lazy code splitting |
 | Axios | latest | HTTP client with interceptors |
 | react-i18next | latest | Internationalization (FR/EN) |
 | Recharts | v3 | Charts |
 | react-hook-form + Zod | latest | Form handling + validation |
 | Sonner | latest | Toast notifications |
-| next-themes | latest | Dark/light mode |
+| Root `.dark` class + `useDarkTheme` | — | Dark/light/system mode |
 
 ## Directory structure
 
@@ -150,7 +150,12 @@ When `VITE_DEMO_MODE=true` (or runtime toggle via `app-store.ts`), a request int
 
 ## Routing and code splitting
 
-React Router v7 with `lazy()` per page:
+React Router v8 with `lazy()` per page:
+
+Routing APIs come from `react-router`. The browser entry point imports
+`RouterProvider` from `react-router/dom`, which wires in `ReactDOM.flushSync`
+automatically. Use this DOM provider instead of a custom callback adapter so
+synchronous router updates preserve the callback's return value required by v8.
 
 ```typescript
 const DashboardPage = lazy(() =>
@@ -266,6 +271,9 @@ Size a new or touched money Y axis with `yAxisWidth(values, money.tick)` (`lib/c
 A new native `<select>` goes through `NativeSelect` (`components/shared/NativeSelect.tsx`), which shares `Input`'s 40px height, border and fill. About ten older selects still use `SELECT_CONTROL_CLASS` or `rounded-xl` classes of their own. A date field goes through `DateInput`, which displays the user's date format. A range input takes the `range-input` class and sets `--range-fill` to its value's percentage.
 
 ## Scripts
+
+Build tools and compiled CSS inputs (`@tailwindcss/vite`, `tailwindcss`,
+`tw-animate-css`, and the `shadcn` CLI) live in `devDependencies`.
 
 ```bash
 bun run dev          # Dev server on :5173, proxies /api/* to localhost:8080

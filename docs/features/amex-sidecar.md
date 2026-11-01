@@ -1,12 +1,21 @@
 # Feature: American Express France sidecar
 
-> Last updated: 2026-10-07
+> Last updated: 2026-11-01
 
 ## Context
 
 Picsou imports French American Express credit-card balances and transactions through an isolated read-only sidecar. It also surfaces the remaining statement amount, debit date, and miles earned during the current AMEX statement period when responses provide them; this is not the Flying Blue balance.
 
 ## How it works
+
+Authenticated requests with invalid JSON body fields return HTTP 400 with
+`{"detail": "INVALID_DATA"}`. Pending SafeKey attempts pin at most 16 browsers.
+If `/initiate` cannot park an attempt because that pool is full, it returns
+HTTP 503 `UPSTREAM_UNAVAILABLE` and closes its context, browser and Camoufox
+manager. A wrong OTP returns HTTP 401 `INVALID_OTP` and keeps the attempt for
+retry when capacity allows; if other logins have filled the pool during
+completion, re-parking returns HTTP 503 `UPSTREAM_UNAVAILABLE`, releases those
+same resources, and removes the attempt.
 
 The user selects SMS (default) or e-mail for AMEX's one-time code. On AMEX's verify page the channels are radio inputs labelled with the masked phone number and masked e-mail address; the sidecar picks the e-mail channel when the label contains `@`, otherwise the phone (SMS) channel, then clicks **Continuer**. The older option-button markup is still handled. Logs never include labels, ids, phone numbers or e-mail addresses. The browser completes login and OTP, then captures value-free JSON response diagnostics from American Express domains while the dashboard loads. Account discovery falls back to the servicing balances API; missing enrichments remain null and never fail a sync.
 
@@ -15,6 +24,20 @@ The current card balance is inferred from the servicing balances. When `remainin
 `/accounts` has one account contract: `amountDue` (positive number or null), `dueDate` (ISO date or null), and `rewardPoints` (integer or null). `amountDue` comes from `remaining_statement_balance_amount`; `dueDate` comes from `GET /api/servicing/v1/financials/payments?status=scheduled` (`direct_debit_date`, falling back to `payment_due_date`), then captured date enrichment. `rewardPoints` is the `EARNED` total from `ReadLoyaltyTransactions.v3` for period index 0: miles earned during the current AMEX statement period. It is not the Flying Blue balance; that balance is unavailable from the current sidecar. AMEX returns this only in the logged-in browser; it is captured during SMS login and refreshed on each SMS login. The backend preserves the latest non-null value. Logs contain URL paths without queries, key/type shape, and numeric non-zero/zero flags only—never response values.
 
 Backend sync persists these optional fields on `account`, exposes them through account responses (`paymentDueAmount`, `paymentDueDate`, `rewardPoints`), and produces a one-off negative budget occurrence when amount is positive and due date is in range. Missing values preserve the latest known enrichment.
+
+### Shared browser image
+
+AMEX and Revolut inherit the same `camoufox` target from `services/base`, passed
+by immutable digest when published. It provides the common FastAPI/uvicorn pins,
+Playwright 1.64.1, Camoufox 0.4.11, pinned Firefox 152.0.4-beta.30, GeoIP, addons
+and Xvfb. The shared installer selects the x86_64 or arm64 release for the target
+CPU. Browser assets are read from `/opt/camoufox-cache/camoufox` by the existing
+non-root `amex` user, without a second download in the service layer.
+
+`services/base/entrypoint.sh` retains port 8001, display :98 and screen
+1366x768x24. It removes stale display locks and fails before starting the API if
+Xvfb does not become ready. Login and OTP code are unchanged. See
+[docker-deployment.md](./docker-deployment.md#shared-sidecar-bases--servicesbasedockerfile).
 
 ### History recovery
 
@@ -68,10 +91,18 @@ Demo mode ships a fictional AMEX card (account 12, with history and transactions
 
 ## Tests
 
+- `services/base/test_pin_camoufox.py` covers release pinning, both CPU architectures,
+  architecture aliases, unsupported architectures and direct GeoIP downloads.
+- `services/base/test_entrypoint.py` checks both Dockerfile configurations against fixed
+  values, stale-lock restart and explicit display-start failures using synthetic subprocesses.
+- `services/base/smoke_camoufox.py` launches headless and headful Firefox against
+  offline HTML, resolving a fixed IP through the installed GeoIP database. CI runs it in both
+  non-root service images on native ARM64 and on AMD64.
+
 - `AmexSyncServiceTest`, `AmexAdapterTest`, `AmexControllerTest`
 - `RecurringSeriesServiceTest`, `HistoryServiceTest`, `AccountServiceTest` (card sign)
 - `TransactionsList.test.tsx` (header actions), `AccountForm.test.tsx` and `MonthEndBalanceModal.test.tsx` (card amount owed), `features/accounts/hooks.test.tsx` (debts out of the cash line), `money-axis.test.tsx` (chart axis masking)
-- Sidecar `python /app/main.py` self-check inside the built container
+- `test_parsers.py` and `test_sidecar_auth.py` inside the built container
 
 ## Links
 

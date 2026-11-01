@@ -153,7 +153,7 @@ public class AuthorizationServerConfig {
      * <p>The issuer is read from {@link AuthorizationServerContextHolder}, not built from a
      * bean-level base URL: by the time this customizer runs, the framework has already resolved the
      * issuer relative to the current request (honouring {@code X-Forwarded-*} — see
-     * {@code forward-headers-strategy: framework}) and populated the holder with it, exactly as it
+     * {@code forward-headers-strategy: native}) and populated the holder with it, exactly as it
      * does for every other endpoint URL on this document ({@code token_endpoint},
      * {@code authorization_endpoint}, …).
      */

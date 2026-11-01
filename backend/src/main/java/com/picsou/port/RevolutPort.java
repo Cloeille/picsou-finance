@@ -73,7 +73,7 @@ public interface RevolutPort {
      *         sidecar reports the credentials/session are no longer valid (HTTP 401), or
      *         {@code "APPROVAL_TIMEOUT"} when the mobile push was never approved in time (HTTP 408),
      *         {@code "HUMAN_VERIFICATION_REQUIRED"} when Revolut showed a captcha the sidecar cannot
-     *         solve, so no push was sent (HTTP 403), or {@code "UPSTREAM_FORMAT_CHANGED"} when the
+     *         solve (HTTP 403), or {@code "UPSTREAM_FORMAT_CHANGED"} when the
      *         login flow ended on a page the sidecar does not recognise (HTTP 424). These last two
      *         also carry the same value as {@link com.picsou.exception.SyncException#getCode()}.
      */

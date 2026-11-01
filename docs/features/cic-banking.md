@@ -1,6 +1,6 @@
 # Feature: CIC online-banking sync (livrets)
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-01
 
 ## Context
 
@@ -12,8 +12,10 @@ balance.
 ## How it works
 
 - **Sidecar** (`services/cic-auth`, browserless): same platform as Crédit Mutuel Épargne Salariale, so
-  the login and second-factor code is `cmes-auth`'s, kept in step by hand (each sidecar is its own
-  build context). Login form `bloc_ident` on `/fr/authentification.html`; second factor on
+  their login, second-factor and session code lives in
+  `services/base/euro_information/client.py`. Each sidecar passes the shared client its own frozen
+  `Site`, while keeping its bank-specific routes and parsers. Login form `bloc_ident` on
+  `/fr/authentification.html`; second factor on
   `/fr/banque/validation.aspx`, either a mobile confirmation (polled on
   `/fr/banque/async/otp/SOSD_OTP_GetTransactionState.htm`, woob's documented path, when the page
   script names none) or an SMS code posted with the form's `_FID_CheckOrDeliverBackup` button. On
@@ -166,9 +168,18 @@ two in Settings → Accounts.
 
 ## Regression coverage
 
+- Admin instance-status monitoring includes `cic-auth` when its session table has a row,
+  including an expired session, using `CIC_AUTH_URL` and expecting the `sidecar-python` base.
+  The unauthenticated `/health` endpoint, served by the shared `picsou_sidecar` app, echoes
+  `PICSOU_SIDECAR_BASE` when set; without it, the response remains `{"status":"ok"}`.
+  `InstanceStatusServiceTest` covers CIC's registry entry, URL and session-count supplier;
+  `test_sidecar_auth.py` runs the shared `SidecarAuthContract`, which covers both health
+  responses, and CI checks the built CIC image inherits `PICSOU_SIDECAR_BASE=sidecar-python`.
 - `services/cic-auth/test_accounts_parser.py` retains the contract-link, currency, class-token,
   and hidden-markup cases alongside the restored completeness checks. It rejects truncated
-  documents and tables, orphan or unparsed account rows, and merged account rows. Totals,
+  documents and tables, orphan or unparsed account rows, and merged account rows. Cuts
+  before and throughout the savings-table opening, after its caption, inside a title class,
+  after a balance, and after the last table cannot certify a snapshot. Totals,
   promotional amounts, and legal text outside tables or rows preserve all parsed accounts.
   Title-only contracts with empty balance cells or currency codes in their names are skipped,
   while visible balances after nested or malformed titles still fail the whole page.
@@ -176,8 +187,8 @@ two in Settings → Accounts.
   attributes containing fake script or style openings, and privacy of unknown-category error
   messages have explicit regression cases.
 - `services/cic-auth/test_main.py` checks that incomplete and renamed tables return HTTP 502
-  before a snapshot or category evidence is certified. Unknown-category warnings omit product
-  names and balances. Complete checking-only pages remain
+  before a snapshot or category evidence is certified. Unknown-category warnings from the shared
+  `euro-information` logger omit product names and balances. Complete checking-only pages remain
   valid, and listing responses distinguish missing savings tables from empty ones. Both account
   endpoints preserve accounts behind fake script openings and reject whole-number balances in
   malformed titles or grouped amounts nested in closed titles before certifying a snapshot.

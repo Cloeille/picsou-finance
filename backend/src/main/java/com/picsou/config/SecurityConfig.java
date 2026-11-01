@@ -23,6 +23,7 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.access.AccessDeniedHandlerImpl;
 import org.springframework.security.web.access.DelegatingAccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfException;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
@@ -54,8 +55,8 @@ public class SecurityConfig {
      * {@code /etc/nginx/snippets/picsou-hsts.conf} from the same {@code HSTS_ENABLED}).
      *
      * <p>Gating this matters because Spring Security's {@code HstsHeaderWriter} fires on any
-     * request where {@code isSecure()} is true, and {@code forward-headers-strategy: framework}
-     * makes that true from {@code X-Forwarded-Proto: https}. Without the gate, every
+     * request where {@code isSecure()} is true, and {@code forward-headers-strategy: native}
+     * makes that true from {@code X-Forwarded-Proto: https} sent by a configured proxy. Without the gate, every
      * {@code /api/*} response carries HSTS — and the SPA calls the API on load, so the browser
      * pins the policy on the first page view. With a locally-issued certificate that is a
      * lockout: the browser then refuses the "proceed anyway" bypass and there is no in-app
@@ -63,7 +64,7 @@ public class SecurityConfig {
      *
      * <p>In the all-in-one Docker image this is defence in depth — nginx strips the backend's
      * copy on {@code /api} and {@code /actuator} ({@code proxy_hide_header}) and emits its own.
-     * It is the operative control for the split stack and for bare-metal runs behind an
+     * It is the operative control for bare-metal runs behind an
      * operator's own proxy, where nothing hides it.
      *
      * <p>Bound as a {@code String} and parsed leniently on purpose. A primitive {@code boolean}
@@ -110,6 +111,10 @@ public class SecurityConfig {
                                            AccessKeyService accessKeyService,
                                            @Qualifier("mcpKeyBuckets") Map<Long, Bucket> mcpKeyBuckets,
                                            CorsConfigurationSource corsConfigurationSource) throws Exception {
+        // The chain is stateless, so no session ever carries the MCP authentication. The
+        // request-attribute repository is what reloads it on the ASYNC dispatch that completes a
+        // stream; AccessKeyAuthFilter saves into this same instance.
+        var securityContextRepository = new RequestAttributeSecurityContextRepository();
         http
             .cors(Customizer.withDefaults())
             // CSRF without tokens: only a cross-site, cookie-authenticated, state-changing request
@@ -120,6 +125,7 @@ public class SecurityConfig {
                 .requireCsrfProtectionMatcher(new CrossSiteCookieRequestMatcher(corsConfigurationSource))
                 .csrfTokenRepository(new NoStoredCsrfTokenRepository()))
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .securityContext(sc -> sc.securityContextRepository(securityContextRepository))
             .headers(headers -> headers
                 .frameOptions(fo -> fo.deny())
                 .contentTypeOptions(cto -> {})
@@ -173,7 +179,8 @@ public class SecurityConfig {
             // Bearer access-key or MCP JWT, and sets an AccessKeyAuthentication carrying scope
             // authorities only.
             .addFilterBefore(
-                new AccessKeyAuthFilter(accessKeyService, mcpKeyBuckets, jwtTokenAuthenticator, appUserRepository),
+                new AccessKeyAuthFilter(accessKeyService, mcpKeyBuckets, jwtTokenAuthenticator, appUserRepository,
+                    securityContextRepository),
                 UsernamePasswordAuthenticationFilter.class
             )
             // Two "default" entry points rather than one plain authenticationEntryPoint(...):

@@ -1,7 +1,7 @@
 # Feature: Caisse d'Epargne sync
 
 > Last updated: 2026-10-31
-> Status: sidecar, backend and frontend are in the codebase. `docker-compose.yml` runs the `caisse-epargne-auth` sidecar and gives the backend its URL. The user connects from the Sync page (Caisse d'Epargne tab) or the add-account modal: a pop-up shows the bank's virtual keypad, the user clicks his own digits, then approves in Sécur'Pass. There is no keypad table: the sidecar never maps a key image to a digit. Sync is on demand only. Tested offline only: no test covers a full login against the real bank, and the card-transaction `accountIds` is still unverified live (see the sidecar README).
+> Status: sidecar, backend and frontend are in the codebase. `docker/docker-compose.yml` runs the `caisse-epargne-auth` sidecar; `application.yml` gives the backend its URL. The user connects from the Sync page (Caisse d'Epargne tab) or the add-account modal: a pop-up shows the bank's virtual keypad, the user clicks his own digits, then approves in Sécur'Pass. There is no keypad table: the sidecar never maps a key image to a digit. Sync is on demand only. Tested offline only: no test covers a full login against the real bank, and the card-transaction `accountIds` is still unverified live (see the sidecar README).
 
 ## Context
 
@@ -44,7 +44,7 @@ Table `caisse_epargne_session` (migration `V109`) is `bourso_session` without `e
 - **Home loan.** Same import, read from the home-loan app with a third token on the BPCE hosts (see the sidecar README). Its detail gives no debit IBAN: the sync never sets or clears the `Debt`'s linked account, so a property the user linked the mortgage to stays linked across syncs and still counts in that property's equity. The installment rows are not tagged.
 - **Duration limits.** Both loan parsers accept integer durations from 1 through 600 months (50 years). The ceiling bounds the cost of the exact annuity fallback. Longer durations raise `INVALID_LOAN_DETAIL` before date or insurance calculations. A home loan within the limit whose computed first due date falls before year 1 raises the same error. Only the affected loan is listed in `unavailable`; all other accounts remain importable.
 - **Insurance.** For both loan types, monthly insurance is the installment minus the nominal-rate annuity, rounded to the cent with half-cent ties rounded up. The annuity divides the borrowed amount by the sum of discounted payments. Binary doubling computes that sum in logarithmic time without subtracting nearly equal numbers. Its Decimal precision grows with the rate's negative exponent. Directed rounding bounds the exact annuity from below and above. If those bounds round to different cents, exact rational arithmetic determines the rounded annuity. A synthetic loan of 100.50 over two months at 12 percent has an exact annuity of `51.005`, rounded to `51.01`, leaving insurance of `28.99` from a payment of 80. A loan of 12,000.24 over 48 months with a payment of 280 and a nominal rate of `2e-100` percent retains its annuity of `250.01` and insurance of `29.99`. With a principal of 12,000 at `1e-56` percent, insurance remains `30.00`.
-- **Debited account.** When the bank sends a debit IBAN, `Debt.linkedAccount` is the member's account with that IBAN: the one in this import when the bank shows that IBAN exactly once, else an account already stored with it, else none. The IBAN itself is still never stored on a Caisse d'Epargne account.
+- **Debited account.** When the bank sends a debit IBAN, `Debt.linkedAccount` is the member's EUR account with that IBAN: the one in this import when the bank shows that IBAN exactly once, else an account already stored with it, else none. The connector accepts only EUR, so the stored-account lookup includes currency. EUR and GBP accounts imported by Enable Banking can share an IBAN without making loan linking ambiguous or aborting the sync. The IBAN itself is still never stored on a Caisse d'Epargne account.
 
 ### Budget tagging of the deferred-debit card settlement
 
@@ -76,7 +76,7 @@ On the current account the loan is debited from, two kinds of rows are categoriz
 
 ## Authentication
 
-Login is three backend calls that drive the sidecar's browser login (`POST /initiate`, `POST /keypad`, `POST /complete`). The bank's password page is a virtual keypad whose ten key images are shuffled at every connection. The sidecar does not read them: it sends the images to the UI, the user clicks his own digits in a pop-up (`CaisseEpargnePanel`), and only the clicked positions come back. The human then approves the sign-in in the Sécur'Pass app: nothing automates that step.
+Login is three backend calls that drive the sidecar's browser login (`POST /initiate`, `POST /keypad`, `POST /complete`). The bank's password page is a virtual keypad whose ten key images are shuffled at every connection. The sidecar does not read them: it sends the images to the UI, the user clicks his own digits in a pop-up (`CaisseEpargnePanel`), and only the clicked positions come back. The human then approves the sign-in in the Sécur'Pass app: nothing automates that step. The completion request stays open while they do; when the approval happens in the bank's app on the same iPhone, iOS drops Safari's pending request (nginx logs a 499) while the backend carries on and stores the session. The panel then keeps the Sécur'Pass card and polls the session status every 3 s for up to 180 s: as soon as it is live it queues the first sync, as a direct answer would have. The bank's session lives a few minutes only, so a sync started by hand much later finds it expired.
 
 | Endpoint | Body | Answer |
 |---|---|---|
@@ -92,6 +92,30 @@ Login is three backend calls that drive the sidecar's browser login (`POST /init
 - The service keeps the pending login (`processId`, member, deadlines) in memory only: the keypad deadline is the sidecar's `expiresInSeconds`, the approval window 180 s after the keypad step. An unknown, used, expired or other member's process id is refused with `AUTH_ATTEMPT_EXPIRED` (or `KEYPAD_EXPIRED` when the user took too long to click) without contacting the sidecar. A restart drops the attempt and the user starts again.
 - On success `completeAuth` stores the encrypted session through `storeSession` and does **not** queue a sync (sync stays on demand). A failed login never deactivates or deletes an existing session; only a sync that ends `SESSION_EXPIRED` or `INVALID_SESSION_STATE` does.
 - Timeouts: `/initiate` 90 s, `/keypad` 70 s, `/complete` 170 s (above the sidecar's 150 s wait for the phone).
+
+### Recovering a lost completion response
+
+The panel queues the first sync once after login. Both a successful `/auth/complete`
+response and an active session discovered through `/status` use the same first-sync path.
+A bank session can expire after a few minutes, so the panel starts this sync as soon as
+login is confirmed. The parent view is notified only after that first sync succeeds.
+
+If the completion response is lost (no HTTP response, 502 or 504), the panel keeps the
+Sécur'Pass approval card. It polls `/status` every 3 seconds for up to 180 seconds after
+the loss, covering the backend's 170-second completion window with a margin.
+Each tick sends an independent status read with a 10-second timeout. Slow reads
+can finish without the next tick cancelling them, and a stalled read cannot
+block subsequent checks. Overlapping live responses still queue only one sync.
+If no active session appears, the panel shows the approval timeout and returns to the
+login form. Other completion errors are shown immediately.
+
+Recovery never replays `/auth/initiate`, `/auth/keypad` or `/auth/complete`.
+Polling stops after 180 seconds. A read sent before that deadline can still confirm
+the session within its 10-second limit and clear the timeout message.
+Responses from expired reads, an earlier login attempt, or an unmounted panel
+cannot queue a sync.
+The approval countdown starts at the sidecar's 150-second human wait. If the
+completion response is lost, it restarts at 180 seconds to show the recovery window.
 
 ### Sidecar to backend error mapping
 
@@ -124,4 +148,4 @@ The login codes are in `CaisseEpargneErrorCode` and in the `last_sync_error` CHE
 
 Loan regressions cover acceptance at 600 months and rejection at 601 months in both parsers. The home-loan boundary cases use a subscription date early enough that the date-order check cannot reject 601 months first. Separate home-loan cases cover calendar underflow at 600 months. Fetch tests verify that both an oversized duration and calendar underflow leave only the affected loan unavailable, with every other account imported.
 
-Covered offline: sidecar login and read path against canned pages and responses, adapter against canned responses, session state machine, service mapping and atomicity (rollback with a real `TransactionTemplate`), controller rate limits, login service/adapter, the sync tab and login panel (vitest), the Caisse d'Epargne migrations on real PostgreSQL (Testcontainers) and the entity/schema validation. Not covered: any call to the real sidecar or bank, the real `/accounts` payload beyond the contract in the slice spec, and card `accountIds=<cardPfmId>` (marked UNVERIFIED in the sidecar).
+Covered offline: sidecar login and read path against canned pages and responses, adapter against canned responses, session state machine, service mapping and atomicity (rollback with a real `TransactionTemplate`), controller rate limits, login service/adapter, the sync tab and login panel (vitest, including recovery and timeout after a network error, 502 or 504, recovery with slow or stalled status responses, and rejection of stale responses), the Caisse d'Epargne migrations on real PostgreSQL (Testcontainers) and the entity/schema validation. `SyncServiceCurrencyMatchTest` imports synthetic EUR and GBP accounts sharing an IBAN, then persists a Caisse d'Epargne loan and its debt through real H2 repositories. It checks that the sync succeeds and links the debt to the EUR account. Not covered: any call to the real sidecar or bank, the real `/accounts` payload beyond the contract in the slice spec, and card `accountIds=<cardPfmId>` (marked UNVERIFIED in the sidecar).

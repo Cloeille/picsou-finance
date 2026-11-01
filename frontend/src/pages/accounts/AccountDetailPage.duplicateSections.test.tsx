@@ -53,7 +53,7 @@ vi.mock('@/components/dividends/AccountDividendsSection', () => ({
 }))
 vi.mock('@/features/savings/SavingsConfigSection', () => ({ SavingsConfigSection: () => null }))
 
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router', () => ({
   useParams: () => ({ id: '7' }),
   useNavigate: () => vi.fn(),
 }))

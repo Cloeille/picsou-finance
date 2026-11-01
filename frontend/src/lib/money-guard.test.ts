@@ -49,6 +49,8 @@ function files(predicate: (source: string, path: string) => boolean): string[] {
     .map(([path]) => normalise(path))
 }
 
+const hasCompactNotation = (source: string) => /(?:\bnotation|(['"])notation\1)\s*:\s*['"]compact['"]/.test(source)
+
 describe('nothing bypasses the masked formatter', () => {
   it('keeps the raw formatter to its audited callers', () => {
     // The live total in the transaction form is the one place a member is typing the number
@@ -60,7 +62,7 @@ describe('nothing bypasses the masked formatter', () => {
   })
 
   it('lets nobody build their own currency format', () => {
-    // The highest-value rule of the five: a compact axis label is a legitimate need, and reaching
+    // A compact axis label is a legitimate need, and reaching
     // for Intl to satisfy it is what produced two silent leaks. money.ts answers it with
     // `compact()` instead.
     const offenders = files((s) => /style:\s*['"]currency['"]/.test(s))
@@ -75,11 +77,28 @@ describe('nothing bypasses the masked formatter', () => {
       'src/pages/goals/GoalCalendarPage.tsx',
       // Asserts the formatter put the symbol there; renders nothing.
       'src/lib/money-axis.test.tsx',
+      // Same: asserts the donut total carries the formatter's symbol; renders nothing.
+      'src/pages/budget/AllocationTab.test.tsx',
     ]
     const offenders = files((s, path) => path.endsWith('.tsx') && s.includes('€'))
       .filter((f) => !allowed.includes(f))
 
     expect(offenders, 'the symbol comes from the formatter, with the locale that places it').toEqual([])
+  })
+
+  it('recognises compact notation even without currency style', () => {
+    expect(hasCompactNotation("new Intl.NumberFormat(locale, { notation: 'compact' }).format(total)")).toBe(true)
+    expect(hasCompactNotation('new Intl.NumberFormat(locale, { notation : "compact" }).format(total)')).toBe(true)
+    expect(hasCompactNotation("new Intl.NumberFormat(locale, { 'notation': 'compact' }).format(total)")).toBe(true)
+    expect(hasCompactNotation('new Intl.NumberFormat(locale, { "notation": "compact" }).format(total)')).toBe(true)
+    expect(hasCompactNotation("new Intl.NumberFormat(locale, { notation: 'standard' }).format(count)")).toBe(false)
+  })
+
+  it('keeps compact notation inside the masked formatter', () => {
+    const offenders = files((s) => hasCompactNotation(s))
+      .filter((f) => f !== 'src/lib/money.ts')
+
+    expect(offenders, 'use money.compact() for compact amounts').toEqual([])
   })
 
   // Checked element by element: a file-level "uses tickFormatter somewhere" let the cashflow axis,

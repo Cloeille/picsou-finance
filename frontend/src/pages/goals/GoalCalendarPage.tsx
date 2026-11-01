@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useGoal, useGoalMonths, useSetMonthOverride, useDeleteMonthOverride, useSetManualContribution, useDeleteManualContribution, useExtendGoalHistory, useExtendGoalHistoryByMonth } from '@/features/goals/hooks'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'

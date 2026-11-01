@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { Check, Loader2, ShieldCheck } from 'lucide-react'

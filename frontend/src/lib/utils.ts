@@ -210,10 +210,19 @@ export function deriveMonogram(label: string | null | undefined): string {
   return letters
 }
 
-export function formatLocalDate(dateStr: string | null | undefined, locale = getLocale()): string {
+export function formatLocalDate(
+  dateStr: string | null | undefined,
+  locale = getLocale(),
+  options: Pick<Intl.DateTimeFormatOptions, 'weekday'> = {},
+): string {
   if (!dateStr) return '—'
   const d = toDate(dateStr)
-  const parts = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric' }).formatToParts(d)
+  const parts = new Intl.DateTimeFormat(locale, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    ...options,
+  }).formatToParts(d)
   // French writes the first of the month as an ordinal ("1er octobre"); Intl has no option for it.
   const firstOrdinal = d.getDate() === 1 && locale.toLowerCase().startsWith('fr')
   return parts.map((p) => (p.type === 'day' && firstOrdinal ? '1er' : p.value)).join('')

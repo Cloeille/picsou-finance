@@ -33,7 +33,6 @@
     "labelColon": "{{label}}:",
     "errorTitle": "Error",
     "skipToContent": "Skip to main content",
-    "locale": "en-US",
     "category": "Category"
   },
   "nav": {
@@ -1397,7 +1396,7 @@
         "harvesting": "Fetching your accounts… ({{count}} found)"
       },
       "errors": {
-        "humanVerificationRequired": "Revolut te pide demostrar que eres humano (captcha) y Picsou no puede hacerlo por ti. No se envió ninguna aprobación a tu teléfono. Inténtalo de nuevo más tarde.",
+        "humanVerificationRequired": "Revolut te pide demostrar que eres humano (captcha) y Picsou no puede hacerlo por ti. El inicio de sesión no puede continuar. Inténtalo de nuevo más tarde.",
         "upstreamFormatChanged": "El inicio de sesión no se completó. Comprueba tu número de teléfono e inténtalo de nuevo."
       },
       "selection": {
@@ -1947,7 +1946,7 @@
       "outdated": "Este sidecar responde, pero no corre con la imagen base compartida esperada.",
       "expectedBase": "Imagen base compartida esperada:",
       "fixIntro": "Para corregirlo, actualiza las imágenes y reinicia:",
-      "fixBuildIntro": "Si compilas desde el código, con Compose v2.33 o posterior (construye primero sidecar-python y sidecar-chromium):",
+      "fixBuildIntro": "Si compilas desde el código, con Compose v2.33 o posterior (construye primero sidecar-python, sidecar-chromium y sidecar-camoufox):",
       "updateTitle": "Actualización disponible",
       "releaseNotes": "Notas de la versión",
       "later": "Más tarde"

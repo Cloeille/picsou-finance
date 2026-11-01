@@ -67,20 +67,24 @@
 | 2026-08-01 | [Estimate property value from French open data](./decisions/2026-08-01-open-data-property-valuation.md) | Active |
 | 2026-08-01 | [Per-member ownership shares on properties and loans](./decisions/2026-08-01-account-ownership-shares.md) | Active |
 | 2026-08-10 | [Verify an ISIN's ticker against Yahoo instead of predicting it](./decisions/2026-08-10-yahoo-verified-isin-tickers.md) | Active |
-| 2026-08-11 | [Deleting an account removes the connection behind it](./decisions/2026-08-11-account-deletion-removes-its-connection.md) | Active |
+| 2026-08-11 | [Deleting a financial account removes the connection behind it](./decisions/2026-08-11-account-deletion-removes-its-connection.md) | Active |
 | 2026-08-13 | [A country breakdown mixes domicile and exposure, and says so](./decisions/2026-08-13-equity-domicile-vs-etf-exposure.md) | Active |
 | 2026-08-13 | [Persist security profiles and warm them on a schedule](./decisions/2026-08-13-persisted-security-profiles.md) | Active |
 | 2026-08-15 | [Key security lookups on the ISIN, and read fund facts from justETF](./decisions/2026-08-15-isin-keyed-lookups-and-justetf.md) | Active |
 | 2026-08-18 | [Client-supplied labels for the xlsx account export](./decisions/2026-08-18-client-supplied-labels-for-xlsx-export.md) | Active |
-| 2026-09-17 | [Defer the MCP protocol upgrade until the Spring Boot 4 migration](./decisions/2026-09-17-defer-mcp-protocol-upgrade.md) | Active |
+| 2026-09-17 | [Defer the MCP protocol upgrade until the Spring Boot 4 migration](./decisions/2026-09-17-defer-mcp-protocol-upgrade.md) | Superseded by opt-in Streamable HTTP |
+| 2026-10-31 | [Opt-in Streamable HTTP for modern MCP clients](./decisions/2026-10-31-opt-in-streamable-mcp.md) | Active |
 | 2026-09-23 | [A SCPI share is not a property](./decisions/2026-09-23-scpi-not-a-property.md) | Active |
 | 2026-09-26 | [CORUM client space fills existing SCPI accounts through a browser sidecar](./decisions/2026-09-26-corum-scpi-sidecar.md) | Active (point 5 superseded) |
 | 2026-09-27 | [Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar](./decisions/2026-09-27-sofidy-scpi-sidecar.md) | Active (point 5 superseded) |
 | 2026-10-04 | [SimpleFIN as its own connector, beside Enable Banking](./decisions/2026-10-04-simplefin-beside-enable-banking.md) | Active |
 | 2026-10-16 | [CORUM and Sofidy syncs create and link their SCPI accounts](./decisions/2026-10-16-scpi-sync-creates-accounts.md) | Active |
 | 2026-10-08 | [Rehearse release migrations before replacing the production API](./decisions/2026-10-08-rehearse-release-migrations.md) | Active |
-| 2026-10-21 | [Sidecars build on two shared base images](./decisions/2026-10-21-shared-sidecar-base-image.md) | Active |
+| 2026-10-21 | [Sidecars build on three shared base images](./decisions/2026-10-21-shared-sidecar-base-image.md) | Active |
 | 2026-10-27 | [Spring AI 1.1 for the MCP SSE keep-alive](./decisions/2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md) | Active |
+| 2026-10-31 | [Trusted proxy client addresses](./decisions/2026-10-31-trusted-proxy-client-address.md) | Active |
+| 2026-10-31 | [Helm chart in the repository, published by CI next to the images](./decisions/2026-10-31-helm-chart-published-from-ci.md) | Active |
+| 2026-11-01 | [Sidecars share one Python package for their plumbing](./decisions/2026-11-01-shared-sidecar-package.md) | Active |
 
 ## Feature notes
 
@@ -89,12 +93,12 @@
 | MCP server + scoped access-keys | 2026-06-26 | [mcp-server.md](./features/mcp-server.md) |
 | Budget + OAuth2 tools in MCP | 2026-07-06 | [mcp-budget-oauth2.md](./features/mcp-budget-oauth2.md) |
 | Remote-MCP OAuth (claude.ai connector) | 2026-07-12 | [mcp-oauth-remote.md](./features/mcp-oauth-remote.md) |
-| Internationalization (FR/EN/DE/ES) | 2026-09-02 | [i18n.md](./features/i18n.md) |
-| Frontend utilities (lib/utils.ts) | 2026-08-07 | [frontend-utils.md](./features/frontend-utils.md) |
+| Internationalization (FR/EN/DE/ES) | 2026-10-31 | [i18n.md](./features/i18n.md) |
+| Frontend utilities (lib/utils.ts) | 2026-10-31 | [frontend-utils.md](./features/frontend-utils.md) |
 | Demo mode | 2026-10-31 | [demo-mode.md](./features/demo-mode.md) |
-| Theme (dark / light / system) + theme-adaptive rendering | 2026-06-02 | [theme-persistence.md](./features/theme-persistence.md) |
+| Theme (dark / light / system) + theme-adaptive rendering | 2026-10-31 | [theme-persistence.md](./features/theme-persistence.md) |
 | Dashboard — Time range isolation | 2026-04-13 | [dashboard-time-range-isolation.md](./features/dashboard-time-range-isolation.md) |
-| Bank sync | 2026-08-11 | [bank-sync.md](./features/bank-sync.md) |
+| Bank sync | 2026-10-31 | [bank-sync.md](./features/bank-sync.md) |
 | SimpleFIN sync | 2026-10-04 | [simplefin-sync.md](./features/simplefin-sync.md) |
 | Budget & Cashflow | 2026-06-28 | [budget.md](./features/budget.md) |
 | Budget categorization rules (word-picker authoring UX) | 2026-06-28 | [budget-rules.md](./features/budget-rules.md) |
@@ -109,7 +113,7 @@
 | Amundi Épargne Salariale sync | 2026-08-09 | [amundi-epargne-salariale.md](./features/amundi-epargne-salariale.md) |
 | Crédit Mutuel / CIC Épargne Salariale sync | 2026-10-24 | [cmes-epargne-salariale.md](./features/cmes-epargne-salariale.md) |
 | CIC online-banking sync (livrets) | 2026-10-24 | [cic-banking.md](./features/cic-banking.md) |
-| American Express France credit-card sidecar | 2026-09-28 | [amex-sidecar.md](./features/amex-sidecar.md) |
+| American Express France credit-card sidecar | 2026-10-31 | [amex-sidecar.md](./features/amex-sidecar.md) |
 | Trade Republic — Holdings deduplication | 2026-05-18 | [trade-republic-holding-deduplication.md](./features/trade-republic-holding-deduplication.md) |
 | ISIN → Ticker conversion | 2026-08-10 | [ISIN_TO_TICKER_CONVERSION.md](./features/ISIN_TO_TICKER_CONVERSION.md) |
 | Encryption at rest | 2026-04-08 | [encryption-at-rest.md](./features/encryption-at-rest.md) |
@@ -138,17 +142,18 @@
 | Logos beside holding tickers (crypto: batched CoinGecko lookup; shares/ETFs: Yahoo quote page, stored in PostgreSQL) | 2026-10-03 | [holding-logos.md](./features/holding-logos.md) |
 | Add Account modal (unified sync + manual) | 2026-08-13 | [add-account-modal.md](./features/add-account-modal.md) |
 | Account visibility (hidden accounts, `/sync` Comptes tab) | 2026-07-15 | [account-visibility.md](./features/account-visibility.md) |
-| Docker deployment and migration-safe releases | 2026-10-08 | [docker-deployment.md](./features/docker-deployment.md) |
+| Docker deployment and migration-safe releases | 2026-10-31 | [docker-deployment.md](./features/docker-deployment.md) |
 | Production release backup, preflight, migration and rollback | 2026-10-08 | [release-deployment.md](./features/release-deployment.md) |
+| Kubernetes deployment (Helm chart) | 2026-11-01 | [helm-chart.md](./features/helm-chart.md) |
 | Navigation (sidebar + mobile bottom nav) | 2026-07-12 | [sidebar-navigation.md](./features/sidebar-navigation.md) |
 | UI control shape (shadcn theme radius) | 2026-08-10 | [ui-control-shape-system.md](./features/ui-control-shape-system.md) |
-| Privacy mode (hiding amounts for demos) | 2026-08-16 | [privacy-mode.md](./features/privacy-mode.md) |
+| Privacy mode (hiding amounts for demos) | 2026-10-31 | [privacy-mode.md](./features/privacy-mode.md) |
 | Multi-account family system | 2026-07-07 | [multi-account-family.md](./features/multi-account-family.md) |
-| CORS & cookie security | 2026-06-02 | [security-cors-cookies.md](./features/security-cors-cookies.md) |
+| CORS & cookie security | 2026-10-31 | [security-cors-cookies.md](./features/security-cors-cookies.md) |
 | 24H Intraday net worth chart | 2026-04-18 | [intraday-chart.md](./features/intraday-chart.md) |
 | First-launch Setup Wizard | 2026-07-19 | [setup-wizard.md](./features/setup-wizard.md) |
 | Admin page (instance settings) | 2026-05-29 | [admin-page.md](./features/admin-page.md) |
-| Admin instance-status alert (sidecar health, update available) | 2026-10-24 | [admin-instance-status.md](./features/admin-instance-status.md) |
+| Admin instance-status alert (sidecar health, update available) | 2026-10-31 | [admin-instance-status.md](./features/admin-instance-status.md) |
 | Admin recovery (lost-admin console reset) | 2026-05-29 | [admin-recovery.md](./features/admin-recovery.md) |
 | Frontend error display (`extractErrorMessage`) | 2026-05-31 | [frontend-error-display.md](./features/frontend-error-display.md) |
 | Loan accounts (LOAN type, amortization view) | 2026-04-26 | [loans.md](./features/loans.md) |
@@ -161,7 +166,7 @@
 | Opt-in anonymous telemetry & privacy (GlitchTip) | 2026-10-05 | [telemetry.md](./features/telemetry.md) |
 | Account spreadsheet export (xlsx) | 2026-08-18 | [account-xlsx-export.md](./features/account-xlsx-export.md) |
 | Revolut pockets (reconstruction from PSD2 internal-transfer rows) (removed, 2026-07-14) | 2026-06-28 | [revolut-pockets.md](./features/revolut-pockets.md) |
-| Revolut sidecar (assisted-enrolment login connector) | 2026-07-08 | [revolut-sidecar.md](./features/revolut-sidecar.md) |
+| Revolut sidecar (assisted-enrolment login connector) | 2026-10-31 | [revolut-sidecar.md](./features/revolut-sidecar.md) |
 | Dividend forecast (shares, ETFs, SCPI) as upcoming capital income | 2026-10-20 | [dividend-forecast.md](./features/dividend-forecast.md) |
 
 ## Lessons

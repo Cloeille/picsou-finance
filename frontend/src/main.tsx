@@ -1,7 +1,7 @@
 import './i18n'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { RouterProvider } from 'react-router-dom'
+import { RouterProvider } from 'react-router/dom'
 import { Providers } from './app/providers'
 import { router } from './app/routes'
 import { initSystemThemeListener, applyTheme, getStoredTheme } from './lib/theme'

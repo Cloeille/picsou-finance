@@ -13,7 +13,7 @@ from fixtures import (
     plan_table,
     situation_page,
 )
-from forms import find_form, field_names, parse_forms
+from euro_information.forms import field_names, find_form, parse_forms
 from fund_parser import _decimal, my_savings_tab, parse_fund_identity, parse_my_savings
 from situation_parser import (
     FORMAT_CHANGED,

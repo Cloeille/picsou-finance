@@ -1,10 +1,10 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-10-31 (CI release image build reuses the GitHub Actions layer cache)
+> Last updated: 2026-11-01 (one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
 
 ## Context
 
-Picsou deploys as the app and twelve authentication sidecars orchestrated by `docker/docker-compose.yml`:
+Picsou deploys as the app and thirteen authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
 - **`picsou:latest`** — main app: frontend (Nginx) + backend (Spring Boot), no Python. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
@@ -13,15 +13,16 @@ Picsou deploys as the app and twelve authentication sidecars orchestrated by `do
 - **`caisse-epargne-auth`** — browserless Caisse d'Epargne read sidecar (session replay, no in-app login yet), published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
-- **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (Compose sets `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
+- **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (`application.yml` defaults to `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
+- **`cic-auth`** — browserless CIC online-banking login/2FA and account sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cic-auth`. The backend reaches it at `CIC_AUTH_URL` (`application.yml` defaults to `http://cic-auth:8001`); see [`cic-banking.md`](cic-banking.md).
 - **`amex-auth`** — American Express login and account sidecar, built with Camoufox/Firefox, published as `ghcr.io/cloeille/picsou-finance/amex-auth`.
 - **`degiro-auth`** — browserless DEGIRO authentication and portfolio sidecar, published as `ghcr.io/cloeille/picsou-finance/degiro-auth`.
 
 All sidecars use the Docker workflow's shared `linux/amd64,linux/arm64` platforms
-and tag strategy. AMEX pins Camoufox `152.0.4-beta.30` and selects the Linux
-archive matching the container architecture (`x86_64` or `arm64`).
-AMEX and Revolut (each through its `pin_camoufox.py`) download the GeoIP
-database from the upstream release's direct `GeoLite2-City.mmdb` asset URL,
+and tag strategy. The shared AMEX/Revolut base pins Camoufox `152.0.4-beta.30`
+and selects the Linux archive matching the container architecture (`x86_64` or
+`arm64`). Its `services/base/pin_camoufox.py` downloads the GeoIP database once
+from the upstream release's direct `GeoLite2-City.mmdb` asset URL,
 without querying the unauthenticated GitHub releases API, whose per-IP quota
 shared CI runners exhaust. Download failures still fail the build; no token is
 baked into the image and GeoIP support is retained.
@@ -51,6 +52,9 @@ or banking credentials are used.
 
 PostgreSQL 16 and the optional Caddy TLS proxy use upstream images.
 
+On Kubernetes, the Helm chart in `charts/picsou` deploys the same images; the `chart` job of
+`docker.yml` publishes it after the image builds. See [helm-chart.md](./helm-chart.md).
+
 ## How it works
 
 ### Main image — `docker/Dockerfile` (3-stage build, context: project root)
@@ -76,20 +80,69 @@ the legacy builder rejects the empty `$BUILDPLATFORM`.
 
 ### Shared sidecar bases — `services/base/Dockerfile`
 
-Every sidecar except amex-auth and revolut-auth (Camoufox) builds `FROM` one of
-two shared bases, built from one pin set (`services/base/requirements*.txt`):
-`python` (Python 3.12 slim bookworm, fastapi, uvicorn, pydantic, httpx) and
-`chromium` (the same plus Playwright 1.52 and Chromium in
-`/opt/playwright-browsers`). A sidecar Dockerfile only adds its user and code.
-The publish workflow pushes `sidecar-python` and `sidecar-chromium` first and
-builds every sidecar from them by digest, so a pull stores Chromium once. With
-`docker compose up --build`, the build-only services `sidecar-python` and
-`sidecar-chromium` (`scale: 0`, never started) are built first; this
-needs Compose v2.33+ (`additional_contexts: service:`), tested on 5.6.0.
-`docker compose pull` needs no particular version. It also pulls the two bases
-by name (`ghcr.io/cloeille/picsou-finance/sidecar-*:latest`); their layers are
-the ones the published sidecars are built from, so nothing is downloaded twice. See
+Every sidecar builds `FROM` one of three shared bases, built from one common pin
+set (`services/base/requirements*.txt`): `python` (Python 3.12 slim bookworm,
+fastapi, uvicorn, pydantic, httpx), `chromium` (the same plus Playwright 1.64.1 and
+Chromium in `/opt/playwright-browsers`), and `camoufox` (the same Python base plus
+Playwright 1.64.1, Camoufox 0.4.11, Firefox 152.0.4-beta.30 and Xvfb).
+AMEX and Revolut use `camoufox`, including the target CPU's x86_64 or arm64 browser.
+Their shared browser/addons live in `/opt/camoufox-cache/camoufox`, readable by
+both service users; GeoIP is downloaded once into the Camoufox package directory.
+A sidecar Dockerfile only adds its user and code.
+
+Camoufox protocol compatibility depends on the Firefox release pinned in
+`services/base/pin_camoufox.py`, not just the Camoufox Python package version.
+Keep browser-specific requirements separate even when their Playwright pins match.
+For browser updates, run `services/base/smoke_camoufox.py` in both AMEX and Revolut
+images, in headless and headful modes on AMD64 and native ARM64, and run the
+Chromium navigation tests in `services/fortuneo-auth/test_navigation.py` and
+`services/bourse-direct-auth/test_navigation.py`. These offline checks cover
+browser launch and page operations, not provider login compatibility.
+
+Retain Camoufox 0.4.11 until one migration updates the installer and its tests,
+the Firefox and Playwright pins, and persistent-profile fingerprint handling.
+Camoufox 0.5.8 requires Playwright below 1.63 and removes `camoufox.locale`, which
+the current installer imports. Run the existing image smoke checks and validate
+each provider login privately before deploying that migration.
+
+All three targets retain Python 3.12 because the pinned Pydantic core has no CPython
+3.15 wheels and the slim base lacks the native toolchain for a source build. A Python
+runtime upgrade requires compatible dependency pins and successful builds of all
+three targets on amd64 and arm64. `services/base/test_dockerfile.py` guards the supported
+runtime and Chromium's inheritance from it in the shared package CI job.
+
+The base build context excludes local bytecode and test helpers (`picsou_sidecar/contract.py`
+and `euro_information/testing.py`). CI mounts the helpers read-only for image tests;
+they are absent from published images. The shared packages (`picsou_sidecar`,
+`euro_information`) live in the `python` base, so `chromium`, `camoufox` and every
+sidecar built on them get them.
+
+The publish workflow pushes `sidecar-python`, `sidecar-chromium` and
+`sidecar-camoufox` first, then passes their immutable digests to the sidecar
+builds. AMEX and Revolut therefore share exactly the same base layers. With
+`docker compose up --build`, the three build-only base services (`scale: 0`,
+never started) are built first; this needs Compose v2.33+
+(`additional_contexts: service:`), tested on 5.6.0. `docker compose pull` needs
+no particular version and also pulls the bases by name
+(`ghcr.io/cloeille/picsou-finance/sidecar-*:latest`); their layers are already
+shared with the sidecars. The new `sidecar-camoufox` package must be public on
+GHCR after its first publication, as must the other bases. See
 [ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md).
+
+The Camoufox entrypoint preserves AMEX's port 8001/display :98/screen 1366x768x24
+and Revolut's port 8002/display :99/screen 1280x1024x24, with a 65-second keep-alive.
+It clears stale display locks on restart and fails explicitly if Xvfb exits before
+its display is ready or has not become ready within five seconds. Xvfb is not
+supervised after that: if it exits later, the API keeps running and the next
+headful login fails until the container restarts. Revolut profiles still persist on the
+`revolut_profiles` volume. Its `revoauth` user stays at UID 999 so upgrades retain
+read/write access to existing volumes and their mode-700 member directories.
+The group is automatically allocated, and CI checks the built Revolut image's UID.
+On both native ARM64 and AMD64, CI runs both derived images as non-root and
+starts headless/headful Firefox against offline HTML without network access; the
+AMD64 jobs also check `PICSOU_SIDECAR_BASE` in each built image;
+login compatibility requires a separate release check.
+
 A sidecar whose base is missing, or still on a pre-base image, is reported to the admin
 by the [instance-status alert](./admin-instance-status.md).
 
@@ -118,15 +171,15 @@ applies through `SidecarBaseUrl`.
 
 ### Sidecar shared secret — `APP_SIDECAR_API_KEY`
 
-The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank,
+The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank, Caisse d'Epargne,
 Bourse Direct, Amundi, Fortuneo, DEGIRO, AMEX, CORUM, Sofidy, Crédit Mutuel / CIC
-Épargne Salariale) share one secret.
-Generate it with `openssl rand -base64 32`. Both Compose files forward it
-explicitly to the app and to every sidecar service they define, and refuse to
-start when it is missing or empty. The root `docker-compose.yml` defines all
-twelve sidecars, as does `docker/docker-compose.yml`. Both explicitly set
-`DEGIRO_AUTH_URL` on the backend rather than relying on its application default.
-Both AMEX service definitions use `init: true` so an init process reaps orphaned
+Épargne Salariale, CIC online banking) share one secret.
+Generate it with `openssl rand -base64 32`. `docker/docker-compose.yml` forwards it
+explicitly to the app and to every sidecar service, and refuses to
+start when it is missing or empty. Sidecar URLs are set in one place,
+`backend/src/main/resources/application.yml` (`app.<sidecar>.url`, Compose service
+name); `application-dev.yml` gives each one its own `127.0.0.1` port. Compose and the
+entrypoint set none. The AMEX service uses `init: true` so an init process reaps orphaned
 browser children during repeated logins. The entrypoint does not generate the
 shared secret: the sidecars run in separate containers and
 cannot read the app's `/data/.secrets/` volume.
@@ -137,7 +190,10 @@ cannot read the app's `/data/.secrets/` volume.
   route except the exact `/health` path, including `/docs` and
   `/openapi.json`, requires the header. A constant-time comparison
   (`secrets.compare_digest`) runs in an HTTP middleware, before routing, body
-  parsing or any upstream work.
+  parsing or any upstream work. That middleware lives once, in the shared
+  `services/base/picsou_sidecar` package, and every sidecar's
+  `test_sidecar_auth.py` runs the same contract (`picsou_sidecar.contract`)
+  against its own app.
 - A missing or wrong key returns HTTP 401 `{"detail": "UNAUTHORIZED"}` with
   `WWW-Authenticate: Picsou-Sidecar-Key`. The backend matches on that challenge
   and raises `SidecarAuthenticationException` (`SIDECAR_UNAUTHORIZED`), so a key
@@ -183,7 +239,7 @@ and PRODUCTION is the only mode listing real banks — so bank sync is unreachab
 [bank-sync.md](./bank-sync.md).
 
 `docker/Caddyfile` is a single site block, `{$PICSOU_DOMAIN:picsou.localhost}` →
-`reverse_proxy app:8080`. Caddy resolves the certificate strategy at **runtime** from the hostname
+`reverse_proxy app-tls:8080`. Caddy resolves the certificate strategy at **runtime** from the hostname
 (not at config-adapt time — the adapted JSON shows no explicit issuer for either case):
 
 | `PICSOU_DOMAIN` | Runtime issuer | Trust |
@@ -191,9 +247,9 @@ and PRODUCTION is the only mode listing real banks — so bank sync is unreachab
 | Public FQDN | ACME (Let's Encrypt / ZeroSSL) | Public, zero manual steps |
 | `.localhost` / `.local` / `.internal` / bare IP | `local` (Caddy's built-in CA) | Root must be installed per device, from `/data/caddy/pki/authorities/local/root.crt` in the `caddy_data` volume |
 
-Caddy sets `X-Forwarded-Proto`/`-Host`/`-For` by default, which is exactly what `nginx.conf`'s
-`map` block preserves and what `forward-headers-strategy: framework` needs — so no backend change
-was required for the *proxying* itself. (HSTS did require one — see below.)
+Caddy sets `X-Forwarded-Proto`/`-Host`/`-For` by default. nginx resolves the client from the
+known Caddy peer, normalizes the address header and forwards the public origin to Tomcat's native
+forwarding support. See [trusted proxy client addresses](#trusted-proxy-client-addresses).
 
 #### TLS is a first-boot decision, not an add-on
 
@@ -238,8 +294,8 @@ silent. Interior whitespace is deliberately *not* stripped, so `t rue` warns ins
 
 Gating only nginx is **not sufficient** — a mistake worth not repeating. Spring Security's
 `HstsHeaderWriter` fires on any request where `isSecure()` is true, and
-`forward-headers-strategy: framework` makes that true from `X-Forwarded-Proto: https`, which is
-exactly what the proxy sends. Since the SPA calls the API on load, an ungated backend pins the
+`forward-headers-strategy: native` makes that true from `X-Forwarded-Proto: https` sent by a
+configured proxy. Since the SPA calls the API on load, an ungated backend pins the
 policy on the very first page view no matter what nginx was told.
 
 **Which emitter the browser actually sees, per deployment:**
@@ -247,7 +303,7 @@ policy on the very first page view no matter what nginx was told.
 | Deployment | Browser-visible emitter |
 |---|---|
 | All-in-one image | **nginx only.** Its `add_header` covers proxied responses too, and `proxy_hide_header Strict-Transport-Security` on `/api` and `/actuator` discards the backend's copy so it is never sent twice |
-| Split stack / bare metal behind an operator's proxy | **Spring only.** `frontend/nginx.conf` sends no HSTS and hides nothing |
+| Bare metal behind an operator's proxy | **Spring only.** |
 
 So in the all-in-one image the Spring gate is defence in depth rather than the operative control —
 verifying it requires querying the backend directly on `:9090`, because nginx strips its header on
@@ -267,6 +323,79 @@ fixed at create time, so the new value is never seen.
 > `HSTS_ENABLED=true`. Intentional — the header only helps when the certificate is already trusted,
 > and defaulting it on is what created the trap.
 
+### Trusted proxy client addresses
+
+The bundled path is `client -> Caddy -> nginx -> Tomcat`. The optional `proxy` service has
+one exact IPv4 address on the dedicated internal `tls-proxy` bridge, with its default network
+retained for ACME egress. It reaches the app through the bridge-only `app-tls` alias. No sidecar
+joins this bridge. nginx's real-IP module trusts only the address the entrypoint writes from
+`PICSOU_PROXY_IP`, and replaces outgoing client headers with the resolved address. Tomcat uses
+native forwarding and trusts only the local nginx loopback hop. Rate limiters, session metadata
+and audit logs share the resolved remote address.
+
+Defaults in `docker/docker-compose.yml` are `PICSOU_PROXY_SUBNET=172.30.253.0/29`,
+`PICSOU_PROXY_IP=172.30.253.2` for Caddy, and `PICSOU_PROXY_IP_RANGE=172.30.253.4/30`
+for Docker's automatic address allocation. The app has no fixed TLS address, so `deploy.sh`
+can run one-off migration containers while the live app remains up. Caddy stays outside the
+allocation range, preventing the app from taking its address when it starts first. Set all
+three in `docker/.env` if this subnet overlaps an existing network. The range must be inside
+the subnet and exclude Caddy's address and the gateway; Caddy needs a usable host address
+inside the subnet. Allow at least two usable addresses in the range for the live app and
+one migration container. Compose also passes `PICSOU_PROXY_IP` to the app as nginx's trusted
+peer. The entrypoint rejects proxy values other than a plain IPv4 literal. Standalone image
+runs with `PICSOU_PROXY_IP` unset trust no upstream client-address header.
+
+The app always joins `tls-proxy`, even when the `tls` profile is disabled. Check for subnet
+overlap before upgrading non-TLS installs too. If Docker reports `networks have overlapping IPv4`,
+`docker compose up -d` and `deploy.sh` cannot proceed. Set all three variables above in your existing
+`docker/.env` to non-conflicting values before upgrading.
+
+For a custom proxy, set `PICSOU_PROXY_IP` to that proxy's exact address as seen by nginx and
+recreate the app.
+Do not use a shared Docker subnet or all private networks as a trust list.
+
+When upgrading an existing bundled TLS deployment, use the
+[release deployment script](./release-deployment.md). After checking the new app container,
+it force-recreates `proxy` only if it was running when deployment started. Recreation uses
+`--no-deps` and preserves Caddy's certificate volumes. This applies the new `tls-proxy` attachment
+and loads the `app-tls` upstream. The script requires Compose v2.17+ for
+`--wait --wait-timeout 60` and waits for Caddy's health check before the API readiness probe.
+After recreation it reads the active JSON config through Caddy's container-local admin API.
+It requires at least one `app-tls:8080` reverse-proxy upstream and rejects other `app` or
+`app-tls` targets; unrelated upstream hosts are ignored. Update operator-edited Caddyfiles
+to use `reverse_proxy app-tls:8080` before deployment.
+Proxy recreation, health-wait or active-config verification failure exits nonzero with a clear error, even when the API URL
+points directly at the app's published HTTP port. Restarting Caddy alone
+does not apply Compose network changes. Stopped or absent proxies remain untouched, even when
+the `tls` profile is enabled. Migration or app cutover failures leave the proxy untouched.
+
+Backend deployments outside the image must set
+`SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES` to the exact nginx peer expression.
+
+The nginx configuration retains the public scheme/host and derives `X-Forwarded-Port` from
+an explicit public host port or an upstream port header, otherwise Tomcat uses the scheme
+default. This preserves same-origin requests on published HTTP and custom HTTPS ports.
+See [CORS & cookie security](./security-cors-cookies.md) and the
+[proxy address ADR](../decisions/2026-10-31-trusted-proxy-client-address.md).
+
+`docker/tests/test_proxy_client_ip.py` starts fresh isolated Compose projects with real Caddy
+and a lightweight app stand-in. It preserves the shipped network attachments and startup
+dependency, checks default and custom addresses, waits for Caddy's health check, and probes
+the `app-tls` upstream. It also runs a one-off app container alongside the live app to cover
+repeat deployments. The nginx fixtures create explicit randomized subnets for static test
+addresses, retrying subnet overlaps for compatibility with Docker versions used in CI.
+The Compose tests publish no host ports and remove their test containers, networks and volumes.
+Both live cases reserve an unused private subnet and use an external test network, so an existing
+install or concurrent test can keep its bridge. The defaults case asserts the rendered defaults
+before substituting its reserved /29; the custom-addresses case derives all three environment
+values from its reserved /28 and asserts their Compose interpolation before startup.
+Network allocation retries across
+multiple private `/16`s on overlap; a timed-out Docker availability check skips rather than
+failing test collection.
+`docker/tests/test_deploy_integration.py` also upgrades a running Caddy from the old
+default-network-only layout and verifies the new network, active upstream, preserved CA
+and HTTPS API response through the deployment script.
+
 ### Key files
 
 - `docker/Dockerfile` — main image, 3-stage build
@@ -277,7 +406,7 @@ fixed at create time, so the new value is never seen.
 - `services/fortuneo-auth/Dockerfile` — Fortuneo sidecar image
 - `docker/nginx.conf` — Nginx reverse proxy config (`/api`, `/actuator`, `/mcp` → backend)
 - `docker/supervisord.conf` — supervisor (nginx + backend)
-- `docker/entrypoint.sh` — secret bootstrap + HSTS snippet + exec supervisord
+- `docker/entrypoint.sh` — secret bootstrap + trusted-proxy/HSTS snippets + exec supervisord
 
 ### Flow
 
@@ -294,6 +423,7 @@ docker compose -f docker/docker-compose.yml up
   → corum-auth (uvicorn:8001, internal only)
   → sofidy-auth (uvicorn:8001, internal only)
   → cmes-auth (uvicorn:8001, internal only)
+  → cic-auth (uvicorn:8001, internal only)
   → amex-auth (uvicorn:8001, internal only)
   → degiro-auth (uvicorn:8001, internal only)
   → postgres:16-alpine (:5432)
@@ -327,6 +457,7 @@ docker save ghcr.io/cloeille/picsou-finance:latest \
   ghcr.io/cloeille/picsou-finance/corum-auth:latest \
   ghcr.io/cloeille/picsou-finance/sofidy-auth:latest \
   ghcr.io/cloeille/picsou-finance/cmes-auth:latest \
+  ghcr.io/cloeille/picsou-finance/cic-auth:latest \
   ghcr.io/cloeille/picsou-finance/amex-auth:latest \
   ghcr.io/cloeille/picsou-finance/degiro-auth:latest \
   | gzip > picsou-release.tar.gz
@@ -336,7 +467,7 @@ docker load < picsou-release.tar.gz
 
 ### Pulling from GHCR
 
-The app and all twelve sidecar images are published by `.github/workflows/docker.yml`
+The app and all thirteen sidecar images are published by `.github/workflows/docker.yml`
 (matrix build, one entry per image) **only after CI is green**: backend tests, frontend
 lint/typecheck/unit, Playwright e2e, every sidecar's image tests, the Compose sidecar build
 and the workflow inventory, then the `ci-ok` gate. `ci.yml` calls that workflow on a successful `push` to `main` or a
@@ -364,6 +495,7 @@ docker pull ghcr.io/cloeille/picsou-finance/fortuneo-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/corum-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/sofidy-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/cmes-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/cic-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0
 ```
@@ -527,13 +659,19 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - **Closing the plain-HTTP `:8080` publish uses an overlay file**, `docker/docker-compose.no-http.yml` (`ports: !reset []`), not an env var. Compose cannot vary `ports` by profile, and two env-var forms were tried and rejected: `${VAR:-0.0.0.0}:8080:8080` binds IPv4 only and silently drops the `[::]` binding the unqualified short form gives (breaking IPv6 clients on *every* deployment), while the prefix form `${VAR:-}8080:8080` turns a value missing its trailing colon into `127.0.0.18080:8080` — an opaque "invalid published port" that aborts the whole stack, db and tr-auth included. Long-syntax `host_ip: ""` is rejected as an invalid IP. Requires Compose v2.24+ for `!reset`.
 - **`picsou.localhost` (the `PICSOU_DOMAIN` default) only resolves on the Docker host itself** — browsers map `*.localhost` to loopback. Fine for verifying the profile works; set a LAN IP or a real domain for access from other devices. Enable Banking's portal may also refuse to register a `.localhost` redirect URL.
 - **Enabling the `tls` profile against a pre-built GHCR image does not get the HSTS fix.** `HSTS_ENABLED` gating lives in `nginx.conf` + `entrypoint.sh`, so an image built before that change still sends HSTS unconditionally — which is precisely the lockout combination with an internal-CA certificate. Pull a current image, or rebuild with `--build`.
-- **`TR_AUTH_URL` default in entrypoint is `http://127.0.0.1:8001`** (legacy single-container fallback). In docker-compose it is overridden to `http://tr-auth:8001` via the `environment:` block.
+- **Sidecar URLs live only in `application.yml`.** Compose and `entrypoint.sh` set no `*_AUTH_URL`; an operator `.env` value still overrides the default.
 - **Bourse Direct 2FA state is process-local.** Keep `bourse-direct-auth` at one replica unless request affinity or shared pending state is added.
 - **Secrets are never regenerated.** If `/data/.secrets/jwt_secret` exists, it is reused. Deleting it will log out all users and invalidate all encrypted secrets in the DB.
 - **Spring Boot env var naming:** Properties under `app.*` require the `APP_` prefix. `app.finary.email` → `APP_FINARY_EMAIL`. Variables like `JWT_SECRET` work because `application.yml` maps them explicitly.
 - **Stale env vars removed (2026-04-19):** `TR_PHONE_NUMBER`, `TR_PIN`, `FINARY_TOTP`, `POWENS_*`, `FINARY_EMAIL`, `FINARY_PASSWORD`. Do not re-add them.
 
 ## Tests
+
+- `uv run --with pytest pytest docker/tests/test_proxy_client_ip.py -v` runs the real nginx
+  configuration in Docker: exact trusted proxy resolution, independent forwarded clients,
+  ignored direct client-address headers, public origin ports and Compose address consistency.
+- `python3 -m unittest discover -s docker/tests -p 'test_entrypoint.py' -v` also checks empty
+  standalone proxy trust, exact configured addresses and rejection of malformed configuration.
 
 - `python3 -m pytest docker/tests/test_deploy.py -v` exercises deployment ordering and failure
   isolation against command doubles. CI runs it independently of the application tests.
@@ -556,6 +694,24 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
   also when a second connection commits the duplicate after the first check, and that account
   writes wait for V47. With a Flyway target below V47, or a baseline at or above V47 (`47.0`
   included), the check is skipped.
+
+### Shared pending-login lifecycle
+
+`services/base/picsou_sidecar.PendingStore` enforces each sidecar's TTL when a
+completion takes an attempt. Expired states are disposed and returned as missing,
+without waiting for the background sweep. Parking inserts immediately when there is
+room, so retries do not wait for unrelated expired browsers to close. Only a full
+store expires old entries and rechecks capacity under the lock, since another
+request may fill a reclaimed slot during disposal. Routes use `put_or_raise()` so
+a still-full store answers 503 with the provider's existing capacity detail;
+callers dispose resources if initial parking
+fails. Retrying routes transfer ownership to `repark()`, which disposes the state
+if parking fails or is cancelled. A failed background sweep logs only the exception
+type, keeping upstream URLs and exception messages out of logs, and continues
+with the next sweep.
+A retryable OTP whose state cannot be parked also answers 503 instead of promising
+a retry for an attempt that no longer exists. Initiation also sweeps before
+opening a new upstream client or browser.
 
 ## Links
 
