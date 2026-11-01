@@ -1,7 +1,7 @@
 # Shared base for the Picsou sidecars. Three targets, each published once:
 #   python   - Python runtime and the shared pins (browserless sidecars)
 #   chromium - python + Playwright and its Chromium (browser sidecars)
-#   camoufox - python + Playwright 1.55, pinned Camoufox Firefox and Xvfb
+#   camoufox - python + Playwright, pinned Camoufox Firefox and Xvfb
 # A sidecar image adds only its user and its code on top, so Docker stores and
 # pulls these layers once for every sidecar. See
 # docs/decisions/2026-10-21-shared-sidecar-base-image.md.
@@ -63,7 +63,7 @@ ENV PICSOU_SIDECAR_BASE=sidecar-camoufox \
     XDG_CACHE_HOME=/opt/camoufox-cache
 
 # Firefox runtime, including GL/Mesa for headless launches, plus a virtual display
-# for headful login. Keep this separate from the Chromium/Playwright 1.52 target.
+# for headful login. Firefox needs different runtime libraries from Chromium.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         xvfb \
         libgtk-3-0 libdbus-glib-1-2 libx11-xcb1 libxcb-shm0 libxcomposite1 \

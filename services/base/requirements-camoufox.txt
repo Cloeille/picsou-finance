@@ -1,5 +1,5 @@
 # Installed on top of requirements.txt in the `camoufox` target only.
-# Camoufox 0.4.11 speaks an older Juggler protocol: Playwright 1.60+ breaks
-# Browser.setDefaultViewport / setContrast. Keep this pair reviewed together.
+# Review Playwright with the Firefox release pinned in pin_camoufox.py.
+# Run smoke_camoufox.py in both derived sidecars before accepting browser bumps.
 camoufox[geoip]==0.4.11
 playwright==1.64.1

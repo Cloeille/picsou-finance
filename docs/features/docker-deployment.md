@@ -82,13 +82,23 @@ the legacy builder rejects the empty `$BUILDPLATFORM`.
 
 Every sidecar builds `FROM` one of three shared bases, built from one common pin
 set (`services/base/requirements*.txt`): `python` (Python 3.12 slim bookworm,
-fastapi, uvicorn, pydantic, httpx), `chromium` (the same plus Playwright 1.52 and
+fastapi, uvicorn, pydantic, httpx), `chromium` (the same plus Playwright 1.64.1 and
 Chromium in `/opt/playwright-browsers`), and `camoufox` (the same Python base plus
-Playwright 1.55.0, Camoufox 0.4.11, Firefox 152.0.4-beta.30 and Xvfb).
+Playwright 1.64.1, Camoufox 0.4.11, Firefox 152.0.4-beta.30 and Xvfb).
 AMEX and Revolut use `camoufox`, including the target CPU's x86_64 or arm64 browser.
 Their shared browser/addons live in `/opt/camoufox-cache/camoufox`, readable by
 both service users; GeoIP is downloaded once into the Camoufox package directory.
 A sidecar Dockerfile only adds its user and code.
+
+Camoufox protocol compatibility depends on the Firefox release pinned in
+`services/base/pin_camoufox.py`, not just the Camoufox Python package version.
+Keep browser-specific requirements separate even when their Playwright pins match.
+For browser updates, run `services/base/smoke_camoufox.py` in both AMEX and Revolut
+images, in headless and headful modes on AMD64 and native ARM64, and run the
+Chromium navigation tests in `services/fortuneo-auth/test_navigation.py` and
+`services/bourse-direct-auth/test_navigation.py`. These offline checks cover
+browser launch and page operations, not provider login compatibility.
+
 All three targets retain Python 3.12 because the pinned Pydantic core has no CPython
 3.15 wheels and the slim base lacks the native toolchain for a source build. A Python
 runtime upgrade requires compatible dependency pins and successful builds of all
