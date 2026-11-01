@@ -1,4 +1,4 @@
-import { useState, useRef, type ComponentType } from 'react'
+import { useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Dialog,
@@ -12,7 +12,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { AccountForm } from '@/components/shared/AccountForm'
 import { AddPropertyModal } from '@/components/property/AddPropertyModal'
-import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { TradeRepublicLogin } from '@/components/sync/TradeRepublicLogin'
 import { CryptoWalletForm } from '@/components/sync/CryptoWalletForm'
 import { CryptoExchangeForm } from '@/components/sync/CryptoExchangeForm'
@@ -28,11 +27,7 @@ import { CorumPanel } from '@/components/sync/CorumPanel'
 import { SofidyPanel } from '@/components/sync/SofidyPanel'
 import { IbkrPanel } from '@/components/sync/IbkrPanel'
 import { SimplefinPanel } from '@/components/sync/SimplefinPanel'
-import {
-  ACCOUNT_COLORS,
-  ACCOUNT_TYPES,
-} from '@/lib/constants'
-import { getErrorStatus, getErrorDetail } from '@/lib/errors'
+import { getErrorDetail, formatApiError } from '@/lib/errors'
 import { useCreateAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
 import {
   useInitiateBankSync,
@@ -40,12 +35,15 @@ import {
   useConfirmRevolutSync,
   useFinaryConnectionStatus,
   useFinaryLogin,
-  usePreviewFinaryFile,
-  usePreviewFinaryApi,
-  useImportFinary,
-  useExecuteFinaryApiSync,
   useCheckFinaryTotp,
 } from '@/features/sync/hooks'
+import {
+  FinaryMappingStep,
+  FinaryResultStep,
+  FinaryStepIndicator,
+  FinaryUploadZone,
+} from '@/components/sync/FinaryImportSteps'
+import { useFinaryImport } from '@/features/sync/use-finary-import'
 import { RevolutCredentialsForm, type RevolutCredentials } from '@/components/sync/RevolutCredentialsForm'
 import { useRevolutDiscovery } from '@/features/sync/use-revolut-discovery'
 import { RevolutSelectionCard } from '@/components/sync/RevolutSelectionCard'
@@ -66,16 +64,13 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
-  Upload,
   RefreshCw,
   AlertTriangle,
   BriefcaseBusiness,
   TrendingUp,
   PiggyBank,
 } from 'lucide-react'
-import { formatApiError } from '@/lib/errors'
-import type { AccountRequest, FinaryPreviewResponse, FinaryAccountMapping, FinaryMappingAction, FinaryImportResultResponse, AccountType } from '@/types/api'
-import { availableTargets, initialFinaryMappings } from '@/features/sync/finary-mappings'
+import type { AccountRequest, AccountType } from '@/types/api'
 
 // ---------------------------------------------------------------------------
 // Props & types
@@ -517,45 +512,29 @@ function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: () => v
 // Wizard: Finary (3-step: Login/Upload → Mapping → Results)
 // ---------------------------------------------------------------------------
 
-type FinaryStep = 1 | 2 | 3
-
 function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
   const { t } = useTranslation()
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const { data: connectionStatus } = useFinaryConnectionStatus()
   const loginMutation = useFinaryLogin()
+  const checkTotpMutation = useCheckFinaryTotp()
 
   const isConnected = connectionStatus?.connected ?? false
 
-  const [step, setStep] = useState<FinaryStep>(1)
-  const [isApiSync, setIsApiSync] = useState(false)
-  const [previewData, setPreviewData] = useState<FinaryPreviewResponse | null>(null)
-  const [mappings, setMappings] = useState<FinaryAccountMapping[]>([])
-  const [importResult, setImportResult] = useState<FinaryImportResultResponse | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [totpRequired, setTotpRequired] = useState(false)
-  const [totpCode, setTotpCode] = useState('')
-  const [dragOver, setDragOver] = useState(false)
+  const wizard = useFinaryImport({
+    errorMessage: (err) => (err instanceof Error ? err.message : t('common.retry')),
+  })
+  const { step, previewData, mappings, importResult, loading, error, totpRequired, totpCode } = wizard
 
   // Login form state
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
 
-  const previewFileMutation = usePreviewFinaryFile()
-  const previewApiMutation = usePreviewFinaryApi()
-  const importMutation = useImportFinary()
-  const executeApiMutation = useExecuteFinaryApiSync()
-  const checkTotpMutation = useCheckFinaryTotp()
-
-  // --- Login ---
-
   function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     if (!email || !password) return
-    setLoading(true)
-    setError(null)
+    wizard.setLoading(true)
+    wizard.setError(null)
     loginMutation.mutate(
       { email, password },
       {
@@ -564,202 +543,37 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
           setPassword('')
           checkTotpMutation.mutate(undefined, {
             onSuccess: ({ totpRequired }) => {
-              setLoading(false)
+              wizard.setLoading(false)
               if (totpRequired) {
-                setTotpRequired(true)
+                wizard.setTotpRequired(true)
               } else {
-                handleApiSyncPreview()
+                wizard.previewApiSync()
               }
             },
             onError: (err: unknown) => {
-              setLoading(false)
-              setError(getErrorDetail(err) || t('common.retry'))
+              wizard.setLoading(false)
+              wizard.setError(getErrorDetail(err) || t('common.retry'))
             },
           })
         },
         onError: () => {
-          setLoading(false)
+          wizard.setLoading(false)
         },
       },
     )
   }
 
-  // --- Sync ---
-
-  function handleSync() {
-    setLoading(true)
-    setError(null)
-    previewApiMutation.mutate(totpCode || undefined, {
-      onSuccess: (data) => {
-        setLoading(false)
-        setPreviewData(data)
-        initMappings(data)
-        setIsApiSync(true)
-        setTotpRequired(false)
-        setTotpCode('')
-
-        if (data.autoMapped && data.suggestedMappings) {
-          executeWithMappings(data.fileToken, data.suggestedMappings, true)
-        } else {
-          setStep(2)
-        }
-      },
-      onError: (err: unknown) => {
-        setLoading(false)
-        if (getErrorStatus(err) === 403) {
-          setTotpRequired(true)
-        } else {
-          setError(err instanceof Error ? err.message : t('common.retry'))
-        }
-      },
-    })
-  }
-
-  function handleApiSyncPreview() {
-    setLoading(true)
-    setError(null)
-    previewApiMutation.mutate(totpCode || undefined, {
-      onSuccess: (data) => {
-        setLoading(false)
-        setPreviewData(data)
-        initMappings(data)
-        setIsApiSync(true)
-        setTotpRequired(false)
-        setStep(2)
-      },
-      onError: (err: unknown) => {
-        setLoading(false)
-        if (getErrorStatus(err) === 403) {
-          setTotpRequired(true)
-        } else {
-          setError(err instanceof Error ? err.message : t('common.retry'))
-        }
-      },
-    })
-  }
-
-  // The mode is a parameter, not read from isApiSync: handleSync calls this in the
-  // same tick it calls setIsApiSync(true), when the closure still holds the old value.
-  function executeWithMappings(token: string, mappingsToUse: FinaryAccountMapping[], apiSync: boolean) {
-    setLoading(true)
-    setError(null)
-    const onSuccess = (data: FinaryImportResultResponse) => {
-      setLoading(false)
-      setImportResult(data)
-      setStep(3)
-    }
-    const onError = (err: unknown) => {
-      setLoading(false)
-      setError(err instanceof Error ? err.message : t('common.retry'))
-    }
-
-    if (apiSync) {
-      executeApiMutation.mutate({ syncToken: token, mappings: mappingsToUse }, { onSuccess, onError })
-    } else {
-      importMutation.mutate({ fileToken: token, mappings: mappingsToUse }, { onSuccess, onError })
-    }
-  }
-
-  // --- File upload ---
-
-  function handleFileUpload(file: File) {
-    setLoading(true)
-    setError(null)
-    previewFileMutation.mutate(file, {
-      onSuccess: (data) => {
-        setLoading(false)
-        setPreviewData(data)
-        initMappings(data)
-        setIsApiSync(false)
-        setStep(2)
-      },
-      onError: (err: unknown) => {
-        setLoading(false)
-        setError(err instanceof Error ? err.message : t('common.retry'))
-      },
-    })
-  }
-
-  function initMappings(preview: FinaryPreviewResponse) {
-    setMappings(initialFinaryMappings(preview))
-  }
-
-  function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (file) handleFileUpload(file)
-    if (fileInputRef.current) fileInputRef.current.value = ''
-  }
-
-  function onDrop(e: React.DragEvent) {
-    e.preventDefault()
-    setDragOver(false)
-    const file = e.dataTransfer.files?.[0]
-    if (file) handleFileUpload(file)
-  }
-
-  // --- Step 2: Mapping ---
-
-  function setMappingAction(index: number, action: FinaryMappingAction) {
-    setMappings((prev) => prev.map((m, i) => {
-      if (i !== index) return m
-      const account = previewData?.accounts[index]
-      if (action === 'SKIP') return { ...m, action, targetAccountId: undefined, newAccount: undefined }
-      if (action === 'MAP_EXISTING') return { ...m, action, newAccount: undefined }
-      return {
-        ...m,
-        action,
-        targetAccountId: undefined,
-        newAccount: {
-          name: m.newAccount?.name ?? account?.finaryName ?? '',
-          type: m.newAccount?.type ?? account?.suggestedType ?? 'OTHER' as AccountType,
-          provider: m.newAccount?.provider ?? account?.finaryInstitution ?? 'Finary',
-          currency: m.newAccount?.currency ?? account?.nativeCurrency ?? 'EUR',
-          color: m.newAccount?.color ?? ACCOUNT_COLORS[0],
-        },
-      }
-    }))
-  }
-
-  function updateNewAccountField(index: number, field: string, value: string) {
-    setMappings((prev) => prev.map((m, i) => {
-      if (i !== index || !m.newAccount) return m
-      return { ...m, newAccount: { ...m.newAccount, [field]: value } }
-    }))
-  }
-
-  function handleImport() {
-    if (!previewData) return
-    executeWithMappings(previewData.fileToken, mappings, isApiSync)
-  }
-
-  const hasSkipAll = mappings.every((m) => m.action === 'SKIP')
-
   return (
     <>
       <BackButton onClick={onBack} />
 
-      {/* Step indicator */}
-      <div className="flex items-center justify-center gap-2 mb-4">
-        {([1, 2, 3] as const).map((s) => (
-          <div key={s} className="flex items-center gap-2">
-            <div
-              className={`flex size-7 items-center justify-center rounded-full text-xs font-medium transition-colors ${
-                step >= s ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-              }`}
-            >
-              {step > s ? <CheckCircle2 className="size-3.5" /> : s}
-            </div>
-            <span className="text-xs text-muted-foreground">{t(`sync.finary.step${s}`)}</span>
-            {s < 3 && <div className={`mx-1 h-px w-6 ${step > s ? 'bg-primary' : 'bg-muted'}`} />}
-          </div>
-        ))}
-      </div>
+      <FinaryStepIndicator step={step} variant="modal" />
 
       {/* Error banner */}
       {error && (
         <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive mb-4">
           <span className="flex-1">{error}</span>
-          <Button variant="ghost" size="sm" onClick={() => setError(null)}>x</Button>
+          <Button variant="ghost" size="sm" onClick={() => wizard.setError(null)}>x</Button>
         </div>
       )}
 
@@ -815,7 +629,7 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
                   {connectionStatus.maskedEmail}
                 </p>
               )}
-              <Button onClick={handleSync} disabled={loading} className="w-full" size="sm">
+              <Button onClick={wizard.syncWithTotp} disabled={loading} className="w-full" size="sm">
                 {loading ? (
                   <><Loader2 className="size-3.5 animate-spin" />{t('sync.finary.syncing')}</>
                 ) : (
@@ -827,9 +641,9 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
                 <div className="flex gap-2">
                   <div className="flex-1">
                     <Label htmlFor="finary-totp">{t('sync.finary.totp')}</Label>
-                    <Input id="finary-totp" value={totpCode} onChange={(e) => setTotpCode(e.target.value)} placeholder="000000" maxLength={6} className="mt-1" />
+                    <Input id="finary-totp" value={totpCode} onChange={(e) => wizard.setTotpCode(e.target.value)} placeholder="000000" maxLength={6} className="mt-1" />
                   </div>
-                  <Button className="mt-4" onClick={handleSync} disabled={totpCode.length !== 6 || loading} size="sm">
+                  <Button className="mt-4" onClick={wizard.syncWithTotp} disabled={totpCode.length !== 6 || loading} size="sm">
                     <ArrowRight className="size-3.5" />
                   </Button>
                 </div>
@@ -837,200 +651,30 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
             </div>
           )}
 
-          {/* File upload divider */}
-          <div className="flex items-center gap-3">
-            <div className="h-px flex-1 bg-border" />
-            <span className="text-xs text-muted-foreground">ou</span>
-            <div className="h-px flex-1 bg-border" />
-          </div>
-
-          {/* File upload zone */}
-          <div
-            className={`flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-8 text-center transition-colors ${
-              dragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
-            }`}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={onDrop}
-          >
-            <Upload className="size-5 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium">{t('sync.finary.uploadFile')}</p>
-              <p className="text-xs text-muted-foreground">{t('sync.finary.uploadHint')}</p>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={loading}>
-              <Upload className="size-4" />
-              {t('sync.finary.uploadFile')}
-            </Button>
-            <input ref={fileInputRef} type="file" accept=".xlsx" className="hidden" onChange={onFileSelected} />
-          </div>
+          <FinaryUploadZone variant="modal" onFile={wizard.uploadFile} disabled={loading} />
         </div>
       )}
 
       {/* Step 2: Account Mapping */}
       {step === 2 && previewData && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <Button variant="ghost" size="sm" onClick={() => { setStep(1); setPreviewData(null) }}>
-              <ArrowLeft className="size-4" />
-              {t('sync.finary.back')}
-            </Button>
-            <Button onClick={handleImport} disabled={loading || hasSkipAll} size="sm">
-              {loading ? t('common.loading') : t('sync.finary.import')}
-              <ArrowRight className="size-4" />
-            </Button>
-          </div>
-
-          <div className="space-y-3 max-h-80 overflow-y-auto">
-            {previewData.accounts.map((account, index) => (
-              <div key={account.finaryCategory + account.finaryId} className="rounded-lg border p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{account.finaryName}</p>
-                    <p className="text-xs text-muted-foreground">{account.finaryInstitution} &middot; {account.finaryCategory}</p>
-                  </div>
-                  <div className="text-right shrink-0 ml-2">
-                    <CurrencyDisplay value={account.currentBalance} currency={account.nativeCurrency} />
-                    <p className="text-xs text-muted-foreground">{account.transactionCount} tx</p>
-                  </div>
-                </div>
-
-                <div className="flex gap-1.5">
-                  {(['SKIP', 'MAP_EXISTING', 'CREATE_NEW'] as const).map((action) => (
-                    <Button
-                      key={action}
-                      variant={mappings[index]?.action === action ? 'default' : 'outline'}
-                      size="xs"
-                      onClick={() => setMappingAction(index, action)}
-                    >
-                      {t(`sync.finary.${action === 'SKIP' ? 'skip' : action === 'MAP_EXISTING' ? 'mapExisting' : 'createNew'}`)}
-                    </Button>
-                  ))}
-                </div>
-
-                {mappings[index]?.action === 'MAP_EXISTING' && (
-                  <select
-                    className="h-10 w-full rounded-xl border border-input bg-background text-foreground px-4 text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]"
-                    value={mappings[index].targetAccountId ?? ''}
-                    onChange={(e) => {
-                      const val = e.target.value
-                      if (val) {
-                        setMappings((prev) => prev.map((m, i) => i === index ? { ...m, targetAccountId: Number(val) } : m))
-                      }
-                    }}
-                  >
-                    <option value="" disabled>{t('sync.finary.mapExisting')}...</option>
-                    {availableTargets(previewData.existingPicsouAccounts, mappings, index).map((acc) => (
-                      <option key={acc.id} value={acc.id}>{acc.name} ({acc.type})</option>
-                    ))}
-                  </select>
-                )}
-
-                {mappings[index]?.action === 'CREATE_NEW' && mappings[index].newAccount && (
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <Label>{t('accounts.accountName')}</Label>
-                      <Input
-                        value={mappings[index].newAccount!.name}
-                        onChange={(e) => updateNewAccountField(index, 'name', e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>{t('sync.exchanges.type')}</Label>
-                      <select
-                        className="h-10 w-full rounded-xl border border-input bg-background text-foreground px-4 text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]"
-                        value={mappings[index].newAccount!.type}
-                        onChange={(e) => updateNewAccountField(index, 'type', e.target.value)}
-                      >
-                        {/* The shared list, not a local copy: deriving a label key from the
-                            type name only held while every key was the lowercased value, and
-                            broke the moment a type needed its own (livretA, employeeSavings). */}
-                        {ACCOUNT_TYPES.map((at) => (
-                          <option key={at.value} value={at.value}>{t(at.labelKey)}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label>{t('accounts.provider')}</Label>
-                      <Input
-                        value={mappings[index].newAccount!.provider ?? ''}
-                        onChange={(e) => updateNewAccountField(index, 'provider', e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>{t('common.currency')}</Label>
-                      <Input
-                        value={mappings[index].newAccount!.currency}
-                        onChange={(e) => updateNewAccountField(index, 'currency', e.target.value)}
-                        maxLength={3}
-                      />
-                    </div>
-                    <div className="space-y-1 sm:col-span-2">
-                      <Label>{t('accounts.color')}</Label>
-                      <div className="flex flex-wrap gap-2">
-                        {ACCOUNT_COLORS.map((color) => (
-                          <button
-                            key={color}
-                            type="button"
-                            className={`size-8 rounded-full border-2 transition-[border-color,box-shadow] ${
-                              mappings[index].newAccount?.color === color
-                                ? 'border-background ring-2 ring-foreground'
-                                : 'border-transparent'
-                            }`}
-                            style={{ backgroundColor: color }}
-                            onClick={() => updateNewAccountField(index, 'color', color)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
+        <FinaryMappingStep
+          variant="modal"
+          preview={previewData}
+          mappings={mappings}
+          loading={loading}
+          hasSkipAll={wizard.hasSkipAll}
+          onBack={wizard.backToStart}
+          onImport={wizard.importMapped}
+          onActionChange={wizard.setMappingAction}
+          onTargetChange={(index, id) => wizard.updateMapping(index, { targetAccountId: id })}
+          onNewAccountField={wizard.updateNewAccountField}
+        />
       )}
 
       {/* Step 3: Results */}
       {step === 3 && importResult && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <ResultStat label={t('sync.finary.accountsCreated')} value={importResult.accountsCreated} color="text-emerald-600" />
-            <ResultStat label={t('sync.finary.accountsMapped')} value={importResult.accountsMapped} color="text-blue-600" />
-            <ResultStat label={t('sync.finary.accountsSkipped')} value={importResult.accountsSkipped} color="text-muted-foreground" />
-            <ResultStat label={t('sync.finary.transactionsImported')} value={importResult.transactionsImported} color="text-violet-600" />
-          </div>
-
-          {importResult.importedAccounts.length > 0 && (
-            <div className="space-y-2">
-              {importResult.importedAccounts.map((account) => (
-                <div key={account.id} className="flex items-center gap-3 rounded-lg border px-3 py-2">
-                  <div className="size-3 shrink-0 rounded-full" style={{ backgroundColor: account.color }} />
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate text-sm font-medium">{account.name}</p>
-                    <span className="text-xs text-muted-foreground">{account.type}</span>
-                  </div>
-                  <CurrencyDisplay value={account.currentBalance} />
-                </div>
-              ))}
-            </div>
-          )}
-
-          <Button onClick={onDone} className="w-full">
-            <CheckCircle2 className="size-4" />
-            {t('sync.finary.done')}
-          </Button>
-        </div>
+        <FinaryResultStep variant="modal" result={importResult} onDone={onDone} />
       )}
     </>
-  )
-}
-
-function ResultStat({ label, value, color }: { label: string; value: number; color?: string }) {
-  return (
-    <div className="rounded-xl bg-muted/50 p-3 text-center">
-      <p className={`text-xl font-semibold ${color ?? ''}`}>{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
-    </div>
   )
 }
