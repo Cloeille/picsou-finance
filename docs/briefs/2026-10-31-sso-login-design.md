@@ -38,7 +38,8 @@ bounces the browser through the SPA's `/login?redirect=…`.
 - Accounts can live **without a password**: invited members can activate with SSO, and a linked
   account can turn its password login off. Sensitive actions then re-authenticate through the IdP.
 - Picsou's own TOTP is never asked on an SSO login; MFA is the IdP's job.
-- With SSO not configured, behavior is byte-for-byte today's. Only the schema grows.
+- With SSO not configured, sign-in and the UI behave exactly as today. Only the schema grows, and
+  the data export gains an empty `linked_identities` table.
 - The iOS app and the remote-MCP OAuth flow work with SSO accounts without any change on their
   side.
 
@@ -261,6 +262,8 @@ Four framework facts shape this flow; the last two were checked in Spring Securi
 - `service/sso/GroupsClaimParser.java`, `service/sso/SsoRoleSyncService.java`,
   `service/sso/SsoAccountService.java`.
 - `model/UserIdentity.java`, `repository/UserIdentityRepository.java`.
+- `export/LinkedIdentitiesExporter.java`: linked identities in the GDPR data export, which
+  promises every domain field tied to the user.
 - `controller/SignInMethodsController.java`, under `/api/auth`: `sso`, `sign-in-methods`,
   `reauth`, `password`, `identities`.
 - `controller/AdminIdentityController.java`: `DELETE /api/admin/members/{memberId}/identities`.
@@ -439,7 +442,8 @@ Backend (`mvn test`):
 
 - **Mockito unit tests** for `GroupsClaimParser`, `SsoRoleSyncService`, `SsoAccountService`, the
   guard, resolver and handlers, `SessionIssuer`, `ReAuthService`, `SignInMethodsController`,
-  `AdminIdentityController`, `SetupService.seedSsoAdmin`, `JwtUtil` and `SafeRedirect`.
+  `AdminIdentityController`, `SetupService.seedSsoAdmin`, `JwtUtil`, `SafeRedirect` and
+  `LinkedIdentitiesExporter`.
 - **MockMvc** for HTTP-level behavior: the chain exists only when SSO is configured, routing of
   `/oauth2/sso/**`, the GET and cross-site refusals, and `GET /api/auth/sso` being public.
 - **One Testcontainers `@SpringBootTest` integration test** (pattern:
@@ -484,12 +488,12 @@ Manual end-to-end against Zitadel: the runbook at the end of the plan.
 | Phase                                                  | Developer-days |
 | ------------------------------------------------------ | -------------- |
 | 1. Groundwork (schema, properties, two extractions)    | 2.5–3.5        |
-| 2. SSO login core, role sync, re-validation            | 6.5–8.5        |
+| 2. SSO login core, role sync, re-validation, export    | 7–9            |
 | 3. Password-less accounts, re-auth, linking, invites   | 4–5.5          |
 | 4. First admin through SSO                             | 1.5–2          |
 | 5. Frontend                                            | 5.5–7.5        |
 | 6. Integration test, dev/infra, docs                   | 3–4            |
-| **Total**                                                  | **≈23–31**         |
+| **Total**                                                  | **≈23.5–31.5**     |
 
 ## Follow-ups
 
