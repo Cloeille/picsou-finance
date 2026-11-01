@@ -1,7 +1,6 @@
 package com.picsou.adapter;
 
 import com.picsou.model.PropertyKind;
-import com.picsou.port.HousingPriceIndexPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,7 +34,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * estimate less precise, which must never be confused with making it fail.
  */
 @Component
-public class InseeBdmIndexProvider implements HousingPriceIndexPort {
+public class InseeBdmIndexProvider {
 
     private static final Logger log = LoggerFactory.getLogger(InseeBdmIndexProvider.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
@@ -72,7 +71,11 @@ public class InseeBdmIndexProvider implements HousingPriceIndexPort {
         this.webClient = webClient;
     }
 
-    @Override
+    /**
+     * Ratio to multiply a {@code from}-era price by to express it in {@code to} money.
+     *
+     * @return empty when either period is unavailable — callers then skip re-indexing
+     */
     public Optional<BigDecimal> reindexRatio(YearMonth from, YearMonth to, PropertyKind kind) {
         if (from == null || to == null) {
             return Optional.empty();

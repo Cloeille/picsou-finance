@@ -1,15 +1,15 @@
 package com.picsou.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.CeremaDv3fValuationProvider;
+import com.picsou.adapter.CeremaDv3fValuationProvider.ValuationInput;
+import com.picsou.adapter.CeremaDv3fValuationProvider.ValuationResult;
+import com.picsou.adapter.InseeBdmIndexProvider;
 import com.picsou.dto.PropertyValuationResponse;
 import com.picsou.dto.PropertyValuationResponse.AdjustmentDto;
 import com.picsou.exception.ValuationProviderException;
 import com.picsou.model.*;
 import com.picsou.port.GeocodingPort;
-import com.picsou.port.HousingPriceIndexPort;
-import com.picsou.port.PropertyValuationPort;
-import com.picsou.port.PropertyValuationPort.ValuationInput;
-import com.picsou.port.PropertyValuationPort.ValuationResult;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
@@ -50,9 +50,9 @@ public class PropertyValuationService {
     /** Below this geocoding score the match is too shaky to value against. */
     private static final BigDecimal MIN_GEOCODE_SCORE = new BigDecimal("0.4");
 
-    private final List<PropertyValuationPort> providers;
+    private final CeremaDv3fValuationProvider provider;
     private final GeocodingPort geocoder;
-    private final HousingPriceIndexPort priceIndex;
+    private final InseeBdmIndexProvider priceIndex;
     private final PropertyAdjustments adjustments;
     private final RealEstateMetadataRepository metadataRepository;
     private final PropertyValuationRepository valuationRepository;
@@ -63,9 +63,9 @@ public class PropertyValuationService {
     private final boolean enabled;
 
     public PropertyValuationService(
-        List<PropertyValuationPort> providers,
+        CeremaDv3fValuationProvider provider,
         GeocodingPort geocoder,
-        HousingPriceIndexPort priceIndex,
+        InseeBdmIndexProvider priceIndex,
         PropertyAdjustments adjustments,
         RealEstateMetadataRepository metadataRepository,
         PropertyValuationRepository valuationRepository,
@@ -75,7 +75,7 @@ public class PropertyValuationService {
         TransactionTemplate txTemplate,
         @Value("${app.valuation.enabled:true}") boolean enabled
     ) {
-        this.providers = providers;
+        this.provider = provider;
         this.geocoder = geocoder;
         this.priceIndex = priceIndex;
         this.adjustments = adjustments;
@@ -188,11 +188,7 @@ public class PropertyValuationService {
 
         ValuationInput input = toInput(metadata, kind);
 
-        PropertyValuationPort provider = providers.stream()
-            .filter(p -> p.supports(input))
-            .findFirst()
-            .orElse(null);
-        if (provider == null) {
+        if (!provider.supports(input)) {
             // No provider covers this area at all — Alsace-Moselle and Mayotte are the
             // structural cases, and the user needs to be told that rather than shown a guess.
             return withCostBasisFloor(account, metadata,

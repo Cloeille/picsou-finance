@@ -1,8 +1,8 @@
 package com.picsou.ibkr.client;
 
 import com.picsou.exception.SyncException;
-import com.picsou.port.IbkrFlexPort.IbkrAccountData;
-import com.picsou.port.IbkrFlexPort.IbkrPosition;
+import com.picsou.ibkr.client.IbkrFlexClient.IbkrAccountData;
+import com.picsou.ibkr.client.IbkrFlexClient.IbkrPosition;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

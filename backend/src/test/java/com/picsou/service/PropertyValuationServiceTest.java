@@ -5,10 +5,10 @@ import com.picsou.dto.PropertyValuationResponse;
 import com.picsou.exception.ValuationProviderException;
 import com.picsou.model.*;
 import com.picsou.port.GeocodingPort;
-import com.picsou.port.HousingPriceIndexPort;
-import com.picsou.port.PropertyValuationPort;
-import com.picsou.port.PropertyValuationPort.ValuationInput;
-import com.picsou.port.PropertyValuationPort.ValuationResult;
+import com.picsou.adapter.InseeBdmIndexProvider;
+import com.picsou.adapter.CeremaDv3fValuationProvider;
+import com.picsou.adapter.CeremaDv3fValuationProvider.ValuationInput;
+import com.picsou.adapter.CeremaDv3fValuationProvider.ValuationResult;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
@@ -44,9 +44,9 @@ class PropertyValuationServiceTest {
 
     private static final FamilyMember ALICE = FamilyMember.builder().id(1L).displayName("Alice").build();
 
-    @Mock PropertyValuationPort provider;
+    @Mock CeremaDv3fValuationProvider provider;
     @Mock GeocodingPort geocoder;
-    @Mock HousingPriceIndexPort priceIndex;
+    @Mock InseeBdmIndexProvider priceIndex;
     @Mock RealEstateMetadataRepository metadataRepository;
     @Mock PropertyValuationRepository valuationRepository;
     @Mock AccountRepository accountRepository;
@@ -85,7 +85,7 @@ class PropertyValuationServiceTest {
     void setUp() {
         txManager = new CountingTxManager();
         service = new PropertyValuationService(
-            List.of(provider), geocoder, priceIndex, new PropertyAdjustments(),
+            provider, geocoder, priceIndex, new PropertyAdjustments(),
             metadataRepository, valuationRepository, accountRepository, accessResolver,
             new ObjectMapper(), new TransactionTemplate(txManager), true);
     }
@@ -364,7 +364,7 @@ class PropertyValuationServiceTest {
     @Test
     void estimate_whenDisabled_reportsProviderUnavailable() {
         PropertyValuationService disabled = new PropertyValuationService(
-            List.of(provider), geocoder, priceIndex, new PropertyAdjustments(),
+            provider, geocoder, priceIndex, new PropertyAdjustments(),
             metadataRepository, valuationRepository, accountRepository, accessResolver,
             new ObjectMapper(), new TransactionTemplate(new CountingTxManager()), false);
 
