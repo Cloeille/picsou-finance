@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Helm chart.** `charts/picsou` deploys the app, every sidecar and an optional
+  single-instance PostgreSQL on Kubernetes, with network policies that mirror the Compose
+  isolation and a pre-upgrade Job that migrates and verifies the schema before the app is
+  replaced. TLS terminates on the cluster's Ingress or Gateway. CI publishes it to
+  `oci://ghcr.io/cloeille/charts/picsou` with every release, and as a pre-release pinned to the
+  commit's images with every push to `main`.
+  See [feature note](docs/features/helm-chart.md).
+
 - **SCPI positions over MCP.** An MCP client can now record a SCPI account's share count,
   subscription and withdrawal prices and distribution with the new `set_scpi_position` tool
   (`accounts:write`). It goes through the same service as the account form, so the balance is
@@ -106,7 +114,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Shared sidecar base images.** Nine sidecars now build on two shared images,
   `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per
-  sidecar. Amex and Revolut keep their own image (Camoufox). See
+  sidecar. Both bases retain Python 3.12 for compatibility with the pinned native
+  dependencies. Amex and Revolut keep their own image (Camoufox). See
   [ADR](docs/decisions/2026-10-21-shared-sidecar-base-image.md).
 - **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
   the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
