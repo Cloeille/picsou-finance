@@ -8,7 +8,7 @@ import com.picsou.model.AccountType;
 import com.picsou.model.AmundiSession;
 import com.picsou.model.AmundiSyncStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.AmundiErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.AmundiPort;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
@@ -212,7 +212,7 @@ class AmundiSyncServiceTest {
         AmundiSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(AmundiSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(AmundiErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(holdingRepository, never()).deleteByAccountId(any());
         verify(accountRepository, never()).save(any(Account.class));
     }
@@ -251,7 +251,7 @@ class AmundiSyncServiceTest {
 
         AmundiSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.lastSyncError()).isEqualTo(AmundiErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
     }
 
     @Test
@@ -259,7 +259,7 @@ class AmundiSyncServiceTest {
         arrangeQueuedSession(activeSession(member()));
         when(port.fetchPlans("plain-state")).thenReturn(List.of(completePlan(), completePlan()));
 
-        assertThat(service.queueSync(7L).lastSyncError()).isEqualTo(AmundiErrorCode.INVALID_DATA);
+        assertThat(service.queueSync(7L).lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
     }
 
     @Test
@@ -282,7 +282,7 @@ class AmundiSyncServiceTest {
             position(null, longPrefix + " 2024", "10", "100", "1000", "0")
         )));
 
-        assertThat(service.queueSync(7L).lastSyncError()).isEqualTo(AmundiErrorCode.INVALID_DATA);
+        assertThat(service.queueSync(7L).lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
     }
 
     @Test
@@ -374,12 +374,12 @@ class AmundiSyncServiceTest {
         AmundiSession session = activeSession(member());
         arrangeQueuedSession(session);
         when(port.fetchPlans("plain-state")).thenThrow(
-            new SyncException("expired", null, AmundiErrorCode.SESSION_EXPIRED.name())
+            new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name())
         );
 
         AmundiSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.lastSyncError()).isEqualTo(AmundiErrorCode.SESSION_EXPIRED);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         assertThat(session.isActive()).isFalse();
     }
 
@@ -389,7 +389,7 @@ class AmundiSyncServiceTest {
 
         assertThatThrownBy(() -> service.queueSync(7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.SESSION_EXPIRED.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name())
             );
     }
 
@@ -431,7 +431,7 @@ class AmundiSyncServiceTest {
 
         assertThatThrownBy(() -> service.completeAuth("process", "123456", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.INVALID_DATA.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_DATA.name())
             );
     }
 
@@ -461,12 +461,12 @@ class AmundiSyncServiceTest {
         AmundiSession session = activeSession(member());
         arrangeQueuedSession(session);
         when(port.fetchPlans("plain-state")).thenThrow(
-            new SyncException("down", null, AmundiErrorCode.UPSTREAM_UNAVAILABLE.name())
+            new SyncException("down", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
         );
 
         service.resyncIfSessionActive(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(AmundiErrorCode.UPSTREAM_UNAVAILABLE);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
     // -- helpers ------------------------------------------------------------

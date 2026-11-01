@@ -7,7 +7,7 @@ import com.picsou.model.AccountType;
 import com.picsou.model.CicSession;
 import com.picsou.model.CicSyncStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.CicErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CicPort;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountRepository;
@@ -144,7 +144,7 @@ class CicSyncServiceTest {
         service.queueSync(7L);
 
         assertThat(session.getSyncStatus()).isEqualTo(CicSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(CicErrorCode.SESSION_EXPIRED);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         assertThat(session.isActive()).isFalse();
         // Credentials stay: the next reconnection can still re-log unattended.
         assertThat(session.getEncryptedCredentials()).isEqualTo("credentials-encrypted");
@@ -158,17 +158,17 @@ class CicSyncServiceTest {
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(port.fetchAccounts("plain-state")).thenThrow(expired());
         when(port.reauthenticate("12345678", "secret", "plain-state"))
-            .thenThrow(new SyncException("bad", null, CicErrorCode.INVALID_CREDENTIALS.name()));
+            .thenThrow(new SyncException("bad", null, SidecarErrorCode.INVALID_CREDENTIALS.name()));
 
         service.queueSync(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(CicErrorCode.INVALID_CREDENTIALS);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS);
         assertThat(session.getEncryptedCredentials()).isNull();
         CicSyncService.SessionStatusResponse status = service.getStatus(7L);
         assertThat(status.isActive()).isFalse();
         assertThat(status.canReconnect()).isFalse();
         assertThat(status.syncStatus()).isEqualTo(CicSyncStatus.FAILED);
-        assertThat(status.lastSyncError()).isEqualTo(CicErrorCode.INVALID_CREDENTIALS);
+        assertThat(status.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS);
         assertThat(service.resyncReporting(7L).status()).isEqualTo(SourceSyncResult.Status.NEEDS_REAUTH);
     }
 
@@ -180,7 +180,7 @@ class CicSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(CicErrorCode.SESSION_EXPIRED);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         verify(port, never()).reauthenticate(anyString(), anyString(), any());
     }
 
@@ -238,7 +238,7 @@ class CicSyncServiceTest {
 
         assertThatThrownBy(() -> service.reconnect(7L))
             .isInstanceOf(SyncException.class)
-            .extracting("code").isEqualTo(CicErrorCode.SESSION_EXPIRED.name());
+            .extracting("code").isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name());
         verify(port, never()).initiateAuth(anyString(), anyString(), any());
     }
 
@@ -269,7 +269,7 @@ class CicSyncServiceTest {
         CicSession session = activeSession(member());
         if (!active) {
             session.markQueued();
-            session.markFailed(CicErrorCode.SESSION_EXPIRED, clock.instant());
+            session.markFailed(SidecarErrorCode.SESSION_EXPIRED, clock.instant());
         }
         session.setEncryptedCredentials("credentials-encrypted");
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
@@ -277,20 +277,20 @@ class CicSyncServiceTest {
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(port.initiateAuth("12345678", "secret", "plain-state"))
-            .thenThrow(new SyncException("bad", null, CicErrorCode.INVALID_CREDENTIALS.name()));
+            .thenThrow(new SyncException("bad", null, SidecarErrorCode.INVALID_CREDENTIALS.name()));
 
         assertThatThrownBy(() -> service.reconnect(7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.INVALID_CREDENTIALS.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS.name()));
 
         CicSyncService.SessionStatusResponse status = service.getStatus(7L);
         assertThat(status.canReconnect()).isFalse();
         assertThat(status.isActive()).isFalse();
-        assertThat(status.lastSyncError()).isEqualTo(CicErrorCode.INVALID_CREDENTIALS);
+        assertThat(status.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS);
         assertThat(session.getEncryptedCredentials()).isNull();
         assertThatThrownBy(() -> service.reconnect(7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.SESSION_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name()));
         verify(port).initiateAuth("12345678", "secret", "plain-state");
     }
 
@@ -304,7 +304,7 @@ class CicSyncServiceTest {
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(port.initiateAuth("12345678", "secret", "plain-state")).thenAnswer(invocation -> {
             session.setEncryptedCredentials("new-credentials-encrypted");
-            throw new SyncException("bad", null, CicErrorCode.INVALID_CREDENTIALS.name());
+            throw new SyncException("bad", null, SidecarErrorCode.INVALID_CREDENTIALS.name());
         });
 
         assertThatThrownBy(() -> service.reconnect(7L)).isInstanceOf(SyncException.class);
@@ -323,11 +323,11 @@ class CicSyncServiceTest {
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(port.initiateAuth("12345678", "secret", "plain-state"))
-            .thenThrow(new SyncException("unavailable", null, CicErrorCode.UPSTREAM_UNAVAILABLE.name()));
+            .thenThrow(new SyncException("unavailable", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
 
         assertThatThrownBy(() -> service.reconnect(7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.UPSTREAM_UNAVAILABLE.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
 
         assertThat(session.getEncryptedCredentials()).isEqualTo("credentials-encrypted");
         assertThat(service.getStatus(7L).canReconnect()).isTrue();
@@ -359,7 +359,7 @@ class CicSyncServiceTest {
             return stored;
         });
         lenient().when(port.fetchAccounts("cookies"))
-            .thenThrow(new SyncException("transient", null, CicErrorCode.UPSTREAM_UNAVAILABLE.name()));
+            .thenThrow(new SyncException("transient", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
 
         service.initiateAuth("12345678", "secret", 7L);
         service.completeAuth("p2", null, 7L);
@@ -374,7 +374,7 @@ class CicSyncServiceTest {
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate("p4", true, "SMS", null));
         when(port.completeAuth("p4", "000000"))
-            .thenThrow(new SyncException("wrong", null, CicErrorCode.INVALID_OTP.name()));
+            .thenThrow(new SyncException("wrong", null, SidecarErrorCode.INVALID_OTP.name()));
         when(port.completeAuth("p4", "123456")).thenReturn("cookies");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
         when(encryption.encrypt(anyString())).thenAnswer(invocation ->
@@ -385,7 +385,7 @@ class CicSyncServiceTest {
             return stored;
         });
         lenient().when(port.fetchAccounts("cookies"))
-            .thenThrow(new SyncException("transient", null, CicErrorCode.UPSTREAM_UNAVAILABLE.name()));
+            .thenThrow(new SyncException("transient", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
         service.initiateAuth("12345678", "secret", 7L);
 
         assertThatThrownBy(() -> service.completeAuth("p4", "000000", 7L)).isInstanceOf(SyncException.class);
@@ -403,7 +403,7 @@ class CicSyncServiceTest {
 
         assertThatThrownBy(() -> service.completeAuth("p3", null, 8L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         verify(port, never()).completeAuth(anyString(), any());
     }
 
@@ -468,10 +468,10 @@ class CicSyncServiceTest {
             assertThat(pending.keySet()).isEqualTo(java.util.Set.of("newer"));
             assertAttemptExpired(() -> service.completeAuth("pending", null, 7L));
             when(port.completeAuth("newer", "000000"))
-                .thenThrow(new SyncException("wrong", null, CicErrorCode.INVALID_OTP.name()));
+                .thenThrow(new SyncException("wrong", null, SidecarErrorCode.INVALID_OTP.name()));
             assertThatThrownBy(() -> service.completeAuth("newer", "000000", 7L))
                 .isInstanceOfSatisfying(SyncException.class, error ->
-                    assertThat(error.getCode()).isEqualTo(CicErrorCode.INVALID_OTP.name()));
+                    assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_OTP.name()));
 
             when(clock.instant()).thenReturn(Instant.parse("2026-10-31T12:15:00Z"));
             scheduler.getScheduledTasks().forEach(task -> task.getTask().getRunnable().run());
@@ -542,11 +542,11 @@ class CicSyncServiceTest {
         initiatePendingAttempt();
         service.clearSession(8L);
         when(port.completeAuth("pending", "000000"))
-            .thenThrow(new SyncException("wrong", null, CicErrorCode.INVALID_OTP.name()));
+            .thenThrow(new SyncException("wrong", null, SidecarErrorCode.INVALID_OTP.name()));
 
         assertThatThrownBy(() -> service.completeAuth("pending", "000000", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.INVALID_OTP.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_OTP.name()));
     }
 
     @Test
@@ -574,14 +574,14 @@ class CicSyncServiceTest {
 
     private void assertAttemptExpired(org.assertj.core.api.ThrowableAssert.ThrowingCallable completion) {
         assertThatThrownBy(completion).isInstanceOfSatisfying(SyncException.class, error ->
-            assertThat(error.getCode()).isEqualTo(CicErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+            assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
     }
 
     @Test
     void aScheduledResyncAsksForReauthenticationOnceTheSessionIsGone() {
         CicSession session = activeSession(member());
         session.markQueued();
-        session.markFailed(CicErrorCode.SESSION_EXPIRED, java.time.Instant.now());
+        session.markFailed(SidecarErrorCode.SESSION_EXPIRED, java.time.Instant.now());
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
 
         SourceSyncResult result = service.resyncReporting(7L);
@@ -705,8 +705,8 @@ class CicSyncServiceTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = CicErrorCode.class, names = {"PORTFOLIO_INCOMPLETE", "UPSTREAM_FORMAT_CHANGED"})
-    void aFailedFetchPreservesExistingBalancesAndSnapshots(CicErrorCode code) {
+    @EnumSource(value = SidecarErrorCode.class, names = {"PORTFOLIO_INCOMPLETE", "UPSTREAM_FORMAT_CHANGED"})
+    void aFailedFetchPreservesExistingBalancesAndSnapshots(SidecarErrorCode code) {
         CicSession session = activeSession(member());
         arrangeQueuedSession(session);
         Account checking = Account.builder()
@@ -731,7 +731,7 @@ class CicSyncServiceTest {
     }
 
     private SyncException expired() {
-        return new SyncException("expired", null, CicErrorCode.SESSION_EXPIRED.name());
+        return new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name());
     }
 
     private void arrangeCommittableSync(List<CicPort.AccountData> accounts) {

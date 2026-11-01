@@ -2,7 +2,7 @@ package com.picsou.repository;
 
 import com.picsou.model.AmexSession;
 import com.picsou.model.AmexSyncStatus;
-import com.picsou.port.AmexErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -31,7 +31,7 @@ public interface AmexSessionRepository extends JpaRepository<AmexSession, Long> 
         @Param("interrupted") Collection<AmexSyncStatus> interrupted,
         @Param("failed") AmexSyncStatus failed,
         @Param("completedAt") Instant completedAt,
-        @Param("errorCode") AmexErrorCode errorCode
+        @Param("errorCode") SidecarErrorCode errorCode
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

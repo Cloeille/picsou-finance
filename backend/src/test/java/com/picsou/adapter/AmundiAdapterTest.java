@@ -2,7 +2,7 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.exception.SyncException;
-import com.picsou.port.AmundiErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -70,7 +70,7 @@ class AmundiAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchPlans("state"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.PORTFOLIO_INCOMPLETE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE.name());
                 assertThat(error.getMessage()).doesNotContain("state");
             });
     }
@@ -84,7 +84,7 @@ class AmundiAdapterTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth("login", "password"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.CAPTCHA_BLOCKED.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.CAPTCHA_BLOCKED.name())
             );
     }
 
@@ -97,7 +97,7 @@ class AmundiAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("process", null))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.APP_VALIDATION_TIMEOUT.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.APP_VALIDATION_TIMEOUT.name())
             );
     }
 
@@ -126,7 +126,7 @@ class AmundiAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("process", "123456"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.INVALID_OTP.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_OTP.name())
             );
     }
 
@@ -136,7 +136,7 @@ class AmundiAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("process", "123456"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.AUTH_ATTEMPT_EXPIRED.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name())
             );
     }
 
@@ -146,7 +146,7 @@ class AmundiAdapterTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth("login", "password"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -156,7 +156,7 @@ class AmundiAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchPlans("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.PORTFOLIO_INCOMPLETE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE.name())
             );
     }
 
@@ -166,7 +166,7 @@ class AmundiAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchPlans("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -179,7 +179,7 @@ class AmundiAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchPlans("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -196,7 +196,7 @@ class AmundiAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchPlans("state"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.UPSTREAM_UNAVAILABLE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getMessage()).contains("too long");
             });
     }

@@ -3,7 +3,7 @@ package com.picsou.controller;
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
 import com.picsou.model.CaisseEpargneSyncStatus;
-import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.CaisseEpargneSyncService;
 import com.picsou.service.UserContext;
 import io.github.bucket4j.Bucket;
@@ -116,7 +116,7 @@ class CaisseEpargneControllerTest {
     void aMissingSessionReachesTheClientAsATranslatableCode() throws Exception {
         when(service.queueSync(MEMBER_ID)).thenThrow(new SyncException(
             "No active Caisse d'Epargne session. Please reconnect.", null,
-            CaisseEpargneErrorCode.SESSION_EXPIRED.name()));
+            SidecarErrorCode.SESSION_EXPIRED.name()));
 
         mockMvc.perform(post("/api/caisse-epargne/sync").with(r -> {
                 r.setRemoteAddr("127.0.0.1");

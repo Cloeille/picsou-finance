@@ -8,7 +8,7 @@ import com.picsou.model.AccountType;
 import com.picsou.model.CmesSession;
 import com.picsou.model.CmesSyncStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.CmesErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CmesPort;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
@@ -162,7 +162,7 @@ class CmesSyncServiceTest {
         service.queueSync(7L);
 
         assertThat(session.getSyncStatus()).isEqualTo(CmesSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(CmesErrorCode.SESSION_EXPIRED);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         assertThat(session.isActive()).isFalse();
         // Credentials stay: the next reconnection can still re-log unattended.
         assertThat(session.getEncryptedCredentials()).isEqualTo("credentials-encrypted");
@@ -176,11 +176,11 @@ class CmesSyncServiceTest {
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(port.fetchPlans("plain-state")).thenThrow(expired());
         when(port.reauthenticate("12345678", "secret", "plain-state"))
-            .thenThrow(new SyncException("bad", null, CmesErrorCode.INVALID_CREDENTIALS.name()));
+            .thenThrow(new SyncException("bad", null, SidecarErrorCode.INVALID_CREDENTIALS.name()));
 
         service.queueSync(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(CmesErrorCode.INVALID_CREDENTIALS);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS);
         assertThat(session.getEncryptedCredentials()).isNull();
         // Without credentials the next scheduled run could only fail: ask the saver now.
         assertThat(session.isActive()).isFalse();
@@ -194,7 +194,7 @@ class CmesSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(CmesErrorCode.SESSION_EXPIRED);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         verify(port, never()).reauthenticate(anyString(), anyString(), any());
     }
 
@@ -239,7 +239,7 @@ class CmesSyncServiceTest {
             return stored;
         });
         lenient().when(port.fetchPlans("cookies"))
-            .thenThrow(new SyncException("transient", null, CmesErrorCode.UPSTREAM_UNAVAILABLE.name()));
+            .thenThrow(new SyncException("transient", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
 
         service.initiateAuth("12345678", "secret", 7L);
         service.completeAuth("p2", null, 7L);
@@ -254,7 +254,7 @@ class CmesSyncServiceTest {
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate("p4", true, "SMS", null));
         when(port.completeAuth("p4", "000000"))
-            .thenThrow(new SyncException("wrong", null, CmesErrorCode.INVALID_OTP.name()));
+            .thenThrow(new SyncException("wrong", null, SidecarErrorCode.INVALID_OTP.name()));
         when(port.completeAuth("p4", "123456")).thenReturn("cookies");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
         when(encryption.encrypt(anyString())).thenAnswer(invocation ->
@@ -265,7 +265,7 @@ class CmesSyncServiceTest {
             return stored;
         });
         lenient().when(port.fetchPlans("cookies"))
-            .thenThrow(new SyncException("transient", null, CmesErrorCode.UPSTREAM_UNAVAILABLE.name()));
+            .thenThrow(new SyncException("transient", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
         service.initiateAuth("12345678", "secret", 7L);
 
         assertThatThrownBy(() -> service.completeAuth("p4", "000000", 7L)).isInstanceOf(SyncException.class);
@@ -283,7 +283,7 @@ class CmesSyncServiceTest {
 
         assertThatThrownBy(() -> service.completeAuth("p3", null, 8L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         verify(port, never()).completeAuth(anyString(), any());
     }
 
@@ -293,7 +293,7 @@ class CmesSyncServiceTest {
         // still holds the attempt.
         assertThatThrownBy(() -> service.completeAuth("p5", null, 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         verify(port, never()).completeAuth(anyString(), any());
         verify(sessionRepository, never()).delete(any());
     }
@@ -313,7 +313,7 @@ class CmesSyncServiceTest {
 
         assertThatThrownBy(() -> service.completeAuth("p7", null, 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         verify(sessionRepository, never()).saveAndFlush(any());
         verify(encryption, never()).encrypt(anyString());
     }
@@ -329,7 +329,7 @@ class CmesSyncServiceTest {
 
         assertThatThrownBy(() -> service.initiateAuth("12345678", "secret", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         verify(sessionRepository, never()).saveAndFlush(any());
         verify(encryption, never()).encrypt(anyString());
     }
@@ -344,11 +344,11 @@ class CmesSyncServiceTest {
 
         assertThatThrownBy(() -> service.initiateAuth("12345678", "secret", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         // No pending credentials were kept: the attempt cannot be completed.
         assertThatThrownBy(() -> service.completeAuth("p7", null, 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         verify(port, never()).completeAuth(anyString(), any());
     }
 
@@ -371,20 +371,20 @@ class CmesSyncServiceTest {
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate("p6", true, "SMS", null));
         when(port.completeAuth("p6", "000000"))
-            .thenThrow(new SyncException("wrong", null, CmesErrorCode.INVALID_OTP.name()));
+            .thenThrow(new SyncException("wrong", null, SidecarErrorCode.INVALID_OTP.name()));
         service.initiateAuth("12345678", "secret", 7L);
 
         // Still live: kept, and the attempt reaches the sidecar.
         service.evictPendingCredentialsExpiredAt(Instant.now());
         assertThatThrownBy(() -> service.completeAuth("p6", "000000", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CmesErrorCode.INVALID_OTP.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_OTP.name()));
 
         // Past its ten minutes: gone, with no new login needed to clear it.
         service.evictPendingCredentialsExpiredAt(Instant.now().plusSeconds(601));
         assertThatThrownBy(() -> service.completeAuth("p6", "000000", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CmesErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         verify(port, times(1)).completeAuth(anyString(), any());
     }
 
@@ -420,7 +420,7 @@ class CmesSyncServiceTest {
     void aFailedFetchClosesNoPlan() {
         arrangeQueuedSession(activeSession(member()));
         when(port.fetchPlans("plain-state"))
-            .thenThrow(new SyncException("partial", null, CmesErrorCode.PORTFOLIO_INCOMPLETE.name()));
+            .thenThrow(new SyncException("partial", null, SidecarErrorCode.PORTFOLIO_INCOMPLETE.name()));
 
         service.queueSync(7L);
 
@@ -519,7 +519,7 @@ class CmesSyncServiceTest {
         CmesSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(CmesSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(CmesErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         assertThat(imported.getExternalAccountId()).isEqualTo(PEG_ID);
         assertThat(imported.getCurrentBalance()).isEqualByComparingTo("1400.00");
         verify(accountRepository, never()).save(any());
@@ -566,7 +566,7 @@ class CmesSyncServiceTest {
     void aScheduledResyncAsksForReauthenticationOnceTheSessionIsGone() {
         CmesSession session = activeSession(member());
         session.markQueued();
-        session.markFailed(CmesErrorCode.SESSION_EXPIRED, java.time.Instant.now());
+        session.markFailed(SidecarErrorCode.SESSION_EXPIRED, java.time.Instant.now());
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
 
         SourceSyncResult result = service.resyncReporting(7L);
@@ -576,7 +576,7 @@ class CmesSyncServiceTest {
     }
 
     private SyncException expired() {
-        return new SyncException("expired", null, CmesErrorCode.SESSION_EXPIRED.name());
+        return new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name());
     }
 
     private void arrangeCommittableSync(CmesPort.PlanData... plans) {
@@ -602,7 +602,7 @@ class CmesSyncServiceTest {
         lenient().when(sessionRepository.saveAndFlush(any(CmesSession.class)))
             .thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(port.fetchPlans("cookies"))
-            .thenThrow(new SyncException("transient", null, CmesErrorCode.UPSTREAM_UNAVAILABLE.name()));
+            .thenThrow(new SyncException("transient", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
     }
 
     private void executeTransactionsImmediately() {

@@ -1,6 +1,6 @@
 package com.picsou.model;
 
-import com.picsou.port.FortuneoErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -45,10 +45,10 @@ class FortuneoSessionTest {
         session.markQueued();
         session.markRunning(STARTED_AT);
 
-        session.markFailed(FortuneoErrorCode.SESSION_EXPIRED, COMPLETED_AT);
+        session.markFailed(SidecarErrorCode.SESSION_EXPIRED, COMPLETED_AT);
 
         assertThat(session.getSyncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(FortuneoErrorCode.SESSION_EXPIRED);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         assertThat(session.getLastSyncCompletedAt()).isEqualTo(COMPLETED_AT);
         assertThat(session.isActive()).isFalse();
     }
@@ -58,7 +58,7 @@ class FortuneoSessionTest {
         FortuneoSession session = newSession();
         session.markQueued();
 
-        session.markFailed(FortuneoErrorCode.INTERNAL_ERROR, COMPLETED_AT);
+        session.markFailed(SidecarErrorCode.INTERNAL_ERROR, COMPLETED_AT);
 
         assertThat(session.getSyncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
         assertThat(session.getLastSyncStartedAt()).isNull();

@@ -9,7 +9,7 @@ import com.picsou.model.AccountType;
 import com.picsou.model.BourseDirectSession;
 import com.picsou.model.BourseDirectSyncStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.BourseDirectErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BourseDirectPort;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
@@ -153,7 +153,7 @@ class BourseDirectSyncServiceTest {
         BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(BourseDirectSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(BourseDirectErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(holdingRepository, never()).deleteByAccountId(any());
         verify(accountRepository, never()).save(any());
     }
@@ -174,7 +174,7 @@ class BourseDirectSyncServiceTest {
         BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(BourseDirectSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(BourseDirectErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
 
@@ -183,14 +183,14 @@ class BourseDirectSyncServiceTest {
         BourseDirectSession session = activeSession(member());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(new SyncException(
-            "Session expired", null, BourseDirectErrorCode.SESSION_EXPIRED.name()
+            "Session expired", null, SidecarErrorCode.SESSION_EXPIRED.name()
         ));
 
         BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.isActive()).isFalse();
         assertThat(result.syncStatus()).isEqualTo(BourseDirectSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(BourseDirectErrorCode.SESSION_EXPIRED);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
 
@@ -311,7 +311,7 @@ class BourseDirectSyncServiceTest {
         BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(BourseDirectSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(BourseDirectErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
@@ -386,7 +386,7 @@ class BourseDirectSyncServiceTest {
 
         BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.lastSyncError()).isEqualTo(BourseDirectErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
@@ -401,7 +401,7 @@ class BourseDirectSyncServiceTest {
 
         BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.lastSyncError()).isEqualTo(BourseDirectErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
@@ -440,7 +440,7 @@ class BourseDirectSyncServiceTest {
 
         BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.lastSyncError()).isEqualTo(BourseDirectErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
@@ -479,7 +479,7 @@ class BourseDirectSyncServiceTest {
 
         BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.lastSyncError()).isEqualTo(BourseDirectErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
@@ -509,7 +509,7 @@ class BourseDirectSyncServiceTest {
             any(),
             eq(BourseDirectSyncStatus.FAILED),
             any(),
-            eq(BourseDirectErrorCode.INTERNAL_ERROR)
+            eq(SidecarErrorCode.INTERNAL_ERROR)
         )).thenReturn(2);
 
         service.recoverInterruptedSyncs();
@@ -518,7 +518,7 @@ class BourseDirectSyncServiceTest {
             eq(List.of(BourseDirectSyncStatus.QUEUED, BourseDirectSyncStatus.RUNNING)),
             eq(BourseDirectSyncStatus.FAILED),
             any(),
-            eq(BourseDirectErrorCode.INTERNAL_ERROR)
+            eq(SidecarErrorCode.INTERNAL_ERROR)
         );
     }
 

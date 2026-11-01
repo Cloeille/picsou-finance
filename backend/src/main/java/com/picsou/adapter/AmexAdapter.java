@@ -1,10 +1,11 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
 import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.port.AmexErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.AmexPort;
 import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +24,7 @@ public class AmexAdapter implements AmexPort {
     private static final Duration DEFAULT_VALIDATION_TIMEOUT = Duration.ofSeconds(40);
     private static final Duration DEFAULT_ACCOUNTS_TIMEOUT = Duration.ofSeconds(90);
 
-    private final SidecarErrorTranslator<AmexErrorCode> sidecar;
+    private final SidecarClient sidecar;
     private final Duration authTimeout;
     private final Duration validationTimeout;
     private final Duration accountsTimeout;
@@ -34,7 +35,7 @@ public class AmexAdapter implements AmexPort {
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Amex", "amex-auth"),
+            clients.create(SidecarBank.AMEX.label(), SidecarBank.AMEX.serviceName()),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,
@@ -53,15 +54,7 @@ public class AmexAdapter implements AmexPort {
         Duration validationTimeout,
         Duration accountsTimeout
     ) {
-        this.sidecar = new SidecarErrorTranslator<>(
-            client,
-            objectMapper,
-            AmexErrorCode.class,
-            "Amex",
-            AmexErrorCode.UPSTREAM_UNAVAILABLE,
-            AmexErrorCode.AUTH_ATTEMPT_EXPIRED,
-            AmexAdapter::friendlyMessage
-        );
+        this.sidecar = new SidecarClient(client, objectMapper, SidecarBank.AMEX, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
         this.authTimeout = authTimeout;
         this.validationTimeout = validationTimeout;
         this.accountsTimeout = accountsTimeout;
@@ -75,7 +68,7 @@ public class AmexAdapter implements AmexPort {
             SidecarInitiate.class,
             authTimeout,
             "Could not initiate Amex authentication",
-            AmexErrorCode.INVALID_CREDENTIALS
+            SidecarErrorCode.INVALID_CREDENTIALS
         );
     }
 
@@ -90,7 +83,7 @@ public class AmexAdapter implements AmexPort {
             SidecarSession.class,
             validationTimeout,
             "Could not complete Amex authentication",
-            AmexErrorCode.INVALID_OTP
+            SidecarErrorCode.INVALID_OTP
         );
         return response.sessionState();
     }
@@ -115,20 +108,8 @@ public class AmexAdapter implements AmexPort {
             AccountData[].class,
             history ? accountsTimeout.multipliedBy(4) : accountsTimeout,
             history ? "Could not recover Amex transaction history" : "Could not fetch Amex accounts",
-            AmexErrorCode.INVALID_DATA,
+            SidecarErrorCode.INVALID_DATA,
             "Amex returned no account"
         );
-    }
-
-    private static String friendlyMessage(AmexErrorCode code) {
-        return switch (code) {
-            case INVALID_CREDENTIALS -> "Amex rejected the username or password";
-            case INVALID_OTP -> "Amex rejected the verification code";
-            case AUTH_ATTEMPT_EXPIRED -> "The Amex authentication attempt expired";
-            case SESSION_EXPIRED -> "The Amex session expired";
-            case UPSTREAM_FORMAT_CHANGED -> "The Amex website format changed";
-            case INVALID_DATA -> "Amex returned invalid account data";
-            case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Amex is temporarily unavailable";
-        };
     }
 }

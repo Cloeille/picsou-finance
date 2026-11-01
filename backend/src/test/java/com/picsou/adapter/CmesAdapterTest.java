@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
-import com.picsou.port.CmesErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.http.HttpStatus;
@@ -100,7 +100,7 @@ class CmesAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("p1", "000000"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CmesErrorCode.INVALID_OTP.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_OTP.name()));
     }
 
     @Test
@@ -110,7 +110,7 @@ class CmesAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("p1", null))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CmesErrorCode.APP_VALIDATION_CANCELLED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.APP_VALIDATION_CANCELLED.name()));
     }
 
     @Test

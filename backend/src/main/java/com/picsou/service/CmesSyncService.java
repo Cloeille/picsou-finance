@@ -3,6 +3,7 @@ package com.picsou.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
@@ -12,7 +13,7 @@ import com.picsou.model.AccountType;
 import com.picsou.model.CmesSession;
 import com.picsou.model.CmesSyncStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.CmesErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CmesPort;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
@@ -124,7 +125,7 @@ public class CmesSyncService {
         SidecarInitiate result = port.initiateAuth(login, password, previousPlainState(memberId));
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
-                throw error(CmesErrorCode.INVALID_DATA, "CMES did not return a session", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "CMES did not return a session", null);
             }
             storeSessionAndQueue(result.sessionState(), memberId, login, password, generation);
         } else if (result.processId() != null) {
@@ -161,14 +162,14 @@ public class CmesSyncService {
         if (credentials == null
             || !credentials.memberId().equals(memberId)
             || !credentials.expiresAt().isAfter(Instant.now())) {
-            throw error(CmesErrorCode.AUTH_ATTEMPT_EXPIRED, "CMES authentication attempt expired", null);
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED, "CMES authentication attempt expired", null);
         }
         // A wrong SMS code throws INVALID_OTP before the pending credentials are
         // dropped, so the saver's next try on the same attempt still stores them.
         String plainState = port.completeAuth(processId, code);
         pendingCredentials.remove(processId);
         if (plainState == null || plainState.isBlank()) {
-            throw error(CmesErrorCode.INVALID_DATA, "CMES did not return a session", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "CMES did not return a session", null);
         }
         return storeSessionAndQueue(
             plainState, memberId, credentials.login(), credentials.password(), credentials.generation());
@@ -178,13 +179,13 @@ public class CmesSyncService {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
             CmesSession session = sessionRepository.findByMemberIdForUpdate(memberId)
                 .orElseThrow(() -> error(
-                    CmesErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "No active CMES session. Please reconnect.",
                     null
                 ));
             if (!session.isActive()) {
                 throw error(
-                    CmesErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "The CMES session expired. Please reconnect.",
                     null
                 );
@@ -229,7 +230,7 @@ public class CmesSyncService {
     /** Must be called under {@link #sessionWriteLock}, in the same block as the write it guards. */
     private void requireGeneration(Long memberId, long generation) {
         if (authGeneration(memberId) != generation) {
-            throw error(CmesErrorCode.AUTH_ATTEMPT_EXPIRED, "The CMES connection was removed during the login", null);
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED, "The CMES connection was removed during the login", null);
         }
     }
 
@@ -269,9 +270,9 @@ public class CmesSyncService {
         try {
             syncExecutor.execute(() -> executeJob(job));
         } catch (RuntimeException ex) {
-            markFailed(job, CmesErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             throw error(
-                CmesErrorCode.INTERNAL_ERROR,
+                SidecarErrorCode.INTERNAL_ERROR,
                 "Could not schedule the CMES synchronization",
                 ex
             );
@@ -287,7 +288,7 @@ public class CmesSyncService {
             try {
                 fetched = port.fetchPlans(job.plainState());
             } catch (SyncException ex) {
-                if (codeOf(ex) != CmesErrorCode.SESSION_EXPIRED) throw ex;
+                if (codeOf(ex) != SidecarErrorCode.SESSION_EXPIRED) throw ex;
                 fetched = reauthenticateAndFetch(job);
             }
             List<PreparedPlan> prepared = preparePlans(fetched);
@@ -297,11 +298,11 @@ public class CmesSyncService {
                 log.info("Discarded stale CMES sync result (member={})", job.memberId());
             }
         } catch (SyncException ex) {
-            CmesErrorCode code = codeOf(ex);
+            SidecarErrorCode code = codeOf(ex);
             markFailed(job, code);
             log.warn("CMES sync failed (member={}; code={})", job.memberId(), code);
         } catch (Exception ex) {
-            markFailed(job, CmesErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             log.error("CMES sync failed unexpectedly (member={})", job.memberId(), ex);
         }
     }
@@ -319,21 +320,21 @@ public class CmesSyncService {
         if (session == null || !session.isActive()
             || session.getSyncStatus() != CmesSyncStatus.RUNNING
             || session.getEncryptedCredentials() == null) {
-            throw error(CmesErrorCode.SESSION_EXPIRED, "CMES session expired", null);
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "CMES session expired", null);
         }
         Credentials credentials;
         try {
             credentials = parseCredentials(encryption.decrypt(session.getEncryptedCredentials()));
         } catch (RuntimeException ex) {
-            throw error(CmesErrorCode.SESSION_EXPIRED, "CMES session expired", ex);
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "CMES session expired", ex);
         }
         SidecarInitiate result = port.reauthenticate(credentials.login(), credentials.password(), job.plainState());
         if (result.mfaRequired()) {
             log.info("CMES asks for a new second factor (member={}; type={})", job.memberId(), result.mfaType());
-            throw error(CmesErrorCode.SESSION_EXPIRED, "CMES requires a new second factor", null);
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "CMES requires a new second factor", null);
         }
         if (result.sessionState() == null || result.sessionState().isBlank()) {
-            throw error(CmesErrorCode.INVALID_DATA, "CMES returned no session", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "CMES returned no session", null);
         }
         String newState = result.sessionState();
         Boolean updated = txTemplate.execute(status -> sessionRepository
@@ -346,7 +347,7 @@ public class CmesSyncService {
             })
             .orElse(false));
         if (!Boolean.TRUE.equals(updated)) {
-            throw error(CmesErrorCode.SESSION_EXPIRED, "CMES session changed", null);
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "CMES session changed", null);
         }
         log.info("CMES re-logged in with stored credentials (member={})", job.memberId());
         return port.fetchPlans(newState);
@@ -400,21 +401,21 @@ public class CmesSyncService {
 
     private List<PreparedPlan> preparePlans(List<CmesPort.PlanData> fetched) {
         if (fetched == null || fetched.isEmpty()) {
-            throw error(CmesErrorCode.PORTFOLIO_INCOMPLETE, "CMES returned no complete plan", null);
+            throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "CMES returned no complete plan", null);
         }
 
         Set<String> externalIds = new HashSet<>();
         List<PreparedPlan> prepared = new ArrayList<>();
         for (CmesPort.PlanData plan : fetched) {
             if (plan == null || !plan.snapshotComplete()) {
-                throw error(CmesErrorCode.PORTFOLIO_INCOMPLETE, "CMES returned an incomplete plan", null);
+                throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "CMES returned an incomplete plan", null);
             }
             String externalId = stableExternalId(plan.externalId());
             if (!externalIds.add(externalId)) {
-                throw error(CmesErrorCode.INVALID_DATA, "CMES returned duplicate plans", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "CMES returned duplicate plans", null);
             }
             if (plan.balanceEur() == null || plan.positions() == null) {
-                throw error(CmesErrorCode.INVALID_DATA, "CMES returned incomplete plan values", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "CMES returned incomplete plan values", null);
             }
 
             List<PreparedPosition> positions = preparePositions(plan.positions());
@@ -425,7 +426,7 @@ public class CmesSyncService {
             // total that disagrees with its lines means the read was partial,
             // and overwriting a good snapshot with it would erase real money.
             if (!moneyClose(positionValue, plan.balanceEur())) {
-                throw error(CmesErrorCode.PORTFOLIO_INCOMPLETE, "CMES returned an incomplete plan", null);
+                throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "CMES returned an incomplete plan", null);
             }
 
             prepared.add(new PreparedPlan(
@@ -446,7 +447,7 @@ public class CmesSyncService {
         Map<String, PreparedPosition> positions = new LinkedHashMap<>();
         for (CmesPort.Position position : rawPositions) {
             if (position == null || position.quantity() == null || position.valueEur() == null) {
-                throw error(CmesErrorCode.INVALID_DATA, "CMES returned an incomplete position", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "CMES returned an incomplete position", null);
             }
             if (position.quantity().signum() == 0 && position.valueEur().signum() == 0) {
                 continue;
@@ -485,7 +486,7 @@ public class CmesSyncService {
         // disagree, the identifier collided and merging would fuse two
         // different funds into one -- refuse rather than silently corrupt.
         if (!Objects.equals(left.name(), right.name())) {
-            throw error(CmesErrorCode.INVALID_DATA, "CMES returned colliding fund identifiers", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "CMES returned colliding fund identifiers", null);
         }
         BigDecimal quantity = left.quantity().add(right.quantity());
         return new PreparedPosition(
@@ -580,7 +581,7 @@ public class CmesSyncService {
                     && plan.name().equals(account.getName()))
                 .toList();
             if (claimants.size() > 1) {
-                throw error(CmesErrorCode.INVALID_DATA, "Several CMES plans match one earlier account", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "Several CMES plans match one earlier account", null);
             }
             if (claimants.size() == 1) {
                 inherited.merge(claimants.getFirst().externalId(), account, CmesSyncService::syncedLast);
@@ -695,7 +696,7 @@ public class CmesSyncService {
         }
     }
 
-    private void markFailed(SyncJob job, CmesErrorCode code) {
+    private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
                 Optional<CmesSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
@@ -718,7 +719,7 @@ public class CmesSyncService {
                 }
                 // A rejected password must not be replayed by every scheduled sync:
                 // the site locks the access after a few failures.
-                if (code == CmesErrorCode.INVALID_CREDENTIALS) session.setEncryptedCredentials(null);
+                if (code == SidecarErrorCode.INVALID_CREDENTIALS) session.setEncryptedCredentials(null);
                 session.markFailed(code, Instant.now());
                 sessionRepository.save(session);
             });
@@ -743,7 +744,7 @@ public class CmesSyncService {
             List.of(CmesSyncStatus.QUEUED, CmesSyncStatus.RUNNING),
             CmesSyncStatus.FAILED,
             Instant.now(),
-            CmesErrorCode.INTERNAL_ERROR
+            SidecarErrorCode.INTERNAL_ERROR
         );
         if (recovered > 0) {
             log.warn("Recovered {} interrupted CMES sync job(s)", recovered);
@@ -780,8 +781,8 @@ public class CmesSyncService {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
-                if (status.lastSyncError() == CmesErrorCode.SESSION_EXPIRED
-                    || status.lastSyncError() == CmesErrorCode.INVALID_CREDENTIALS) {
+                if (status.lastSyncError() == SidecarErrorCode.SESSION_EXPIRED
+                    || status.lastSyncError() == SidecarErrorCode.INVALID_CREDENTIALS) {
                     return new SourceSyncResult(SOURCE, SourceSyncResult.Status.NEEDS_REAUTH,
                         status.lastSyncError().name());
                 }
@@ -819,11 +820,11 @@ public class CmesSyncService {
         );
     }
 
-    private CmesErrorCode codeOf(SyncException exception) {
-        return errorCode(exception, CmesErrorCode.class, CmesErrorCode.UPSTREAM_UNAVAILABLE);
+    private SidecarErrorCode codeOf(SyncException exception) {
+        return SyncValues.errorCode(exception, SidecarBank.CMES, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
-    private SyncException error(CmesErrorCode code, String message, Throwable cause) {
+    private SyncException error(SidecarErrorCode code, String message, Throwable cause) {
         return new SyncException(message, cause, code.name());
     }
 
@@ -845,11 +846,11 @@ public class CmesSyncService {
     private String stableExternalId(String raw) {
         String cleaned = clean(raw);
         if (cleaned == null) {
-            throw error(CmesErrorCode.INVALID_DATA, "CMES returned an invalid plan identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "CMES returned an invalid plan identifier", null);
         }
         String externalId = cleaned.startsWith(EXTERNAL_ID_PREFIX) ? cleaned : EXTERNAL_ID_PREFIX + cleaned;
         if (externalId.length() > 100) {
-            throw error(CmesErrorCode.INVALID_DATA, "CMES returned an invalid plan identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "CMES returned an invalid plan identifier", null);
         }
         return externalId;
     }
@@ -874,7 +875,7 @@ public class CmesSyncService {
         }
         String label = slug(position.label());
         if (label == null) {
-            throw error(CmesErrorCode.INVALID_DATA, "CMES returned a fund without any identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "CMES returned a fund without any identifier", null);
         }
         return label;
     }
@@ -901,7 +902,7 @@ public class CmesSyncService {
         CmesSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        CmesErrorCode lastSyncError
+        SidecarErrorCode lastSyncError
     ) {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, CmesSyncStatus.IDLE, null, null, null);

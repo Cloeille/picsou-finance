@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
-import com.picsou.port.CicErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.http.HttpStatus;
@@ -85,7 +85,7 @@ class CicAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.SESSION_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name()));
     }
 
     @Test
@@ -94,7 +94,7 @@ class CicAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.PORTFOLIO_INCOMPLETE.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE.name()));
     }
 
     @Test
@@ -133,7 +133,7 @@ class CicAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("p1", "000000"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.INVALID_OTP.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_OTP.name()));
     }
 
     @Test
@@ -143,7 +143,7 @@ class CicAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("p1", null))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.APP_VALIDATION_CANCELLED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.APP_VALIDATION_CANCELLED.name()));
     }
 
     @Test
@@ -153,7 +153,7 @@ class CicAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
     }
 
     @Test

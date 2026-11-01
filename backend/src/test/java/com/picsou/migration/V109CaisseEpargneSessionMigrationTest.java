@@ -1,6 +1,7 @@
 package com.picsou.migration;
 
-import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.support.PostgresContainers;
 import com.picsou.support.RequiresPostgres;
 import org.flywaydb.core.Flyway;
@@ -87,8 +88,8 @@ class V109CaisseEpargneSessionMigrationTest {
 
     @Test
     void acceptsEveryErrorCodeSupportedByV109AndNoOther() throws SQLException {
-        for (CaisseEpargneErrorCode code : CaisseEpargneErrorCode.values()) {
-            if (code == CaisseEpargneErrorCode.KEYPAD_EXPIRED || code == CaisseEpargneErrorCode.INVALID_POSITIONS) {
+        for (SidecarErrorCode code : SidecarBank.CAISSE_EPARGNE.codes()) {
+            if (code == SidecarErrorCode.KEYPAD_EXPIRED || code == SidecarErrorCode.INVALID_POSITIONS) {
                 continue;
             }
             long member = newMember("ok-" + code.name());

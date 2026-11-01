@@ -6,6 +6,7 @@ import com.picsou.model.CorumSession;
 import com.picsou.model.CorumSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.CorumPort;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.AccountRepository;
@@ -134,7 +135,7 @@ class CorumSyncServiceTest {
 
         verifyNoInteractions(positionRepository, positionService);
         assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.CorumErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.PORTFOLIO_INCOMPLETE);
     }
 
     @org.junit.jupiter.api.Test
@@ -175,7 +176,7 @@ class CorumSyncServiceTest {
 
         verifyNoInteractions(positionRepository, positionService);
         assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.CorumErrorCode.INVALID_DATA);
+        assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.INVALID_DATA);
     }
 
     private CorumSession activeSession() {

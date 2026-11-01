@@ -1,10 +1,11 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
 import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.port.CmesErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CmesPort;
 import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,7 +29,7 @@ public class CmesAdapter implements CmesPort {
     /** One situation page, then three page loads per fund. */
     private static final Duration DEFAULT_POSITIONS_TIMEOUT = Duration.ofSeconds(120);
 
-    private final SidecarErrorTranslator<CmesErrorCode> sidecar;
+    private final SidecarClient sidecar;
     private final Duration authTimeout;
     private final Duration validationTimeout;
     private final Duration positionsTimeout;
@@ -39,7 +40,7 @@ public class CmesAdapter implements CmesPort {
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Crédit Mutuel Épargne Salariale", "cmes-auth"),
+            clients.create(SidecarBank.CMES.label(), SidecarBank.CMES.serviceName()),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,
@@ -58,15 +59,7 @@ public class CmesAdapter implements CmesPort {
         Duration validationTimeout,
         Duration positionsTimeout
     ) {
-        this.sidecar = new SidecarErrorTranslator<>(
-            client,
-            objectMapper,
-            CmesErrorCode.class,
-            "Crédit Mutuel Épargne Salariale",
-            CmesErrorCode.UPSTREAM_UNAVAILABLE,
-            CmesErrorCode.AUTH_ATTEMPT_EXPIRED,
-            CmesAdapter::friendlyMessage
-        );
+        this.sidecar = new SidecarClient(client, objectMapper, SidecarBank.CMES, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
         this.authTimeout = authTimeout;
         this.validationTimeout = validationTimeout;
         this.positionsTimeout = positionsTimeout;
@@ -91,7 +84,7 @@ public class CmesAdapter implements CmesPort {
             body.put("sessionState", previousSessionState);
         }
         return sidecar.post("/initiate", body, SidecarInitiate.class, authTimeout,
-            "Could not initiate Crédit Mutuel Épargne Salariale authentication", CmesErrorCode.INVALID_CREDENTIALS);
+            "Could not initiate Crédit Mutuel Épargne Salariale authentication", SidecarErrorCode.INVALID_CREDENTIALS);
     }
 
     @Override
@@ -102,7 +95,7 @@ public class CmesAdapter implements CmesPort {
         body.put("processId", processId);
         body.put("code", code);
         SidecarSession response = sidecar.post("/complete", body, SidecarSession.class, validationTimeout,
-            "Could not complete Crédit Mutuel Épargne Salariale authentication", CmesErrorCode.APP_VALIDATION_TIMEOUT);
+            "Could not complete Crédit Mutuel Épargne Salariale authentication", SidecarErrorCode.APP_VALIDATION_TIMEOUT);
         return response.sessionState();
     }
 
@@ -114,28 +107,8 @@ public class CmesAdapter implements CmesPort {
             PlanData[].class,
             positionsTimeout,
             "Could not fetch Crédit Mutuel Épargne Salariale plans",
-            CmesErrorCode.PORTFOLIO_INCOMPLETE,
+            SidecarErrorCode.PORTFOLIO_INCOMPLETE,
             "Crédit Mutuel Épargne Salariale returned no complete plan"
         );
-    }
-
-    private static String friendlyMessage(CmesErrorCode code) {
-        return switch (code) {
-            case INVALID_CREDENTIALS -> "Crédit Mutuel Épargne Salariale rejected the login or password";
-            case ACTION_REQUIRED ->
-                "Crédit Mutuel Épargne Salariale needs you to log in on their website once and complete the pending step, then retry";
-            case MFA_TYPE_UNSUPPORTED ->
-                "Crédit Mutuel Épargne Salariale asked for a Digipass or Safetrans, which Picsou cannot handle. "
-                    + "Switch your security settings to mobile confirmation or SMS.";
-            case INVALID_OTP -> "Crédit Mutuel Épargne Salariale rejected the SMS code";
-            case APP_VALIDATION_TIMEOUT -> "The mobile confirmation was not approved in time";
-            case APP_VALIDATION_CANCELLED -> "The mobile confirmation was refused in the app";
-            case AUTH_ATTEMPT_EXPIRED -> "The Crédit Mutuel Épargne Salariale authentication attempt expired";
-            case SESSION_EXPIRED -> "The Crédit Mutuel Épargne Salariale session expired";
-            case PORTFOLIO_INCOMPLETE -> "Crédit Mutuel Épargne Salariale returned incomplete plans";
-            case UPSTREAM_FORMAT_CHANGED -> "The Crédit Mutuel Épargne Salariale website format changed";
-            case INVALID_DATA -> "Crédit Mutuel Épargne Salariale returned invalid plan data";
-            case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Crédit Mutuel Épargne Salariale is temporarily unavailable";
-        };
     }
 }

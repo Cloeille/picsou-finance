@@ -3,7 +3,7 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import com.picsou.exception.SyncException;
-import com.picsou.port.SofidyErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.http.HttpStatus;
@@ -149,7 +149,7 @@ class SofidyAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SofidyErrorCode.PORTFOLIO_INCOMPLETE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE.name())
             );
     }
 
@@ -179,7 +179,7 @@ class SofidyAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(SofidyErrorCode.PORTFOLIO_INCOMPLETE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE.name());
                 assertThat(error.getMessage()).doesNotContain("state");
             });
     }
@@ -193,7 +193,7 @@ class SofidyAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SofidyErrorCode.SESSION_EXPIRED.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name())
             );
     }
 
@@ -205,7 +205,7 @@ class SofidyAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SofidyErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -222,7 +222,7 @@ class SofidyAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(SofidyErrorCode.UPSTREAM_UNAVAILABLE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getMessage()).contains("too long");
             });
     }
@@ -262,7 +262,7 @@ class SofidyAdapterTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth("000000", "wrong"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SofidyErrorCode.INVALID_CREDENTIALS.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS.name())
             );
     }
 
@@ -278,7 +278,7 @@ class SofidyAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("p-1", "000000"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SofidyErrorCode.MFA_INVALID.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.MFA_INVALID.name())
             );
     }
 
@@ -290,7 +290,7 @@ class SofidyAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("p-1", "123456"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SofidyErrorCode.AUTH_ATTEMPT_EXPIRED.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name())
             );
     }
 
@@ -306,7 +306,7 @@ class SofidyAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("p-1", "123456"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SofidyErrorCode.MFA_INVALID.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.MFA_INVALID.name())
             );
     }
 
@@ -316,7 +316,7 @@ class SofidyAdapterTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth("000000", "password"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SofidyErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -326,7 +326,7 @@ class SofidyAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SofidyErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 

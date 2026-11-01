@@ -6,7 +6,7 @@ import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
-import com.picsou.port.FortuneoErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -139,7 +139,7 @@ class FortuneoAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(FortuneoErrorCode.PORTFOLIO_INCOMPLETE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE.name());
                 assertThat(error.getMessage()).doesNotContain("state");
             });
     }
@@ -154,7 +154,7 @@ class FortuneoAdapterTest {
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
                 assertThat(error.getCode())
-                    .isEqualTo(FortuneoErrorCode.INVESTOR_PROFILE_REQUIRED.name())
+                    .isEqualTo(SidecarErrorCode.INVESTOR_PROFILE_REQUIRED.name())
             );
     }
 
@@ -167,7 +167,7 @@ class FortuneoAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("process", "123456"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(FortuneoErrorCode.INVALID_OTP.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_OTP.name())
             );
     }
 
@@ -177,7 +177,7 @@ class FortuneoAdapterTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth("login", "password"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(FortuneoErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -190,7 +190,7 @@ class FortuneoAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("process", "123456"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(FortuneoErrorCode.INVALID_OTP.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_OTP.name())
             );
     }
 
@@ -200,7 +200,7 @@ class FortuneoAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(FortuneoErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -213,7 +213,7 @@ class FortuneoAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(FortuneoErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -229,7 +229,7 @@ class FortuneoAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(FortuneoErrorCode.UPSTREAM_UNAVAILABLE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getMessage()).contains("too long");
             });
     }

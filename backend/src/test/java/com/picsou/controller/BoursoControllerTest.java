@@ -3,7 +3,7 @@ package com.picsou.controller;
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
 import com.picsou.model.BoursoSyncStatus;
-import com.picsou.port.BoursoErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.BoursoSyncService;
 import com.picsou.service.UserContext;
 import io.github.bucket4j.Bucket;
@@ -112,7 +112,7 @@ class BoursoControllerTest {
             new SyncException(
                 "The BoursoBank app validation was not confirmed in time",
                 null,
-                BoursoErrorCode.APP_VALIDATION_TIMEOUT.name()
+                SidecarErrorCode.APP_VALIDATION_TIMEOUT.name()
             )
         );
 
@@ -134,7 +134,7 @@ class BoursoControllerTest {
     @Test
     void anUnsupportedSecondFactorReachesTheClientAsItsOwnCode() throws Exception {
         when(service.initiateAuth("12345678", "123456", MEMBER_ID)).thenThrow(
-            new SyncException("sms", null, BoursoErrorCode.MFA_TYPE_UNSUPPORTED.name())
+            new SyncException("sms", null, SidecarErrorCode.MFA_TYPE_UNSUPPORTED.name())
         );
 
         mockMvc.perform(post("/api/bourso/auth/initiate")

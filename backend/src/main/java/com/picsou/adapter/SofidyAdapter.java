@@ -1,11 +1,12 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
 import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.SidecarInitiate;
-import com.picsou.port.SofidyErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.SofidyPort;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -25,7 +26,7 @@ public class SofidyAdapter implements SofidyPort {
     private static final Duration DEFAULT_VALIDATION_TIMEOUT = Duration.ofSeconds(150);
     private static final Duration DEFAULT_POSITIONS_TIMEOUT = Duration.ofSeconds(90);
 
-    private final SidecarErrorTranslator<SofidyErrorCode> sidecar;
+    private final SidecarClient sidecar;
     private final Duration authTimeout;
     private final Duration validationTimeout;
     private final Duration positionsTimeout;
@@ -36,7 +37,7 @@ public class SofidyAdapter implements SofidyPort {
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Sofidy", "sofidy-auth"),
+            clients.create(SidecarBank.SOFIDY.label(), SidecarBank.SOFIDY.serviceName()),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,
@@ -55,15 +56,7 @@ public class SofidyAdapter implements SofidyPort {
         Duration validationTimeout,
         Duration positionsTimeout
     ) {
-        this.sidecar = new SidecarErrorTranslator<>(
-            client,
-            objectMapper,
-            SofidyErrorCode.class,
-            "Sofidy",
-            SofidyErrorCode.UPSTREAM_UNAVAILABLE,
-            SofidyErrorCode.AUTH_ATTEMPT_EXPIRED,
-            SofidyAdapter::friendlyMessage
-        );
+        this.sidecar = new SidecarClient(client, objectMapper, SidecarBank.SOFIDY, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
         this.authTimeout = authTimeout;
         this.validationTimeout = validationTimeout;
         this.positionsTimeout = positionsTimeout;
@@ -77,7 +70,7 @@ public class SofidyAdapter implements SofidyPort {
             SidecarInitiate.class,
             authTimeout,
             "Could not initiate Sofidy authentication",
-            SofidyErrorCode.INVALID_CREDENTIALS
+            SidecarErrorCode.INVALID_CREDENTIALS
         );
     }
 
@@ -89,7 +82,7 @@ public class SofidyAdapter implements SofidyPort {
             SidecarSession.class,
             validationTimeout,
             "Could not complete Sofidy authentication",
-            SofidyErrorCode.MFA_INVALID
+            SidecarErrorCode.MFA_INVALID
         ).sessionState();
     }
 
@@ -105,7 +98,7 @@ public class SofidyAdapter implements SofidyPort {
             // credentials and the code were already checked at authentication.
             // Without this a 401 whose body carries no code would fall through to
             // UPSTREAM_UNAVAILABLE and read as an outage rather than a reconnect.
-            SofidyErrorCode.SESSION_EXPIRED
+            SidecarErrorCode.SESSION_EXPIRED
         );
         if (!snapshot.snapshotComplete()) {
             // The sidecar refuses a portfolio whose lines do not add up to the
@@ -113,28 +106,11 @@ public class SofidyAdapter implements SofidyPort {
             // not trustworthy either. Refuse rather than write a partial portfolio
             // over a real balance.
             throw sidecar.coded(
-                SofidyErrorCode.PORTFOLIO_INCOMPLETE,
+                SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "Sofidy returned an incomplete portfolio",
                 null
             );
         }
         return snapshot;
-    }
-
-    private static String friendlyMessage(SofidyErrorCode code) {
-        return switch (code) {
-            case INVALID_CREDENTIALS -> "Sofidy rejected the associate code or the password";
-            case MFA_INVALID -> "Sofidy rejected the verification code";
-            case FIRST_VISIT_PENDING -> "Finish your first visit on the Sofidy client space first";
-            case EMAIL_UNREACHABLE -> "No e-mail address is attached to this Sofidy account";
-            case ACCOUNT_INACTIVE -> "This Sofidy account is inactive";
-            case RATE_LIMITED -> "Sofidy is rate-limiting this login, try again later";
-            case AUTH_ATTEMPT_EXPIRED -> "The Sofidy authentication attempt expired";
-            case SESSION_EXPIRED -> "The Sofidy session expired";
-            case PORTFOLIO_INCOMPLETE -> "Sofidy returned an incomplete portfolio";
-            case UPSTREAM_FORMAT_CHANGED -> "The Sofidy website format changed";
-            case INVALID_DATA -> "Sofidy returned invalid portfolio data";
-            case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Sofidy is temporarily unavailable";
-        };
     }
 }

@@ -1,10 +1,11 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
 import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.port.CorumErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CorumPort;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -22,7 +23,7 @@ public class CorumAdapter implements CorumPort {
      *  portfolio rather than being a single request. */
     private static final Duration DEFAULT_POSITIONS_TIMEOUT = Duration.ofSeconds(90);
 
-    private final SidecarErrorTranslator<CorumErrorCode> sidecar;
+    private final SidecarClient sidecar;
     private final Duration authTimeout;
     private final Duration positionsTimeout;
 
@@ -32,7 +33,7 @@ public class CorumAdapter implements CorumPort {
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("CORUM", "corum-auth"),
+            clients.create(SidecarBank.CORUM.label(), SidecarBank.CORUM.serviceName()),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_POSITIONS_TIMEOUT
@@ -45,15 +46,7 @@ public class CorumAdapter implements CorumPort {
         Duration authTimeout,
         Duration positionsTimeout
     ) {
-        this.sidecar = new SidecarErrorTranslator<>(
-            client,
-            objectMapper,
-            CorumErrorCode.class,
-            "CORUM",
-            CorumErrorCode.UPSTREAM_UNAVAILABLE,
-            CorumErrorCode.SESSION_EXPIRED,
-            CorumAdapter::friendlyMessage
-        );
+        this.sidecar = new SidecarClient(client, objectMapper, SidecarBank.CORUM, SidecarErrorCode.SESSION_EXPIRED);
         this.authTimeout = authTimeout;
         this.positionsTimeout = positionsTimeout;
     }
@@ -66,7 +59,7 @@ public class CorumAdapter implements CorumPort {
             SidecarSession.class,
             authTimeout,
             "Could not authenticate with CORUM",
-            CorumErrorCode.INVALID_CREDENTIALS
+            SidecarErrorCode.INVALID_CREDENTIALS
         ).sessionState();
     }
 
@@ -83,7 +76,7 @@ public class CorumAdapter implements CorumPort {
             // a 401 whose body carries no code would fall through to
             // UPSTREAM_UNAVAILABLE and read as an outage rather than as a
             // reconnect.
-            CorumErrorCode.SESSION_EXPIRED
+            SidecarErrorCode.SESSION_EXPIRED
         );
         if (!snapshot.snapshotComplete()) {
             // The sidecar refuses a portfolio whose funds do not add up to the
@@ -91,23 +84,11 @@ public class CorumAdapter implements CorumPort {
             // either. Refuse rather than write a partial portfolio over a real
             // balance.
             throw sidecar.coded(
-                CorumErrorCode.PORTFOLIO_INCOMPLETE,
+                SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "CORUM returned an incomplete portfolio",
                 null
             );
         }
         return snapshot;
-    }
-
-    private static String friendlyMessage(CorumErrorCode code) {
-        return switch (code) {
-            case INVALID_CREDENTIALS -> "CORUM rejected the credentials";
-            case SESSION_EXPIRED -> "The CORUM session expired";
-            case MULTIPLE_CONTRACTS -> "This CORUM login holds more than one real-estate contract";
-            case PORTFOLIO_INCOMPLETE -> "CORUM returned an incomplete portfolio";
-            case UPSTREAM_FORMAT_CHANGED -> "The CORUM website format changed";
-            case INVALID_DATA -> "CORUM returned invalid portfolio data";
-            case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "CORUM is temporarily unavailable";
-        };
     }
 }

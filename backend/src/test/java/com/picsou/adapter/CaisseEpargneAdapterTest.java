@@ -1,8 +1,9 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.exception.SyncException;
-import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -25,7 +26,6 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.TreeSet;
 
@@ -241,18 +241,18 @@ class CaisseEpargneAdapterTest {
 
         assertThatThrownBy(() -> adapter.checkSession("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.SESSION_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name()));
     }
 
     @Test
     void fetchAccounts_preservesEveryStableSidecarErrorCode() {
-        record Case(HttpStatus status, CaisseEpargneErrorCode code) {}
+        record Case(HttpStatus status, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.UNAUTHORIZED, CaisseEpargneErrorCode.SESSION_EXPIRED),
-            new Case(HttpStatus.BAD_GATEWAY, CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE),
-            new Case(HttpStatus.BAD_GATEWAY, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED),
-            new Case(HttpStatus.BAD_REQUEST, CaisseEpargneErrorCode.INVALID_SESSION_STATE),
-            new Case(HttpStatus.INTERNAL_SERVER_ERROR, CaisseEpargneErrorCode.INTERNAL_ERROR))) {
+            new Case(HttpStatus.UNAUTHORIZED, SidecarErrorCode.SESSION_EXPIRED),
+            new Case(HttpStatus.BAD_GATEWAY, SidecarErrorCode.UPSTREAM_UNAVAILABLE),
+            new Case(HttpStatus.BAD_GATEWAY, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED),
+            new Case(HttpStatus.BAD_REQUEST, SidecarErrorCode.INVALID_SESSION_STATE),
+            new Case(HttpStatus.INTERNAL_SERVER_ERROR, SidecarErrorCode.INTERNAL_ERROR))) {
             CaisseEpargneAdapter adapter = adapterReturning(c.status(), "{\"detail\":\"" + c.code().name() + "\"}");
 
             assertThatThrownBy(() -> adapter.fetchAccounts("secret-state"))
@@ -270,7 +270,7 @@ class CaisseEpargneAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
     }
 
     @Test
@@ -284,14 +284,14 @@ class CaisseEpargneAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getMessage()).contains("too long");
             });
     }
 
     @Test
     void errorCodesMatchTheSidecarContractExactly() {
-        assertThat(Arrays.stream(CaisseEpargneErrorCode.values()).map(Enum::name))
+        assertThat(SidecarBank.CAISSE_EPARGNE.codes().stream().map(Enum::name))
             .containsExactlyInAnyOrder(
                 "SESSION_EXPIRED", "UPSTREAM_UNAVAILABLE", "UPSTREAM_FORMAT_CHANGED",
                 "INVALID_SESSION_STATE", "INTERNAL_ERROR",

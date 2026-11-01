@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Duration;
@@ -125,6 +126,10 @@ public final class SidecarClient {
         if (causedByTimeout(ex)) {
             log.warn("{}: sidecar request timed out", message);
             return coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE, bank.label() + " took too long to respond. Please try again.", ex);
+        }
+        if (ex instanceof WebClientRequestException) {
+            log.warn("{}: sidecar is unreachable", message);
+            return coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE, message, ex);
         }
         if (ex instanceof WebClientResponseException response) {
             SidecarErrorCode upstreamCode = responseCode(response);

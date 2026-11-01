@@ -1,5 +1,6 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
@@ -8,7 +9,7 @@ import com.picsou.model.CorumSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.ScpiFundOutcome;
 import com.picsou.model.ScpiProvider;
-import com.picsou.port.CorumErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CorumPort;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -82,7 +83,7 @@ public class CorumSyncService {
     public SessionStatusResponse authenticate(String login, String password, Long memberId) {
         String plainState = port.authenticate(login, password);
         if (plainState == null || plainState.isBlank()) {
-            throw error(CorumErrorCode.INVALID_DATA, "CORUM did not return a session", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "CORUM did not return a session", null);
         }
         SyncJob job = requireTransactionResult(txTemplate.execute(status -> {
             lockMember(memberId);
@@ -110,13 +111,13 @@ public class CorumSyncService {
             lockMember(memberId);
             CorumSession session = sessionRepository.findByMemberIdForUpdate(memberId)
                 .orElseThrow(() -> error(
-                    CorumErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "No active CORUM session. Please reconnect.",
                     null
                 ));
             if (!session.isActive()) {
                 throw error(
-                    CorumErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "The CORUM session expired. Please reconnect.",
                     null
                 );
@@ -158,9 +159,9 @@ public class CorumSyncService {
         try {
             syncExecutor.execute(() -> executeJob(job));
         } catch (RuntimeException ex) {
-            markFailed(job, CorumErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             throw error(
-                CorumErrorCode.INTERNAL_ERROR,
+                SidecarErrorCode.INTERNAL_ERROR,
                 "Could not schedule the CORUM synchronization",
                 ex
             );
@@ -175,11 +176,11 @@ public class CorumSyncService {
             CorumPort.Snapshot snapshot = port.fetchSnapshot(job.plainState());
             commitSnapshot(job, snapshot);
         } catch (SyncException ex) {
-            CorumErrorCode code = codeOf(ex);
+            SidecarErrorCode code = codeOf(ex);
             markFailed(job, code);
             log.warn("CORUM sync failed (member={}; code={})", job.memberId(), code);
         } catch (Exception ex) {
-            markFailed(job, CorumErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             log.error("CORUM sync failed unexpectedly (member={})", job.memberId(), ex);
         }
     }
@@ -199,14 +200,14 @@ public class CorumSyncService {
     ) {
         if (snapshot == null || !snapshot.snapshotComplete()) {
             throw error(
-                CorumErrorCode.PORTFOLIO_INCOMPLETE,
+                SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "CORUM returned an incomplete portfolio",
                 null
             );
         }
         if (snapshot.holdings() == null || snapshot.holdings().isEmpty()) {
             throw error(
-                CorumErrorCode.PORTFOLIO_INCOMPLETE,
+                SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "CORUM returned no fund holding",
                 null
             );
@@ -215,14 +216,14 @@ public class CorumSyncService {
         Set<String> seenFunds = new HashSet<>();
         for (CorumPort.Holding holding : snapshot.holdings()) {
             if (holding == null || holding.fundCode() == null || holding.quantity() == null) {
-                throw error(CorumErrorCode.INVALID_DATA, "CORUM returned an incomplete fund", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned an incomplete fund", null);
             }
             if (!seenFunds.add(holding.fundCode())) {
                 // Two lines for one fund would write the quantity twice.
-                throw error(CorumErrorCode.INVALID_DATA, "CORUM returned a duplicate fund", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned a duplicate fund", null);
             }
             if (holding.quantity().signum() < 0) {
-                throw error(CorumErrorCode.INVALID_DATA, "CORUM returned a negative share count", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned a negative share count", null);
             }
         }
         checkDeclaredTotal(snapshot);
@@ -230,7 +231,7 @@ public class CorumSyncService {
         // come. A snapshot in another currency, or with none, would be stored as
         // euros silently, so it is refused before anything is written.
         if (!"EUR".equals(snapshot.currency())) {
-            throw error(CorumErrorCode.INVALID_DATA, "CORUM returned a portfolio not in euros", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned a portfolio not in euros", null);
         }
 
         List<ScpiFundReconciler.SyncedFund> funds = snapshot.holdings().stream()
@@ -258,20 +259,20 @@ public class CorumSyncService {
     private void checkDeclaredTotal(CorumPort.Snapshot snapshot) {
         BigDecimal declared = snapshot.totalValuationEur();
         if (declared == null || declared.signum() < 0) {
-            throw error(CorumErrorCode.PORTFOLIO_INCOMPLETE,
+            throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "CORUM returned no valid portfolio total", null);
         }
         BigDecimal computed = BigDecimal.ZERO;
         for (CorumPort.Holding holding : snapshot.holdings()) {
             if (holding.displayedValueEur() == null) {
-                throw error(CorumErrorCode.PORTFOLIO_INCOMPLETE,
+                throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                     "CORUM returned a fund without a displayed value", null);
             }
             computed = computed.add(holding.displayedValueEur());
         }
         if (computed.subtract(declared).abs().compareTo(MONEY_TOLERANCE) > 0) {
             throw error(
-                CorumErrorCode.PORTFOLIO_INCOMPLETE,
+                SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "The CORUM funds add up to " + computed.setScale(2, RoundingMode.HALF_UP)
                     + " but the snapshot declares " + declared.setScale(2, RoundingMode.HALF_UP),
                 null
@@ -325,7 +326,7 @@ public class CorumSyncService {
             .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
     }
 
-    private void markFailed(SyncJob job, CorumErrorCode code) {
+    private void markFailed(SyncJob job, SidecarErrorCode code) {
         txTemplate.executeWithoutResult(status -> {
             lockMember(job.memberId());
             sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
@@ -347,11 +348,11 @@ public class CorumSyncService {
         );
     }
 
-    private CorumErrorCode codeOf(SyncException exception) {
-        return errorCode(exception, CorumErrorCode.class, CorumErrorCode.UPSTREAM_UNAVAILABLE);
+    private SidecarErrorCode codeOf(SyncException exception) {
+        return SyncValues.errorCode(exception, SidecarBank.CORUM, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
-    private SyncException error(CorumErrorCode code, String message, Throwable cause) {
+    private SyncException error(SidecarErrorCode code, String message, Throwable cause) {
         return new SyncException(message, cause, code.name());
     }
 
@@ -360,7 +361,7 @@ public class CorumSyncService {
         CorumSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        CorumErrorCode lastSyncError
+        SidecarErrorCode lastSyncError
     ) {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, CorumSyncStatus.IDLE, null, null, null);

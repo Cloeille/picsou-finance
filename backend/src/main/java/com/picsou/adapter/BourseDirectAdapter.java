@@ -1,10 +1,11 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
 import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.port.BourseDirectErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BourseDirectPort;
 import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,7 +21,7 @@ public class BourseDirectAdapter implements BourseDirectPort {
     private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
     private static final Duration DEFAULT_PORTFOLIO_TIMEOUT = Duration.ofSeconds(120);
 
-    private final SidecarErrorTranslator<BourseDirectErrorCode> sidecar;
+    private final SidecarClient sidecar;
     private final Duration authTimeout;
     private final Duration portfolioTimeout;
 
@@ -30,7 +31,7 @@ public class BourseDirectAdapter implements BourseDirectPort {
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Bourse Direct", "bourse-direct-auth"),
+            clients.create(SidecarBank.BOURSE_DIRECT.label(), SidecarBank.BOURSE_DIRECT.serviceName()),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_PORTFOLIO_TIMEOUT
@@ -47,15 +48,7 @@ public class BourseDirectAdapter implements BourseDirectPort {
         Duration authTimeout,
         Duration portfolioTimeout
     ) {
-        this.sidecar = new SidecarErrorTranslator<>(
-            client,
-            objectMapper,
-            BourseDirectErrorCode.class,
-            "Bourse Direct",
-            BourseDirectErrorCode.UPSTREAM_UNAVAILABLE,
-            BourseDirectErrorCode.AUTH_ATTEMPT_EXPIRED,
-            BourseDirectAdapter::friendlyMessage
-        );
+        this.sidecar = new SidecarClient(client, objectMapper, SidecarBank.BOURSE_DIRECT, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
         this.authTimeout = authTimeout;
         this.portfolioTimeout = portfolioTimeout;
     }
@@ -64,14 +57,14 @@ public class BourseDirectAdapter implements BourseDirectPort {
     public SidecarInitiate initiateAuth(String login, String password) {
         return sidecar.post("/initiate", Map.of("login", login, "password", password), SidecarInitiate.class,
             authTimeout, "Could not initiate Bourse Direct authentication",
-            BourseDirectErrorCode.INVALID_CREDENTIALS);
+            SidecarErrorCode.INVALID_CREDENTIALS);
     }
 
     @Override
     public String completeAuth(String processId, String code) {
         SidecarSession response = sidecar.post("/complete", Map.of("processId", processId, "code", code),
             SidecarSession.class, authTimeout, "Could not complete Bourse Direct authentication",
-            BourseDirectErrorCode.INVALID_OTP);
+            SidecarErrorCode.INVALID_OTP);
         return response.sessionState();
     }
 
@@ -83,21 +76,8 @@ public class BourseDirectAdapter implements BourseDirectPort {
             AccountData[].class,
             portfolioTimeout,
             "Could not fetch Bourse Direct portfolio",
-            BourseDirectErrorCode.PORTFOLIO_INCOMPLETE,
+            SidecarErrorCode.PORTFOLIO_INCOMPLETE,
             "Bourse Direct returned no complete portfolio accounts"
         );
-    }
-
-    private static String friendlyMessage(BourseDirectErrorCode code) {
-        return switch (code) {
-            case INVALID_CREDENTIALS -> "Bourse Direct rejected the credentials";
-            case INVALID_OTP -> "Bourse Direct rejected the verification code";
-            case AUTH_ATTEMPT_EXPIRED -> "The Bourse Direct authentication attempt expired";
-            case SESSION_EXPIRED -> "The Bourse Direct session expired";
-            case PORTFOLIO_INCOMPLETE -> "Bourse Direct returned an incomplete portfolio";
-            case UPSTREAM_FORMAT_CHANGED -> "The Bourse Direct website format changed";
-            case INVALID_DATA -> "Bourse Direct returned invalid portfolio data";
-            case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Bourse Direct is temporarily unavailable";
-        };
     }
 }

@@ -16,7 +16,7 @@ import com.picsou.model.FortuneoSession;
 import com.picsou.model.FortuneoSyncStatus;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
-import com.picsou.port.FortuneoErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.FortuneoPort;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
@@ -314,7 +314,7 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).deleteByAccountId(any());
         verify(transactionWriter, never()).replaceRecentTransactions(any(), any(), any());
@@ -336,7 +336,7 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
@@ -352,7 +352,7 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
@@ -1000,7 +1000,7 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(transactionWriter, never()).reconcileHistory(any(), any());
     }
 
@@ -1100,7 +1100,7 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(holdingRepository, never()).deleteByAccountId(any());
         verify(accountRepository, never()).save(any());
     }
@@ -1121,7 +1121,7 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
 
@@ -1130,14 +1130,14 @@ class FortuneoSyncServiceTest {
         FortuneoSession session = activeSession(member());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(new SyncException(
-            "Session expired", null, FortuneoErrorCode.SESSION_EXPIRED.name()
+            "Session expired", null, SidecarErrorCode.SESSION_EXPIRED.name()
         ));
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.isActive()).isFalse();
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.SESSION_EXPIRED);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
 
@@ -1180,11 +1180,11 @@ class FortuneoSyncServiceTest {
 
         assertThatThrownBy(() -> rejectedService.queueSync(7L))
             .isInstanceOfSatisfying(SyncException.class, exception ->
-                assertThat(exception.getCode()).isEqualTo(FortuneoErrorCode.INTERNAL_ERROR.name()))
+                assertThat(exception.getCode()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR.name()))
             .hasCause(rejection);
 
         assertThat(session.getSyncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(FortuneoErrorCode.INTERNAL_ERROR);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR);
         assertThat(session.isSyncInFlight()).isFalse();
         verify(port, never()).fetchAccounts(any());
     }
@@ -1210,11 +1210,11 @@ class FortuneoSyncServiceTest {
 
         assertThatThrownBy(() -> rejectedService.completeAuth("process", "123456", 7L))
             .isInstanceOfSatisfying(SyncException.class, exception ->
-                assertThat(exception.getCode()).isEqualTo(FortuneoErrorCode.INTERNAL_ERROR.name()))
+                assertThat(exception.getCode()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR.name()))
             .hasCause(submissionFailure);
 
         assertThat(stored.getSyncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(stored.getLastSyncError()).isEqualTo(FortuneoErrorCode.INTERNAL_ERROR);
+        assertThat(stored.getLastSyncError()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR);
         assertThat(stored.isSyncInFlight()).isFalse();
         verify(port, never()).fetchAccounts(any());
     }
@@ -1281,7 +1281,7 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
@@ -1296,7 +1296,7 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
@@ -1311,7 +1311,7 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
@@ -1344,7 +1344,7 @@ class FortuneoSyncServiceTest {
             any(),
             eq(FortuneoSyncStatus.FAILED),
             any(),
-            eq(FortuneoErrorCode.INTERNAL_ERROR)
+            eq(SidecarErrorCode.INTERNAL_ERROR)
         )).thenReturn(1);
 
         service.recoverInterruptedSyncs();
@@ -1354,14 +1354,14 @@ class FortuneoSyncServiceTest {
             eq(List.of(FortuneoSyncStatus.QUEUED, FortuneoSyncStatus.RUNNING)),
             eq(FortuneoSyncStatus.FAILED),
             any(),
-            eq(FortuneoErrorCode.INTERNAL_ERROR)
+            eq(SidecarErrorCode.INTERNAL_ERROR)
         );
         verify(sessionRepository).markInterruptedSyncsFailed(
             eq(8L),
             eq(List.of(FortuneoSyncStatus.QUEUED, FortuneoSyncStatus.RUNNING)),
             eq(FortuneoSyncStatus.FAILED),
             any(),
-            eq(FortuneoErrorCode.INTERNAL_ERROR)
+            eq(SidecarErrorCode.INTERNAL_ERROR)
         );
     }
 

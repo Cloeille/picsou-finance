@@ -1,6 +1,7 @@
 package com.picsou.migration;
 
-import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.support.PostgresContainers;
 import com.picsou.support.RequiresPostgres;
 import org.flywaydb.core.Flyway;
@@ -83,7 +84,7 @@ class V110CaisseEpargneErrorCodeMigrationTest {
         assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("110");
 
-        for (CaisseEpargneErrorCode code : CaisseEpargneErrorCode.values()) {
+        for (SidecarErrorCode code : SidecarBank.CAISSE_EPARGNE.codes()) {
             long acceptedMember = newMember("v110-accepts-" + code.name());
             insertFailedSession(acceptedMember, "x", code.name());
         }

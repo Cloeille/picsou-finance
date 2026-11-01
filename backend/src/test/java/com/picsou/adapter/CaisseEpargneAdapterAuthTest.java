@@ -7,7 +7,7 @@ import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.exception.SyncException;
-import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -88,19 +88,19 @@ class CaisseEpargneAdapterAuthTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
     }
 
     // -- initiate: error mapping --------------------------------------------
 
     @Test
     void initiateAuth_mapsEverySidecarCodeToItsStableCode() {
-        record Case(HttpStatus status, String detail, CaisseEpargneErrorCode code) {}
+        record Case(HttpStatus status, String detail, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", CaisseEpargneErrorCode.INVALID_CREDENTIALS),
-            new Case(HttpStatus.CONFLICT, "KEYPAD_CHANGED", CaisseEpargneErrorCode.KEYPAD_CHANGED),
-            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE),
-            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED))) {
+            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", SidecarErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.CONFLICT, "KEYPAD_CHANGED", SidecarErrorCode.KEYPAD_CHANGED),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", SidecarErrorCode.UPSTREAM_UNAVAILABLE),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", SidecarErrorCode.UPSTREAM_FORMAT_CHANGED))) {
             CaisseEpargneAdapter adapter = returning(c.status(), "{\"detail\":\"" + c.detail() + "\"}");
 
             assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
@@ -112,13 +112,13 @@ class CaisseEpargneAdapterAuthTest {
 
     @Test
     void initiateAuth_mapsABareStatusWhenTheSidecarSendsNoDetail() {
-        record Case(HttpStatus status, CaisseEpargneErrorCode code) {}
+        record Case(HttpStatus status, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.UNAUTHORIZED, CaisseEpargneErrorCode.INVALID_CREDENTIALS),
-            new Case(HttpStatus.CONFLICT, CaisseEpargneErrorCode.KEYPAD_CHANGED),
-            new Case(HttpStatus.BAD_GATEWAY, CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE),
-            new Case(HttpStatus.SERVICE_UNAVAILABLE, CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE),
-            new Case(HttpStatus.INTERNAL_SERVER_ERROR, CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE))) {
+            new Case(HttpStatus.UNAUTHORIZED, SidecarErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.CONFLICT, SidecarErrorCode.KEYPAD_CHANGED),
+            new Case(HttpStatus.BAD_GATEWAY, SidecarErrorCode.UPSTREAM_UNAVAILABLE),
+            new Case(HttpStatus.SERVICE_UNAVAILABLE, SidecarErrorCode.UPSTREAM_UNAVAILABLE),
+            new Case(HttpStatus.INTERNAL_SERVER_ERROR, SidecarErrorCode.UPSTREAM_UNAVAILABLE))) {
             CaisseEpargneAdapter adapter = returning(c.status(), "oops");
 
             assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
@@ -135,7 +135,7 @@ class CaisseEpargneAdapterAuthTest {
 
             assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
                 .isInstanceOfSatisfying(SyncException.class, error -> {
-                    assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name());
+                    assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                     assertThat(error.getMessage()).containsIgnoringCase("too many");
                 });
         }
@@ -191,7 +191,7 @@ class CaisseEpargneAdapterAuthTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getMessage()).contains("too long").doesNotContain(CUSTOMER_ID);
             });
     }
@@ -206,7 +206,7 @@ class CaisseEpargneAdapterAuthTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("proc-1"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
     }
 
     @Test
@@ -394,26 +394,26 @@ class CaisseEpargneAdapterAuthTest {
             assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS))
                 .isInstanceOfSatisfying(SyncException.class, error ->
                     assertThat(error.getCode()).isIn(
-                        CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED.name(),
-                        CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name()));
+                        SidecarErrorCode.UPSTREAM_FORMAT_CHANGED.name(),
+                        SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
         }
         assertThatThrownBy(() -> returning(HttpStatus.OK, "{\"processId\":\"proc-1\",\"status\":\"DONE\"}")
             .submitKeypad("proc-1", POSITIONS))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
     }
 
     @Test
     void submitKeypad_mapsEverySidecarCodeToItsStableCode() {
-        record Case(HttpStatus status, String detail, CaisseEpargneErrorCode code) {}
+        record Case(HttpStatus status, String detail, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.CONFLICT, "KEYPAD_CHANGED", CaisseEpargneErrorCode.KEYPAD_CHANGED),
-            new Case(HttpStatus.REQUEST_TIMEOUT, "KEYPAD_EXPIRED", CaisseEpargneErrorCode.KEYPAD_EXPIRED),
-            new Case(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_POSITIONS", CaisseEpargneErrorCode.INVALID_POSITIONS),
-            new Case(HttpStatus.GONE, "AUTH_ATTEMPT_EXPIRED", CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED),
-            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", CaisseEpargneErrorCode.INVALID_CREDENTIALS),
-            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE),
-            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED))) {
+            new Case(HttpStatus.CONFLICT, "KEYPAD_CHANGED", SidecarErrorCode.KEYPAD_CHANGED),
+            new Case(HttpStatus.REQUEST_TIMEOUT, "KEYPAD_EXPIRED", SidecarErrorCode.KEYPAD_EXPIRED),
+            new Case(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_POSITIONS", SidecarErrorCode.INVALID_POSITIONS),
+            new Case(HttpStatus.GONE, "AUTH_ATTEMPT_EXPIRED", SidecarErrorCode.AUTH_ATTEMPT_EXPIRED),
+            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", SidecarErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", SidecarErrorCode.UPSTREAM_UNAVAILABLE),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", SidecarErrorCode.UPSTREAM_FORMAT_CHANGED))) {
             CaisseEpargneAdapter adapter = returning(c.status(), "{\"detail\":\"" + c.detail() + "\"}");
 
             assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS))
@@ -425,14 +425,14 @@ class CaisseEpargneAdapterAuthTest {
 
     @Test
     void submitKeypad_mapsABareStatusWhenTheSidecarSendsNoDetail() {
-        record Case(HttpStatus status, CaisseEpargneErrorCode code) {}
+        record Case(HttpStatus status, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.CONFLICT, CaisseEpargneErrorCode.KEYPAD_CHANGED),
-            new Case(HttpStatus.REQUEST_TIMEOUT, CaisseEpargneErrorCode.KEYPAD_EXPIRED),
-            new Case(HttpStatus.UNPROCESSABLE_ENTITY, CaisseEpargneErrorCode.INVALID_POSITIONS),
-            new Case(HttpStatus.GONE, CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED),
-            new Case(HttpStatus.UNAUTHORIZED, CaisseEpargneErrorCode.INVALID_CREDENTIALS),
-            new Case(HttpStatus.BAD_GATEWAY, CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE))) {
+            new Case(HttpStatus.CONFLICT, SidecarErrorCode.KEYPAD_CHANGED),
+            new Case(HttpStatus.REQUEST_TIMEOUT, SidecarErrorCode.KEYPAD_EXPIRED),
+            new Case(HttpStatus.UNPROCESSABLE_ENTITY, SidecarErrorCode.INVALID_POSITIONS),
+            new Case(HttpStatus.GONE, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED),
+            new Case(HttpStatus.UNAUTHORIZED, SidecarErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.BAD_GATEWAY, SidecarErrorCode.UPSTREAM_UNAVAILABLE))) {
             CaisseEpargneAdapter adapter = returning(c.status(), "oops");
 
             assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS))
@@ -447,10 +447,10 @@ class CaisseEpargneAdapterAuthTest {
         // 408 means "keypad expired" only on /keypad; on /initiate and /complete it is unchanged.
         assertThatThrownBy(() -> returning(HttpStatus.REQUEST_TIMEOUT, "").initiateAuth(CUSTOMER_ID))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.APP_VALIDATION_TIMEOUT.name()));
         assertThatThrownBy(() -> returning(HttpStatus.REQUEST_TIMEOUT, "").completeAuth("proc-1"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.APP_VALIDATION_TIMEOUT.name()));
     }
 
     @Test
@@ -463,7 +463,7 @@ class CaisseEpargneAdapterAuthTest {
 
         assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getMessage()).contains("too long");
             });
     }
@@ -561,13 +561,13 @@ class CaisseEpargneAdapterAuthTest {
 
     @Test
     void completeAuth_mapsEverySidecarCodeToItsStableCode() {
-        record Case(HttpStatus status, String detail, CaisseEpargneErrorCode code) {}
+        record Case(HttpStatus status, String detail, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.GONE, "AUTH_ATTEMPT_EXPIRED", CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED),
-            new Case(HttpStatus.REQUEST_TIMEOUT, "APP_VALIDATION_TIMEOUT", CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT),
-            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", CaisseEpargneErrorCode.INVALID_CREDENTIALS),
-            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE),
-            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED))) {
+            new Case(HttpStatus.GONE, "AUTH_ATTEMPT_EXPIRED", SidecarErrorCode.AUTH_ATTEMPT_EXPIRED),
+            new Case(HttpStatus.REQUEST_TIMEOUT, "APP_VALIDATION_TIMEOUT", SidecarErrorCode.APP_VALIDATION_TIMEOUT),
+            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", SidecarErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", SidecarErrorCode.UPSTREAM_UNAVAILABLE),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", SidecarErrorCode.UPSTREAM_FORMAT_CHANGED))) {
             CaisseEpargneAdapter adapter = returning(c.status(), "{\"detail\":\"" + c.detail() + "\"}");
 
             assertThatThrownBy(() -> adapter.completeAuth("proc-1"))
@@ -579,12 +579,12 @@ class CaisseEpargneAdapterAuthTest {
 
     @Test
     void completeAuth_mapsABareStatusWhenTheSidecarSendsNoDetail() {
-        record Case(HttpStatus status, CaisseEpargneErrorCode code) {}
+        record Case(HttpStatus status, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.GONE, CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED),
-            new Case(HttpStatus.REQUEST_TIMEOUT, CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT),
-            new Case(HttpStatus.UNAUTHORIZED, CaisseEpargneErrorCode.INVALID_CREDENTIALS),
-            new Case(HttpStatus.BAD_GATEWAY, CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE))) {
+            new Case(HttpStatus.GONE, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED),
+            new Case(HttpStatus.REQUEST_TIMEOUT, SidecarErrorCode.APP_VALIDATION_TIMEOUT),
+            new Case(HttpStatus.UNAUTHORIZED, SidecarErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.BAD_GATEWAY, SidecarErrorCode.UPSTREAM_UNAVAILABLE))) {
             CaisseEpargneAdapter adapter = returning(c.status(), "oops");
 
             assertThatThrownBy(() -> adapter.completeAuth("proc-1"))

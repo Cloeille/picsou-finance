@@ -1,5 +1,6 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
@@ -10,7 +11,7 @@ import com.picsou.model.ScpiProvider;
 import com.picsou.model.SofidySession;
 import com.picsou.model.SofidySyncStatus;
 import com.picsou.port.SidecarInitiate;
-import com.picsou.port.SofidyErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.SofidyPort;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.ScpiPositionRepository;
@@ -114,12 +115,12 @@ public class SofidySyncService {
         AuthAttempt attempt = reserveAuthAttempt(memberId);
         SidecarInitiate result = port.initiateAuth(associateCode, password);
         if (result == null) {
-            throw error(SofidyErrorCode.INVALID_DATA, "Sofidy did not answer the login request", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Sofidy did not answer the login request", null);
         }
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
                 throw error(
-                    SofidyErrorCode.INVALID_DATA,
+                    SidecarErrorCode.INVALID_DATA,
                     "Sofidy opened no session and asked for no code",
                     null
                 );
@@ -136,7 +137,7 @@ public class SofidySyncService {
         }
         if (result.processId() == null || result.processId().isBlank()) {
             throw error(
-                SofidyErrorCode.INVALID_DATA,
+                SidecarErrorCode.INVALID_DATA,
                 "Sofidy asked for a code without giving an attempt to complete",
                 null
             );
@@ -166,7 +167,7 @@ public class SofidySyncService {
         }));
         String plainState = port.completeAuth(processId, code);
         if (plainState == null || plainState.isBlank()) {
-            throw error(SofidyErrorCode.INVALID_DATA, "Sofidy did not return a session", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Sofidy did not return a session", null);
         }
         return storeSession(memberId, plainState, attempt);
     }
@@ -206,7 +207,7 @@ public class SofidySyncService {
     }
 
     private SyncException expiredAuthAttempt() {
-        return error(SofidyErrorCode.AUTH_ATTEMPT_EXPIRED,
+        return error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
             "This Sofidy login attempt is no longer valid. Please reconnect.", null);
     }
 
@@ -235,13 +236,13 @@ public class SofidySyncService {
             lockMember(memberId);
             SofidySession session = sessionRepository.findByMemberIdForUpdate(memberId)
                 .orElseThrow(() -> error(
-                    SofidyErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "No active Sofidy session. Please reconnect.",
                     null
                 ));
             if (!session.isActive()) {
                 throw error(
-                    SofidyErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "The Sofidy session expired. Please reconnect.",
                     null
                 );
@@ -283,9 +284,9 @@ public class SofidySyncService {
         try {
             syncExecutor.execute(() -> executeJob(job));
         } catch (RuntimeException ex) {
-            markFailed(job, SofidyErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             throw error(
-                SofidyErrorCode.INTERNAL_ERROR,
+                SidecarErrorCode.INTERNAL_ERROR,
                 "Could not schedule the Sofidy synchronization",
                 ex
             );
@@ -300,11 +301,11 @@ public class SofidySyncService {
             SofidyPort.Snapshot snapshot = port.fetchSnapshot(job.plainState());
             commitSnapshot(job, snapshot);
         } catch (SyncException ex) {
-            SofidyErrorCode code = codeOf(ex);
+            SidecarErrorCode code = codeOf(ex);
             markFailed(job, code);
             log.warn("Sofidy sync failed (member={}; code={})", job.memberId(), code);
         } catch (Exception ex) {
-            markFailed(job, SofidyErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             log.error("Sofidy sync failed unexpectedly (member={})", job.memberId(), ex);
         }
     }
@@ -326,14 +327,14 @@ public class SofidySyncService {
     ) {
         if (snapshot == null || !snapshot.snapshotComplete()) {
             throw error(
-                SofidyErrorCode.PORTFOLIO_INCOMPLETE,
+                SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "Sofidy returned an incomplete portfolio",
                 null
             );
         }
         if (snapshot.holdings() == null) {
             throw error(
-                SofidyErrorCode.PORTFOLIO_INCOMPLETE,
+                SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "Sofidy returned no fund holding",
                 null
             );
@@ -342,14 +343,14 @@ public class SofidySyncService {
         Set<String> seenFunds = new HashSet<>();
         for (SofidyPort.Holding holding : snapshot.holdings()) {
             if (holding == null || holding.fundCode() == null || holding.quantity() == null) {
-                throw error(SofidyErrorCode.INVALID_DATA, "Sofidy returned an incomplete fund", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "Sofidy returned an incomplete fund", null);
             }
             if (!seenFunds.add(holding.fundCode())) {
                 // Two lines for one fund would write the quantity twice.
-                throw error(SofidyErrorCode.INVALID_DATA, "Sofidy returned a duplicate fund", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "Sofidy returned a duplicate fund", null);
             }
             if (holding.quantity().signum() < 0) {
-                throw error(SofidyErrorCode.INVALID_DATA, "Sofidy returned a negative share count", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "Sofidy returned a negative share count", null);
             }
         }
         checkDeclaredTotal(snapshot);
@@ -357,7 +358,7 @@ public class SofidySyncService {
         // come. A snapshot in another currency, or with none, would be stored as
         // euros silently, so it is refused before anything is written.
         if (!"EUR".equals(snapshot.currency())) {
-            throw error(SofidyErrorCode.INVALID_DATA, "Sofidy returned a portfolio not in euros", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Sofidy returned a portfolio not in euros", null);
         }
 
         List<ScpiFundReconciler.SyncedFund> funds = snapshot.holdings().stream()
@@ -387,7 +388,7 @@ public class SofidySyncService {
     private void checkDeclaredTotal(SofidyPort.Snapshot snapshot) {
         BigDecimal declared = snapshot.totalEur();
         if (declared == null || declared.signum() < 0) {
-            throw error(SofidyErrorCode.PORTFOLIO_INCOMPLETE,
+            throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "Sofidy returned no valid portfolio total", null);
         }
         BigDecimal computed = snapshot.holdings().stream()
@@ -396,7 +397,7 @@ public class SofidySyncService {
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         if (computed.subtract(declared).abs().compareTo(MONEY_TOLERANCE) > 0) {
             throw error(
-                SofidyErrorCode.PORTFOLIO_INCOMPLETE,
+                SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "The Sofidy funds add up to " + computed.setScale(2, java.math.RoundingMode.HALF_UP)
                     + " but the snapshot declares " + declared.setScale(2, java.math.RoundingMode.HALF_UP),
                 null
@@ -489,7 +490,7 @@ public class SofidySyncService {
         });
     }
 
-    private void markFailed(SyncJob job, SofidyErrorCode code) {
+    private void markFailed(SyncJob job, SidecarErrorCode code) {
         txTemplate.executeWithoutResult(status -> {
             lockMember(job.memberId());
             sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
@@ -511,11 +512,11 @@ public class SofidySyncService {
         );
     }
 
-    private SofidyErrorCode codeOf(SyncException exception) {
-        return errorCode(exception, SofidyErrorCode.class, SofidyErrorCode.UPSTREAM_UNAVAILABLE);
+    private SidecarErrorCode codeOf(SyncException exception) {
+        return SyncValues.errorCode(exception, SidecarBank.SOFIDY, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
-    private SyncException error(SofidyErrorCode code, String message, Throwable cause) {
+    private SyncException error(SidecarErrorCode code, String message, Throwable cause) {
         return new SyncException(message, cause, code.name());
     }
 
@@ -533,7 +534,7 @@ public class SofidySyncService {
         String mfaType,
         boolean isActive,
         SofidySyncStatus syncStatus,
-        SofidyErrorCode lastSyncError,
+        SidecarErrorCode lastSyncError,
         java.time.Instant lastSyncStartedAt,
         java.time.Instant lastSyncCompletedAt
     ) {
@@ -551,7 +552,7 @@ public class SofidySyncService {
         SofidySyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        SofidyErrorCode lastSyncError
+        SidecarErrorCode lastSyncError
     ) {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, SofidySyncStatus.IDLE, null, null, null);

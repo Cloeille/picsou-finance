@@ -9,7 +9,7 @@ import com.picsou.model.AccountType;
 import com.picsou.model.BoursoSession;
 import com.picsou.model.BoursoSyncStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.BoursoErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BoursoPort;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
@@ -344,7 +344,7 @@ class BoursoSyncServiceTest {
         service.queueSync(7L);
 
         assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
@@ -366,7 +366,7 @@ class BoursoSyncServiceTest {
         service.queueSync(7L);
 
         assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).saveAll(any());
     }
@@ -416,7 +416,7 @@ class BoursoSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.INVALID_DATA);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
@@ -431,7 +431,7 @@ class BoursoSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.INVALID_DATA);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
@@ -446,7 +446,7 @@ class BoursoSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(dividendReceiptService, never()).classifyRecent(any(), any());
     }
@@ -471,7 +471,7 @@ class BoursoSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.INVALID_DATA);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
     }
 
     /** Two lines resolving to one ticker must not overwrite each other. */
@@ -514,7 +514,7 @@ class BoursoSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.INVALID_DATA);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(identityService, never()).record(any());
         verify(holdingRepository, never()).saveAll(any());
     }
@@ -534,7 +534,7 @@ class BoursoSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.INVALID_DATA);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(identityService, never()).record(any());
         verify(holdingRepository, never()).saveAll(any());
     }
@@ -552,7 +552,7 @@ class BoursoSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.INVALID_DATA);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(identityService, never()).record(any());
         verify(holdingRepository, never()).saveAll(any());
     }
@@ -612,7 +612,7 @@ class BoursoSyncServiceTest {
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.queueSync(7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.SESSION_EXPIRED.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name())
             );
     }
 
@@ -622,7 +622,7 @@ class BoursoSyncServiceTest {
         BoursoSession session = activeSession(member());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
-            new SyncException("gone", null, BoursoErrorCode.SESSION_EXPIRED.name())
+            new SyncException("gone", null, SidecarErrorCode.SESSION_EXPIRED.name())
         );
 
         service.queueSync(7L);
@@ -639,13 +639,13 @@ class BoursoSyncServiceTest {
         BoursoSession session = activeSession(member());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
-            new SyncException("down", null, BoursoErrorCode.UPSTREAM_UNAVAILABLE.name())
+            new SyncException("down", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
         );
 
         service.queueSync(7L);
 
         assertThat(session.isActive()).isTrue();
-        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.UPSTREAM_UNAVAILABLE);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
     @Test
@@ -656,7 +656,7 @@ class BoursoSyncServiceTest {
             eq(List.of(BoursoSyncStatus.QUEUED, BoursoSyncStatus.RUNNING)),
             eq(BoursoSyncStatus.FAILED),
             any(),
-            eq(BoursoErrorCode.INTERNAL_ERROR)
+            eq(SidecarErrorCode.INTERNAL_ERROR)
         );
     }
 
@@ -698,7 +698,7 @@ class BoursoSyncServiceTest {
             .thenReturn("{\"customerId\":\"12345678\",\"password\":\"123456\"}");
         when(encryption.encrypt(anyString())).thenReturn("state-encrypted");
         when(port.fetchAccounts("plain-state")).thenThrow(
-            new SyncException("expired", null, BoursoErrorCode.SESSION_EXPIRED.name()));
+            new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name()));
         when(port.initiateAuth("12345678", "123456"))
             .thenReturn(new SidecarInitiate(null, false, null, "fresh-state"));
         when(port.fetchAccounts("fresh-state")).thenReturn(List.of(checkingAccount()));
@@ -719,12 +719,12 @@ class BoursoSyncServiceTest {
         BoursoSession session = activeSession(member());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
-            new SyncException("expired", null, BoursoErrorCode.SESSION_EXPIRED.name()));
+            new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name()));
 
         service.queueSync(7L);
 
         assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.SESSION_EXPIRED);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         verify(port, never()).initiateAuth(anyString(), anyString());
     }
 
@@ -736,14 +736,14 @@ class BoursoSyncServiceTest {
         when(encryption.decrypt("credentials-encrypted"))
             .thenReturn("{\"customerId\":\"12345678\",\"password\":\"123456\"}");
         when(port.fetchAccounts("plain-state")).thenThrow(
-            new SyncException("expired", null, BoursoErrorCode.SESSION_EXPIRED.name()));
+            new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name()));
         when(port.initiateAuth("12345678", "123456"))
             .thenReturn(new SidecarInitiate("process", true, "APP_PUSH", null));
 
         service.queueSync(7L);
 
         assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.SESSION_EXPIRED);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         verify(port).initiateAuth("12345678", "123456");
     }
 
@@ -755,14 +755,14 @@ class BoursoSyncServiceTest {
         when(encryption.decrypt("credentials-encrypted"))
             .thenReturn("{\"customerId\":\"12345678\",\"password\":\"123456\"}");
         when(port.fetchAccounts("plain-state")).thenThrow(
-            new SyncException("expired", null, BoursoErrorCode.SESSION_EXPIRED.name()));
+            new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name()));
         when(port.initiateAuth("12345678", "123456")).thenThrow(
-            new SyncException("bad credentials", null, BoursoErrorCode.INVALID_CREDENTIALS.name()));
+            new SyncException("bad credentials", null, SidecarErrorCode.INVALID_CREDENTIALS.name()));
 
         service.queueSync(7L);
 
         assertThat(session.getSyncStatus()).isEqualTo(BoursoSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.INVALID_CREDENTIALS);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS);
         assertThat(session.getEncryptedCredentials()).isNull();
     }
 
@@ -793,7 +793,7 @@ class BoursoSyncServiceTest {
             return stored;
         });
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
-        lenient().when(port.fetchAccounts("cookies")).thenThrow(new SyncException("transient", null, BoursoErrorCode.UPSTREAM_UNAVAILABLE.name()));
+        lenient().when(port.fetchAccounts("cookies")).thenThrow(new SyncException("transient", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
 
         service.initiateAuth("12345678", "123456", 7L);
         service.completeAuth("p2", 7L);
@@ -807,7 +807,7 @@ class BoursoSyncServiceTest {
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.completeAuth("p1", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.INVALID_DATA.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_DATA.name())
             );
     }
 
@@ -825,12 +825,12 @@ class BoursoSyncServiceTest {
         BoursoSession session = activeSession(member());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
-            new SyncException("down", null, BoursoErrorCode.UPSTREAM_UNAVAILABLE.name())
+            new SyncException("down", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
         );
 
         service.resyncIfSessionActive(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(BoursoErrorCode.UPSTREAM_UNAVAILABLE);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
     // -- helpers ------------------------------------------------------------

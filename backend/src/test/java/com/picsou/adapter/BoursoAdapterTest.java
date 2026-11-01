@@ -3,7 +3,7 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
-import com.picsou.port.BoursoErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -119,7 +119,7 @@ class BoursoAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.PORTFOLIO_INCOMPLETE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE.name());
                 assertThat(error.getMessage()).doesNotContain("cookies");
             });
     }
@@ -133,7 +133,7 @@ class BoursoAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.UPSTREAM_FORMAT_CHANGED.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED.name())
             );
     }
 
@@ -146,7 +146,7 @@ class BoursoAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.IDENTITY_SELECTION_UNSUPPORTED.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.IDENTITY_SELECTION_UNSUPPORTED.name());
                 assertThat(error.getMessage()).contains("several identities");
             });
     }
@@ -160,7 +160,7 @@ class BoursoAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.SESSION_EXPIRED.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name())
             );
     }
 
@@ -175,7 +175,7 @@ class BoursoAdapterTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth("12345678", "123456"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.MFA_TYPE_UNSUPPORTED.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.MFA_TYPE_UNSUPPORTED.name());
                 assertThat(error.getMessage()).contains("app validation");
             });
     }
@@ -189,7 +189,7 @@ class BoursoAdapterTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth("12345678", "123456"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.INVALID_CREDENTIALS.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS.name())
             );
     }
 
@@ -205,7 +205,7 @@ class BoursoAdapterTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth("12345678", "123456"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.FRAUD_ACK_REQUIRED.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.FRAUD_ACK_REQUIRED.name());
                 assertThat(error.getMessage()).contains("fraud-prevention notice");
             });
     }
@@ -232,7 +232,7 @@ class BoursoAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("process"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.APP_VALIDATION_TIMEOUT.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.APP_VALIDATION_TIMEOUT.name())
             );
     }
 
@@ -256,7 +256,7 @@ class BoursoAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("process"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.AUTH_ATTEMPT_EXPIRED.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name())
             );
     }
 
@@ -266,7 +266,7 @@ class BoursoAdapterTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth("12345678", "123456"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -276,7 +276,7 @@ class BoursoAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.PORTFOLIO_INCOMPLETE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE.name())
             );
     }
 
@@ -286,7 +286,7 @@ class BoursoAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -299,7 +299,7 @@ class BoursoAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -316,7 +316,7 @@ class BoursoAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.UPSTREAM_UNAVAILABLE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getMessage()).contains("too long");
             });
     }

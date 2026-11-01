@@ -1,6 +1,7 @@
 package com.picsou.service;
 
 import com.picsou.adapter.OpenFigiIsinConverter;
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
@@ -10,7 +11,7 @@ import com.picsou.model.AccountType;
 import com.picsou.model.BourseDirectSession;
 import com.picsou.model.BourseDirectSyncStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.BourseDirectErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BourseDirectPort;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
@@ -94,7 +95,7 @@ public class BourseDirectSyncService {
         SidecarInitiate result = port.initiateAuth(login, password);
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
-                throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct did not return a session", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "Bourse Direct did not return a session", null);
             }
             storeSessionAndQueue(result.sessionState(), memberId);
         }
@@ -104,7 +105,7 @@ public class BourseDirectSyncService {
     public SessionStatusResponse completeAuth(String processId, String code, Long memberId) {
         String plainState = port.completeAuth(processId, code);
         if (plainState == null || plainState.isBlank()) {
-            throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct did not return a session", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Bourse Direct did not return a session", null);
         }
         return storeSessionAndQueue(plainState, memberId);
     }
@@ -113,13 +114,13 @@ public class BourseDirectSyncService {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
             BourseDirectSession session = sessionRepository.findByMemberIdForUpdate(memberId)
                 .orElseThrow(() -> error(
-                    BourseDirectErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "No active Bourse Direct session. Please reconnect.",
                     null
                 ));
             if (!session.isActive()) {
                 throw error(
-                    BourseDirectErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "The Bourse Direct session expired. Please reconnect.",
                     null
                 );
@@ -170,9 +171,9 @@ public class BourseDirectSyncService {
         try {
             syncExecutor.execute(() -> executeJob(job));
         } catch (RuntimeException ex) {
-            markFailed(job, BourseDirectErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             throw error(
-                BourseDirectErrorCode.INTERNAL_ERROR,
+                SidecarErrorCode.INTERNAL_ERROR,
                 "Could not schedule the Bourse Direct synchronization",
                 ex
             );
@@ -192,11 +193,11 @@ public class BourseDirectSyncService {
                 log.info("Discarded stale Bourse Direct sync result (member={})", job.memberId());
             }
         } catch (SyncException ex) {
-            BourseDirectErrorCode code = codeOf(ex);
+            SidecarErrorCode code = codeOf(ex);
             markFailed(job, code);
             log.warn("Bourse Direct sync failed (member={}; code={})", job.memberId(), code);
         } catch (Exception ex) {
-            markFailed(job, BourseDirectErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             log.error("Bourse Direct sync failed unexpectedly (member={})", job.memberId(), ex);
         }
     }
@@ -230,7 +231,7 @@ public class BourseDirectSyncService {
     private List<PreparedAccount> prepareAccounts(List<BourseDirectPort.AccountData> fetched) {
         if (fetched == null || fetched.isEmpty()) {
             throw error(
-                BourseDirectErrorCode.PORTFOLIO_INCOMPLETE,
+                SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "Bourse Direct returned no complete portfolio accounts",
                 null
             );
@@ -241,20 +242,20 @@ public class BourseDirectSyncService {
         for (BourseDirectPort.AccountData account : fetched) {
             if (account == null || !account.snapshotComplete()) {
                 throw error(
-                    BourseDirectErrorCode.PORTFOLIO_INCOMPLETE,
+                    SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                     "Bourse Direct returned an incomplete portfolio",
                     null
                 );
             }
             String externalId = stableExternalId(account.externalId());
             if (!externalIds.add(externalId)) {
-                throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned duplicate accounts", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "Bourse Direct returned duplicate accounts", null);
             }
             if (account.type() != AccountType.PEA && account.type() != AccountType.COMPTE_TITRES) {
-                throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned an unsupported account type", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "Bourse Direct returned an unsupported account type", null);
             }
             if (account.balanceEur() == null || account.cashBalance() == null || account.positions() == null) {
-                throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned incomplete account values", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "Bourse Direct returned incomplete account values", null);
             }
 
             List<PreparedPosition> positions = preparePositions(account.positions());
@@ -264,7 +265,7 @@ public class BourseDirectSyncService {
             BigDecimal expectedPositionValue = account.balanceEur().subtract(account.cashBalance());
             if (!moneyClose(positionValue, expectedPositionValue)) {
                 throw error(
-                    BourseDirectErrorCode.PORTFOLIO_INCOMPLETE,
+                    SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                     "Bourse Direct returned an incomplete portfolio",
                     null
                 );
@@ -289,7 +290,7 @@ public class BourseDirectSyncService {
         Map<String, String> isinByTicker = new LinkedHashMap<>();
         for (BourseDirectPort.Position position : rawPositions) {
             if (position == null || position.quantity() == null || position.currentValueEur() == null) {
-                throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned an incomplete position", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "Bourse Direct returned an incomplete position", null);
             }
             if (position.quantity().signum() == 0) {
                 continue;
@@ -297,7 +298,7 @@ public class BourseDirectSyncService {
             String currency = normalizeCurrency(position.quoteCurrency());
             if (position.currentPrice() != null && currency == null) {
                 throw error(
-                    BourseDirectErrorCode.INVALID_DATA,
+                    SidecarErrorCode.INVALID_DATA,
                     "Bourse Direct returned a quote without its currency",
                     null
                 );
@@ -336,7 +337,7 @@ public class BourseDirectSyncService {
             }
         }
         if (ticker == null || ticker.length() > 30) {
-            throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned an invalid instrument identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Bourse Direct returned an invalid instrument identifier", null);
         }
         if (isin != null) {
             isinByTicker.put(ticker, isin);
@@ -351,14 +352,14 @@ public class BourseDirectSyncService {
         }
         isin = isin.toUpperCase(java.util.Locale.ROOT);
         if (!isin.matches("[A-Z]{2}[A-Z0-9]{10}")) {
-            throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned an invalid ISIN", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Bourse Direct returned an invalid ISIN", null);
         }
         return isin;
     }
 
     private PreparedPosition mergePositions(PreparedPosition left, PreparedPosition right) {
         if (!Objects.equals(left.quoteCurrency(), right.quoteCurrency())) {
-            throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned conflicting quote currencies", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Bourse Direct returned conflicting quote currencies", null);
         }
         BigDecimal quantity = left.quantity().add(right.quantity());
         return new PreparedPosition(
@@ -484,7 +485,7 @@ public class BourseDirectSyncService {
         );
     }
 
-    private void markFailed(SyncJob job, BourseDirectErrorCode code) {
+    private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
                 Optional<BourseDirectSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
@@ -529,7 +530,7 @@ public class BourseDirectSyncService {
             List.of(BourseDirectSyncStatus.QUEUED, BourseDirectSyncStatus.RUNNING),
             BourseDirectSyncStatus.FAILED,
             Instant.now(),
-            BourseDirectErrorCode.INTERNAL_ERROR
+            SidecarErrorCode.INTERNAL_ERROR
         );
         if (recovered > 0) {
             log.warn("Recovered {} interrupted Bourse Direct sync job(s)", recovered);
@@ -556,7 +557,7 @@ public class BourseDirectSyncService {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
-                if (status.lastSyncError() == BourseDirectErrorCode.SESSION_EXPIRED) {
+                if (status.lastSyncError() == SidecarErrorCode.SESSION_EXPIRED) {
                     return new SourceSyncResult("bourse-direct", SourceSyncResult.Status.NEEDS_REAUTH,
                         status.lastSyncError().name());
                 }
@@ -600,22 +601,22 @@ public class BourseDirectSyncService {
         );
     }
 
-    private BourseDirectErrorCode codeOf(SyncException exception) {
-        return errorCode(exception, BourseDirectErrorCode.class, BourseDirectErrorCode.UPSTREAM_UNAVAILABLE);
+    private SidecarErrorCode codeOf(SyncException exception) {
+        return SyncValues.errorCode(exception, SidecarBank.BOURSE_DIRECT, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
-    private SyncException error(BourseDirectErrorCode code, String message, Throwable cause) {
+    private SyncException error(SidecarErrorCode code, String message, Throwable cause) {
         return new SyncException(message, cause, code.name());
     }
 
     private String stableExternalId(String raw) {
         String cleaned = clean(raw);
         if (cleaned == null) {
-            throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned an invalid account identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Bourse Direct returned an invalid account identifier", null);
         }
         String externalId = cleaned.startsWith("bd_") ? cleaned : "bd_" + cleaned;
         if (externalId.length() > 100) {
-            throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned an invalid account identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Bourse Direct returned an invalid account identifier", null);
         }
         return externalId;
     }
@@ -627,7 +628,7 @@ public class BourseDirectSyncService {
         }
         currency = currency.toUpperCase(java.util.Locale.ROOT);
         if (!currency.matches("[A-Z]{3}")) {
-            throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct returned an invalid quote currency", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Bourse Direct returned an invalid quote currency", null);
         }
         return currency;
     }
@@ -640,7 +641,7 @@ public class BourseDirectSyncService {
         BourseDirectSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        BourseDirectErrorCode lastSyncError
+        SidecarErrorCode lastSyncError
     ) {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, null, BourseDirectSyncStatus.IDLE, null, null, null);

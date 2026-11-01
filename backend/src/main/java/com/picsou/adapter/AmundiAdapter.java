@@ -1,10 +1,11 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
 import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.port.AmundiErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.AmundiPort;
 import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +28,7 @@ public class AmundiAdapter implements AmundiPort {
     private static final Duration DEFAULT_VALIDATION_TIMEOUT = Duration.ofSeconds(150);
     private static final Duration DEFAULT_POSITIONS_TIMEOUT = Duration.ofSeconds(90);
 
-    private final SidecarErrorTranslator<AmundiErrorCode> sidecar;
+    private final SidecarClient sidecar;
     private final Duration authTimeout;
     private final Duration validationTimeout;
     private final Duration positionsTimeout;
@@ -38,7 +39,7 @@ public class AmundiAdapter implements AmundiPort {
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Amundi", "amundi-auth"),
+            clients.create(SidecarBank.AMUNDI.label(), SidecarBank.AMUNDI.serviceName()),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,
@@ -57,15 +58,7 @@ public class AmundiAdapter implements AmundiPort {
         Duration validationTimeout,
         Duration positionsTimeout
     ) {
-        this.sidecar = new SidecarErrorTranslator<>(
-            client,
-            objectMapper,
-            AmundiErrorCode.class,
-            "Amundi",
-            AmundiErrorCode.UPSTREAM_UNAVAILABLE,
-            AmundiErrorCode.AUTH_ATTEMPT_EXPIRED,
-            AmundiAdapter::friendlyMessage
-        );
+        this.sidecar = new SidecarClient(client, objectMapper, SidecarBank.AMUNDI, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
         this.authTimeout = authTimeout;
         this.validationTimeout = validationTimeout;
         this.positionsTimeout = positionsTimeout;
@@ -74,7 +67,7 @@ public class AmundiAdapter implements AmundiPort {
     @Override
     public SidecarInitiate initiateAuth(String login, String password) {
         return sidecar.post("/initiate", Map.of("login", login, "password", password), SidecarInitiate.class,
-            authTimeout, "Could not initiate Amundi authentication", AmundiErrorCode.INVALID_CREDENTIALS);
+            authTimeout, "Could not initiate Amundi authentication", SidecarErrorCode.INVALID_CREDENTIALS);
     }
 
     @Override
@@ -85,7 +78,7 @@ public class AmundiAdapter implements AmundiPort {
         body.put("processId", processId);
         body.put("code", code);
         SidecarSession response = sidecar.post("/complete", body, SidecarSession.class, validationTimeout,
-            "Could not complete Amundi authentication", AmundiErrorCode.INVALID_OTP);
+            "Could not complete Amundi authentication", SidecarErrorCode.INVALID_OTP);
         return response.sessionState();
     }
 
@@ -97,23 +90,8 @@ public class AmundiAdapter implements AmundiPort {
             PlanData[].class,
             positionsTimeout,
             "Could not fetch Amundi savings plans",
-            AmundiErrorCode.PORTFOLIO_INCOMPLETE,
+            SidecarErrorCode.PORTFOLIO_INCOMPLETE,
             "Amundi returned no complete savings plan"
         );
-    }
-
-    private static String friendlyMessage(AmundiErrorCode code) {
-        return switch (code) {
-            case INVALID_CREDENTIALS -> "Amundi rejected the credentials";
-            case CAPTCHA_BLOCKED -> "Amundi asked for a captcha Picsou cannot solve";
-            case INVALID_OTP -> "Amundi rejected the verification code";
-            case APP_VALIDATION_TIMEOUT -> "The Amundi app validation was not confirmed in time";
-            case AUTH_ATTEMPT_EXPIRED -> "The Amundi authentication attempt expired";
-            case SESSION_EXPIRED -> "The Amundi session expired";
-            case PORTFOLIO_INCOMPLETE -> "Amundi returned incomplete savings plans";
-            case UPSTREAM_FORMAT_CHANGED -> "The Amundi website format changed";
-            case INVALID_DATA -> "Amundi returned invalid savings plan data";
-            case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Amundi is temporarily unavailable";
-        };
     }
 }

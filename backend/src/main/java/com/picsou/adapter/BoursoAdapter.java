@@ -1,10 +1,11 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
 import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.port.BoursoErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BoursoPort;
 import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,7 +29,7 @@ public class BoursoAdapter implements BoursoPort {
     /** One home fetch, one dashboard fetch, and one trading call per securities account. */
     private static final Duration DEFAULT_ACCOUNTS_TIMEOUT = Duration.ofSeconds(90);
 
-    private final SidecarErrorTranslator<BoursoErrorCode> sidecar;
+    private final SidecarClient sidecar;
     private final Duration authTimeout;
     private final Duration validationTimeout;
     private final Duration accountsTimeout;
@@ -39,7 +40,7 @@ public class BoursoAdapter implements BoursoPort {
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("BoursoBank", "bourso-auth"),
+            clients.create(SidecarBank.BOURSO.label(), SidecarBank.BOURSO.serviceName()),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,
@@ -58,15 +59,7 @@ public class BoursoAdapter implements BoursoPort {
         Duration validationTimeout,
         Duration accountsTimeout
     ) {
-        this.sidecar = new SidecarErrorTranslator<>(
-            client,
-            objectMapper,
-            BoursoErrorCode.class,
-            "BoursoBank",
-            BoursoErrorCode.UPSTREAM_UNAVAILABLE,
-            BoursoErrorCode.AUTH_ATTEMPT_EXPIRED,
-            BoursoAdapter::friendlyMessage
-        );
+        this.sidecar = new SidecarClient(client, objectMapper, SidecarBank.BOURSO, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
         this.authTimeout = authTimeout;
         this.validationTimeout = validationTimeout;
         this.accountsTimeout = accountsTimeout;
@@ -80,7 +73,7 @@ public class BoursoAdapter implements BoursoPort {
             SidecarInitiate.class,
             authTimeout,
             "Could not initiate BoursoBank authentication",
-            BoursoErrorCode.INVALID_CREDENTIALS
+            SidecarErrorCode.INVALID_CREDENTIALS
         );
     }
 
@@ -97,7 +90,7 @@ public class BoursoAdapter implements BoursoPort {
             SidecarSession.class,
             validationTimeout,
             "Could not complete BoursoBank authentication",
-            BoursoErrorCode.APP_VALIDATION_TIMEOUT
+            SidecarErrorCode.APP_VALIDATION_TIMEOUT
         );
         return response.sessionState();
     }
@@ -110,28 +103,8 @@ public class BoursoAdapter implements BoursoPort {
             AccountData[].class,
             accountsTimeout,
             "Could not fetch BoursoBank accounts",
-            BoursoErrorCode.PORTFOLIO_INCOMPLETE,
+            SidecarErrorCode.PORTFOLIO_INCOMPLETE,
             "BoursoBank returned no account"
         );
-    }
-
-    private static String friendlyMessage(BoursoErrorCode code) {
-        return switch (code) {
-            case INVALID_CREDENTIALS -> "BoursoBank rejected the customer number or password";
-            case FRAUD_ACK_REQUIRED ->
-                "BoursoBank needs you to log in on their website and validate the fraud-prevention notice once, then retry";
-            case IDENTITY_SELECTION_UNSUPPORTED ->
-                "BoursoBank lists several identities on this access and Picsou could not pick the personal one";
-            case MFA_TYPE_UNSUPPORTED ->
-                "BoursoBank asked for an SMS or e-mail code, which Picsou cannot handle. "
-                    + "Switch your BoursoBank security settings to app validation.";
-            case APP_VALIDATION_TIMEOUT -> "The BoursoBank app validation was not confirmed in time";
-            case AUTH_ATTEMPT_EXPIRED -> "The BoursoBank authentication attempt expired";
-            case SESSION_EXPIRED -> "The BoursoBank session expired";
-            case PORTFOLIO_INCOMPLETE -> "BoursoBank returned an incomplete portfolio";
-            case UPSTREAM_FORMAT_CHANGED -> "The BoursoBank website format changed";
-            case INVALID_DATA -> "BoursoBank returned invalid account data";
-            case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "BoursoBank is temporarily unavailable";
-        };
     }
 }

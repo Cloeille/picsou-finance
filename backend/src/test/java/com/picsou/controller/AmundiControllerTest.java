@@ -3,7 +3,7 @@ package com.picsou.controller;
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AmundiSyncStatus;
-import com.picsou.port.AmundiErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.AmundiSyncService;
 import com.picsou.service.UserContext;
 import io.github.bucket4j.Bucket;
@@ -129,7 +129,7 @@ class AmundiControllerTest {
             new SyncException(
                 "Amundi rejected the verification code",
                 null,
-                AmundiErrorCode.INVALID_OTP.name()
+                SidecarErrorCode.INVALID_OTP.name()
             )
         );
 
@@ -147,7 +147,7 @@ class AmundiControllerTest {
     @Test
     void aCaptchaWallReachesTheClientAsItsOwnTranslatableCode() throws Exception {
         when(service.initiateAuth("login", "password", MEMBER_ID)).thenThrow(
-            new SyncException("captcha", null, AmundiErrorCode.CAPTCHA_BLOCKED.name())
+            new SyncException("captcha", null, SidecarErrorCode.CAPTCHA_BLOCKED.name())
         );
 
         mockMvc.perform(post("/api/amundi/auth/initiate")

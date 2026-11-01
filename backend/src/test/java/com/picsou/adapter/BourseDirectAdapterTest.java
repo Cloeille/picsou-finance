@@ -3,7 +3,7 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
-import com.picsou.port.BourseDirectErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -67,7 +67,7 @@ class BourseDirectAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BourseDirectErrorCode.PORTFOLIO_INCOMPLETE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE.name());
                 assertThat(error.getMessage()).doesNotContain("state");
             });
     }
@@ -81,7 +81,7 @@ class BourseDirectAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("process", "123456"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BourseDirectErrorCode.INVALID_OTP.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_OTP.name())
             );
     }
 
@@ -91,7 +91,7 @@ class BourseDirectAdapterTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth("login", "password"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BourseDirectErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -104,7 +104,7 @@ class BourseDirectAdapterTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("process", "123456"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BourseDirectErrorCode.INVALID_OTP.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_OTP.name())
             );
     }
 
@@ -114,7 +114,7 @@ class BourseDirectAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BourseDirectErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -127,7 +127,7 @@ class BourseDirectAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BourseDirectErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -143,7 +143,7 @@ class BourseDirectAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BourseDirectErrorCode.UPSTREAM_UNAVAILABLE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getMessage()).contains("too long");
             });
     }

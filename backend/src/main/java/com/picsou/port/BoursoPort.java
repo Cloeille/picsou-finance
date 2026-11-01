@@ -26,7 +26,7 @@ public interface BoursoPort {
      * Waits for the customer to approve the push, then returns the session.
      *
      * <p>Takes no code: the app push is the only second factor supported, and
-     * an SMS/e-mail prompt is reported as {@link BoursoErrorCode#MFA_TYPE_UNSUPPORTED}
+     * an SMS/e-mail prompt is reported as {@link SidecarErrorCode#MFA_TYPE_UNSUPPORTED}
      * during {@link #initiateAuth} rather than half-driven here.
      */
     String completeAuth(String processId);

@@ -1,7 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.picsou.port.CmesErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -52,7 +52,7 @@ public class CmesSession extends AuditableEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "last_sync_error", length = 40)
-    private CmesErrorCode lastSyncError;
+    private SidecarErrorCode lastSyncError;
 
     public static CmesSession create(
         FamilyMember member,
@@ -112,18 +112,18 @@ public class CmesSession extends AuditableEntity {
         lastSyncError = null;
     }
 
-    public void markFailed(CmesErrorCode errorCode, Instant completedAt) {
+    public void markFailed(SidecarErrorCode errorCode, Instant completedAt) {
         if (syncStatus != CmesSyncStatus.QUEUED && syncStatus != CmesSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an in-flight CMES synchronization can fail");
         }
-        CmesErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
         syncStatus = CmesSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
         // An expired session and a rejected stored password both need the saver
         // to reconnect; a failed fetch leaves a usable session so the daily
         // scheduler can simply retry.
-        if (error == CmesErrorCode.SESSION_EXPIRED || error == CmesErrorCode.INVALID_CREDENTIALS) {
+        if (error == SidecarErrorCode.SESSION_EXPIRED || error == SidecarErrorCode.INVALID_CREDENTIALS) {
             active = false;
         }
     }

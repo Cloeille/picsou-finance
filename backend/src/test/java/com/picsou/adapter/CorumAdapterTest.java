@@ -2,7 +2,7 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.exception.SyncException;
-import com.picsou.port.CorumErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -118,7 +118,7 @@ class CorumAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.PORTFOLIO_INCOMPLETE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE.name())
             );
     }
 
@@ -130,7 +130,7 @@ class CorumAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.PORTFOLIO_INCOMPLETE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE.name());
                 assertThat(error.getMessage()).doesNotContain("state");
             });
     }
@@ -143,7 +143,7 @@ class CorumAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.MULTIPLE_CONTRACTS.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.MULTIPLE_CONTRACTS.name())
             );
     }
 
@@ -156,7 +156,7 @@ class CorumAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.SESSION_EXPIRED.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name())
             );
     }
 
@@ -175,7 +175,7 @@ class CorumAdapterTest {
 
         assertThatThrownBy(() -> adapter.authenticate("000000", "wrong"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.INVALID_CREDENTIALS.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS.name())
             );
     }
 
@@ -185,7 +185,7 @@ class CorumAdapterTest {
 
         assertThatThrownBy(() -> adapter.authenticate("000000", "password"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -195,7 +195,7 @@ class CorumAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -207,7 +207,7 @@ class CorumAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.UPSTREAM_UNAVAILABLE.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
             );
     }
 
@@ -223,7 +223,7 @@ class CorumAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.UPSTREAM_UNAVAILABLE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getMessage()).contains("too long");
             });
     }

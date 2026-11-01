@@ -8,7 +8,7 @@ import com.picsou.model.FamilyMember;
 import com.picsou.model.ScpiPosition;
 import com.picsou.model.SofidySession;
 import com.picsou.model.SofidySyncStatus;
-import com.picsou.port.SofidyErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.SofidyPort;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.AccountRepository;
@@ -194,7 +194,7 @@ class SofidySyncServiceTest {
         SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(SofidyErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(positionRepository, org.mockito.Mockito.never())
             .findByAccountMemberIdAndSofidyFundCodeIsNotNull(any());
     }
@@ -216,7 +216,7 @@ class SofidySyncServiceTest {
         SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(SofidyErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(positionService, org.mockito.Mockito.never())
             .applySyncedPosition(any(), any(), any(), any(), any());
     }
@@ -335,7 +335,7 @@ class SofidySyncServiceTest {
         SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(SofidyErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verifyNoInteractions(positionService, positionRepository);
     }
 
@@ -354,7 +354,7 @@ class SofidySyncServiceTest {
         when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyPort.Snapshot(
             "EUR", BigDecimal.ZERO, null, true,
             List.of(new SofidyPort.Holding("DY", "Test fund", null, new BigDecimal("313.60"), null))));
-        assertThat(service.queueSync(7L).lastSyncError()).isEqualTo(SofidyErrorCode.INVALID_DATA);
+        assertThat(service.queueSync(7L).lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verifyNoInteractions(positionService, positionRepository);
     }
 
@@ -369,7 +369,7 @@ class SofidySyncServiceTest {
         SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(SofidyErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verifyNoInteractions(positionService, positionRepository);
     }
 

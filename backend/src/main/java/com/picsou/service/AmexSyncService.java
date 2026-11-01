@@ -1,5 +1,6 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
@@ -9,7 +10,7 @@ import com.picsou.model.AmexSession;
 import com.picsou.model.AmexSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
-import com.picsou.port.AmexErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.AmexPort;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountRepository;
@@ -120,7 +121,7 @@ public class AmexSyncService {
         SidecarInitiate result = port.initiateAuth(login, password, method);
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
-                throw error(AmexErrorCode.INVALID_DATA, "American Express did not return a session", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "American Express did not return a session", null);
             }
             storeSessionAndQueue(result.sessionState(), memberId);
         }
@@ -130,7 +131,7 @@ public class AmexSyncService {
     public SessionStatusResponse completeAuth(String processId, String otp, Long memberId) {
         String plainState = port.completeAuth(processId, otp);
         if (plainState == null || plainState.isBlank()) {
-            throw error(AmexErrorCode.INVALID_DATA, "American Express did not return a session", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "American Express did not return a session", null);
         }
         return storeSessionAndQueue(plainState, memberId);
     }
@@ -147,13 +148,13 @@ public class AmexSyncService {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
             AmexSession session = sessionRepository.findByMemberIdForUpdate(memberId)
                 .orElseThrow(() -> error(
-                    AmexErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "No active American Express session. Please reconnect.",
                     null
                 ));
             if (!session.isActive()) {
                 throw error(
-                    AmexErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "The American Express session expired. Please reconnect.",
                     null
                 );
@@ -209,9 +210,9 @@ public class AmexSyncService {
         try {
             syncExecutor.execute(() -> executeJob(job));
         } catch (RuntimeException ex) {
-            markFailed(job, AmexErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             throw error(
-                AmexErrorCode.INTERNAL_ERROR,
+                SidecarErrorCode.INTERNAL_ERROR,
                 "Could not schedule the American Express synchronization",
                 ex
             );
@@ -234,11 +235,11 @@ public class AmexSyncService {
                 log.info("Discarded stale American Express sync result (member={})", job.memberId());
             }
         } catch (SyncException ex) {
-            AmexErrorCode code = codeOf(ex);
+            SidecarErrorCode code = codeOf(ex);
             markFailed(job, code);
             log.warn("American Express sync failed (member={}; code={})", job.memberId(), code);
         } catch (Exception ex) {
-            markFailed(job, AmexErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             log.error("American Express sync failed unexpectedly (member={})", job.memberId(), ex);
         }
     }
@@ -271,21 +272,21 @@ public class AmexSyncService {
 
     private List<PreparedAccount> prepareAccounts(List<AmexPort.AccountData> fetched) {
         if (fetched == null || fetched.isEmpty()) {
-            throw error(AmexErrorCode.INVALID_DATA, "American Express returned no account", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "American Express returned no account", null);
         }
 
         Set<String> externalIds = new HashSet<>();
         List<PreparedAccount> prepared = new ArrayList<>();
         for (AmexPort.AccountData account : fetched) {
             if (account == null || !account.snapshotComplete()) {
-                throw error(AmexErrorCode.INVALID_DATA, "American Express returned an incomplete snapshot", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "American Express returned an incomplete snapshot", null);
             }
             String externalId = stableExternalId(account.externalId());
             if (!externalIds.add(externalId)) {
-                throw error(AmexErrorCode.INVALID_DATA, "American Express returned duplicate accounts", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "American Express returned duplicate accounts", null);
             }
             if (account.balanceEur() == null) {
-                throw error(AmexErrorCode.INVALID_DATA, "American Express returned an incomplete account balance", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "American Express returned an incomplete account balance", null);
             }
 
             prepared.add(new PreparedAccount(
@@ -320,13 +321,13 @@ public class AmexSyncService {
         Map<String, Integer> occurrences = new HashMap<>();
         for (AmexPort.Transaction tx : raw) {
             if (tx == null || tx.date() == null || tx.amountEur() == null) {
-                throw error(AmexErrorCode.INVALID_DATA, "American Express returned an incomplete transaction", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "American Express returned an incomplete transaction", null);
             }
             LocalDate date;
             try {
                 date = LocalDate.parse(tx.date());
             } catch (DateTimeException ex) {
-                throw error(AmexErrorCode.INVALID_DATA, "American Express returned an invalid transaction date", ex);
+                throw error(SidecarErrorCode.INVALID_DATA, "American Express returned an invalid transaction date", ex);
             }
             String label = limit(tx.label(), 255, "American Express transaction");
             // Two identical purchases on the same day (two metro tickets) are two rows: number
@@ -763,7 +764,7 @@ public class AmexSyncService {
         return stored.stream().filter(row -> !merged.contains(row)).toList();
     }
 
-    private void markFailed(SyncJob job, AmexErrorCode code) {
+    private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
                 Optional<AmexSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
@@ -808,7 +809,7 @@ public class AmexSyncService {
             List.of(AmexSyncStatus.QUEUED, AmexSyncStatus.RUNNING),
             AmexSyncStatus.FAILED,
             Instant.now(),
-            AmexErrorCode.INTERNAL_ERROR
+            SidecarErrorCode.INTERNAL_ERROR
         );
         if (recovered > 0) {
             log.warn("Recovered {} interrupted American Express sync job(s)", recovered);
@@ -836,9 +837,9 @@ public class AmexSyncService {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
-                if (status.lastSyncError() == AmexErrorCode.SESSION_EXPIRED) {
+                if (status.lastSyncError() == SidecarErrorCode.SESSION_EXPIRED) {
                     return new SourceSyncResult("amex", SourceSyncResult.Status.NEEDS_REAUTH,
-                        AmexErrorCode.SESSION_EXPIRED.name());
+                        SidecarErrorCode.SESSION_EXPIRED.name());
                 }
                 if (status.lastSyncError() != null) {
                     return new SourceSyncResult("amex", SourceSyncResult.Status.FAILED,
@@ -854,9 +855,9 @@ public class AmexSyncService {
             if ("SUCCESS".equals(syncStatus)) {
                 return new SourceSyncResult("amex", SourceSyncResult.Status.SYNCED, "");
             }
-            if (queued.lastSyncError() == AmexErrorCode.SESSION_EXPIRED) {
+            if (queued.lastSyncError() == SidecarErrorCode.SESSION_EXPIRED) {
                 return new SourceSyncResult("amex", SourceSyncResult.Status.NEEDS_REAUTH,
-                    AmexErrorCode.SESSION_EXPIRED.name());
+                    SidecarErrorCode.SESSION_EXPIRED.name());
             }
             if ("FAILED".equals(syncStatus)) {
                 return new SourceSyncResult("amex", SourceSyncResult.Status.FAILED,
@@ -894,29 +895,22 @@ public class AmexSyncService {
         );
     }
 
-    private AmexErrorCode codeOf(SyncException exception) {
-        if (exception.getCode() == null) {
-            return AmexErrorCode.UPSTREAM_UNAVAILABLE;
-        }
-        try {
-            return AmexErrorCode.valueOf(exception.getCode());
-        } catch (IllegalArgumentException ignored) {
-            return AmexErrorCode.UPSTREAM_UNAVAILABLE;
-        }
+    private SidecarErrorCode codeOf(SyncException exception) {
+        return SyncValues.errorCode(exception, SidecarBank.AMEX, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
-    private SyncException error(AmexErrorCode code, String message, Throwable cause) {
+    private SyncException error(SidecarErrorCode code, String message, Throwable cause) {
         return new SyncException(message, cause, code.name());
     }
 
     private String stableExternalId(String raw) {
         String cleaned = clean(raw);
         if (cleaned == null) {
-            throw error(AmexErrorCode.INVALID_DATA, "American Express returned an invalid account identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "American Express returned an invalid account identifier", null);
         }
         String externalId = cleaned.startsWith(EXTERNAL_ID_PREFIX) ? cleaned : EXTERNAL_ID_PREFIX + cleaned;
         if (externalId.length() > 100) {
-            throw error(AmexErrorCode.INVALID_DATA, "American Express returned an invalid account identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "American Express returned an invalid account identifier", null);
         }
         return externalId;
     }
@@ -963,7 +957,7 @@ public class AmexSyncService {
         AmexSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        AmexErrorCode lastSyncError
+        SidecarErrorCode lastSyncError
     ) {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, AmexSyncStatus.IDLE, null, null, null);
