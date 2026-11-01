@@ -3,7 +3,6 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
@@ -29,7 +28,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -227,6 +225,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         ConcurrentHashMap<String, ConcurrentHashMap<String, JsonNode>> positionsByAccount = new ConcurrentHashMap<>();
         ConcurrentHashMap<String, BigDecimal> tickerPrices = new ConcurrentHashMap<>();
         Set<String> bondIsins = ConcurrentHashMap.newKeySet();
+        Set<String> unpricedBondIsins = ConcurrentHashMap.newKeySet();
         ConcurrentHashMap<Integer, String> tickerSubToIsin = new ConcurrentHashMap<>();
         ConcurrentHashMap<Integer, String> instrumentSubToIsin = new ConcurrentHashMap<>();
         Set<String> resolvingIsins = ConcurrentHashMap.newKeySet();
@@ -351,12 +350,10 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                         JsonNode categories = root.path("categories");
                                         if (!categories.isMissingNode() && categories.isArray()) {
                                             for (JsonNode cat : categories) {
-                                                String categoryType = cat.path("categoryType").asText("");
+                                                boolean bondCategory = isBond(cat.path("categoryType").asText(""));
                                                 for (JsonNode position : cat.path("positions")) {
-                                                    if (categoryType.toLowerCase(Locale.ROOT).contains("bond")
-                                                            && position instanceof ObjectNode node
-                                                            && !node.has("instrumentType")) {
-                                                        node.put("instrumentType", "bond");
+                                                    if (bondCategory) {
+                                                        bondIsins.add(position.path("isin").asText(""));
                                                     }
                                                     positions.add(position);
                                                 }
@@ -426,6 +423,11 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                 } else if (instrumentSubToIsin.containsKey(wsId)) {
                                     // Removed on the first frame so a later one cannot subscribe a second ticker.
                                     String isin = instrumentSubToIsin.remove(wsId);
+                                    if (bondIsins.contains(isin) && !isEurNominal(payload)) {
+                                        // A percentage of a non-EUR (or unknown) nominal is not a EUR
+                                        // price: leave it unpriced, the position stays valued at cost.
+                                        unpricedBondIsins.add(isin);
+                                    }
                                     String tickerId = isin + "." + tickerExchange(payload);
                                     int tid = subIdCounter.incrementAndGet();
                                     tickerSubToIsin.put(tid, isin);
@@ -443,7 +445,10 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                         try {
                                             JsonNode tickerRoot = objectMapper.readTree(payload);
                                             String priceStr = tickerRoot.path("last").path("price").asText(null);
-                                            if (priceStr != null) {
+                                            if (priceStr != null && unpricedBondIsins.contains(isin)) {
+                                                log.warn("TR bond {}: nominal currency is not EUR or unknown -- "
+                                                    + "current price left empty", isin);
+                                            } else if (priceStr != null) {
                                                 tickerPrices.put(isin, tickerPriceInEur(
                                                     new BigDecimal(priceStr), bondIsins.contains(isin)));
                                             } else {
@@ -646,8 +651,36 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         return second < 0 ? text.substring(first + 1) : text.substring(first + 1, second);
     }
 
-    static boolean isBond(String instrumentType) {
-        return instrumentType != null && instrumentType.toLowerCase(Locale.ROOT).contains("bond");
+    /**
+     * Exact match on TR's type value (an {@code instrumentType} or a {@code categoryType}),
+     * never a substring: a bond ETF or bond fund is quoted per unit in EUR and must not be scaled.
+     * NOTE: "bond" is the value assumed from TR's naming, not yet confirmed on a real payload.
+     */
+    static boolean isBond(String type) {
+        return "bond".equalsIgnoreCase(type);
+    }
+
+    /**
+     * True only when TR's {@code instrument} answer names EUR as the instrument currency, so an
+     * absent or different currency fails closed (the price is left empty rather than a USD
+     * percentage stored as EUR). Looks at {@code currencyId}, {@code currency} and
+     * {@code currencies[]}.
+     */
+    boolean isEurNominal(String instrumentPayload) {
+        try {
+            JsonNode root = objectMapper.readTree(instrumentPayload);
+            for (String field : List.of("currencyId", "currency")) {
+                if (root.hasNonNull(field)) return "EUR".equalsIgnoreCase(root.path(field).asText());
+            }
+            JsonNode currencies = root.path("currencies");
+            if (currencies.isArray() && !currencies.isEmpty()) {
+                JsonNode first = currencies.get(0);
+                return "EUR".equalsIgnoreCase(first.isTextual() ? first.asText() : first.path("id").asText(""));
+            }
+        } catch (JsonProcessingException ex) {
+            log.warn("Unparsable TR instrument answer, nominal currency unknown");
+        }
+        return false;
     }
 
     /**
