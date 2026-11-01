@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
@@ -41,6 +42,7 @@ public class RevolutAdapter implements RevolutPort {
     private static final Logger log = LoggerFactory.getLogger(RevolutAdapter.class);
 
     private static final Duration SYNC_TIMEOUT = Duration.ofSeconds(480);
+    private static final String NO_RESPONSE = "No response from the Revolut service. Please try again later.";
 
     private final WebClient sidecarClient;
     private final SyncProgressService progressService;
@@ -115,8 +117,9 @@ public class RevolutAdapter implements RevolutPort {
                 .timeout(SYNC_TIMEOUT)
                 .onErrorMap(TimeoutException.class,
                     ex -> new SyncException("REVOLUT_TIMEOUT", ex))
+                .onErrorMap(WebClientRequestException.class, ex -> new SyncException(NO_RESPONSE, ex))
                 .blockOptional()
-                .orElseThrow(() -> new SyncException("No response from the Revolut service. Please try again later."));
+                .orElseThrow(() -> new SyncException(NO_RESPONSE));
         } finally {
             poller.dispose();
         }
