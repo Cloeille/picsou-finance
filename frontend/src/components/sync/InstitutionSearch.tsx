@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
+import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -121,13 +122,11 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
       )}
 
       {searchEnabled && searchFailed && !searchLoading && (
-        <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <span className="flex-1">
-            {modal
-              ? extractErrorMessage(searchError, t('sync.banks.searchError'))
-              : formatApiError(searchError, t, 'sync.banks.searchError')}
-          </span>
-        </div>
+        <AlertBanner>
+          {modal
+            ? extractErrorMessage(searchError, t('sync.banks.searchError'))
+            : formatApiError(searchError, t, 'sync.banks.searchError')}
+        </AlertBanner>
       )}
 
       {searchEnabled && !searchFailed && institutions && institutions.length > 0 && (

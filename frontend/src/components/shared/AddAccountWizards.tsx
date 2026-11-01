@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
+import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { TradeRepublicLogin } from '@/components/sync/TradeRepublicLogin'
@@ -91,10 +92,7 @@ export function BankWizard({ onBack }: { onDone: () => void; onBack: () => void 
       <BackButton onClick={onBack} />
       <div className="space-y-4">
         {error && (
-          <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            <span className="flex-1">{error}</span>
-            <Button variant="ghost" size="sm" onClick={() => setError(null)}>x</Button>
-          </div>
+          <AlertBanner onDismiss={() => setError(null)}>{error}</AlertBanner>
         )}
         <InstitutionSearch layout="modal" onConnect={handleConnect} connecting={initiateMutation.isPending} />
       </div>
@@ -217,11 +215,9 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
       <BackButton onClick={onBack} />
       <div className="space-y-4">
         {errorMsg && (
-          <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            <AlertTriangle className="size-4 shrink-0" />
-            <span className="flex-1">{errorMsg}</span>
-            <Button variant="ghost" size="sm" onClick={() => setErrorMsg(null)}>x</Button>
-          </div>
+          <AlertBanner icon={<AlertTriangle className="size-4 shrink-0" />} onDismiss={() => setErrorMsg(null)}>
+            {errorMsg}
+          </AlertBanner>
         )}
 
         {isSyncing && (
@@ -323,10 +319,7 @@ export function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: (
 
       {/* Error banner */}
       {error && (
-        <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive mb-4">
-          <span className="flex-1">{error}</span>
-          <Button variant="ghost" size="sm" onClick={() => wizard.setError(null)}>x</Button>
-        </div>
+        <AlertBanner className="mb-4" onDismiss={() => wizard.setError(null)}>{error}</AlertBanner>
       )}
 
       {/* Step 1: Login form (not connected) OR Sync (connected) */}

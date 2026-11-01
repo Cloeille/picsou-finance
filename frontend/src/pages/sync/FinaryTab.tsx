@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { getErrorStatus, getErrorDetail } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
+import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
@@ -160,13 +161,17 @@ export function FinaryTab() {
 
       {/* Error banner */}
       {error && (
-        <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          <X className="size-4 shrink-0" />
-          <span className="flex-1">{error}</span>
-          <Button variant="ghost" size="icon-xs" onClick={() => wizard.setError(null)}>
-            <X className="size-3" />
-          </Button>
-        </div>
+        <AlertBanner
+          variant="roomy"
+          icon={<X className="size-4 shrink-0" />}
+          action={
+            <Button variant="ghost" size="icon-xs" onClick={() => wizard.setError(null)}>
+              <X className="size-3" />
+            </Button>
+          }
+        >
+          {error}
+        </AlertBanner>
       )}
 
       {/* Step indicator (when in wizard) */}

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
+import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
@@ -66,14 +67,9 @@ export function CryptoExchangeForm({ onSuccess, onCancel, variant }: CryptoExcha
   return (
     <>
       {error && (modal ? (
-        <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <span className="flex-1">{error}</span>
-          <Button variant="ghost" size="sm" onClick={() => setError(null)}>x</Button>
-        </div>
+        <AlertBanner onDismiss={() => setError(null)}>{error}</AlertBanner>
       ) : (
-        <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </p>
+        <AlertBanner variant="plain" role="alert">{error}</AlertBanner>
       ))}
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
