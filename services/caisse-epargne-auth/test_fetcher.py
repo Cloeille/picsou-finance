@@ -385,6 +385,27 @@ class ErrorMappingTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(SECRET_TOKEN, str(ctx.exception))
         self.assertNotIn("secret-host-detail", str(ctx.exception))
 
+    async def test_a_failed_import_logs_its_stage_and_cause_without_upstream_data(self):
+        def timeout(request: httpx.Request) -> httpx.Response | None:
+            raise httpx.ReadTimeout("secret-host-detail " + SECRET_TOKEN)
+
+        cases = {
+            "UPSTREAM_UNAVAILABLE stage=synthesis cause=status-403": (FakeCE(synthesis_http=403), None),
+            "UPSTREAM_UNAVAILABLE stage=synthesis cause=too-large": (FakeCE(), 64),
+            "UPSTREAM_UNAVAILABLE stage=transactions cause=status-502": (FakeCE(tx_http=502), None),
+            "UPSTREAM_UNAVAILABLE stage=transactions cause=ReadTimeout": (FakeCE(tx_override=timeout), None),
+            "UPSTREAM_FORMAT_CHANGED stage=transactions cause=format": (FakeCE(tx_body=b"{}"), None),
+        }
+        for expected, (ce, cap) in cases.items():
+            with self.subTest(expected), self.assertLogs("caisse-epargne-auth", "WARNING") as logs:
+                with patch.object(replay, "MAX_RESPONSE_BYTES", cap or replay.MAX_RESPONSE_BYTES):
+                    with self.assertRaises(fetcher.FetchError):
+                        await run_fetch(ce)
+            rendered = "\n".join(logs.output)
+            self.assertIn(f"accounts fetch failed: {expected}", rendered)
+            for value in (SECRET_TOKEN, "secret-host-detail", DATA_HOST, SYNTHESIS_PATH, TX_PATH, "1001"):
+                self.assertNotIn(value, rendered)
+
     async def test_non_json_or_wrong_shape_is_format_changed(self):
         cases = {
             "synthesis not json": FakeCE(synthesis_body=b"<html>"),

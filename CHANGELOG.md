@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Caisse d'Epargne: a failed account import says where it failed.** The sidecar's
+  `accounts fetch failed` line now names the step (synthesis, transactions,
+  serialisation) and the cause (the bank's HTTP status, an oversized answer, or the
+  transport error class such as `ReadTimeout`). No URL, body or token is logged (#397).
+
 - **One CI job for every bank connector.** The 13 copy-pasted sidecar jobs are now one
   matrix built from the `services/*-auth` folders, shared with image publishing, so adding a
   connector touches no workflow file. A change to one connector tests only that connector.

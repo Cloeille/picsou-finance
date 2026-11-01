@@ -217,6 +217,11 @@ still fails the whole import, and so does the overall deadline.
 | 502 | `UPSTREAM_FORMAT_CHANGED` | payload does not match the observed format, or page cap exceeded |
 | 500 | `INTERNAL_ERROR` | unexpected bug, no detail leaked |
 
+A failed import logs one line naming the step and the cause, so a 502 can be told apart
+without a debug build: `accounts fetch failed: <code> stage=<synthesis|transactions|serialisation>
+cause=<status-NNN|too-large|<httpx exception class>|format>`. No URL, body, identifier or
+token is logged, and the transport exception's message is never printed (it can quote a URL).
+
 Unverified, to confirm on the next live run: card transactions are requested
 with `accountIds=<cardPfmId>` (isolated in `fetcher._fetch_card_pages`); if the
 bank files them under another id, the import fails with
