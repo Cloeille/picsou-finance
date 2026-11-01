@@ -169,6 +169,19 @@ describe('AddAccountModal Trade Republic wizard', () => {
     expect(completeTrAuth).not.toHaveBeenCalled()
   })
 
+  it('moves focus to the TAN input once the PIN is accepted', async () => {
+    initiateTrAuth.mockImplementation((_params, options: { onSuccess: (data: { processId: string }) => void }) => {
+      options.onSuccess({ processId: 'process-123' })
+    })
+
+    renderTradeRepublicWizard()
+    fillPhoneAndPin()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    const tanInput = await screen.findByLabelText('sync.tr.tan')
+    await waitFor(() => expect(tanInput).toHaveFocus())
+  })
+
   it('keeps the TAN form visible when completion fails', async () => {
     initiateTrAuth.mockImplementation((_params, options: { onSuccess: (data: { processId: string }) => void }) => {
       options.onSuccess({ processId: 'process-123' })

@@ -1,4 +1,5 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
+import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { useCallback } from 'react'
 import { budgetApi } from './api'
 import type {
@@ -34,35 +35,35 @@ export function useCategories() {
 }
 
 export function useCreateCategory() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (data: CategoryRequest) => budgetApi.createCategory(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget', 'categories'] }),
+    invalidates: [['budget', 'categories']],
+    awaitRefresh: true,
   })
 }
 
 export function useUpdateCategory() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: number; data: CategoryRequest }) =>
       budgetApi.updateCategory(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ROOT }),
+    invalidates: [ROOT],
+    awaitRefresh: true,
   })
 }
 
 export function useArchiveCategory() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (id: number) => budgetApi.archiveCategory(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ROOT }),
+    invalidates: [ROOT],
+    awaitRefresh: true,
   })
 }
 
 export function useUnarchiveCategory() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (id: number) => budgetApi.unarchiveCategory(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget', 'categories'] }),
+    invalidates: [['budget', 'categories']],
+    awaitRefresh: true,
   })
 }
 
@@ -77,27 +78,27 @@ export function useRules() {
 }
 
 export function useCreateRule() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (data: CategorizationRuleRequest) => budgetApi.createRule(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget', 'rules'] }),
+    invalidates: [['budget', 'rules']],
+    awaitRefresh: true,
   })
 }
 
 export function useUpdateRule() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: number; data: CategorizationRuleRequest }) =>
       budgetApi.updateRule(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget', 'rules'] }),
+    invalidates: [['budget', 'rules']],
+    awaitRefresh: true,
   })
 }
 
 export function useDeleteRule() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (id: number) => budgetApi.deleteRule(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget', 'rules'] }),
+    invalidates: [['budget', 'rules']],
+    awaitRefresh: true,
   })
 }
 
@@ -108,10 +109,10 @@ export function usePreviewRule() {
 }
 
 export function useRecategorize() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: () => budgetApi.recategorize(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ROOT }),
+    invalidates: [ROOT],
+    awaitRefresh: true,
   })
 }
 
@@ -126,15 +127,11 @@ export function useUncategorized() {
 }
 
 export function useCategorize() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: number; data: CategorizeRequest }) =>
       budgetApi.categorize(id, data),
     // Categorizing a transaction moves money into envelopes/cashflow and may learn a rule.
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ROOT })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    invalidates: [ROOT, ['dashboard']],
   })
 }
 
@@ -150,10 +147,9 @@ export function useCategorizeAiStatus(enabled: boolean) {
 
 /** Start an async AI categorization job and seed the query cache with the initial status. */
 export function useStartCategorizeAi() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: () => budgetApi.startCategorizeAi(),
-    onSuccess: (s) => { qc.setQueryData(['budget', 'ai-job'], s) },
+    writesTo: ['budget', 'ai-job'],
   })
 }
 
@@ -168,27 +164,27 @@ export function useBudgets() {
 }
 
 export function useCreateBudget() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (data: BudgetRequest) => budgetApi.createBudget(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget', 'budgets'] }),
+    invalidates: [['budget', 'budgets']],
+    awaitRefresh: true,
   })
 }
 
 export function useUpdateBudget() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: number; data: BudgetRequest }) =>
       budgetApi.updateBudget(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget', 'budgets'] }),
+    invalidates: [['budget', 'budgets']],
+    awaitRefresh: true,
   })
 }
 
 export function useDeleteBudget() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (id: number) => budgetApi.deleteBudget(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget', 'budgets'] }),
+    invalidates: [['budget', 'budgets']],
+    awaitRefresh: true,
   })
 }
 
@@ -203,11 +199,11 @@ export function useBudgetSettings() {
 }
 
 export function useUpdateBudgetSettings() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (data: BudgetSettingsRequest) => budgetApi.updateSettings(data),
     // The cycle boundary changes every spent/income figure → refresh the whole module.
-    onSuccess: () => qc.invalidateQueries({ queryKey: ROOT }),
+    invalidates: [ROOT],
+    awaitRefresh: true,
   })
 }
 
@@ -294,13 +290,9 @@ export function useRecurringCalendar(horizonDays = 60) {
 }
 
 function useRecurringMutation<TArgs>(fn: (args: TArgs) => Promise<unknown>) {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: fn,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['budget', 'recurring'] })
-      qc.invalidateQueries({ queryKey: ['budget', 'calendar'] })
-    },
+    invalidates: [['budget', 'recurring'], ['budget', 'calendar']],
   })
 }
 
@@ -326,15 +318,10 @@ export function useDeleteRecurring() {
 }
 
 export function useDetectRecurring() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     // No variables: detection scans existing transactions and upserts SUGGESTED series.
     mutationFn: () => budgetApi.detectRecurring(),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['budget', 'recurring'] })
-      qc.invalidateQueries({ queryKey: ['budget', 'calendar'] })
-      qc.invalidateQueries({ queryKey: ['budget', 'activity'] })
-    },
+    invalidates: [['budget', 'recurring'], ['budget', 'calendar'], ['budget', 'activity']],
   })
 }
 
@@ -349,14 +336,9 @@ export function useRecurringActivity() {
 
 /** Reverse a feed entry (acknowledge a price step or reject a silent auto-confirm). */
 export function useUndoRecurring() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (id: number) => budgetApi.undoRecurring(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['budget', 'recurring'] })
-      qc.invalidateQueries({ queryKey: ['budget', 'calendar'] })
-      qc.invalidateQueries({ queryKey: ['budget', 'activity'] })
-    },
+    invalidates: [['budget', 'recurring'], ['budget', 'calendar'], ['budget', 'activity']],
   })
 }
 

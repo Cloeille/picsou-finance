@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { analysisApi } from './api'
 import { useMemberProfile } from '@/features/profile/hooks'
 import { QUERY_STALE_TIMES } from '@/lib/constants'
@@ -89,11 +90,11 @@ export function useEssentialExpenseEstimate(enabled: boolean) {
 }
 
 export function useSaveAllocationTargets() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (body: AllocationTargetsRequest) => analysisApi.saveTargets(body),
     // The pyramid is scored against these targets, so it is stale the moment they change.
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['analysis'] }),
+    invalidates: [['analysis']],
+    awaitRefresh: true,
   })
 }
 
@@ -115,8 +116,7 @@ export function useHoldingClassification(
 }
 
 export function useClassifyHolding() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({
       accountId,
       ticker,
@@ -127,7 +127,8 @@ export function useClassifyHolding() {
       body: HoldingClassificationRequest
     }) => analysisApi.classifyHolding(accountId, ticker, body),
     // Both breakdowns and the pyramid read the override, so the whole namespace is stale.
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['analysis'] }),
+    invalidates: [['analysis']],
+    awaitRefresh: true,
   })
 }
 

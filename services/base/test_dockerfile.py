@@ -10,8 +10,11 @@ class SharedBaseRuntimeTest(unittest.TestCase):
         dockerfile = Path(__file__).with_name("Dockerfile").read_text()
         stages = re.findall(r"^FROM (\S+) AS (\S+)$", dockerfile, re.MULTILINE)
 
-        # The pinned Pydantic core has no CPython 3.15 wheels. A runtime bump
-        # needs dependency and multi-architecture build validation first.
+        # For CPython 3.15, orjson (via camoufox) has only manylinux_2_39
+        # wheels, which bookworm's glibc 2.36 cannot install, and PyYAML has
+        # no wheel, so a source build lacks the CLoader camoufox imports.
+        # A runtime bump needs dependency and multi-architecture build
+        # validation first; .github/dependabot.yml ignores python >= 3.13.
         self.assertRegex(
             {name: image for image, name in stages}["python"],
             r"^python:3\.12-slim-bookworm@sha256:[0-9a-f]{64}$",

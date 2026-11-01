@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { familyApi } from './api'
 
 /**
@@ -30,11 +31,11 @@ export function useSharingSettings(resourceType: string) {
 }
 
 export function useCreateMember() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (data: { displayName: string; avatarColor?: string }) =>
       familyApi.createMember(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['family', 'members'] }),
+    invalidates: [['family', 'members']],
+    awaitRefresh: true,
   })
 }
 
@@ -44,31 +45,31 @@ export function useCreateMember() {
  * a single loading/error state.
  */
 export function useCreateUserWithLogin() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: async (data: { displayName: string; avatarColor?: string }) => {
       const member = await familyApi.createMember(data)
       const { activationLink } = await familyApi.generateActivationLink(member.id)
       return { member, activationLink }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['family', 'members'] }),
+    invalidates: [['family', 'members']],
+    awaitRefresh: true,
   })
 }
 
 export function useUpdateMember() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: number; data: { displayName: string } }) =>
       familyApi.updateMember(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['family', 'members'] }),
+    invalidates: [['family', 'members']],
+    awaitRefresh: true,
   })
 }
 
 export function useDeleteMember() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (id: number) => familyApi.deleteMember(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['family', 'members'] }),
+    invalidates: [['family', 'members']],
+    awaitRefresh: true,
   })
 }
 
@@ -85,11 +86,11 @@ export function useResetMemberPassword() {
 }
 
 export function useUpdateSharingSettings() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (data: { resourceType: string; sharingLevel: string; sharedResourceIds?: number[] }) =>
       familyApi.updateSharingSettings(data),
-    onSuccess: (_, variables) => qc.invalidateQueries({ queryKey: ['family', 'sharing', variables.resourceType] }),
+    invalidates: (_, variables) => [['family', 'sharing', variables.resourceType]],
+    awaitRefresh: true,
   })
 }
 

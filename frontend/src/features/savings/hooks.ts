@@ -1,4 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
+import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { savingsApi } from './api'
 import type { SavingsConfigRequest } from '@/types/api'
 import { QUERY_STALE_TIMES } from '@/lib/constants'
@@ -12,29 +13,27 @@ export function useSavingsSuggestions() {
 }
 
 export function useSetSavingsConfig() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ accountId, data }: { accountId: number; data: SavingsConfigRequest }) =>
       savingsApi.setConfig(accountId, data),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', variables.accountId] })
-      queryClient.invalidateQueries({ queryKey: ['savings', 'suggestions'] })
-      queryClient.invalidateQueries({ queryKey: ['savings', 'interest', variables.accountId] })
-    },
+    invalidates: (_data, variables) => [
+      ['accounts'],
+      ['accounts', variables.accountId],
+      ['savings', 'suggestions'],
+      ['savings', 'interest', variables.accountId],
+    ],
   })
 }
 
 export function useDeleteSavingsConfig() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (accountId: number) => savingsApi.deleteConfig(accountId),
-    onSuccess: (_data, accountId) => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId] })
-      queryClient.invalidateQueries({ queryKey: ['savings', 'suggestions'] })
-      queryClient.invalidateQueries({ queryKey: ['savings', 'interest', accountId] })
-    },
+    invalidates: (_data, accountId) => [
+      ['accounts'],
+      ['accounts', accountId],
+      ['savings', 'suggestions'],
+      ['savings', 'interest', accountId],
+    ],
   })
 }
 
