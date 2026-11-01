@@ -37,10 +37,11 @@ import {
 } from 'lucide-react'
 import {
   useBankSyncStatus,
+  useProviderStatus,
+  useProviderSync,
   useCryptoExchangeStatuses,
   useCryptoWallets,
   useTrSessionStatus,
-  useBoursoSessionStatus,
   useRevolutStatus,
   useStartRevolutSync,
   useSyncProgress,
@@ -53,28 +54,9 @@ import {
   useSyncTradeRepublic,
   useInitiateTrAuth,
   useCompleteTrAuth,
-  useSyncBourso,
-  useCaisseEpargneSessionStatus,
-  useSyncCaisseEpargne,
-  useCmesStatus,
-  useSyncCmes,
-  useCicStatus,
-  useSyncCic,
-  useAmundiStatus,
-  useSyncAmundi,
-  useFortuneoStatus,
-  useSyncFortuneo,
-  useBourseDirectStatus,
-  useSyncBourseDirect,
   useDegiroSessionStatus,
   useSyncDegiro,
   useIbkrStatus,
-  useAmexStatus,
-  useSyncAmex,
-  useCorumStatus,
-  useSyncCorum,
-  useSofidyStatus,
-  useSyncSofidy,
   useSyncIbkr,
   useSimplefinStatus,
   useSyncSimplefin,
@@ -83,7 +65,7 @@ import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
 import type { Account } from '@/types/api'
 import { formatApiError, formatTrAuthError, isTrSessionDeadError } from '@/lib/errors'
-import { syncKeys } from '@/features/sync/hooks'
+import { syncKeys } from '@/features/sync/keys'
 import { revolutErrorLabel } from '@/features/sync/revolut-phase'
 import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 
@@ -194,21 +176,21 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: exchanges, isLoading: exchangesLoading } = useCryptoExchangeStatuses()
   const { data: wallets, isLoading: walletsLoading } = useCryptoWallets()
   const { data: trStatus } = useTrSessionStatus()
-  const { data: boursoStatus } = useBoursoSessionStatus()
-  const { data: caisseEpargneStatus } = useCaisseEpargneSessionStatus()
+  const { data: boursoStatus } = useProviderStatus("bourso")
+  const { data: caisseEpargneStatus } = useProviderStatus("caisseEpargne")
   const { data: revolutStatus } = useRevolutStatus()
   const { data: finaryStatus } = useFinaryConnectionStatus()
-  const { data: amundiStatus } = useAmundiStatus()
-  const { data: fortuneoStatus } = useFortuneoStatus()
-  const { data: bourseDirectStatus } = useBourseDirectStatus()
+  const { data: amundiStatus } = useProviderStatus("amundi")
+  const { data: fortuneoStatus } = useProviderStatus("fortuneo")
+  const { data: bourseDirectStatus } = useProviderStatus("bourseDirect")
   const { data: degiroStatus } = useDegiroSessionStatus()
   const { data: ibkrStatus } = useIbkrStatus()
   const { data: simplefinStatus } = useSimplefinStatus()
-  const { data: amexStatus } = useAmexStatus()
-  const { data: corumStatus } = useCorumStatus()
-  const { data: sofidyStatus } = useSofidyStatus()
-  const { data: cmesStatus } = useCmesStatus()
-  const { data: cicStatus } = useCicStatus()
+  const { data: amexStatus } = useProviderStatus("amex")
+  const { data: corumStatus } = useProviderStatus("corum")
+  const { data: sofidyStatus } = useProviderStatus("sofidy")
+  const { data: cmesStatus } = useProviderStatus("cmes")
+  const { data: cicStatus } = useProviderStatus("cic")
   const { data: accounts } = useAccounts()
 
   // Show TR in modal if: there are active TR accounts, the session is active, or the session
@@ -318,21 +300,21 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncTrMutation       = useSyncTradeRepublic()
   const initiateTrMutation   = useInitiateTrAuth()
   const completeTrMutation   = useCompleteTrAuth()
-  const syncBoursoMutation   = useSyncBourso()
-  const syncCaisseEpargneMutation = useSyncCaisseEpargne()
-  const syncAmundiMutation       = useSyncAmundi()
-  const syncFortuneoMutation     = useSyncFortuneo()
-  const syncBourseDirectMutation = useSyncBourseDirect()
+  const syncBoursoMutation   = useProviderSync("bourso")
+  const syncCaisseEpargneMutation = useProviderSync("caisseEpargne")
+  const syncAmundiMutation       = useProviderSync("amundi")
+  const syncFortuneoMutation     = useProviderSync("fortuneo")
+  const syncBourseDirectMutation = useProviderSync("bourseDirect")
   const syncDegiroMutation       = useSyncDegiro()
   const syncIbkrMutation         = useSyncIbkr()
   const syncSimplefinMutation    = useSyncSimplefin()
   const startRevolutMutation     = useStartRevolutSync()
   const confirmRevolutMutation   = useConfirmRevolutSync()
-  const syncAmexMutation         = useSyncAmex()
-  const syncCorumMutation        = useSyncCorum()
-  const syncSofidyMutation       = useSyncSofidy()
-  const syncCmesMutation = useSyncCmes()
-  const syncCicMutation = useSyncCic()
+  const syncAmexMutation         = useProviderSync("amex")
+  const syncCorumMutation        = useProviderSync("corum")
+  const syncSofidyMutation       = useProviderSync("sofidy")
+  const syncCmesMutation = useProviderSync("cmes")
+  const syncCicMutation = useProviderSync("cic")
 
   // Track syncing state per connection
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set())

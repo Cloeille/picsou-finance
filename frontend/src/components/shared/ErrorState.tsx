@@ -7,16 +7,18 @@ interface ErrorStateProps {
   title?: string
   message?: string
   onRetry?: () => void
+  /** Only the message and the retry button: no icon, no heading. */
+  messageOnly?: boolean
 }
 
-export function ErrorState({ title, message, onRetry }: ErrorStateProps) {
+export function ErrorState({ title, message, onRetry, messageOnly }: ErrorStateProps) {
   const { t } = useTranslation()
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center">
-      <AlertTriangle className="size-10 text-destructive mb-4" />
-      <h3 className="text-lg font-medium">{title ?? t('common.errorTitle')}</h3>
+      {!messageOnly && <AlertTriangle className="size-10 text-destructive mb-4" />}
+      {!messageOnly && <h3 className="text-lg font-medium">{title ?? t('common.errorTitle')}</h3>}
       {message && (
-        <p className="mt-1 text-sm text-muted-foreground">{message}</p>
+        <p className={messageOnly ? 'text-sm text-muted-foreground' : 'mt-1 text-sm text-muted-foreground'}>{message}</p>
       )}
       {onRetry && (
         <Button variant="outline" onClick={onRetry} className="mt-4">

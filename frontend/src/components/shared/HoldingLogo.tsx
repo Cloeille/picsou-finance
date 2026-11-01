@@ -16,7 +16,7 @@ import { cn, deriveMonogram } from '@/lib/utils'
  *   circular PNGs with transparent margins, so `object-contain` inside a fixed square keeps the
  *   mark from being cropped at the edges on a table row that is taller than the mark.
  * - The fallback is the **name's** initials, not the ticker. Every caller already renders the ticker
- *   as text right beside this component, so a ticker fallback would print it twice — and that is
+ *   as text in the same row or header, so a ticker fallback would print it twice — and that is
  *   not a cosmetic detail: `PositionsByProduct.test.tsx` asserts one `BTC` per product group, and a
  *   duplicate is a real signal that the layout is wrong. Initials read as a mark where an empty disc
  *   read as a missing image. A holding without a name (an exchange coin line), or whose name is only

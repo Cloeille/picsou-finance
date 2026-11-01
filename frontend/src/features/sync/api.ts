@@ -284,112 +284,53 @@ export const degiroApi = {
     api.delete('/degiro/session'),
 }
 
+// --- Browser-sidecar providers sharing one HTTP contract ---
+
+/**
+ * Bourse Direct, Amundi, CMES and CIC expose the same five endpoints under their
+ * own prefix; a provider that deviates (BoursoBank, Amex, Sofidy...) keeps its
+ * own object below. `code` is the SMS code, omitted for a mobile confirmation.
+ */
+function sidecarApi<TStatus, TInit>(prefix: string) {
+  return {
+    initiateAuth: (login: string, password: string) =>
+      api.post<TInit>(`${prefix}/auth/initiate`, { login, password }).then(r => r.data),
+
+    completeAuth: (processId: string, code?: string) =>
+      api.post<TStatus>(`${prefix}/auth/complete`, { processId, code }).then(r => r.data),
+
+    sync: () => api.post<TStatus>(`${prefix}/sync`).then(r => r.data),
+
+    getStatus: () =>
+      api.get<TStatus>(`${prefix}/status`, { skipGlobalErrorRedirect: true }).then(r => r.data),
+
+    clearSession: () => api.delete(`${prefix}/session`),
+  }
+}
+
+/** Shape of a `sidecarApi` object, for code generic over those providers. */
+export type SidecarApi<TStatus, TInit> = ReturnType<typeof sidecarApi<TStatus, TInit>>
+
 // --- Bourse Direct ---
 
-export const bourseDirectApi = {
-  initiateAuth: (login: string, password: string) =>
-    api
-      .post<BourseDirectAuthInitResponse>('/bourse-direct/auth/initiate', { login, password })
-      .then(r => r.data),
+export const bourseDirectApi = sidecarApi<BourseDirectSessionStatus, BourseDirectAuthInitResponse>('/bourse-direct')
 
-  completeAuth: (processId: string, code?: string) =>
-    api
-      .post<BourseDirectSessionStatus>('/bourse-direct/auth/complete', { processId, code })
-      .then(r => r.data),
+// --- Amundi Épargne Salariale (`code` is omitted for an app push: the user approves on their phone) ---
 
-  sync: () =>
-    api.post<BourseDirectSessionStatus>('/bourse-direct/sync').then(r => r.data),
-
-  getStatus: () =>
-    api
-      .get<BourseDirectSessionStatus>('/bourse-direct/status', {
-        skipGlobalErrorRedirect: true,
-      })
-      .then(r => r.data),
-
-  clearSession: () => api.delete('/bourse-direct/session'),
-}
-
-// --- Amundi Épargne Salariale ---
-
-export const amundiApi = {
-  initiateAuth: (login: string, password: string) =>
-    api
-      .post<AmundiAuthInitResponse>('/amundi/auth/initiate', { login, password })
-      .then(r => r.data),
-
-  // `code` is omitted for an app push: the user approves on their phone.
-  completeAuth: (processId: string, code?: string) =>
-    api
-      .post<AmundiSessionStatus>('/amundi/auth/complete', { processId, code })
-      .then(r => r.data),
-
-  sync: () => api.post<AmundiSessionStatus>('/amundi/sync').then(r => r.data),
-
-  getStatus: () =>
-    api
-      .get<AmundiSessionStatus>('/amundi/status', {
-        skipGlobalErrorRedirect: true,
-      })
-      .then(r => r.data),
-
-  clearSession: () => api.delete('/amundi/session'),
-}
+export const amundiApi = sidecarApi<AmundiSessionStatus, AmundiAuthInitResponse>('/amundi')
 
 // --- Crédit Mutuel Épargne Salariale (CIC savers too) ---
 
-export const cmesApi = {
-  initiateAuth: (login: string, password: string) =>
-    api
-      .post<CmesAuthInitResponse>('/cmes/auth/initiate', { login, password })
-      .then(r => r.data),
-
-  // `code` is the SMS code, omitted for a mobile confirmation.
-  completeAuth: (processId: string, code?: string) =>
-    api
-      .post<CmesSessionStatus>('/cmes/auth/complete', { processId, code })
-      .then(r => r.data),
-
-  sync: () => api.post<CmesSessionStatus>('/cmes/sync').then(r => r.data),
-
-  getStatus: () =>
-    api
-      .get<CmesSessionStatus>('/cmes/status', {
-        skipGlobalErrorRedirect: true,
-      })
-      .then(r => r.data),
-
-  clearSession: () => api.delete('/cmes/session'),
-}
+export const cmesApi = sidecarApi<CmesSessionStatus, CmesAuthInitResponse>('/cmes')
 
 // --- CIC online banking (livrets the PSD2 connection does not expose) ---
 
 export const cicApi = {
-  initiateAuth: (login: string, password: string) =>
-    api
-      .post<CicAuthInitResponse>('/cic/auth/initiate', { login, password })
-      .then(r => r.data),
+  ...sidecarApi<CicSessionStatus, CicAuthInitResponse>('/cic'),
 
   // Logs in again from the credentials stored at the last login.
   reconnect: () =>
     api.post<CicAuthInitResponse>('/cic/auth/reconnect').then(r => r.data),
-
-  // `code` is the SMS code, omitted for a mobile confirmation.
-  completeAuth: (processId: string, code?: string) =>
-    api
-      .post<CicSessionStatus>('/cic/auth/complete', { processId, code })
-      .then(r => r.data),
-
-  sync: () => api.post<CicSessionStatus>('/cic/sync').then(r => r.data),
-
-  getStatus: () =>
-    api
-      .get<CicSessionStatus>('/cic/status', {
-        skipGlobalErrorRedirect: true,
-      })
-      .then(r => r.data),
-
-  clearSession: () => api.delete('/cic/session'),
 }
 
 // --- American Express ---

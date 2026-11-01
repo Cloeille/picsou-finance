@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { mfaApi } from './api'
 import { useAuthStore } from '@/stores/auth-store'
 import { resetClientState } from '@/lib/reset-client-state'
@@ -95,20 +96,15 @@ export function useMfaEnrollInit() {
 }
 
 export function useMfaEnrollVerify() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ code }: { code: string }) => mfaApi.enrollVerify(code),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: MFA_KEYS.status })
-      // Enabling 2FA wipes existing persistent sessions server-side.
-      qc.invalidateQueries({ queryKey: MFA_KEYS.sessions })
-    },
+    // Enabling 2FA wipes existing persistent sessions server-side.
+    invalidates: [MFA_KEYS.status, MFA_KEYS.sessions],
   })
 }
 
 export function useMfaDisable() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({
       currentPassword,
       code,
@@ -118,19 +114,16 @@ export function useMfaDisable() {
       code: string
       isRecoveryCode: boolean
     }) => mfaApi.disable(currentPassword, code, isRecoveryCode),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: MFA_KEYS.status })
-      qc.invalidateQueries({ queryKey: MFA_KEYS.sessions })
-    },
+    invalidates: [MFA_KEYS.status, MFA_KEYS.sessions],
   })
 }
 
 export function useRegenerateRecoveryCodes() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ currentPassword, code }: { currentPassword: string; code: string }) =>
       mfaApi.regenerateRecoveryCodes(currentPassword, code),
-    onSuccess: () => qc.invalidateQueries({ queryKey: MFA_KEYS.status }),
+    invalidates: [MFA_KEYS.status],
+    awaitRefresh: true,
   })
 }
 
@@ -144,27 +137,27 @@ export function useSessions() {
 }
 
 export function useRevokeSession() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (id: number) => mfaApi.revokeSession(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: MFA_KEYS.sessions }),
+    invalidates: [MFA_KEYS.sessions],
+    awaitRefresh: true,
   })
 }
 
 export function useRevokeAllSessionsExceptCurrent() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: () => mfaApi.revokeAllSessionsExceptCurrent(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: MFA_KEYS.sessions }),
+    invalidates: [MFA_KEYS.sessions],
+    awaitRefresh: true,
   })
 }
 
 // ─── admin force-disable ─────────────────────────────────────────────
 
 export function useAdminForceDisableMfa() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (memberId: number) => mfaApi.forceDisableMfa(memberId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['family', 'members'] }),
+    invalidates: [['family', 'members']],
+    awaitRefresh: true,
   })
 }

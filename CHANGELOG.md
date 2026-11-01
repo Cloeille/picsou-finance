@@ -7,8 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Trade Republic bond values no longer use percentage quotes as euro prices.** EUR bond
+  ticker prices are divided by 100. Non-EUR or unknown bond currencies keep the position's
+  current price empty and value it at its average buy-in. A sync updates current holdings and
+  today's snapshot; earlier daily snapshots keep their recorded values.
+
 ### Changed
 
+- **Caisse d'Epargne: a failed account import says where it failed.** The sidecar's
+  `accounts fetch failed` line now names the step (synthesis, transactions,
+  serialisation) and the cause (the bank's HTTP status, an oversized answer, or the
+  transport error class such as `ReadTimeout`). No URL, body or token is logged (#397).
+
+- **One sync-provider table in the frontend.** The browser-sidecar connectors are now
+  entries in `features/sync/providers.ts` driven by generic `useProvider*` hooks, so adding
+  one no longer means copying five hooks. Mutations that refresh queries go through
+  `useInvalidatingMutation`. The add-account modal reuses the Sync page's forms instead of
+  copies, and error banners and chart axes use shared pieces (`AlertBanner`, `AXIS_PROPS`).
+  No visible change. See [frontend conventions](docs/conventions/frontend.md).
 - **One CI job for every bank connector.** The 13 copy-pasted sidecar jobs are now one
   matrix built from the `services/*-auth` folders, shared with image publishing, so adding a
   connector touches no workflow file. A change to one connector tests only that connector.
@@ -424,6 +442,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Holding logos on the dashboard.** The dashboard's holdings list now shows a share's, fund's
+  or coin's logo where it printed the first letters of the ticker, as the account pages already
+  do. The ticker moves to the description line. Holdings without a logo and cash rows keep
+  the ticker box.
 - **Backend dependency baseline.** Restored Spring Boot 3.5.16 after a standalone Boot 4 parent
   bump left existing AOP and Testcontainers dependencies without managed versions. The coordinated
   Spring AI 2, Jackson 3, Spring Security 7, and test migration remains separate.

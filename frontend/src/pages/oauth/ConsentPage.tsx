@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { Check, Loader2, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { formatApiError } from '@/lib/errors'
@@ -126,18 +127,14 @@ export function ConsentPage() {
         </CardHeader>
         <CardContent>
           {!clientId ? (
-            <p role="alert" className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {t('oauthConsent.missingParams')}
-            </p>
+            <AlertBanner variant="bordered" role="alert">{t('oauthConsent.missingParams')}</AlertBanner>
           ) : isLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
               {t('oauthConsent.loading')}
             </div>
           ) : isError ? (
-            <p role="alert" className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {formatApiError(error, t, 'oauthConsent.error')}
-            </p>
+            <AlertBanner variant="bordered" role="alert">{formatApiError(error, t, 'oauthConsent.error')}</AlertBanner>
           ) : (
             <form
               ref={formRef}

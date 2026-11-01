@@ -1,13 +1,5 @@
 import { Landmark } from "lucide-react"
 import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
-import {
-  useClearCicSession,
-  useCicStatus,
-  useCompleteCicAuth,
-  useInitiateCicAuth,
-  useReconnectCic,
-  useSyncCic,
-} from "@/features/sync/hooks"
 
 interface CicPanelProps {
   onConnected?: () => void
@@ -20,19 +12,14 @@ interface CicPanelProps {
 export function CicPanel({ onConnected, autoReconnect, onAutoReconnectStarted }: CicPanelProps = {}) {
   return (
     <SidecarSessionPanel
+      provider="cic"
       translationPrefix="sync.cic"
       fieldIdPrefix="cic"
       loginIcon={Landmark}
       appPush
       otpRetryable
-      useStatus={useCicStatus}
-      useInitiateAuth={useInitiateCicAuth}
-      useReconnect={useReconnectCic}
       autoReconnect={autoReconnect}
       onAutoReconnectStarted={onAutoReconnectStarted}
-      useCompleteAuth={useCompleteCicAuth}
-      useSync={useSyncCic}
-      useClearSession={useClearCicSession}
       onConnected={onConnected}
     />
   )

@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Input } from '@/components/ui/input'
 
 interface ConfirmDialogProps {
@@ -82,12 +83,7 @@ export function ConfirmDialog({
           </div>
         )}
         {error && (
-          <p
-            role="alert"
-            className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-          >
-            {error}
-          </p>
+          <AlertBanner variant="bordered" role="alert">{error}</AlertBanner>
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
