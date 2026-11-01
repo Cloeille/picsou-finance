@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SidecarWebClientFactoryTest {
 
@@ -38,6 +39,11 @@ class SidecarWebClientFactoryTest {
                 throw new UncheckedIOException(ex);
             }
         });
+        server.createContext("/challenge", exchange -> {
+            exchange.getResponseHeaders().add("WWW-Authenticate", SidecarWebClientFactory.AUTH_CHALLENGE);
+            exchange.sendResponseHeaders(401, -1);
+            exchange.close();
+        });
         server.start();
     }
 
@@ -53,6 +59,14 @@ class SidecarWebClientFactoryTest {
         ping(new SidecarWebClientFactory(blank).create("Test", baseUrl()));
 
         assertThat(keyHeaderPresent).containsExactly(false);
+    }
+
+    @Test
+    void reportsTheSidecarChallengeAsAnAuthenticationFailureWhenTheKeyIsBlank() {
+        WebClient client = new SidecarWebClientFactory("").create("Test", baseUrl());
+
+        assertThatThrownBy(() -> client.get().uri("/challenge").retrieve().bodyToMono(String.class).block())
+            .isInstanceOf(SidecarAuthenticationException.class);
     }
 
     @Test
