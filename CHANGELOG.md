@@ -370,6 +370,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compilation after the dependency upgrade.
   Resolved frontend documentation merge conflicts while preserving the v8 routing
   guidance and the DOM provider integration rationale.
+- Release deployment verifies that a recreated bundled TLS proxy's active configuration uses
+  `app-tls:8080`, reports legacy app targets or unreadable configuration before API readiness,
+  and preserves unrelated upstreams. TLS Compose tests reserve unused subnets for custom
+  addresses to avoid collisions on shared Docker hosts.
+
 - **Revolut merge compatibility.** Nested challenge detection remains active alongside
   the shared sidecar authentication, health endpoint and sanitized logging.
 - **Modern MCP protocol support is selectable.** Set `MCP_PROTOCOL=STREAMABLE` to serve protocol
