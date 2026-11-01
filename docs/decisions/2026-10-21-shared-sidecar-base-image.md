@@ -1,7 +1,8 @@
-# ADR: Sidecars build on two shared base images
+# ADR: Sidecars build on three shared base images
 
 > Date: 2026-10-21
 > Status: ✅ Active
+> Amended: 2026-10-31 — shared Camoufox target for AMEX and Revolut (#330).
 
 ## Context
 
@@ -20,19 +21,25 @@ copy of each.
 
 ## Decision
 
-`services/base/Dockerfile` builds two targets from one pin set
-(`services/base/requirements.txt`, plus `requirements-chromium.txt`):
+`services/base/Dockerfile` builds three targets from one common pin set
+(`services/base/requirements.txt`, plus browser-specific `requirements-chromium.txt`
+and `requirements-camoufox.txt`):
 
 - `python`: Python 3.12 slim bookworm (pinned digest) and fastapi, uvicorn,
-  pydantic, httpx. Used by bourso-auth, sofidy-auth and degiro-auth.
+  pydantic, httpx. Used by bourso-auth, sofidy-auth, degiro-auth, cmes-auth
+  and cic-auth.
 - `chromium`: `python` plus Playwright 1.52, its Chromium and the Chromium
   system libraries. Used by amundi, bourse-direct, caisse-epargne, corum,
   fortuneo and tr-auth.
+- `camoufox`: `python` plus Playwright 1.55.0, Camoufox 0.4.11, pinned Firefox
+  152.0.4-beta.30 and Xvfb. Used by amex-auth and revolut-auth. The shared
+  installer selects `lin.x86_64` or `lin.arm64` from the target CPU and rejects
+  unsupported architectures; the browser and Playwright pins stay unchanged.
 
 Each sidecar Dockerfile is `FROM ${SIDECAR_BASE}` plus its own Unix user and its
 code. No sidecar installs a package.
 
-- **Publishing**: `docker.yml` builds and pushes both bases first, then passes
+- **Publishing**: `docker.yml` builds and pushes all three bases first, then passes
   each sidecar its base **by digest**. Every published sidecar therefore shares
   the base layers byte for byte, and a pull fetches them once.
 - **Compose `--build`**: the bases are build-only Compose services
@@ -43,8 +50,20 @@ code. No sidecar installs a package.
   tests as before. A change under `services/base/` therefore reruns every
   sidecar's tests.
 
-amex-auth and revolut-auth keep their own Dockerfile: Camoufox needs Firefox and
-Playwright 1.55.
+The Camoufox target inherits `python`, independently of `chromium`, so their
+Playwright versions cannot overwrite each other. It downloads Firefox, addons and
+the GeoIP database once during the base build. `XDG_CACHE_HOME=/opt/camoufox-cache`
+puts the browser and addons outside /app and the service homes; both non-root
+users read the same assets without copying/chowning browser layers. The shared
+entrypoint takes the port, display and screen from each service's environment,
+removes stale Xvfb locks on restart, and refuses to start the API without a ready
+display. Ports and login code are unchanged. Revolut pins `revoauth` to UID 999,
+the owner of existing `revolut_profiles` volumes and their mode-700 member directories.
+Its group remains automatically allocated because the base already uses GID 999.
+AMEX has no persistent volume, so its service UID remains automatically allocated.
+The Revolut CI job checks the built image's UID before running its sidecar tests.
+CI launches both headless and headful Firefox in both derived images, on native
+ARM64 and on AMD64, using offline HTML; this does not verify bank login compatibility.
 
 ## Alternatives considered
 
@@ -96,16 +115,23 @@ one network policy per bank.
 
 ## Consequences
 
-- New `services/base/` and two GHCR images, `sidecar-python` and
-  `sidecar-chromium`, tagged like the sidecars (branch, `latest`, semver, SHA). They are build inputs, not services.
+- New `services/base/` and three GHCR images, `sidecar-python`,
+  `sidecar-chromium` and `sidecar-camoufox`, tagged like the sidecars (branch, `latest`, semver, SHA). They are build inputs, not services.
 - `docker compose pull` is unchanged for users. `docker compose up --build`
-  builds the two bases first and needs Compose v2.33+.
-- **The two base packages must be public on GHCR.** They are labelled with the
+  builds the three bases first and needs Compose v2.33+.
+- **The three base packages must be public on GHCR.** They are labelled with the
   repository as source, but a package first pushed by `GITHUB_TOKEN` can start
   private. Sidecar layers may be mounted from them, so after the first publish
   the owner checks their visibility and an anonymous `docker pull` of a sidecar.
 - Chromium moves to `/opt/playwright-browsers` (was `/app/playwright-browsers`),
   so a sidecar's `chown -R /app` no longer copies it into a new layer.
-- tr-auth gets a CI job; it had none. `compose-sidecar-build` builds two
-  sidecars through Compose (bases, `additional_contexts`) and tears down without
+- tr-auth gets a CI job; it had none. `compose-sidecar-build` builds three
+  Chromium/Python/Camoufox sidecars through Compose (bases, `additional_contexts`) and tears down without
   a profile, so the wiring is tested as users run it.
+
+## Dependency update coverage
+
+Dependabot checks Maven in /backend, bun in /frontend, all shared pip requirements
+in /services/base, GitHub Actions, every Dockerfile directory, and Compose image references weekly. Updates
+use the default branch. Camoufox/Playwright bumps still require compatibility
+review and passing browser smoke tests.

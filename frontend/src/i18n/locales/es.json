@@ -33,7 +33,6 @@
     "labelColon": "{{label}}:",
     "errorTitle": "Error",
     "skipToContent": "Skip to main content",
-    "locale": "en-US",
     "category": "Category"
   },
   "nav": {
@@ -1947,7 +1946,7 @@
       "outdated": "Este sidecar responde, pero no corre con la imagen base compartida esperada.",
       "expectedBase": "Imagen base compartida esperada:",
       "fixIntro": "Para corregirlo, actualiza las imágenes y reinicia:",
-      "fixBuildIntro": "Si compilas desde el código, con Compose v2.33 o posterior (construye primero sidecar-python y sidecar-chromium):",
+      "fixBuildIntro": "Si compilas desde el código, con Compose v2.33 o posterior (construye primero sidecar-python, sidecar-chromium y sidecar-camoufox):",
       "updateTitle": "Actualización disponible",
       "releaseNotes": "Notas de la versión",
       "later": "Más tarde"

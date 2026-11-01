@@ -65,7 +65,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Caisse d'Epargne in *Sync all*.** The dashboard's *Sync all* modal lists Caisse d'Epargne
   like the other session connectors: a live session syncs in place, an expired one opens the
   Caisse d'Epargne tab, where the keypad and Sécur'Pass login run, and *Sync all* skips it.
-  Caisse d'Epargne tab, where the keypad and Sécur'Pass login run.
 - **Reconnect from stored credentials.** A session panel can offer a *Reconnect* button that
   logs in again with the credentials stored at the last login, then runs the second factor
   as after a typed login, with the user there to approve it. CIC uses it: its daily
@@ -116,12 +115,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   phone, so a late approval stores nothing. A plan deleted under its new id stays deleted
   even while an account from an earlier id is still there.
   See [docs](docs/features/cmes-epargne-salariale.md).
-- **Shared sidecar base images.** Nine sidecars now build on two shared images,
-  `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
+- **Shared sidecar base images.** All sidecars now build on three shared images,
+  `sidecar-python`, `sidecar-chromium` and `sidecar-camoufox` (`services/base`),
+  from one common pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per
-  sidecar. Both bases retain Python 3.12 for compatibility with the pinned native
-  dependencies. Amex and Revolut keep their own image (Camoufox). See
+  sidecar. AMEX and Revolut share the Camoufox base. All three bases retain
+  Python 3.12 for compatibility with the pinned native dependencies. See
   [ADR](docs/decisions/2026-10-21-shared-sidecar-base-image.md).
+  Deployment and admin-status documentation retain CIC's connection details alongside
+  the shared Camoufox base for AMEX and Revolut.
 - **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
   the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
   and SCPI distributions, from the annual distribution per share and the frequency you enter
@@ -339,6 +341,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Revolut merge compatibility.** Nested challenge detection remains active alongside
   the shared sidecar authentication, health endpoint and sanitized logging.
+- **Modern MCP protocol support is selectable.** Set `MCP_PROTOCOL=STREAMABLE` to serve protocol
+  `2025-11-25` at `/mcp` for hosted connectors such as claude.ai, then recreate the app with
+  `docker compose up -d --force-recreate app`: a plain `docker compose restart` keeps the old
+  environment and the SSE default. Existing installations keep legacy SSE by default. Switching
+  requires configuring other clients for Streamable HTTP. The existing Spring AI 1.1.8 supports
+  this without a Boot 4 migration (#53).
+- **CIC instance monitoring.** Admin status checks now cover all thirteen authentication
+  sidecars, including CIC when a session exists. CIC's health response reports its shared
+  base so an outdated image is detected alongside an unreachable sidecar.
+- **Admin instance status with slow session counts.** Slow session-count queries no longer push
+  the check past its 3 s deadline or mark reachable sidecars unreachable.
+- **Toasts follow the selected theme.** Notifications use the app's light or dark palette
+  even when it differs from the OS preference, and update when the theme changes (#327).
 
 - **BoursoBank syncs a securities account whose lines sit in several sections.** The trading
   board can split an account's positions across more than one section of its summary. Only the
@@ -374,6 +389,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Before upgrading, set `PICSOU_PROXY_SUBNET`, `PICSOU_PROXY_IP`, and
   `PICSOU_PROXY_IP_RANGE` together in your existing `docker/.env` to non-conflicting values.
   See the [proxy network requirements](docs/features/docker-deployment.md#trusted-proxy-client-addresses).
+
+- **Shared Camoufox images for AMEX and Revolut.** Both sidecars now inherit the
+  same published browser base digest and common FastAPI/uvicorn pins. Revolut's
+  ARM64 image downloads the ARM64 Firefox build instead of the x86_64 archive.
+  Browser/Playwright versions and ports are preserved. Revolut pins its service
+  UID to 999 so existing profile volumes stay readable and writable after upgrades.
+  Their shared Xvfb startup clears stale locks and refuses to start
+  without a ready display. The admin status check detects older Camoufox images.
+  CI adds offline browser smoke checks on native ARM64;
+  bank login compatibility remains unverified. The shared Python runtime guard
+  remains in CI alongside the separate Camoufox tests. Dependabot now covers Maven,
+  bun, shared pip requirements, all Dockerfile directories and Compose images weekly.
+
 - **Caisse d'Epargne sync after Sécur'Pass approval.** If the login completion response is
   lost or returns 502 or 504, the approval card stays open while Picsou checks the session
   every three seconds for up to 180 seconds. An active session queues the first sync once.
@@ -388,6 +416,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   HomeBank import now refuses these accounts, and a PER, as targets, like the Actual Budget
   import already did. Both importers and the manual ledger share one definition,
   `AccountType.isLedger()`.
+
+- **Privacy mode and locale formatting.** The budget allocation donut now masks its centre total
+  and uses the app locale for compact amounts. The money guard also rejects direct compact
+  formatting. Transaction details show the weekday and long date in the app language and keep
+  date-only values on their calendar day in every time zone. Admin activity timestamps follow
+  the app locale, and allocation comparison keys no longer depend on the browser locale.
 
 - **Enable Banking account balances and details.** Accounts in a shared balance list,
   such as Qonto business accounts, now select entries matching the account description
@@ -645,6 +679,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   excluding its own border and padding after transforms.
   A detected challenge keeps the existing `HUMAN_VERIFICATION_REQUIRED` error. Manual challenge
   completion remains unavailable.
+  The shared Camoufox image includes the detector alongside the login module and keeps
+  the shared Xvfb entrypoint and Revolut runtime settings.
 - **BoursoBank account names show apostrophes and ampersands as typed.** A name such as
   `LIVRET D'EPARGNE` was stored as `LIVRET D&#039;EPARGNE` and shown that way in the
   dashboard, legend and accounts list. The next BoursoBank sync rewrites existing names.

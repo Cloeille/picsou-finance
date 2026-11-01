@@ -39,7 +39,7 @@ vi.mock('@/components/shared/AccountsStackedChart', () => ({
   ),
 }))
 
-vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }))
+vi.mock('react-router', () => ({ useNavigate: () => vi.fn() }))
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({

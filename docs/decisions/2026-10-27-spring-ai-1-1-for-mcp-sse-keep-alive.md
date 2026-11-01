@@ -1,7 +1,7 @@
 # ADR: Spring AI 1.1 for the MCP SSE keep-alive
 
 > Date: 2026-10-27
-> Status: ✅ Active
+> Status: Active, amended by [opt-in Streamable HTTP](./2026-10-31-opt-in-streamable-mcp.md).
 
 ## Context
 
@@ -23,10 +23,10 @@ The stream is silent between two replies because Spring AI 1.0.3 bundles MCP Jav
 `WebMvcSseServerTransportProvider` has no keep-alive. SDK 0.18.x, bundled with Spring AI 1.1.x, adds
 `keepAliveInterval` on the SSE transport. Spring AI exposes it as `spring.ai.mcp.server.keep-alive-interval`.
 
-The [2026-09-17 ADR](./2026-09-17-defer-mcp-protocol-upgrade.md) had rejected a 1.1.x bump, because
-it does not close the protocol-version gap and costs a Boot 3.5 bump. That reasoning still holds for
-the protocol gap. Here the bump buys something else: a server keep-alive that fixes a data-losing
-timeout.
+The [2026-09-17 ADR](./2026-09-17-defer-mcp-protocol-upgrade.md) had rejected a 1.1.x bump over
+the protocol gap and the Boot 3.5 upgrade. The legacy SSE transport still advertises only
+`2024-11-05`. SDK 0.18.3 also supports `2025-11-25` through its Streamable provider, now available
+as an [explicit transport choice](./2026-10-31-opt-in-streamable-mcp.md).
 
 ## Decision
 
@@ -39,7 +39,8 @@ timeout.
 - Set `spring.ai.mcp.server.keep-alive-interval` to `60s` (overridable with `MCP_KEEP_ALIVE_INTERVAL`).
   The SDK then sends a JSON-RPC `ping` to every open session every minute, well under both clients'
   idle limits.
-- Keep the HTTP+SSE transport, pinned explicitly with `protocol: SSE`, on `/mcp` and `/mcp/message`.
+- Keep HTTP+SSE as the default on `/mcp` and `/mcp/message`. `MCP_PROTOCOL=STREAMABLE` opts the
+  instance into Streamable HTTP at `/mcp`, with its own keep-alive property using the same interval.
 
 ## Alternatives considered
 
@@ -74,8 +75,8 @@ by newer managed versions. The only code change the bump forced was `OllamaOptio
 
 ## Trade-offs accepted
 
-- **The protocol-version gap stays open.** SDK 0.18.x still does not negotiate the version the
-  claude.ai hosted connector asks for. That remains deferred to the Boot 4 migration.
+- **Legacy SSE still negotiates only `2024-11-05`.** Hosted clients requiring `2025-11-25` must
+  select Streamable HTTP and update their client configuration. This does not require Boot 4.
 - **One extra request per minute per open session.** The client answers each ping with a
   `POST /mcp/message`, which counts against that access key's rate-limit bucket.
 - **Boot 3.5 brings its own minor upgrades** (Flyway 11, Spring Security 6.5, Spring Authorization

@@ -6,10 +6,34 @@ updates:
     directory: /
     schedule:
       interval: weekly
-  # The shared sidecar base pins python:3.12-slim-bookworm by digest, so OS
-  # security fixes only arrive through this bump. Every sidecar CI job rebuilds
-  # on top of it.
-  - package-ecosystem: docker
+  - package-ecosystem: maven
+    directory: /backend
+    schedule:
+      interval: weekly
+  - package-ecosystem: bun
+    directory: /frontend
+    schedule:
+      interval: weekly
+  # All sidecars inherit these pins; requirements-{chromium,camoufox}.txt keep
+  # their different Playwright versions separate. Browser bumps require review
+  # of the Camoufox protocol compatibility and the image smoke tests.
+  - package-ecosystem: pip
     directory: /services/base
+    schedule:
+      interval: weekly
+  # Includes the digest-pinned Python base and all application/sidecar images.
+  - package-ecosystem: docker
+    directories:
+      - /backend
+      - /frontend
+      - /docker
+      - /services/*
+    schedule:
+      interval: weekly
+  # Compose image references are a separate ecosystem from Dockerfiles.
+  - package-ecosystem: docker-compose
+    directories:
+      - /
+      - /docker
     schedule:
       interval: weekly

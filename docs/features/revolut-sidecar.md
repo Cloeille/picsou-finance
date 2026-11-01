@@ -1,6 +1,6 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-10-31 (hCaptcha content-quad clipping; legacy Enable Banking coexistence and IBAN log privacy)
+> Last updated: 2026-10-31 (hCaptcha content-quad clipping; shared architecture-aware Camoufox base; legacy Enable Banking coexistence and IBAN log privacy)
 > Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
 > approval session.
 
@@ -175,11 +175,16 @@ and while polling for approval; shared app initialization does not replace it.
   same-currency sum; shared-key 401 challenge, `/health` exemption, startup refusal);
   run `PYTHONPATH=../base .venv/bin/python tests/test_<name>.py` from
   `services/revolut-auth/` (anyio, no pytest).
-- `services/revolut-auth/Dockerfile` — Camoufox image (Firefox deps + Xvfb + `pin_camoufox.py`).
-- `services/revolut-auth/pin_camoufox.py` — build-time install of the pinned Camoufox
-  `152.0.4-beta.30` browser, its default addons, and the GeoIP database from the release's direct
-  asset URL (camoufox's own `download_mmdb()` queries the rate-limited GitHub releases API);
-  covered by `tests/test_pin_camoufox.py`.
+- `services/revolut-auth/Dockerfile` — thin non-root layer on the same `camoufox`
+  base digest as AMEX. Common FastAPI/uvicorn pins come from `services/base/requirements.txt`;
+  `picsou_sidecar` comes from the same base (no `SIDECAR_LIB` copy); the old
+  per-sidecar requirements and browser downloads are removed. The image copies both `main.py`
+  and `captcha.py`, and uses `/opt/sidecar-base/entrypoint.sh` with port 8002, display `:99`
+  and a `1280x1024x24` Xvfb screen; no local entrypoint is needed.
+- `services/base/pin_camoufox.py` — installs Firefox 152.0.4-beta.30 for the target
+  CPU (`lin.x86_64` or `lin.arm64`), GeoIP and addons once in the base. The GeoIP
+  download uses a direct release asset URL to avoid GitHub API rate limits.
+  `services/base/test_pin_camoufox.py` covers both CPUs and direct downloads.
 - `backend/.../adapter/RevolutAdapter.java` — `SidecarWebClientFactory` client → sidecar `/sync` (480 s
   timeout) + a best-effort `/progress` poll side-channel relayed into `SyncProgressService`; maps
   `401`/`408`/`409`/`503`. A 401 carrying the `Picsou-Sidecar-Key` challenge is a key mismatch
@@ -364,8 +369,14 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   files before each launch (a browser killed mid-login — container restart, OOM — leaves them and
   wedges every later sync until the volume is cleaned by hand).
 - **The sidecar login runs headful under Xvfb** (Camoufox `headless=False`), so the image installs
-  `xvfb` and starts `Xvfb :99` directly in `entrypoint.sh` before uvicorn. Profiles persist on the
-  `revolut_profiles` docker volume.
+  `xvfb` and starts `Xvfb :99` directly through `services/base/entrypoint.sh` before uvicorn.
+  Port 8002, screen 1280x1024x24 and the 65-second keep-alive are preserved. Both services
+  clear stale Xvfb locks on restart and fail explicitly without a ready display.
+  Shared browser assets live in `/opt/camoufox-cache/camoufox`; profiles persist on the
+  `revolut_profiles` docker volume. The `revoauth` user is pinned to UID 999 to
+  retain access to volumes created by earlier images, including mode-700 member
+  directories. Its group remains automatically allocated; profile access depends
+  on the owner UID.
 - **Camoufox needs Firefox system libs** (gtk/dbus-glib/xtst/…), different from Chromium.
 - **Headless launches silently fail without GL/Mesa libs.** `_harvest_from_profile` (the
   session-reuse path tried on *every* `/sync`, before falling back to a fresh login) launches
@@ -392,6 +403,15 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   rotated empty padding boxes, viewport overflow propagation, and fractional padding boxes that
   expose content after scaling. `test_captcha_detection.py` covers host matching, frame traversal,
   detached frames, and unexpected browser errors.
+- `.github/tests/test_sidecar_workflows.py` ensures the Revolut CI job checks
+  that the built image runs as UID 999, preserving ownership of existing profiles.
+- `services/base/test_entrypoint.py` covers the shared Xvfb startup, the per-service
+  settings declared in each Dockerfile (checked against fixed values), stale display cleanup
+  and explicit failures. `services/base/smoke_camoufox.py` checks the installed ELF
+  architecture and launches headless/headful Firefox against offline HTML, resolving a fixed
+  IP through the installed GeoIP database. CI runs both derived non-root images with networking disabled on native
+  ARM64 and on AMD64. These checks do not verify bank login compatibility.
+
 - `services/revolut-auth/tests/test_login_screen.py` — fake-page tests of `sync()`: known device /
   phone screen nominal paths, passcode URL before its inputs render, `?redirect=…passcode` query
   string, single-field passcode fallbacks, `504 LOGIN_SCREEN_TIMEOUT`, captcha after the phone step

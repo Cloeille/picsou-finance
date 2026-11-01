@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
 
 export function ErrorScreen({ icon, code, message }: { icon: React.ReactNode; code: string; message: string }) {

@@ -1,10 +1,10 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-11-01 (shared sidecar Python runtime compatibility)
+> Last updated: 2026-11-01 (shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
 
 ## Context
 
-Picsou deploys as the app and twelve authentication sidecars orchestrated by `docker/docker-compose.yml`:
+Picsou deploys as the app and thirteen authentication sidecars orchestrated by `docker/docker-compose.yml`:
 - **`picsou:latest`** — main app: frontend (Nginx) + backend (Spring Boot), no Python. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
@@ -14,14 +14,15 @@ Picsou deploys as the app and twelve authentication sidecars orchestrated by `do
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
 - **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (Compose sets `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
+- **`cic-auth`** — browserless CIC online-banking login/2FA and account sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cic-auth`. The backend reaches it at `CIC_AUTH_URL` (Compose sets `http://cic-auth:8001`); see [`cic-banking.md`](cic-banking.md).
 - **`amex-auth`** — American Express login and account sidecar, built with Camoufox/Firefox, published as `ghcr.io/cloeille/picsou-finance/amex-auth`.
 - **`degiro-auth`** — browserless DEGIRO authentication and portfolio sidecar, published as `ghcr.io/cloeille/picsou-finance/degiro-auth`.
 
 All sidecars use the Docker workflow's shared `linux/amd64,linux/arm64` platforms
-and tag strategy. AMEX pins Camoufox `152.0.4-beta.30` and selects the Linux
-archive matching the container architecture (`x86_64` or `arm64`).
-AMEX and Revolut (each through its `pin_camoufox.py`) download the GeoIP
-database from the upstream release's direct `GeoLite2-City.mmdb` asset URL,
+and tag strategy. The shared AMEX/Revolut base pins Camoufox `152.0.4-beta.30`
+and selects the Linux archive matching the container architecture (`x86_64` or
+`arm64`). Its `services/base/pin_camoufox.py` downloads the GeoIP database once
+from the upstream release's direct `GeoLite2-City.mmdb` asset URL,
 without querying the unauthenticated GitHub releases API, whose per-IP quota
 shared CI runners exhaust. Download failures still fail the build; no token is
 baked into the image and GeoIP support is retained.
@@ -79,28 +80,53 @@ the legacy builder rejects the empty `$BUILDPLATFORM`.
 
 ### Shared sidecar bases — `services/base/Dockerfile`
 
-Every sidecar except amex-auth and revolut-auth (Camoufox) builds `FROM` one of
-two shared bases, built from one pin set (`services/base/requirements*.txt`):
-`python` (Python 3.12 slim bookworm, fastapi, uvicorn, pydantic, httpx) and
-`chromium` (the same plus Playwright 1.52 and Chromium in
-`/opt/playwright-browsers`). A sidecar Dockerfile only adds its user and code.
-Both targets retain Python 3.12 because the pinned Pydantic core has no CPython
+Every sidecar builds `FROM` one of three shared bases, built from one common pin
+set (`services/base/requirements*.txt`): `python` (Python 3.12 slim bookworm,
+fastapi, uvicorn, pydantic, httpx), `chromium` (the same plus Playwright 1.52 and
+Chromium in `/opt/playwright-browsers`), and `camoufox` (the same Python base plus
+Playwright 1.55.0, Camoufox 0.4.11, Firefox 152.0.4-beta.30 and Xvfb).
+AMEX and Revolut use `camoufox`, including the target CPU's x86_64 or arm64 browser.
+Their shared browser/addons live in `/opt/camoufox-cache/camoufox`, readable by
+both service users; GeoIP is downloaded once into the Camoufox package directory.
+A sidecar Dockerfile only adds its user and code.
+All three targets retain Python 3.12 because the pinned Pydantic core has no CPython
 3.15 wheels and the slim base lacks the native toolchain for a source build. A Python
-runtime upgrade requires compatible dependency pins and successful builds of both
-targets on amd64 and arm64. `services/base/test_dockerfile.py` guards the supported
+runtime upgrade requires compatible dependency pins and successful builds of all
+three targets on amd64 and arm64. `services/base/test_dockerfile.py` guards the supported
 runtime and Chromium's inheritance from it in the shared package CI job.
+
 The base build context excludes local bytecode and test helpers (`picsou_sidecar/contract.py`
 and `euro_information/testing.py`). CI mounts the helpers read-only for image tests;
-they are absent from published images, including the library copied by AMEX and Revolut.
-The publish workflow pushes `sidecar-python` and `sidecar-chromium` first and
-builds every sidecar from them by digest, so a pull stores Chromium once. With
-`docker compose up --build`, the build-only services `sidecar-python` and
-`sidecar-chromium` (`scale: 0`, never started) are built first; this
-needs Compose v2.33+ (`additional_contexts: service:`), tested on 5.6.0.
-`docker compose pull` needs no particular version. It also pulls the two bases
-by name (`ghcr.io/cloeille/picsou-finance/sidecar-*:latest`); their layers are
-the ones the published sidecars are built from, so nothing is downloaded twice. See
+they are absent from published images. The shared packages (`picsou_sidecar`,
+`euro_information`) live in the `python` base, so `chromium`, `camoufox` and every
+sidecar built on them get them.
+
+The publish workflow pushes `sidecar-python`, `sidecar-chromium` and
+`sidecar-camoufox` first, then passes their immutable digests to the sidecar
+builds. AMEX and Revolut therefore share exactly the same base layers. With
+`docker compose up --build`, the three build-only base services (`scale: 0`,
+never started) are built first; this needs Compose v2.33+
+(`additional_contexts: service:`), tested on 5.6.0. `docker compose pull` needs
+no particular version and also pulls the bases by name
+(`ghcr.io/cloeille/picsou-finance/sidecar-*:latest`); their layers are already
+shared with the sidecars. The new `sidecar-camoufox` package must be public on
+GHCR after its first publication, as must the other bases. See
 [ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md).
+
+The Camoufox entrypoint preserves AMEX's port 8001/display :98/screen 1366x768x24
+and Revolut's port 8002/display :99/screen 1280x1024x24, with a 65-second keep-alive.
+It clears stale display locks on restart and fails explicitly if Xvfb exits before
+its display is ready or has not become ready within five seconds. Xvfb is not
+supervised after that: if it exits later, the API keeps running and the next
+headful login fails until the container restarts. Revolut profiles still persist on the
+`revolut_profiles` volume. Its `revoauth` user stays at UID 999 so upgrades retain
+read/write access to existing volumes and their mode-700 member directories.
+The group is automatically allocated, and CI checks the built Revolut image's UID.
+On both native ARM64 and AMD64, CI runs both derived images as non-root and
+starts headless/headful Firefox against offline HTML without network access; the
+AMD64 jobs also check `PICSOU_SIDECAR_BASE` in each built image;
+login compatibility requires a separate release check.
+
 A sidecar whose base is missing, or still on a pre-base image, is reported to the admin
 by the [instance-status alert](./admin-instance-status.md).
 
@@ -129,13 +155,13 @@ applies through `SidecarBaseUrl`.
 
 ### Sidecar shared secret — `APP_SIDECAR_API_KEY`
 
-The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank,
+The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank, Caisse d'Epargne,
 Bourse Direct, Amundi, Fortuneo, DEGIRO, AMEX, CORUM, Sofidy, Crédit Mutuel / CIC
-Épargne Salariale) share one secret.
+Épargne Salariale, CIC online banking) share one secret.
 Generate it with `openssl rand -base64 32`. Both Compose files forward it
 explicitly to the app and to every sidecar service they define, and refuse to
 start when it is missing or empty. The root `docker-compose.yml` defines all
-twelve sidecars, as does `docker/docker-compose.yml`. Both explicitly set
+thirteen sidecars, as does `docker/docker-compose.yml`. Both explicitly set
 `DEGIRO_AUTH_URL` on the backend rather than relying on its application default.
 Both AMEX service definitions use `init: true` so an init process reaps orphaned
 browser children during repeated logins. The entrypoint does not generate the
@@ -380,6 +406,7 @@ docker compose -f docker/docker-compose.yml up
   → corum-auth (uvicorn:8001, internal only)
   → sofidy-auth (uvicorn:8001, internal only)
   → cmes-auth (uvicorn:8001, internal only)
+  → cic-auth (uvicorn:8001, internal only)
   → amex-auth (uvicorn:8001, internal only)
   → degiro-auth (uvicorn:8001, internal only)
   → postgres:16-alpine (:5432)
@@ -413,6 +440,7 @@ docker save ghcr.io/cloeille/picsou-finance:latest \
   ghcr.io/cloeille/picsou-finance/corum-auth:latest \
   ghcr.io/cloeille/picsou-finance/sofidy-auth:latest \
   ghcr.io/cloeille/picsou-finance/cmes-auth:latest \
+  ghcr.io/cloeille/picsou-finance/cic-auth:latest \
   ghcr.io/cloeille/picsou-finance/amex-auth:latest \
   ghcr.io/cloeille/picsou-finance/degiro-auth:latest \
   | gzip > picsou-release.tar.gz
@@ -422,7 +450,7 @@ docker load < picsou-release.tar.gz
 
 ### Pulling from GHCR
 
-The app and all twelve sidecar images are published by `.github/workflows/docker.yml`
+The app and all thirteen sidecar images are published by `.github/workflows/docker.yml`
 (matrix build, one entry per image) **only after CI is green**: backend tests, frontend
 lint/typecheck/unit, Playwright e2e, every sidecar's image tests, the Compose sidecar build
 and the workflow inventory, then the `ci-ok` gate. `ci.yml` calls that workflow on a successful `push` to `main` or a
@@ -450,6 +478,7 @@ docker pull ghcr.io/cloeille/picsou-finance/fortuneo-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/corum-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/sofidy-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/cmes-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/cic-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0
 ```

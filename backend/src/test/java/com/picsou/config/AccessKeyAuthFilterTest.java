@@ -6,17 +6,27 @@ import com.picsou.model.AppUser;
 import com.picsou.model.UserRole;
 import com.picsou.repository.AppUserRepository;
 import io.github.bucket4j.Bucket;
+import io.github.bucket4j.TimeMeter;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthenticatedAuthorizationManager;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
 
 import java.util.Map;
 import java.util.Optional;
@@ -24,8 +34,11 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -40,6 +53,7 @@ class AccessKeyAuthFilterTest {
 
     AccessKeyAuthFilter filter;
     Map<Long, Bucket> keyBuckets;
+    RequestAttributeSecurityContextRepository securityContextRepository;
     MockHttpServletRequest request;
     MockHttpServletResponse response;
     AppUser owner;
@@ -50,7 +64,9 @@ class AccessKeyAuthFilterTest {
     @BeforeEach
     void setUp() {
         keyBuckets = new ConcurrentHashMap<>();
-        filter = new AccessKeyAuthFilter(accessKeyService, keyBuckets, jwtTokenAuthenticator, appUserRepository);
+        securityContextRepository = new RequestAttributeSecurityContextRepository();
+        filter = new AccessKeyAuthFilter(
+            accessKeyService, keyBuckets, jwtTokenAuthenticator, appUserRepository, securityContextRepository);
         request = new MockHttpServletRequest();
         response = new MockHttpServletResponse();
         owner = AppUser.builder().id(7L).username("alice").role(UserRole.MEMBER).activated(true).build();
@@ -280,5 +296,84 @@ class AccessKeyAuthFilterTest {
         assertThat(keyBuckets).containsKey(KEY_ID);
         verifyNoInteractions(jwtTokenAuthenticator);
         verify(chain).doFilter(request, response);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {VALID_KEY, MCP_JWT})
+    void authentication_survivesAsyncDispatchButNotAnotherRequest(String bearer) throws Exception {
+        request.setRequestURI("/mcp");
+        request.addHeader("Authorization", "Bearer " + bearer);
+        if (bearer.equals(VALID_KEY)) {
+            when(accessKeyService.validate(bearer))
+                .thenReturn(Optional.of(new ResolvedKey(owner, Set.of("accounts:read"), KEY_ID)));
+            keyBuckets.put(KEY_ID, RateLimitConfig.createMcpKeyBucket(frozenMeter()));
+        } else {
+            when(jwtTokenAuthenticator.authenticateMcpToken(bearer))
+                .thenReturn(Optional.of(new JwtTokenAuthenticator.McpPrincipal(7L, Set.of("accounts:read"))));
+            when(appUserRepository.findByIdWithMember(7L)).thenReturn(Optional.of(owner));
+        }
+        doAnswer(invocation -> {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            assertThat(auth).isInstanceOf(AccessKeyAuthentication.class);
+            assertThat(auth.getPrincipal()).isSameAs(owner);
+            assertThat(auth.getAuthorities()).extracting(Object::toString).containsExactly("accounts:read");
+            return null;
+        }).when(chain).doFilter(request, response);
+
+        dispatchThroughSecurity();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        request.setDispatcherType(DispatcherType.ASYNC);
+        dispatchThroughSecurity();
+
+        verify(chain, times(2)).doFilter(request, response);
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        assertThat(request.getSession(false)).isNull();
+        if (bearer.equals(VALID_KEY)) {
+            verify(accessKeyService).validate(bearer);
+            // 120 capacity, one token for the request; the ASYNC dispatch must not consume a second.
+            assertThat(keyBuckets.get(KEY_ID).getAvailableTokens()).isEqualTo(119);
+        } else {
+            verify(jwtTokenAuthenticator).authenticateMcpToken(bearer);
+            verify(appUserRepository).findByIdWithMember(7L);
+            assertThat(keyBuckets).isEmpty();
+        }
+
+        request = new MockHttpServletRequest("POST", "/mcp");
+        assertThatThrownBy(this::dispatchThroughSecurity).isInstanceOf(AccessDeniedException.class);
+        assertThat(request.getSession(false)).isNull();
+    }
+
+    @Test
+    void unauthenticatedAsyncDispatch_isStillDenied() {
+        request.setRequestURI("/mcp");
+        request.setDispatcherType(DispatcherType.ASYNC);
+
+        assertThatThrownBy(this::dispatchThroughSecurity).isInstanceOf(AccessDeniedException.class);
+
+        verifyNoInteractions(chain, accessKeyService, jwtTokenAuthenticator, appUserRepository);
+    }
+
+    private static TimeMeter frozenMeter() {
+        return new TimeMeter() {
+            @Override
+            public long currentTimeNanos() {
+                return 0L;
+            }
+
+            @Override
+            public boolean isWallClockBased() {
+                return false;
+            }
+        };
+    }
+
+    private void dispatchThroughSecurity() throws Exception {
+        var contextFilter = new SecurityContextHolderFilter(securityContextRepository);
+        var anonymousFilter = new AnonymousAuthenticationFilter("test");
+        var authorizationFilter = new AuthorizationFilter(AuthenticatedAuthorizationManager.authenticated());
+        contextFilter.doFilter(request, response, (loadedRequest, loadedResponse) ->
+            filter.doFilter(loadedRequest, loadedResponse, (authenticatedRequest, authenticatedResponse) ->
+                anonymousFilter.doFilter(authenticatedRequest, authenticatedResponse, (authorizedRequest, authorizedResponse) ->
+                    authorizationFilter.doFilter(authorizedRequest, authorizedResponse, chain))));
     }
 }
