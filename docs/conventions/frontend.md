@@ -150,10 +150,10 @@ When `VITE_DEMO_MODE=true` (or runtime toggle via `app-store.ts`), a request int
 
 ## Routing and code splitting
 
-React Router v7 with `lazy()` per page:
+React Router v8 with `lazy()` per page:
 
-Routing APIs, including `RouterProvider`, come from `react-router`. The app entry
-point adapts `ReactDOM.flushSync` to the provider's callback contract to retain its DOM integration.
+Routing APIs come from `react-router`. The app entry point imports `RouterProvider`
+from `react-router/dom`, which wires `ReactDOM.flushSync` for DOM updates.
 
 ```typescript
 const DashboardPage = lazy(() =>
