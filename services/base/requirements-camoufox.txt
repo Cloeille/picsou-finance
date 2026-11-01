@@ -1,5 +1,7 @@
 # Installed on top of requirements.txt in the `camoufox` target only.
 # Review Playwright with the Firefox release pinned in pin_camoufox.py.
 # Run smoke_camoufox.py in both derived sidecars before accepting browser bumps.
+# Camoufox 0.5.x needs a coordinated installer and fingerprint migration.
+# Version 0.5.8 requires Playwright <1.63, while this target pins 1.64.1.
 camoufox[geoip]==0.4.11
 playwright==1.64.1
