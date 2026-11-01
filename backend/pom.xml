@@ -20,7 +20,7 @@
 
     <properties>
         <java.version>21</java.version>
-        <jjwt.version>0.12.6</jjwt.version>
+        <jjwt.version>0.13.0</jjwt.version>
         <bucket4j.version>8.10.1</bucket4j.version>
         <!-- Spring AI 1.1.x is built against Spring Boot 3.5.x (Spring Framework 6.2) and bundles
              MCP Java SDK 0.18.x, whose SSE transport can send keep-alive pings
