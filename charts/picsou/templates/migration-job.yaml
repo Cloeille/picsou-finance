@@ -16,7 +16,9 @@ Inspect the rendered env so explicit app password overrides remain supported. */
 {{- $stored := (lookup "v1" "Secret" $.Release.Namespace $name).data | default dict }}
 {{- $password := index $stored "postgres-password" | default "" }}
 {{- $inline := $.Values.secrets.postgresPassword | include "picsou.secret.inlineValue" | b64enc }}
-{{- if or (not $password) (and $inline (ne $inline $password)) }}
+{{- /* Client previews cannot look up either resource. A visible namespace still
+lets live upgrades reject a missing Secret before the pre-upgrade hook starts. */}}
+{{- if or (and (not $password) (or $stored (lookup "v1" "Namespace" "" $.Release.Namespace))) (and $password $inline (ne $inline $password)) }}
 {{- fail "migration hook requires the generated Secret postgres-password to already exist and match secrets.postgresPassword: provision or update the Secret before upgrading (see chart README, Upgrades)" }}
 {{- end }}
 {{- end }}

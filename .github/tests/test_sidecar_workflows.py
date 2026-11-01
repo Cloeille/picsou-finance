@@ -75,7 +75,6 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
                         f"{command_directory}{os.pathsep}{os.environ['PATH']}"
                         if command_directory else os.environ["PATH"]
                     ),
-                    "PUBLISH": "true",
                     "RELEASE_VERSION": release_version,
                     "IMAGE_TAG": "sha-0123456",
                     "GITHUB_OUTPUT": output.name,
@@ -166,11 +165,11 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         sha = "0123456789abcdef"
         cases = {
             ("tag", "v1.2.3"): {
-                "publish": "true", "app-version": "1.2.3", "image-tag": "1.2.3",
+                "app-version": "1.2.3", "image-tag": "1.2.3",
                 "chart-release-version": "1.2.3",
             },
             ("branch", "main"): {
-                "publish": "true", "app-version": "nightly-0123456", "image-tag": "sha-0123456",
+                "app-version": "nightly-0123456", "image-tag": "sha-0123456",
                 "chart-release-version": "",
             },
         }
@@ -183,9 +182,16 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         build = workflow["jobs"]["build"]
         chart = workflow["jobs"]["chart"]
         self.assertEqual(set(base["outputs"]), {
-            "python", "chromium", "publish", "app-version", "image-tag", "chart-release-version",
+            "python", "chromium", "app-version", "image-tag", "chart-release-version",
         })
         self.assertEqual(chart["needs"], ["base", "build"])
+        version = next(step for step in chart["steps"] if step.get("id") == "version")
+        self.assertNotIn("PUBLISH", version["env"])
+        self.assertNotIn("$PUBLISH", version["run"])
+        downstream = chart["steps"][chart["steps"].index(version) + 1:]
+        self.assertEqual(len(downstream), 4)
+        for step in downstream:
+            self.assertEqual(step["if"], "steps.version.outputs.publish == 'true'")
         metadata = next(step for step in build["steps"] if step.get("id") == "meta")
         self.assertIn("type=sha,format=short", metadata["with"]["tags"].splitlines())
         self.assertIn("type=semver,pattern={{version}}", metadata["with"]["tags"].splitlines())

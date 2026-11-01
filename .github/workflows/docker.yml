@@ -19,7 +19,6 @@ jobs:
     outputs:
       python: ${{ steps.refs.outputs.python }}
       chromium: ${{ steps.refs.outputs.chromium }}
-      publish: ${{ steps.versions.outputs.publish }}
       app-version: ${{ steps.versions.outputs.app-version }}
       image-tag: ${{ steps.versions.outputs.image-tag }}
       chart-release-version: ${{ steps.versions.outputs.chart-release-version }}
@@ -35,7 +34,6 @@ jobs:
         shell: bash
         run: |
           short_sha="${GITHUB_SHA::7}"
-          publish=true
           chart_release_version=""
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             app_version="${GITHUB_REF_NAME#v}"
@@ -46,7 +44,6 @@ jobs:
             image_tag="sha-${short_sha}"
           fi
           {
-            echo "publish=$publish"
             echo "app-version=$app_version"
             echo "image-tag=$image_tag"
             echo "chart-release-version=$chart_release_version"
@@ -320,7 +317,6 @@ jobs:
         id: version
         shell: bash
         env:
-          PUBLISH: ${{ needs.base.outputs.publish }}
           RELEASE_VERSION: ${{ needs.base.outputs.chart-release-version }}
           IMAGE_TAG: ${{ needs.base.outputs.image-tag }}
         run: |
@@ -328,10 +324,6 @@ jobs:
           non_numeric='[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*'
           prerelease_identifier="(${number}|${non_numeric})"
           semver="^${number}\.${number}\.${number}(-${prerelease_identifier}(\.${prerelease_identifier})*)?$"
-          if [[ "$PUBLISH" != "true" ]]; then
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           if [[ -n "$RELEASE_VERSION" ]]; then
             version="$RELEASE_VERSION"
           else

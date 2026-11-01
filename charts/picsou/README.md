@@ -126,6 +126,10 @@ renders the chart with `helm template`, set `secrets.existingSecret`**: `lookup`
 returns nothing there and the generated values would change on every sync.
 Null or empty inline secret values preserve the stored key. When no key is stored,
 the chart generates required keys and leaves optional app keys absent.
+Quote numeric inline secrets in values files (for example,
+`postgresPassword: "12345678"`). Floating-point values fail rendering because
+Helm can stringify them in scientific notation or round their digits.
+Integer `--set` values remain supported; use `--set-string` to preserve leading zeros.
 
 For bundled PostgreSQL, an explicit `secrets.postgresPassword` that differs from
 its stored Secret fails rendering. Updating `POSTGRES_PASSWORD` cannot change the
@@ -274,7 +278,7 @@ the stored credentials.
 Secrets, ConfigMaps and volumes needed by the hook must already exist before the
 upgrade: a pre-upgrade hook runs before Helm updates ordinary release resources.
 
-The migration hook rejects upgrades when its generated `postgres-password` is missing
+On a live cluster, the migration hook rejects upgrades when its generated `postgres-password` is missing
 or differs from the requested inline password, before creating a Job. When switching
 from `secrets.existingSecret` to the generated Secret, first provision the Secret named
 after the release fullname with the current `postgres-password` and `sidecar-api-key`.
@@ -288,8 +292,11 @@ password rotation and update `postgres-password` in the generated Secret **befor
 upgrading, so the hook sees the current credential. Back up first and arrange a
 maintenance window for credential changes. Externally managed Secrets and explicit
 `app.env`/`app.extraEnv` password sources must also be ready before the hook runs.
-Offline upgrade rendering cannot look up generated Secrets; use `secrets.existingSecret`
-for GitOps as described above.
+Client-side upgrade previews (`helm upgrade --dry-run=client`, `helm diff` and
+`helm template --is-upgrade`) skip this validation when neither the stored Secret
+nor the namespace is visible through `lookup`. They do not validate live credentials;
+use `--dry-run=server` to check against the cluster. GitOps still requires
+`secrets.existingSecret` as described above.
 
 Allow the hook to finish before Helm times out (Helm defaults to only five minutes):
 
@@ -357,6 +364,9 @@ release name starts with a digit. Disabled sidecars receive
 named Service in the namespace. Explicit `app.env`/`app.extraEnv` URL overrides
 still take precedence. Per-sidecar `resources`,
 `securityContext` and `podSecurityContext` are merged over `sidecarDefaults`.
+To persist another sidecar's data, set its `persistence.enabled: true` and
+`persistence.mountPath`. New PVCs default to `accessModes: [ReadWriteOnce]` and
+`size: 1Gi`; override these under that sidecar's `persistence` block as needed.
 
 Revolut stores browser profiles on a PVC at `/data/revolut-profiles`. Its pod
 sets `sidecars.revolut-auth.podSecurityContext.fsGroup: 1000` so Kubernetes gives

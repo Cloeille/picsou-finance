@@ -60,7 +60,8 @@ The chart checkout fetches full history and tags. Main version selection uses lo
 `git tag --list` without a remote lookup. The timestamp comes from the HEAD commit
 in UTC, so late-finishing pipelines do not get newer versions from job execution time. Release tags must be complete SemVer,
 including no leading zeros in numeric prerelease identifiers; invalid tags skip
-chart publishing.
+chart publishing. Only this SemVer result gates the packaging and pushing steps;
+the base job has no constant publishing flag.
 
 The `base` job computes the app build version and immutable image tag once. Both the image
 matrix and the chart consume those outputs. Every image publishes the pinned tag through
@@ -161,7 +162,7 @@ helm upgrade
 - **Generated Secrets stay ordinary kept resources.** A Secret hook without a delete
   policy defaults to `before-hook-creation`; that deletion ignores `resource-policy: keep`.
   A failed recreation could lose credentials. Keep the ordinary Secret and migration guard.
-- **Generated database credentials must precede the migration hook.** Upgrades reject a
+- **Generated database credentials must precede the migration hook.** Live upgrades reject a
   missing generated `postgres-password` or a different inline password before starting
   the Job. Before switching away from `secrets.existingSecret`, provision the generated
   Secret with the current database password, sidecar key and any optional app keys.
@@ -169,6 +170,9 @@ helm upgrade
   generated Secret before upgrading, during a maintenance window. This avoids using
   stale credentials or waiting for a Secret applied only after the pre-upgrade hook.
   Operator-managed Secrets and explicit environment overrides must also exist beforehand.
+  Offline client previews skip the guard when neither the Secret data nor the namespace
+  is visible through `lookup`, so `helm template --is-upgrade`, client dry-runs and
+  `helm diff` remain usable. Use a server dry-run to validate live credentials.
 - **App readiness has no startup deadline.** The default `app.startupProbe` is `{}`,
   so slow migrations and database outages hold readiness without restarting the app.
   TCP liveness remains enabled. PostgreSQL uses `pg_isready` startup checks every
@@ -214,6 +218,8 @@ helm upgrade
   policy. The pod inherits global pull secrets and app node selector, tolerations and affinity.
 - **Numeric inline secrets are stringified before encoding.** Numeric `--set` values render
   successfully for all four secret keys; use `--set-string` to preserve leading zeros.
+  Quote numeric secrets in values files: floating-point inputs fail with an actionable
+  error because stringification can produce scientific notation or lose precision.
   Null and empty inline values preserve stored keys through `lookup`. Without a stored key,
   required keys are generated and optional app keys remain absent.
 - **The migration Job does not back up or rehearse.** `docker/deploy.sh` restores a backup into a
@@ -227,6 +233,9 @@ helm upgrade
   `SECURE_COOKIES` are database-first once setup completed.
 - **Sidecar images run as named, non-numeric users**, so `runAsNonRoot` cannot be verified by the
   kubelet and is not set; privilege escalation is disabled and all capabilities dropped instead.
+- **New sidecar persistence has PVC defaults.** Setting `persistence.enabled` and `mountPath`
+  is enough to request storage; omitted `accessModes` and `size` render as
+  `[ReadWriteOnce]` and `1Gi`. Explicit per-sidecar values and existing claims remain supported.
 - **`PICSOU_PROXY_IP` is left unset.** It names one exact trusted proxy address
   ([trusted proxy ADR](../decisions/2026-10-31-trusted-proxy-client-address.md)); ingress controller
   pods change addresses, so the app sees the controller pod's address and per-address limits apply

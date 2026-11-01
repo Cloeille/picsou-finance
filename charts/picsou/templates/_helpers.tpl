@@ -79,6 +79,10 @@ Image reference. Call with (dict "ctx" $ "image" .Values.app.image).
 {{- end }}
 
 {{- define "picsou.secret.inlineValue" -}}
+{{- /* Float stringification can change digits or use scientific notation. */ -}}
+{{- if kindIs "float64" . -}}
+{{- fail "inline secrets must not be floating-point numbers: quote the value in your values file or use --set-string" -}}
+{{- end -}}
 {{- /* default treats 0 and false as empty; only nil must bypass stringification. */ -}}
 {{- if not (kindIs "invalid" .) -}}
 {{- toString . -}}

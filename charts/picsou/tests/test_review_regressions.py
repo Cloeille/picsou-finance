@@ -88,7 +88,9 @@ class ReviewRegressionsTest(unittest.TestCase):
                 with self.subTest(stored_keys=list(stored)):
                     template.write_text(original.replace(
                         '(lookup "v1" "Secret" $.Release.Namespace $name).data',
-                        '(' + json.dumps(json.dumps(stored)) + ' | fromJson)'))
+                        '(' + json.dumps(json.dumps(stored)) + ' | fromJson)').replace(
+                        '(lookup "v1" "Namespace" "" $.Release.Namespace)',
+                        '(dict "metadata" (dict "name" "default"))'))
                     args = ("--is-upgrade", "--set", "postgresql.enabled=false",
                             "--set", "externalDatabase.host=pg-rw", "--set-string",
                             "secrets.postgresPassword=synthetic-new")
@@ -107,6 +109,15 @@ class ReviewRegressionsTest(unittest.TestCase):
                         self.resources(*args, "--set-string",
                                        "secrets.postgresPassword=synthetic-old", chart=chart)
                         self.resources("--is-upgrade", chart=chart)
+
+    def test_offline_upgrade_preview_does_not_require_cluster_secrets(self):
+        for args in ((), ("--set", "secrets.postgresPassword=synthetic"),
+                     ("--set", "postgresql.enabled=false", "--set",
+                      "externalDatabase.host=pg-rw", "--set",
+                      "secrets.postgresPassword=synthetic")):
+            with self.subTest(args=args):
+                resources = self.resources("--is-upgrade", *args)
+                self.assertTrue(any(r["kind"] == "Job" for r in resources))
 
     def test_bundled_database_rejects_stored_password_mismatch(self):
         stored = {"postgres-password": base64.b64encode(b"synthetic-old-password").decode()}
@@ -448,6 +459,36 @@ class ReviewRegressionsTest(unittest.TestCase):
                     result = self.render("--set", "secrets.postgresPassword=87654321", chart=chart)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn("ALTER ROLE", result.stderr)
+
+        # Unlike --set integers, file numbers become floats in Helm. Never encode
+        # a scientific-notation password or silently repair already-rounded digits.
+        with tempfile.TemporaryDirectory() as tmp:
+            values = Path(tmp) / "values.yaml"
+            for key, secret_key in keys.items():
+                with self.subTest(values_file_key=key):
+                    values.write_text(f"secrets:\n  {key}: 12345678\n")
+                    result = self.render("-f", str(values))
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("quote the value", result.stderr)
+                    values.write_text(f'secrets:\n  {key}: "12345678"\n')
+                    resources = self.resources("-f", str(values))
+                    secret = next(r for r in resources if r["kind"] == "Secret")
+                    self.assertEqual(base64.b64decode(secret["data"][secret_key]), b"12345678")
+
+    def test_env_from_preserves_generated_datasource_entries_in_both_workloads(self):
+        source = [{"secretRef": {"name": "database-options"}}]
+        resources = self.configured_resources({"app": {"envFrom": source}})
+        for kind, name in (("Deployment", "picsou"), ("Job", "picsou-migrate")):
+            workload = next(r for r in resources if r["kind"] == kind
+                            and r["metadata"]["name"] == name)
+            container = workload["spec"]["template"]["spec"]["containers"][0]
+            self.assertEqual(container["envFrom"], source)
+            env = {entry["name"]: entry for entry in container["env"]}
+            self.assertEqual(env["SPRING_DATASOURCE_URL"]["value"],
+                             "jdbc:postgresql://picsou-postgresql:5432/picsou?sslmode=prefer")
+            self.assertEqual(env["SPRING_DATASOURCE_USERNAME"]["value"], "picsou")
+            self.assertEqual(env["POSTGRES_PASSWORD"]["valueFrom"]["secretKeyRef"],
+                             {"name": "picsou", "key": "postgres-password"})
 
     def test_health_test_inherits_registry_and_scheduling_settings(self):
         scheduling = {"nodeSelector": {"kubernetes.io/arch": "amd64"},

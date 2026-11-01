@@ -13,13 +13,13 @@ metadata:
     {{- end }}
 spec:
   accessModes:
-    {{- toYaml .p.accessModes | nindent 4 }}
+    {{- toYaml (.p.accessModes | default (list "ReadWriteOnce")) | nindent 4 }}
   {{- with .p.storageClass }}
   storageClassName: {{ if eq . "-" }}""{{ else }}{{ . }}{{ end }}
   {{- end }}
   resources:
     requests:
-      storage: {{ .p.size }}
+      storage: {{ .p.size | default "1Gi" }}
 {{- end }}
 
 {{- $p := .Values.app.persistence }}

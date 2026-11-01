@@ -44,6 +44,7 @@ secrets:
   existingSecret: ""
   # Used only when existingSecret is empty. Blank values are generated once and
   # kept across `helm upgrade` (the Secret is looked up and never deleted).
+  # Quote numeric values in files; floating-point values fail to avoid changing digits.
   sidecarApiKey: ""
   postgresPassword: ""
   jwtSecret: ""
@@ -80,6 +81,9 @@ app:
   # Raw EnvVar entries, for valueFrom and anything env cannot express.
   # Overrides env by name; duplicate names within extraEnv fail rendering.
   extraEnv: []
+  # Cannot override generated env entries (including SPRING_DATASOURCE_URL,
+  # SPRING_DATASOURCE_USERNAME and POSTGRES_PASSWORD): Kubernetes gives env priority.
+  # Use app.env or app.extraEnv to override them in both the app and migration Job.
   envFrom: []
 
   # Mount an RSA private key for Enable Banking from a Secret instead of
@@ -221,6 +225,8 @@ httpRoute:
 #
 # Disable the ones you do not use to save memory: the Chromium and Firefox based
 # ones are the heaviest.
+# Sidecar persistence needs enabled and mountPath; PVC accessModes default to
+# [ReadWriteOnce] and size to 1Gi unless set on the sidecar.
 sidecarDefaults:
   podSecurityContext:
     seccompProfile:
