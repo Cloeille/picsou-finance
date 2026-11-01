@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 import unittest
 
 import yaml
@@ -40,6 +41,52 @@ def _builds_then_runs_image(job, service):
 
 
 class SidecarWorkflowInventoryTest(unittest.TestCase):
+    def run_publish_versions(self, ref_type, ref_name, sha):
+        workflow = _load(DOCKER_WORKFLOW)
+        step = next(step for step in workflow["jobs"]["base"]["steps"] if step.get("id") == "versions")
+        with tempfile.NamedTemporaryFile() as output:
+            result = subprocess.run(
+                ["bash", "-c", step["run"]],
+                env={
+                    **os.environ,
+                    "GITHUB_REF_TYPE": ref_type,
+                    "GITHUB_REF_NAME": ref_name,
+                    "GITHUB_SHA": sha,
+                    "GITHUB_OUTPUT": output.name,
+                },
+                capture_output=True,
+                text=True,
+            )
+            output.seek(0)
+            values = dict(line.decode().rstrip().split("=", 1) for line in output)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return values
+
+    def run_chart_version(self, release_version, *, command_directory=None):
+        workflow = _load(DOCKER_WORKFLOW)
+        step = next(step for step in workflow["jobs"]["chart"]["steps"] if step.get("id") == "version")
+        with tempfile.NamedTemporaryFile() as output:
+            result = subprocess.run(
+                ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", step["run"]],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PATH": (
+                        f"{command_directory}{os.pathsep}{os.environ['PATH']}"
+                        if command_directory else os.environ["PATH"]
+                    ),
+                    "RELEASE_VERSION": release_version,
+                    "IMAGE_TAG": "sha-0123456",
+                    "GITHUB_OUTPUT": output.name,
+                },
+                capture_output=True,
+                text=True,
+            )
+            output.seek(0)
+            values = dict(line.decode().rstrip().split("=", 1) for line in output)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return values
+
     def test_ci_pins_the_workflow_yaml_dependency(self):
         workflow = _load(CI_WORKFLOW)
         commands = _run_commands(workflow["jobs"]["workflow-inventory"])
@@ -124,6 +171,90 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
             "type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}",
             job_text,
         )
+        self.assertEqual(job_text.count("type=semver,pattern={{version}}"), 3)
+        self.assertEqual(job_text.count("type=sha,format=short"), 3)
+
+    def test_publish_versions_are_computed_once_for_images_and_chart(self):
+        sha = "0123456789abcdef"
+        cases = {
+            ("tag", "v1.2.3"): {
+                "app-version": "1.2.3", "image-tag": "1.2.3",
+                "chart-release-version": "1.2.3",
+            },
+            ("branch", "main"): {
+                "app-version": "nightly-0123456", "image-tag": "sha-0123456",
+                "chart-release-version": "",
+            },
+        }
+        for ref, expected in cases.items():
+            with self.subTest(ref=ref):
+                self.assertEqual(self.run_publish_versions(*ref, sha), expected)
+
+        workflow = _load(DOCKER_WORKFLOW)
+        base = workflow["jobs"]["base"]
+        build = workflow["jobs"]["build"]
+        chart = workflow["jobs"]["chart"]
+        self.assertEqual(set(base["outputs"]), {
+            "python", "chromium", "app-version", "image-tag", "chart-release-version",
+        })
+        self.assertEqual(chart["needs"], ["base", "build"])
+        version = next(step for step in chart["steps"] if step.get("id") == "version")
+        self.assertNotIn("PUBLISH", version["env"])
+        self.assertNotIn("$PUBLISH", version["run"])
+        downstream = chart["steps"][chart["steps"].index(version) + 1:]
+        self.assertEqual(len(downstream), 7)
+        for step in downstream:
+            self.assertEqual(step["if"], "steps.version.outputs.publish == 'true'")
+        metadata = next(step for step in build["steps"] if step.get("id") == "meta")
+        self.assertIn("type=sha,format=short", metadata["with"]["tags"].splitlines())
+        self.assertIn("type=semver,pattern={{version}}", metadata["with"]["tags"].splitlines())
+        self.assertNotIn("type=raw,value=${{", DOCKER_WORKFLOW.read_text())
+        # All image references must pass through metadata-action's lowercase normalization.
+        self.assertEqual(build["steps"][-1]["with"]["tags"], "${{ steps.meta.outputs.tags }}")
+        self.assertIn("needs.base.outputs.app-version", build["steps"][-1]["with"]["build-args"])
+        self.assertNotIn("GITHUB_SHA", _run_commands(chart))
+        self.assertNotIn("GITHUB_REF", _run_commands(chart))
+
+    def test_chart_version_uses_fetched_local_tags_without_a_remote_lookup(self):
+        workflow = _load(DOCKER_WORKFLOW)
+        chart = workflow["jobs"]["chart"]
+        checkout = next(step for step in chart["steps"] if step.get("name") == "Checkout")
+        version_command = next(step["run"] for step in chart["steps"] if step.get("id") == "version")
+        self.assertEqual(checkout["with"]["fetch-depth"], 0)
+        self.assertIn("git tag --list", version_command)
+        self.assertNotIn("git ls-remote", version_command)
+
+        with tempfile.TemporaryDirectory() as directory:
+            git = Path(directory) / "git"
+            git.write_text(
+                "#!/bin/sh\n"
+                "case \"$*\" in\n"
+                "  'tag --list') printf '%s\\n' v1.2.3 1.9.09 2.0.0 v2.0.1-rc.1 8.0.0-rc.01 not-a-version ;;\n"
+                "  'show -s --format=%cd --date=format-local:%Y%m%d%H%M%S HEAD')\n"
+                "    [ \"$TZ\" = UTC ] || exit 94\n"
+                "    echo 20261031010203 ;;\n"
+                "  *) exit 93 ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            git.chmod(0o755)
+            values = self.run_chart_version("", command_directory=directory)
+
+        self.assertEqual(values["publish"], "true")
+        self.assertEqual(values["version"], "2.0.2-main.20261031010203.g0123456")
+
+    def test_chart_version_enforces_semver_prerelease_identifiers(self):
+        valid = ("1.2.3", "1.2.3-rc.1", "1.2.3-main.20261101010203.g0123456")
+        invalid = ("1.2.3-01", "1.2.3-rc.01")
+        for version in valid:
+            with self.subTest(version=version):
+                values = self.run_chart_version(version)
+                self.assertEqual(values["publish"], "true")
+                self.assertEqual(values["version"], version)
+        for version in invalid:
+            with self.subTest(version=version):
+                values = self.run_chart_version(version)
+                self.assertEqual(values, {"publish": "false"})
 
     def test_new_sidecar_jobs_build_and_run_every_test_read_only_in_the_image(self):
         workflow = _load(CI_WORKFLOW)
@@ -148,10 +279,15 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
 SELECTOR = "changes"
 GATE = "ci-ok"
 PUBLISH = "docker"
+NON_BLOCKING = {"helm-chart"}
+
+
+def _selectable(jobs):
+    return set(jobs) - {SELECTOR, GATE, PUBLISH}
 
 
 def _gated(jobs):
-    return set(jobs) - {SELECTOR, GATE, PUBLISH}
+    return _selectable(jobs) - NON_BLOCKING
 
 
 def _flatten(patterns):
@@ -183,7 +319,7 @@ def _selected(jobs, path):
     return {
         name
         for name, patterns in _filters(jobs).items()
-        if name in _gated(jobs) and any(_glob_matches(pattern, path) for pattern in patterns)
+        if name in _selectable(jobs) and any(_glob_matches(pattern, path) for pattern in patterns)
     }
 
 
@@ -212,13 +348,13 @@ class CiJobSelectionTest(unittest.TestCase):
     def test_every_job_runs_only_when_the_selector_picks_it(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         outputs = jobs[SELECTOR]["outputs"]
-        self.assertEqual(set(outputs), _gated(jobs))
-        self.assertEqual(set(_filters(jobs)) - {"workflows"}, _gated(jobs))
+        self.assertEqual(set(outputs), _selectable(jobs))
+        self.assertEqual(set(_filters(jobs)) - {"workflows"}, _selectable(jobs))
         self.assertEqual(
             _filter_step(jobs)["if"],
             "github.event_name == 'pull_request' && github.event.pull_request.changed_files < 3000",
         )
-        for name in _gated(jobs):
+        for name in _selectable(jobs):
             with self.subTest(job=name):
                 self.assertEqual(jobs[name]["needs"], SELECTOR)
                 self.assertEqual(jobs[name]["if"], f"needs.changes.outputs.{name} == 'true'")
@@ -229,7 +365,7 @@ class CiJobSelectionTest(unittest.TestCase):
 
     def test_a_change_selects_the_jobs_it_can_affect(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
-        sidecars = {name for name in _gated(jobs) if name.endswith("-sidecar")}
+        sidecars = {name for name in _selectable(jobs) if name.endswith("-sidecar")}
         services = {"compose-sidecar-build", "workflow-inventory"}
         cases = {
             "docs/features/budget.md": set(),
@@ -238,7 +374,7 @@ class CiJobSelectionTest(unittest.TestCase):
             "backend/src/main/java/com/picsou/App.java": {"backend", "release-deployment"},
             "docker/entrypoint.sh": {"backend", "docker-entrypoint", "release-deployment"},
             "docker/Dockerfile": {"docker-entrypoint", "release-deployment", "workflow-inventory"},
-            "docker/docker-compose.yml": {"docker-entrypoint", "release-deployment"} | services,
+            "docker/docker-compose.yml": {"docker-entrypoint", "release-deployment", "helm-chart"} | services,
             "docker-compose.yml": {"docker-entrypoint", "workflow-inventory"},
             "frontend/Dockerfile": {
                 "docker-entrypoint", "e2e", "frontend", "release-deployment",
@@ -249,12 +385,14 @@ class CiJobSelectionTest(unittest.TestCase):
             "frontend/picsou-realip.conf": {
                 "docker-entrypoint", "e2e", "frontend", "release-deployment",
             },
+            "charts/picsou/values.yaml": {"helm-chart"},
+            "charts/picsou/templates/sidecars.yaml": {"helm-chart"},
             "services/sofidy-auth/main.py": {"sofidy-sidecar", "backend"} | services,
             "services/tr-auth/main.py": {"tr-auth-sidecar"} | services,
             "services/base/requirements.txt": sidecars | {"backend", "sidecar-package"} | services,
             "services/base/picsou_sidecar/app.py": sidecars | {"backend", "sidecar-package"} | services,
-            ".github/workflows/ci.yml": _gated(jobs),
-            ".github/tests/test_sidecar_workflows.py": _gated(jobs),
+            ".github/workflows/ci.yml": _selectable(jobs),
+            ".github/tests/test_sidecar_workflows.py": _selectable(jobs),
         }
         for path, expected in cases.items():
             with self.subTest(path=path):
@@ -263,18 +401,25 @@ class CiJobSelectionTest(unittest.TestCase):
     def test_each_sidecar_job_runs_for_its_own_service(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         tested = 0
-        for name in _gated(jobs):
+        for name in _selectable(jobs):
             for service in re.findall(r"docker build --tag picsou-([a-z-]+):test services/", _run_commands(jobs[name])):
                 with self.subTest(job=name, service=service):
                     tested += 1
                     self.assertIn(name, _selected(jobs, f"services/{service}/main.py"))
         self.assertEqual(tested, len(list((ROOT / "services").glob("*-auth/Dockerfile"))))
 
-    def test_the_gate_waits_for_every_job_and_publishing_waits_for_the_gate(self):
+    def test_the_gate_waits_for_every_blocking_job_and_publishing_waits_for_the_gate(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         self.assertEqual(jobs[GATE]["if"], "always()")
         self.assertEqual(set(jobs[GATE]["needs"]), _gated(jobs) | {SELECTOR})
         self.assertIn(GATE, jobs[PUBLISH]["needs"])
+
+    def test_helm_validation_does_not_block_ci_or_image_publishing(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        self.assertTrue(NON_BLOCKING <= _selectable(jobs))
+        for job in (GATE, PUBLISH):
+            with self.subTest(job=job):
+                self.assertTrue(NON_BLOCKING.isdisjoint(jobs[job]["needs"]))
 
     def test_the_gate_is_green_only_when_every_selected_job_succeeded(self):
         jobs = _gated(_load(CI_WORKFLOW)["jobs"])
@@ -410,7 +555,7 @@ class SharedSidecarBaseTest(unittest.TestCase):
         workflow = _load(DOCKER_WORKFLOW)
         self.assertEqual(workflow["jobs"]["build"]["needs"], "base")
         outputs = workflow["jobs"]["base"]["outputs"]
-        self.assertEqual(set(outputs), {"python", "chromium"})
+        self.assertTrue({"python", "chromium"} <= set(outputs))
         steps = {step.get("id"): step for step in workflow["jobs"]["base"]["steps"]}
         for target in ("python", "chromium"):
             with self.subTest(target=target):

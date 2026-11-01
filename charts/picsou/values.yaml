@@ -1,0 +1,398 @@
+# Default values for the Picsou chart.
+#
+# Picsou stores balances, transactions and bank session tokens. Like the Compose
+# stack, this chart is meant for a private cluster: keep the Ingress on an internal
+# hostname or behind a VPN, never on the public internet.
+
+nameOverride: ""
+fullnameOverride: ""
+
+global:
+  # Where the Picsou images live: the app image is this repository, a sidecar's is
+  # <this>/<sidecar>. CI sets it to the repository that publishes the chart, so a
+  # published chart always points at the registry its images were pushed to.
+  imageRepository: ghcr.io/cloeille/picsou-finance
+  # Tag applied to every Picsou image (app and sidecars) unless an image sets its
+  # own. Empty means the chart's appVersion: a published chart pins the images it
+  # was built with (a release, or one commit of main).
+  imageTag: ""
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+# ── Secrets ────────────────────────────────────────────────────────────────
+#
+# The chart needs two values shared between pods:
+#   sidecar-api-key    APP_SIDECAR_API_KEY, sent by the app to every sidecar
+#   postgres-password  password of the bundled or external PostgreSQL
+#
+# Two more are optional; when absent, the app entrypoint generates them on first
+# boot and keeps them on the /data volume, exactly as the Compose stack does:
+#   jwt-secret             JWT_SECRET            (openssl rand -base64 48)
+#   crypto-encryption-key  CRYPTO_ENCRYPTION_KEY (openssl rand -base64 32)
+#
+# Losing crypto-encryption-key makes every stored API secret and bank session
+# token unreadable: back up the /data volume, or provide the key yourself.
+# On an existing install, preserve /data/.secrets/crypto_key and jwt_secret:
+# environment values override these files. Copy their exact contents to the
+# Secret, or omit both keys while keeping persistent /data; never generate replacements.
+secrets:
+  # Name of an existing Secret holding the keys above (External Secrets, Sealed
+  # Secrets, …). Required with GitOps tools that render the chart with
+  # `helm template` (Argo CD): there `lookup` returns nothing, so a generated
+  # Secret would get new random values on every sync.
+  # Without app persistence this Secret MUST contain jwt-secret and crypto-encryption-key.
+  existingSecret: ""
+  # Used only when existingSecret is empty. Blank values are generated once and
+  # kept across `helm upgrade` (the Secret is looked up and never deleted).
+  # Quote numeric values in files; floating-point values fail to avoid changing digits.
+  sidecarApiKey: ""
+  postgresPassword: ""
+  jwtSecret: ""
+  cryptoEncryptionKey: ""
+
+# ── Application (frontend + backend in one image) ──────────────────────────
+app:
+  image:
+    # Empty means global.imageRepository.
+    repository: ""
+    tag: ""
+    pullPolicy: ""
+
+  # Flyway migrates on startup and /data is ReadWriteOnce: run exactly one pod and
+  # never two versions side by side. Values above one fail rendering; zero scales down.
+  replicaCount: 1
+
+  # Plain environment variables for the app and migration Job. Values render as strings.
+  # Explicit entries replace generated app variables by name.
+  # Settings stored by the setup wizard (redirect URI, allowed origins, secure
+  # cookies) take precedence over these once setup has completed — change them
+  # in Admin afterwards.
+  env:
+    SPRING_PROFILES_ACTIVE: prod
+    # SECURE_COOKIES: "true"
+    # ALLOWED_ORIGINS: https://picsou.example.com
+    # HSTS_ENABLED: "true"          # only with a publicly trusted certificate
+    # APP_UPDATE_CHECK_ENABLED: "false"
+    # APP_TELEMETRY_DSN: ""
+    # One exact IPv4 address nginx trusts for X-Forwarded-For (ADR 2026-10-31,
+    # trusted proxy client addresses). Set it only when the ingress controller
+    # reaches the app from a single stable address; see the chart README.
+    # PICSOU_PROXY_IP: 10.0.0.10
+  # Raw EnvVar entries, for valueFrom and anything env cannot express.
+  # Overrides env by name; duplicate names within extraEnv fail rendering.
+  extraEnv: []
+  # Cannot override generated env entries (including SPRING_DATASOURCE_URL,
+  # SPRING_DATASOURCE_USERNAME and POSTGRES_PASSWORD): Kubernetes gives env priority.
+  # Use app.env or app.extraEnv to override them in both the app and migration Job.
+  envFrom: []
+
+  # Mount an RSA private key for Enable Banking from a Secret instead of
+  # generating it in the wizard (which stores it under /data/keys).
+  enableBanking:
+    existingSecret: ""
+    key: enablebanking.pem
+
+  persistence:
+    # Disabling requires both secrets.jwtSecret and secrets.cryptoEncryptionKey,
+    # or secrets.existingSecret containing both keys, to survive pod replacement.
+    enabled: true
+    # Holds the generated secrets, the Enable Banking keys and the wizard's state.
+    existingClaim: ""
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 1Gi
+    annotations: {}
+
+  service:
+    type: ClusterIP
+    port: 8080
+    annotations: {}
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 768Mi
+    limits:
+      memory: 1536Mi
+
+  # The image runs nginx and the Spring Boot backend under supervisord as root.
+  podSecurityContext: {}
+  securityContext:
+    allowPrivilegeEscalation: false
+
+  # /actuator/health covers the database too, so it gates readiness but not
+  # liveness: a database outage must not restart the app in a loop. supervisord
+  # already restarts the JVM if it dies.
+  # No startup probe: liveness is a TCP check on nginx, which answers at once,
+  # and readiness already holds traffic back until /actuator/health is up. One on
+  # /actuator/health would restart the pod when the database is down at startup.
+  startupProbe: {}
+  readinessProbe:
+    httpGet:
+      path: /actuator/health
+      port: http
+    periodSeconds: 10
+    failureThreshold: 3
+  livenessProbe:
+    tcpSocket:
+      port: http
+    periodSeconds: 30
+    failureThreshold: 3
+
+  # Also inherited by the migration Job, including mesh injection opt-outs.
+  podAnnotations: {}
+  # Selector keys app.kubernetes.io/{name,instance,component} are reserved and ignored.
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  # Also mounted by the migration Job, e.g. database CA certificates.
+  extraVolumes: []
+  extraVolumeMounts: []
+
+# helm test uses wget; override the repository for clusters with registry mirrors.
+# Pull credentials and scheduling constraints come from global/app settings.
+tests:
+  image:
+    repository: busybox
+    tag: "1.37"
+    pullPolicy: ""
+
+# ── Release migrations ─────────────────────────────────────────────────────
+#
+# A pre-upgrade hook Job that migrates and verifies the schema with the new image
+# before the app is replaced. It does not back up the database: take a backup
+# (pg_dump via kubectl exec into the PostgreSQL pod, operator backup, snapshot)
+# before every upgrade. See README for a NetworkPolicy-compatible pg_dump command.
+# Use helm upgrade --timeout 35m for the default 1800s deadline. If increased,
+# set --timeout longer than activeDeadlineSeconds, allowing time for pod startup.
+#
+# Argo CD maps Helm pre-upgrade hooks to PreSync, which also runs on the first
+# sync, before the bundled PostgreSQL exists. Disable it for the first sync, or
+# use an external database.
+migrationJob:
+  enabled: true
+  activeDeadlineSeconds: 1800
+  resources:
+    requests:
+      cpu: 100m
+      memory: 384Mi
+    limits:
+      memory: 768Mi
+
+# ── Exposure ───────────────────────────────────────────────────────────────
+#
+# TLS terminates on the Ingress or Gateway, with whatever certificate source the
+# cluster uses (cert-manager, an internal CA, a wildcard Secret). Bank sync needs
+# HTTPS: Enable Banking rejects plain-HTTP callback URLs. The controller must send
+# X-Forwarded-Proto: https (ingress-nginx, Traefik and HAProxy do by default),
+# otherwise login and the wizard's Origins step fail with 403.
+#
+# Open the setup wizard on the final https:// URL: it stores the callback URL,
+# allowed origins and cookie flag derived from the address it is opened on.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # cert-manager.io/cluster-issuer: internal-ca
+  hosts:
+    - host: picsou.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: picsou-tls
+  #    hosts:
+  #      - picsou.example.com
+
+# Gateway API alternative to the Ingress.
+httpRoute:
+  enabled: false
+  annotations: {}
+  parentRefs: []
+  #  - name: internal-gateway
+  #    namespace: gateway
+  #    sectionName: https
+  hostnames:
+    - picsou.example.com
+
+# ── Bank and broker sidecars ───────────────────────────────────────────────
+#
+# Each sidecar is a small API the app calls with the user's provider login. The
+# backend accepts plain HTTP to a sidecar only on a single-label host name, which
+# is what the chart's Service names are (same namespace as the app).
+#
+# Disable the ones you do not use to save memory: the Chromium and Firefox based
+# ones are the heaviest.
+# Sidecar persistence needs enabled and mountPath; PVC accessModes default to
+# [ReadWriteOnce] and size to 1Gi unless set on the sidecar.
+sidecarDefaults:
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  resources:
+    requests:
+      cpu: 20m
+      memory: 128Mi
+    limits:
+      memory: 1Gi
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    periodSeconds: 15
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 20
+    periodSeconds: 30
+    failureThreshold: 3
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+sidecars:
+  tr-auth:
+    enabled: true
+    urlEnv: TR_AUTH_URL
+    port: 8001
+  revolut-auth:
+    enabled: true
+    urlEnv: REVOLUT_AUTH_URL
+    port: 8002
+    podSecurityContext:
+      # The PVC hides the image's chown; Kubernetes grants this supplemental group write access.
+      fsGroup: 1000
+    # Browser profiles that keep the Revolut session between syncs.
+    persistence:
+      enabled: true
+      mountPath: /data/revolut-profiles
+      existingClaim: ""
+      storageClass: ""
+      accessModes:
+        - ReadWriteOnce
+      size: 1Gi
+  bourso-auth:
+    enabled: true
+    urlEnv: BOURSO_AUTH_URL
+    port: 8001
+  caisse-epargne-auth:
+    enabled: true
+    urlEnv: CAISSE_EPARGNE_AUTH_URL
+    port: 8001
+  bourse-direct-auth:
+    enabled: true
+    urlEnv: BOURSE_DIRECT_AUTH_URL
+    port: 8001
+  amundi-auth:
+    enabled: true
+    urlEnv: AMUNDI_AUTH_URL
+    port: 8001
+  fortuneo-auth:
+    enabled: true
+    urlEnv: FORTUNEO_AUTH_URL
+    port: 8001
+  corum-auth:
+    enabled: true
+    urlEnv: CORUM_AUTH_URL
+    port: 8001
+  sofidy-auth:
+    enabled: true
+    urlEnv: SOFIDY_AUTH_URL
+    port: 8001
+  amex-auth:
+    enabled: true
+    urlEnv: AMEX_AUTH_URL
+    port: 8001
+    # Compose runs this one with `init: true` so orphaned browser processes are
+    # reaped. Sharing the process namespace makes the pause container PID 1,
+    # which does the same.
+    shareProcessNamespace: true
+  degiro-auth:
+    enabled: true
+    urlEnv: DEGIRO_AUTH_URL
+    port: 8001
+  cmes-auth:
+    enabled: true
+    urlEnv: CMES_AUTH_URL
+    port: 8001
+  cic-auth:
+    enabled: true
+    urlEnv: CIC_AUTH_URL
+    port: 8001
+
+# Any sidecar entry also accepts: image.repository (default
+# <global.imageRepository>/<sidecar>), image.tag, image.pullPolicy,
+# resources, env (map), extraEnv, podAnnotations, nodeSelector, tolerations,
+# affinity, podSecurityContext, securityContext, persistence, shareProcessNamespace,
+# readinessProbe and livenessProbe, overriding sidecarDefaults.
+
+# ── PostgreSQL ─────────────────────────────────────────────────────────────
+#
+# A single-instance PostgreSQL, equivalent to the Compose `db` service. For
+# anything you care about, prefer an operator-managed cluster (CloudNativePG, …)
+# and set postgresql.enabled=false with externalDatabase below.
+postgresql:
+  enabled: true
+  # Subdirectory avoids lost+found on fresh volumes. For a Compose volume with
+  # PG_VERSION at its root, set /var/lib/postgresql/data before the first start.
+  pgdata: /var/lib/postgresql/data/pgdata
+  image:
+    repository: postgres
+    tag: 16-alpine
+    pullPolicy: ""
+  database: picsou
+  username: picsou
+  persistence:
+    enabled: true
+    existingClaim: ""
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 8Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  podSecurityContext: {}
+  securityContext:
+    allowPrivilegeEscalation: false
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+externalDatabase:
+  host: ""
+  port: 5432
+  database: picsou
+  username: picsou
+  # Secret and key holding the password. Empty means the chart's secret
+  # (secrets.existingSecret or the generated one), key postgres-password.
+  # External databases require this Secret, secrets.existingSecret, or an explicit
+  # secrets.postgresPassword matching the existing database password.
+  existingSecret: ""
+  passwordKey: postgres-password
+  # Appended to the JDBC URL.
+  jdbcParams: sslmode=prefer
+
+# ── Network policies ───────────────────────────────────────────────────────
+#
+# Mirrors the Compose isolation: only the app may reach the sidecars and the
+# database. Sidecars keep unrestricted egress, they talk to the providers.
+networkPolicy:
+  enabled: true
+  # Peers allowed to reach the app on its HTTP port (typically the ingress
+  # controller's namespace). Empty leaves the app unrestricted.
+  appIngressFrom: []
+  #  - namespaceSelector:
+  #      matchLabels:
+  #        kubernetes.io/metadata.name: ingress-nginx
