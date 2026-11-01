@@ -34,7 +34,7 @@ COPY backend/src ./src
 RUN mvn package -DskipTests -q
 
 # ---------- Stage 3: Runtime ----------
-FROM eclipse-temurin:21-jre-jammy
+FROM eclipse-temurin:22-jre-jammy
 
 # Install Nginx + supervisor + openssl (entrypoint auto-generates secrets on first boot)
 RUN apt-get update && apt-get install -y --no-install-recommends \
