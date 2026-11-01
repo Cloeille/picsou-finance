@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Split Docker stack.** The root `docker-compose.yml`, `backend/Dockerfile`,
+  `frontend/Dockerfile`, `frontend/nginx.conf`, `frontend/picsou-realip.conf`, both
+  `Dockerfile.dev` and `backend/watch-and-compile.sh` are gone; they duplicated the
+  supported stack and still installed with npm. `docker/docker-compose.yml` is the only
+  stack and `docker/nginx.conf` the only nginx config. The supported stack retains
+  main's shared sidecar bases and explicit proxy trust configuration. **Migration** if you ran
+  `docker compose up` from the repository root:
+  1. Dump the database: `docker compose exec db pg_dump -U <user> <db> > picsou.sql`.
+     The old stack's volume is `<checkout-dir>_pgdata`; the new one is `docker_pgdata`.
+  2. Copy the root `.env` to `docker/.env` (the old stack read `./.env`). Keep
+     `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY`: without them the new stack generates
+     fresh ones and the stored bank secrets no longer decrypt.
+  3. Start `docker compose -f docker/docker-compose.yml up -d db`, load the dump with
+     `docker compose -f docker/docker-compose.yml exec -T db psql -U <user> <db> < picsou.sql`,
+     then `up -d`. The app is now on port `8080` instead of `5173`.
+
+  For local development, run the backend with `mvn spring-boot:run -Dspring-boot.run.profiles=dev`
+  and the frontend with `bun run dev` (CONTRIBUTING.md).
 - Unused frontend scaffolding for self-service login deletion, its demo handler, and
   draft documentation. No available screen or backend endpoint is removed.
 
@@ -313,6 +331,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Upgrade Playwright to 1.64.1 in both shared browser sidecar bases, including
+  the bundled Chromium. Camoufox remains on package 0.4.11 and Firefox
+  152.0.4-beta.30. Browser updates still require the offline image smoke tests.
+
+- **Sidecar URLs are set only in `application.yml`.** Compose and `docker/entrypoint.sh` no longer
+  set any `*_AUTH_URL`; `application.yml` holds every default. A `*_AUTH_URL` in your `.env`
+  still overrides it. The image's old `TR_AUTH_URL`/`REVOLUT_AUTH_URL` loopback fallbacks
+  are gone; they pointed at no process since the sidecars left the image. The `dev` profile
+  now gives every connector its own `127.0.0.1` port: Amundi 8003, CMES 8009, Revolut 8010,
+  DEGIRO 8011, CIC 8012 and AMEX 8013 were missing and fell back to Docker names that do
+  not resolve outside Compose.
+
 - **Sidecars share their plumbing.** The bank sidecars' key check, health endpoint, request
   log, log sanitising and pending-login store now live once, in `services/base/picsou_sidecar`,
   and CIC and Crédit Mutuel share one login client. AMEX answers a wrong sidecar key with
@@ -339,6 +369,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AMEX and Revolut browser base.** Restored Camoufox 0.4.11 to prevent Playwright
+  dependency resolution and installer import failures while preserving the pinned browser
+  and persistent-profile fingerprint behavior.
+- **React Router v8 compatibility.** Use the DOM router provider's built-in
+  `flushSync` integration, removing an adapter whose return type broke frontend
+  compilation after the dependency upgrade.
+  Resolved frontend documentation merge conflicts while preserving the v8 routing
+  guidance and the DOM provider integration rationale.
+- Release deployment verifies that a recreated bundled TLS proxy's active configuration uses
+  `app-tls:8080`, reports legacy app targets or unreadable configuration before API readiness,
+  and preserves unrelated upstreams. TLS Compose tests reserve unused subnets for custom
+  addresses to avoid collisions on shared Docker hosts.
+
+- **Revolut merge compatibility.** Nested challenge detection remains active alongside
+  the shared sidecar authentication, health endpoint and sanitized logging.
 - **Modern MCP protocol support is selectable.** Set `MCP_PROTOCOL=STREAMABLE` to serve protocol
   `2025-11-25` at `/mcp` for hosted connectors such as claude.ai, then recreate the app with
   `docker compose up -d --force-recreate app`: a plain `docker compose restart` keeps the old
@@ -661,14 +706,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
   Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
   of disappearing.
-- **Revolut tells you when it asks for a captcha instead of counting down for a push that never
-  comes.** Revolut can answer the phone number with an image challenge; the sidecar used to type
-  nothing further, then show "Approve the connection in your Revolut app… (300s left)" until it
-  timed out. It now stops at once and every Revolut sync screen says Revolut is asking for a human
-  verification and that no approval was sent. A sign-in page the sidecar does not recognise, or a
-  step of it that times out (previously an unexplained server error), is reported the same way.
-  Solving the challenge from Picsou is not available yet. See
+- **Revolut stops the approval wait when a captcha blocks login.** A visible challenge now takes
+  precedence over passcode fields and is checked again after passcode entry and during approval.
+  The sidecar returns `HUMAN_VERIFICATION_REQUIRED` and clears the countdown when a challenge
+  appears later. The error text reports the blocked sign-in without claiming whether a push was
+  sent. An unknown post-phone page or a login step that times out returns
+  `UPSTREAM_FORMAT_CHANGED`. Human challenge completion remains unavailable. See
   [feature note](docs/features/revolut-sidecar.md).
+- **Revolut recognizes nested hCaptcha challenges and ignores parked frames.** Challenge checks
+  follow the browser's frame tree and require visible space through every parent frame. Transparent,
+  offscreen, clipped, and one-pixel frames no longer block sign-in. Only hCaptcha hosts count.
+  Overflow clipping follows CSS containing blocks and transformed padding boxes, so visible positioned
+  challenges are detected and borders around empty wrappers do not trigger a false challenge.
+  A frame can restore visibility inside a hidden ancestor. Only visible iframe content counts,
+  excluding its own border and padding after transforms.
+  A detected challenge keeps the existing `HUMAN_VERIFICATION_REQUIRED` error. Manual challenge
+  completion remains unavailable.
+  The shared Camoufox image includes the detector alongside the login module and keeps
+  the shared Xvfb entrypoint and Revolut runtime settings.
 - **BoursoBank account names show apostrophes and ampersands as typed.** A name such as
   `LIVRET D'EPARGNE` was stored as `LIVRET D&#039;EPARGNE` and shown that way in the
   dashboard, legend and accounts list. The next BoursoBank sync rewrites existing names.

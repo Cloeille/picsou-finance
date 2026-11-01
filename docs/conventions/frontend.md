@@ -11,7 +11,7 @@
 | Zustand | v5 | Client state (auth, app settings) |
 | shadcn/ui | latest | Component library (Radix primitives) |
 | Tailwind CSS | v4 | Styling |
-| React Router | v7 | Routing with lazy code splitting |
+| React Router | v8 | Routing with lazy code splitting |
 | Axios | latest | HTTP client with interceptors |
 | react-i18next | latest | Internationalization (FR/EN) |
 | Recharts | v3 | Charts |
@@ -150,10 +150,12 @@ When `VITE_DEMO_MODE=true` (or runtime toggle via `app-store.ts`), a request int
 
 ## Routing and code splitting
 
-React Router v7 with `lazy()` per page:
+React Router v8 with `lazy()` per page:
 
-Routing APIs, including `RouterProvider`, come from `react-router`. The app entry
-point adapts `ReactDOM.flushSync` to the provider's callback contract to retain its DOM integration.
+Routing APIs come from `react-router`. The browser entry point imports
+`RouterProvider` from `react-router/dom`, which wires in `ReactDOM.flushSync`
+automatically. Use this DOM provider instead of a custom callback adapter so
+synchronous router updates preserve the callback's return value required by v8.
 
 ```typescript
 const DashboardPage = lazy(() =>
