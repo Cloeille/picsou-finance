@@ -1,6 +1,6 @@
 # Feature: CORS & Cookie Security
 
-> Last updated: 2026-10-31 (explicit proxy trust and one container-resolved client address)
+> Last updated: 2026-11-01 (one nginx config, split stack removed)
 
 ## Context
 
@@ -43,11 +43,10 @@ cross-origin, and the fail-closed allow-list rejects it with **403**.
 `server.forward-headers-strategy: native` enables Tomcat's `RemoteIpValve`. It accepts
 `X-Forwarded-For/Proto/Host/Port` only from the explicit
 `server.tomcat.remoteip.internal-proxies` expression. The default contains only IPv4/IPv6
-loopback, the nginx-to-Java hop in the bundled image. The split Compose stack explicitly
-configures its frontend nginx peer on a dedicated network. Other deployments must configure
+loopback, the nginx-to-Java hop in the bundled image. Other deployments must configure
 the exact proxy peers; Tomcat's broad private-network defaults are not used.
 
-Both nginx configs preserve the public scheme and host. `Host` uses `$http_host`, retaining
+The nginx config preserves the public scheme and host. `Host` uses `$http_host`, retaining
 an explicit public port. The forwarded port comes from an explicit public host port, the
 upstream `X-Forwarded-Port`, or the scheme's default. It never comes from nginx's container
 listener. This matters with native forwarding: Tomcat removes a port in `X-Forwarded-Host`
@@ -149,7 +148,7 @@ endpoints including the `/oauth2/authorize` cookie bridge) is a separate chain a
 | `backend/src/main/java/com/picsou/config/LoggingCorsProcessor.java` | Logs origin on CORS rejection |
 | `backend/src/main/java/com/picsou/config/AuthCookieWriter.java` / `SecureCookieProvider.java` | Cookie construction + `Secure` flag |
 | `backend/src/main/resources/application.yml` | `server.forward-headers-strategy: native`, explicit Tomcat proxy trust, CORS and cookie settings |
-| `docker/nginx.conf`, `frontend/nginx.conf` | Resolve only known upstream proxies; normalize client headers and preserve the public origin |
+| `docker/nginx.conf` | Resolve only known upstream proxies; normalize client headers and preserve the public origin |
 | `backend/src/main/java/com/picsou/config/ClientIp.java` | Container-resolved client IP for rate-limit keys (`getRemoteAddr()`) |
 | `backend/src/main/java/com/picsou/config/RateLimitConfig.java` | Bucket4j bucket definitions; bounded Caffeine-backed bucket-store beans |
 | `backend/src/main/java/com/picsou/controller/SetupController.java` (`/api/setup/security`) | Persists wizard's allowed origins |

@@ -65,10 +65,6 @@ jobs:
             docker-entrypoint:
               - *workflows
               - 'docker/**'
-              - 'docker-compose.yml'
-              - 'frontend/Dockerfile'
-              - 'frontend/nginx.conf'
-              - 'frontend/picsou-realip.conf'
             backend:
               - *workflows
               - 'backend/**'
@@ -147,12 +143,16 @@ jobs:
             workflow-inventory:
               - *workflows
               - 'services/**'
-              - 'docker-compose.yml'
+              - 'backend/src/main/resources/application*.yml'
+              - '.env.example'
+              - 'docker/.env.example'
+              - 'docker/entrypoint.sh'
               - 'docker/docker-compose.yml'
               - 'docker/Dockerfile'
             helm-chart:
               - *workflows
               - 'charts/**'
+              - 'backend/src/main/resources/application.yml'
               - 'docker/docker-compose.yml'
             e2e:
               - *workflows
@@ -844,7 +844,7 @@ jobs:
         run: bun run test:e2e
       - name: Upload Playwright report
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-report
           path: frontend/playwright-report/
