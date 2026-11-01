@@ -1,4 +1,4 @@
-"""Pending second factors, log hygiene, and the HTTP contract itself.
+"""Pending second factors and the BoursoBank HTTP contract.
 
 A pending app-push validation pins an httpx client and its cookie jar; leaking
 those is how a sidecar dies of memory rather than of a bug.
@@ -11,19 +11,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-import main
-from main import (
-    MAX_PENDING,
-    PENDING_TTL_SECONDS,
-    _cleanup_expired,
-    _close_all_pending,
-    _log_safe,
-    _pending,
-    _pending_lock,
-    _store_pending,
-    _take_pending,
-    app,
-)
+from main import MAX_PENDING, PENDING_TTL_SECONDS, _pending, app
 
 
 class FakeClient:
@@ -39,82 +27,57 @@ class FailingClient:
         raise RuntimeError("close failed")
 
 
-class LogSafetyTest(unittest.TestCase):
-    def test_control_characters_cannot_forge_a_log_line(self):
-        forged = _log_safe("/accounts\r\nINFO:bourso-auth:all clear")
-        self.assertNotIn("\n", forged)
-        self.assertNotIn("\r", forged)
-        self.assertTrue(forged.startswith("/accounts"))
-
-    def test_the_logged_path_is_bounded(self):
-        self.assertEqual(len(_log_safe("/" + "a" * 5000)), 200)
-
-
 class PendingAuthenticationLifecycleTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        await _close_all_pending()
+        await _pending.close_all()
 
     async def asyncTearDown(self):
-        await _close_all_pending()
+        await _pending.close_all()
 
     async def test_expired_attempts_are_swept_and_their_clients_closed(self):
         client = FakeClient()
-        async with _pending_lock:
-            _pending["stale"] = {
-                "client": client,
-                "created_at": time.time() - PENDING_TTL_SECONDS - 1,
-            }
+        await _pending.put("stale", {"client": client, "created_at": time.time() - PENDING_TTL_SECONDS - 1})
 
-        await _cleanup_expired()
+        await _pending.expire()
 
         self.assertNotIn("stale", _pending)
         self.assertEqual(client.closed, 1)
 
     async def test_a_live_attempt_survives_the_sweep(self):
-        async with _pending_lock:
-            _pending["fresh"] = {"client": FakeClient(), "created_at": time.time()}
+        await _pending.put("fresh", {"client": FakeClient(), "created_at": time.time()})
 
-        await _cleanup_expired()
+        await _pending.expire()
 
         self.assertIn("fresh", _pending)
 
-    async def test_an_attempt_can_only_be_consumed_once(self):
-        async with _pending_lock:
-            _pending["once"] = {"client": FakeClient(), "created_at": time.time()}
+    async def test_shutdown_closes_every_pending_client(self):
+        first, second = FakeClient(), FakeClient()
+        await _pending.put("a", {"client": first, "created_at": time.time()})
+        await _pending.put("b", {"client": second, "created_at": time.time()})
 
-        self.assertIsNotNone(await _take_pending("once"))
-        self.assertIsNone(await _take_pending("once"))
+        await _pending.close_all()
 
-    async def test_pending_capacity_is_bounded(self):
+        self.assertEqual((len(_pending), first.closed, second.closed), (0, 1, 1))
+
+    async def test_pending_capacity_is_bounded_at_the_configured_limit(self):
+        self.assertEqual(_pending.max_size, MAX_PENDING)
         for index in range(MAX_PENDING):
-            await _store_pending(str(index), {"client": FakeClient(), "created_at": time.time()})
+            self.assertTrue(await _pending.put(str(index), {"client": FakeClient(), "created_at": time.time()}))
 
-        with self.assertRaises(Exception) as raised:
-            await _store_pending("overflow", {"client": FakeClient(), "created_at": time.time()})
-        self.assertEqual(getattr(raised.exception, "detail", None), "UPSTREAM_UNAVAILABLE")
+        self.assertFalse(await _pending.put("overflow", {"client": FakeClient(), "created_at": time.time()}))
 
     async def test_a_client_that_refuses_to_close_does_not_break_cleanup(self):
-        async with _pending_lock:
-            _pending["bad"] = {
-                "client": FailingClient(),
-                "created_at": time.time() - PENDING_TTL_SECONDS - 1,
-            }
-        await _cleanup_expired()
+        await _pending.put("bad", {"client": FailingClient(), "created_at": time.time() - PENDING_TTL_SECONDS - 1})
+        await _pending.expire()
         self.assertNotIn("bad", _pending)
 
 
 class ContractTest(unittest.TestCase):
     def setUp(self):
-        key_patch = patch.object(main, "SIDECAR_API_KEY", "test-key")
+        key_patch = patch.dict(os.environ, {"APP_SIDECAR_API_KEY": "test-key"})
         key_patch.start()
         self.addCleanup(key_patch.stop)
         self.client = TestClient(app, headers={"X-Picsou-Sidecar-Key": "test-key"})
-
-    def test_health_is_unauthenticated(self):
-        with patch.dict(os.environ):
-            os.environ.pop("PICSOU_SIDECAR_BASE", None)
-            body = self.client.get("/health").json()
-        self.assertEqual(body, {"status": "ok"})
 
     def test_an_unknown_attempt_reports_an_expired_authentication(self):
         response = self.client.post("/complete", json={"processId": "gone"})

@@ -871,8 +871,6 @@ def guard_symbol_collisions(positions: list[dict[str, Any]]) -> None:
 
 # ─── Assurance vie ─────────────────────────────────────────────────────────
 
-LIFE_INSURANCE_POSITIONS_SUFFIX = "positions"
-
 _LI_VALUATION_RE = re.compile(
     r'c-databox__name">\s*Valorisation au\s*(?P<date>\d{2}/\d{2}/\d{4})\s*</div>\s*'
     r'<div class="c-databox__value[^"]*">\s*(?P<amount>[^<]+?)\s*</div>',

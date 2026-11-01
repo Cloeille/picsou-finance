@@ -1,6 +1,6 @@
 # Feature: Crédit Mutuel / CIC Épargne Salariale sync
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-01
 
 ## Context
 
@@ -35,6 +35,8 @@ speaks HTTPS with `httpx`, on the shared `sidecar-python` base.
    answers without a state (an HTTP error status, or a redirect elsewhere), withdraws the
    confirmation from the phone before reporting the error, like the timeout does. HTTP 429 and
    5xx read as `UPSTREAM_UNAVAILABLE`; any other answer without a state as `AUTH_ATTEMPT_EXPIRED`.
+   An unknown polling state is also withdrawn before it is reported as
+   `UPSTREAM_FORMAT_CHANGED`.
 3. **Remembered device**: once the second factor is passed, the site sets `auth_client_state`,
    which spares the confirmation for a while (90 days on the banking sites of the same platform).
    `/initiate` accepts the previous session and replays that cookie only, so a re-login with
@@ -147,7 +149,9 @@ modal lists no CMES row there.
 
 ## Key files
 
-- `services/cmes-auth/{main.py,forms.py,situation_parser.py,fund_parser.py}` and their tests.
+- `services/cmes-auth/{main.py,situation_parser.py,fund_parser.py}` and their tests; shared
+  Euro-Information login and second-factor handling in
+  `services/base/euro_information/{client.py,forms.py}`.
 - `backend/.../port/CmesPort.java`, `CmesErrorCode.java`, `adapter/CmesAdapter.java`,
   `service/CmesSyncService.java`, `controller/CmesController.java`, `model/CmesSession.java`,
   `db/migration/V117__cmes_session.sql`, `V120__cmes_session_invalid_otp.sql`.

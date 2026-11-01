@@ -104,6 +104,19 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         self.assertIn("services/revolut-auth/tests:/app/tests:ro", commands)
         self.assertIn("python -m pytest -p no:cacheprovider -p no:logging --asyncio-mode=auto -v tests", commands)
 
+    def test_every_sidecar_image_test_mounts_the_shared_auth_contract_read_only(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        services = sorted(path.parent.name for path in (ROOT / "services").glob("*-auth/Dockerfile"))
+        self.assertEqual(len(services), 13)
+        for service in services:
+            with self.subTest(service=service):
+                job = next(job for job in jobs.values() if _builds_then_runs_image(job, service))
+                self.assertIn(
+                    "services/base/picsou_sidecar/contract.py:"
+                    "/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro",
+                    _run_commands(job),
+                )
+
     def test_publish_workflow_keeps_both_platforms_and_branch_tagging(self):
         job_text = DOCKER_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("platforms: linux/amd64,linux/arm64", job_text)
@@ -238,7 +251,8 @@ class CiJobSelectionTest(unittest.TestCase):
             },
             "services/sofidy-auth/main.py": {"sofidy-sidecar", "backend"} | services,
             "services/tr-auth/main.py": {"tr-auth-sidecar"} | services,
-            "services/base/requirements.txt": sidecars | {"backend"} | services,
+            "services/base/requirements.txt": sidecars | {"backend", "sidecar-package"} | services,
+            "services/base/picsou_sidecar/app.py": sidecars | {"backend", "sidecar-package"} | services,
             ".github/workflows/ci.yml": _gated(jobs),
             ".github/tests/test_sidecar_workflows.py": _gated(jobs),
         }
