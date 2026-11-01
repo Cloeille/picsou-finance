@@ -22,17 +22,11 @@ import java.util.List;
  */
 public interface SofidyPort {
 
-    InitiateResult initiateAuth(String associateCode, String password);
+    SidecarInitiate initiateAuth(String associateCode, String password);
 
     String completeAuth(String processId, String code);
 
     Snapshot fetchSnapshot(String sessionState);
-
-    /**
-     * A Sofidy login can open a session in one round-trip when no code is
-     * required, which is why {@code sessionState} is not null in every answer.
-     */
-    record InitiateResult(String processId, boolean mfaRequired, String mfaType, String sessionState) {}
 
     /**
      * One fund line of the Sofidy portfolio. Everything is EUR: the funds are

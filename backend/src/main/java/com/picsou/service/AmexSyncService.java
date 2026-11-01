@@ -11,6 +11,7 @@ import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
 import com.picsou.port.AmexErrorCode;
 import com.picsou.port.AmexPort;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.AmexSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -116,7 +117,7 @@ public class AmexSyncService {
     }
 
     public AuthInitResponse initiateAuth(String login, String password, String method, Long memberId) {
-        AmexPort.InitiateResult result = port.initiateAuth(login, password, method);
+        SidecarInitiate result = port.initiateAuth(login, password, method);
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
                 throw error(AmexErrorCode.INVALID_DATA, "American Express did not return a session", null);

@@ -12,6 +12,7 @@ import com.picsou.model.BoursoSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.BoursoErrorCode;
 import com.picsou.port.BoursoPort;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.port.SidecarTransaction;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -129,7 +130,7 @@ public class BoursoSyncService {
     }
 
     public AuthInitResponse initiateAuth(String customerId, String password, Long memberId) {
-        BoursoPort.InitiateResult result = port.initiateAuth(customerId, password);
+        SidecarInitiate result = port.initiateAuth(customerId, password);
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
                 throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank did not return a session", null);
@@ -272,7 +273,7 @@ public class BoursoSyncService {
         Credentials credentials;
         try { credentials = parseCredentials(encryption.decrypt(session.getEncryptedCredentials())); }
         catch (RuntimeException ex) { throw error(BoursoErrorCode.SESSION_EXPIRED, "BoursoBank session expired", ex); }
-        BoursoPort.InitiateResult result;
+        SidecarInitiate result;
         try {
             result = port.initiateAuth(credentials.customerId(), credentials.password());
         } catch (SyncException ex) {

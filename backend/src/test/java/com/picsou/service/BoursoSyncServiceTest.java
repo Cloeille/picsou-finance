@@ -11,6 +11,7 @@ import com.picsou.model.BoursoSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.BoursoErrorCode;
 import com.picsou.port.BoursoPort;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BoursoSessionRepository;
@@ -91,7 +92,7 @@ class BoursoSyncServiceTest {
     @Test
     void clearSessionReportsNothingWhenOnlyAPendingLoginExists() {
         when(port.initiateAuth("12345678", "123456"))
-            .thenReturn(new BoursoPort.InitiateResult("p1", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p1", true, "APP_PUSH", null));
         service.initiateAuth("12345678", "123456", 7L);
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
 
@@ -663,7 +664,7 @@ class BoursoSyncServiceTest {
     void initiateAuth_storesTheSessionAndSyncsWhenNoSecondFactorIsAsked() {
         FamilyMember member = member();
         when(port.initiateAuth("12345678", "123456"))
-            .thenReturn(new BoursoPort.InitiateResult(null, false, null, "cookies"));
+            .thenReturn(new SidecarInitiate(null, false, null, "cookies"));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
         when(encryption.encrypt("cookies")).thenReturn("encrypted");
         when(sessionRepository.saveAndFlush(any(BoursoSession.class))).thenAnswer(invocation -> {
@@ -699,7 +700,7 @@ class BoursoSyncServiceTest {
         when(port.fetchAccounts("plain-state")).thenThrow(
             new SyncException("expired", null, BoursoErrorCode.SESSION_EXPIRED.name()));
         when(port.initiateAuth("12345678", "123456"))
-            .thenReturn(new BoursoPort.InitiateResult(null, false, null, "fresh-state"));
+            .thenReturn(new SidecarInitiate(null, false, null, "fresh-state"));
         when(port.fetchAccounts("fresh-state")).thenReturn(List.of(checkingAccount()));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
         when(accountRepository.findByExternalAccountIdAndMemberId(any(), eq(7L))).thenReturn(Optional.empty());
@@ -737,7 +738,7 @@ class BoursoSyncServiceTest {
         when(port.fetchAccounts("plain-state")).thenThrow(
             new SyncException("expired", null, BoursoErrorCode.SESSION_EXPIRED.name()));
         when(port.initiateAuth("12345678", "123456"))
-            .thenReturn(new BoursoPort.InitiateResult("process", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("process", true, "APP_PUSH", null));
 
         service.queueSync(7L);
 
@@ -768,7 +769,7 @@ class BoursoSyncServiceTest {
     @Test
     void initiateAuth_storesNothingWhileTheAppPushIsStillPending() {
         when(port.initiateAuth("12345678", "123456"))
-            .thenReturn(new BoursoPort.InitiateResult("p1", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p1", true, "APP_PUSH", null));
 
         BoursoSyncService.AuthInitResponse result = service.initiateAuth("12345678", "123456", 7L);
 
@@ -780,7 +781,7 @@ class BoursoSyncServiceTest {
     @Test
     void completeAuthStoresCredentialsOnlyAfterSuccessfulPush() {
         when(port.initiateAuth("12345678", "123456"))
-            .thenReturn(new BoursoPort.InitiateResult("p2", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p2", true, "APP_PUSH", null));
         when(port.completeAuth("p2")).thenReturn("cookies");
         FamilyMember member = member();
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));

@@ -2,9 +2,11 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.AmexErrorCode;
 import com.picsou.port.AmexPort;
+import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -66,11 +68,11 @@ public class AmexAdapter implements AmexPort {
     }
 
     @Override
-    public InitiateResult initiateAuth(String userId, String password, String method) {
+    public SidecarInitiate initiateAuth(String userId, String password, String method) {
         return sidecar.post(
             "/initiate",
             Map.of("userId", userId, "password", password, "method", method),
-            InitiateResult.class,
+            SidecarInitiate.class,
             authTimeout,
             "Could not initiate Amex authentication",
             AmexErrorCode.INVALID_CREDENTIALS
@@ -82,10 +84,10 @@ public class AmexAdapter implements AmexPort {
         Map<String, Object> body = new HashMap<>();
         body.put("processId", processId);
         body.put("otp", otp);
-        SessionResponse response = sidecar.post(
+        SidecarSession response = sidecar.post(
             "/complete",
             body,
-            SessionResponse.class,
+            SidecarSession.class,
             validationTimeout,
             "Could not complete Amex authentication",
             AmexErrorCode.INVALID_OTP
@@ -129,6 +131,4 @@ public class AmexAdapter implements AmexPort {
             case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Amex is temporarily unavailable";
         };
     }
-
-    private record SessionResponse(String sessionState) {}
 }

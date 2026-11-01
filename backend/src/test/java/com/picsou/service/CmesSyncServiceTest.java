@@ -10,6 +10,7 @@ import com.picsou.model.CmesSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.CmesErrorCode;
 import com.picsou.port.CmesPort;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CmesSessionRepository;
@@ -136,7 +137,7 @@ class CmesSyncServiceTest {
         when(encryption.encrypt("fresh-state")).thenReturn("fresh-encrypted");
         when(port.fetchPlans("plain-state")).thenThrow(expired());
         when(port.reauthenticate("12345678", "secret", "plain-state"))
-            .thenReturn(new CmesPort.InitiateResult(null, false, null, "fresh-state"));
+            .thenReturn(new SidecarInitiate(null, false, null, "fresh-state"));
         when(port.fetchPlans("fresh-state")).thenReturn(List.of(pegPlan()));
 
         service.queueSync(7L);
@@ -156,7 +157,7 @@ class CmesSyncServiceTest {
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(port.fetchPlans("plain-state")).thenThrow(expired());
         when(port.reauthenticate("12345678", "secret", "plain-state"))
-            .thenReturn(new CmesPort.InitiateResult("process", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("process", true, "APP_PUSH", null));
 
         service.queueSync(7L);
 
@@ -201,7 +202,7 @@ class CmesSyncServiceTest {
     void aFirstLoginSendsNoPreviousSession() {
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
-            .thenReturn(new CmesPort.InitiateResult("p1", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p1", true, "APP_PUSH", null));
 
         CmesSyncService.AuthInitResponse result = service.initiateAuth("12345678", "secret", 7L);
 
@@ -216,7 +217,7 @@ class CmesSyncServiceTest {
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(expiredSession));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(port.initiateAuth("12345678", "secret", "plain-state"))
-            .thenReturn(new CmesPort.InitiateResult("p1", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p1", true, "APP_PUSH", null));
 
         service.initiateAuth("12345678", "secret", 7L);
 
@@ -227,7 +228,7 @@ class CmesSyncServiceTest {
     void theCredentialsAreStoredOnlyOnceTheConfirmationSucceeded() {
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
-            .thenReturn(new CmesPort.InitiateResult("p2", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p2", true, "APP_PUSH", null));
         when(port.completeAuth("p2", null)).thenReturn("cookies");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
         when(encryption.encrypt(anyString())).thenAnswer(invocation ->
@@ -251,7 +252,7 @@ class CmesSyncServiceTest {
     void aMistypedSmsCodeKeepsTheCredentialsForTheNextTry() {
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
-            .thenReturn(new CmesPort.InitiateResult("p4", true, "SMS", null));
+            .thenReturn(new SidecarInitiate("p4", true, "SMS", null));
         when(port.completeAuth("p4", "000000"))
             .thenThrow(new SyncException("wrong", null, CmesErrorCode.INVALID_OTP.name()));
         when(port.completeAuth("p4", "123456")).thenReturn("cookies");
@@ -277,7 +278,7 @@ class CmesSyncServiceTest {
     void anotherMemberCannotCompleteSomeoneElsesLogin() {
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
-            .thenReturn(new CmesPort.InitiateResult("p3", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p3", true, "APP_PUSH", null));
         service.initiateAuth("12345678", "secret", 7L);
 
         assertThatThrownBy(() -> service.completeAuth("p3", null, 8L))
@@ -301,7 +302,7 @@ class CmesSyncServiceTest {
     void aConfirmationThatLandsAfterTheConnectionWasRemovedStoresNothing() {
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
-            .thenReturn(new CmesPort.InitiateResult("p7", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p7", true, "APP_PUSH", null));
         service.initiateAuth("12345678", "secret", 7L);
         // The last CMES account is deleted while the bank waits for the phone.
         when(port.completeAuth("p7", null)).thenAnswer(invocation -> {
@@ -322,7 +323,7 @@ class CmesSyncServiceTest {
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null)).thenAnswer(invocation -> {
             service.clearSession(7L);
-            return new CmesPort.InitiateResult(null, false, null, "cookies");
+            return new SidecarInitiate(null, false, null, "cookies");
         });
         arrangeStorableSession();
 
@@ -338,7 +339,7 @@ class CmesSyncServiceTest {
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null)).thenAnswer(invocation -> {
             service.clearSession(7L);
-            return new CmesPort.InitiateResult("p7", true, "APP_PUSH", null);
+            return new SidecarInitiate("p7", true, "APP_PUSH", null);
         });
 
         assertThatThrownBy(() -> service.initiateAuth("12345678", "secret", 7L))
@@ -356,7 +357,7 @@ class CmesSyncServiceTest {
         service.clearSession(7L);
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
-            .thenReturn(new CmesPort.InitiateResult(null, false, null, "cookies"));
+            .thenReturn(new SidecarInitiate(null, false, null, "cookies"));
         arrangeStorableSession();
 
         service.initiateAuth("12345678", "secret", 7L);
@@ -368,7 +369,7 @@ class CmesSyncServiceTest {
     void expiredPendingCredentialsAreEvictedWithoutWaitingForANewLogin() {
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
-            .thenReturn(new CmesPort.InitiateResult("p6", true, "SMS", null));
+            .thenReturn(new SidecarInitiate("p6", true, "SMS", null));
         when(port.completeAuth("p6", "000000"))
             .thenThrow(new SyncException("wrong", null, CmesErrorCode.INVALID_OTP.name()));
         service.initiateAuth("12345678", "secret", 7L);

@@ -12,6 +12,7 @@ import com.picsou.model.BourseDirectSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.BourseDirectErrorCode;
 import com.picsou.port.BourseDirectPort;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BourseDirectSessionRepository;
@@ -90,7 +91,7 @@ public class BourseDirectSyncService {
     }
 
     public AuthInitResponse initiateAuth(String login, String password, Long memberId) {
-        BourseDirectPort.InitiateResult result = port.initiateAuth(login, password);
+        SidecarInitiate result = port.initiateAuth(login, password);
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
                 throw error(BourseDirectErrorCode.INVALID_DATA, "Bourse Direct did not return a session", null);

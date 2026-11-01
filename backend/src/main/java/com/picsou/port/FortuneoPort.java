@@ -15,23 +15,13 @@ import java.util.List;
  */
 public interface FortuneoPort {
     /** Starts browser authentication and returns either an MFA challenge or a completed session. */
-    InitiateResult initiateAuth(String login, String password);
+    SidecarInitiate initiateAuth(String login, String password);
 
     /** Completes a pending MFA challenge and returns the serialized browser session state. */
     String completeAuth(String processId, String code);
 
     /** Fetches the complete account snapshot represented by the supplied encrypted-at-rest session. */
     List<AccountData> fetchAccounts(String sessionState);
-
-    /**
-     * Result of the first authentication step.
-     *
-     * @param processId pending challenge identifier, or {@code null} when MFA is not required
-     * @param mfaRequired whether {@link #completeAuth(String, String)} must be called
-     * @param mfaType provider MFA type, or {@code null} when authentication is complete
-     * @param sessionState serialized session state when authentication is complete, otherwise {@code null}
-     */
-    record InitiateResult(String processId, boolean mfaRequired, String mfaType, String sessionState) {}
 
     /**
      * One Fortuneo holding valued by the provider.

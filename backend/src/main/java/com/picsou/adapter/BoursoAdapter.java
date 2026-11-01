@@ -2,9 +2,11 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.BoursoErrorCode;
 import com.picsou.port.BoursoPort;
+import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -71,11 +73,11 @@ public class BoursoAdapter implements BoursoPort {
     }
 
     @Override
-    public InitiateResult initiateAuth(String customerId, String password) {
+    public SidecarInitiate initiateAuth(String customerId, String password) {
         return sidecar.post(
             "/initiate",
             Map.of("customerId", customerId, "password", password),
-            InitiateResult.class,
+            SidecarInitiate.class,
             authTimeout,
             "Could not initiate BoursoBank authentication",
             BoursoErrorCode.INVALID_CREDENTIALS
@@ -89,10 +91,10 @@ public class BoursoAdapter implements BoursoPort {
         Map<String, Object> body = new HashMap<>();
         body.put("processId", processId);
         body.put("code", null);
-        SessionResponse response = sidecar.post(
+        SidecarSession response = sidecar.post(
             "/complete",
             body,
-            SessionResponse.class,
+            SidecarSession.class,
             validationTimeout,
             "Could not complete BoursoBank authentication",
             BoursoErrorCode.APP_VALIDATION_TIMEOUT
@@ -132,6 +134,4 @@ public class BoursoAdapter implements BoursoPort {
             case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "BoursoBank is temporarily unavailable";
         };
     }
-
-    private record SessionResponse(String sessionState) {}
 }

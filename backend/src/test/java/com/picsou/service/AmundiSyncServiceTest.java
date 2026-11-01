@@ -10,6 +10,7 @@ import com.picsou.model.AmundiSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.AmundiErrorCode;
 import com.picsou.port.AmundiPort;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.AmundiSessionRepository;
@@ -437,7 +438,7 @@ class AmundiSyncServiceTest {
     @Test
     void initiateAuthStoresTheSessionOnlyWhenNoSecondFactorIsNeeded() {
         when(port.initiateAuth("login", "password"))
-            .thenReturn(new AmundiPort.InitiateResult("p1", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p1", true, "APP_PUSH", null));
 
         AmundiSyncService.AuthInitResponse result = service.initiateAuth("login", "password", 7L);
 

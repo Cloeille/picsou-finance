@@ -2,7 +2,9 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.port.SofidyErrorCode;
 import com.picsou.port.SofidyPort;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,11 +70,11 @@ public class SofidyAdapter implements SofidyPort {
     }
 
     @Override
-    public InitiateResult initiateAuth(String associateCode, String password) {
+    public SidecarInitiate initiateAuth(String associateCode, String password) {
         return sidecar.post(
             "/initiate",
             Map.of("associateCode", associateCode, "password", password),
-            InitiateResult.class,
+            SidecarInitiate.class,
             authTimeout,
             "Could not initiate Sofidy authentication",
             SofidyErrorCode.INVALID_CREDENTIALS
@@ -84,7 +86,7 @@ public class SofidyAdapter implements SofidyPort {
         return sidecar.post(
             "/complete",
             Map.of("processId", processId, "code", code),
-            SessionResponse.class,
+            SidecarSession.class,
             validationTimeout,
             "Could not complete Sofidy authentication",
             SofidyErrorCode.MFA_INVALID
@@ -135,6 +137,4 @@ public class SofidyAdapter implements SofidyPort {
             case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Sofidy is temporarily unavailable";
         };
     }
-
-    private record SessionResponse(String sessionState) {}
 }

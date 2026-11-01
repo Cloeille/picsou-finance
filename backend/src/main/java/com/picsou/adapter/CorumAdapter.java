@@ -2,6 +2,7 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.CorumErrorCode;
 import com.picsou.port.CorumPort;
@@ -62,7 +63,7 @@ public class CorumAdapter implements CorumPort {
         return sidecar.post(
             "/initiate",
             Map.of("login", login, "password", password),
-            SessionResponse.class,
+            SidecarSession.class,
             authTimeout,
             "Could not authenticate with CORUM",
             CorumErrorCode.INVALID_CREDENTIALS
@@ -109,6 +110,4 @@ public class CorumAdapter implements CorumPort {
             case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "CORUM is temporarily unavailable";
         };
     }
-
-    private record SessionResponse(String sessionState) {}
 }

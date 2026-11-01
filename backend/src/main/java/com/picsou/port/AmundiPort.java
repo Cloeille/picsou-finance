@@ -13,14 +13,12 @@ import java.util.List;
  * sidecar needs to replay the account, and it is only ever stored encrypted.
  */
 public interface AmundiPort {
-    InitiateResult initiateAuth(String login, String password);
+    SidecarInitiate initiateAuth(String login, String password);
 
     /** {@code code} is null for an app push: there is nothing for the user to type. */
     String completeAuth(String processId, String code);
 
     List<PlanData> fetchPlans(String sessionState);
-
-    record InitiateResult(String processId, boolean mfaRequired, String mfaType, String sessionState) {}
 
     /**
      * One FCPE line inside a plan. Everything is EUR-denominated: épargne

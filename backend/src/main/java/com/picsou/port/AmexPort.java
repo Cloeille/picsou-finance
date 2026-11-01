@@ -24,7 +24,7 @@ public interface AmexPort {
      *
      * @param method "sms" or "email"
      */
-    InitiateResult initiateAuth(String userId, String password, String method);
+    SidecarInitiate initiateAuth(String userId, String password, String method);
 
     /** Submits the one-time code Amex sent, then returns the session. */
     String completeAuth(String processId, String otp);
@@ -34,14 +34,6 @@ public interface AmexPort {
 
     /** Explicit, provider-maximum transaction retrieval using the same authenticated session. */
     List<AccountData> fetchTransactionHistory(String sessionState);
-
-    record InitiateResult(
-        String processId,
-        boolean mfaRequired,
-        String mfaType,
-        /** Populated only when {@code mfaRequired == false}. */
-        String sessionState
-    ) {}
 
     record DirectDebit(
         boolean enabled,

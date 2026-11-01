@@ -19,14 +19,14 @@ import java.util.Set;
  */
 public interface CicPort {
     /** {@code previousSessionState} is null on a first login. {@code mfaType} is {@code APP_PUSH} or {@code SMS}. */
-    InitiateResult initiateAuth(String login, String password, String previousSessionState);
+    SidecarInitiate initiateAuth(String login, String password, String previousSessionState);
 
     /**
      * The same login for a scheduled re-login with stored credentials: nobody is
      * there to approve, so the sidecar withdraws a mobile confirmation at once and
      * reports the session as expired rather than leaving a request on the phone.
      */
-    InitiateResult reauthenticate(String login, String password, String previousSessionState);
+    SidecarInitiate reauthenticate(String login, String password, String previousSessionState);
 
     /**
      * Finishes the second factor: {@code code} is the SMS code, or null for a
@@ -36,8 +36,6 @@ public interface CicPort {
 
     /** The current and savings accounts, balances only. Insurance and other contracts are left out by the sidecar. */
     AccountListing fetchAccounts(String sessionState);
-
-    record InitiateResult(String processId, boolean mfaRequired, String mfaType, String sessionState) {}
 
     /**
      * The accounts, and the in-scope tables the page carried ({@code CHECKING}, {@code SAVINGS}),

@@ -2,9 +2,11 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.AmundiErrorCode;
 import com.picsou.port.AmundiPort;
+import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -70,8 +72,8 @@ public class AmundiAdapter implements AmundiPort {
     }
 
     @Override
-    public InitiateResult initiateAuth(String login, String password) {
-        return sidecar.post("/initiate", Map.of("login", login, "password", password), InitiateResult.class,
+    public SidecarInitiate initiateAuth(String login, String password) {
+        return sidecar.post("/initiate", Map.of("login", login, "password", password), SidecarInitiate.class,
             authTimeout, "Could not initiate Amundi authentication", AmundiErrorCode.INVALID_CREDENTIALS);
     }
 
@@ -82,7 +84,7 @@ public class AmundiAdapter implements AmundiPort {
         Map<String, Object> body = new HashMap<>();
         body.put("processId", processId);
         body.put("code", code);
-        SessionResponse response = sidecar.post("/complete", body, SessionResponse.class, validationTimeout,
+        SidecarSession response = sidecar.post("/complete", body, SidecarSession.class, validationTimeout,
             "Could not complete Amundi authentication", AmundiErrorCode.INVALID_OTP);
         return response.sessionState();
     }
@@ -114,6 +116,4 @@ public class AmundiAdapter implements AmundiPort {
             case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Amundi is temporarily unavailable";
         };
     }
-
-    private record SessionResponse(String sessionState) {}
 }

@@ -9,6 +9,7 @@ import com.picsou.model.CicSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.CicErrorCode;
 import com.picsou.port.CicPort;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CicSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -118,7 +119,7 @@ class CicSyncServiceTest {
         when(encryption.encrypt("fresh-state")).thenReturn("fresh-encrypted");
         when(port.fetchAccounts("plain-state")).thenThrow(expired());
         when(port.reauthenticate("12345678", "secret", "plain-state"))
-            .thenReturn(new CicPort.InitiateResult(null, false, null, "fresh-state"));
+            .thenReturn(new SidecarInitiate(null, false, null, "fresh-state"));
         when(port.fetchAccounts("fresh-state")).thenReturn(CicPort.AccountListing.withoutCategories(accounts()));
 
         service.queueSync(7L);
@@ -138,7 +139,7 @@ class CicSyncServiceTest {
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(port.fetchAccounts("plain-state")).thenThrow(expired());
         when(port.reauthenticate("12345678", "secret", "plain-state"))
-            .thenReturn(new CicPort.InitiateResult("process", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("process", true, "APP_PUSH", null));
 
         service.queueSync(7L);
 
@@ -187,7 +188,7 @@ class CicSyncServiceTest {
     void aFirstLoginSendsNoPreviousSession() {
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
-            .thenReturn(new CicPort.InitiateResult("p1", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p1", true, "APP_PUSH", null));
 
         CicSyncService.AuthInitResponse result = service.initiateAuth("12345678", "secret", 7L);
 
@@ -202,7 +203,7 @@ class CicSyncServiceTest {
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(expiredSession));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(port.initiateAuth("12345678", "secret", "plain-state"))
-            .thenReturn(new CicPort.InitiateResult("p1", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p1", true, "APP_PUSH", null));
 
         service.initiateAuth("12345678", "secret", 7L);
 
@@ -222,7 +223,7 @@ class CicSyncServiceTest {
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(port.initiateAuth("12345678", "secret", "plain-state"))
-            .thenReturn(new CicPort.InitiateResult("p1", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p1", true, "APP_PUSH", null));
 
         CicSyncService.AuthInitResponse result = service.reconnect(7L);
 
@@ -252,7 +253,7 @@ class CicSyncServiceTest {
             return CREDENTIALS_JSON;
         });
         lenient().when(port.initiateAuth("12345678", "secret", null))
-            .thenReturn(new CicPort.InitiateResult("late-reconnect", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("late-reconnect", true, "APP_PUSH", null));
 
         assertAttemptExpired(() -> service.reconnect(7L));
         assertAttemptExpired(() -> service.completeAuth("late-reconnect", null, 7L));
@@ -347,7 +348,7 @@ class CicSyncServiceTest {
     void theCredentialsAreStoredOnlyOnceTheConfirmationSucceeded() {
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
-            .thenReturn(new CicPort.InitiateResult("p2", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p2", true, "APP_PUSH", null));
         when(port.completeAuth("p2", null)).thenReturn("cookies");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
         when(encryption.encrypt(anyString())).thenAnswer(invocation ->
@@ -371,7 +372,7 @@ class CicSyncServiceTest {
     void aMistypedSmsCodeKeepsTheCredentialsForTheNextTry() {
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
-            .thenReturn(new CicPort.InitiateResult("p4", true, "SMS", null));
+            .thenReturn(new SidecarInitiate("p4", true, "SMS", null));
         when(port.completeAuth("p4", "000000"))
             .thenThrow(new SyncException("wrong", null, CicErrorCode.INVALID_OTP.name()));
         when(port.completeAuth("p4", "123456")).thenReturn("cookies");
@@ -397,7 +398,7 @@ class CicSyncServiceTest {
     void anotherMemberCannotCompleteSomeoneElsesLogin() {
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
         when(port.initiateAuth("12345678", "secret", null))
-            .thenReturn(new CicPort.InitiateResult("p3", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p3", true, "APP_PUSH", null));
         service.initiateAuth("12345678", "secret", 7L);
 
         assertThatThrownBy(() -> service.completeAuth("p3", null, 8L))
@@ -452,7 +453,7 @@ class CicSyncServiceTest {
         initiatePendingAttempt();
         when(clock.instant()).thenReturn(Instant.parse("2026-10-31T12:05:00Z"));
         when(port.initiateAuth("12345678", "new-secret", null))
-            .thenReturn(new CicPort.InitiateResult("newer", true, "SMS", null));
+            .thenReturn(new SidecarInitiate("newer", true, "SMS", null));
         service.initiateAuth("12345678", "new-secret", 7L);
 
         ScheduledAnnotationBeanPostProcessor scheduler = new ScheduledAnnotationBeanPostProcessor();
@@ -514,7 +515,7 @@ class CicSyncServiceTest {
     void disconnectDuringInitiationPreventsRememberedDeviceSessionPersistence() {
         when(port.initiateAuth("12345678", "secret", null)).thenAnswer(invocation -> {
             service.clearSession(7L);
-            return new CicPort.InitiateResult(null, false, null, "cookies");
+            return new SidecarInitiate(null, false, null, "cookies");
         });
 
         assertAttemptExpired(() -> service.initiateAuth("12345678", "secret", 7L));
@@ -527,7 +528,7 @@ class CicSyncServiceTest {
     void disconnectDuringInitiationDoesNotRegisterALatePendingAttempt() {
         when(port.initiateAuth("12345678", "secret", null)).thenAnswer(invocation -> {
             service.clearSession(7L);
-            return new CicPort.InitiateResult("late", true, "APP_PUSH", null);
+            return new SidecarInitiate("late", true, "APP_PUSH", null);
         });
 
         assertAttemptExpired(() -> service.initiateAuth("12345678", "secret", 7L));
@@ -567,7 +568,7 @@ class CicSyncServiceTest {
 
     private void initiatePendingAttempt() {
         when(port.initiateAuth("12345678", "secret", null))
-            .thenReturn(new CicPort.InitiateResult("pending", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("pending", true, "APP_PUSH", null));
         service.initiateAuth("12345678", "secret", 7L);
     }
 

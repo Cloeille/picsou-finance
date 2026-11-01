@@ -14,6 +14,7 @@ import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.port.FortuneoErrorCode;
 import com.picsou.port.FortuneoPort;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -104,7 +105,7 @@ public class FortuneoSyncService {
     }
 
     public AuthInitResponse initiateAuth(String login, String password, Long memberId) {
-        FortuneoPort.InitiateResult result = port.initiateAuth(login, password);
+        SidecarInitiate result = port.initiateAuth(login, password);
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
                 throw error(FortuneoErrorCode.INVALID_DATA, "Fortuneo did not return a session", null);

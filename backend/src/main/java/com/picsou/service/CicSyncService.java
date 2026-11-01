@@ -13,6 +13,7 @@ import com.picsou.model.CicSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.CicErrorCode;
 import com.picsou.port.CicPort;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CicSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -114,7 +115,7 @@ public class CicSyncService {
         requireGeneration(memberId, generation);
         // A reconnection from the UI replays the remembered-device cookie too, so
         // reconnecting after an error does not ask for a confirmation again.
-        CicPort.InitiateResult result = port.initiateAuth(login, password, previousPlainState(memberId));
+        SidecarInitiate result = port.initiateAuth(login, password, previousPlainState(memberId));
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
                 throw error(CicErrorCode.INVALID_DATA, "CIC did not return a session", null);
@@ -358,7 +359,7 @@ public class CicSyncService {
         } catch (RuntimeException ex) {
             throw error(CicErrorCode.SESSION_EXPIRED, "CIC session expired", ex);
         }
-        CicPort.InitiateResult result = port.reauthenticate(credentials.login(), credentials.password(), job.plainState());
+        SidecarInitiate result = port.reauthenticate(credentials.login(), credentials.password(), job.plainState());
         if (result.mfaRequired()) {
             log.info("CIC asks for a new second factor (member={}; type={})", job.memberId(), result.mfaType());
             throw error(CicErrorCode.SESSION_EXPIRED, "CIC requires a new second factor", null);

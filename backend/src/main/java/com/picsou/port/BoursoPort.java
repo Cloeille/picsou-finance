@@ -20,7 +20,7 @@ public interface BoursoPort {
      * {@code sessionState} populated — or reports that BoursoBank pushed a
      * validation to the customer's phone.
      */
-    InitiateResult initiateAuth(String customerId, String password);
+    SidecarInitiate initiateAuth(String customerId, String password);
 
     /**
      * Waits for the customer to approve the push, then returns the session.
@@ -39,14 +39,6 @@ public interface BoursoPort {
      * the sidecar.
      */
     List<AccountData> fetchAccounts(String sessionState);
-
-    record InitiateResult(
-        String processId,
-        boolean mfaRequired,
-        String mfaType,
-        /** Populated only when {@code mfaRequired == false}. */
-        String sessionState
-    ) {}
 
     /**
      * One open position. {@code currentPrice} is expressed in

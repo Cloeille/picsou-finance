@@ -11,6 +11,7 @@ import com.picsou.model.AmundiSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.AmundiErrorCode;
 import com.picsou.port.AmundiPort;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.AmundiSessionRepository;
@@ -97,7 +98,7 @@ public class AmundiSyncService {
     }
 
     public AuthInitResponse initiateAuth(String login, String password, Long memberId) {
-        AmundiPort.InitiateResult result = port.initiateAuth(login, password);
+        SidecarInitiate result = port.initiateAuth(login, password);
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
                 throw error(AmundiErrorCode.INVALID_DATA, "Amundi did not return a session", null);

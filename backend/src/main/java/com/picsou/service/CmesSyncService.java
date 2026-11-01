@@ -14,6 +14,7 @@ import com.picsou.model.CmesSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.CmesErrorCode;
 import com.picsou.port.CmesPort;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CmesSessionRepository;
@@ -120,7 +121,7 @@ public class CmesSyncService {
         long generation = authGeneration(memberId);
         // A reconnection from the UI replays the remembered-device cookie too, so
         // reconnecting after an error does not ask for a confirmation again.
-        CmesPort.InitiateResult result = port.initiateAuth(login, password, previousPlainState(memberId));
+        SidecarInitiate result = port.initiateAuth(login, password, previousPlainState(memberId));
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
                 throw error(CmesErrorCode.INVALID_DATA, "CMES did not return a session", null);
@@ -326,7 +327,7 @@ public class CmesSyncService {
         } catch (RuntimeException ex) {
             throw error(CmesErrorCode.SESSION_EXPIRED, "CMES session expired", ex);
         }
-        CmesPort.InitiateResult result = port.reauthenticate(credentials.login(), credentials.password(), job.plainState());
+        SidecarInitiate result = port.reauthenticate(credentials.login(), credentials.password(), job.plainState());
         if (result.mfaRequired()) {
             log.info("CMES asks for a new second factor (member={}; type={})", job.memberId(), result.mfaType());
             throw error(CmesErrorCode.SESSION_EXPIRED, "CMES requires a new second factor", null);

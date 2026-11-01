@@ -11,6 +11,7 @@ import com.picsou.model.BourseDirectSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.BourseDirectErrorCode;
 import com.picsou.port.BourseDirectPort;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BourseDirectSessionRepository;
@@ -234,7 +235,7 @@ class BourseDirectSyncServiceTest {
             .syncStatus(BourseDirectSyncStatus.QUEUED)
             .build();
         when(port.initiateAuth("login", "password")).thenReturn(
-            new BourseDirectPort.InitiateResult(null, false, null, "plain-state")
+            new SidecarInitiate(null, false, null, "plain-state")
         );
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());

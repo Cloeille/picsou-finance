@@ -2,9 +2,11 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.CmesErrorCode;
 import com.picsou.port.CmesPort;
+import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -71,16 +73,16 @@ public class CmesAdapter implements CmesPort {
     }
 
     @Override
-    public InitiateResult initiateAuth(String login, String password, String previousSessionState) {
+    public SidecarInitiate initiateAuth(String login, String password, String previousSessionState) {
         return initiate(login, password, previousSessionState, false);
     }
 
     @Override
-    public InitiateResult reauthenticate(String login, String password, String previousSessionState) {
+    public SidecarInitiate reauthenticate(String login, String password, String previousSessionState) {
         return initiate(login, password, previousSessionState, true);
     }
 
-    private InitiateResult initiate(String login, String password, String previousSessionState, boolean unattended) {
+    private SidecarInitiate initiate(String login, String password, String previousSessionState, boolean unattended) {
         Map<String, Object> body = new HashMap<>();
         if (unattended) body.put("unattended", true);
         body.put("login", login);
@@ -88,7 +90,7 @@ public class CmesAdapter implements CmesPort {
         if (previousSessionState != null && !previousSessionState.isBlank()) {
             body.put("sessionState", previousSessionState);
         }
-        return sidecar.post("/initiate", body, InitiateResult.class, authTimeout,
+        return sidecar.post("/initiate", body, SidecarInitiate.class, authTimeout,
             "Could not initiate Crédit Mutuel Épargne Salariale authentication", CmesErrorCode.INVALID_CREDENTIALS);
     }
 
@@ -99,7 +101,7 @@ public class CmesAdapter implements CmesPort {
         Map<String, Object> body = new HashMap<>();
         body.put("processId", processId);
         body.put("code", code);
-        SessionResponse response = sidecar.post("/complete", body, SessionResponse.class, validationTimeout,
+        SidecarSession response = sidecar.post("/complete", body, SidecarSession.class, validationTimeout,
             "Could not complete Crédit Mutuel Épargne Salariale authentication", CmesErrorCode.APP_VALIDATION_TIMEOUT);
         return response.sessionState();
     }
@@ -136,6 +138,4 @@ public class CmesAdapter implements CmesPort {
             case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Crédit Mutuel Épargne Salariale is temporarily unavailable";
         };
     }
-
-    private record SessionResponse(String sessionState) {}
 }

@@ -9,6 +9,7 @@ import com.picsou.model.ScpiPosition;
 import com.picsou.model.ScpiProvider;
 import com.picsou.model.SofidySession;
 import com.picsou.model.SofidySyncStatus;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.port.SofidyErrorCode;
 import com.picsou.port.SofidyPort;
 import com.picsou.repository.FamilyMemberRepository;
@@ -111,7 +112,7 @@ public class SofidySyncService {
      */
     public InitiateResponse initiateAuth(String associateCode, String password, Long memberId) {
         AuthAttempt attempt = reserveAuthAttempt(memberId);
-        SofidyPort.InitiateResult result = port.initiateAuth(associateCode, password);
+        SidecarInitiate result = port.initiateAuth(associateCode, password);
         if (result == null) {
             throw error(SofidyErrorCode.INVALID_DATA, "Sofidy did not answer the login request", null);
         }

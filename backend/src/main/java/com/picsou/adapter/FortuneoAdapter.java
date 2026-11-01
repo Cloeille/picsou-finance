@@ -3,10 +3,12 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.port.FortuneoErrorCode;
 import com.picsou.port.FortuneoPort;
+import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.slf4j.Logger;
@@ -62,15 +64,15 @@ public class FortuneoAdapter implements FortuneoPort {
     }
 
     @Override
-    public InitiateResult initiateAuth(String login, String password) {
-        return post("/initiate", Map.of("login", login, "password", password), InitiateResult.class,
+    public SidecarInitiate initiateAuth(String login, String password) {
+        return post("/initiate", Map.of("login", login, "password", password), SidecarInitiate.class,
             "Could not initiate Fortuneo authentication", FortuneoErrorCode.INVALID_CREDENTIALS);
     }
 
     @Override
     public String completeAuth(String processId, String code) {
-        SessionResponse response = post("/complete", Map.of("processId", processId, "code", code),
-            SessionResponse.class, "Could not complete Fortuneo authentication", FortuneoErrorCode.INVALID_OTP);
+        SidecarSession response = post("/complete", Map.of("processId", processId, "code", code),
+            SidecarSession.class, "Could not complete Fortuneo authentication", FortuneoErrorCode.INVALID_OTP);
         return response.sessionState();
     }
 
@@ -217,6 +219,4 @@ public class FortuneoAdapter implements FortuneoPort {
     private SyncException coded(FortuneoErrorCode code, String message, Throwable cause) {
         return new SyncException(message, cause, code.name());
     }
-
-    private record SessionResponse(String sessionState) {}
 }

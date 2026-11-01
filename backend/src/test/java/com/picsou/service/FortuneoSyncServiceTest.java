@@ -18,6 +18,7 @@ import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.port.FortuneoErrorCode;
 import com.picsou.port.FortuneoPort;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.DividendSourceRepository;
@@ -1231,7 +1232,7 @@ class FortuneoSyncServiceTest {
             .syncStatus(FortuneoSyncStatus.QUEUED)
             .build();
         when(port.initiateAuth("login", "password")).thenReturn(
-            new FortuneoPort.InitiateResult(null, false, null, "plain-state")
+            new SidecarInitiate(null, false, null, "plain-state")
         );
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());

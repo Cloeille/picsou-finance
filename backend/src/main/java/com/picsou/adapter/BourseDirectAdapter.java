@@ -2,9 +2,11 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.BourseDirectErrorCode;
 import com.picsou.port.BourseDirectPort;
+import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -59,16 +61,16 @@ public class BourseDirectAdapter implements BourseDirectPort {
     }
 
     @Override
-    public InitiateResult initiateAuth(String login, String password) {
-        return sidecar.post("/initiate", Map.of("login", login, "password", password), InitiateResult.class,
+    public SidecarInitiate initiateAuth(String login, String password) {
+        return sidecar.post("/initiate", Map.of("login", login, "password", password), SidecarInitiate.class,
             authTimeout, "Could not initiate Bourse Direct authentication",
             BourseDirectErrorCode.INVALID_CREDENTIALS);
     }
 
     @Override
     public String completeAuth(String processId, String code) {
-        SessionResponse response = sidecar.post("/complete", Map.of("processId", processId, "code", code),
-            SessionResponse.class, authTimeout, "Could not complete Bourse Direct authentication",
+        SidecarSession response = sidecar.post("/complete", Map.of("processId", processId, "code", code),
+            SidecarSession.class, authTimeout, "Could not complete Bourse Direct authentication",
             BourseDirectErrorCode.INVALID_OTP);
         return response.sessionState();
     }
@@ -98,6 +100,4 @@ public class BourseDirectAdapter implements BourseDirectPort {
             case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Bourse Direct is temporarily unavailable";
         };
     }
-
-    private record SessionResponse(String sessionState) {}
 }
