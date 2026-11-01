@@ -308,12 +308,12 @@ class TradeRepublicAdapterTest {
      */
     private TradeRepublicAdapter adapterAgainstTr(
             String isin, String instrumentAnswer, Map<String, String> pricedTickers) {
-        return adapterAgainstTr("{\"categories\":[{\"positions\":[{\"isin\":\"" + isin
+        return adapterAgainstPortfolio("{\"categories\":[{\"positions\":[{\"isin\":\"" + isin
             + "\",\"netSize\":\"0.5\",\"averageBuyIn\":\"30000\"}]}]}", instrumentAnswer, pricedTickers);
     }
 
     /** Same server, with the {@code compactPortfolioByType} answer given as-is. */
-    private TradeRepublicAdapter adapterAgainstTr(
+    private TradeRepublicAdapter adapterAgainstPortfolio(
             String portfolioAnswer, String instrumentAnswer, Map<String, String> pricedTickers) {
         ObjectMapper mapper = new ObjectMapper();
         Function<String, String> answer = message -> {
@@ -466,7 +466,7 @@ class TradeRepublicAdapterTest {
 
     @Test
     void fetchAccounts_scalesOnlyTheBondTickerByHundred_notTheEtfInAnotherCategory() {
-        TradeRepublicAdapter adapter = adapterAgainstTr(
+        TradeRepublicAdapter adapter = adapterAgainstPortfolio(
             portfolio(position(TREASURY, ""), position(ETF, "")), EUR_INSTRUMENT,
             Map.of(TREASURY + ".LSX", "98.25", ETF + ".LSX", "141.75"));
 
@@ -475,13 +475,13 @@ class TradeRepublicAdapterTest {
         assertThat(securities.positions()).hasSize(2);
         assertThat(priceOf(securities, TREASURY)).isEqualByComparingTo("0.9825");
         assertThat(priceOf(securities, ETF)).isEqualByComparingTo("141.75");
-        // 500 x 0.9825 + 500 x 141.75 + 100 cash
-        assertThat(securities.balanceEur()).isEqualByComparingTo("71977.50");
+        // The securities account has no cash pocket.
+        assertThat(securities.balanceEur()).isEqualByComparingTo("71366.25");
     }
 
     @Test
     void fetchAccounts_aBondCategoryPosition_isScaled_evenWhenItsInstrumentTypeIsNotBond() {
-        TradeRepublicAdapter adapter = adapterAgainstTr(
+        TradeRepublicAdapter adapter = adapterAgainstPortfolio(
             portfolio(position(TREASURY, ",\"instrumentType\":\"other\""), position(ETF, "")),
             EUR_INSTRUMENT, Map.of(TREASURY + ".LSX", "98.25", ETF + ".LSX", "141.75"));
 
@@ -492,7 +492,7 @@ class TradeRepublicAdapterTest {
 
     @Test
     void fetchAccounts_aBondInstrumentTypeOutsideTheBondCategory_isScaled() {
-        TradeRepublicAdapter adapter = adapterAgainstTr(
+        TradeRepublicAdapter adapter = adapterAgainstPortfolio(
             portfolio("", position(TREASURY, ",\"instrumentType\":\"bond\"")),
             EUR_INSTRUMENT, Map.of(TREASURY + ".LSX", "98.25"));
 
@@ -503,25 +503,27 @@ class TradeRepublicAdapterTest {
 
     @Test
     void fetchAccounts_aBondWithANonEurNominal_leavesThePriceUnavailable() {
-        TradeRepublicAdapter adapter = adapterAgainstTr(
-            portfolio(position(TREASURY, ""), position(ETF, "")),
+        TradeRepublicAdapter adapter = adapterAgainstPortfolio(
+            portfolio(position(TREASURY, ""), ""),
             "{\"exchangeIds\":[\"LSX\"],\"currencyId\":\"USD\"}",
             Map.of(TREASURY + ".LSX", "98.25"));
 
         TrAccountData securities = securities(adapter.fetchAccounts(sessionToken()));
 
         assertThat(priceOf(securities, TREASURY)).isNull();
+        assertThat(securities.balanceEur()).isEqualByComparingTo("447.05");
     }
 
     @Test
     void fetchAccounts_aBondWithAnUnknownNominalCurrency_leavesThePriceUnavailable() {
-        TradeRepublicAdapter adapter = adapterAgainstTr(
+        TradeRepublicAdapter adapter = adapterAgainstPortfolio(
             portfolio(position(TREASURY, ""), ""), "{\"exchangeIds\":[\"LSX\"]}",
             Map.of(TREASURY + ".LSX", "98.25"));
 
         TrAccountData securities = securities(adapter.fetchAccounts(sessionToken()));
 
         assertThat(priceOf(securities, TREASURY)).isNull();
+        assertThat(securities.balanceEur()).isEqualByComparingTo("447.05");
     }
 
     private static java.math.BigDecimal priceOf(TrAccountData account, String isin) {

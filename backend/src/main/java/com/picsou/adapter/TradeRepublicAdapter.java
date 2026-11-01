@@ -353,7 +353,11 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                                 boolean bondCategory = isBond(cat.path("categoryType").asText(""));
                                                 for (JsonNode position : cat.path("positions")) {
                                                     if (bondCategory) {
-                                                        bondIsins.add(position.path("isin").asText(""));
+                                                        String isin = position.path("isin").asText(
+                                                            position.path("instrumentId").asText(""));
+                                                        if (!isin.isEmpty()) {
+                                                            bondIsins.add(isin);
+                                                        }
                                                     }
                                                     positions.add(position);
                                                 }
