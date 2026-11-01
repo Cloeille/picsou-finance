@@ -263,10 +263,10 @@ scheduled work cannot recreate a deliberately deleted account.
 
 ## Deployment
 
-Both Compose definitions include the `fortuneo-auth` service and its isolated
+`docker/docker-compose.yml` includes the `fortuneo-auth` service and its isolated
 inbound and egress networks. Relevant settings are documented in `.env.example`
 and use non-secret defaults where possible. Secrets remain runtime environment
-values and must not be committed. Both Compose files forward
+values and must not be committed. Compose forwards
 `APP_SIDECAR_API_KEY` to the sidecar, which refuses to start without it.
 
 The standard health check verifies the sidecar process. CI builds the sidecar

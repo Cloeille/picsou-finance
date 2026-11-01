@@ -7,7 +7,7 @@ side of getting a change merged.
 
 - Java 21 + Maven (backend)
 - [Bun](https://bun.sh) (frontend)
-- PostgreSQL 16 on `:5432` (or `docker compose up db`)
+- PostgreSQL 16 on `:5432`, e.g. `docker run -d --name picsou-db -p 127.0.0.1:5432:5432 -e POSTGRES_DB=picsou -e POSTGRES_USER=picsou -e POSTGRES_PASSWORD=picsou postgres:16-alpine`
 
 ## Build & run
 
@@ -25,6 +25,12 @@ cd frontend
 bun install
 bun run dev
 ```
+
+The `dev` profile points each bank connector at its own `127.0.0.1` port
+(`backend/src/main/resources/application-dev.yml`). To use one, start its sidecar
+from `services/<name>/` with `APP_SIDECAR_API_KEY=<same key as the backend> uvicorn main:app --port <port>`
+(PYTHONPATH must include `services/base`; Revolut and AMEX also need the Xvfb display their
+`entrypoint.sh` starts).
 
 The frontend uses HTTPS in development. See the
 [local certificate setup](README.md#-https-in-development-hybrid-mode) for a
