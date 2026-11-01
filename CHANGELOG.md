@@ -369,6 +369,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AMEX and Revolut browser base.** Restored Camoufox 0.4.11 to prevent Playwright
+  dependency resolution and installer import failures while preserving the pinned browser
+  and persistent-profile fingerprint behavior.
 - **React Router v8 compatibility.** Use the DOM router provider's built-in
   `flushSync` integration, removing an adapter whose return type broke frontend
   compilation after the dependency upgrade.
