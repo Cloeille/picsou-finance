@@ -5,18 +5,12 @@ import com.picsou.model.PropertyKind;
 import com.picsou.model.ValuationConfidence;
 import com.picsou.adapter.CeremaDv3fValuationProvider.ValuationInput;
 import com.picsou.adapter.CeremaDv3fValuationProvider.ValuationResult;
+import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFunction;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Optional;
 import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -49,27 +43,17 @@ class CeremaDv3fValuationProviderTest {
 
     private static final String EMPTY_JSON = "{\"count\":0,\"next\":null,\"previous\":null,\"results\":[]}";
 
-    private CeremaDv3fValuationProvider providerReturning(Mono<ClientResponse> response) {
-        ExchangeFunction exchange = request -> response;
-        return new CeremaDv3fValuationProvider(WebClient.builder().exchangeFunction(exchange).build());
+    private CeremaDv3fValuationProvider providerReturning(WebClient client) {
+        return new CeremaDv3fValuationProvider(client);
     }
 
     private CeremaDv3fValuationProvider providerWithJson(String json) {
-        return providerReturning(Mono.just(ClientResponse.create(HttpStatus.OK)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .body(json).build()));
+        return providerReturning(WebClientStubs.returning(json));
     }
 
     /** Serves a different body per call, so the commune→department fallback can be observed. */
     private CeremaDv3fValuationProvider providerWithSequence(String... bodies) {
-        Deque<String> queue = new ArrayDeque<>(java.util.List.of(bodies));
-        ExchangeFunction exchange = request -> {
-            String body = queue.isEmpty() ? EMPTY_JSON : queue.poll();
-            return Mono.just(ClientResponse.create(HttpStatus.OK)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                .body(body).build());
-        };
-        return new CeremaDv3fValuationProvider(WebClient.builder().exchangeFunction(exchange).build());
+        return providerReturning(WebClientStubs.sequence(bodies));
     }
 
     private static ValuationInput house(String insee, String area) {
@@ -213,10 +197,7 @@ class CeremaDv3fValuationProviderTest {
         // valuation either way, but it must be able to tell "the source is down" from "this
         // commune has no sales" -- swallowing the difference once surfaced a 256 KB buffer
         // limit to users as "no comparable transactions".
-        CeremaDv3fValuationProvider provider = providerReturning(
-            Mono.just(ClientResponse.create(HttpStatus.SERVICE_UNAVAILABLE)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                .body("{}").build()));
+        CeremaDv3fValuationProvider provider = providerReturning(WebClientStubs.returning(HttpStatus.SERVICE_UNAVAILABLE, "{}"));
 
         assertThatThrownBy(() -> provider.estimate(house("33063", "100")))
             .isInstanceOf(ValuationProviderException.class);
@@ -224,7 +205,7 @@ class CeremaDv3fValuationProviderTest {
 
     @Test
     void estimate_timeout_reportsAProviderFailure() {
-        CeremaDv3fValuationProvider provider = providerReturning(Mono.error(new TimeoutException("slow")));
+        CeremaDv3fValuationProvider provider = providerReturning(WebClientStubs.failing(new TimeoutException("slow")));
 
         assertThatThrownBy(() -> provider.estimate(house("33063", "100")))
             .isInstanceOf(ValuationProviderException.class);
