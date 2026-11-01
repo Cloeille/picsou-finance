@@ -121,6 +121,52 @@ class PendingStoreTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await task
 
+    async def test_disposal_failure_keeps_unvisited_states_for_later_cleanup(self):
+        for operation in ("expire", "close_all"):
+            with self.subTest(operation=operation):
+                async def dispose(state):
+                    if state["resource"] is first:
+                        raise RuntimeError("cleanup failed")
+                    await _dispose(state)
+
+                store = PendingStore(dispose=dispose, log=logging.getLogger("test"))
+                first, second = FakeResource(), FakeResource()
+                for pid, resource in (("first", first), ("second", second)):
+                    await store.put(pid, {"created_at": 0, "resource": resource})
+                with self.assertRaisesRegex(RuntimeError, "cleanup failed"):
+                    await getattr(store, operation)()
+                self.assertIn("second", store)
+                self.assertEqual(second.closed, 0)
+                await store.close_all()
+                self.assertEqual(second.closed, 1)
+                self.assertEqual(len(store), 0)
+
+    async def test_cancelled_disposal_keeps_unvisited_states_for_shutdown(self):
+        for operation in ("expire", "close_all"):
+            with self.subTest(operation=operation):
+                started = asyncio.Event()
+
+                async def dispose(state):
+                    if state["resource"] is first:
+                        started.set()
+                        await asyncio.Event().wait()
+                    await _dispose(state)
+
+                store = PendingStore(dispose=dispose, log=logging.getLogger("test"))
+                first, second = FakeResource(), FakeResource()
+                for pid, resource in (("first", first), ("second", second)):
+                    await store.put(pid, {"created_at": 0, "resource": resource})
+                task = asyncio.create_task(getattr(store, operation)())
+                await asyncio.wait_for(started.wait(), timeout=1)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+                self.assertIn("second", store)
+                self.assertEqual(second.closed, 0)
+                await store.close_all()
+                self.assertEqual(second.closed, 1)
+                self.assertEqual(len(store), 0)
+
 
 class AppOptionsTest(unittest.TestCase):
     def setUp(self):

@@ -299,11 +299,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Sidecars share their plumbing.** The bank sidecars' key check, health endpoint, request
   log, log sanitising and pending-login store now live once, in `services/base/picsou_sidecar`,
-  and CIC and Crédit Mutuel share one login client. Behaviour is unchanged, with three
-  alignments: AMEX answers a wrong sidecar key with `{"detail": "UNAUTHORIZED"}` like the
-  others, every sidecar escapes control characters in its whole log line, and Crédit Mutuel
-  withdraws the phone confirmation when the bank answers an unknown state, as CIC did. Code
-  no production path used goes (AMEX self-check, Fortuneo legacy parsers, unused helpers).
+  and CIC and Crédit Mutuel share one login client. AMEX answers a wrong sidecar key with
+  `{"detail": "UNAUTHORIZED"}` like the others and closes the browser for a retryable code
+  when a full pending pool prevents it from keeping the attempt. Sofidy now uses the shared
+  request log, which omits the method and response status. Every sidecar trims its configured
+  API key before comparing it, escapes control characters in its whole log line and keeps its
+  pending-login sweeper running after a failed sweep. Crédit Mutuel withdraws the phone
+  confirmation when the bank answers an unknown state, as CIC did. Code no production path
+  used goes (AMEX self-check, Fortuneo legacy parsers, unused helpers).
 
 - **Pull requests go green sooner.** CI runs only the jobs a pull request's changed paths can
   affect, a new push cancels the stale run, and the demo Playwright suite runs once instead of

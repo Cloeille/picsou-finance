@@ -61,16 +61,16 @@ class PendingStore:
         cutoff = time.time() - self.ttl_seconds
         async with self._lock:
             expired = [pid for pid, state in self._states.items() if state["created_at"] < cutoff]
-            states = [self._states.pop(pid) for pid in expired]
-        for state in states:
-            await self._dispose(state)
+        # Leave unvisited states in the store if disposal fails or is cancelled;
+        # shutdown (or the next sweep) must still be able to release them.
+        for pid in expired:
+            await self.close(pid)
 
     async def close_all(self) -> None:
         async with self._lock:
-            states = list(self._states.values())
-            self._states.clear()
-        for state in states:
-            await self._dispose(state)
+            process_ids = list(self._states)
+        for pid in process_ids:
+            await self.close(pid)
 
     async def sweeper(self) -> None:
         while True:
