@@ -30,6 +30,19 @@ updates:
       - /services/*
     schedule:
       interval: weekly
+    # The JDK major is pinned on purpose: the runtime image, the Maven build
+    # image, backend/pom.xml (java.version + enforcer range) and the CI JDK
+    # must move together as one migration. A lone Dependabot bump of either
+    # image is never mergeable (it breaks the enforcer or runs untested code),
+    # and non-LTS majors go end-of-life within six months.
+    ignore:
+      # Tag 21-jre-jammy: the JDK major is the major version.
+      - dependency-name: eclipse-temurin
+        update-types: ["version-update:semver-major"]
+      # Tag 3.9-eclipse-temurin-21-alpine parses as 3.9.21, so a JDK change
+      # looks like a patch or minor bump and update-types cannot isolate it.
+      # The tag floats on Maven 3.9.x patches; move it by hand with the JDK.
+      - dependency-name: maven
   # Compose image references are a separate ecosystem from Dockerfiles.
   - package-ecosystem: docker-compose
     directories:
