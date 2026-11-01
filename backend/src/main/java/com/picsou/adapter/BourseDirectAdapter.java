@@ -5,19 +5,20 @@ import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.sidecar.SidecarClient;
 import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
+import com.picsou.model.AccountType;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.BourseDirectPort;
 import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
 @Component
-public class BourseDirectAdapter implements BourseDirectPort {
+public class BourseDirectAdapter {
     private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
     private static final Duration DEFAULT_PORTFOLIO_TIMEOUT = Duration.ofSeconds(120);
 
@@ -53,14 +54,12 @@ public class BourseDirectAdapter implements BourseDirectPort {
         this.portfolioTimeout = portfolioTimeout;
     }
 
-    @Override
     public SidecarInitiate initiateAuth(String login, String password) {
         return sidecar.post("/initiate", Map.of("login", login, "password", password), SidecarInitiate.class,
             authTimeout, "Could not initiate Bourse Direct authentication",
             SidecarErrorCode.INVALID_CREDENTIALS);
     }
 
-    @Override
     public String completeAuth(String processId, String code) {
         SidecarSession response = sidecar.post("/complete", Map.of("processId", processId, "code", code),
             SidecarSession.class, authTimeout, "Could not complete Bourse Direct authentication",
@@ -68,7 +67,6 @@ public class BourseDirectAdapter implements BourseDirectPort {
         return response.sessionState();
     }
 
-    @Override
     public List<AccountData> fetchAccounts(String sessionState) {
         return sidecar.postForList(
             "/accounts",
@@ -80,4 +78,11 @@ public class BourseDirectAdapter implements BourseDirectPort {
             "Bourse Direct returned no complete portfolio accounts"
         );
     }
+
+    public record Position(String isin, String symbol, String label, BigDecimal quantity,
+                           BigDecimal buyingPriceEur, BigDecimal currentPrice, String quoteCurrency,
+                           BigDecimal currentValueEur, BigDecimal pnlEur) {}
+
+    public record AccountData(String externalId, String name, AccountType type, BigDecimal balanceEur,
+                              BigDecimal cashBalance, List<Position> positions, boolean snapshotComplete) {}
 }

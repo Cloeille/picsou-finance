@@ -14,7 +14,7 @@ import com.picsou.model.CmesSession;
 import com.picsou.model.CmesSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.CmesPort;
+import com.picsou.adapter.CmesAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -78,7 +78,7 @@ public class CmesSyncService {
     private static final long PENDING_CREDENTIALS_SECONDS = 600;
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    private final CmesPort port;
+    private final CmesAdapter port;
     private final CmesSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
@@ -97,7 +97,7 @@ public class CmesSyncService {
     private final Object sessionWriteLock = new Object();
 
     public CmesSyncService(
-        CmesPort port,
+        CmesAdapter port,
         CmesSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,
@@ -284,7 +284,7 @@ public class CmesSyncService {
             return;
         }
         try {
-            List<CmesPort.PlanData> fetched;
+            List<CmesAdapter.PlanData> fetched;
             try {
                 fetched = port.fetchPlans(job.plainState());
             } catch (SyncException ex) {
@@ -313,7 +313,7 @@ public class CmesSyncService {
      * for its remembered-device cookie; a login that still asks for a second
      * factor cannot be finished unattended and reads as an expired session.
      */
-    private List<CmesPort.PlanData> reauthenticateAndFetch(SyncJob job) {
+    private List<CmesAdapter.PlanData> reauthenticateAndFetch(SyncJob job) {
         CmesSession session = requireTransactionResult(txTemplate.execute(
             status -> sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
         )).orElse(null);
@@ -399,14 +399,14 @@ public class CmesSyncService {
         }));
     }
 
-    private List<PreparedPlan> preparePlans(List<CmesPort.PlanData> fetched) {
+    private List<PreparedPlan> preparePlans(List<CmesAdapter.PlanData> fetched) {
         if (fetched == null || fetched.isEmpty()) {
             throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "CMES returned no complete plan", null);
         }
 
         Set<String> externalIds = new HashSet<>();
         List<PreparedPlan> prepared = new ArrayList<>();
-        for (CmesPort.PlanData plan : fetched) {
+        for (CmesAdapter.PlanData plan : fetched) {
             if (plan == null || !plan.snapshotComplete()) {
                 throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "CMES returned an incomplete plan", null);
             }
@@ -443,9 +443,9 @@ public class CmesSyncService {
         return List.copyOf(prepared);
     }
 
-    private List<PreparedPosition> preparePositions(List<CmesPort.Position> rawPositions) {
+    private List<PreparedPosition> preparePositions(List<CmesAdapter.Position> rawPositions) {
         Map<String, PreparedPosition> positions = new LinkedHashMap<>();
-        for (CmesPort.Position position : rawPositions) {
+        for (CmesAdapter.Position position : rawPositions) {
             if (position == null || position.quantity() == null || position.valueEur() == null) {
                 throw error(SidecarErrorCode.INVALID_DATA, "CMES returned an incomplete position", null);
             }
@@ -472,7 +472,7 @@ public class CmesSyncService {
      * unrealized gain, so the cost basis is what is left once the gain is taken
      * out. Without a gain there is nothing to derive it from.
      */
-    private BigDecimal averageBuyIn(CmesPort.Position position) {
+    private BigDecimal averageBuyIn(CmesAdapter.Position position) {
         if (position.pnlEur() == null || position.quantity().signum() == 0) {
             return null;
         }
@@ -500,7 +500,7 @@ public class CmesSyncService {
         );
     }
 
-    private BigDecimal investedAmount(CmesPort.PlanData plan, List<PreparedPosition> positions) {
+    private BigDecimal investedAmount(CmesAdapter.PlanData plan, List<PreparedPosition> positions) {
         BigDecimal invested = BigDecimal.ZERO;
         for (PreparedPosition position : positions) {
             if (position.pnlEur() == null) {
@@ -829,7 +829,7 @@ public class CmesSyncService {
     }
 
     /** "Plan d'épargne groupe — ACME" reads better than the plan label alone. */
-    private String accountName(CmesPort.PlanData plan) {
+    private String accountName(CmesAdapter.PlanData plan) {
         String label = clean(plan.name());
         String kind = clean(plan.planKind());
         String base = label != null ? label : kind;
@@ -861,7 +861,7 @@ public class CmesSyncService {
      * the fund's own code prefixed to keep it apart from a real symbol, and the
      * label as the last resort, behind the collision guard in {@link #mergePositions}.
      */
-    private String resolveTicker(CmesPort.Position position) {
+    private String resolveTicker(CmesAdapter.Position position) {
         String isin = clean(position.isin());
         if (isin != null) {
             isin = isin.toUpperCase(Locale.ROOT);

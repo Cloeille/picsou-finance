@@ -17,7 +17,7 @@ import com.picsou.model.FortuneoSyncStatus;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.FortuneoPort;
+import com.picsou.adapter.FortuneoAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -69,7 +69,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("unchecked")
 class FortuneoSyncServiceTest {
-    @Mock FortuneoPort port;
+    @Mock FortuneoAdapter port;
     @Mock FortuneoSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
@@ -233,7 +233,7 @@ class FortuneoSyncServiceTest {
         FamilyMember member = member();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
-        FortuneoPort.Position peaPosition = position(
+        FortuneoAdapter.Position peaPosition = position(
             null, "PEA_ONE", BigDecimal.ONE, new BigDecimal("100"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR"
         );
@@ -259,19 +259,19 @@ class FortuneoSyncServiceTest {
         FamilyMember member = member();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
-        FortuneoPort.Position peaOne = position(
+        FortuneoAdapter.Position peaOne = position(
             null, "PEA_ONE", BigDecimal.ONE, new BigDecimal("100"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR"
         );
-        FortuneoPort.Position peaTwo = position(
+        FortuneoAdapter.Position peaTwo = position(
             null, "PEA_TWO", new BigDecimal("2"), new BigDecimal("200"),
             new BigDecimal("90"), new BigDecimal("100"), "EUR"
         );
-        FortuneoPort.Position ctoOne = position(
+        FortuneoAdapter.Position ctoOne = position(
             null, "CTO_ONE", BigDecimal.ONE, new BigDecimal("250"),
             new BigDecimal("200"), new BigDecimal("250"), "EUR"
         );
-        FortuneoPort.Position ctoTwo = position(
+        FortuneoAdapter.Position ctoTwo = position(
             null, "CTO_TWO", new BigDecimal("3"), new BigDecimal("150"),
             new BigDecimal("40"), new BigDecimal("50"), "EUR"
         );
@@ -302,10 +302,10 @@ class FortuneoSyncServiceTest {
     void partialMixedPortfolioIsRejectedBeforeAnyPreviousDataIsReplaced() {
         FortuneoSession session = activeSession(member());
         arrangeQueuedSession(session);
-        FortuneoPort.AccountData validChecking = cashAccount(
+        FortuneoAdapter.AccountData validChecking = cashAccount(
             "checking-1", AccountType.CHECKING, new BigDecimal("700"), List.of()
         );
-        FortuneoPort.AccountData incompletePea = new FortuneoPort.AccountData(
+        FortuneoAdapter.AccountData incompletePea = new FortuneoAdapter.AccountData(
             "pea-1", "PEA", AccountType.PEA,
             new BigDecimal("350"), new BigDecimal("50"), List.of(), List.of(), false
         );
@@ -324,11 +324,11 @@ class FortuneoSyncServiceTest {
     void cashAccountWithPositions_rejectsTheWholeSnapshot() {
         FortuneoSession session = activeSession(member());
         arrangeQueuedSession(session);
-        FortuneoPort.Position stray = position(
+        FortuneoAdapter.Position stray = position(
             "FR0000000001", "ACME", BigDecimal.ONE, new BigDecimal("100"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR"
         );
-        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new FortuneoPort.AccountData(
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new FortuneoAdapter.AccountData(
             "cc-1", "Compte Courant", AccountType.CHECKING,
             new BigDecimal("500"), new BigDecimal("500"), List.of(stray), List.of(), true
         )));
@@ -344,7 +344,7 @@ class FortuneoSyncServiceTest {
     void cashAccountBalanceMismatch_rejectsTheWholeSnapshot() {
         FortuneoSession session = activeSession(member());
         arrangeQueuedSession(session);
-        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new FortuneoPort.AccountData(
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new FortuneoAdapter.AccountData(
             "cc-1", "Compte Courant", AccountType.CHECKING,
             new BigDecimal("500"), new BigDecimal("400"), List.of(), List.of(), true
         )));
@@ -361,7 +361,7 @@ class FortuneoSyncServiceTest {
         FamilyMember member = member();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
-        FortuneoPort.Transaction incoming = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction incoming = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Virement recu", new BigDecimal("100"), "Virement", null, null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -390,7 +390,7 @@ class FortuneoSyncServiceTest {
         FamilyMember member = member();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
-        FortuneoPort.Transaction dividend = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction dividend = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"),
             null, null, null, null, null, null, null, null
         );
@@ -435,7 +435,7 @@ class FortuneoSyncServiceTest {
 
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction again = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction again = new FortuneoAdapter.Transaction(
             paid, "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, null, null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -473,7 +473,7 @@ class FortuneoSyncServiceTest {
             .description("DIVIDENDE TOTALENERGIES").amount(new BigDecimal("59.50"))
             .txType(TransactionType.DIVIDEND).ticker("TTE.PA").name("TotalEnergies")
             .categoryRef(revenusCapital).build();
-        FortuneoPort.Transaction again = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction again = new FortuneoAdapter.Transaction(
             stored.getDate(), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -512,7 +512,7 @@ class FortuneoSyncServiceTest {
 
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction identified = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction identified = new FortuneoAdapter.Transaction(
             paid, "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -549,7 +549,7 @@ class FortuneoSyncServiceTest {
             .id(99L).externalId("tx-1").date(LocalDate.now().minusDays(50))
             .description("DIVIDENDE TOTALENERGIES").amount(new BigDecimal("59.50"))
             .txType(TransactionType.DIVIDEND).ticker("TTE.PA").categoryRef(revenusCapital).build();
-        FortuneoPort.Transaction retyped = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction retyped = new FortuneoAdapter.Transaction(
             stored.getDate(), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, "SELL", null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -578,7 +578,7 @@ class FortuneoSyncServiceTest {
             .id(99L).externalId("tx-1").date(LocalDate.now().minusDays(50))
             .description("DIVIDENDE TOTALENERGIES").amount(new BigDecimal("59.50"))
             .txType(TransactionType.DIVIDEND).ticker("TTE.PA").categoryRef(revenusCapital).categoryManual(true).build();
-        FortuneoPort.Transaction retyped = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction retyped = new FortuneoAdapter.Transaction(
             stored.getDate(), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, "SELL", null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -606,7 +606,7 @@ class FortuneoSyncServiceTest {
             .id(99L).externalId("tx-1").date(LocalDate.now().minusDays(50))
             .description("DIVIDENDE TOTALENERGIES").amount(new BigDecimal("59.50"))
             .txType(TransactionType.DIVIDEND).ticker("TTE.PA").build();
-        FortuneoPort.Transaction retyped = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction retyped = new FortuneoAdapter.Transaction(
             stored.getDate(), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, "SELL", null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -661,10 +661,10 @@ class FortuneoSyncServiceTest {
         FamilyMember member = member();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
-        FortuneoPort.Transaction recent = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction recent = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Dans la fenetre", new BigDecimal("100"), "Virement", null, null, null, null, null, null, null
         );
-        FortuneoPort.Transaction old = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction old = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(200), "Hors fenetre", new BigDecimal("42"), "Virement", null, null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -686,10 +686,10 @@ class FortuneoSyncServiceTest {
     void identifiedTransactions_importTheWholeHistoryWithoutAnyWindow() {
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction recent = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction recent = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Recent", new BigDecimal("100"), "Virement", "tx-recent", null, null, null, null, null, null
         );
-        FortuneoPort.Transaction ancient = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction ancient = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(900), "Ancien", new BigDecimal("42"), "Virement", "tx-ancient", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -713,7 +713,7 @@ class FortuneoSyncServiceTest {
     void structuredOperationType_isPersistedOnTheTransaction() {
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction coupon = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction coupon = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Coupon", new BigDecimal("12"), "Epargne", "tx-1", "COUPON", null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -734,7 +734,7 @@ class FortuneoSyncServiceTest {
     void blankOperationType_staysNullRatherThanBecomingAPlaceholder() {
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction untyped = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction untyped = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Sans type", new BigDecimal("12"), null, "tx-1", "  ", null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -758,7 +758,7 @@ class FortuneoSyncServiceTest {
         // entry that settled under a new id -- and keeping it would strand a duplicate forever.
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction reported = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction reported = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(30), "Reporte", new BigDecimal("100"), null, "tx-1", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -785,7 +785,7 @@ class FortuneoSyncServiceTest {
     void identifiedTransactions_areUpdatedInPlaceRatherThanDuplicated() {
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction updated = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction updated = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(2), "Libelle corrige", new BigDecimal("120"), "Virement", "tx-1", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -819,7 +819,7 @@ class FortuneoSyncServiceTest {
         // only the days it actually covers. Older history it never mentioned stays untouched.
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction reported = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction reported = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Recent", new BigDecimal("100"), "Virement", "tx-new", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -851,10 +851,10 @@ class FortuneoSyncServiceTest {
     void identifiedTransactions_repeatedInOneResponseCollapseToASingleRow() {
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction first = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction first = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Premiere copie", new BigDecimal("100"), null, "tx-1", null, null, null, null, null, null
         );
-        FortuneoPort.Transaction duplicate = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction duplicate = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Seconde copie", new BigDecimal("100"), null, "tx-1", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -893,10 +893,10 @@ class FortuneoSyncServiceTest {
         // no way to tell a re-sent row from a new one, so the safe rolling window is kept.
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction identified = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction identified = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Avec id", new BigDecimal("100"), null, "tx-1", null, null, null, null, null, null
         );
-        FortuneoPort.Transaction anonymous = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction anonymous = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(2), "Sans id", new BigDecimal("50"), null, null, null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -915,7 +915,7 @@ class FortuneoSyncServiceTest {
     void blankTransactionId_isTreatedAsAbsent() {
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction blank = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction blank = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Id vide", new BigDecimal("100"), null, "   ", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -934,7 +934,7 @@ class FortuneoSyncServiceTest {
     void securitiesLedgerFields_arePersistedOnTheTransaction() {
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction dividend = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction dividend = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(30), "ACME", new BigDecimal("42.10"), null,
             "ft_h_abc", "Encaissement coupons interet/dividende", "DIVIDEND",
             new BigDecimal("100"), new BigDecimal("0.4210"), new BigDecimal("0.00"), null
@@ -963,7 +963,7 @@ class FortuneoSyncServiceTest {
         // recognises. The row still belongs in the ledger; it simply joins no typed aggregate.
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction untyped = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction untyped = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(30), "ACME", new BigDecimal("3.00"), null,
             "ft_h_def", "Indemnisation", null, null, null, null, null
         );
@@ -989,7 +989,7 @@ class FortuneoSyncServiceTest {
         // Dropping it silently would hide that while quietly changing what the ledger reports.
         FortuneoSession session = activeSession(member());
         arrangeQueuedSession(session);
-        FortuneoPort.Transaction bogus = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction bogus = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "ACME", BigDecimal.ONE, null,
             "ft_h_ghi", "Something new", "TRANSFER", null, null, null, null
         );
@@ -1012,7 +1012,7 @@ class FortuneoSyncServiceTest {
         arrangeQueuedSession(activeSession(member));
         when(isinConverter.resolve("XX0000000001"))
             .thenReturn(new OpenFigiIsinConverter.TickerResult("SYN.PA", "SYNTHETIC FUND"));
-        FortuneoPort.Transaction trade = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction trade = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(30), "SYNTHETIC FUND", new BigDecimal("-402.50"), null,
             "ft_h_abc", "Achat Comptant", "BUY",
             new BigDecimal("10"), new BigDecimal("40"), new BigDecimal("2.50"), "XX0000000001"
@@ -1041,7 +1041,7 @@ class FortuneoSyncServiceTest {
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
         when(isinConverter.resolve("FR0000000001")).thenReturn(null);
-        FortuneoPort.Transaction trade = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction trade = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(30), "OBSCURE", BigDecimal.ONE, null,
             "ft_h_def", "Achat Comptant", "BUY", BigDecimal.ONE, BigDecimal.ONE, null,
             "FR0000000001"
@@ -1066,7 +1066,7 @@ class FortuneoSyncServiceTest {
         // referential does not list. No instrument is better than a guessed one.
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction cashRow = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction cashRow = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(30), "Virement recu", new BigDecimal("100"), null,
             "tx-1", "CAV", null, null, null, null, null
         );
@@ -1091,7 +1091,7 @@ class FortuneoSyncServiceTest {
     void incompleteSnapshot_failsWithoutDeletingExistingHoldings() {
         FortuneoSession session = activeSession(member());
         arrangeQueuedSession(session);
-        FortuneoPort.AccountData incomplete = new FortuneoPort.AccountData(
+        FortuneoAdapter.AccountData incomplete = new FortuneoAdapter.AccountData(
             "pea-123", "PEA", AccountType.PEA,
             new BigDecimal("1250"), new BigDecimal("250"), List.of(), List.of(), false
         );
@@ -1109,11 +1109,11 @@ class FortuneoSyncServiceTest {
     void nativeQuoteWithoutCurrency_rejectsTheWholeSnapshot() {
         FortuneoSession session = activeSession(member());
         arrangeQueuedSession(session);
-        FortuneoPort.Position ambiguous = new FortuneoPort.Position(
+        FortuneoAdapter.Position ambiguous = new FortuneoAdapter.Position(
             null, "ACME", "Acme", BigDecimal.ONE, new BigDecimal("80"),
             new BigDecimal("100"), null, new BigDecimal("100"), new BigDecimal("20")
         );
-        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new FortuneoPort.AccountData(
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new FortuneoAdapter.AccountData(
             "pea-123", "PEA", AccountType.PEA,
             new BigDecimal("100"), BigDecimal.ZERO, List.of(ambiguous), List.of(), true
         )));
@@ -1270,7 +1270,7 @@ class FortuneoSyncServiceTest {
     void reconciliationMismatch_rejectsTheWholeSnapshot() {
         FortuneoSession session = activeSession(member());
         arrangeQueuedSession(session);
-        FortuneoPort.Position position = position(
+        FortuneoAdapter.Position position = position(
             null, "ACME", BigDecimal.ONE, new BigDecimal("1000"),
             new BigDecimal("800"), new BigDecimal("1000"), "EUR"
         );
@@ -1304,7 +1304,7 @@ class FortuneoSyncServiceTest {
     void duplicateExternalAccountId_rejectsTheWholeSnapshot() {
         FortuneoSession session = activeSession(member());
         arrangeQueuedSession(session);
-        FortuneoPort.AccountData account = account(
+        FortuneoAdapter.AccountData account = account(
             "same", AccountType.PEA, BigDecimal.TEN, BigDecimal.TEN, List.of()
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(account, account));
@@ -1386,19 +1386,19 @@ class FortuneoSyncServiceTest {
             .build();
     }
 
-    private FortuneoPort.AccountData completeAccount() {
-        FortuneoPort.Position position = new FortuneoPort.Position(
+    private FortuneoAdapter.AccountData completeAccount() {
+        FortuneoAdapter.Position position = new FortuneoAdapter.Position(
             null, "ACME", "Acme SA", new BigDecimal("10"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR",
             new BigDecimal("1000"), new BigDecimal("200")
         );
-        return new FortuneoPort.AccountData(
+        return new FortuneoAdapter.AccountData(
             "pea-123", "PEA Fortuneo", AccountType.PEA,
             new BigDecimal("1250"), new BigDecimal("250"), List.of(position), List.of(), true
         );
     }
 
-    private FortuneoPort.Position position(
+    private FortuneoAdapter.Position position(
         String isin,
         String symbol,
         BigDecimal quantity,
@@ -1407,7 +1407,7 @@ class FortuneoSyncServiceTest {
         BigDecimal currentPrice,
         String quoteCurrency
     ) {
-        return new FortuneoPort.Position(
+        return new FortuneoAdapter.Position(
             isin,
             symbol,
             symbol == null ? "Unknown" : symbol,
@@ -1420,14 +1420,14 @@ class FortuneoSyncServiceTest {
         );
     }
 
-    private FortuneoPort.AccountData account(
+    private FortuneoAdapter.AccountData account(
         String externalId,
         AccountType type,
         BigDecimal balance,
         BigDecimal cash,
-        List<FortuneoPort.Position> positions
+        List<FortuneoAdapter.Position> positions
     ) {
-        return new FortuneoPort.AccountData(
+        return new FortuneoAdapter.AccountData(
             externalId,
             type == AccountType.PEA ? "PEA" : "CTO",
             type,
@@ -1439,13 +1439,13 @@ class FortuneoSyncServiceTest {
         );
     }
 
-    private FortuneoPort.AccountData cashAccount(
+    private FortuneoAdapter.AccountData cashAccount(
         String externalId,
         AccountType type,
         BigDecimal balance,
-        List<FortuneoPort.Transaction> transactions
+        List<FortuneoAdapter.Transaction> transactions
     ) {
-        return new FortuneoPort.AccountData(
+        return new FortuneoAdapter.AccountData(
             externalId,
             type == AccountType.CHECKING ? "Compte Courant" : "Livret",
             type,

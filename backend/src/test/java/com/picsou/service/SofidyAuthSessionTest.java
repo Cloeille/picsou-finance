@@ -5,7 +5,7 @@ import com.picsou.exception.SyncException;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.SofidySession;
 import com.picsou.port.SidecarInitiate;
-import com.picsou.port.SofidyPort;
+import com.picsou.adapter.SofidyAdapter;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.SofidySessionRepository;
@@ -35,7 +35,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("unchecked")
 class SofidyAuthSessionTest {
-    @Mock SofidyPort port;
+    @Mock SofidyAdapter port;
     @Mock SofidySessionRepository sessions;
     @Mock ScpiPositionRepository positions;
     @Mock ScpiPositionService positionService;

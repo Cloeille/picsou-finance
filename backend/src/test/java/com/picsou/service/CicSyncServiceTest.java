@@ -8,7 +8,7 @@ import com.picsou.model.CicSession;
 import com.picsou.model.CicSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.CicPort;
+import com.picsou.adapter.CicAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CicSessionRepository;
@@ -57,7 +57,7 @@ class CicSyncServiceTest {
     private static final String LIVRET_ID = "cic_1000000012345602";
     private static final String CREDENTIALS_JSON = "{\"login\":\"12345678\",\"password\":\"secret\"}";
 
-    @Mock CicPort port;
+    @Mock CicAdapter port;
     @Mock CicSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock FamilyMemberRepository memberRepository;
@@ -102,8 +102,8 @@ class CicSyncServiceTest {
     @Test
     void queueSync_refusesAnAccountTypeOutsideCurrentAndSavings() {
         arrangeQueuedSession(activeSession(member()));
-        when(port.fetchAccounts("plain-state")).thenReturn(CicPort.AccountListing.withoutCategories(List.of(
-            new CicPort.AccountData("cic_1", "PEA", AccountType.PEA, new BigDecimal("10.00"), true))));
+        when(port.fetchAccounts("plain-state")).thenReturn(CicAdapter.AccountListing.withoutCategories(List.of(
+            new CicAdapter.AccountData("cic_1", "PEA", AccountType.PEA, new BigDecimal("10.00"), true))));
 
         service.queueSync(7L);
 
@@ -120,7 +120,7 @@ class CicSyncServiceTest {
         when(port.fetchAccounts("plain-state")).thenThrow(expired());
         when(port.reauthenticate("12345678", "secret", "plain-state"))
             .thenReturn(new SidecarInitiate(null, false, null, "fresh-state"));
-        when(port.fetchAccounts("fresh-state")).thenReturn(CicPort.AccountListing.withoutCategories(accounts()));
+        when(port.fetchAccounts("fresh-state")).thenReturn(CicAdapter.AccountListing.withoutCategories(accounts()));
 
         service.queueSync(7L);
 
@@ -624,7 +624,7 @@ class CicSyncServiceTest {
     @Test
     void aFetchWithoutAnyAccountOfACategoryKeepsThatCategorysAccounts() {
         // Only the current account came back: the savings table is missing from the page.
-        arrangeCommittableSync(List.of(new CicPort.AccountData(
+        arrangeCommittableSync(List.of(new CicAdapter.AccountData(
             "cic_1000000012345601", "Compte Courant", AccountType.CHECKING, new BigDecimal("1234.56"), true)));
         Account livret = Account.builder()
             .id(12L)
@@ -646,8 +646,8 @@ class CicSyncServiceTest {
     void theLastLivretOfAnEmptySavingsTableIsClosedAtZero() {
         // The sidecar read both tables; the savings one has no row any more.
         arrangeCommittableSession(activeSession(member()));
-        when(port.fetchAccounts("plain-state")).thenReturn(new CicPort.AccountListing(
-            List.of(new CicPort.AccountData(
+        when(port.fetchAccounts("plain-state")).thenReturn(new CicAdapter.AccountListing(
+            List.of(new CicAdapter.AccountData(
                 "cic_1000000012345601", "Compte Courant", AccountType.CHECKING, new BigDecimal("1234.56"), true)),
             java.util.Set.of("CHECKING", "SAVINGS")));
         Account livret = Account.builder()
@@ -670,8 +670,8 @@ class CicSyncServiceTest {
     void aSavingsTableTheSidecarDidNotReadKeepsItsLivrets() {
         // The sidecar says it read only the current-account table.
         arrangeCommittableSession(activeSession(member()));
-        when(port.fetchAccounts("plain-state")).thenReturn(new CicPort.AccountListing(
-            List.of(new CicPort.AccountData(
+        when(port.fetchAccounts("plain-state")).thenReturn(new CicAdapter.AccountListing(
+            List.of(new CicAdapter.AccountData(
                 "cic_1000000012345601", "Compte Courant", AccountType.CHECKING, new BigDecimal("1234.56"), true)),
             java.util.Set.of("CHECKING")));
         Account livret = Account.builder()
@@ -693,10 +693,10 @@ class CicSyncServiceTest {
     @Test
     void anIncompleteAccountInASuccessfulFetchClosesNoAccount() {
         arrangeQueuedSession(activeSession(member()));
-        when(port.fetchAccounts("plain-state")).thenReturn(CicPort.AccountListing.withoutCategories(List.of(
-            new CicPort.AccountData("cic_1000000012345601", "Compte Courant", AccountType.CHECKING,
+        when(port.fetchAccounts("plain-state")).thenReturn(CicAdapter.AccountListing.withoutCategories(List.of(
+            new CicAdapter.AccountData("cic_1000000012345601", "Compte Courant", AccountType.CHECKING,
                 new BigDecimal("1234.56"), true),
-            new CicPort.AccountData(LIVRET_ID, "Livret A", AccountType.LIVRET_A, new BigDecimal("5000.00"), false))));
+            new CicAdapter.AccountData(LIVRET_ID, "Livret A", AccountType.LIVRET_A, new BigDecimal("5000.00"), false))));
 
         service.queueSync(7L);
 
@@ -734,9 +734,9 @@ class CicSyncServiceTest {
         return new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name());
     }
 
-    private void arrangeCommittableSync(List<CicPort.AccountData> accounts) {
+    private void arrangeCommittableSync(List<CicAdapter.AccountData> accounts) {
         arrangeCommittableSession(activeSession(member()));
-        when(port.fetchAccounts("plain-state")).thenReturn(CicPort.AccountListing.withoutCategories(accounts));
+        when(port.fetchAccounts("plain-state")).thenReturn(CicAdapter.AccountListing.withoutCategories(accounts));
     }
 
     private void arrangeCommittableSession(CicSession session) {
@@ -784,11 +784,11 @@ class CicSyncServiceTest {
             .build();
     }
 
-    private List<CicPort.AccountData> accounts() {
+    private List<CicAdapter.AccountData> accounts() {
         return List.of(
-            new CicPort.AccountData("cic_1000000012345601", "Compte Courant", AccountType.CHECKING,
+            new CicAdapter.AccountData("cic_1000000012345601", "Compte Courant", AccountType.CHECKING,
                 new BigDecimal("1234.56"), true),
-            new CicPort.AccountData(LIVRET_ID, "Livret A", AccountType.LIVRET_A, new BigDecimal("5000.00"), true)
+            new CicAdapter.AccountData(LIVRET_ID, "Livret A", AccountType.LIVRET_A, new BigDecimal("5000.00"), true)
         );
     }
 }

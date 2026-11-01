@@ -5,7 +5,7 @@ import com.picsou.exception.SyncException;
 import com.picsou.model.CorumSession;
 import com.picsou.model.CorumSyncStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.CorumPort;
+import com.picsou.adapter.CorumAdapter;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -38,7 +38,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("unchecked")
 class CorumSyncServiceTest {
-    @Mock CorumPort port;
+    @Mock CorumAdapter port;
     @Mock CorumSessionRepository sessionRepository;
     @Mock ScpiPositionRepository positionRepository;
     @Mock ScpiPositionService positionService;
@@ -89,8 +89,8 @@ class CorumSyncServiceTest {
             if (remoteFailure) {
                 throw new SyncException("Expired while fetching", null, "SESSION_EXPIRED");
             }
-            return new CorumPort.Snapshot("contract", "PP", "EUR", new BigDecimal("600"), null,
-                true, List.of(new CorumPort.Holding("FUND", "Test fund", new BigDecimal("2"),
+            return new CorumAdapter.Snapshot("contract", "PP", "EUR", new BigDecimal("600"), null,
+                true, List.of(new CorumAdapter.Holding("FUND", "Test fund", new BigDecimal("2"),
                     new BigDecimal("300"), null, null, null)));
         });
         AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -126,7 +126,7 @@ class CorumSyncServiceTest {
     @org.junit.jupiter.api.Test
     void queueSync_refusesASnapshotWhoseDisplayedValuesMissTheEnvelope() {
         CorumSession session = activeSession();
-        when(port.fetchSnapshot("plain-state")).thenReturn(new CorumPort.Snapshot(
+        when(port.fetchSnapshot("plain-state")).thenReturn(new CorumAdapter.Snapshot(
             "contract", "PP", "EUR", new BigDecimal("600.00"), null, true,
             List.of(holding("US", "100.00", "150"))
         ));
@@ -141,7 +141,7 @@ class CorumSyncServiceTest {
     @org.junit.jupiter.api.Test
     void queueSync_acceptsDisplayedTotalEvenWhenWithdrawalValueIsLower() {
         CorumSession session = activeSession();
-        when(port.fetchSnapshot("plain-state")).thenReturn(new CorumPort.Snapshot(
+        when(port.fetchSnapshot("plain-state")).thenReturn(new CorumAdapter.Snapshot(
             "contract", "PP", "EUR", new BigDecimal("340.00"), null, true,
             List.of(holding("US", "340.00", "150"))
         ));
@@ -167,7 +167,7 @@ class CorumSyncServiceTest {
     @org.junit.jupiter.params.provider.ValueSource(strings = {"USD", "eur", ""})
     void queueSync_refusesASnapshotNotInEuros(String currency) {
         CorumSession session = activeSession();
-        when(port.fetchSnapshot("plain-state")).thenReturn(new CorumPort.Snapshot(
+        when(port.fetchSnapshot("plain-state")).thenReturn(new CorumAdapter.Snapshot(
             "contract", "PP", currency, new BigDecimal("340.00"), null, true,
             List.of(holding("US", "340.00", "150"))
         ));
@@ -190,8 +190,8 @@ class CorumSyncServiceTest {
         return session;
     }
 
-    private static CorumPort.Holding holding(String code, String displayed, String withdrawal) {
-        return new CorumPort.Holding(
+    private static CorumAdapter.Holding holding(String code, String displayed, String withdrawal) {
+        return new CorumAdapter.Holding(
             code, "CORUM " + code, new BigDecimal("2"),
             new BigDecimal(withdrawal), new BigDecimal("170"),
             new BigDecimal(displayed), LocalDate.of(2026, 9, 26)

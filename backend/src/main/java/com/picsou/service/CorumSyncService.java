@@ -10,7 +10,7 @@ import com.picsou.model.FamilyMember;
 import com.picsou.model.ScpiFundOutcome;
 import com.picsou.model.ScpiProvider;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.CorumPort;
+import com.picsou.adapter.CorumAdapter;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import org.slf4j.Logger;
@@ -54,7 +54,7 @@ public class CorumSyncService {
     private static final Logger log = LoggerFactory.getLogger(CorumSyncService.class);
     private static final BigDecimal MONEY_TOLERANCE = new BigDecimal("0.01");
 
-    private final CorumPort port;
+    private final CorumAdapter port;
     private final CorumSessionRepository sessionRepository;
     private final FamilyMemberRepository memberRepository;
     private final CryptoEncryption encryption;
@@ -63,7 +63,7 @@ public class CorumSyncService {
     private final ScpiFundReconciler fundReconciler;
 
     public CorumSyncService(
-        CorumPort port,
+        CorumAdapter port,
         CorumSessionRepository sessionRepository,
         FamilyMemberRepository memberRepository,
         CryptoEncryption encryption,
@@ -173,7 +173,7 @@ public class CorumSyncService {
             return;
         }
         try {
-            CorumPort.Snapshot snapshot = port.fetchSnapshot(job.plainState());
+            CorumAdapter.Snapshot snapshot = port.fetchSnapshot(job.plainState());
             commitSnapshot(job, snapshot);
         } catch (SyncException ex) {
             SidecarErrorCode code = codeOf(ex);
@@ -196,7 +196,7 @@ public class CorumSyncService {
      * price is missing still updates the share count but leaves the balance alone.
      */
     private Map<String, ScpiFundOutcome> applySnapshot(
-        Long memberId, CorumPort.Snapshot snapshot, Instant syncedAt
+        Long memberId, CorumAdapter.Snapshot snapshot, Instant syncedAt
     ) {
         if (snapshot == null || !snapshot.snapshotComplete()) {
             throw error(
@@ -214,7 +214,7 @@ public class CorumSyncService {
         }
 
         Set<String> seenFunds = new HashSet<>();
-        for (CorumPort.Holding holding : snapshot.holdings()) {
+        for (CorumAdapter.Holding holding : snapshot.holdings()) {
             if (holding == null || holding.fundCode() == null || holding.quantity() == null) {
                 throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned an incomplete fund", null);
             }
@@ -256,14 +256,14 @@ public class CorumSyncService {
      * two, and comparing the withdrawal value to the contract would refuse
      * every real portfolio.
      */
-    private void checkDeclaredTotal(CorumPort.Snapshot snapshot) {
+    private void checkDeclaredTotal(CorumAdapter.Snapshot snapshot) {
         BigDecimal declared = snapshot.totalValuationEur();
         if (declared == null || declared.signum() < 0) {
             throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "CORUM returned no valid portfolio total", null);
         }
         BigDecimal computed = BigDecimal.ZERO;
-        for (CorumPort.Holding holding : snapshot.holdings()) {
+        for (CorumAdapter.Holding holding : snapshot.holdings()) {
             if (holding.displayedValueEur() == null) {
                 throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                     "CORUM returned a fund without a displayed value", null);
@@ -304,7 +304,7 @@ public class CorumSyncService {
         }));
     }
 
-    private void commitSnapshot(SyncJob job, CorumPort.Snapshot snapshot) {
+    private void commitSnapshot(SyncJob job, CorumAdapter.Snapshot snapshot) {
         txTemplate.executeWithoutResult(status -> {
             lockMember(job.memberId());
             Optional<CorumSession> current = sessionRepository

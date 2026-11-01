@@ -7,7 +7,7 @@ import com.picsou.model.AmexSyncStatus;
 import com.picsou.model.Category;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
-import com.picsou.port.AmexPort;
+import com.picsou.adapter.AmexAdapter;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.AmexSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -46,7 +46,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("unchecked")
 class AmexSyncServiceTest {
-    @Mock AmexPort port;
+    @Mock AmexAdapter port;
     @Mock AmexSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock FamilyMemberRepository memberRepository;
@@ -124,7 +124,7 @@ class AmexSyncServiceTest {
 
     @Test
     void firstSync_savesTransactionsAlongsideTheAccount() {
-        AmexPort.Transaction charge = charge(1, "Coffee shop", "-4.50");
+        AmexAdapter.Transaction charge = charge(1, "Coffee shop", "-4.50");
 
         Reconciliation result = routineSync(List.of(), charge);
 
@@ -138,7 +138,7 @@ class AmexSyncServiceTest {
 
     @Test
     void resync_updatesTheStoredRowInsteadOfDuplicatingIt() {
-        AmexPort.Transaction charge = charge(1, "Coffee shop", "-4.50");
+        AmexAdapter.Transaction charge = charge(1, "Coffee shop", "-4.50");
         List<Transaction> stored = routineSync(List.of(), charge).upserts();
 
         Reconciliation second = routineSync(stored, charge);
@@ -152,14 +152,14 @@ class AmexSyncServiceTest {
         // 150 charges over the 90-day window, newest first like the sidecar. A routine sync
         // only gets the latest 100; the 50 older ones -- some sharing the page's oldest day --
         // must survive it.
-        List<AmexPort.Transaction> all = new ArrayList<>();
+        List<AmexAdapter.Transaction> all = new ArrayList<>();
         for (int i = 0; i < 150; i++) {
             all.add(charge(i * 89 / 149, "Shop " + i, "-" + (i + 1)));
         }
         List<Transaction> stored = historySync(all);
         assertThat(stored).hasSize(150);
 
-        Reconciliation routine = routineSync(stored, all.subList(0, 100).toArray(AmexPort.Transaction[]::new));
+        Reconciliation routine = routineSync(stored, all.subList(0, 100).toArray(AmexAdapter.Transaction[]::new));
 
         assertThat(routine.obsolete()).isEmpty();
         assertThat(routine.upserts()).hasSize(100).allSatisfy(tx -> assertThat(stored).contains(tx));
@@ -167,12 +167,12 @@ class AmexSyncServiceTest {
 
     @Test
     void routineSync_dropsAPendingChargeThatSettledOrVanished() {
-        AmexPort.Transaction older = charge(10, "Bookshop", "-12.00");
-        AmexPort.Transaction grocer = pending(2, "Grocer", "-30.00");
-        AmexPort.Transaction hotelHold = pending(1, "Hotel hold", "-150.00");
+        AmexAdapter.Transaction older = charge(10, "Bookshop", "-12.00");
+        AmexAdapter.Transaction grocer = pending(2, "Grocer", "-30.00");
+        AmexAdapter.Transaction hotelHold = pending(1, "Hotel hold", "-150.00");
         List<Transaction> stored = routineSync(List.of(), older, grocer, hotelHold).upserts();
 
-        AmexPort.Transaction settled = charge(1, "Grocer", "-30.00");
+        AmexAdapter.Transaction settled = charge(1, "Grocer", "-30.00");
         Reconciliation result = routineSync(stored, older, settled);
 
         assertThat(result.obsolete())
@@ -187,8 +187,8 @@ class AmexSyncServiceTest {
 
     @Test
     void routineSync_keepsStoredPendingChargesWhenThePendingFeedFailed() {
-        AmexPort.Transaction older = charge(10, "Bookshop", "-12.00");
-        AmexPort.Transaction grocer = pending(1, "Grocer", "-30.00");
+        AmexAdapter.Transaction older = charge(10, "Bookshop", "-12.00");
+        AmexAdapter.Transaction grocer = pending(1, "Grocer", "-30.00");
         List<Transaction> stored = routineSync(List.of(), older, grocer).upserts();
 
         Reconciliation result = routineSync(stored, false, older);
@@ -201,9 +201,9 @@ class AmexSyncServiceTest {
     void routineSync_keepsAPostedRowThePageNoLongerReturns() {
         // The page is cut on the posting date while rows carry the charge date: a foreign
         // purchase charged 5 days ago but posted after the page's newest rows can fall off it.
-        AmexPort.Transaction recent = charge(1, "Bakery", "-3.20");
-        AmexPort.Transaction foreign = charge(5, "Hotel abroad", "-210.00");
-        AmexPort.Transaction older = charge(10, "Bookshop", "-12.00");
+        AmexAdapter.Transaction recent = charge(1, "Bakery", "-3.20");
+        AmexAdapter.Transaction foreign = charge(5, "Hotel abroad", "-210.00");
+        AmexAdapter.Transaction older = charge(10, "Bookshop", "-12.00");
         List<Transaction> stored = routineSync(List.of(), recent, foreign, older).upserts();
 
         Reconciliation result = routineSync(stored, recent, older);
@@ -214,7 +214,7 @@ class AmexSyncServiceTest {
 
     @Test
     void identicalPurchasesOnTheSameDay_stayTwoRowsAcrossSyncs() {
-        AmexPort.Transaction ticket = charge(1, "Metro ticket", "-2.15");
+        AmexAdapter.Transaction ticket = charge(1, "Metro ticket", "-2.15");
 
         List<Transaction> first = routineSync(List.of(), ticket, ticket).upserts();
         assertThat(first).hasSize(2).extracting(Transaction::getExternalId).doesNotHaveDuplicates();
@@ -226,7 +226,7 @@ class AmexSyncServiceTest {
 
     @Test
     void identicalPurchasesOnTheSameDay_historyImportsBothOnceOnly() {
-        AmexPort.Transaction ticket = charge(1, "Metro ticket", "-2.15");
+        AmexAdapter.Transaction ticket = charge(1, "Metro ticket", "-2.15");
 
         List<Transaction> first = historySync(List.of(ticket, ticket));
         assertThat(first).hasSize(2).extracting(Transaction::getExternalId).doesNotHaveDuplicates();
@@ -236,7 +236,7 @@ class AmexSyncServiceTest {
 
     @Test
     void historyIdsMatchRoutineIds_soARoutineSyncAfterRecoveryDropsNothing() {
-        AmexPort.Transaction ticket = charge(1, "Metro ticket", "-2.15");
+        AmexAdapter.Transaction ticket = charge(1, "Metro ticket", "-2.15");
         List<Transaction> stored = historySync(List.of(ticket, ticket));
 
         Reconciliation routine = routineSync(stored, ticket, ticket);
@@ -353,7 +353,7 @@ class AmexSyncServiceTest {
         Category mine = Category.builder().id(2L).build();
         Transaction pendingRow = routineSync(List.of(), pending(2, "HOTEL*HOLD", "-150.00")).upserts().getFirst();
         categorise(pendingRow, travel);
-        AmexPort.Transaction hotel = charge(1, "Hotel", "-150.00");
+        AmexAdapter.Transaction hotel = charge(1, "Hotel", "-150.00");
         Transaction postedRow = routineSync(List.of(), hotel).upserts().getFirst();
         categorise(postedRow, mine);
 
@@ -375,9 +375,9 @@ class AmexSyncServiceTest {
     private List<String> settlementPick(boolean reversed) {
         Transaction pendingRow = routineSync(List.of(), pending(3, "SHOP*PENDING", "-30.00")).upserts().getFirst();
         categorise(pendingRow, Category.builder().id(1L).build());
-        AmexPort.Transaction shopA = charge(1, "Shop A", "-30.00");
-        AmexPort.Transaction shopB = charge(5, "Shop B", "-30.00");
-        AmexPort.Transaction farther = charge(0, "Shop C", "-30.00");
+        AmexAdapter.Transaction shopA = charge(1, "Shop A", "-30.00");
+        AmexAdapter.Transaction shopB = charge(5, "Shop B", "-30.00");
+        AmexAdapter.Transaction farther = charge(0, "Shop C", "-30.00");
         List<Transaction> posted = new ArrayList<>(routineSync(List.of(), shopA, shopB, farther).upserts());
         if (reversed) java.util.Collections.reverse(posted);
         List<Transaction> stored = new ArrayList<>(posted);
@@ -395,9 +395,9 @@ class AmexSyncServiceTest {
 
     @Test
     void earlierIdFormat_isReKeyedOnce_soNeitherRoutineSyncNorBackfillDuplicates() {
-        AmexPort.Transaction recent = charge(10, "Bookshop", "-12.00");
-        AmexPort.Transaction older = charge(40, "Garage", "-80.00");
-        AmexPort.Transaction ancient = charge(200, "Old store", "-7.00");
+        AmexAdapter.Transaction recent = charge(10, "Bookshop", "-12.00");
+        AmexAdapter.Transaction older = charge(40, "Garage", "-80.00");
+        AmexAdapter.Transaction ancient = charge(200, "Old store", "-7.00");
         Transaction bookshop = legacyRow(1L, recent);
         Transaction garage = legacyRow(2L, older);
         categorise(garage, Category.builder().id(1L).build());
@@ -430,7 +430,7 @@ class AmexSyncServiceTest {
 
     @Test
     void earlierIdFormat_rowAlreadyStoredUnderTheCurrentId_isMergedIntoIt() {
-        AmexPort.Transaction bookshop = charge(10, "Bookshop", "-12.00");
+        AmexAdapter.Transaction bookshop = charge(10, "Bookshop", "-12.00");
         Transaction current = routineSync(List.of(), bookshop).upserts().getFirst();
         Transaction legacy = legacyRow(1L, bookshop);
         categorise(legacy, Category.builder().id(1L).build());
@@ -499,7 +499,7 @@ class AmexSyncServiceTest {
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(stored));
         lenient().when(encryption.encrypt("plain-state")).thenReturn("encrypted");
 
-        AmexPort.Transaction oldCharge = new AmexPort.Transaction(null, "2020-01-02", "Old store", new BigDecimal("-7.00"), "posted");
+        AmexAdapter.Transaction oldCharge = new AmexAdapter.Transaction(null, "2020-01-02", "Old store", new BigDecimal("-7.00"), "posted");
         when(port.fetchTransactionHistory("plain-state")).thenReturn(List.of(accountData("amex_1", oldCharge)));
         arrangeNewAccountPersistence(20L);
         when(transactionRepository.findByAccountIdAndIsManualFalse(20L)).thenReturn(List.of());
@@ -521,7 +521,7 @@ class AmexSyncServiceTest {
         FamilyMember member = member();
         AmexSession session = activeSession(member);
         arrangeQueuedSession(session);
-        AmexPort.Transaction oldCharge = new AmexPort.Transaction(null, "2020-01-02", "Old store", new BigDecimal("-7.00"), "posted");
+        AmexAdapter.Transaction oldCharge = new AmexAdapter.Transaction(null, "2020-01-02", "Old store", new BigDecimal("-7.00"), "posted");
         when(port.fetchTransactionHistory("plain-state")).thenReturn(List.of(accountData("amex_1", oldCharge)));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
         arrangeNewAccountPersistence(20L);
@@ -542,11 +542,11 @@ class AmexSyncServiceTest {
 
     @Test
     void resyncAfterPayment_relabelledPurchasesStayOneRowEachAndBalanceIsStoredAsReported() {
-        AmexPort.Transaction anchor = charge(40, "STATEMENT PERIOD PURCHASE", "-9.00");
-        AmexPort.Transaction payment = charge(20, "PRELEVEMENT AUTOMATIQUE ENREGISTRE-MERCI", "1500.00");
-        AmexPort.Transaction subscription = charge(15, "ANTHROPIC PBC", "-20.00");
-        AmexPort.Transaction tickets = charge(14, "TICKETNET", "-45.00");
-        AmexPort.Transaction coffee = charge(10, "COFFEE SHOP", "-3.50");
+        AmexAdapter.Transaction anchor = charge(40, "STATEMENT PERIOD PURCHASE", "-9.00");
+        AmexAdapter.Transaction payment = charge(20, "PRELEVEMENT AUTOMATIQUE ENREGISTRE-MERCI", "1500.00");
+        AmexAdapter.Transaction subscription = charge(15, "ANTHROPIC PBC", "-20.00");
+        AmexAdapter.Transaction tickets = charge(14, "TICKETNET", "-45.00");
+        AmexAdapter.Transaction coffee = charge(10, "COFFEE SHOP", "-3.50");
         List<Transaction> stored = routineSync(
             List.of(), new BigDecimal("-68.50"), coffee, tickets, subscription, payment, anchor).upserts();
         Category leisure = Category.builder().id(1L).build();
@@ -555,8 +555,8 @@ class AmexSyncServiceTest {
         List<Transaction> firstSyncRows = List.copyOf(stored);
 
         // Second sync: two new purchases, and the two stored ones come back re-described.
-        AmexPort.Transaction groceries = charge(5, "GROCERY STORE", "-12.30");
-        AmexPort.Transaction bakery = charge(3, "BAKERY", "-7.00");
+        AmexAdapter.Transaction groceries = charge(5, "GROCERY STORE", "-12.30");
+        AmexAdapter.Transaction bakery = charge(3, "BAKERY", "-7.00");
         BigDecimal debtSincePayment = new BigDecimal("-87.80");
         Reconciliation second = routineSync(stored, debtSincePayment,
             bakery, groceries, coffee,
@@ -584,8 +584,8 @@ class AmexSyncServiceTest {
 
     @Test
     void relabelledCharge_inAHistoryImportKeepsTheStoredRow() {
-        AmexPort.Transaction before = charge(8, "TICKETNET", "-45.00");
-        AmexPort.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
+        AmexAdapter.Transaction before = charge(8, "TICKETNET", "-45.00");
+        AmexAdapter.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
         List<Transaction> stored = historySync(List.of(anchor, before));
         categorise(stored.getLast(), Category.builder().id(1L).build());
 
@@ -601,7 +601,7 @@ class AmexSyncServiceTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void twoMerchantsRelabelledOnTheSameDayForTheSameAmount_neverSwapCategoryOrSeries(boolean reversed) {
-        AmexPort.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
+        AmexAdapter.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
         List<Transaction> stored = routineSync(List.of(), anchor,
             charge(4, "ANTHROPIC PBC", "-20.00"), charge(4, "TICKETNET", "-20.00")).upserts();
         Transaction anthropic = stored.stream().filter(tx -> tx.getDescription().equals("ANTHROPIC PBC")).findFirst().orElseThrow();
@@ -613,8 +613,8 @@ class AmexSyncServiceTest {
         categorise(ticketnet, Category.builder().id(2L).build());
         ticketnet.setRecurringSeriesId(202L);
 
-        AmexPort.Transaction anthropicRelabelled = charge(4, "ANTHROPIC* CLAUDE SUB   SAN FRANCISCO", "-20.00");
-        AmexPort.Transaction ticketnetRelabelled = charge(4, "TICKETNET SITE INTERNET NANTERRE", "-20.00");
+        AmexAdapter.Transaction anthropicRelabelled = charge(4, "ANTHROPIC* CLAUDE SUB   SAN FRANCISCO", "-20.00");
+        AmexAdapter.Transaction ticketnetRelabelled = charge(4, "TICKETNET SITE INTERNET NANTERRE", "-20.00");
         Reconciliation second = reversed
             ? routineSync(stored, anchor, anthropicRelabelled, ticketnetRelabelled)
             : routineSync(stored, anchor, ticketnetRelabelled, anthropicRelabelled);
@@ -634,8 +634,8 @@ class AmexSyncServiceTest {
         // The derived id numbers repeats of a label in response order, so the "TICKETNET" still
         // reported takes occurrence 0 whichever purchase AMEX relabelled: nothing says which
         // stored row the relabelled charge is.
-        AmexPort.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
-        AmexPort.Transaction ticket = charge(4, "TICKETNET", "-45.00");
+        AmexAdapter.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
+        AmexAdapter.Transaction ticket = charge(4, "TICKETNET", "-45.00");
         List<Transaction> stored = routineSync(List.of(), anchor, ticket, ticket).upserts();
         Transaction first = stored.get(1);
         Transaction second = stored.get(2);
@@ -646,13 +646,13 @@ class AmexSyncServiceTest {
         categorise(second, Category.builder().id(2L).build());
         second.setRecurringSeriesId(202L);
 
-        AmexPort.Transaction relabelled = charge(4, "TICKETNET SITE INTERNET NANTERRE", "-45.00");
-        List<AmexPort.Transaction> response = reversed
+        AmexAdapter.Transaction relabelled = charge(4, "TICKETNET SITE INTERNET NANTERRE", "-45.00");
+        List<AmexAdapter.Transaction> response = reversed
             ? List.of(anchor, ticket, relabelled)
             : List.of(anchor, relabelled, ticket);
         List<Transaction> saved = history
             ? historySync(response, stored)
-            : routineSync(stored, response.toArray(AmexPort.Transaction[]::new)).upserts();
+            : routineSync(stored, response.toArray(AmexAdapter.Transaction[]::new)).upserts();
 
         List<Transaction> rows = new java.util.ArrayList<>(stored);
         saved.stream().filter(tx -> !stored.contains(tx)).forEach(rows::add);
@@ -668,7 +668,7 @@ class AmexSyncServiceTest {
     void relabelOntoAnotherStoredPurchasesLabel_neverSwapsCategoryOrSeries(boolean history, boolean reversed) {
         // The first purchase is relabelled to the second one's stored label, so it reports under
         // the second one's id, and the second one under a label nobody stores.
-        AmexPort.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
+        AmexAdapter.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
         List<Transaction> stored = routineSync(List.of(), anchor,
             charge(4, "TICKETNET", "-45.00"), charge(4, "TICKETNET SITE INTERNET NANTERRE", "-45.00")).upserts();
         Transaction first = stored.get(1);
@@ -680,14 +680,14 @@ class AmexSyncServiceTest {
         categorise(second, Category.builder().id(2L).build());
         second.setRecurringSeriesId(202L);
 
-        AmexPort.Transaction firstRelabelled = charge(4, "TICKETNET SITE INTERNET NANTERRE", "-45.00");
-        AmexPort.Transaction secondRelabelled = charge(4, "TICKETNET EVENEMENT 123 NANTERRE", "-45.00");
-        List<AmexPort.Transaction> response = reversed
+        AmexAdapter.Transaction firstRelabelled = charge(4, "TICKETNET SITE INTERNET NANTERRE", "-45.00");
+        AmexAdapter.Transaction secondRelabelled = charge(4, "TICKETNET EVENEMENT 123 NANTERRE", "-45.00");
+        List<AmexAdapter.Transaction> response = reversed
             ? List.of(anchor, secondRelabelled, firstRelabelled)
             : List.of(anchor, firstRelabelled, secondRelabelled);
         List<Transaction> saved = history
             ? historySync(response, stored)
-            : routineSync(stored, response.toArray(AmexPort.Transaction[]::new)).upserts();
+            : routineSync(stored, response.toArray(AmexAdapter.Transaction[]::new)).upserts();
 
         List<Transaction> rows = new java.util.ArrayList<>(stored);
         saved.stream().filter(tx -> !stored.contains(tx)).forEach(rows::add);
@@ -700,7 +700,7 @@ class AmexSyncServiceTest {
 
     @Test
     void newPurchases_areNotMergedIntoARowThatDiffersByDateOrAmount() {
-        AmexPort.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
+        AmexAdapter.Transaction anchor = charge(30, "COFFEE SHOP", "-3.50");
         List<Transaction> stored = routineSync(List.of(), anchor, charge(4, "TICKETNET", "-45.00")).upserts();
 
         Reconciliation second = routineSync(stored, anchor,
@@ -719,7 +719,7 @@ class AmexSyncServiceTest {
         // The posted feed is one page cut on the posting date while rows carry the charge date: a
         // stored row within the settlement window of the page's oldest charge may simply sit past
         // the cut, so it cannot be told apart from a second genuine purchase.
-        AmexPort.Transaction onPage = charge(12, "COFFEE SHOP", "-3.50");
+        AmexAdapter.Transaction onPage = charge(12, "COFFEE SHOP", "-3.50");
         List<Transaction> stored = routineSync(List.of(), onPage, charge(8, "BAKERY", "-8.00")).upserts();
 
         Reconciliation second = routineSync(stored, onPage, charge(8, "BAKERY AND CAFE", "-8.00"));
@@ -731,15 +731,15 @@ class AmexSyncServiceTest {
 
     private record Reconciliation(List<Transaction> obsolete, List<Transaction> upserts) {}
 
-    private Reconciliation routineSync(List<Transaction> stored, AmexPort.Transaction... response) {
+    private Reconciliation routineSync(List<Transaction> stored, AmexAdapter.Transaction... response) {
         return routineSync(stored, true, response);
     }
 
-    private Reconciliation routineSync(List<Transaction> stored, boolean pendingComplete, AmexPort.Transaction... response) {
+    private Reconciliation routineSync(List<Transaction> stored, boolean pendingComplete, AmexAdapter.Transaction... response) {
         return routineSync(stored, pendingComplete, new BigDecimal("-100.00"), response);
     }
 
-    private Reconciliation routineSync(List<Transaction> stored, BigDecimal balance, AmexPort.Transaction... response) {
+    private Reconciliation routineSync(List<Transaction> stored, BigDecimal balance, AmexAdapter.Transaction... response) {
         return routineSync(stored, true, balance, response);
     }
 
@@ -747,7 +747,7 @@ class AmexSyncServiceTest {
         List<Transaction> stored,
         boolean pendingComplete,
         BigDecimal balance,
-        AmexPort.Transaction... response
+        AmexAdapter.Transaction... response
     ) {
         arrangeSync(stored);
         when(port.fetchAccounts("plain-state"))
@@ -762,14 +762,14 @@ class AmexSyncServiceTest {
         return new Reconciliation(obsolete.getValue(), upserts.getValue());
     }
 
-    private List<Transaction> historySync(List<AmexPort.Transaction> response) {
+    private List<Transaction> historySync(List<AmexAdapter.Transaction> response) {
         return historySync(response, List.of());
     }
 
-    private List<Transaction> historySync(List<AmexPort.Transaction> response, List<Transaction> stored) {
+    private List<Transaction> historySync(List<AmexAdapter.Transaction> response, List<Transaction> stored) {
         arrangeSync(stored);
         when(port.fetchTransactionHistory("plain-state"))
-            .thenReturn(List.of(accountData("amex_1", response.toArray(AmexPort.Transaction[]::new))));
+            .thenReturn(List.of(accountData("amex_1", response.toArray(AmexAdapter.Transaction[]::new))));
 
         service.queueHistoryRecovery(7L);
 
@@ -792,7 +792,7 @@ class AmexSyncServiceTest {
     }
 
     /** A row as the pushed head 1e56f7a4 stored it: base-36 32-bit hash, no pending state. */
-    private static Transaction legacyRow(Long id, AmexPort.Transaction source) {
+    private static Transaction legacyRow(Long id, AmexAdapter.Transaction source) {
         LocalDate date = LocalDate.parse(source.date());
         return Transaction.builder()
             .id(id)
@@ -805,39 +805,39 @@ class AmexSyncServiceTest {
             .build();
     }
 
-    private AmexPort.Transaction charge(int daysAgo, String label, String amount) {
-        return new AmexPort.Transaction(null, LocalDate.now().minusDays(daysAgo).toString(), label, new BigDecimal(amount), "posted");
+    private AmexAdapter.Transaction charge(int daysAgo, String label, String amount) {
+        return new AmexAdapter.Transaction(null, LocalDate.now().minusDays(daysAgo).toString(), label, new BigDecimal(amount), "posted");
     }
 
-    private AmexPort.Transaction pending(int daysAgo, String label, String amount) {
-        return new AmexPort.Transaction(null, LocalDate.now().minusDays(daysAgo).toString(), label, new BigDecimal(amount), "pending");
+    private AmexAdapter.Transaction pending(int daysAgo, String label, String amount) {
+        return new AmexAdapter.Transaction(null, LocalDate.now().minusDays(daysAgo).toString(), label, new BigDecimal(amount), "pending");
     }
 
-    private AmexPort.AccountData accountData(String externalId, AmexPort.Transaction... transactions) {
+    private AmexAdapter.AccountData accountData(String externalId, AmexAdapter.Transaction... transactions) {
         return accountData(externalId, LocalDate.now().plusDays(5).toString(), transactions);
     }
 
-    private AmexPort.AccountData accountData(String externalId, String dueDate, AmexPort.Transaction... transactions) {
+    private AmexAdapter.AccountData accountData(String externalId, String dueDate, AmexAdapter.Transaction... transactions) {
         return accountData(externalId, dueDate, true, transactions);
     }
 
-    private AmexPort.AccountData accountData(
+    private AmexAdapter.AccountData accountData(
         String externalId,
         String dueDate,
         boolean pendingComplete,
-        AmexPort.Transaction... transactions
+        AmexAdapter.Transaction... transactions
     ) {
         return accountData(externalId, dueDate, pendingComplete, new BigDecimal("-100.00"), transactions);
     }
 
-    private AmexPort.AccountData accountData(
+    private AmexAdapter.AccountData accountData(
         String externalId,
         String dueDate,
         boolean pendingComplete,
         BigDecimal balance,
-        AmexPort.Transaction... transactions
+        AmexAdapter.Transaction... transactions
     ) {
-        return new AmexPort.AccountData(
+        return new AmexAdapter.AccountData(
             externalId,
             "American Express",
             com.picsou.model.AccountType.CREDIT_CARD,

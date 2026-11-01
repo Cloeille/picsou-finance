@@ -10,7 +10,7 @@ import com.picsou.model.BoursoSession;
 import com.picsou.model.BoursoSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.BoursoPort;
+import com.picsou.adapter.BoursoAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -54,7 +54,7 @@ class BoursoSyncServiceTest {
     private static final String PEA_ID = "bourso_9651d8edd5975de1b9eff3865505f15f";
     private static final String CHECKING_ID = "bourso_e2f509c466f5294f15abd873dbbf8a62";
 
-    @Mock BoursoPort port;
+    @Mock BoursoAdapter port;
     @Mock BoursoSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
@@ -124,7 +124,7 @@ class BoursoSyncServiceTest {
     @Test
     void queueSync_reusesLegacyBoursoAccountByIbanWithoutNameOrTypeHeuristics() {
         String iban = "FR7630006000011234567890189";
-        BoursoPort.AccountData refreshed = new BoursoPort.AccountData(CHECKING_ID, "New label",
+        BoursoAdapter.AccountData refreshed = new BoursoAdapter.AccountData(CHECKING_ID, "New label",
             AccountType.CHECKING, new BigDecimal("20810.50"), null, List.of(), true, iban, List.of(), null);
         arrangeCommittableSync(refreshed);
         Account legacyBourso = Account.builder().id(88L).member(member()).name("Old label")
@@ -147,7 +147,7 @@ class BoursoSyncServiceTest {
     @Test
     void queueSync_reusesAnEnableBankingBoursoramaAccountByVerifiedIban() {
         String iban = "FR7630006000011234567890189";
-        BoursoPort.AccountData refreshed = new BoursoPort.AccountData(CHECKING_ID, "BoursoBank", AccountType.CHECKING,
+        BoursoAdapter.AccountData refreshed = new BoursoAdapter.AccountData(CHECKING_ID, "BoursoBank", AccountType.CHECKING,
             new BigDecimal("20810.50"), null, List.of(), true, iban, List.of(), null);
         arrangeCommittableSync(refreshed);
         Account enableBanking = Account.builder().id(88L).member(member()).name("Boursorama Banque")
@@ -169,7 +169,7 @@ class BoursoSyncServiceTest {
     @Test
     void queueSync_doesNotMatchBoursoramaAliasByInvalidIban() {
         String invalidIban = "FR7630006000011234567890188";
-        BoursoPort.AccountData refreshed = new BoursoPort.AccountData(CHECKING_ID, "BoursoBank",
+        BoursoAdapter.AccountData refreshed = new BoursoAdapter.AccountData(CHECKING_ID, "BoursoBank",
             AccountType.CHECKING, new BigDecimal("20810.50"), null, List.of(), true, invalidIban, List.of(), null);
         arrangeCommittableSync(refreshed);
 
@@ -184,7 +184,7 @@ class BoursoSyncServiceTest {
     @Test
     void queueSync_doesNotResurrectASoftDeletedBoursoramaAliasByIban() {
         String iban = "FR7630006000011234567890189";
-        BoursoPort.AccountData deleted = new BoursoPort.AccountData(CHECKING_ID, "BoursoBank", AccountType.CHECKING,
+        BoursoAdapter.AccountData deleted = new BoursoAdapter.AccountData(CHECKING_ID, "BoursoBank", AccountType.CHECKING,
             new BigDecimal("20810.50"), null, List.of(), true, iban, List.of(), null);
         FamilyMember familyMember = member();
         arrangeQueuedSession(activeSession(familyMember));
@@ -378,7 +378,7 @@ class BoursoSyncServiceTest {
      */
     @Test
     void queueSync_acceptsTheRoundingOfAssuranceVieRowsThatMergeIntoOneHolding() {
-        BoursoPort.Position[] rows = new BoursoPort.Position[12];
+        BoursoAdapter.Position[] rows = new BoursoAdapter.Position[12];
         // 1 unit at a 1000.005 NAV, shown as 1000.01: 12 rows overshoot by 0.06.
         Arrays.fill(rows, position("IE00BYX2JD69", "1rASUSW", "iShares MSCI World SRI",
             "1", "1000.00", "1000.005", "1000.01", "0.01"));
@@ -440,7 +440,7 @@ class BoursoSyncServiceTest {
         BoursoSession session = activeSession(member());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(
-            new BoursoPort.AccountData(CHECKING_ID, "BoursoBank", AccountType.CHECKING,
+            new BoursoAdapter.AccountData(CHECKING_ID, "BoursoBank", AccountType.CHECKING,
                 new BigDecimal("20810.50"), null, List.of(), false)
         ));
 
@@ -835,7 +835,7 @@ class BoursoSyncServiceTest {
 
     // -- helpers ------------------------------------------------------------
 
-    private void arrangeCommittableSync(BoursoPort.AccountData... accounts) {
+    private void arrangeCommittableSync(BoursoAdapter.AccountData... accounts) {
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(accounts));
@@ -904,26 +904,26 @@ class BoursoSyncServiceTest {
             .build();
     }
 
-    private BoursoPort.AccountData checkingAccount() {
+    private BoursoAdapter.AccountData checkingAccount() {
         return account(CHECKING_ID, "BoursoBank", AccountType.CHECKING, "20810.50", null);
     }
 
-    private BoursoPort.AccountData savingsAccount() {
+    private BoursoAdapter.AccountData savingsAccount() {
         return account("bourso_a8a23172b7e7c91c538831578242112e",
             "LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE", AccountType.SAVINGS, "11010.00", null);
     }
 
-    private BoursoPort.AccountData peaAccount() {
+    private BoursoAdapter.AccountData peaAccount() {
         return account(PEA_ID, "PEA DOE", AccountType.PEA, "143088.89", "3088.89",
             position("IE00B4L5Y983", "1rTCW8", "iShares Core MSCI World",
                 "1000", "128.00", "140.00", "140000.00", "12000.00"));
     }
 
-    private BoursoPort.AccountData account(
+    private BoursoAdapter.AccountData account(
         String externalId, String name, AccountType type,
-        String balanceEur, String cashBalance, BoursoPort.Position... positions
+        String balanceEur, String cashBalance, BoursoAdapter.Position... positions
     ) {
-        return new BoursoPort.AccountData(
+        return new BoursoAdapter.AccountData(
             externalId,
             name,
             type,
@@ -934,10 +934,10 @@ class BoursoSyncServiceTest {
         );
     }
 
-    private BoursoPort.AccountData lifeInsurance(
-        String balanceEur, String cashBalance, Integer valuationLineCount, BoursoPort.Position... positions
+    private BoursoAdapter.AccountData lifeInsurance(
+        String balanceEur, String cashBalance, Integer valuationLineCount, BoursoAdapter.Position... positions
     ) {
-        return new BoursoPort.AccountData(
+        return new BoursoAdapter.AccountData(
             "bourso_0a1b2c3d4e5f60718293a4b5c6d7e8f9",
             "Contrat N° 12345678",
             AccountType.ASSURANCE_VIE,
@@ -951,11 +951,11 @@ class BoursoSyncServiceTest {
         );
     }
 
-    private BoursoPort.Position position(
+    private BoursoAdapter.Position position(
         String isin, String symbol, String label, String quantity,
         String buyingPriceEur, String currentPrice, String currentValueEur, String pnlEur
     ) {
-        return new BoursoPort.Position(
+        return new BoursoAdapter.Position(
             isin,
             symbol,
             label,

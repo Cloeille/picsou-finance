@@ -10,7 +10,7 @@ import com.picsou.model.BourseDirectSession;
 import com.picsou.model.BourseDirectSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.BourseDirectPort;
+import com.picsou.adapter.BourseDirectAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -49,7 +49,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("unchecked")
 class BourseDirectSyncServiceTest {
-    @Mock BourseDirectPort port;
+    @Mock BourseDirectAdapter port;
     @Mock BourseDirectSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
@@ -144,7 +144,7 @@ class BourseDirectSyncServiceTest {
     void incompleteSnapshot_failsWithoutDeletingExistingHoldings() {
         BourseDirectSession session = activeSession(member());
         arrangeQueuedSession(session);
-        BourseDirectPort.AccountData incomplete = new BourseDirectPort.AccountData(
+        BourseDirectAdapter.AccountData incomplete = new BourseDirectAdapter.AccountData(
             "pea-123", "PEA", AccountType.PEA,
             new BigDecimal("1250"), new BigDecimal("250"), List.of(), false
         );
@@ -162,11 +162,11 @@ class BourseDirectSyncServiceTest {
     void nativeQuoteWithoutCurrency_rejectsTheWholeSnapshot() {
         BourseDirectSession session = activeSession(member());
         arrangeQueuedSession(session);
-        BourseDirectPort.Position ambiguous = new BourseDirectPort.Position(
+        BourseDirectAdapter.Position ambiguous = new BourseDirectAdapter.Position(
             null, "ACME", "Acme", BigDecimal.ONE, new BigDecimal("80"),
             new BigDecimal("100"), null, new BigDecimal("100"), new BigDecimal("20")
         );
-        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new BourseDirectPort.AccountData(
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new BourseDirectAdapter.AccountData(
             "pea-123", "PEA", AccountType.PEA,
             new BigDecimal("100"), BigDecimal.ZERO, List.of(ambiguous), true
         )));
@@ -270,11 +270,11 @@ class BourseDirectSyncServiceTest {
         FamilyMember member = member();
         BourseDirectSession session = activeSession(member);
         arrangeQueuedSession(session);
-        BourseDirectPort.Position position = new BourseDirectPort.Position(
+        BourseDirectAdapter.Position position = new BourseDirectAdapter.Position(
             null, "US", "US share", new BigDecimal("2"), new BigDecimal("70"),
             new BigDecimal("100"), "USD", new BigDecimal("180"), new BigDecimal("40")
         );
-        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new BourseDirectPort.AccountData(
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new BourseDirectAdapter.AccountData(
             "cto", "CTO", AccountType.COMPTE_TITRES,
             new BigDecimal("200"), new BigDecimal("20"), List.of(position), true
         )));
@@ -300,7 +300,7 @@ class BourseDirectSyncServiceTest {
     void reconciliationMismatch_rejectsTheWholeSnapshot() {
         BourseDirectSession session = activeSession(member());
         arrangeQueuedSession(session);
-        BourseDirectPort.Position position = position(
+        BourseDirectAdapter.Position position = position(
             null, "ACME", BigDecimal.ONE, new BigDecimal("1000"),
             new BigDecimal("800"), new BigDecimal("1000"), "EUR"
         );
@@ -321,11 +321,11 @@ class BourseDirectSyncServiceTest {
         FamilyMember member = member();
         BourseDirectSession session = activeSession(member);
         arrangeQueuedSession(session);
-        BourseDirectPort.Position first = position(
+        BourseDirectAdapter.Position first = position(
             null, "ACME", new BigDecimal("2"), new BigDecimal("200"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR"
         );
-        BourseDirectPort.Position second = position(
+        BourseDirectAdapter.Position second = position(
             null, "ACME", BigDecimal.ONE, new BigDecimal("130"),
             new BigDecimal("110"), new BigDecimal("130"), "EUR"
         );
@@ -351,11 +351,11 @@ class BourseDirectSyncServiceTest {
         FamilyMember member = member();
         BourseDirectSession session = activeSession(member);
         arrangeQueuedSession(session);
-        BourseDirectPort.Position incompletePrice = position(
+        BourseDirectAdapter.Position incompletePrice = position(
             null, "ACME", BigDecimal.ONE, new BigDecimal("90"),
             null, null, "EUR"
         );
-        BourseDirectPort.Position completePrice = position(
+        BourseDirectAdapter.Position completePrice = position(
             null, "ACME", BigDecimal.ONE, new BigDecimal("100"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR"
         );
@@ -394,7 +394,7 @@ class BourseDirectSyncServiceTest {
     void duplicateExternalAccountId_rejectsTheWholeSnapshot() {
         BourseDirectSession session = activeSession(member());
         arrangeQueuedSession(session);
-        BourseDirectPort.AccountData account = account(
+        BourseDirectAdapter.AccountData account = account(
             "same", AccountType.PEA, BigDecimal.TEN, BigDecimal.TEN, List.of()
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(account, account));
@@ -410,7 +410,7 @@ class BourseDirectSyncServiceTest {
         FamilyMember member = member();
         BourseDirectSession session = activeSession(member);
         arrangeQueuedSession(session);
-        BourseDirectPort.Position closed = position(
+        BourseDirectAdapter.Position closed = position(
             null, "CLOSED", BigDecimal.ZERO, new BigDecimal("999"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR"
         );
@@ -430,7 +430,7 @@ class BourseDirectSyncServiceTest {
     void invalidIsin_rejectsTheWholeSnapshot() {
         BourseDirectSession session = activeSession(member());
         arrangeQueuedSession(session);
-        BourseDirectPort.Position invalid = position(
+        BourseDirectAdapter.Position invalid = position(
             "not-an-isin", "ACME", BigDecimal.ONE, new BigDecimal("100"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR"
         );
@@ -449,7 +449,7 @@ class BourseDirectSyncServiceTest {
         FamilyMember member = member();
         BourseDirectSession session = activeSession(member);
         arrangeQueuedSession(session);
-        BourseDirectPort.Position position = position(
+        BourseDirectAdapter.Position position = position(
             "FR0000000001", "X".repeat(31), BigDecimal.ONE, new BigDecimal("100"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR"
         );
@@ -469,7 +469,7 @@ class BourseDirectSyncServiceTest {
     void missingSymbolAndIsin_rejectsTheWholeSnapshot() {
         BourseDirectSession session = activeSession(member());
         arrangeQueuedSession(session);
-        BourseDirectPort.Position unidentified = position(
+        BourseDirectAdapter.Position unidentified = position(
             null, null, BigDecimal.ONE, new BigDecimal("100"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR"
         );
@@ -543,19 +543,19 @@ class BourseDirectSyncServiceTest {
             .build();
     }
 
-    private BourseDirectPort.AccountData completeAccount() {
-        BourseDirectPort.Position position = new BourseDirectPort.Position(
+    private BourseDirectAdapter.AccountData completeAccount() {
+        BourseDirectAdapter.Position position = new BourseDirectAdapter.Position(
             null, "ACME", "Acme SA", new BigDecimal("10"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR",
             new BigDecimal("1000"), new BigDecimal("200")
         );
-        return new BourseDirectPort.AccountData(
+        return new BourseDirectAdapter.AccountData(
             "pea-123", "PEA Bourse Direct", AccountType.PEA,
             new BigDecimal("1250"), new BigDecimal("250"), List.of(position), true
         );
     }
 
-    private BourseDirectPort.Position position(
+    private BourseDirectAdapter.Position position(
         String isin,
         String symbol,
         BigDecimal quantity,
@@ -564,7 +564,7 @@ class BourseDirectSyncServiceTest {
         BigDecimal currentPrice,
         String quoteCurrency
     ) {
-        return new BourseDirectPort.Position(
+        return new BourseDirectAdapter.Position(
             isin,
             symbol,
             symbol == null ? "Unknown" : symbol,
@@ -577,14 +577,14 @@ class BourseDirectSyncServiceTest {
         );
     }
 
-    private BourseDirectPort.AccountData account(
+    private BourseDirectAdapter.AccountData account(
         String externalId,
         AccountType type,
         BigDecimal balance,
         BigDecimal cash,
-        List<BourseDirectPort.Position> positions
+        List<BourseDirectAdapter.Position> positions
     ) {
-        return new BourseDirectPort.AccountData(
+        return new BourseDirectAdapter.AccountData(
             externalId,
             type == AccountType.PEA ? "PEA" : "CTO",
             type,

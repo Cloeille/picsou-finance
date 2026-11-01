@@ -14,7 +14,7 @@ import com.picsou.model.FortuneoSyncStatus;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.FortuneoPort;
+import com.picsou.adapter.FortuneoAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -55,7 +55,7 @@ public class FortuneoSyncService {
     private static final Set<AccountType> CASH_TYPES = Set.of(AccountType.CHECKING, AccountType.SAVINGS);
     private static final int TRANSACTION_WINDOW_DAYS = 90;
 
-    private final FortuneoPort port;
+    private final FortuneoAdapter port;
     private final FortuneoSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
@@ -72,7 +72,7 @@ public class FortuneoSyncService {
     private final ReceivedDividendClassifier dividendClassifier;
 
     public FortuneoSyncService(
-        FortuneoPort port,
+        FortuneoAdapter port,
         FortuneoSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,
@@ -210,7 +210,7 @@ public class FortuneoSyncService {
             return;
         }
         try {
-            List<FortuneoPort.AccountData> fetched = port.fetchAccounts(job.plainState());
+            List<FortuneoAdapter.AccountData> fetched = port.fetchAccounts(job.plainState());
             List<PreparedAccount> prepared = prepareAccounts(fetched);
             backfillPrices(prepared);
             if (commitPortfolio(job, prepared)) {
@@ -256,7 +256,7 @@ public class FortuneoSyncService {
         }));
     }
 
-    private List<PreparedAccount> prepareAccounts(List<FortuneoPort.AccountData> fetched) {
+    private List<PreparedAccount> prepareAccounts(List<FortuneoAdapter.AccountData> fetched) {
         if (fetched == null || fetched.isEmpty()) {
             throw error(
                 SidecarErrorCode.PORTFOLIO_INCOMPLETE,
@@ -267,7 +267,7 @@ public class FortuneoSyncService {
 
         Set<String> externalIds = new HashSet<>();
         List<PreparedAccount> prepared = new ArrayList<>();
-        for (FortuneoPort.AccountData account : fetched) {
+        for (FortuneoAdapter.AccountData account : fetched) {
             if (account == null || !account.snapshotComplete()) {
                 throw error(
                     SidecarErrorCode.PORTFOLIO_INCOMPLETE,
@@ -321,7 +321,7 @@ public class FortuneoSyncService {
                 investedAmount = investedAmount(account, positions);
             }
 
-            List<FortuneoPort.Transaction> transactions = prepareTransactions(account.transactions());
+            List<FortuneoAdapter.Transaction> transactions = prepareTransactions(account.transactions());
             prepared.add(new PreparedAccount(
                 externalId,
                 limit(account.name(), 100, "Fortuneo account"),
@@ -336,16 +336,16 @@ public class FortuneoSyncService {
         return List.copyOf(prepared);
     }
 
-    private List<FortuneoPort.Transaction> prepareTransactions(List<FortuneoPort.Transaction> raw) {
+    private List<FortuneoAdapter.Transaction> prepareTransactions(List<FortuneoAdapter.Transaction> raw) {
         if (raw == null || raw.isEmpty()) {
             return List.of();
         }
-        List<FortuneoPort.Transaction> prepared = new ArrayList<>(raw.size());
-        for (FortuneoPort.Transaction tx : raw) {
+        List<FortuneoAdapter.Transaction> prepared = new ArrayList<>(raw.size());
+        for (FortuneoAdapter.Transaction tx : raw) {
             if (tx == null || tx.date() == null || tx.amount() == null) {
                 throw error(SidecarErrorCode.INVALID_DATA, "Fortuneo returned an incomplete transaction", null);
             }
-            prepared.add(new FortuneoPort.Transaction(
+            prepared.add(new FortuneoAdapter.Transaction(
                 tx.date(),
                 tx.label(),
                 tx.amount(),
@@ -362,9 +362,9 @@ public class FortuneoSyncService {
         return List.copyOf(prepared);
     }
 
-    private List<PreparedPosition> preparePositions(List<FortuneoPort.Position> rawPositions) {
+    private List<PreparedPosition> preparePositions(List<FortuneoAdapter.Position> rawPositions) {
         Map<String, PreparedPosition> positions = new LinkedHashMap<>();
-        for (FortuneoPort.Position position : rawPositions) {
+        for (FortuneoAdapter.Position position : rawPositions) {
             if (position == null || position.quantity() == null || position.currentValueEur() == null) {
                 throw error(SidecarErrorCode.INVALID_DATA, "Fortuneo returned an incomplete position", null);
             }
@@ -397,7 +397,7 @@ public class FortuneoSyncService {
             .toList();
     }
 
-    private String resolveTicker(FortuneoPort.Position position) {
+    private String resolveTicker(FortuneoAdapter.Position position) {
         String ticker = clean(position.symbol());
         String isin = normalizeIsin(position.isin());
         if (isin != null) {
@@ -466,7 +466,7 @@ public class FortuneoSyncService {
     }
 
     private BigDecimal investedAmount(
-        FortuneoPort.AccountData account,
+        FortuneoAdapter.AccountData account,
         List<PreparedPosition> positions
     ) {
         BigDecimal invested = account.cashBalance();
@@ -511,7 +511,7 @@ public class FortuneoSyncService {
             for (PreparedPosition position : account.positions()) {
                 addTicker(tickers, position.ticker());
             }
-            for (FortuneoPort.Transaction tx : account.transactions()) {
+            for (FortuneoAdapter.Transaction tx : account.transactions()) {
                 addTicker(tickers, tickerOf(tx));
             }
         }
@@ -685,7 +685,7 @@ public class FortuneoSyncService {
      * to tell a re-sent row from a new one, so the historical rolling-window replacement is kept
      * -- degrading is strictly safer than deduplicating on a guessed key.
      */
-    private void syncTransactions(Account account, List<FortuneoPort.Transaction> transactions) {
+    private void syncTransactions(Account account, List<FortuneoAdapter.Transaction> transactions) {
         if (transactions.isEmpty()) {
             // Deliberately leaves existing rows alone rather than clearing anything:
             // an empty response is far more likely to mean "nothing fetched" than
@@ -724,14 +724,14 @@ public class FortuneoSyncService {
      * rule</strong>: a chunk covering only 2024 is authoritative for 2024 alone, and must pass
      * its own explicit upper bound instead, or it would erase everything after it.
      */
-    private void reconcileFullHistory(Account account, List<FortuneoPort.Transaction> transactions) {
-        Map<String, FortuneoPort.Transaction> reported = new LinkedHashMap<>();
-        for (FortuneoPort.Transaction tx : transactions) {
+    private void reconcileFullHistory(Account account, List<FortuneoAdapter.Transaction> transactions) {
+        Map<String, FortuneoAdapter.Transaction> reported = new LinkedHashMap<>();
+        for (FortuneoAdapter.Transaction tx : transactions) {
             // A provider repeating an id inside one response is not a reason to fail the sync;
             // the last occurrence wins, exactly as a follow-up sync would resolve it.
             reported.put(tx.externalId(), tx);
         }
-        LocalDate from = transactions.stream().map(FortuneoPort.Transaction::date)
+        LocalDate from = transactions.stream().map(FortuneoAdapter.Transaction::date)
             .min(LocalDate::compareTo).orElseThrow();
         LocalDate to = LocalDate.now();
 
@@ -752,8 +752,8 @@ public class FortuneoSyncService {
         DividendReceiptService.Recognitions recognised = DividendReceiptService.Recognitions.of(obsolete);
 
         List<Transaction> upserts = new ArrayList<>(reported.size());
-        for (Map.Entry<String, FortuneoPort.Transaction> entry : reported.entrySet()) {
-            FortuneoPort.Transaction tx = entry.getValue();
+        for (Map.Entry<String, FortuneoAdapter.Transaction> entry : reported.entrySet()) {
+            FortuneoAdapter.Transaction tx = entry.getValue();
             String description = limit(tx.label(), 255, "Fortuneo transaction");
             Transaction row = storedById.get(entry.getKey());
             if (row == null) {
@@ -801,7 +801,7 @@ public class FortuneoSyncService {
      * transactions on every sync, keeping older history and any user-entered rows intact.
      * Mirrors BoursoSyncService's transaction replacement strategy.
      */
-    private void replaceRecentTransactions(Account account, List<FortuneoPort.Transaction> transactions) {
+    private void replaceRecentTransactions(Account account, List<FortuneoAdapter.Transaction> transactions) {
         if (transactions.isEmpty()) {
             // Deliberately leaves existing rows alone rather than clearing the window:
             // an empty response is far more likely to mean "nothing fetched" than
@@ -823,7 +823,7 @@ public class FortuneoSyncService {
                 .filter(stored -> stored.getDate() != null && !stored.getDate().isBefore(cutoff))
                 .toList());
         List<Transaction> toInsert = new ArrayList<>();
-        for (FortuneoPort.Transaction tx : transactions) {
+        for (FortuneoAdapter.Transaction tx : transactions) {
             if (tx.date().isBefore(cutoff)) {
                 continue;
             }
@@ -852,7 +852,7 @@ public class FortuneoSyncService {
      * The prepared record holds the type as the validated string it was checked against, so
      * this re-parse cannot fail: {@link #validatedTxType} already rejected anything unknown.
      */
-    private static TransactionType txTypeOf(FortuneoPort.Transaction tx) {
+    private static TransactionType txTypeOf(FortuneoAdapter.Transaction tx) {
         return tx.txType() == null ? null : TransactionType.valueOf(tx.txType());
     }
 
@@ -865,7 +865,7 @@ public class FortuneoSyncService {
      * instrument is still a stable key, and losing it entirely would silently drop the row
      * from every per-instrument computation.
      */
-    private String tickerOf(FortuneoPort.Transaction tx) {
+    private String tickerOf(FortuneoAdapter.Transaction tx) {
         if (tx.isin() == null) {
             return null;
         }
@@ -877,7 +877,7 @@ public class FortuneoSyncService {
     }
 
     /** The provider's own label for the instrument, kept only where there is an instrument. */
-    private String instrumentNameOf(FortuneoPort.Transaction tx) {
+    private String instrumentNameOf(FortuneoAdapter.Transaction tx) {
         return tx.isin() == null ? null : limit(tx.label(), 100, "Fortuneo instrument");
     }
 
@@ -1095,7 +1095,7 @@ public class FortuneoSyncService {
         BigDecimal cashBalance,
         BigDecimal investedAmountEur,
         List<PreparedPosition> positions,
-        List<FortuneoPort.Transaction> transactions
+        List<FortuneoAdapter.Transaction> transactions
     ) {}
     private record PreparedPosition(
         String ticker,

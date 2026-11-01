@@ -11,7 +11,7 @@ import com.picsou.model.AmundiSession;
 import com.picsou.model.AmundiSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.AmundiPort;
+import com.picsou.adapter.AmundiAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -66,7 +66,7 @@ public class AmundiSyncService {
     private static final String ACCOUNT_COLOR = "#8b5cf6";
     private static final int MAX_TICKER_LENGTH = 30;
 
-    private final AmundiPort port;
+    private final AmundiAdapter port;
     private final AmundiSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
@@ -77,7 +77,7 @@ public class AmundiSyncService {
     private final Executor syncExecutor;
 
     public AmundiSyncService(
-        AmundiPort port,
+        AmundiAdapter port,
         AmundiSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,
@@ -192,7 +192,7 @@ public class AmundiSyncService {
             return;
         }
         try {
-            List<AmundiPort.PlanData> fetched = port.fetchPlans(job.plainState());
+            List<AmundiAdapter.PlanData> fetched = port.fetchPlans(job.plainState());
             List<PreparedPlan> prepared = preparePlans(fetched);
             if (commitPlans(job, prepared)) {
                 log.info("Amundi sync completed (member={}; plans={})", job.memberId(), prepared.size());
@@ -235,7 +235,7 @@ public class AmundiSyncService {
         }));
     }
 
-    private List<PreparedPlan> preparePlans(List<AmundiPort.PlanData> fetched) {
+    private List<PreparedPlan> preparePlans(List<AmundiAdapter.PlanData> fetched) {
         if (fetched == null || fetched.isEmpty()) {
             throw error(
                 SidecarErrorCode.PORTFOLIO_INCOMPLETE,
@@ -246,7 +246,7 @@ public class AmundiSyncService {
 
         Set<String> externalIds = new HashSet<>();
         List<PreparedPlan> prepared = new ArrayList<>();
-        for (AmundiPort.PlanData plan : fetched) {
+        for (AmundiAdapter.PlanData plan : fetched) {
             if (plan == null || !plan.snapshotComplete()) {
                 throw error(
                     SidecarErrorCode.PORTFOLIO_INCOMPLETE,
@@ -288,9 +288,9 @@ public class AmundiSyncService {
         return List.copyOf(prepared);
     }
 
-    private List<PreparedPosition> preparePositions(List<AmundiPort.Position> rawPositions) {
+    private List<PreparedPosition> preparePositions(List<AmundiAdapter.Position> rawPositions) {
         Map<String, PreparedPosition> positions = new LinkedHashMap<>();
-        for (AmundiPort.Position position : rawPositions) {
+        for (AmundiAdapter.Position position : rawPositions) {
             if (position == null || position.quantity() == null || position.valueEur() == null) {
                 throw error(SidecarErrorCode.INVALID_DATA, "Amundi returned an incomplete position", null);
             }
@@ -325,7 +325,7 @@ public class AmundiSyncService {
      * out. Without a gain there is nothing to derive it from -- leaving it null
      * is correct, and {@link #investedAmount} then falls back to the plan total.
      */
-    private BigDecimal averageBuyIn(AmundiPort.Position position) {
+    private BigDecimal averageBuyIn(AmundiAdapter.Position position) {
         if (position.pnlEur() == null || position.quantity().signum() == 0) {
             return null;
         }
@@ -353,7 +353,7 @@ public class AmundiSyncService {
         );
     }
 
-    private BigDecimal investedAmount(AmundiPort.PlanData plan, List<PreparedPosition> positions) {
+    private BigDecimal investedAmount(AmundiAdapter.PlanData plan, List<PreparedPosition> positions) {
         BigDecimal invested = BigDecimal.ZERO;
         for (PreparedPosition position : positions) {
             if (position.pnlEur() == null) {
@@ -584,7 +584,7 @@ public class AmundiSyncService {
      * "PEG Groupe ACME" reads better than "PEG", and a member can hold several
      * plans of the same kind at different employers.
      */
-    private String accountName(AmundiPort.PlanData plan) {
+    private String accountName(AmundiAdapter.PlanData plan) {
         String label = clean(plan.name());
         String kind = clean(plan.planKind());
         String base = label != null ? label : kind;
@@ -627,7 +627,7 @@ public class AmundiSyncService {
      * per fund. The label stays as the last resort, and the collision guard in
      * {@link #mergePositions} stays behind it.
      */
-    private String resolveTicker(AmundiPort.Position position) {
+    private String resolveTicker(AmundiAdapter.Position position) {
         String isin = clean(position.isin());
         if (isin != null) {
             isin = isin.toUpperCase(Locale.ROOT);

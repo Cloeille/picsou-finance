@@ -13,7 +13,7 @@ import com.picsou.model.CicSession;
 import com.picsou.model.CicSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.CicPort;
+import com.picsou.adapter.CicAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CicSessionRepository;
@@ -72,7 +72,7 @@ public class CicSyncService {
     private static final long PENDING_CREDENTIALS_SECONDS = 600;
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    private final CicPort port;
+    private final CicAdapter port;
     private final CicSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final FamilyMemberRepository memberRepository;
@@ -87,7 +87,7 @@ public class CicSyncService {
     private final Object sessionWriteLock = new Object();
 
     public CicSyncService(
-        CicPort port,
+        CicAdapter port,
         CicSessionRepository sessionRepository,
         AccountRepository accountRepository,
         FamilyMemberRepository memberRepository,
@@ -316,7 +316,7 @@ public class CicSyncService {
             return;
         }
         try {
-            CicPort.AccountListing fetched;
+            CicAdapter.AccountListing fetched;
             try {
                 fetched = port.fetchAccounts(job.plainState());
             } catch (SyncException ex) {
@@ -345,7 +345,7 @@ public class CicSyncService {
      * for its remembered-device cookie; a login that still asks for a second
      * factor cannot be finished unattended and reads as an expired session.
      */
-    private CicPort.AccountListing reauthenticateAndFetch(SyncJob job) {
+    private CicAdapter.AccountListing reauthenticateAndFetch(SyncJob job) {
         CicSession session = requireTransactionResult(txTemplate.execute(
             status -> sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
         )).orElse(null);
@@ -431,13 +431,13 @@ public class CicSyncService {
         }));
     }
 
-    private List<PreparedAccount> prepareAccounts(List<CicPort.AccountData> fetched) {
+    private List<PreparedAccount> prepareAccounts(List<CicAdapter.AccountData> fetched) {
         if (fetched == null || fetched.isEmpty()) {
             throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "CIC returned no account", null);
         }
         Set<String> externalIds = new HashSet<>();
         List<PreparedAccount> prepared = new ArrayList<>();
-        for (CicPort.AccountData account : fetched) {
+        for (CicAdapter.AccountData account : fetched) {
             if (account == null || !account.snapshotComplete()) {
                 throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "CIC returned an incomplete account list", null);
             }

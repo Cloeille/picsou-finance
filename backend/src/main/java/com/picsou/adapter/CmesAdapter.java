@@ -6,19 +6,30 @@ import com.picsou.adapter.sidecar.SidecarClient;
 import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.CmesPort;
 import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Read-only access to a Crédit Mutuel Épargne Salariale saver's space, the one
+ * CIC savers use too.
+ *
+ * <p>The login is a plain form; the site then asks for a mobile confirmation or
+ * sends a code by SMS, unless it still remembers the device. {@link #initiateAuth}
+ * takes the previous session so the sidecar can replay that remembered-device
+ * cookie: a re-login with stored credentials then completes without anyone at
+ * the phone.
+ * The session state is opaque to the domain and only ever stored encrypted.
+ */
 @Component
-public class CmesAdapter implements CmesPort {
+public class CmesAdapter {
     private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
     /**
      * A mobile confirmation waits on a human unlocking their phone. The sidecar
@@ -65,12 +76,16 @@ public class CmesAdapter implements CmesPort {
         this.positionsTimeout = positionsTimeout;
     }
 
-    @Override
+    /** {@code previousSessionState} is null on a first login. {@code mfaType} is {@code APP_PUSH} or {@code SMS}. */
     public SidecarInitiate initiateAuth(String login, String password, String previousSessionState) {
         return initiate(login, password, previousSessionState, false);
     }
 
-    @Override
+    /**
+     * The same login for a scheduled re-login with stored credentials: nobody is
+     * there to approve, so the sidecar withdraws a mobile confirmation at once and
+     * reports the session as expired rather than leaving a request on the phone.
+     */
     public SidecarInitiate reauthenticate(String login, String password, String previousSessionState) {
         return initiate(login, password, previousSessionState, true);
     }
@@ -87,7 +102,10 @@ public class CmesAdapter implements CmesPort {
             "Could not initiate Crédit Mutuel Épargne Salariale authentication", SidecarErrorCode.INVALID_CREDENTIALS);
     }
 
-    @Override
+    /**
+     * Finishes the second factor: {@code code} is the SMS code, or null for a
+     * mobile confirmation, which waits for the saver to approve in the app.
+     */
     public String completeAuth(String processId, String code) {
         // A null code is the mobile-confirmation case; the sidecar forbids
         // unknown fields, so the key carries an explicit null rather than be omitted.
@@ -99,7 +117,6 @@ public class CmesAdapter implements CmesPort {
         return response.sessionState();
     }
 
-    @Override
     public List<PlanData> fetchPlans(String sessionState) {
         return sidecar.postForList(
             "/positions",
@@ -111,4 +128,20 @@ public class CmesAdapter implements CmesPort {
             "Crédit Mutuel Épargne Salariale returned no complete plan"
         );
     }
+
+    /**
+     * One FCPE line inside a plan. Everything is EUR-denominated. Employer funds
+     * usually show only the manager's fund code, no ISIN.
+     */
+    public record Position(String isin, String fundCode, String label, BigDecimal quantity,
+                           BigDecimal unitValue, BigDecimal valueEur, BigDecimal pnlEur) {}
+
+    /**
+     * One plan -- PEG, PEE, PERCOL... -- and the funds held inside it.
+     * {@code legacyExternalIds} are the ids earlier builds could have given the
+     * plan; an account carrying one of them and the plan's name moves to
+     * {@code externalId}.
+     */
+    public record PlanData(String externalId, List<String> legacyExternalIds, String name, String planKind, String employer,
+                           BigDecimal balanceEur, List<Position> positions, boolean snapshotComplete) {}
 }

@@ -9,7 +9,7 @@ import com.picsou.model.AmundiSession;
 import com.picsou.model.AmundiSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.AmundiPort;
+import com.picsou.adapter.AmundiAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -47,7 +47,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("unchecked")
 class AmundiSyncServiceTest {
-    @Mock AmundiPort port;
+    @Mock AmundiAdapter port;
     @Mock AmundiSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
@@ -244,7 +244,7 @@ class AmundiSyncServiceTest {
     @Test
     void aPlanFlaggedIncompleteBySidecarIsRejectedOutright() {
         arrangeQueuedSession(activeSession(member()));
-        when(port.fetchPlans("plain-state")).thenReturn(List.of(new AmundiPort.PlanData(
+        when(port.fetchPlans("plain-state")).thenReturn(List.of(new AmundiAdapter.PlanData(
             "PEG001", "Plan", "PEG", "ACME", new BigDecimal("1000"),
             List.of(position("FR0010405035", "Fonds", "10", "100", "1000", "0")), false
         )));
@@ -471,7 +471,7 @@ class AmundiSyncServiceTest {
 
     // -- helpers ------------------------------------------------------------
 
-    private void arrangeCommittableSync(AmundiPort.PlanData... plans) {
+    private void arrangeCommittableSync(AmundiAdapter.PlanData... plans) {
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
         when(port.fetchPlans("plain-state")).thenReturn(List.of(plans));
@@ -533,20 +533,20 @@ class AmundiSyncServiceTest {
             .build();
     }
 
-    private AmundiPort.PlanData completePlan() {
+    private AmundiAdapter.PlanData completePlan() {
         return plan(position("FR0010405035", "Amundi Label Actions Solidaires",
             "12.3456", "100", "1234.56", "34.56"));
     }
 
-    private AmundiPort.PlanData plan(AmundiPort.Position... positions) {
+    private AmundiAdapter.PlanData plan(AmundiAdapter.Position... positions) {
         BigDecimal total = List.of(positions).stream()
-            .map(AmundiPort.Position::valueEur)
+            .map(AmundiAdapter.Position::valueEur)
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         return plan(total.toPlainString(), positions);
     }
 
-    private AmundiPort.PlanData plan(String balanceEur, AmundiPort.Position... positions) {
-        return new AmundiPort.PlanData(
+    private AmundiAdapter.PlanData plan(String balanceEur, AmundiAdapter.Position... positions) {
+        return new AmundiAdapter.PlanData(
             "PEG001",
             "Plan d'Épargne Groupe",
             "PEG",
@@ -557,17 +557,17 @@ class AmundiSyncServiceTest {
         );
     }
 
-    private AmundiPort.Position position(
+    private AmundiAdapter.Position position(
         String isin, String label, String quantity, String unitValue, String valueEur, String pnlEur
     ) {
         return position(isin, null, label, quantity, unitValue, valueEur, pnlEur);
     }
 
-    private AmundiPort.Position position(
+    private AmundiAdapter.Position position(
         String isin, String fundCode, String label,
         String quantity, String unitValue, String valueEur, String pnlEur
     ) {
-        return new AmundiPort.Position(
+        return new AmundiAdapter.Position(
             isin,
             fundCode,
             label,

@@ -12,7 +12,7 @@ import com.picsou.model.BourseDirectSession;
 import com.picsou.model.BourseDirectSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.BourseDirectPort;
+import com.picsou.adapter.BourseDirectAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -53,7 +53,7 @@ public class BourseDirectSyncService {
     private static final Logger log = LoggerFactory.getLogger(BourseDirectSyncService.class);
     static final String PROVIDER = "Bourse Direct";
 
-    private final BourseDirectPort port;
+    private final BourseDirectAdapter port;
     private final BourseDirectSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
@@ -66,7 +66,7 @@ public class BourseDirectSyncService {
     private final Executor syncExecutor;
 
     public BourseDirectSyncService(
-        BourseDirectPort port,
+        BourseDirectAdapter port,
         BourseDirectSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,
@@ -185,7 +185,7 @@ public class BourseDirectSyncService {
             return;
         }
         try {
-            List<BourseDirectPort.AccountData> fetched = port.fetchAccounts(job.plainState());
+            List<BourseDirectAdapter.AccountData> fetched = port.fetchAccounts(job.plainState());
             List<PreparedAccount> prepared = prepareAccounts(fetched);
             if (commitPortfolio(job, prepared)) {
                 log.info("Bourse Direct sync completed (member={}; accounts={})", job.memberId(), prepared.size());
@@ -228,7 +228,7 @@ public class BourseDirectSyncService {
         }));
     }
 
-    private List<PreparedAccount> prepareAccounts(List<BourseDirectPort.AccountData> fetched) {
+    private List<PreparedAccount> prepareAccounts(List<BourseDirectAdapter.AccountData> fetched) {
         if (fetched == null || fetched.isEmpty()) {
             throw error(
                 SidecarErrorCode.PORTFOLIO_INCOMPLETE,
@@ -239,7 +239,7 @@ public class BourseDirectSyncService {
 
         Set<String> externalIds = new HashSet<>();
         List<PreparedAccount> prepared = new ArrayList<>();
-        for (BourseDirectPort.AccountData account : fetched) {
+        for (BourseDirectAdapter.AccountData account : fetched) {
             if (account == null || !account.snapshotComplete()) {
                 throw error(
                     SidecarErrorCode.PORTFOLIO_INCOMPLETE,
@@ -285,10 +285,10 @@ public class BourseDirectSyncService {
         return List.copyOf(prepared);
     }
 
-    private List<PreparedPosition> preparePositions(List<BourseDirectPort.Position> rawPositions) {
+    private List<PreparedPosition> preparePositions(List<BourseDirectAdapter.Position> rawPositions) {
         Map<String, PreparedPosition> positions = new LinkedHashMap<>();
         Map<String, String> isinByTicker = new LinkedHashMap<>();
-        for (BourseDirectPort.Position position : rawPositions) {
+        for (BourseDirectAdapter.Position position : rawPositions) {
             if (position == null || position.quantity() == null || position.currentValueEur() == null) {
                 throw error(SidecarErrorCode.INVALID_DATA, "Bourse Direct returned an incomplete position", null);
             }
@@ -322,7 +322,7 @@ public class BourseDirectSyncService {
             .toList();
     }
 
-    private String resolveTicker(BourseDirectPort.Position position, Map<String, String> isinByTicker) {
+    private String resolveTicker(BourseDirectAdapter.Position position, Map<String, String> isinByTicker) {
         String ticker = clean(position.symbol());
         String isin = normalizeIsin(position.isin());
         if (isin != null) {
@@ -375,7 +375,7 @@ public class BourseDirectSyncService {
     }
 
     private BigDecimal investedAmount(
-        BourseDirectPort.AccountData account,
+        BourseDirectAdapter.AccountData account,
         List<PreparedPosition> positions
     ) {
         BigDecimal invested = account.cashBalance();

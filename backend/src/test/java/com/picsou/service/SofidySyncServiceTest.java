@@ -9,7 +9,7 @@ import com.picsou.model.ScpiPosition;
 import com.picsou.model.SofidySession;
 import com.picsou.model.SofidySyncStatus;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.SofidyPort;
+import com.picsou.adapter.SofidyAdapter;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.ScpiPositionRepository;
@@ -56,7 +56,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 @SuppressWarnings("unchecked")
 class SofidySyncServiceTest {
 
-    @Mock SofidyPort port;
+    @Mock SofidyAdapter port;
     @Mock SofidySessionRepository sessionRepository;
     @Mock ScpiPositionRepository positionRepository;
     @Mock ScpiPositionService positionService;
@@ -187,7 +187,7 @@ class SofidySyncServiceTest {
     void queueSync_refusesAnIncompleteSnapshotWithoutClosingAnything() {
         arrangeActiveSession();
         when(port.fetchSnapshot("plain-state"))
-            .thenReturn(new SofidyPort.Snapshot(
+            .thenReturn(new SofidyAdapter.Snapshot(
                 "EUR", new BigDecimal("627.20"), LocalDate.of(2026, 9, 25), false, List.of()
             ));
 
@@ -207,7 +207,7 @@ class SofidySyncServiceTest {
     void queueSync_refusesASnapshotThatDoesNotAddUp() {
         arrangeActiveSession();
         when(port.fetchSnapshot("plain-state")).thenReturn(
-            new SofidyPort.Snapshot(
+            new SofidyAdapter.Snapshot(
                 "EUR", new BigDecimal("9999.00"), LocalDate.of(2026, 9, 25), true,
                 List.of(holding("DY", "2.00000", "313.60"))
             )
@@ -329,7 +329,7 @@ class SofidySyncServiceTest {
     @ValueSource(strings = {"-1", "-0.001"})
     void queueSync_rejectsMissingOrNegativeTotalEvenForEmptyPortfolio(String total) {
         arrangeActiveSession();
-        when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyPort.Snapshot(
+        when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyAdapter.Snapshot(
             "EUR", total == null ? null : new BigDecimal(total), null, true, List.of()));
 
         SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
@@ -343,7 +343,7 @@ class SofidySyncServiceTest {
     @ValueSource(strings = {"627.19", "627.20", "627.21"})
     void queueSync_acceptsTotalWithinOneCent(String total) {
         arrangeActiveSession();
-        when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyPort.Snapshot(
+        when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyAdapter.Snapshot(
             "EUR", new BigDecimal(total), null, true, List.of(holding("DY", "2", "313.60"))));
         assertThat(service.queueSync(7L).syncStatus()).isEqualTo(SofidySyncStatus.SUCCESS);
     }
@@ -351,9 +351,9 @@ class SofidySyncServiceTest {
     @Test
     void queueSync_rejectsNullQuantityBeforeWritingOrClosingPositions() {
         arrangeActiveSession();
-        when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyPort.Snapshot(
+        when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyAdapter.Snapshot(
             "EUR", BigDecimal.ZERO, null, true,
-            List.of(new SofidyPort.Holding("DY", "Test fund", null, new BigDecimal("313.60"), null))));
+            List.of(new SofidyAdapter.Holding("DY", "Test fund", null, new BigDecimal("313.60"), null))));
         assertThat(service.queueSync(7L).lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verifyNoInteractions(positionService, positionRepository);
     }
@@ -363,7 +363,7 @@ class SofidySyncServiceTest {
     @ValueSource(strings = {"USD", "eur", ""})
     void queueSync_refusesASnapshotNotInEuros(String currency) {
         arrangeActiveSession();
-        when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyPort.Snapshot(
+        when(port.fetchSnapshot("plain-state")).thenReturn(new SofidyAdapter.Snapshot(
             currency, new BigDecimal("627.20"), null, true, List.of(holding("DY", "2", "313.60"))));
 
         SofidySyncService.SessionStatusResponse result = service.queueSync(7L);
@@ -395,17 +395,17 @@ class SofidySyncServiceTest {
      * never handed a portfolio that does not add up to its own total. The
      * inconsistent case has its own test, where the mismatch is the point.
      */
-    private SofidyPort.Snapshot snapshot(List<SofidyPort.Holding> holdings) {
+    private SofidyAdapter.Snapshot snapshot(List<SofidyAdapter.Holding> holdings) {
         BigDecimal total = holdings.stream()
-            .map(SofidyPort.Holding::withdrawalValue)
+            .map(SofidyAdapter.Holding::withdrawalValue)
             .reduce(BigDecimal.ZERO, BigDecimal::add);
-        return new SofidyPort.Snapshot(
+        return new SofidyAdapter.Snapshot(
             "EUR", total, LocalDate.of(2026, 9, 25), true, holdings
         );
     }
 
-    private SofidyPort.Holding holding(String fundCode, String quantity, String withdrawalPrice) {
-        return new SofidyPort.Holding(
+    private SofidyAdapter.Holding holding(String fundCode, String quantity, String withdrawalPrice) {
+        return new SofidyAdapter.Holding(
             fundCode, "Fond de test", new BigDecimal(quantity), new BigDecimal(withdrawalPrice), null
         );
     }

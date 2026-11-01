@@ -12,7 +12,7 @@ import com.picsou.model.SofidySession;
 import com.picsou.model.SofidySyncStatus;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.SofidyPort;
+import com.picsou.adapter.SofidyAdapter;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.SofidySessionRepository;
@@ -73,7 +73,7 @@ public class SofidySyncService {
     private static final String AUTH_PROCESS_PREFIX = "sofidy-auth-process:";
     private static final Duration AUTH_TTL = Duration.ofMinutes(5);
 
-    private final SofidyPort port;
+    private final SofidyAdapter port;
     private final SofidySessionRepository sessionRepository;
     private final ScpiPositionRepository positionRepository;
     private final ScpiPositionService positionService;
@@ -84,7 +84,7 @@ public class SofidySyncService {
     private final ScpiFundReconciler fundReconciler;
 
     public SofidySyncService(
-        SofidyPort port,
+        SofidyAdapter port,
         SofidySessionRepository sessionRepository,
         ScpiPositionRepository positionRepository,
         ScpiPositionService positionService,
@@ -298,7 +298,7 @@ public class SofidySyncService {
             return;
         }
         try {
-            SofidyPort.Snapshot snapshot = port.fetchSnapshot(job.plainState());
+            SofidyAdapter.Snapshot snapshot = port.fetchSnapshot(job.plainState());
             commitSnapshot(job, snapshot);
         } catch (SyncException ex) {
             SidecarErrorCode code = codeOf(ex);
@@ -323,7 +323,7 @@ public class SofidySyncService {
      * {@link #reconcileSoldFunds}; its account is kept, never deleted.
      */
     private Map<String, ScpiFundOutcome> applySnapshot(
-        Long memberId, SofidyPort.Snapshot snapshot, Instant syncedAt
+        Long memberId, SofidyAdapter.Snapshot snapshot, Instant syncedAt
     ) {
         if (snapshot == null || !snapshot.snapshotComplete()) {
             throw error(
@@ -341,7 +341,7 @@ public class SofidySyncService {
         }
 
         Set<String> seenFunds = new HashSet<>();
-        for (SofidyPort.Holding holding : snapshot.holdings()) {
+        for (SofidyAdapter.Holding holding : snapshot.holdings()) {
             if (holding == null || holding.fundCode() == null || holding.quantity() == null) {
                 throw error(SidecarErrorCode.INVALID_DATA, "Sofidy returned an incomplete fund", null);
             }
@@ -385,14 +385,14 @@ public class SofidySyncService {
      * partial read has to be caught before a single balance is written, not
      * after.
      */
-    private void checkDeclaredTotal(SofidyPort.Snapshot snapshot) {
+    private void checkDeclaredTotal(SofidyAdapter.Snapshot snapshot) {
         BigDecimal declared = snapshot.totalEur();
         if (declared == null || declared.signum() < 0) {
             throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "Sofidy returned no valid portfolio total", null);
         }
         BigDecimal computed = snapshot.holdings().stream()
-            .map(SofidyPort.Holding::withdrawalValue)
+            .map(SofidyAdapter.Holding::withdrawalValue)
             .filter(java.util.Objects::nonNull)
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         if (computed.subtract(declared).abs().compareTo(MONEY_TOLERANCE) > 0) {
@@ -421,9 +421,9 @@ public class SofidySyncService {
      *
      * @return how many positions were closed
      */
-    private int reconcileSoldFunds(Long memberId, List<SofidyPort.Holding> holdings) {
+    private int reconcileSoldFunds(Long memberId, List<SofidyAdapter.Holding> holdings) {
         Set<String> stillHeld = holdings.stream()
-            .map(SofidyPort.Holding::fundCode)
+            .map(SofidyAdapter.Holding::fundCode)
             .collect(Collectors.toSet());
         int closed = 0;
         for (ScpiPosition position
@@ -473,7 +473,7 @@ public class SofidySyncService {
         }));
     }
 
-    private void commitSnapshot(SyncJob job, SofidyPort.Snapshot snapshot) {
+    private void commitSnapshot(SyncJob job, SofidyAdapter.Snapshot snapshot) {
         txTemplate.executeWithoutResult(status -> {
             lockMember(job.memberId());
             Optional<SofidySession> current = sessionRepository

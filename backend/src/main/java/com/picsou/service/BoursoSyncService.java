@@ -12,7 +12,7 @@ import com.picsou.model.BoursoSession;
 import com.picsou.model.BoursoSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.BoursoPort;
+import com.picsou.adapter.BoursoAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.port.SidecarTransaction;
 import com.picsou.repository.AccountHoldingRepository;
@@ -82,7 +82,7 @@ public class BoursoSyncService {
         AccountType.ASSURANCE_VIE
     );
 
-    private final BoursoPort port;
+    private final BoursoAdapter port;
     private final BoursoSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
@@ -99,7 +99,7 @@ public class BoursoSyncService {
     private final Map<String, PendingCredentials> pendingCredentials = new java.util.concurrent.ConcurrentHashMap<>();
 
     public BoursoSyncService(
-        BoursoPort port,
+        BoursoAdapter port,
         BoursoSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,
@@ -237,7 +237,7 @@ public class BoursoSyncService {
             return;
         }
         try {
-            List<BoursoPort.AccountData> fetched;
+            List<BoursoAdapter.AccountData> fetched;
             try { fetched = port.fetchAccounts(job.plainState()); }
             catch (SyncException ex) {
                 if (codeOf(ex) != SidecarErrorCode.SESSION_EXPIRED) throw ex;
@@ -260,7 +260,7 @@ public class BoursoSyncService {
         }
     }
 
-    private List<BoursoPort.AccountData> reauthenticateAndFetch(SyncJob job) {
+    private List<BoursoAdapter.AccountData> reauthenticateAndFetch(SyncJob job) {
         Optional<BoursoSession> found = requireTransactionResult(txTemplate.execute(
             status -> sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
         ));
@@ -358,7 +358,7 @@ public class BoursoSyncService {
         }));
     }
 
-    private List<PreparedAccount> prepareAccounts(List<BoursoPort.AccountData> fetched) {
+    private List<PreparedAccount> prepareAccounts(List<BoursoAdapter.AccountData> fetched) {
         if (fetched == null || fetched.isEmpty()) {
             throw error(
                 SidecarErrorCode.PORTFOLIO_INCOMPLETE,
@@ -369,7 +369,7 @@ public class BoursoSyncService {
 
         Set<String> externalIds = new HashSet<>();
         List<PreparedAccount> prepared = new ArrayList<>();
-        for (BoursoPort.AccountData account : fetched) {
+        for (BoursoAdapter.AccountData account : fetched) {
             if (account == null || !account.snapshotComplete()) {
                 throw error(
                     SidecarErrorCode.PORTFOLIO_INCOMPLETE,
@@ -440,10 +440,10 @@ public class BoursoSyncService {
         return List.copyOf(prepared);
     }
 
-    private List<PreparedPosition> preparePositions(List<BoursoPort.Position> rawPositions) {
+    private List<PreparedPosition> preparePositions(List<BoursoAdapter.Position> rawPositions) {
         Map<String, PreparedPosition> positions = new LinkedHashMap<>();
         Map<String, String> isinByTicker = new LinkedHashMap<>();
-        for (BoursoPort.Position position : rawPositions) {
+        for (BoursoAdapter.Position position : rawPositions) {
             if (position == null || position.quantity() == null || position.currentValueEur() == null) {
                 throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned an incomplete position", null);
             }
@@ -498,7 +498,7 @@ public class BoursoSyncService {
      * by Yahoo, and {@code AccountService.PROVIDER_VALUED} then falls back to
      * BoursoBank's own valuation instead of reading the line as zero.
      */
-    private String resolveTicker(BoursoPort.Position position, String isin) {
+    private String resolveTicker(BoursoAdapter.Position position, String isin) {
         String ticker = clean(position.symbol());
         if (isin != null) {
             OpenFigiIsinConverter.TickerResult resolved = isinConverter.resolve(isin);
@@ -578,7 +578,7 @@ public class BoursoSyncService {
      * the size of the missing positions.
      */
     private BigDecimal investedAmount(
-        BoursoPort.AccountData account,
+        BoursoAdapter.AccountData account,
         BigDecimal cashBalance,
         List<PreparedPosition> positions
     ) {
@@ -918,7 +918,7 @@ public class BoursoSyncService {
      * single holding, zero-unit rows are dropped and euro-fund rows are summed into
      * the cash leg. Fewer rows than positions received cannot be true.
      */
-    private int valuationLineCount(BoursoPort.AccountData account) {
+    private int valuationLineCount(BoursoAdapter.AccountData account) {
         Integer lines = account.valuationLineCount();
         if (lines == null || lines < account.positions().size()) {
             throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned no valid line count for an assurance vie", null);

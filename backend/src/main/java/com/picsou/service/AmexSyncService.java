@@ -11,7 +11,7 @@ import com.picsou.model.AmexSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.AmexPort;
+import com.picsou.adapter.AmexAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.AmexSessionRepository;
@@ -82,7 +82,7 @@ public class AmexSyncService {
     private static final int LEGACY_PENDING_WINDOW_DAYS = 7;
     private static final Pattern CURRENT_TX_ID = Pattern.compile("^amex_txp?_[0-9a-f]{32}$");
 
-    private final AmexPort port;
+    private final AmexAdapter port;
     private final AmexSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final FamilyMemberRepository memberRepository;
@@ -94,7 +94,7 @@ public class AmexSyncService {
     private final Executor syncExecutor;
 
     public AmexSyncService(
-        AmexPort port,
+        AmexAdapter port,
         AmexSessionRepository sessionRepository,
         AccountRepository accountRepository,
         FamilyMemberRepository memberRepository,
@@ -270,14 +270,14 @@ public class AmexSyncService {
         }));
     }
 
-    private List<PreparedAccount> prepareAccounts(List<AmexPort.AccountData> fetched) {
+    private List<PreparedAccount> prepareAccounts(List<AmexAdapter.AccountData> fetched) {
         if (fetched == null || fetched.isEmpty()) {
             throw error(SidecarErrorCode.INVALID_DATA, "American Express returned no account", null);
         }
 
         Set<String> externalIds = new HashSet<>();
         List<PreparedAccount> prepared = new ArrayList<>();
-        for (AmexPort.AccountData account : fetched) {
+        for (AmexAdapter.AccountData account : fetched) {
             if (account == null || !account.snapshotComplete()) {
                 throw error(SidecarErrorCode.INVALID_DATA, "American Express returned an incomplete snapshot", null);
             }
@@ -313,13 +313,13 @@ public class AmexSyncService {
      * Validates the sidecar's raw transaction list and parses each date, rejecting the whole
      * sync on a malformed row rather than silently dropping money movements.
      */
-    private List<PreparedTransaction> prepareTransactions(List<AmexPort.Transaction> raw) {
+    private List<PreparedTransaction> prepareTransactions(List<AmexAdapter.Transaction> raw) {
         if (raw == null || raw.isEmpty()) {
             return List.of();
         }
         List<PreparedTransaction> prepared = new ArrayList<>(raw.size());
         Map<String, Integer> occurrences = new HashMap<>();
-        for (AmexPort.Transaction tx : raw) {
+        for (AmexAdapter.Transaction tx : raw) {
             if (tx == null || tx.date() == null || tx.amountEur() == null) {
                 throw error(SidecarErrorCode.INVALID_DATA, "American Express returned an incomplete transaction", null);
             }

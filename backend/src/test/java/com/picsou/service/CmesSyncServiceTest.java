@@ -9,7 +9,7 @@ import com.picsou.model.CmesSession;
 import com.picsou.model.CmesSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.port.CmesPort;
+import com.picsou.adapter.CmesAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -61,7 +61,7 @@ class CmesSyncServiceTest {
     private static final String PEI_ID = "cmes_12345_plan-d-pargne-interentreprises-2222222222222222";
     private static final String CREDENTIALS_JSON = "{\"login\":\"12345678\",\"password\":\"secret\"}";
 
-    @Mock CmesPort port;
+    @Mock CmesAdapter port;
     @Mock CmesSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
@@ -117,7 +117,7 @@ class CmesSyncServiceTest {
 
     @Test
     void queueSync_refusesAPlanWhoseFundsDoNotAddUp() {
-        CmesPort.PlanData broken = new CmesPort.PlanData(PEG_ID, List.of(), "Plan d'épargne groupe", "PEG", null,
+        CmesAdapter.PlanData broken = new CmesAdapter.PlanData(PEG_ID, List.of(), "Plan d'épargne groupe", "PEG", null,
             new BigDecimal("9999.99"), pegPlan().positions(), true);
         FamilyMember member = member();
         arrangeQueuedSession(activeSession(member));
@@ -579,7 +579,7 @@ class CmesSyncServiceTest {
         return new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name());
     }
 
-    private void arrangeCommittableSync(CmesPort.PlanData... plans) {
+    private void arrangeCommittableSync(CmesAdapter.PlanData... plans) {
         arrangeCommittableSession(activeSession(member()));
         when(port.fetchPlans("plain-state")).thenReturn(List.of(plans));
     }
@@ -649,22 +649,22 @@ class CmesSyncServiceTest {
             .build();
     }
 
-    private CmesPort.PlanData pegPlan() {
+    private CmesAdapter.PlanData pegPlan() {
         return pegPlan(PEG_ID, List.of());
     }
 
-    private CmesPort.PlanData pegPlan(String externalId, List<String> legacyExternalIds) {
+    private CmesAdapter.PlanData pegPlan(String externalId, List<String> legacyExternalIds) {
         return plan(externalId, legacyExternalIds, "Plan d'épargne groupe", "PEG");
     }
 
     /** A PEE-family plan with the two ids earlier builds could have given it. */
-    private CmesPort.PlanData peePlan(String externalId, String label) {
+    private CmesAdapter.PlanData peePlan(String externalId, String label) {
         String slug = label.equals(PEE_LABEL) ? "plan-d-pargne-entreprise" : "plan-d-pargne-interentreprises";
         return plan(externalId, List.of(PEE_ID, PEE_ID + "-" + slug), label, "PEE");
     }
 
-    private CmesPort.PlanData plan(String externalId, List<String> legacyExternalIds, String label, String kind) {
-        return new CmesPort.PlanData(
+    private CmesAdapter.PlanData plan(String externalId, List<String> legacyExternalIds, String label, String kind) {
+        return new CmesAdapter.PlanData(
             externalId,
             legacyExternalIds,
             label,
@@ -672,9 +672,9 @@ class CmesSyncServiceTest {
             "ACME INDUSTRIES",
             new BigDecimal("1500.50"),
             List.of(
-                new CmesPort.Position(null, "160", "FONDS EQUILIBRE SOLIDAIRE", new BigDecimal("50.0000"),
+                new CmesAdapter.Position(null, "160", "FONDS EQUILIBRE SOLIDAIRE", new BigDecimal("50.0000"),
                     new BigDecimal("20.0000"), new BigDecimal("1000.00"), new BigDecimal("90.91")),
-                new CmesPort.Position(null, "161", "FONDS ACTIONS MONDE", new BigDecimal("25.0250"),
+                new CmesAdapter.Position(null, "161", "FONDS ACTIONS MONDE", new BigDecimal("25.0250"),
                     new BigDecimal("20.0000"), new BigDecimal("500.50"), new BigDecimal("-12.83"))
             ),
             true

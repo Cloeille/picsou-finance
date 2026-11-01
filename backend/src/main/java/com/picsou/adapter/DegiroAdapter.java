@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.DegiroSessionExpiredException;
 import com.picsou.exception.SyncException;
-import com.picsou.port.DegiroPort;
 import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,8 +25,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
+/**
+ * DEGIRO is a compte-titres-only broker (no PEA envelope in France) accessed
+ * through an unofficial, reverse-engineered API. Unlike the other broker adapters,
+ * there is no long-lived session: DEGIRO's cookie times out after ~30 minutes of
+ * inactivity and there is no refresh token, so {@link #fetchPortfolio} can throw
+ * a {@link com.picsou.exception.DegiroSessionExpiredException} at any time —
+ * callers must surface this as a re-authentication prompt, never retry silently.
+ * See docs/decisions/2026-08-05-degiro-session-only-no-stored-totp.md.
+ */
 @Component
-public class DegiroAdapter implements DegiroPort {
+public class DegiroAdapter {
 
     private static final Logger log = LoggerFactory.getLogger(DegiroAdapter.class);
 
@@ -61,7 +69,11 @@ public class DegiroAdapter implements DegiroPort {
         this.sidecarClient = sidecarClient;
     }
 
-    @Override
+    /**
+     * Step 1: Authenticates with DEGIRO (username + password).
+     *
+     * @return result indicating whether TOTP is required; if not, sessionBlob is populated
+     */
     public InitiateResult initiateAuth(String username, String password) {
         log.info("Delegating DEGIRO auth initiation to degiro-auth sidecar");
 
@@ -102,7 +114,13 @@ public class DegiroAdapter implements DegiroPort {
         return new InitiateResult(processId, true, null);
     }
 
-    @Override
+    /**
+     * Step 2 (TOTP only): Completes login with the 6-digit authenticator code.
+     *
+     * @param processId returned by {@link #initiateAuth}
+     * @param code      current TOTP code from the user's authenticator app
+     * @return opaque serialized {sessionId, intAccount} blob to store in DB
+     */
     public String completeAuth(String processId, String code) {
         log.info("Delegating DEGIRO TOTP completion to degiro-auth sidecar, processId={}", processId);
 
@@ -130,7 +148,13 @@ public class DegiroAdapter implements DegiroPort {
         return blob;
     }
 
-    @Override
+    /**
+     * Fetches the current portfolio valuation and open positions.
+     *
+     * @param sessionBlob opaque blob returned by the auth flow
+     * @throws com.picsou.exception.DegiroSessionExpiredException when DEGIRO rejects
+     *         the session (expired) — never interpreted as an empty portfolio.
+     */
     public DegiroPortfolioData fetchPortfolio(String sessionBlob) {
         log.info("Fetching DEGIRO portfolio via degiro-auth sidecar");
 
@@ -189,4 +213,24 @@ public class DegiroAdapter implements DegiroPort {
     private static BigDecimal decimal(JsonNode node) {
         return node.decimalValue();
     }
+
+    public record InitiateResult(
+        String processId,
+        boolean totpRequired,
+        String sessionBlob   // populated only when totpRequired == false
+    ) {}
+
+    public record DegiroPosition(
+        String isin,
+        String symbol,
+        String name,
+        BigDecimal quantity,
+        BigDecimal buyingPrice,
+        BigDecimal currentPrice
+    ) {}
+
+    public record DegiroPortfolioData(
+        BigDecimal cashEur,
+        List<DegiroPosition> positions
+    ) {}
 }

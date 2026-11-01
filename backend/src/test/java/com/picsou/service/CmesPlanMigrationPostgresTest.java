@@ -5,7 +5,7 @@ import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.CmesSession;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.CmesPort;
+import com.picsou.adapter.CmesAdapter;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CmesSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -74,7 +74,7 @@ class CmesPlanMigrationPostgresTest {
     @Autowired AccountRepository accounts;
     @Autowired CmesSessionRepository sessions;
     @Autowired JdbcTemplate jdbc;
-    @MockitoBean CmesPort port;
+    @MockitoBean CmesAdapter port;
     @MockitoBean CryptoEncryption encryption;
     @MockitoBean AccountService accountService;
     FamilyMember member;
@@ -145,15 +145,15 @@ class CmesPlanMigrationPostgresTest {
             .collect(Collectors.toMap(Account::getExternalAccountId, Account::getCurrentBalance));
     }
 
-    private CmesPort.PlanData plan(String externalId, String label, String slug) {
-        return new CmesPort.PlanData(
+    private CmesAdapter.PlanData plan(String externalId, String label, String slug) {
+        return new CmesAdapter.PlanData(
             externalId,
             List.of(PEE_ID, PEE_ID + "-" + slug),
             label,
             "PEE",
             "ACME",
             new BigDecimal("100.00"),
-            List.of(new CmesPort.Position(null, "160", "FONDS", new BigDecimal("5"),
+            List.of(new CmesAdapter.Position(null, "160", "FONDS", new BigDecimal("5"),
                 new BigDecimal("20"), new BigDecimal("100.00"), null)),
             true
         );
