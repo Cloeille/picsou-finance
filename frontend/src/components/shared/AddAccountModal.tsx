@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { AccountForm } from '@/components/shared/AccountForm'
 import { AddPropertyModal } from '@/components/property/AddPropertyModal'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { TradeRepublicLogin } from '@/components/sync/TradeRepublicLogin'
 import { CryptoWalletForm } from '@/components/sync/CryptoWalletForm'
 import { CryptoExchangeForm } from '@/components/sync/CryptoExchangeForm'
 import { InstitutionSearch } from '@/components/sync/InstitutionSearch'
@@ -30,14 +31,11 @@ import { SimplefinPanel } from '@/components/sync/SimplefinPanel'
 import {
   ACCOUNT_COLORS,
   ACCOUNT_TYPES,
-  TR_VERIFICATION_CODE_LENGTH,
 } from '@/lib/constants'
-import { formatTrAuthError, getErrorStatus, getErrorDetail } from '@/lib/errors'
+import { getErrorStatus, getErrorDetail } from '@/lib/errors'
 import { useCreateAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
 import {
   useInitiateBankSync,
-  useInitiateTrAuth,
-  useCompleteTrAuth,
   useRevolutStatus,
   useStartRevolutSync,
   useSyncProgress,
@@ -50,7 +48,7 @@ import {
   useExecuteFinaryApiSync,
   useCheckFinaryTotp,
 } from '@/features/sync/hooks'
-import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
+import { InputOTP, InputOTPGroup } from '@/components/ui/input-otp'
 import { MaskedOTPSlot } from '@/components/sync/MaskedOTPSlot'
 import { RevolutSelectionCard } from '@/components/sync/RevolutSelectionCard'
 import { revolutErrorLabel, revolutPhaseLabel } from '@/features/sync/revolut-phase'
@@ -71,7 +69,6 @@ import {
   Eye,
   EyeOff,
   Upload,
-  ShieldCheck,
   RefreshCw,
   Lock,
   AlertTriangle,
@@ -402,156 +399,16 @@ function WalletWizard({ onBack }: { onDone: () => void; onBack: () => void }) {
 // Wizard: Trade Republic
 // ---------------------------------------------------------------------------
 
-type TrState = 'IDLE' | 'AWAITING_TAN' | 'CONNECTED' | 'ERROR'
-
 function TradeRepublicWizard({ onBack }: { onDone: () => void; onBack: () => void }) {
   const { t } = useTranslation()
-  const [authState, setAuthState] = useState<TrState>('IDLE')
-  const [phone, setPhone] = useState('')
-  const [pin, setPin] = useState('')
-  const [tan, setTan] = useState('')
-  const [processId, setProcessId] = useState<string | null>(null)
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
-
-  const initiateMutation = useInitiateTrAuth()
-  const completeMutation = useCompleteTrAuth()
-
-  function handleInitiate(e: React.FormEvent) {
-    e.preventDefault()
-    if (pin.length === 0) return
-    initiateMutation.mutate(
-      { phoneNumber: phone, pin },
-      {
-        onSuccess: (data) => {
-          setProcessId(data.processId)
-          setTan('')
-          setAuthState('AWAITING_TAN')
-          setErrorMsg(null)
-        },
-        onError: (err: unknown) => {
-          setErrorMsg(formatTrAuthError(err, t))
-          setProcessId(null)
-          setTan('')
-          setAuthState('IDLE')
-        },
-      },
-    )
-  }
-
-  function handleTan(e: React.FormEvent) {
-    e.preventDefault()
-    if (!processId || tan.length !== TR_VERIFICATION_CODE_LENGTH) return
-    completeMutation.mutate(
-      { processId, tan },
-      {
-        onSuccess: () => {
-          setAuthState('CONNECTED')
-          setTan('')
-          setPhone('')
-          setPin('')
-          setProcessId(null)
-          setErrorMsg(null)
-        },
-        onError: (err: unknown) => {
-          setErrorMsg(formatTrAuthError(err, t))
-          setTan('')
-          setAuthState('AWAITING_TAN')
-        },
-      },
-    )
-  }
-
-  // Only dismiss the banner: the mutations' onError handlers already reset
-  // authState/processId appropriately per failure type. Resetting to IDLE here
-  // would throw away a still-valid TAN session after a completion failure.
-  function handleRetry() {
-    setErrorMsg(null)
-  }
-
-  if (authState === 'CONNECTED') {
-    return (
-      <>
-        <BackButton onClick={onBack} />
-        <SuccessState message={t('addAccount.trConnected')} />
-      </>
-    )
-  }
+  const [connected, setConnected] = useState(false)
 
   return (
     <>
       <BackButton onClick={onBack} />
-      <div className="space-y-4">
-        {errorMsg && (
-          <div className="flex flex-col gap-3 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            <span className="leading-6">{errorMsg}</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="self-end px-4 text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={handleRetry}
-            >
-              {t('sync.banks.retry')}
-            </Button>
-          </div>
-        )}
-
-        {authState !== 'AWAITING_TAN' && (
-          <form onSubmit={handleInitiate} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="tr-phone">
-                <Smartphone className="size-4 inline-block mr-1" />
-                {t('sync.tr.phone')}
-              </Label>
-              <Input id="tr-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required placeholder="+49..." autoFocus />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tr-pin">
-                <ShieldCheck className="size-4 inline-block mr-1" />
-                {t('sync.tr.pin')}
-              </Label>
-              <InputOTP maxLength={4} value={pin} onChange={setPin} autoFocus>
-                <InputOTPGroup>
-                  {[0, 1, 2, 3].map((i) => (
-                    <MaskedOTPSlot key={i} index={i} />
-                  ))}
-                </InputOTPGroup>
-              </InputOTP>
-            </div>
-            <Button type="submit" disabled={initiateMutation.isPending} className="w-full">
-              {initiateMutation.isPending && <Loader2 className="size-4 animate-spin" />}
-              {t('sync.tr.connect')}
-            </Button>
-          </form>
-        )}
-
-        {authState === 'AWAITING_TAN' && (
-          <form onSubmit={handleTan} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="tr-tan">
-                <ShieldCheck className="size-4 inline-block mr-1" />
-                {t('sync.tr.tan')}
-              </Label>
-              <InputOTP
-                id="tr-tan"
-                maxLength={TR_VERIFICATION_CODE_LENGTH}
-                value={tan}
-                onChange={(value) => setTan(value.replace(/\D/g, '').slice(0, TR_VERIFICATION_CODE_LENGTH))}
-                autoFocus
-              >
-                <InputOTPGroup>
-                  {[0, 1, 2, 3].map((i) => (
-                    <InputOTPSlot key={i} index={i} />
-                  ))}
-                </InputOTPGroup>
-              </InputOTP>
-            </div>
-            <Button type="submit" disabled={completeMutation.isPending || tan.length !== TR_VERIFICATION_CODE_LENGTH} className="w-full">
-              {completeMutation.isPending && <Loader2 className="size-4 animate-spin" />}
-              {t('sync.tr.connect')}
-            </Button>
-          </form>
-        )}
-      </div>
+      {connected
+        ? <SuccessState message={t('addAccount.trConnected')} />
+        : <TradeRepublicLogin variant="modal" onConnected={() => setConnected(true)} />}
     </>
   )
 }
