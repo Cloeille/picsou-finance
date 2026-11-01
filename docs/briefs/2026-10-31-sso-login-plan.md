@@ -17,6 +17,9 @@ Nothing changes when SSO is not configured.
 **Architecture:**
 - A third `SecurityFilterChain` (`@Order(0)`, `/oauth2/sso/**`) runs Spring Security's
   `oauth2Login` against one lazily discovered provider, with PKCE S256, `state` and `nonce`.
+- Both ends of the flow are same-origin POSTs, as the "never change state on GET" convention
+  requires: the SPA starts the flow with a form POST, and the IdP returns to a SPA page that posts
+  the result back.
 - The success handler resolves the IdP identity `(iss, sub)` to an `AppUser`, syncs the role from
   the groups claim, and issues **Picsou's own cookies** through `SessionIssuer`, which is extracted
   from `AuthController`. The IdP's tokens are discarded.
@@ -167,8 +170,9 @@ Read it first; the security properties S1–S13 and the error codes are defined 
   - lenient parsing of `idp-logout`.
 - [ ] **Step 2:** Run `mvn test -Dtest=SsoPropertiesTest`. Expect FAIL.
 - [ ] **Step 3: implement.** Then add a commented SSO block to `docker/.env.example` with the nine
-  variables and the Zitadel notes from the design: own project, "Assert Roles on Authentication",
-  and no `groups` scope when the groups Action is used.
+  variables, the redirect URI to register at the IdP (`https://<host>/login/sso/callback`), and
+  the Zitadel notes from the design: own project, "Assert Roles on Authentication", and no
+  `groups` scope when the groups Action is used.
 - [ ] **Step 4:** Run the test again. Expect PASS.
 - [ ] **Step 5:** Report for commit.
 
@@ -344,7 +348,7 @@ Read it first; the security properties S1–S13 and the error codes are defined 
 
 **Interfaces:**
 - It implements `ClientRegistrationRepository`. `REGISTRATION_ID = "oidc"` is public, because the
-  callback path and the frontend URL builder use it.
+  processing URL and the frontend's start and callback forms use it.
 - The constructor takes `(SsoProperties, Function<String, ClientRegistration.Builder> discovery, Clock)`.
   The production discovery is `ClientRegistrations::fromIssuerLocation`.
 - `findByRegistrationId("oidc")`:
@@ -356,13 +360,14 @@ Read it first; the security properties S1–S13 and the error codes are defined 
   - `clientAuthenticationMethod` is `NONE` without a secret and `CLIENT_SECRET_BASIC` with one;
   - `clientSettings(ClientSettings.builder().requireProofKey(true).build())`;
   - scopes are `effectiveScopes()`;
-  - `redirectUri("{baseUrl}/oauth2/sso/code/{registrationId}")`;
+  - `redirectUri("{baseUrl}/login/sso/callback")`: the SPA callback page, which re-posts the
+    result to Spring's processing URL `/oauth2/sso/code/oidc` (Task 20);
   - `clientName(providerName)`.
 
 - [ ] **Step 1:** Run
-  `mvn -q dependency:tree -Dincludes=org.springframework.security:spring-security-oauth2-client`.
-  Confirm 6.5.x and that `ClientRegistration.ClientSettings.requireProofKey` exists. If it does
-  not, note it; Task 10's resolver then applies `OAuth2AuthorizationRequestCustomizers.withPkce()`.
+  `mvn -q dependency:tree -Dincludes=org.springframework.security:spring-security-oauth2-client`
+  and confirm 6.5.x. `requireProofKey` and the redirect URI handling the design relies on were
+  checked in the 6.5 source; on another minor version, check them again first.
 - [ ] **Step 2: failing tests:**
   - nothing is called at construction;
   - a success is cached;
@@ -385,9 +390,14 @@ Read it first; the security properties S1–S13 and the error codes are defined 
 - Create: `backend/src/main/java/com/picsou/service/sso/SsoIntent.java`
 - Modify: `backend/src/main/java/com/picsou/config/RateLimitConfig.java`. Add `ssoStartBuckets`
   and `createSsoStartBucket()`: 30 per IP per 15 minutes.
+- Modify: `backend/src/main/java/com/picsou/config/CrossSiteCookieRequestMatcher.java`, which gets
+  a `requireCredentialCookie` constructor flag (the existing constructor keeps `true`), and
+  `backend/src/main/java/com/picsou/config/SecurityConfig.java`, whose
+  `crossSiteAwareAccessDeniedHandler()` becomes package-private for the SSO chain.
 - Test: `SafeRedirectTest`, `SsoStartGuardFilterTest`, `SsoAuthorizationRequestResolverTest`
   (Mockito); `SsoSecurityConfigTest`, a MockMvc slice following `SecurityConfigHstsHeaderTest`:
-  `@WebMvcTest` with `@Import` and `@TestPropertySource`.
+  `@WebMvcTest` with `@Import` and `@TestPropertySource`. The API chain's
+  `CrossSiteRequestProtectionTest` must stay green unchanged.
 
 **Interfaces:**
 - `record SsoIntent(Kind kind, String redirect, boolean rememberMe, Long userId, String activationToken, Instant startedAt) implements Serializable`,
@@ -407,9 +417,17 @@ Read it first; the security properties S1–S13 and the error codes are defined 
   - `securityContext(c -> c.securityContextRepository(new RequestAttributeSecurityContextRepository()))`,
     so nothing is stored in the session.
   - `sessionManagement` set to `IF_REQUIRED`.
-  - CSRF disabled. Both endpoints are GET navigations, and `state` binds the handshake.
+  - The cross-site check: Spring's `CsrfFilter` with
+    `requireCsrfProtectionMatcher(new CrossSiteCookieRequestMatcher(cors, false))`, the API chain's
+    `NoStoredCsrfTokenRepository` and its cross-site 403 handler. `false` drops the auth-cookie
+    condition, because a login start carries no auth cookie and the callback carries only the
+    handshake session cookie. A cross-site POST to `/oauth2/sso/**` therefore gets 403 (S3).
   - `SsoStartGuardFilter` placed before `OAuth2AuthorizationRequestRedirectFilter`.
-- **Guard** on `GET /oauth2/sso/authorization/oidc`:
+- **Guard:**
+  - any request on the chain that is not a POST gets a 302 to `/login`. A GET start (a link on
+    another site) and a GET callback (an IdP still configured with an old redirect URI) never run;
+  - the rest applies to `POST /oauth2/sso/authorization/oidc`, whose fields come from the form
+    body;
   - rate limit by `ClientIp.resolve`;
   - `intent` (default `login`); `redirect` through `SafeRedirect`, with a default per intent;
     `rememberMe=1`;
@@ -422,7 +440,7 @@ Read it first; the security properties S1–S13 and the error codes are defined 
     itself (see the design).
 - **Resolver**: wraps `DefaultOAuth2AuthorizationRequestResolver`. It copies the intent into the
   authorization request's attributes and adds `prompt=login` and `max_age=0` for REAUTH. PKCE
-  S256 comes from the registration, or from `withPkce()` per Task 9.
+  S256 comes from the registration's `requireProofKey`.
 - **Repository**: delegates to `HttpSessionOAuth2AuthorizationRequestRepository`. Its
   `removeAuthorizationRequest` also stores the removed request in a request attribute, so both
   handlers can read the intent.
@@ -435,6 +453,7 @@ Read it first; the security properties S1–S13 and the error codes are defined 
 - [ ] **Step 1: failing tests:**
   - `SafeRedirect`: each accepted and rejected case.
   - Guard:
+    - a GET start and a GET callback redirect to `/login`, and nothing reaches the IdP;
     - the rate limit redirects with `RATE_LIMITED`;
     - setup not complete redirects to `/setup`;
     - an unavailable provider gives `IDP_UNAVAILABLE`;
@@ -448,9 +467,11 @@ Read it first; the security properties S1–S13 and the error codes are defined 
   - Repository: the removed request is exposed.
   - `SsoSecurityConfigTest`:
     - **without** the `app.sso.*` properties, there is no `ClientRegistrationRepository` bean and
-      `GET /oauth2/sso/authorization/oidc` gets the API chain's 401 (S13);
-    - **with** them, and discovery stubbed by a `@TestConfiguration` registration, it gets a 302
-      to the IdP's authorize URL.
+      `POST /oauth2/sso/authorization/oidc` gets the API chain's 401 (S13);
+    - **with** them, and discovery stubbed by a `@TestConfiguration` registration, a same-origin
+      POST start gets a 302 to the IdP's authorize URL, with a `redirect_uri` ending in
+      `/login/sso/callback`;
+    - a cross-site POST start or callback (`Sec-Fetch-Site: cross-site`, no auth cookie) gets 403.
 - [ ] **Step 2:** Run → FAIL.
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** Run → PASS.
@@ -770,10 +791,10 @@ Read it first; the security properties S1–S13 and the error codes are defined 
 
 ## Phase 5 — Frontend
 
-### Task 19: Types, API, hooks, URL builder, demo mocks
+### Task 19: Types, API, hooks, SSO start form, demo mocks
 
 **Files:**
-- Create: `frontend/src/features/sso/api.ts`, `hooks.ts`, `urls.ts`, `urls.test.ts`;
+- Create: `frontend/src/features/sso/api.ts`, `hooks.ts`, `start.ts`, `start.test.ts`;
   `frontend/src/lib/sso-revalidate.ts` and `sso-revalidate.test.ts`
 - Modify:
   - `frontend/src/features/family/api.ts`: add `hasPassword` and `ssoLinked` to the member type;
@@ -789,8 +810,13 @@ Read it first; the security properties S1–S13 and the error codes are defined 
   - mutations `useReauth`, `useRemovePassword`, `useSetPassword`, `useUnlinkIdentity`, which
     invalidate the sign-in methods query;
   - `useAdminUnlinkIdentities`, which invalidates `['family', 'members']`.
-- `ssoStartUrl({ intent, redirect?, rememberMe?, token?, ack? })` builds
-  `/oauth2/sso/authorization/oidc?…`, with `oidc` as the registration ID from Task 9.
+- `features/sso/start.ts`. The SSO chain refuses GET (Task 10), so every start is a form POST:
+  - `ssoStartFields({ intent, redirect?, rememberMe?, token?, ack? })` returns the form fields;
+  - `submitSsoStart(params)` builds a hidden
+    `<form method="post" action="/oauth2/sso/authorization/oidc">` with those fields, appends it
+    to the document and calls `requestSubmit()`. `oidc` is the registration ID from Task 9.
+
+  It is a navigation, not an API call, so it sits beside `api.ts` rather than in it.
 - `lib/sso-revalidate.ts`:
   - `markSsoRevalidate()` and `consumeSsoRevalidate()`, using sessionStorage and readable once;
   - `rememberSsoPreference(boolean)` and `ssoRememberPreference()`, using localStorage.
@@ -800,21 +826,26 @@ Read it first; the security properties S1–S13 and the error codes are defined 
   - every demo family member gets `hasPassword` and `ssoLinked`, per
     [the demo-data lesson](../lessons/demo-data-interface-completeness.md).
 
-- [ ] **Step 1: failing tests:** URL encoding, including a redirect that contains `?` and `&`, and
-  the revalidation flag being consumed once.
+- [ ] **Step 1: failing tests:**
+  - the form fields, including a redirect that contains `?` and `&`;
+  - `submitSsoStart` submits a POST form with that action and those fields, captured from the
+    `submit` event as `ConsentPage.test.tsx` does;
+  - the revalidation flag is consumed once.
 - [ ] **Step 2:** Run `bunx vitest run src/features/sso src/lib/sso-revalidate.test.ts` → FAIL.
 - [ ] **Step 3:** Implement, then run `bun run typecheck`.
 - [ ] **Step 4:** Run the tests → PASS.
 - [ ] **Step 5:** Report for commit.
 
-### Task 20: Login button, SSO completion page, automatic re-validation, logout redirect
+### Task 20: Login button, callback and completion pages, re-validation, logout redirect
 
 **Files:**
-- Create: `frontend/src/pages/login/SsoCompletePage.tsx` and `SsoCompletePage.test.tsx`;
+- Create: `frontend/src/pages/login/SsoCallbackPage.tsx` and `SsoCallbackPage.test.tsx`;
+  `frontend/src/pages/login/SsoCompletePage.tsx` and `SsoCompletePage.test.tsx`;
   `frontend/src/pages/login/LoginPage.test.tsx`
 - Modify:
   - `frontend/src/pages/login/LoginPage.tsx`;
-  - `frontend/src/app/routes.tsx`: add `/login/sso-complete` outside the guards, like `/consent`;
+  - `frontend/src/app/routes.tsx`: add `/login/sso/callback` and `/login/sso-complete` outside the
+    guards, like `/consent`;
   - `frontend/src/lib/api-client.ts`;
   - `frontend/src/features/auth/hooks.ts`;
   - the four locale files (`auth.sso.*`, `ssoErrors.*`).
@@ -822,13 +853,21 @@ Read it first; the security properties S1–S13 and the error codes are defined 
 **Behavior:**
 - **`LoginPage`:**
   - When `useSsoInfo().data?.enabled`, show "Sign in with {provider}" above the form, with a
-    divider. It passes the Remember Me checkbox in `ssoStartUrl` and saves it with
+    divider. It calls `submitSsoStart`, passing the Remember Me checkbox, and saves the choice with
     `rememberSsoPreference`.
   - An `ssoError` query parameter shows `t('ssoErrors.<CODE>')`, falling back to a generic
     message.
   - On mount: if `consumeSsoRevalidate()` and SSO is enabled, go straight to
-    `ssoStartUrl({ intent: 'login', redirect, rememberMe: ssoRememberPreference() })`.
+    `submitSsoStart({ intent: 'login', redirect, rememberMe: ssoRememberPreference() })`.
   - No SSO in demo mode.
+- **`SsoCallbackPage`**, the IdP's redirect target. It changes nothing itself:
+  1. it reads every query parameter (`code`, `state`, `error`, `error_description`, `iss`, …);
+  2. it replaces the URL with the bare `/login/sso/callback`, so the code leaves the address bar
+     and the history;
+  3. it renders a hidden `<form method="post" action="/oauth2/sso/code/oidc">` carrying those
+     parameters and submits it once, showing a spinner meanwhile. A ref stops React StrictMode's
+     second effect run from submitting twice;
+  4. a visit with neither `code` nor `error` redirects to `/login`.
 - **`SsoCompletePage`:**
   1. `resetClientState(queryClient)`;
   2. `authApi.refresh()`, then `login(user)`;
@@ -845,6 +884,8 @@ Read it first; the security properties S1–S13 and the error codes are defined 
   - Remember Me is forwarded;
   - errors are translated;
   - the automatic restart only happens with the flag;
+  - `SsoCallbackPage` posts every parameter it received to `/oauth2/sso/code/oidc` once, after
+    clearing the URL, and sends a bare visit to `/login`;
   - `SsoCompletePage` resets, probes and navigates, and makes a full navigation for `/oauth2/`;
   - the API client sets the flag only for `SSO_REVALIDATE`;
   - logout redirects to the end-session URL.
@@ -868,13 +909,14 @@ Read it first; the security properties S1–S13 and the error codes are defined 
     otherwise the button is disabled with a hint. "Set a password" when the account has none.
   - **Identities:** email or name, last sign-in, and Unlink. Unlink is disabled with a hint when
     it would remove the last sign-in method.
-  - **"Link {provider} account":** `ReauthPanel` first, then `ssoStartUrl({ intent: 'link', redirect: '/settings' })`.
+  - **"Link {provider} account":** `ReauthPanel` first, then
+    `submitSsoStart({ intent: 'link', redirect: '/settings' })`.
   - When `adminGroupManaged`, a note: "Admin rights follow your group in {provider}".
 - **`ReauthPanel`:**
   - With a password: password, plus the TOTP code when 2FA is on, then `useReauth`, then
     `onConfirmed()`.
-  - Without one: "Confirm with {provider}" goes to
-    `ssoStartUrl({ intent: 'reauth', redirect: '/settings?resume=<action>' })`. On return,
+  - Without one: "Confirm with {provider}" calls
+    `submitSsoStart({ intent: 'reauth', redirect: '/settings?resume=<action>' })`. On return,
     `SecuritySection` reads `resume` and reopens that dialog in the confirmed state.
   - A 401 `REAUTH_FAILED` on the final action resets the panel with "Confirmation expired".
 - **The local 2FA card** is only shown when `hasPassword` is true.
@@ -906,12 +948,12 @@ Read it first; the security properties S1–S13 and the error codes are defined 
 
 **Behavior:**
 - **`SetupStepAdmin`:** when `status.sso.adminBootstrap` is true, show only "Continue with
-  {provider}", which goes to `ssoStartUrl({ intent: 'setup' })`, and show `ssoError`.
+  {provider}", which calls `submitSsoStart({ intent: 'setup' })`, and show `ssoError`.
 - **`SetupStepComplete`:** when `consumeSetupCredentials()` returns nothing, probe the session
   with `authApi.refresh()` and log in from it before falling back to the login page.
 - **`ActivationPage`:**
-  - when SSO is enabled, add "Activate with {provider}", which needs the acknowledgement and goes
-    to `ssoStartUrl({ intent: 'activate', token, ack: true })`; show `ssoError`;
+  - when SSO is enabled, add "Activate with {provider}", which needs the acknowledgement and calls
+    `submitSsoStart({ intent: 'activate', token, ack: true })`; show `ssoError`;
   - move the page's existing hardcoded English copy to `activation.*` keys in the same change,
     because the page is being reworked.
 - **`MembersSection`:**
@@ -952,7 +994,9 @@ Read it first; the security properties S1–S13 and the error codes are defined 
     the `@Container @ServiceConnection` Postgres pattern of
     `Oauth2ConsentHandshakeIntegrationTest`;
   - `app.sso.*` comes from `@DynamicPropertySource`;
-  - each flow reuses one `MockHttpSession` across the start and callback requests;
+  - each flow reuses one `MockHttpSession` across the start and callback requests. Both are POSTs
+    sent with `Sec-Fetch-Site: same-origin`; the callback carries the fake's `code` and `state` as
+    form fields, as `SsoCallbackPage` does;
   - scenarios run in order with `@TestMethodOrder`.
 
 - [ ] **Step 1: write the scenarios.**
@@ -971,6 +1015,10 @@ Read it first; the security properties S1–S13 and the error codes are defined 
   8. Re-authentication with `auth_time` five minutes before the start gets `REAUTH_TOO_OLD`. With
      a fresh `auth_time` it sets `reauth_proof`, and the export accepts it.
   9. Activation with SSO leaves the account activated, without a password, and linked.
+  10. The authorize request's `redirect_uri` is `http://localhost/login/sso/callback`, and the token
+      request repeats it (the fake rejects a mismatch). A GET start or callback redirects to
+      `/login` without reaching the IdP or creating anything, and a cross-site POST start or
+      callback gets 403.
 - [ ] **Step 2:** Run `mvn test -Dtest=SsoLoginIntegrationTest` with Docker → PASS. Then run the
   full `mvn test` → PASS, and watch the Skipped count per backend/CLAUDE.md.
 - [ ] **Step 3:** Report for commit.
@@ -986,7 +1034,7 @@ Read it first; the security properties S1–S13 and the error codes are defined 
   sits outside it; that is pre-existing and listed as a follow-up.
 - [ ] **Step 2:** Dev check. Run the backend with the `SSO_*` variables pointing at a reachable
   IdP, and `bun run dev`. Start an SSO login and check that the `redirect_uri` sent to the IdP is
-  `https://localhost:5173/oauth2/sso/code/oidc`. If it names `:8080`, the backend did not honor
+  `https://localhost:5173/login/sso/callback`. If it names `:8080`, the backend did not honor
   the forwarded headers: Tomcat only trusts the loopback peers in
   `server.tomcat.remoteip.internal-proxies` (#348), so run the backend on the same machine as
   Vite. Do not widen that list in the shipped configuration.
@@ -1004,8 +1052,9 @@ Read it first; the security properties S1–S13 and the error codes are defined 
   - `docs/features/sso-login.md`, from the FEATURE template. It covers the flows, the resolution
     matrix, configuration, the Zitadel guide and the tests. Its gotchas include: the SSO chain
     and `SetupFilter` order; changing the issuer orphans links; password logins do not sync
-    roles; a demotion lands within the window; and the Zitadel `groups` scope conflicting with
-    the Action.
+    roles; a demotion lands within the window; the Zitadel `groups` scope conflicting with the
+    Action; and the IdP returning to a SPA page while Spring processes the result at another URL
+    (checked in Spring Security 6.5, pinned by the integration test).
 - Modify:
   - `docs/INDEX.md`: ADR and feature rows;
   - `docs/ARCHITECTURE.md`: flow 12, the "Auth" key constraint, and the model, service and config
@@ -1016,7 +1065,7 @@ Read it first; the security properties S1–S13 and the error codes are defined 
   - `docs/features/setup-wizard.md`: the SSO admin step;
   - `docs/features/admin-recovery.md`: recovery re-creates a password for password-less admins;
   - `backend/CLAUDE.md`: the auth-flow paragraph;
-  - `frontend/CLAUDE.md`: the auth guard and `/login/sso-complete`;
+  - `frontend/CLAUDE.md`: the auth guard, `/login/sso/callback` and `/login/sso-complete`;
   - `CHANGELOG.md`: an entry under `[Unreleased]` → `### Added`, as CONTRIBUTING requires for
     user-visible changes.
 
@@ -1041,15 +1090,18 @@ Read it first; the security properties S1–S13 and the error codes are defined 
   10. IdP re-authentication: Tasks 14, 15, 21;
   11. re-validation window: Tasks 5, 13, 20;
   12. groups claim parsing: Task 6;
-  13. optional IdP logout: Tasks 13, 20.
-- **Placeholder scan.** Framework-dependent steps are written as "verify, then implement": the
-  PKCE API (Task 9), `setRetrieveUserInfo` (Task 10), the Vite forwarded headers (Task 24).
+  13. optional IdP logout: Tasks 13, 20;
+  14. same-origin POSTs at both ends: Tasks 10, 19, 20, 23.
+- **Placeholder scan.** Framework-dependent steps are written as "verify, then implement":
+  `setRetrieveUserInfo` (Task 10) and the Vite forwarded headers (Task 24). The PKCE API and the
+  redirect URI handling were checked in Spring Security 6.5's source (see the design's framework
+  facts).
 - **Type consistency.**
   - `SsoIntent` (Task 10) is consumed by Tasks 11, 15, 17 and 18.
   - `SsoIdentity` and `LoginOutcome` (Task 8) are consumed by Tasks 11, 15, 17 and 18.
   - `SessionIssuer.issue(user, remember, trustedFor2fa, ssoAt, req, res)` (Task 5) is used by
     Tasks 11, 16, 17 and 18.
-  - `REGISTRATION_ID = "oidc"` (Task 9) also appears in Tasks 10, 19 and 24.
+  - `REGISTRATION_ID = "oidc"` (Task 9) also appears in Tasks 10, 19, 20 and 24.
   - The error codes match the design brief's list.
 
 ## Manual end-to-end runbook (Zitadel)
@@ -1057,7 +1109,7 @@ Read it first; the security properties S1–S13 and the error codes are defined 
 1. **Zitadel setup:**
    - a project "Picsou" with the role `picsou-admin`, and **"Assert Roles on Authentication"** on;
    - a Web application using the Code flow with Basic authentication, redirect URI
-     `https://<host>/oauth2/sso/code/oidc` and post-logout URI `https://<host>/login`;
+     `https://<host>/login/sso/callback` and post-logout URI `https://<host>/login`;
    - the groups Action on **"Pre Userinfo creation"**. Alternatively, skip the Action and set
      `SSO_GROUPS_CLAIM=urn:zitadel:iam:org:project:roles`;
    - grant `picsou-admin` to the future admin.
