@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
-import { RouterProvider } from 'react-router-dom'
+import { RouterProvider } from 'react-router'
 import type { AxiosAdapter } from 'axios'
 import { expect, it, vi } from 'vitest'
 

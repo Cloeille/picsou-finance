@@ -337,6 +337,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Toasts follow the selected theme.** Notifications use the app's light or dark palette
+  even when it differs from the OS preference, and update when the theme changes (#327).
+
 - **BoursoBank syncs a securities account whose lines sit in several sections.** The trading
   board can split an account's positions across more than one section of its summary. Only the
   longest list was read, so the lines of the others went missing and the whole sync stopped with

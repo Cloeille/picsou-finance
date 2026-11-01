@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useMatches } from 'react-router-dom'
+import { useMatches } from 'react-router'
 import { useTelemetryConfig } from '@/features/telemetry/hooks'
 import { useAppStore } from '@/stores/app-store'
 import { initTelemetry, shutdownTelemetry, trackPageView } from '@/lib/telemetry'
