@@ -30,6 +30,108 @@ class ReviewRegressionsTest(unittest.TestCase):
         )
         return [json.loads(line) for line in parsed.stdout.splitlines() if line != "null"]
 
+    def test_bundled_database_rejects_stored_password_mismatch(self):
+        stored = {"postgres-password": base64.b64encode(b"synthetic-old-password").decode()}
+        with tempfile.TemporaryDirectory() as tmp:
+            chart = Path(tmp) / "picsou"
+            shutil.copytree(CHART, chart)
+            template = chart / "templates/secret.yaml"
+            template.write_text(template.read_text().replace(
+                '(lookup "v1" "Secret" .Release.Namespace $name).data',
+                '(' + json.dumps(json.dumps(stored)) + ' | fromJson)'))
+            result = self.render("--set-string", "secrets.postgresPassword=synthetic-new-password",
+                                 chart=chart)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("ALTER ROLE", result.stderr)
+            for password in ("", "synthetic-old-password"):
+                with self.subTest(password=password):
+                    resources = self.resources("--set-string", f"secrets.postgresPassword={password}",
+                                               chart=chart)
+                    secret = next(r for r in resources if r["kind"] == "Secret")
+                    self.assertEqual(secret["data"]["postgres-password"], stored["postgres-password"])
+            resources = self.resources("--set", "postgresql.enabled=false",
+                "--set", "externalDatabase.host=pg-rw", "--set-string",
+                "secrets.postgresPassword=synthetic-new-password", chart=chart)
+            secret = next(r for r in resources if r["kind"] == "Secret")
+            self.assertEqual(base64.b64decode(secret["data"]["postgres-password"]),
+                             b"synthetic-new-password")
+
+    def test_app_replica_boundary_allows_zero_and_one_only(self):
+        for count in (0, 1):
+            with self.subTest(count=count):
+                resources = self.resources("--set", f"app.replicaCount={count}")
+                app = next(r for r in resources if r["kind"] == "Deployment"
+                           and r["metadata"]["name"] == "picsou")
+                self.assertEqual(app["spec"]["replicas"], count)
+        result = self.render("--set", "app.replicaCount=2")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ReadWriteOnce", result.stderr)
+
+    def test_custom_labels_cannot_replace_app_or_migration_selectors(self):
+        labels = {f"app.kubernetes.io/{key}": "custom" for key in ("name", "instance", "component")}
+        labels["custom-label"] = "preserved"
+        resources = self.configured_resources({"app": {"podLabels": labels}})
+        for component, kind in (("app", "Deployment"), ("migrate", "Job")):
+            workload = next(r for r in resources if r["kind"] == kind
+                            and r["metadata"]["name"] == ("picsou" if component == "app" else "picsou-migrate"))
+            pod_labels = workload["spec"]["template"]["metadata"]["labels"]
+            self.assertEqual(pod_labels, {"app.kubernetes.io/name": "picsou",
+                "app.kubernetes.io/instance": "picsou", "app.kubernetes.io/component": component,
+                "custom-label": "preserved"})
+            if component == "app":
+                for key, value in workload["spec"]["selector"]["matchLabels"].items():
+                    self.assertEqual(pod_labels[key], value)
+
+    def test_app_has_readiness_without_default_startup_deadline(self):
+        resources = self.resources()
+        app = next(r for r in resources if r["kind"] == "Deployment" and r["metadata"]["name"] == "picsou")
+        container = app["spec"]["template"]["spec"]["containers"][0]
+        self.assertNotIn("startupProbe", container)
+        self.assertEqual(container["readinessProbe"]["httpGet"]["path"], "/actuator/health")
+        self.assertEqual(container["livenessProbe"]["tcpSocket"]["port"], "http")
+        resources = self.configured_resources({"app": {"startupProbe": {"tcpSocket": {"port": "http"}}}})
+        app = next(r for r in resources if r["kind"] == "Deployment" and r["metadata"]["name"] == "picsou")
+        self.assertEqual(app["spec"]["template"]["spec"]["containers"][0]["startupProbe"],
+                         {"tcpSocket": {"port": "http"}})
+
+    def test_postgresql_startup_allows_ten_minutes_for_recovery(self):
+        container = self.database_pod()["spec"]["containers"][0]
+        self.assertIn("startupProbe", container)
+        probe = container["startupProbe"]
+        self.assertEqual(probe["exec"], container["readinessProbe"]["exec"])
+        self.assertEqual(probe["periodSeconds"], 10)
+        self.assertEqual(probe["failureThreshold"], 60)
+
+    def test_switch_to_bundled_database_can_defer_migration_hook(self):
+        resources = self.resources("--is-upgrade", "--set", "postgresql.enabled=true",
+                                   "--set", "migrationJob.enabled=false")
+        self.assertFalse(any(r["kind"] == "Job" for r in resources))
+        self.assertTrue(any(r["kind"] == "StatefulSet" for r in resources))
+        for path in (CHART / "README.md", CHART.parents[1] / "docs/features/helm-chart.md"):
+            text = path.read_text()
+            self.assertIn("--set postgresql.enabled=true --set migrationJob.enabled=false", text)
+            self.assertIn("does not transfer existing data", text)
+            self.assertIn("re-enable", text)
+
+    def test_long_release_names_are_distinct_and_short_names_stay_stable(self):
+        names = []
+        for release in ("a" * 40 + "1", "a" * 40 + "2", "short"):
+            result = subprocess.run(["helm", "template", release, str(CHART)],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            parsed = subprocess.run(["yq", "-o=json", "-I=0", ".", "-"], input=result.stdout,
+                                    check=True, capture_output=True, text=True)
+            resources = [json.loads(line) for line in parsed.stdout.splitlines() if line != "null"]
+            app = next(r for r in resources if r["kind"] == "Deployment"
+                       and r["spec"]["template"]["spec"]["containers"][0]["name"] == "app")
+            names.append(app["metadata"]["name"])
+            for r in resources:
+                self.assertLessEqual(len(r["metadata"]["name"]), 63)
+        self.assertNotEqual(names[0], names[1])
+        self.assertEqual(len(names[0]), 40)
+        self.assertTrue(names[0].startswith("a" * 33 + "-"))
+        self.assertEqual(names[2], "short-picsou")
+
     def test_packaged_chart_keeps_executable_health_hook_and_excludes_local_tests(self):
         with tempfile.TemporaryDirectory() as tmp:
             subprocess.run(["helm", "package", str(CHART), "--destination", tmp],

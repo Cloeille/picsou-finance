@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   profiles to a fresh PVC through a pod supplemental group. Sidecar inventory drift remains
   warnings-only in CI, including customization tests, while script errors still fail.
   Empty or null Ingress host lists route to the app through a valid default backend.
+  Bundled database password mismatches and multiple app replicas fail rendering;
+  selector labels are protected. Slow app initialization no longer has a startup
+  deadline, and PostgreSQL has a ten-minute recovery allowance. Database transition
+  and password rotation procedures are documented. Long names include a hash.
+  Publishing uses local tags and complete SemVer validation; sidecar checks detect
+  missing chart capabilities, accept HTTPS wiring and keep JSON output parseable.
   See [feature note](docs/features/helm-chart.md).
 
 - **SCPI positions over MCP.** An MCP client can now record a SCPI account's share count,

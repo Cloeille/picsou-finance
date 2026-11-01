@@ -124,6 +124,24 @@ returns nothing there and the generated values would change on every sync.
 Null or empty inline secret values preserve the stored key. When no key is stored,
 the chart generates required keys and leaves optional app keys absent.
 
+For bundled PostgreSQL, an explicit `secrets.postgresPassword` that differs from
+its stored Secret fails rendering. Updating `POSTGRES_PASSWORD` cannot change the
+password in an initialized database. To rotate it during a maintenance window:
+
+1. Back up the database and scale the app to zero (`app.replicaCount=0`).
+2. Connect to PostgreSQL with the current credentials and run `ALTER ROLE` to set
+   the new password. Interactive `psql` with `\password picsou` avoids putting the
+   new password in shell history; adjust the role for `postgresql.username`.
+3. Update `postgres-password` in the current Kubernetes Secret to that same value
+   before upgrading, so the pre-upgrade migration Job can authenticate.
+4. Set `secrets.postgresPassword` to the matching value in your protected Helm
+   values and upgrade with `app.replicaCount=1` to restart the app. Restart any
+   other database clients so they load the new credentials.
+
+The guard uses `lookup`, which is unavailable in offline rendering. For
+`secrets.existingSecret`, coordinate the same server and Secret updates yourself.
+An external database still accepts an explicit password without this guard.
+
 After rotating `secrets.existingSecret`, restart the app and all enabled sidecars
 together so they load the same key. This also applies to External Secrets and
 Sealed Secrets. The chart checksum tracks inline values only; changing an external
@@ -265,6 +283,20 @@ Check that the command succeeds and store the dump securely together with the
 app's `/data` backup. Adjust the namespace and pod name for your release. For an
 external database, use its operator's backup procedure.
 
+When switching an existing release from an external database
+(`postgresql.enabled=false`) to bundled PostgreSQL, the pre-upgrade Job runs before
+the new database Service and StatefulSet exist. For that specific upgrade, use:
+
+```bash
+helm upgrade picsou oci://ghcr.io/cloeille/charts/picsou -n picsou -f values.yaml \
+  --set postgresql.enabled=true --set migrationJob.enabled=false
+```
+
+The app migrates the new empty database on first boot. Once it is ready, re-enable
+`migrationJob.enabled=true` in your values and on subsequent upgrades. This
+procedure does not transfer existing data. Back up and plan a separate restore or
+data migration before switching if you need to preserve the external database.
+
 With Argo CD, the hook becomes a PreSync hook, which also runs on the very first
 sync, before the bundled PostgreSQL exists. Set `migrationJob.enabled=false`
 for the first sync, then enable it.
@@ -307,12 +339,15 @@ charts/picsou/sync-sidecars.sh --apply   # add standard sidecars, disable stale 
 A sidecar is standard when its Compose service has only an image, a build, a
 restart policy and `APP_SIDECAR_API_KEY`: the generic template covers it. One
 with volumes, networks, `init` or more variables needs a chart change by hand.
-For existing chart entries, the script acknowledges only the supported key/sidecar
-pairs: Revolut `volumes` (profiles PVC), Fortuneo `networks` (NetworkPolicies),
-and Amex `init` (shared process namespace). Other keys and extra environment
-variables still warn in both modes. Missing custom sidecars still require manual
-integration. This key allowlist does not detect changes within acknowledged values;
-review those when changing Compose storage, isolation or process handling.
+For existing chart entries, Revolut volumes require `persistence.enabled` and
+Amex `init: true` requires `shareProcessNamespace: true`; missing equivalents emit
+`drift` findings. Extra environment variables must appear in `env` or `extraEnv`.
+Fortuneo's networks remain acknowledged through the chart NetworkPolicies; other
+unsupported keys still warn. The URL parser recognizes HTTP and HTTPS app wiring.
+Missing custom sidecars still require manual integration. These checks detect
+missing chart capabilities, not equivalence of individual mounts or network rules.
+`--json` always emits a JSON array, including with `--github`; GitHub annotations
+are emitted only in text mode.
 
 CI runs it in both directions. On a pull request, the `helm-chart` job reports
 differences as warnings and never fails because of them. The repository inventory
@@ -323,7 +358,7 @@ live in `charts/picsou/tests` and run only in the independent chart job. Helm va
 is independent of `ci-ok` and image publishing, so a chart failure does not block application releases.
 When publishing, stale entries are disabled in the packaged values so removed images
 are never deployed. Port or URL-variable mismatches and missing app wiring for
-listed sidecars fail publishing. Correct them in the chart before retrying,
+listed sidecars, plus semantic `drift` findings, fail publishing. Correct them in the chart before retrying,
 including for custom sidecars.
 The missing standard sidecars are added to the packaged chart,
 so a new sidecar of that kind is available without a chart change; the others
@@ -352,13 +387,28 @@ The test pod uses `global.imagePullSecrets` and the app's `nodeSelector`,
 ## Known limitations
 
 - **One app replica.** Flyway and the `ReadWriteOnce` `/data` volume rule out
-  more; the Deployment uses the `Recreate` strategy.
+  more; rendering fails above one replica. Zero scales the app down. The Deployment
+  uses the `Recreate` strategy to prevent overlapping versions.
 - **Pod Security `baseline`, not `restricted`.** The app image runs nginx and
   the JVM as root under supervisord, PostgreSQL starts as root before dropping
   privileges, and the sidecar images declare non-numeric users, so
   `runAsNonRoot` cannot be verified. The namespace must allow `baseline`.
 - **No Ollama.** Run it separately if you want local AI categorization and set
   its URL in Admin → Settings.
+
+The app has no startup probe by default (`app.startupProbe: {}`). HTTP readiness
+holds traffic during long migrations or database outages without restarting the
+container. TCP liveness still detects an unresponsive nginx listener. PostgreSQL
+has a `pg_isready` startup probe with a ten-minute recovery budget before liveness
+starts. Custom `app.podLabels` cannot override the reserved `app.kubernetes.io/name`,
+`app.kubernetes.io/instance` and `app.kubernetes.io/component` labels on the app or
+migration pod.
+
+Resource fullnames of up to 40 characters stay unchanged. Longer names use the
+first 33 characters plus a hyphen and six-character hash of the full name to keep
+sidecar Service names within 63 characters and distinguish long release names.
+Upgrading a release whose old fullname was truncated changes its resource names;
+plan the migration of existing claims and Secrets explicitly before upgrading.
 
 ## Values
 

@@ -6,20 +6,24 @@ Chart name, truncated to fit a DNS label.
 {{- end }}
 
 {{/*
-Fully qualified release name. Kept to 40 characters so that
+Fully qualified release name. Long names use a prefix and hash to avoid collisions.
+Kept to 40 characters so that
 "<fullname>-caisse-epargne-auth" still fits in a 63-character DNS label: the
 backend only accepts plain HTTP to a sidecar on a single-label host name.
 */}}
 {{- define "picsou.fullname" -}}
-{{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 40 | trimSuffix "-" }}
-{{- else }}
+{{- $full := .Values.fullnameOverride }}
+{{- if not $full }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
-{{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 40 | trimSuffix "-" }}
-{{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 40 | trimSuffix "-" }}
+{{- $full = .Release.Name }}
+{{- if not (contains $name .Release.Name) }}
+{{- $full = printf "%s-%s" .Release.Name $name }}
 {{- end }}
+{{- end }}
+{{- if gt (len $full) 40 }}
+{{- printf "%s-%s" ($full | trunc 33 | trimSuffix "-") ($full | sha256sum | trunc 6) }}
+{{- else }}
+{{- $full | trimSuffix "-" }}
 {{- end }}
 {{- end }}
 

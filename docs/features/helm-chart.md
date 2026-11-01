@@ -14,7 +14,9 @@ same published images, same configuration surface, Kubernetes-native exposure an
 One release creates:
 
 - **app** — a `Recreate` Deployment of `ghcr.io/cloeille/picsou-finance` (nginx + Spring Boot
-  under supervisord), a `/data` PVC and a `ClusterIP` Service on 8080.
+  under supervisord), a `/data` PVC and a `ClusterIP` Service on 8080. Rendering
+  rejects more than one replica; zero is supported for maintenance. Custom pod labels
+  cannot override the three selector labels on the app or migration pod.
 - **sidecars** — one Deployment and Service per entry of `sidecars` (the `*-auth` services of
   the Compose file), each toggled by `enabled`. The app receives the matching
   `*_AUTH_URL` for every enabled sidecar. `revolut-auth` gets a PVC for its browser profiles.
@@ -49,6 +51,11 @@ and publishes to `oci://ghcr.io/<owner>/charts/picsou`:
   `appVersion` = `sha-<short sha>`, the image tag `docker/metadata-action` gives every image of the
   commit.
 
+The chart checkout fetches full history and tags. Main version selection uses local
+`git tag --list` without a remote lookup. Release tags must be complete SemVer,
+including no leading zeros in numeric prerelease identifiers; invalid tags skip
+chart publishing.
+
 The `base` job computes the app build version and immutable image tag once. Both the image
 matrix and the chart consume those outputs, and every image explicitly publishes that tag through
 `docker/metadata-action` as a raw tag entry. The build step uses only metadata-action's tag output,
@@ -57,9 +64,9 @@ which lowercases repository names so mixed-case GitHub owners and forks publish 
 Before packaging, `sync-sidecars.sh --apply` adds to the packaged copy the standard sidecars that
 `values.yaml` does not list yet and disables entries removed from Compose, preserving their other
 settings. A port or URL-variable mismatch, or missing app wiring for a listed sidecar, fails publishing
-(including for custom sidecars), so
+(including for custom sidecars), as does semantic `drift` (missing chart capabilities), so
 known-broken wiring requires an explicit chart correction. `--check` remains warning-only in CI.
-Live inventory tests accept exit 0 or 2; supported customization checks use a frozen synthetic
+Live inventory tests parse a JSON array and accept exit 0 or 2; supported customization checks use a frozen synthetic
 inventory so new Compose sidecars cannot turn inventory drift into a release-blocking test failure.
 `global.imageRepository` is set to `ghcr.io/<repository>`, where
 this run pushed the images, so a chart published from a fork runs that fork's images (nothing is
@@ -130,6 +137,26 @@ helm upgrade
   environment variable does not rotate credentials in an initialized database. Coordinate server
   and Secret password changes and restart consumers as needed.
 
+- **Bundled password changes require coordination.** When `lookup` finds an existing
+  password, a differing inline password fails rendering. First `ALTER ROLE`, then
+  update `postgres-password` in the Kubernetes Secret, then set the same inline value
+  and restart consumers. The chart README documents the maintenance procedure.
+  External databases and externally managed Secrets remain operator-managed.
+- **Switching from external to bundled PostgreSQL needs one upgrade without the hook.**
+  Use `--set postgresql.enabled=true --set migrationJob.enabled=false` for that
+  upgrade because the new database resources do not exist when the hook runs.
+  The app migrates the new empty database on startup; once ready, re-enable the Job
+  for subsequent upgrades. This does not transfer existing data; plan a separate
+  backup and restore if the existing database must be preserved.
+- **App readiness has no startup deadline.** The default `app.startupProbe` is `{}`,
+  so slow migrations and database outages hold readiness without restarting the app.
+  TCP liveness remains enabled. PostgreSQL uses `pg_isready` startup checks every
+  ten seconds, with 60 failures allowed before liveness takes over during recovery.
+- **Long resource names use a hash.** Fullnames up to 40 characters stay unchanged;
+  longer ones use a 33-character prefix plus a hyphen and six-character hash.
+  Previously truncated names change on upgrade; plan existing claim and Secret
+  migration before upgrading such releases.
+
 - **GitOps renderers** (Argo CD) have no `lookup`: the generated Secret changes on every render.
   `secrets.existingSecret` is required there. Argo CD also maps `pre-upgrade` to PreSync, which
   runs on the first sync before the bundled PostgreSQL exists: disable `migrationJob` for that
@@ -187,10 +214,12 @@ helm upgrade
   otherwise send a number, which the API server rejects.
 - **A sidecar that is not standard** (volumes, networks, `init`, extra variables) is left out of
   the published chart until `values.yaml` and the templates support it; `sync-sidecars.sh --check`
-  lists it. For existing entries, the script acknowledges only Revolut `volumes` (profiles
-  PVC), Fortuneo `networks` (NetworkPolicies) and Amex `init` (shared process namespace).
-  Other keys and extra variables still warn in both modes. Changes inside acknowledged
-  values require manual review; this is a key allowlist, not a semantic comparison.
+  lists it. For existing entries, Revolut volumes require `persistence.enabled`, Amex `init: true`
+  requires `shareProcessNamespace`, and extra variables must exist in `env` or
+  `extraEnv`; missing equivalents emit `drift`. HTTP and HTTPS app URLs are recognized.
+  Fortuneo networks remain acknowledged through NetworkPolicies. These checks verify
+  chart capabilities, not individual mount or network-rule equivalence. JSON mode
+  emits only an array, even with `--github`; annotations are restricted to text mode.
 - **A checkout of the repository describes main** (`appVersion: nightly`, `version: 0.0.0-main`);
   only published charts carry a release version.
 
@@ -216,6 +245,9 @@ helm upgrade
   It also checks database TLS mounts, environment overrides and password fallback, migration
   scheduling and labels, numeric and null inline secrets, stored-key fallback, all generated
   app environment overrides, duplicate-name rejection, and health-test images and scheduling.
+  Review regressions also verify stored-password mismatch rejection, the zero/one replica
+  boundary, reserved pod labels, app readiness without a startup deadline, PostgreSQL recovery
+  probes, the documented database transition and distinct long release names.
 - Manual cluster check: `helm test` runs the `test-health` pod, which calls `/actuator/health`
   through the app Service. This requires a running release and is not run by the render tests.
 - Validated on 2026-10-31 on a Talos cluster (Kubernetes 1.37, Trident NFS, Traefik, cert-manager

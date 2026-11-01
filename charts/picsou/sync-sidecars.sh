@@ -89,10 +89,10 @@ add_finding() { findings="${findings}$1|$2|$3
 "; }
 
 # "<VAR> <host> <port>" for every app variable that points at a sidecar URL,
-# whether written as http://host:port or ${VAR:-http://host:port}.
+# whether written as http(s)://host:port or ${VAR:-http(s)://host:port}.
 urls=$(yq -r '.services.app.environment | to_entries | .[]
   | select(.key | test("_AUTH_URL$")) | .key + " " + (.value | tostring)' "$compose" \
-  | sed -n 's|^\([A-Z0-9_]*\) .*http://\([a-z0-9-]*\):\([0-9]*\).*|\1 \2 \3|p')
+  | sed -n 's|^\([A-Z0-9_]*\) .*https\{0,1\}://\([a-z0-9-]*\):\([0-9]*\).*|\1 \2 \3|p')
 
 compose_sidecars=$(yq -r '.services | keys | .[] | select(test("-auth$"))' "$compose")
 chart_sidecars=$(yq -r '.sidecars | keys | .[]' "$values")
@@ -118,20 +118,49 @@ for name in $compose_sidecars; do
       publish_error=true
       add_finding "$name" mismatch "Compose: $url_env on port $port, chart: $chart_env on port $chart_port"
     fi
-    # Only acknowledge keys whose Kubernetes equivalents are already implemented.
-    # Scope to existing chart entries: a missing custom sidecar still needs review.
+    # Only acknowledge keys when this chart entry enables their Kubernetes
+    # equivalent. Scope this to existing entries: a missing custom sidecar still
+    # needs review before the script can infer its settings.
     acknowledged=""
     case "$name" in
-      revolut-auth) acknowledged="volumes" ;; # profiles PVC in sidecars.yaml
+      revolut-auth)
+        acknowledged="volumes"
+        compose_has_volumes=$(yq -r ".services[\"$name\"].volumes // [] | length > 0" "$compose")
+        if [ "$compose_has_volumes" = true ] &&
+           [ "$(yq -r ".sidecars[\"$name\"].persistence.enabled // false" "$values")" != true ]; then
+          publish_error=true
+          add_finding "$name" drift "Compose volumes require sidecars.$name.persistence.enabled=true"
+        fi
+        ;;
       fortuneo-auth) acknowledged="networks" ;; # isolation in networkpolicy.yaml
-      amex-auth) acknowledged="init" ;; # shareProcessNamespace in values.yaml
+      amex-auth)
+        acknowledged="init"
+        compose_init=$(yq -r ".services[\"$name\"].init // false" "$compose")
+        if [ "$compose_init" = true ] &&
+           [ "$(yq -r ".sidecars[\"$name\"].shareProcessNamespace // false" "$values")" != true ]; then
+          publish_error=true
+          add_finding "$name" drift "Compose init requires sidecars.$name.shareProcessNamespace=true"
+        fi
+        ;;
     esac
     extra_keys=$(printf '%s\n' "$extra_keys" | awk -v known="$acknowledged" '
       { for (i = 1; i <= NF; i++) if ($i != known) printf "%s ", $i }')
-    if [ -n "$extra_keys$extra_env" ]; then
-      detail="review custom chart settings:"
-      [ -n "$extra_keys" ] && detail="$detail keys ${extra_keys% }"
-      [ -n "$extra_env" ] && detail="$detail; variables ${extra_env% }"
+
+    chart_declared_env=$(
+      {
+        yq -r ".sidecars[\"$name\"].env // {} | keys | .[]" "$values"
+        yq -r ".sidecars[\"$name\"].extraEnv // [] | .[].name" "$values"
+      } | sort -u
+    )
+    missing_env=$(printf '%s\n' "$extra_env" | awk -v known="$chart_declared_env" '
+      BEGIN { count = split(known, names, "\n"); for (i = 1; i <= count; i++) present[names[i]] = 1 }
+      { for (i = 1; i <= NF; i++) if (!present[$i]) printf "%s ", $i }')
+    if [ -n "$missing_env" ]; then
+      publish_error=true
+      add_finding "$name" drift "Compose variables missing from chart env/extraEnv: ${missing_env% }"
+    fi
+    if [ -n "$extra_keys" ]; then
+      detail="review custom chart settings: keys ${extra_keys% }"
       add_finding "$name" special "$detail"
     fi
     continue
@@ -173,7 +202,7 @@ else
   printf '%s\n' "$findings" | awk -F'|' '{ printf "%-22s %-9s %s\n", $1, $2, $3 }'
 fi
 
-if [ "$github" = true ] && [ -n "$findings" ]; then
+if [ "$github" = true ] && [ "$json" != true ] && [ -n "$findings" ]; then
   printf '%s\n' "$findings" | awk -F'|' '$2 != "added" { printf "::warning title=Helm chart: %s::%s\n", $1, $3 }'
 fi
 

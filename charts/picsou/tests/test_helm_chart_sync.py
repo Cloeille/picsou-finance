@@ -21,7 +21,7 @@ COMPOSE = textwrap.dedent(
         image: app
         environment:
           STD_AUTH_URL: ${STD_AUTH_URL:-http://std-auth:8001}
-          KNOWN_AUTH_URL: http://known-auth:8001
+          KNOWN_AUTH_URL: https://known-auth:8001
           VOL_AUTH_URL: http://vol-auth:8001
       known-auth:
         image: known
@@ -97,12 +97,15 @@ CUSTOM_VALUES = textwrap.dedent(
       revolut-auth:
         urlEnv: REVOLUT_AUTH_URL
         port: 8002
+        persistence:
+          enabled: true
       fortuneo-auth:
         urlEnv: FORTUNEO_AUTH_URL
         port: 8001
       amex-auth:
         urlEnv: AMEX_AUTH_URL
         port: 8001
+        shareProcessNamespace: true
     """
 )
 
@@ -130,9 +133,11 @@ class SyncSidecarsTest(unittest.TestCase):
         return result.returncode, {(f["sidecar"], f["kind"]) for f in json.loads(result.stdout)}
 
     def test_repository_inventory_check_succeeds(self):
-        result = self.run_script("--check", compose=ROOT / "docker/docker-compose.yml", values=VALUES)
+        result = self.run_script("--check", "--json",
+                                 compose=ROOT / "docker/docker-compose.yml", values=VALUES)
         # Exit 2 is drift, reported by the workflow's warning step; errors still fail CI.
         self.assertIn(result.returncode, (0, 2), result.stdout + result.stderr)
+        self.assertIsInstance(json.loads(result.stdout), list)
 
     def test_repository_inventory_allows_sidecar_drift(self):
         with patch(__name__ + ".ROOT", self.tmp), patch(__name__ + ".VALUES", self.values):
@@ -167,6 +172,59 @@ class SyncSidecarsTest(unittest.TestCase):
         result = self.run_script("--check", "--github")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("::warning", result.stdout)
+
+    def test_https_sidecar_url_is_wired(self):
+        result = self.run_script("--check", "--json")
+        findings = json.loads(result.stdout)
+        self.assertFalse(any(f["sidecar"] == "known-auth" for f in findings), findings)
+
+    def test_supported_settings_must_have_their_chart_equivalents(self):
+        self.compose.write_text(CUSTOM_COMPOSE)
+        for removed, sidecar in (("    persistence:\n      enabled: true\n", "revolut-auth"),
+                                 ("    shareProcessNamespace: true\n", "amex-auth")):
+            with self.subTest(sidecar=sidecar):
+                self.values.write_text(CUSTOM_VALUES.replace(removed, ""))
+                result = self.run_script("--check", "--json")
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn((sidecar, "drift"),
+                              {(f["sidecar"], f["kind"]) for f in json.loads(result.stdout)})
+                result = self.run_script("--apply", "--json")
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_unused_supported_settings_do_not_require_chart_equivalents(self):
+        self.compose.write_text(CUSTOM_COMPOSE.replace(
+            "    volumes: [profiles:/data/revolut-profiles]\n", "",
+        ).replace("    init: true\n", "    init: false\n"))
+        self.values.write_text(CUSTOM_VALUES.replace(
+            "    persistence:\n      enabled: true\n", "",
+        ).replace("    shareProcessNamespace: true\n", ""))
+        result = self.run_script("--check", "--json")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout), [])
+
+    def test_compose_variable_must_exist_in_chart_env_or_extra_env(self):
+        compose = CUSTOM_COMPOSE.replace(
+            "  amex-auth:\n    image: synthetic\n    init: true\n    environment:\n",
+            "  amex-auth:\n    image: synthetic\n    init: true\n    environment:\n"
+            "      BROWSER_MODE: synthetic\n",
+        )
+        self.compose.write_text(compose)
+        self.values.write_text(CUSTOM_VALUES)
+        result = self.run_script("--check", "--json")
+        findings = json.loads(result.stdout)
+        self.assertTrue(any(f["sidecar"] == "amex-auth" and f["kind"] == "drift"
+                            and "BROWSER_MODE" in f["detail"] for f in findings), findings)
+        self.assertEqual(self.run_script("--apply", "--json").returncode, 1)
+
+        for setting in ("    env:\n      BROWSER_MODE: synthetic\n",
+                        "    extraEnv:\n      - name: BROWSER_MODE\n        value: synthetic\n"):
+            with self.subTest(setting=setting.splitlines()[0].strip()):
+                self.values.write_text(CUSTOM_VALUES.replace(
+                    "    shareProcessNamespace: true\n",
+                    "    shareProcessNamespace: true\n" + setting,
+                ))
+                result = self.run_script("--check", "--json")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_acknowledgements_apply_only_to_known_keys_on_known_sidecars(self):
         compose = CUSTOM_COMPOSE
@@ -217,7 +275,7 @@ class SyncSidecarsTest(unittest.TestCase):
         self.assertEqual(self.values.read_text(encoding="utf-8"), once)
 
     def test_a_port_change_is_reported_as_a_mismatch(self):
-        self.compose.write_text(COMPOSE.replace("http://known-auth:8001", "http://known-auth:9000"), encoding="utf-8")
+        self.compose.write_text(COMPOSE.replace("https://known-auth:8001", "https://known-auth:9000"), encoding="utf-8")
         _, found = self.findings("--check")
         self.assertIn(("known-auth", "mismatch"), found)
 
@@ -241,7 +299,7 @@ class SyncSidecarsTest(unittest.TestCase):
 
     def test_apply_rejects_an_unwired_known_sidecar(self):
         self.compose.write_text(COMPOSE.replace(
-            "KNOWN_AUTH_URL: http://known-auth:8001",
+            "KNOWN_AUTH_URL: https://known-auth:8001",
             "TRADE_REPUBLIC_AUTH_URL: http://renamed-auth:8001",
         ), encoding="utf-8")
         result = self.run_script("--apply", "--json")
@@ -279,8 +337,10 @@ class SyncSidecarsTest(unittest.TestCase):
                               result.stdout)
                 self.assertEqual(self.values.read_text(), CHART_VALUES)
                 result = self.run_script("--apply", "--json")
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertTrue(any(f["sidecar"] == "known-auth" and f["kind"] == "special"
+                expected_kind = "drift" if "environment" in setting else "special"
+                expected_code = 1 if expected_kind == "drift" else 0
+                self.assertEqual(result.returncode, expected_code, result.stderr)
+                self.assertTrue(any(f["sidecar"] == "known-auth" and f["kind"] == expected_kind
                                     for f in json.loads(result.stdout)))
 
     def test_check_github_warns_about_missing_standard_sidecars_without_editing_values(self):
@@ -294,6 +354,12 @@ class SyncSidecarsTest(unittest.TestCase):
         warnings = [line for line in result.stdout.splitlines() if line.startswith("::warning")]
         self.assertTrue(any("vol-auth" in line for line in warnings))
         self.assertFalse(any("std-auth" in line for line in warnings))
+
+    def test_json_mode_suppresses_github_annotations(self):
+        result = self.run_script("--check", "--json", "--github")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIsInstance(json.loads(result.stdout), list)
+        self.assertNotIn("::warning", result.stdout)
 
 
 if __name__ == "__main__":

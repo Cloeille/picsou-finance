@@ -314,6 +314,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Helm
@@ -329,7 +330,11 @@ jobs:
           RELEASE_VERSION: ${{ needs.base.outputs.chart-release-version }}
           IMAGE_TAG: ${{ needs.base.outputs.image-tag }}
         run: |
-          semver='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          number='(0|[1-9][0-9]*)'
+          non_numeric='[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*'
+          prerelease_identifier="(${number}|${non_numeric})"
+          release="^${number}\.${number}\.${number}$"
+          semver="^${number}\.${number}\.${number}(-${prerelease_identifier}(\.${prerelease_identifier})*)?$"
           if [[ "$PUBLISH" != "true" ]]; then
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -340,8 +345,13 @@ jobs:
             # Next patch after the latest release, so it sorts above that release.
             # The short sha gets a letter prefix: a numeric pre-release identifier
             # cannot start with 0.
-            latest=$(git ls-remote --tags --refs origin \
-              | sed -n 's|.*refs/tags/v\{0,1\}\([0-9]*\.[0-9]*\.[0-9]*\)$|\1|p' | sort -V | tail -1)
+            latest=$(git tag --list | sed 's/^v//' \
+              | while IFS= read -r candidate; do
+                  if [[ "$candidate" =~ $release ]]; then
+                    echo "$candidate"
+                  fi
+                done \
+              | sort -V | tail -1)
             IFS=. read -r major minor patch <<< "${latest:-0.0.0}"
             version="${major}.${minor}.$((patch + 1))-main.$(date -u +%Y%m%d%H%M%S).g${IMAGE_TAG#sha-}"
           fi

@@ -62,6 +62,32 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return values
 
+    def run_chart_version(self, release_version, *, command_directory=None):
+        workflow = _load(DOCKER_WORKFLOW)
+        step = next(step for step in workflow["jobs"]["chart"]["steps"] if step.get("id") == "version")
+        with tempfile.NamedTemporaryFile() as output:
+            result = subprocess.run(
+                ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", step["run"]],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PATH": (
+                        f"{command_directory}{os.pathsep}{os.environ['PATH']}"
+                        if command_directory else os.environ["PATH"]
+                    ),
+                    "PUBLISH": "true",
+                    "RELEASE_VERSION": release_version,
+                    "IMAGE_TAG": "sha-0123456",
+                    "GITHUB_OUTPUT": output.name,
+                },
+                capture_output=True,
+                text=True,
+            )
+            output.seek(0)
+            values = dict(line.decode().rstrip().split("=", 1) for line in output)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return values
+
     def test_ci_pins_the_workflow_yaml_dependency(self):
         workflow = _load(CI_WORKFLOW)
         commands = _run_commands(workflow["jobs"]["workflow-inventory"])
@@ -174,6 +200,42 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         self.assertIn("needs.base.outputs.app-version", build["steps"][-1]["with"]["build-args"])
         self.assertNotIn("GITHUB_SHA", _run_commands(chart))
         self.assertNotIn("GITHUB_REF", _run_commands(chart))
+
+    def test_chart_version_uses_fetched_local_tags_without_a_remote_lookup(self):
+        workflow = _load(DOCKER_WORKFLOW)
+        chart = workflow["jobs"]["chart"]
+        checkout = next(step for step in chart["steps"] if step.get("name") == "Checkout")
+        version_command = next(step["run"] for step in chart["steps"] if step.get("id") == "version")
+        self.assertEqual(checkout["with"]["fetch-depth"], 0)
+        self.assertIn("git tag --list", version_command)
+        self.assertNotIn("git ls-remote", version_command)
+
+        with tempfile.TemporaryDirectory() as directory:
+            git = Path(directory) / "git"
+            git.write_text(
+                "#!/bin/sh\n"
+                "[ \"$*\" = \"tag --list\" ] || exit 93\n"
+                "printf '%s\\n' v1.2.3 1.9.09 2.0.0 v2.0.1-rc.1 not-a-version\n",
+                encoding="utf-8",
+            )
+            git.chmod(0o755)
+            values = self.run_chart_version("", command_directory=directory)
+
+        self.assertEqual(values["publish"], "true")
+        self.assertRegex(values["version"], r"^2\.0\.1-main\.\d{14}\.g0123456$")
+
+    def test_chart_version_enforces_semver_prerelease_identifiers(self):
+        valid = ("1.2.3", "1.2.3-rc.1", "1.2.3-main.20261101010203.g0123456")
+        invalid = ("1.2.3-01", "1.2.3-rc.01")
+        for version in valid:
+            with self.subTest(version=version):
+                values = self.run_chart_version(version)
+                self.assertEqual(values["publish"], "true")
+                self.assertEqual(values["version"], version)
+        for version in invalid:
+            with self.subTest(version=version):
+                values = self.run_chart_version(version)
+                self.assertEqual(values, {"publish": "false"})
 
     def test_new_sidecar_jobs_build_and_run_every_test_read_only_in_the_image(self):
         workflow = _load(CI_WORKFLOW)

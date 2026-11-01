@@ -1,3 +1,6 @@
+{{- if gt (float64 .Values.app.replicaCount) 1.0 }}
+{{- fail "app.replicaCount must be 0 or 1: Flyway, secret initialization and the ReadWriteOnce /data volume do not support multiple app replicas" }}
+{{- end }}
 {{- if and (not .Values.app.persistence.enabled) (not .Values.secrets.existingSecret) (not (and .Values.secrets.jwtSecret .Values.secrets.cryptoEncryptionKey)) }}
 {{- fail "app.persistence.enabled=false requires both secrets.jwtSecret and secrets.cryptoEncryptionKey, or secrets.existingSecret containing jwt-secret and crypto-encryption-key" }}
 {{- end }}
@@ -25,7 +28,7 @@ spec:
         {{- end }}
       labels:
         {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "app") | nindent 8 }}
-        {{- with .Values.app.podLabels }}
+        {{- with omit .Values.app.podLabels "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
