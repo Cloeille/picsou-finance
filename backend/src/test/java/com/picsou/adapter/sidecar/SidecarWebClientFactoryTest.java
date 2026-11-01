@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SidecarWebClientFactoryTest {
 
@@ -33,6 +34,15 @@ class SidecarWebClientFactoryTest {
                 byte[] payload = "ok".getBytes();
                 exchange.sendResponseHeaders(200, payload.length);
                 exchange.getResponseBody().write(payload);
+                exchange.close();
+            } catch (IOException ex) {
+                throw new UncheckedIOException(ex);
+            }
+        });
+        server.createContext("/challenge", exchange -> {
+            exchange.getResponseHeaders().add("WWW-Authenticate", SidecarWebClientFactory.AUTH_CHALLENGE);
+            try {
+                exchange.sendResponseHeaders(401, -1);
                 exchange.close();
             } catch (IOException ex) {
                 throw new UncheckedIOException(ex);
@@ -60,6 +70,15 @@ class SidecarWebClientFactoryTest {
         ping(new SidecarWebClientFactory("  test-key \n").create("Test", baseUrl()));
 
         assertThat(keyHeaders).containsExactly("test-key");
+    }
+
+    @Test
+    void mapsSidecarKeyChallengeToAuthenticationFailureWhenTheKeyIsBlank() {
+        var client = new SidecarWebClientFactory("").create("Test", baseUrl());
+
+        assertThatThrownBy(() -> client.get().uri("/challenge").retrieve()
+            .bodyToMono(String.class).block())
+            .isInstanceOf(SidecarAuthenticationException.class);
     }
 
     private void ping(WebClient client) {

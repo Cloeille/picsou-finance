@@ -36,8 +36,13 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 
 import java.math.BigDecimal;
+import java.net.URI;
+import java.io.IOException;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -634,6 +639,40 @@ class RevolutSyncServiceTest {
                 assertThat(event.getThrowableProxy()).isNotNull();
                 assertThat(event.getThrowableProxy().getClassName()).isEqualTo(SyncException.class.getName());
                 assertThat(event.getThrowableProxy().getStackTraceElementProxyArray()).isNotEmpty();
+            });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void resyncReporting_connectionFailureLogsWithoutStackTrace() throws Exception {
+        RevolutSession stored = RevolutSession.builder()
+            .member(member()).credentialsEnc("enc-blob").rememberCredentials(true).build();
+        when(sessionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.of(stored));
+        String storedCredentialsJson = objectMapper.writeValueAsString(Map.of("phone", PHONE, "passcode", PASSCODE));
+        when(encryption.decrypt("enc-blob")).thenReturn(storedCredentialsJson);
+        var requestFailure = new WebClientRequestException(
+            new IOException("synthetic connection failure"), HttpMethod.GET,
+            URI.create("http://revolut-auth:8002/sync"), new HttpHeaders());
+        when(revolutPort.sync(PHONE, PASSCODE, MEMBER_ID, false))
+            .thenThrow(new SyncException("No response from the Revolut service", requestFailure));
+        ch.qos.logback.classic.Logger logger =
+            (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(RevolutSyncService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            var result = service.resyncReporting(MEMBER_ID);
+
+            assertThat(result.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.FAILED);
+            assertThat(appender.list).anySatisfy(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage())
+                    .isEqualTo("Revolut scheduled sync failed for member " + MEMBER_ID + " (code=null)");
+                assertThat(event.getThrowableProxy()).isNull();
             });
         } finally {
             logger.detachAppender(appender);

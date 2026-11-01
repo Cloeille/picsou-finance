@@ -17,7 +17,8 @@ services:
       # is the only way in? Add the override file, which removes this publish:
       #   docker compose -f docker/docker-compose.yml \
       #                  -f docker/docker-compose.no-http.yml \
-      #                  --profile tls up -d
+      #                  up -d
+      #   Add `tls` to COMPOSE_PROFILES in docker/.env.
       # Compose cannot vary `ports` by profile, and an env-var host prefix was
       # tried and reverted: a value missing its trailing colon expanded to
       # `127.0.0.18080:8080` and aborted the whole stack with an opaque
@@ -57,7 +58,7 @@ services:
           - app-tls
 
   # Optional TLS terminator — OFF unless the `tls` profile is requested:
-  #   docker compose -f docker/docker-compose.yml --profile tls up -d
+  #   set `tls` in COMPOSE_PROFILES in docker/.env, then run `up -d`
   # Left opt-in so it cannot collide with an ingress proxy the operator
   # already runs (Traefik, Nginx Proxy Manager, …) over :80/:443.
   # Certificate strategy is chosen by Caddy from PICSOU_DOMAIN — see Caddyfile.
@@ -81,7 +82,7 @@ services:
       # certificate every device was told to trust.
       - caddy_data:/data
       - caddy_config:/config
-    # Without this, `--profile tls up -d` reports success even when Caddy has
+    # Without this, `up -d` reports success even when Caddy has
     # exited — e.g. a PICSOU_DOMAIN that cannot be a certificate subject makes
     # it abort at config-adapt time, and with `restart: unless-stopped` that
     # becomes a restart loop the operator never sees. Probes Caddy's admin API,

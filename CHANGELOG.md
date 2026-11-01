@@ -13,13 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   database: no connector image is pulled or run until you enable it, which saves up to
   about 7.6 GB of images and 590 MB of idle RAM. Enable the banks you use with
   `COMPOSE_PROFILES` in `docker/.env`, for example `COMPOSE_PROFILES=bourso,revolut`, or
-  `all-connectors` for every one. Profiles: `amex`, `amundi`, `bourse-direct`, `bourso`, `caisse-epargne`, `cic`, `cmes`, `corum`, `degiro`, `fortuneo`, `revolut`, `sofidy`, `tr` (Trade Republic).
+  `all-connectors` for every one. Profiles: `amex`, `amundi`, `bourse-direct`, `bourso`, `caisse-epargne`, `cic`, `cmes`, `corum`, `degiro`, `fortuneo`, `revolut`, `sofidy`, `tr` (Trade Republic), and `tls`.
   `APP_SIDECAR_API_KEY` is now required only when a connector is enabled. Syncing a bank
   whose connector is off shows that bank's usual "unavailable" error.
-  **Migration** for an existing install: add `COMPOSE_PROFILES=all-connectors` to
-  `docker/.env` (or list only your banks) before the next `pull` / `up -d`. Running
-  connectors keep running after the upgrade either way, but without the profile Compose
-  stops pulling, recreating and stopping them.
+  **Migration** for an existing install: set `COMPOSE_PROFILES=all-connectors` in
+  `docker/.env` (or list only your banks) before the next `pull` / `up -d`. Edit an existing
+  `COMPOSE_PROFILES` entry instead of adding a duplicate. If you use TLS, include `tls` in
+  that same list. When you list only some banks, stop excluded connector containers with
+  `docker compose -f docker/docker-compose.yml rm --stop --force <bank>-auth` after setting
+  the list. Repeat this step when you disable a bank. `all-connectors` needs no stop step.
+  Connection failures handled by the shared translator, Fortuneo adapter, and Revolut scheduled
+  sync log one-line warnings without repeated stack traces. Trade Republic scheduled sync and
+  Revolut progress polling still log their errors with stack traces.
 
 - **One sync-provider table in the frontend.** The browser-sidecar connectors are now
   entries in `features/sync/providers.ts` driven by generic `useProvider*` hooks, so adding

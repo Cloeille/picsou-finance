@@ -50,8 +50,9 @@ database, start a second app, and possibly probe the untouched production URL. F
 installation only, put `--fresh` before the image to allow missing containers:
 `bash docker/deploy.sh --fresh IMAGE URL BACKUP_DIR [flags...]`.
 
-Preserve the existing Compose project name and all its flags. Additional Compose flags follow the
-three required arguments, for example `--profile tls` and `-f docker/docker-compose.no-http.yml`.
+Preserve the existing Compose project name and all its flags. Additional Compose flags, such as
+`-f docker/docker-compose.no-http.yml`, follow the three required arguments. Keep `tls` in
+`COMPOSE_PROFILES` in `docker/.env` when you use the proxy.
 Supply the real origin of this application, not another deployment behind the same proxy.
 Do not include credentials, query parameters, or fragments in that URL; the probe rejects them
 and disables curl's default configuration so it cannot silently inherit authentication settings.
@@ -191,7 +192,8 @@ container. Do not put passwords in command arguments or print `compose config` i
   deployment success. Active-config checks cover nested routes, the required `app-tls:8080`
   target, rejection of legacy/mixed app targets, unrelated upstreams, malformed or missing config,
   and admin API query failures. Absent proxies are not started or queried.
-  Stopped proxies stay stopped with no TLS profile, `--profile tls`, or `COMPOSE_PROFILES=tls`.
+  Stopped proxies stay stopped whether or not `tls` is in `COMPOSE_PROFILES` or passed as
+`--profile tls`.
   CI also runs `shellcheck -x docker/deploy.sh`.
 - `ReleaseMigrationCliConfigurationTest` (no Docker): Spring Boot naming-strategy parity, the
   discovered named enums, and redaction of an unreachable connection.

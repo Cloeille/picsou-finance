@@ -176,7 +176,10 @@ No connector runs by default. Each `*-auth` service has two profiles: its own na
 `-auth` (`bourso`, `revolut`, `tr`, …) and `all-connectors`. The app depends on `db` only,
 so `docker compose up` with no profile pulls and starts the app and the database. The
 operator lists the banks in `COMPOSE_PROFILES` in `docker/.env`, which Compose reads for
-every command, so `pull`, `up` and `down` all address the same connectors.
+every command, so `pull`, `up` and `down` all address the same connectors. Add `tls` to this
+list when you use the bundled proxy. Do not pass `--profile` on these commands. Any command-line
+profile selection replaces `COMPOSE_PROFILES`, even when that environment variable lists every
+connector.
 
 - A disabled connector's service is still resolved by Compose: its variables are
   interpolated, so no sidecar uses `${VAR:?}`. A required variable there would make
@@ -185,10 +188,15 @@ every command, so `pull`, `up` and `down` all address the same connectors.
   connector containers untouched (`up -d` only manages active services). Without a
   profile, Compose stops pulling, recreating or stopping them, and `down` leaves them
   running. Existing installs set `COMPOSE_PROFILES=all-connectors`, as the CHANGELOG
-  migration says.
-- A sync against a disabled connector reaches no host. Every adapter maps that
-  connection failure to its existing unavailable error (`UPSTREAM_UNAVAILABLE`, the
-  Trade Republic or DEGIRO "service unavailable" message); none of them surfaces a 500.
+  migration says. For a partial profile list, stop excluded containers after setting the
+  list with `docker compose -f docker/docker-compose.yml rm --stop --force <bank>-auth`.
+  Repeat this when you disable a bank. `all-connectors` needs no stop step.
+- A sync against a disabled connector reaches no host. DEGIRO and Revolut show their existing
+  "No response" messages. Trade Republic maps the failure to `AUTH_SERVICE_UNAVAILABLE`.
+  Other sidecars map it to `UPSTREAM_UNAVAILABLE`. None of them surfaces a 500. Connection failures
+  handled by the shared translator, Fortuneo adapter, and Revolut scheduled sync log one-line
+  warnings without a stack trace. Trade Republic scheduled sync and Revolut progress polling still
+  log their errors with a stack trace.
 - The [instance-status alert](./admin-instance-status.md) probes only sidecars that hold
   sessions, so a bank nobody connected never raises `SIDECAR_UNREACHABLE`. A connector
   disabled after it was used does, which is the intended warning.
@@ -229,6 +237,10 @@ cannot read the app's `/data/.secrets/` volume.
   `SESSION_EXPIRED`.
 - The key is never logged. After rotating it, recreate the backend and every
   sidecar together.
+- If a connector starts without the key, its lifespan check exits and Compose restarts it.
+  Check `docker compose -f docker/docker-compose.yml ps` and
+  `docker compose -f docker/docker-compose.yml logs <bank>-auth`, then set the key and
+  recreate the app and enabled sidecars.
 
 ### Entrypoint (`docker/entrypoint.sh`)
 
@@ -259,7 +271,7 @@ does not change the password of an already initialized database volume.
 The app container serves **plain HTTP on 8080 only**; it never terminates TLS itself. HTTPS comes
 from a terminator in front, and the stack ships an optional one: a `caddy:2-alpine` service named
 `proxy`, gated behind `profiles: ["tls"]` so it is inert unless explicitly requested
-(`docker compose --profile tls up -d`). It stays opt-in because publishing `:80`/`:443`
+(`COMPOSE_PROFILES=tls` in `docker/.env`). It stays opt-in because publishing `:80`/`:443`
 unconditionally would collide with an ingress proxy the operator already runs.
 
 This is not cosmetic: **Enable Banking rejects `http://` callback URLs for PRODUCTION applications**,

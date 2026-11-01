@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 
 import java.time.Duration;
 import java.util.List;
@@ -129,6 +130,10 @@ public class FortuneoAdapter implements FortuneoPort {
                 "Fortuneo took too long to respond. Please try again.",
                 ex
             );
+        }
+        if (ex instanceof WebClientRequestException) {
+            log.warn("{}: Fortuneo sidecar is unreachable", message);
+            return coded(FortuneoErrorCode.UPSTREAM_UNAVAILABLE, message, ex);
         }
         if (ex instanceof WebClientResponseException response) {
             FortuneoErrorCode upstreamCode = responseCode(response);
