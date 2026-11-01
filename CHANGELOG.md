@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Trade Republic bond values no longer use percentage quotes as euro prices.** EUR bond
+  ticker prices are divided by 100. Non-EUR or unknown bond currencies keep the position's
+  current price empty and value it at its average buy-in. A sync updates current holdings and
+  today's snapshot; earlier daily snapshots keep their recorded values.
+
 ### Changed
 
 - **Caisse d'Epargne: a failed account import says where it failed.** The sidecar's
