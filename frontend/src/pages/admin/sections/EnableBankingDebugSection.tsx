@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Download, Network, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,6 +17,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useEbCallLog, useClearEbCallLog } from '@/features/admin/hooks'
+import { localeFromLanguage } from '@/lib/utils'
 import type { EbCallEntry } from '@/features/admin/api'
 
 function StatusBadge({ status }: { status: number }) {
@@ -57,6 +59,8 @@ function tryPretty(json: string) {
 }
 
 function EbCallLogDialog() {
+  const { i18n } = useTranslation()
+  const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null)
   const { data, isLoading, isError, refetch } = useEbCallLog(true)
   const clear = useClearEbCallLog()
@@ -123,7 +127,7 @@ function EbCallLogDialog() {
                       onClick={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
                     >
                       <td className="py-2 pr-3 text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(entry.timestamp).toLocaleTimeString()}
+                        {new Date(entry.timestamp).toLocaleTimeString(locale)}
                       </td>
                       <td className="py-2 pr-3 text-xs font-mono font-medium">
                         {entry.method}

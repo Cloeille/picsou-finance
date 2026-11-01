@@ -386,6 +386,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   import already did. Both importers and the manual ledger share one definition,
   `AccountType.isLedger()`.
 
+- **Privacy mode and locale formatting.** The budget allocation donut now masks its centre total
+  and uses the app locale for compact amounts. The money guard also rejects direct compact
+  formatting. Transaction details show the weekday and long date in the app language and keep
+  date-only values on their calendar day in every time zone. Admin activity timestamps follow
+  the app locale, and allocation comparison keys no longer depend on the browser locale.
+
 - **Enable Banking account balances and details.** Accounts in a shared balance list,
   such as Qonto business accounts, now select entries matching the account description
   before applying ISO balance-type priority. For Qonto or an unknown ASPSP, unmatched lists
