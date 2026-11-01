@@ -3,8 +3,7 @@ app:
     login-rate-limit:
       enabled: false   # Allow repeated login attempts during local development only
   secure-cookies: false   # HTTP in dev — no Secure flag needed
-  # One loopback port per connector: run the sidecar you need with
-  # `uvicorn main:app --port <port>` from services/<name>/.
+  # One loopback port per connector, see CONTRIBUTING.md to start a sidecar on it.
   tr-auth:
     url: ${TR_AUTH_URL:http://127.0.0.1:8001}
   bourse-direct-auth:

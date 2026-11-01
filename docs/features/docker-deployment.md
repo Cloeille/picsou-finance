@@ -13,8 +13,8 @@ Picsou deploys as the app and thirteen authentication sidecars orchestrated by `
 - **`caisse-epargne-auth`** — browserless Caisse d'Epargne read sidecar (session replay, no in-app login yet), published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
-- **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (Compose sets `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
-- **`cic-auth`** — browserless CIC online-banking login/2FA and account sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cic-auth`. The backend reaches it at `CIC_AUTH_URL` (Compose sets `http://cic-auth:8001`); see [`cic-banking.md`](cic-banking.md).
+- **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (`application.yml` defaults to `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
+- **`cic-auth`** — browserless CIC online-banking login/2FA and account sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cic-auth`. The backend reaches it at `CIC_AUTH_URL` (`application.yml` defaults to `http://cic-auth:8001`); see [`cic-banking.md`](cic-banking.md).
 - **`amex-auth`** — American Express login and account sidecar, built with Camoufox/Firefox, published as `ghcr.io/cloeille/picsou-finance/amex-auth`.
 - **`degiro-auth`** — browserless DEGIRO authentication and portfolio sidecar, published as `ghcr.io/cloeille/picsou-finance/degiro-auth`.
 
@@ -327,7 +327,7 @@ the `tls` profile is enabled. Migration or app cutover failures leave the proxy 
 Backend deployments outside the image must set
 `SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES` to the exact nginx peer expression.
 
-The nginx configuration retains the public scheme/host and derive `X-Forwarded-Port` from
+The nginx configuration retains the public scheme/host and derives `X-Forwarded-Port` from
 an explicit public host port or an upstream port header, otherwise Tomcat uses the scheme
 default. This preserves same-origin requests on published HTTP and custom HTTPS ports.
 See [CORS & cookie security](./security-cors-cookies.md) and the

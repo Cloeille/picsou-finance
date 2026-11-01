@@ -382,7 +382,10 @@ class CiJobSelectionTest(unittest.TestCase):
             "CHANGELOG.md": set(),
             "frontend/src/App.tsx": {"frontend", "e2e", "release-deployment"},
             "backend/src/main/java/com/picsou/App.java": {"backend", "release-deployment"},
-            "docker/entrypoint.sh": {"backend", "docker-entrypoint", "release-deployment"},
+            "docker/entrypoint.sh": {
+                "backend", "docker-entrypoint", "release-deployment", "workflow-inventory",
+            },
+            ".env.example": {"workflow-inventory"},
             "docker/Dockerfile": {"docker-entrypoint", "release-deployment", "workflow-inventory"},
             "docker/docker-compose.yml": {"docker-entrypoint", "release-deployment", "helm-chart"} | services,
             "backend/src/main/resources/application.yml": {
@@ -597,7 +600,7 @@ class SharedSidecarBaseTest(unittest.TestCase):
                 self.assertLess(commands.index(base), commands.index(f"--tag picsou-{service}:test"))
 
     def test_compose_builds_the_base_for_each_sidecar(self):
-        for path in (DOCKER_COMPOSE,):
+        for path in [DOCKER_COMPOSE]:
             compose = _load(path)["services"]
             for target in ("python", "chromium"):
                 with self.subTest(compose_file=path.relative_to(ROOT), base=target):

@@ -136,6 +136,9 @@ jobs:
               - *workflows
               - 'services/**'
               - 'backend/src/main/resources/application*.yml'
+              - '.env.example'
+              - 'docker/.env.example'
+              - 'docker/entrypoint.sh'
               - 'docker/docker-compose.yml'
               - 'docker/Dockerfile'
             helm-chart:
