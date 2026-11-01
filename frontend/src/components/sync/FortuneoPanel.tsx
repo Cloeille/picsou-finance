@@ -14,11 +14,11 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  useFortuneoStatus,
-  useClearFortuneoSession,
-  useCompleteFortuneoAuth,
-  useInitiateFortuneoAuth,
-  useSyncFortuneo,
+  useProviderClear,
+  useProviderComplete,
+  useProviderInitiate,
+  useProviderStatus,
+  useProviderSync,
 } from "@/features/sync/hooks"
 import { formatFortuneoError, fortuneoErrorMessage } from "@/lib/errors"
 import type { FortuneoErrorCode } from "@/types/api"
@@ -38,11 +38,11 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
   const [error, setError] = useState<string | null>(null)
   const notifyConnectedOnSuccess = useRef(false)
 
-  const status = useFortuneoStatus()
-  const initiate = useInitiateFortuneoAuth()
-  const complete = useCompleteFortuneoAuth()
-  const sync = useSyncFortuneo()
-  const logout = useClearFortuneoSession()
+  const status = useProviderStatus("fortuneo")
+  const initiate = useProviderInitiate("fortuneo")
+  const complete = useProviderComplete("fortuneo")
+  const sync = useProviderSync("fortuneo")
+  const logout = useProviderClear("fortuneo")
 
   const messageForCode = (code: FortuneoErrorCode | string | null | undefined) =>
     fortuneoErrorMessage(t, code)

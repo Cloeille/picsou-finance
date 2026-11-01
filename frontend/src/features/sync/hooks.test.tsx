@@ -29,23 +29,25 @@ vi.mock("./api", () => ({
   cryptoWalletApi: {},
   finaryApi: {},
   boursoApi: {},
+  caisseEpargneApi: {},
   bourseDirectApi,
   amundiApi,
+  cmesApi: {},
+  cicApi: {},
+  amexApi: {},
+  fortuneoApi: {},
   corumApi,
   sofidyApi,
 }))
 
 const {
   syncKeys,
-  useBourseDirectStatus,
-  useInitiateBourseDirectAuth,
-  useCompleteBourseDirectAuth,
-  useSyncBourseDirect,
-  useClearBourseDirectSession,
+  useProviderStatus,
+  useProviderInitiate,
+  useProviderComplete,
+  useProviderSync,
+  useProviderClear,
   useAddCryptoExchange,
-  useAmundiStatus,
-  useCorumStatus,
-  useSofidyStatus,
 } = await import("./hooks")
 
 const idleStatus: BourseDirectSessionStatus = {
@@ -85,7 +87,7 @@ describe("Bourse Direct hooks", () => {
     bourseDirectApi.getStatus.mockResolvedValue(idleStatus)
     const { client, wrapper } = createHarness()
 
-    const { result } = renderHook(() => useBourseDirectStatus(), { wrapper })
+    const { result } = renderHook(() => useProviderStatus("bourseDirect"), { wrapper })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(bourseDirectApi.getStatus).toHaveBeenCalledOnce()
@@ -99,7 +101,7 @@ describe("Bourse Direct hooks", () => {
       mfaType: "OTP",
     })
     const { wrapper } = createHarness()
-    const { result } = renderHook(() => useInitiateBourseDirectAuth(), {
+    const { result } = renderHook(() => useProviderInitiate("bourseDirect"), {
       wrapper,
     })
 
@@ -116,7 +118,7 @@ describe("Bourse Direct hooks", () => {
   it("stores the queued status returned after OTP completion", async () => {
     bourseDirectApi.completeAuth.mockResolvedValue(queuedStatus)
     const { client, wrapper } = createHarness()
-    const { result } = renderHook(() => useCompleteBourseDirectAuth(), {
+    const { result } = renderHook(() => useProviderComplete("bourseDirect"), {
       wrapper,
     })
 
@@ -134,7 +136,7 @@ describe("Bourse Direct hooks", () => {
   it("stores the status returned by a manual synchronization", async () => {
     bourseDirectApi.sync.mockResolvedValue(queuedStatus)
     const { client, wrapper } = createHarness()
-    const { result } = renderHook(() => useSyncBourseDirect(), { wrapper })
+    const { result } = renderHook(() => useProviderSync("bourseDirect"), { wrapper })
 
     await act(() => result.current.mutateAsync())
 
@@ -146,7 +148,7 @@ describe("Bourse Direct hooks", () => {
     bourseDirectApi.clearSession.mockResolvedValue(undefined)
     const { client, wrapper } = createHarness()
     const invalidations = vi.spyOn(client, "invalidateQueries")
-    const { result } = renderHook(() => useClearBourseDirectSession(), {
+    const { result } = renderHook(() => useProviderClear("bourseDirect"), {
       wrapper,
     })
 
@@ -182,11 +184,11 @@ describe("Crypto exchange hooks", () => {
 
 describe("completed sidecar syncs", () => {
   it.each([
-    { name: "Bourse Direct", api: bourseDirectApi, useStatus: useBourseDirectStatus, key: syncKeys.bourseDirect() },
-    { name: "Amundi", api: amundiApi, useStatus: useAmundiStatus, key: syncKeys.amundi() },
-    { name: "CORUM", api: corumApi, useStatus: useCorumStatus, key: syncKeys.corum() },
-    { name: "Sofidy", api: sofidyApi, useStatus: useSofidyStatus, key: syncKeys.sofidy() },
-  ])("refreshes all balance-derived views when $name finishes", async ({ api, useStatus }) => {
+    { name: "Bourse Direct", api: bourseDirectApi, id: "bourseDirect" as const },
+    { name: "Amundi", api: amundiApi, id: "amundi" as const },
+    { name: "CORUM", api: corumApi, id: "corum" as const },
+    { name: "Sofidy", api: sofidyApi, id: "sofidy" as const },
+  ])("refreshes all balance-derived views when $name finishes", async ({ api, id }) => {
     api.getStatus.mockResolvedValue({ ...queuedStatus, syncStatus: "RUNNING" })
     const { client, wrapper } = createHarness()
     const keys = [
@@ -195,7 +197,7 @@ describe("completed sidecar syncs", () => {
     ]
     keys.forEach(key => client.setQueryData(key, { previous: true }))
     const { result } = renderHook(() => {
-      const status = useStatus()
+      const status = useProviderStatus(id)
       return { isSuccess: status.isSuccess, refetch: status.refetch }
     }, { wrapper })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))

@@ -1,12 +1,5 @@
 import { Briefcase } from "lucide-react"
 import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
-import {
-  useClearCmesSession,
-  useCmesStatus,
-  useCompleteCmesAuth,
-  useInitiateCmesAuth,
-  useSyncCmes,
-} from "@/features/sync/hooks"
 
 interface CmesPanelProps {
   onConnected?: () => void
@@ -16,16 +9,12 @@ interface CmesPanelProps {
 export function CmesPanel({ onConnected }: CmesPanelProps = {}) {
   return (
     <SidecarSessionPanel
+      provider="cmes"
       translationPrefix="sync.cmes"
       fieldIdPrefix="cmes"
       loginIcon={Briefcase}
       appPush
       otpRetryable
-      useStatus={useCmesStatus}
-      useInitiateAuth={useInitiateCmesAuth}
-      useCompleteAuth={useCompleteCmesAuth}
-      useSync={useSyncCmes}
-      useClearSession={useClearCmesSession}
       onConnected={onConnected}
     />
   )
