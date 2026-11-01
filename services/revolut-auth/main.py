@@ -49,6 +49,8 @@ from picsou_sidecar import configure_logging, create_app, safe
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 from pydantic import BaseModel
 
+import captcha
+
 log = configure_logging("revolut-auth")
 app = create_app()
 
@@ -127,6 +129,7 @@ def _camoufox(member_id: str, headless: bool):
     locks are cleared first so a previously-killed browser doesn't wedge this launch."""
     _clear_stale_locks(member_id)
     return AsyncCamoufox(headless=headless, humanize=True, os="linux", geoip=True,
+                         firefox_user_prefs={"layout.css.getBoxQuads.enabled": True},
                          persistent_context=True, user_data_dir=_profile_dir(member_id))
 
 
@@ -272,8 +275,7 @@ def login_screen_timeout() -> JSONResponse:
 
 
 def human_verification_required() -> JSONResponse:
-    """Flat 403 when Revolut serves an hCaptcha challenge the sidecar cannot solve: no passcode
-    screen follows, so no mobile push is ever sent."""
+    """Flat 403 when a visible hCaptcha challenge blocks automated login."""
     return JSONResponse(status_code=403, content={"error": "HUMAN_VERIFICATION_REQUIRED"})
 
 
@@ -669,8 +671,6 @@ async def _logged_in(page) -> bool:
 _PHONE_INPUT = "input[name='phoneNumber'], input[inputmode='tel'], input[type='tel']"
 # Single-field fallbacks when the passcode is not rendered as 6 separate boxes.
 _PASSCODE_FIELD_INPUTS = ("input[type='password']", "input[inputmode='numeric']")
-# :visible, because hCaptcha also parks hidden iframes on pages where no challenge is shown.
-_HCAPTCHA_FRAME = "iframe[src*='hcaptcha.com']:visible"
 
 
 async def _click_continue(page) -> None:
@@ -708,14 +708,13 @@ async def _wait_for_login_screen(page, *, phone: bool = True) -> Optional[str]:
     Returns None if nothing appeared in time.
     `phone=False` waits for the passcode screen only (the step after submitting the phone):
     the phone field stays on screen under a captcha, so the captcha is what ends that wait.
-    A visible captcha is checked before the phone input for the same reason on the first screen:
-    a profile challenged last time shows the phone field with the challenge on top.
+    A visible captcha takes precedence over both input screens because it blocks interaction.
     """
     for _ in range(LOGIN_SCREEN_WAIT_S * 1000 // LOGIN_SCREEN_POLL_MS):
+        if await captcha.visible(page):
+            return "captcha"
         if await _passcode_inputs_present(page):
             return "passcode"
-        if await page.locator(_HCAPTCHA_FRAME).count():
-            return "captcha"
         if phone and await page.locator(_PHONE_INPUT).count():
             return "phone"
         await page.wait_for_timeout(LOGIN_SCREEN_POLL_MS)
@@ -880,13 +879,15 @@ async def sync(req: SyncRequest):
                         await _fill_phone(page, req.phoneNumber)
                         screen = await _wait_for_login_screen(page, phone=False)
                     submitted = screen == "passcode" and await _fill_passcode(page, req.passcode)
+                    if await captcha.visible(page):
+                        screen = "captcha"
                 except PlaywrightTimeout as exc:
                     log.warning("member %s: login step timed out (url=%s): %s", safe(req.memberId),
                                 safe(page.url.split("?")[0]), safe(exc))
                     return upstream_format_changed()
                 if screen == "captcha":
-                    log.warning("member %s: Revolut served an hCaptcha challenge, no mobile "
-                                "approval will be sent", safe(req.memberId))
+                    log.warning("member %s: Revolut served an hCaptcha challenge during login",
+                                safe(req.memberId))
                     return human_verification_required()
                 if not submitted:
                     log.warning("member %s: login did not reach a submitted passcode (screen=%s, url=%s)",
@@ -898,6 +899,11 @@ async def sync(req: SyncRequest):
                 t0 = time.monotonic()
                 approved = False
                 for i in range(ENROLMENT_APPROVE_WAIT_S * 1000 // POLL_MS):
+                    if await captcha.visible(page):
+                        _set_progress(req.memberId, "LOGGING_IN")
+                        log.warning("member %s: Revolut served an hCaptcha challenge while "
+                                    "waiting for approval", safe(req.memberId))
+                        return human_verification_required()
                     _set_progress(req.memberId, "AWAITING_APPROVAL",
                                   elapsedSeconds=i * POLL_MS // 1000,
                                   remainingSeconds=ENROLMENT_APPROVE_WAIT_S - i * POLL_MS // 1000)
