@@ -7,6 +7,11 @@
 
 Picsou is a self-hosted personal-finance dashboard for an individual or a small family. It aggregates accounts from banks (PSD2/scraping), brokers (Trade Republic), crypto exchanges (Binance, Meria), and on-chain wallets (BTC/ETH/SOL); tracks balances over time, computes net worth, and helps members set savings goals, manage debts, and export their data. Each authenticated `AppUser` is linked to a `FamilyMember`, and every financial row is scoped by `member_id` with optional sharing.
 
+The backend uses Spring Boot 3.5.16 with Spring AI 1.1.8, as recorded in the
+[Spring AI keep-alive decision](./decisions/2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md).
+A Spring Boot 4 upgrade also requires coordinated Spring AI, Jackson, Spring Security, and test
+changes, so it remains a separately scoped migration.
+
 ## Backend modules
 
 ```

@@ -369,6 +369,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Backend dependency baseline.** Restored Spring Boot 3.5.16 after a standalone Boot 4 parent
+  bump left existing AOP and Testcontainers dependencies without managed versions. The coordinated
+  Spring AI 2, Jackson 3, Spring Security 7, and test migration remains separate.
 - **AMEX and Revolut browser base.** Restored Camoufox 0.4.11 to prevent Playwright
   dependency resolution and installer import failures while preserving the pinned browser
   and persistent-profile fingerprint behavior.
