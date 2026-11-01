@@ -337,6 +337,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Modern MCP protocol support is selectable.** Set `MCP_PROTOCOL=STREAMABLE` to serve protocol
+  `2025-11-25` at `/mcp` for hosted connectors such as claude.ai, then recreate the app with
+  `docker compose up -d --force-recreate app`: a plain `docker compose restart` keeps the old
+  environment and the SSE default. Existing installations keep legacy SSE by default. Switching
+  requires configuring other clients for Streamable HTTP. The existing Spring AI 1.1.8 supports
+  this without a Boot 4 migration (#53).
 - **CIC instance monitoring.** Admin status checks now cover all thirteen authentication
   sidecars, including CIC when a session exists. CIC's health response reports its shared
   base so an outdated image is detected alongside an unreachable sidecar.

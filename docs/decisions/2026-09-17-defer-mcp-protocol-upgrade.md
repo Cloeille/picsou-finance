@@ -1,7 +1,13 @@
 # ADR: Defer the MCP protocol upgrade until the Spring Boot 4 migration
 
 > Date: 2026-09-17
-> Status: ✅ Active (the "Bump to Spring AI 1.1.x" alternative was later taken for a different reason, see [2026-10-27](./2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md); the protocol-version gap this ADR defers is still open)
+> Status: Superseded by [opt-in Streamable HTTP](./2026-10-31-opt-in-streamable-mcp.md).
+
+The record below describes the original deferral. Its claim that SDK 0.18.3 cannot negotiate
+`2025-11-25` is incorrect for Streamable HTTP. That SDK's legacy SSE provider only advertises
+`2024-11-05`; its Streamable provider supports `2025-11-25`. PR #295 already brought Spring AI
+1.1.8 and SDK 0.18.3 to `main`. Selecting `MCP_PROTOCOL=STREAMABLE` now provides the newer
+protocol without a Boot 4 migration. The deleted `1.1.0` branch references below are historical.
 
 ## Context
 

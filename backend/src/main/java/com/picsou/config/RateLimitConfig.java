@@ -639,11 +639,16 @@ public class RateLimitConfig {
      * (each user turn can fan out into several tool calls) while capping a runaway or hostile key.
      */
     public static Bucket createMcpKeyBucket() {
+        return createMcpKeyBucket(TimeMeter.SYSTEM_NANOTIME);
+    }
+
+    static Bucket createMcpKeyBucket(TimeMeter timeMeter) {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(120)
                 .refillIntervally(120, Duration.ofMinutes(1))
                 .build())
+            .withCustomTimePrecision(timeMeter)
             .build();
     }
 
