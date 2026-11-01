@@ -38,7 +38,8 @@ Read it first; the security properties S1–S13 and the error codes are defined 
 - **Flyway:** the next free slot is **V122** (`main` ends at V121 `cic_session`). Re-check across
   every branch before merging ([CODING_RULES §4](../CODING_RULES.md)).
 - **No behavior change without SSO.** With `SSO_ISSUER_URI` unset there are no SSO beans, chain or
-  UI. Tasks 10 and 23 assert this.
+  UI; the data export only gains an empty `linked_identities` table. Tasks 10, 12 and 23 assert
+  this.
 - **Security invariants S1–S13** from the design brief must hold after every task.
 - **Backend conventions:**
   - Mockito unit tests by default; MockMvc only for HTTP-level behavior; Testcontainers only for
@@ -513,16 +514,19 @@ Read it first; the security properties S1–S13 and the error codes are defined 
 - [ ] **Step 4:** Run → PASS.
 - [ ] **Step 5:** Report for commit.
 
-### Task 12: SSO info and sign-in methods endpoints
+### Task 12: SSO info, sign-in methods, and linked identities in the data export
 
 **Files:**
 - Create: `backend/src/main/java/com/picsou/controller/SignInMethodsController.java`,
   `backend/src/main/java/com/picsou/service/SignInMethodsService.java`,
-  `dto/SsoInfoResponse.java`, `dto/SignInMethodsResponse.java`, `dto/LinkedIdentityResponse.java`
+  `dto/SsoInfoResponse.java`, `dto/SignInMethodsResponse.java`, `dto/LinkedIdentityResponse.java`,
+  `backend/src/main/java/com/picsou/export/LinkedIdentitiesExporter.java`
 - Modify: `backend/src/main/java/com/picsou/config/SecurityConfig.java`. Add
   `.requestMatchers(HttpMethod.GET, "/api/auth/sso").permitAll()`.
-- Modify: `backend/docs/API.md`
-- Test: `SignInMethodsControllerTest`, `SignInMethodsServiceTest` (Mockito)
+- Modify: `backend/docs/API.md`, and `docs/features/data-export.md` (the exporter list and a
+  `linked_identities.csv` row)
+- Test: `SignInMethodsControllerTest`, `SignInMethodsServiceTest`, `LinkedIdentitiesExporterTest`
+  (Mockito)
 
 **Interfaces:**
 - `GET /api/auth/sso` (public) returns `SsoInfoResponse(boolean enabled, String providerName)`.
@@ -531,13 +535,24 @@ Read it first; the security properties S1–S13 and the error codes are defined 
   `SignInMethodsResponse(boolean hasPassword, boolean mfaEnabled, List<LinkedIdentityResponse> identities, boolean ssoEnabled, String providerName, boolean adminGroupManaged)`,
   where `LinkedIdentityResponse(Long id, String email, String displayName, Instant createdAt, Instant lastLoginAt)`.
 - The controller stays thin; `SignInMethodsService` builds the responses, per api-rest.md.
+- `LinkedIdentitiesExporter`, a `@Component` `EntityExporter` shaped like `WalletAddressesExporter`:
+  - `name()` is `linked_identities`;
+  - columns `id`, `issuer`, `subject`, `email`, `display_name`, `created_at`, `last_login_at`;
+  - rows come from `findByUserIdOrderByCreatedAtAsc(user.getId())`, the exporting user's own
+    identities only.
+
+  The data export promises every domain field tied to the user, and the table holds no secret,
+  so nothing is left out. The exporter runs whether SSO is configured or not, because identities
+  remain after SSO is turned off.
 
 - [ ] **Step 1: failing tests:**
   - `hasPassword` is false for `""`;
   - identities are listed for the current user only;
-  - the SSO flags reflect the properties.
+  - the SSO flags reflect the properties;
+  - the exporter's CSV and JSON carry every column, read only the exporting user's identities,
+    and hold just the header, or an empty array, when there are none.
 - [ ] **Step 2:** Run → FAIL.
-- [ ] **Step 3:** Implement and document in API.md.
+- [ ] **Step 3:** Implement, and document in API.md and data-export.md.
 - [ ] **Step 4:** Run → PASS.
 - [ ] **Step 5:** Report for commit.
 
@@ -1078,7 +1093,7 @@ Read it first; the security properties S1–S13 and the error codes are defined 
 ## Self-review (completed by author)
 
 - **Spec coverage.** Each locked decision maps to tasks:
-  1. no change without SSO: Tasks 3, 10, 23;
+  1. no change without SSO: Tasks 3, 10, 12, 23;
   2. the IdP only authenticates: Tasks 5, 11;
   3. PKCE, `state`, `nonce`, lazy discovery: Tasks 9, 10, 23;
   4. `(iss, sub)` binding: Tasks 1, 8;
