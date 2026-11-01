@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **AI categorization over MCP.** `start_ai_categorization` starts the inbox's AI job and
+  `get_ai_categorization_status` reports its progress as counters only, under a new
+  `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
+  browser session. See [Budget + OAuth2 tools in MCP](docs/features/mcp-budget-oauth2.md).
 ### Fixed
 
 - **Trade Republic bond values no longer use percentage quotes as euro prices.** EUR bond

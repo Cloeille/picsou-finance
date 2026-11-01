@@ -2061,6 +2061,10 @@
       "budget_envelopes-write": {
         "label": "Enveloppes budgétaires",
         "desc": "Créer, modifier et supprimer des enveloppes budgétaires"
+      },
+      "budget_ai-write": {
+        "label": "Catégorisation IA",
+        "desc": "Lancer la catégorisation IA des transactions non catégorisées et suivre sa progression"
       }
     }
   },

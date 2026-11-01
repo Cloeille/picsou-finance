@@ -33,6 +33,7 @@ export const ALL_SCOPES = [
   'budget:transactions-write',
   'budget:recurring-write',
   'budget:envelopes-write',
+  'budget:ai-write',
 ] as const
 
 export type Scope = (typeof ALL_SCOPES)[number]

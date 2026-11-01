@@ -2061,6 +2061,10 @@
       "budget_envelopes-write": {
         "label": "Budget envelopes",
         "desc": "Create, edit and delete budget envelopes"
+      },
+      "budget_ai-write": {
+        "label": "AI categorization",
+        "desc": "Start AI categorization of uncategorized transactions and read its progress"
       }
     }
   },

@@ -15,7 +15,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Denial coverage for every OAuth2 + Budget scope (13 total), mirroring
+ * Denial coverage for every OAuth2 + Budget scope (14 total), mirroring
  * {@link ScopeEnforcementAspectTest}: a key that lacks the exact required scope must never reach
  * the tool body, regardless of which other scopes it holds.
  */
@@ -42,7 +42,7 @@ class OAuth2AndBudgetScopeDenialTest {
         Scopes.BUDGET_TRANSACTIONS_READ, Scopes.BUDGET_TRANSACTIONS_WRITE,
         Scopes.BUDGET_RECURRING_READ, Scopes.BUDGET_RECURRING_WRITE,
         Scopes.BUDGET_ENVELOPES_READ, Scopes.BUDGET_ENVELOPES_WRITE,
-        Scopes.BUDGET_DASHBOARD_READ
+        Scopes.BUDGET_AI_WRITE, Scopes.BUDGET_DASHBOARD_READ
     })
     void denies_whenExactlyThisScopeIsMissing(String requiredScope) {
         // Holds every OTHER new scope, but never the one under test.

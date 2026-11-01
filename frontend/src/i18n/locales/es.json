@@ -1775,6 +1775,10 @@
       "budget_envelopes-write": {
         "label": "Sobres de presupuesto",
         "desc": "Crear, editar y eliminar sobres de presupuesto"
+      },
+      "budget_ai-write": {
+        "label": "Categorización con IA",
+        "desc": "Iniciar la categorización con IA de las transacciones sin categoría y consultar su progreso"
       }
     }
   },

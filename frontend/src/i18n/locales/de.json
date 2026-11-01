@@ -1775,6 +1775,10 @@
       "budget_envelopes-write": {
         "label": "Budget-Umschläge",
         "desc": "Budget-Umschläge erstellen, bearbeiten und löschen"
+      },
+      "budget_ai-write": {
+        "label": "KI-Kategorisierung",
+        "desc": "KI-Kategorisierung nicht kategorisierter Transaktionen starten und Fortschritt abrufen"
       }
     }
   },

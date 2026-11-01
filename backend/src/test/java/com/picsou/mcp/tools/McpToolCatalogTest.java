@@ -30,6 +30,7 @@ import com.picsou.service.ScpiPositionService;
 import com.picsou.service.SyncStatusService;
 import com.picsou.service.UserContext;
 import com.picsou.service.WealthPyramidService;
+import com.picsou.service.budget.AiCategorizationJobService;
 import com.picsou.service.budget.AllocationService;
 import com.picsou.service.budget.BudgetService;
 import com.picsou.service.budget.CashflowFlowService;
@@ -110,12 +111,14 @@ class McpToolCatalogTest {
         "get_savings_interest", "get_property_valuations", "get_loan_summary", "get_realized_pnl",
         "get_exchange_positions",
         // prices:read (security reference data)
-        "get_security_insight"
+        "get_security_insight",
+        // budget:ai-write
+        "start_ai_categorization", "get_ai_categorization_status"
     );
 
     private static final List<Class<?>> TOOL_CLASSES = List.of(
         AccountTools.class, TransactionTools.class, GoalTools.class, InsightTools.class, SyncTools.class,
-        OAuth2Tools.class, BudgetTools.class, AnalysisTools.class);
+        OAuth2Tools.class, BudgetTools.class, AnalysisTools.class, AiCategorizationTools.class);
 
     /** Build the provider exactly as production does, with mocked services (never invoked during catalog build). */
     private ToolCallbackProvider buildProvider() {
@@ -145,7 +148,10 @@ class McpToolCatalogTest {
             mock(RealEstateSummaryService.class), mock(PropertyValuationService.class),
             mock(AccountService.class), mock(RealizedPnlService.class),
             mock(CryptoExchangeSyncService.class), mock(UserContext.class));
-        return new McpToolConfig().picsouMcpTools(account, tx, goal, insight, sync, oauth2, budget, analysis);
+        AiCategorizationTools aiCategorization = new AiCategorizationTools(
+            mock(AiCategorizationJobService.class), mock(UserContext.class));
+        return new McpToolConfig().picsouMcpTools(
+            account, tx, goal, insight, sync, oauth2, budget, analysis, aiCategorization);
     }
 
     private Set<String> registeredToolNames() {

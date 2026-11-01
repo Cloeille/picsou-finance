@@ -23,7 +23,9 @@ and offline), triggered on demand from the inbox.
 
 When a member clicks "Categorize with AI", `POST /api/transactions/categorize-ai` returns **202
 immediately** and launches a server-side job (`AiCategorizationJobService`). The client polls
-`GET /api/transactions/categorize-ai/status` for progress — the budget Categorize tab shows "AI
+`GET /api/transactions/categorize-ai/status` for progress (an MCP client does the same with
+`start_ai_categorization` and `get_ai_categorization_status`, scope `budget:ai-write`; see
+[Budget + OAuth2 tools in MCP](./mcp-budget-oauth2.md)) — the budget Categorize tab shows "AI
 categorizing… X/total" and **resumes on page reload** (tab-close-survive). Only one job runs per
 member at a time (atomic guard).
 
@@ -64,6 +66,7 @@ inbox can render "AI: Transport · 92%" and pre-select that category — accepti
 - `backend/.../service/budget/CategorizationService.java` — `loadAiContext`, `uncategorizedIds`, `inputsFor`, `applyAiResults` are the real entry points consumed by the job service (`aiCategorizeUncategorized` was removed)
 - `backend/.../dto/AiJobStatus.java` — poll response: `{ running, total, processed, applied, suggested, done, error }`
 - `backend/.../controller/TransactionCategorizationController.java` — `POST /api/transactions/categorize-ai` (202) + `GET /api/transactions/categorize-ai/status`
+- `backend/.../mcp/tools/AiCategorizationTools.java` — the same job over MCP; the status is aggregate counters, without the error text
 - `backend/.../controller/AdminController.java` — `PUT /api/admin/settings/ai` + `POST /api/admin/settings/ai/test` + `GET /api/admin/ai-calls`
 - `backend/.../resources/db/migration/V41__ai_categorization.sql` — settings + suggestion columns
 - `backend/.../resources/db/migration/V42__ai_call_log.sql` — `ai_call_log` table

@@ -1,6 +1,7 @@
 package com.picsou.config;
 
 import com.picsou.mcp.tools.AccountTools;
+import com.picsou.mcp.tools.AiCategorizationTools;
 import com.picsou.mcp.tools.AnalysisTools;
 import com.picsou.mcp.tools.BudgetTools;
 import com.picsou.mcp.tools.GoalTools;
@@ -19,7 +20,7 @@ import org.springframework.context.annotation.Configuration;
  *
  * <p>This is the one place the exposed tools are wired. The set is deliberately small and audited:
  * accounts, transactions, goals, read-only insights and wealth analysis, refresh-existing-syncs, the
- * budget module, and OAuth2 authorization-server discovery/session status — each method gated by {@code @RequiresScope}.
+ * budget module, its AI categorization job, and OAuth2 authorization-server discovery/session status — each method gated by {@code @RequiresScope}.
  * Nothing here reaches authentication, credentials, MFA, admin settings, member management, or data
  * export, because no tool for those exists. {@code McpToolCatalogTest} pins this surface so any
  * change to it is deliberate and reviewed.
@@ -35,10 +36,11 @@ public class McpToolConfig {
                                                SyncTools syncTools,
                                                OAuth2Tools oAuth2Tools,
                                                BudgetTools budgetTools,
-                                               AnalysisTools analysisTools) {
+                                               AnalysisTools analysisTools,
+                                               AiCategorizationTools aiCategorizationTools) {
         return MethodToolCallbackProvider.builder()
             .toolObjects(accountTools, transactionTools, goalTools, insightTools, syncTools,
-                oAuth2Tools, budgetTools, analysisTools)
+                oAuth2Tools, budgetTools, analysisTools, aiCategorizationTools)
             .build();
     }
 }
