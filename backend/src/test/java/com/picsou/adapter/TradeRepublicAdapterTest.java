@@ -436,4 +436,14 @@ class TradeRepublicAdapterTest {
 
         assertThat(frames).containsExactly(0L, 1L, 2L);
     }
+
+    @Test
+    void bondTickerQuotedInPercentOfNominalIsScaledToPerEuro() {
+        assertThat(TradeRepublicAdapter.isBond("bond")).isTrue();
+        assertThat(TradeRepublicAdapter.isBond("stock")).isFalse();
+        assertThat(TradeRepublicAdapter.tickerPriceInEur(new java.math.BigDecimal("98.25"), true))
+            .isEqualByComparingTo("0.9825");
+        assertThat(TradeRepublicAdapter.tickerPriceInEur(new java.math.BigDecimal("141.75"), false))
+            .isEqualByComparingTo("141.75");
+    }
 }

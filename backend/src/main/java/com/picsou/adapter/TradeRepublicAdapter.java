@@ -3,6 +3,7 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
@@ -28,6 +29,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -224,6 +226,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         ConcurrentHashMap<String, String> scopedCashJsonByAccount = new ConcurrentHashMap<>();
         ConcurrentHashMap<String, ConcurrentHashMap<String, JsonNode>> positionsByAccount = new ConcurrentHashMap<>();
         ConcurrentHashMap<String, BigDecimal> tickerPrices = new ConcurrentHashMap<>();
+        Set<String> bondIsins = ConcurrentHashMap.newKeySet();
         ConcurrentHashMap<Integer, String> tickerSubToIsin = new ConcurrentHashMap<>();
         ConcurrentHashMap<Integer, String> instrumentSubToIsin = new ConcurrentHashMap<>();
         Set<String> resolvingIsins = ConcurrentHashMap.newKeySet();
@@ -348,7 +351,15 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                         JsonNode categories = root.path("categories");
                                         if (!categories.isMissingNode() && categories.isArray()) {
                                             for (JsonNode cat : categories) {
-                                                cat.path("positions").forEach(positions::add);
+                                                String categoryType = cat.path("categoryType").asText("");
+                                                for (JsonNode position : cat.path("positions")) {
+                                                    if (categoryType.toLowerCase(Locale.ROOT).contains("bond")
+                                                            && position instanceof ObjectNode node
+                                                            && !node.has("instrumentType")) {
+                                                        node.put("instrumentType", "bond");
+                                                    }
+                                                    positions.add(position);
+                                                }
                                             }
                                         } else {
                                             JsonNode posArray = root.isArray() ? root : root.path("positions");
@@ -371,6 +382,9 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                                     // Private equity funds don't have live tickers and will cause the websocket
                                                     // to hang waiting for an initial price that never comes.
                                                     String instrumentType = pos.path("instrumentType").asText("");
+                                                    if (isBond(instrumentType)) {
+                                                        bondIsins.add(isin);
+                                                    }
                                                     if ("privateFund".equals(instrumentType)) {
                                                         log.info("TR compactPortfolioByType [{}]: skipping ticker subscription for privateFund {}", account.name(), isin);
                                                     } else if (resolvingIsins.add(isin)) {
@@ -430,7 +444,8 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                                             JsonNode tickerRoot = objectMapper.readTree(payload);
                                             String priceStr = tickerRoot.path("last").path("price").asText(null);
                                             if (priceStr != null) {
-                                                tickerPrices.put(isin, new BigDecimal(priceStr));
+                                                tickerPrices.put(isin, tickerPriceInEur(
+                                                    new BigDecimal(priceStr), bondIsins.contains(isin)));
                                             } else {
                                                 log.warn("TR ticker for {} — no last.price in: {}", isin,
                                                          payload.length() > 300 ? payload.substring(0, 300) : payload);
@@ -629,6 +644,19 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         if (first < 0) return "";
         int second = text.indexOf(' ', first + 1);
         return second < 0 ? text.substring(first + 1) : text.substring(first + 1, second);
+    }
+
+    static boolean isBond(String instrumentType) {
+        return instrumentType != null && instrumentType.toLowerCase(Locale.ROOT).contains("bond");
+    }
+
+    /**
+     * TR quotes a bond's ticker as a percentage of its nominal (98.25 = 98.25 %), while
+     * {@code averageBuyIn} and {@code netSize} are already per euro of nominal (0.8941, 559.19).
+     * Left as is, the 98.25 multiplied by the nominal inflated the position value a hundredfold.
+     */
+    static BigDecimal tickerPriceInEur(BigDecimal quoted, boolean bond) {
+        return bond ? quoted.movePointLeft(2) : quoted;
     }
 
     /**
