@@ -5,7 +5,7 @@
 # and pinned Starlette to a range with published DoS advisories. The sidecars
 # serve JSON only and parse no multipart request, so the newer line both patches
 # Starlette and drops those three from the images.
-fastapi==0.141.1
+fastapi==0.162.0
 uvicorn==0.52.1
 pydantic==2.13.4
 # Production dependency for the browserless sidecars (BoursoBank, Sofidy,
