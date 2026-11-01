@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { AccountForm } from '@/components/shared/AccountForm'
 import { AddPropertyModal } from '@/components/property/AddPropertyModal'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { CryptoWalletForm } from '@/components/sync/CryptoWalletForm'
 import { CryptoExchangeForm } from '@/components/sync/CryptoExchangeForm'
 import { InstitutionSearch } from '@/components/sync/InstitutionSearch'
 import { BourseDirectPanel } from '@/components/sync/BourseDirectPanel'
@@ -41,7 +42,6 @@ import {
   useStartRevolutSync,
   useSyncProgress,
   useConfirmRevolutSync,
-  useAddCryptoWallet,
   useFinaryConnectionStatus,
   useFinaryLogin,
   usePreviewFinaryFile,
@@ -81,9 +81,8 @@ import {
 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { formatApiError } from '@/lib/errors'
-import type { ChainType, AccountRequest, FinaryPreviewResponse, FinaryAccountMapping, FinaryMappingAction, FinaryImportResultResponse, AccountType } from '@/types/api'
+import type { AccountRequest, FinaryPreviewResponse, FinaryAccountMapping, FinaryMappingAction, FinaryImportResultResponse, AccountType } from '@/types/api'
 import { availableTargets, initialFinaryMappings } from '@/features/sync/finary-mappings'
-import { SUPPORTED_CHAINS } from '@/types/api'
 
 // ---------------------------------------------------------------------------
 // Props & types
@@ -387,94 +386,14 @@ function ExchangeWizard({ onBack }: { onDone: () => void; onBack: () => void }) 
 
 function WalletWizard({ onBack }: { onDone: () => void; onBack: () => void }) {
   const { t } = useTranslation()
-  const [chain, setChain] = useState<ChainType>('EVM')
-  const [address, setAddress] = useState('')
-  const [label, setLabel] = useState('')
   const [done, setDone] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const addMutation = useAddCryptoWallet()
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError(null)
-    addMutation.mutate(
-      { chain, address, label: label || undefined },
-      {
-        onSuccess: () => setDone(true),
-        onError: (err: unknown) => {
-          setError(getErrorDetail(err) || (err as { message?: string })?.message || t('sync.wallets.connectError'))
-        },
-      },
-    )
-  }
-
-  if (done) {
-    return (
-      <>
-        <BackButton onClick={onBack} />
-        <SuccessState message={t('addAccount.walletConnected')} />
-      </>
-    )
-  }
 
   return (
     <>
       <BackButton onClick={onBack} />
-      {error && (
-        <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <span className="flex-1">{error}</span>
-          <Button variant="ghost" size="sm" onClick={() => setError(null)}>x</Button>
-        </div>
-      )}
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label>{t('sync.wallets.chain')}</Label>
-          <div className="flex gap-2">
-            {SUPPORTED_CHAINS.map((c) => (
-              <Button
-                key={c}
-                type="button"
-                variant={chain === c ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setChain(c)}
-              >
-                {c}
-              </Button>
-            ))}
-          </div>
-          {chain === 'EVM' && (
-            <p className="text-xs text-muted-foreground">{t('sync.wallets.evmHint')}</p>
-          )}
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="wallet-address">{t('sync.wallets.address')}</Label>
-          <Input
-            id="wallet-address"
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder={t('sync.wallets.address')}
-            required
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="wallet-label">{t('sync.wallets.label')}</Label>
-          <Input
-            id="wallet-label"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder={t('sync.wallets.label')}
-          />
-        </div>
-
-        <Button type="submit" disabled={addMutation.isPending} className="w-full">
-          {addMutation.isPending && <Loader2 className="size-4 animate-spin" />}
-          <Wallet className="size-4" />
-          {t('sync.wallets.track')}
-        </Button>
-      </form>
+      {done
+        ? <SuccessState message={t('addAccount.walletConnected')} />
+        : <CryptoWalletForm variant="modal" onSuccess={() => setDone(true)} />}
     </>
   )
 }
