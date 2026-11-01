@@ -15,6 +15,7 @@ import type { SidecarApi } from './api'
 import { ACCOUNT_VIEWS, syncKeys } from './keys'
 import type {
   AmexOtpMethod,
+  CaisseEpargneAuthCompleteResponse,
   CorumAuthInitResponse,
   CorumSessionStatus,
   SidecarAuthInitResponse,
@@ -52,9 +53,10 @@ export interface SidecarProviderEntry {
   refreshOnClear?: readonly QueryKey[]
   getStatus: () => Promise<SidecarSessionStatus>
   /** Absent when the caller drives the login itself (Caisse d'Epargne). */
-  initiate?: (vars: never) => Promise<unknown>
-  complete: (vars: never) => Promise<unknown>
-  sync: () => Promise<unknown>
+  initiate?: (vars: never) => Promise<SidecarAuthInitResponse>
+  /** A status, except Caisse d'Epargne's login result (`singleAttemptComplete`). */
+  complete: (vars: never) => Promise<SidecarSessionStatus | CaisseEpargneAuthCompleteResponse>
+  sync: () => Promise<SidecarSessionStatus>
   clear: () => Promise<unknown>
   /** Logs in again from the credentials stored at the last login. */
   reconnect?: () => Promise<SidecarAuthInitResponse>
@@ -219,6 +221,15 @@ export type SidecarProviderId = keyof Providers
 
 /** Providers rendered by the shared `SidecarSessionPanel`. */
 export type PanelProviderId = Exclude<SidecarProviderId, 'bourso' | 'caisseEpargne' | 'fortuneo'>
+
+/** What `SidecarSessionPanel` reads from an entry: a login answer, then session statuses. */
+interface PanelProviderEntry extends SidecarProviderEntry {
+  initiate: (vars: never) => Promise<SidecarAuthInitResponse>
+  complete: (vars: never) => Promise<SidecarSessionStatus>
+}
+
+// Fails to compile when a panel provider's entry stops returning the shapes the panel casts to.
+void (sidecarProviders satisfies Record<PanelProviderId, PanelProviderEntry>)
 
 /** Ids whose entry defines `K` (`initiate` and `reconnect` are optional). */
 export type ProviderIdWith<K extends string> = {

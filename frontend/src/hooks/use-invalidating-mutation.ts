@@ -52,6 +52,9 @@ export function useInvalidatingMutation<TData = unknown, TVars = void>(
     onSettled,
     ...rest
   } = options as Omit<OnSuccessOptions<TData, TVars>, 'when'> & { when?: 'success' | 'settled' }
+  if (when === 'settled' && typeof invalidates === 'function') {
+    throw new Error("useInvalidatingMutation: with when: 'settled', invalidates must be a list of keys")
+  }
 
   const refresh = (own: unknown, keys: Keys) => {
     const pending: PromiseLike<unknown>[] = isThenable(own) ? [own] : []
@@ -73,7 +76,7 @@ export function useInvalidatingMutation<TData = unknown, TVars = void>(
     onSettled: (data, error, variables, ...tail) => {
       const own = onSettled?.(data, error, variables, ...tail)
       if (when !== 'settled') return own
-      return refresh(own, typeof invalidates === 'function' ? [] : invalidates)
+      return refresh(own, invalidates as Keys)
     },
   })
 }

@@ -209,6 +209,20 @@ describe('useInvalidatingMutation', () => {
     expect(state?.isInvalidated).toBe(false)
   })
 
+  it('rejects a key function with when: settled instead of invalidating nothing', () => {
+    const { wrapper } = setup()
+    const options = {
+      mutationFn: () => Promise.resolve(1),
+      when: 'settled',
+      invalidates: () => [['accounts']],
+    } as unknown as Parameters<typeof useInvalidatingMutation>[0]
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    expect(() => renderHook(() => useInvalidatingMutation(options), { wrapper })).toThrow(
+      "with when: 'settled', invalidates must be a list of keys",
+    )
+  })
+
   it('invalidates on error too with when: settled', async () => {
     const { wrapper, invalidations } = setup()
     const { result } = renderHook(
