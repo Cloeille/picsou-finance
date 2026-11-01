@@ -107,7 +107,7 @@ pod templates across inline secret changes.
 - `charts/picsou/templates/secret.yaml` — generated Secret
 - `charts/picsou/templates/migration-job.yaml` — pre-upgrade migration and verification
 - `charts/picsou/templates/networkpolicy.yaml` — isolation of sidecars and database
-- `charts/picsou/sync-sidecars.sh` — compares the Compose sidecars with `values.yaml` (URL variable and port read from `app.*.url` in
+- `charts/picsou/sync-sidecars.sh` — compares the Compose sidecars with `values.yaml` (URL variable and port read from `app.sidecars.*.url` in
   `backend/src/main/resources/application.yml`), adds the
   standard ones and disables stale or broken entries on `--apply` with warnings
 - `.github/workflows/docker.yml` (`chart` job) — packages and publishes the chart

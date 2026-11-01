@@ -6,7 +6,6 @@ import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.CmesErrorCode;
 import com.picsou.port.CmesPort;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -35,11 +34,10 @@ public class CmesAdapter implements CmesPort {
     @Autowired
     public CmesAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.cmes-auth.url:http://cmes-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Crédit Mutuel Épargne Salariale", url),
+            clients.create("Crédit Mutuel Épargne Salariale", "cmes-auth"),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,

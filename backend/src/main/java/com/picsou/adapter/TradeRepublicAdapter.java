@@ -11,7 +11,6 @@ import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -87,10 +86,9 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
     @Autowired
     public TradeRepublicAdapter(
         SidecarWebClientFactory clients,
-        ObjectMapper objectMapper,
-        @Value("${app.tr-auth.url:http://tr-auth:8001}") String trAuthUrl
+        ObjectMapper objectMapper
     ) {
-        this(objectMapper, clients.create("Trade Republic", trAuthUrl), DEFAULT_REFRESH_TIMEOUT, URI.create(WS_URL));
+        this(objectMapper, clients.create("Trade Republic", "tr-auth"), DEFAULT_REFRESH_TIMEOUT, URI.create(WS_URL));
     }
 
     TradeRepublicAdapter(ObjectMapper objectMapper, WebClient sidecarClient, Duration refreshTimeout, URI wsUri) {

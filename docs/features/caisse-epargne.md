@@ -72,7 +72,7 @@ On the current account the loan is debited from, two kinds of rows are categoriz
 
 ### Configuration
 
-`app.caisse-epargne-auth.url` (env `CAISSE_EPARGNE_AUTH_URL`, default `http://caisse-epargne-auth:8001`). The shared sidecar key and URL validation come from `SidecarWebClientFactory`.
+`app.sidecars.caisse-epargne-auth.url` (env `CAISSE_EPARGNE_AUTH_URL`, default `http://caisse-epargne-auth:8001`). The shared sidecar key and URL validation come from `SidecarWebClientFactory`.
 
 ## Authentication
 

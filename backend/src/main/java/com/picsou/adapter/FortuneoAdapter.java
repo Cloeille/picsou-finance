@@ -8,7 +8,6 @@ import com.picsou.exception.SyncException;
 import com.picsou.port.FortuneoErrorCode;
 import com.picsou.port.FortuneoPort;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,11 +35,10 @@ public class FortuneoAdapter implements FortuneoPort {
     @Autowired
     public FortuneoAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.fortuneo-auth.url:http://fortuneo-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Fortuneo", url),
+            clients.create("Fortuneo", "fortuneo-auth"),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_PORTFOLIO_TIMEOUT

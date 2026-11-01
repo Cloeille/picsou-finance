@@ -6,7 +6,6 @@ import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.AmundiErrorCode;
 import com.picsou.port.AmundiPort;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -34,11 +33,10 @@ public class AmundiAdapter implements AmundiPort {
     @Autowired
     public AmundiAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.amundi-auth.url:http://amundi-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Amundi", url),
+            clients.create("Amundi", "amundi-auth"),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,

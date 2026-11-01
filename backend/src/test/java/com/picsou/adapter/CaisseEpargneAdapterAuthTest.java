@@ -5,7 +5,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarWebClientFactory;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.exception.SyncException;
 import com.picsou.port.CaisseEpargneErrorCode;
 import com.picsou.port.CaisseEpargnePort;
@@ -271,8 +271,7 @@ class CaisseEpargneAdapterAuthTest {
             server.start();
             try {
                 CaisseEpargneAdapter adapter = new CaisseEpargneAdapter(
-                    new SidecarWebClientFactory("test-key"),
-                    "http://127.0.0.1:" + server.getAddress().getPort(),
+                    SidecarTestSupport.factory("caisse-epargne-auth", "http://127.0.0.1:" + server.getAddress().getPort()),
                     new ObjectMapper());
 
                 assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID)).isInstanceOf(SyncException.class);
@@ -316,8 +315,7 @@ class CaisseEpargneAdapterAuthTest {
             acceptor.setDaemon(true);
             acceptor.start();
             CaisseEpargneAdapter adapter = new CaisseEpargneAdapter(
-                new SidecarWebClientFactory("test-key"),
-                "http://127.0.0.1:" + server.getLocalPort(),
+                SidecarTestSupport.factory("caisse-epargne-auth", "http://127.0.0.1:" + server.getLocalPort()),
                 new ObjectMapper());
 
             // Warm the pool: the connection is kept alive and reused by the next call.

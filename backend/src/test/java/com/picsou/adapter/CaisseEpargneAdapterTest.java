@@ -14,7 +14,7 @@ import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-import com.picsou.adapter.sidecar.SidecarWebClientFactory;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.sun.net.httpserver.HttpServer;
 
 import java.lang.reflect.Method;
@@ -330,8 +330,7 @@ class CaisseEpargneAdapterTest {
         server.start();
         try {
             CaisseEpargneAdapter adapter = new CaisseEpargneAdapter(
-                new SidecarWebClientFactory("test-key"),
-                "http://127.0.0.1:" + server.getAddress().getPort(),
+                SidecarTestSupport.factory("caisse-epargne-auth", "http://127.0.0.1:" + server.getAddress().getPort()),
                 new ObjectMapper());
 
             CaisseEpargnePort.AccountsSnapshot snapshot = adapter.fetchAccounts("state");

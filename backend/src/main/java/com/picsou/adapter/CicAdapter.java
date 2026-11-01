@@ -8,7 +8,6 @@ import com.picsou.exception.SyncException;
 import com.picsou.port.CicErrorCode;
 import com.picsou.port.CicPort;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -41,11 +40,10 @@ public class CicAdapter implements CicPort {
     @Autowired
     public CicAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.cic-auth.url:http://cic-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("CIC", url),
+            clients.create("CIC", "cic-auth"),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,

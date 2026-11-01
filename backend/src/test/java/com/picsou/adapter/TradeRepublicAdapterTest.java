@@ -40,7 +40,7 @@ class TradeRepublicAdapterTest {
     @Test
     void productionConstructorIsExplicitSpringInjectionPoint() throws NoSuchMethodException {
         assertThat(TradeRepublicAdapter.class
-            .getConstructor(SidecarWebClientFactory.class, ObjectMapper.class, String.class)
+            .getConstructor(SidecarWebClientFactory.class, ObjectMapper.class)
             .isAnnotationPresent(Autowired.class))
             .isTrue();
     }

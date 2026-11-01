@@ -2,6 +2,7 @@ package com.picsou.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.config.SidecarProperties;
 import com.picsou.dto.InstanceStatusResponse;
 import com.picsou.dto.ReleaseUpdate;
 import com.picsou.dto.SidecarIssue;
@@ -24,7 +25,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.env.Environment;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -72,7 +72,7 @@ public class InstanceStatusService {
     public InstanceStatusService(
         ReleaseCheckService releaseCheck,
         SetupService setupService,
-        Environment env,
+        SidecarProperties sidecars,
         TradeRepublicSessionRepository trSessions,
         BoursoSessionRepository boursoSessions,
         CaisseEpargneSessionRepository caisseEpargneSessions,
@@ -89,7 +89,7 @@ public class InstanceStatusService {
         @Value("${info.app.version:dev}") String currentVersion
     ) {
         this(releaseCheck, currentVersion, registry(
-            setupService, env,
+            setupService, sidecars,
             trSessions, boursoSessions, caisseEpargneSessions, revolutSessions, bourseDirectSessions,
             degiroSessions, amundiSessions, amexSessions, fortuneoSessions, corumSessions, sofidySessions,
             cmesSessions, cicSessions
@@ -335,7 +335,7 @@ public class InstanceStatusService {
 
     private static List<SidecarTarget> registry(
         SetupService setupService,
-        Environment env,
+        SidecarProperties sidecars,
         TradeRepublicSessionRepository trSessions,
         BoursoSessionRepository boursoSessions,
         CaisseEpargneSessionRepository caisseEpargneSessions,
@@ -352,37 +352,36 @@ public class InstanceStatusService {
     ) {
         return List.of(
             new SidecarTarget("bourso-auth", BASE_PYTHON,
-                () -> setupService.boursoAuthUrl(propertyUrl(env, "bourso-auth")), boursoSessions::count),
+                () -> setupService.boursoAuthUrl(sidecarUrl(sidecars, "bourso-auth")), boursoSessions::count),
             new SidecarTarget("sofidy-auth", BASE_PYTHON,
-                () -> propertyUrl(env, "sofidy-auth"), sofidySessions::count),
+                () -> sidecarUrl(sidecars, "sofidy-auth"), sofidySessions::count),
             new SidecarTarget("cmes-auth", BASE_PYTHON,
-                () -> propertyUrl(env, "cmes-auth"), cmesSessions::count),
+                () -> sidecarUrl(sidecars, "cmes-auth"), cmesSessions::count),
             new SidecarTarget("cic-auth", BASE_PYTHON,
-                () -> propertyUrl(env, "cic-auth"), cicSessions::count),
+                () -> sidecarUrl(sidecars, "cic-auth"), cicSessions::count),
             new SidecarTarget("degiro-auth", BASE_PYTHON,
-                () -> propertyUrl(env, "degiro-auth"), degiroSessions::count),
+                () -> sidecarUrl(sidecars, "degiro-auth"), degiroSessions::count),
             new SidecarTarget("tr-auth", BASE_CHROMIUM,
-                () -> propertyUrl(env, "tr-auth"), trSessions::count),
+                () -> sidecarUrl(sidecars, "tr-auth"), trSessions::count),
             new SidecarTarget("caisse-epargne-auth", BASE_CHROMIUM,
-                () -> propertyUrl(env, "caisse-epargne-auth"), caisseEpargneSessions::count),
+                () -> sidecarUrl(sidecars, "caisse-epargne-auth"), caisseEpargneSessions::count),
             new SidecarTarget("bourse-direct-auth", BASE_CHROMIUM,
-                () -> propertyUrl(env, "bourse-direct-auth"), bourseDirectSessions::count),
+                () -> sidecarUrl(sidecars, "bourse-direct-auth"), bourseDirectSessions::count),
             new SidecarTarget("amundi-auth", BASE_CHROMIUM,
-                () -> propertyUrl(env, "amundi-auth"), amundiSessions::count),
+                () -> sidecarUrl(sidecars, "amundi-auth"), amundiSessions::count),
             new SidecarTarget("fortuneo-auth", BASE_CHROMIUM,
-                () -> propertyUrl(env, "fortuneo-auth"), fortuneoSessions::count),
+                () -> sidecarUrl(sidecars, "fortuneo-auth"), fortuneoSessions::count),
             new SidecarTarget("corum-auth", BASE_CHROMIUM,
-                () -> propertyUrl(env, "corum-auth"), corumSessions::count),
+                () -> sidecarUrl(sidecars, "corum-auth"), corumSessions::count),
             new SidecarTarget("amex-auth", BASE_CAMOUFOX,
-                () -> propertyUrl(env, "amex-auth"), amexSessions::count),
+                () -> sidecarUrl(sidecars, "amex-auth"), amexSessions::count),
             new SidecarTarget("revolut-auth", BASE_CAMOUFOX,
-                () -> propertyUrl(env, "revolut-auth"), revolutSessions::count)
+                () -> sidecarUrl(sidecars, "revolut-auth"), revolutSessions::count)
         );
     }
 
-    private static String propertyUrl(Environment env, String name) {
-        String value = env.getProperty("app." + name + ".url");
-        return value == null ? "" : value;
+    private static String sidecarUrl(SidecarProperties sidecars, String name) {
+        return sidecars.findUrl(name).orElse("");
     }
 
     static WebClient defaultWebClient(Duration timeout) {

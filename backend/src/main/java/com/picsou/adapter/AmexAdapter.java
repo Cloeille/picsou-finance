@@ -6,7 +6,6 @@ import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.AmexErrorCode;
 import com.picsou.port.AmexPort;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -30,11 +29,10 @@ public class AmexAdapter implements AmexPort {
     @Autowired
     public AmexAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.amex-auth.url:http://amex-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Amex", url),
+            clients.create("Amex", "amex-auth"),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,

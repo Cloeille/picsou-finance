@@ -6,7 +6,6 @@ import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.CaisseEpargneErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
@@ -48,12 +47,11 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
     @Autowired
     public CaisseEpargneAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.caisse-epargne-auth.url:http://caisse-epargne-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
             // A real account with a long history exceeds Spring's 256 KB default buffer.
-            clients.create("Caisse d'Epargne", url,
+            clients.create("Caisse d'Epargne", "caisse-epargne-auth",
                 builder -> builder
                     .clientConnector(new ReactorClientHttpConnector(httpClient()))
                     .codecs(c -> c.defaultCodecs().maxInMemorySize(16 * 1024 * 1024))),

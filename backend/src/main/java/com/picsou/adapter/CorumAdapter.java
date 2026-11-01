@@ -6,7 +6,6 @@ import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.CorumErrorCode;
 import com.picsou.port.CorumPort;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -29,11 +28,10 @@ public class CorumAdapter implements CorumPort {
     @Autowired
     public CorumAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.corum-auth.url:http://corum-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("CORUM", url),
+            clients.create("CORUM", "corum-auth"),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_POSITIONS_TIMEOUT

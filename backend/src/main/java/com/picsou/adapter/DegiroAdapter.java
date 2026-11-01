@@ -11,7 +11,6 @@ import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.json.Jackson2JsonDecoder;
 import org.springframework.stereotype.Component;
@@ -40,8 +39,7 @@ public class DegiroAdapter implements DegiroPort {
     @Autowired
     public DegiroAdapter(
         SidecarWebClientFactory clients,
-        ObjectMapper objectMapper,
-        @Value("${app.degiro-auth.url:http://degiro-auth:8001}") String degiroAuthUrl
+        ObjectMapper objectMapper
     ) {
         // Every number this sidecar returns is money or a share quantity, and they feed
         // the quantity * currentPrice sum behind currentBalance and the daily snapshot.
@@ -53,7 +51,7 @@ public class DegiroAdapter implements DegiroPort {
 
         this.sidecarClient = clients.create(
             "DEGIRO",
-            degiroAuthUrl,
+            "degiro-auth",
             builder -> builder.codecs(
                 c -> c.defaultCodecs().jackson2JsonDecoder(new Jackson2JsonDecoder(exactDecimals)))
         );

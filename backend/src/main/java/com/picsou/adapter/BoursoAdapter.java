@@ -6,7 +6,6 @@ import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.BoursoErrorCode;
 import com.picsou.port.BoursoPort;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -35,11 +34,10 @@ public class BoursoAdapter implements BoursoPort {
     @Autowired
     public BoursoAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.bourso-auth.url:http://bourso-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("BoursoBank", url),
+            clients.create("BoursoBank", "bourso-auth"),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,

@@ -6,7 +6,6 @@ import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.SofidyErrorCode;
 import com.picsou.port.SofidyPort;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -32,11 +31,10 @@ public class SofidyAdapter implements SofidyPort {
     @Autowired
     public SofidyAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.sofidy-auth.url:http://sofidy-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Sofidy", url),
+            clients.create("Sofidy", "sofidy-auth"),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,

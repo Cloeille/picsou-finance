@@ -2,6 +2,7 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.port.CicErrorCode;
@@ -158,7 +159,8 @@ class CicAdapterTest {
     @Test
     void springSelectsTheProductionConstructor() {
         new ApplicationContextRunner()
-            .withPropertyValues("app.cic-auth.url=http://cic-auth:8001", "app.sidecar.api-key=test-key")
+            .withPropertyValues("app.sidecars.cic-auth.url=http://cic-auth:8001", "app.sidecar.api-key=test-key")
+            .withUserConfiguration(SidecarTestSupport.BindSidecarProperties.class)
             .withBean(ObjectMapper.class)
             .withBean(SidecarWebClientFactory.class)
             .withBean(CicAdapter.class)

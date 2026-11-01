@@ -2,6 +2,7 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarAuthenticationException;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
@@ -29,7 +30,7 @@ class FortuneoAdapterTest {
     @Test
     void constructor_acceptsBracketedIpv6LoopbackOverHttp() {
         assertThatCode(() -> new FortuneoAdapter(
-            new SidecarWebClientFactory("test-key"), "http://[::1]:8001", new ObjectMapper()))
+            SidecarTestSupport.factory("fortuneo-auth", "http://[::1]:8001"), new ObjectMapper()))
             .doesNotThrowAnyException();
     }
 
@@ -46,8 +47,7 @@ class FortuneoAdapterTest {
         server.start();
         try {
             FortuneoAdapter adapter = new FortuneoAdapter(
-                new SidecarWebClientFactory("test-key"),
-                "http://127.0.0.1:" + server.getAddress().getPort(),
+                SidecarTestSupport.factory("fortuneo-auth", "http://127.0.0.1:" + server.getAddress().getPort()),
                 new ObjectMapper()
             );
 

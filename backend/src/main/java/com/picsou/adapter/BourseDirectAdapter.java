@@ -6,7 +6,6 @@ import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.BourseDirectErrorCode;
 import com.picsou.port.BourseDirectPort;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -26,11 +25,10 @@ public class BourseDirectAdapter implements BourseDirectPort {
     @Autowired
     public BourseDirectAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.bourse-direct-auth.url:http://bourse-direct-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Bourse Direct", url),
+            clients.create("Bourse Direct", "bourse-direct-auth"),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_PORTFOLIO_TIMEOUT

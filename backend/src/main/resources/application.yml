@@ -188,32 +188,35 @@ app:
   hsts-enabled: ${HSTS_ENABLED:false}
   crypto:
     encryption-key: ${CRYPTO_ENCRYPTION_KEY:}
-  tr-auth:
-    url: ${TR_AUTH_URL:http://tr-auth:8001}
-  bourso-auth:
-    url: ${BOURSO_AUTH_URL:http://bourso-auth:8001}
-  caisse-epargne-auth:
-    url: ${CAISSE_EPARGNE_AUTH_URL:http://caisse-epargne-auth:8001}
-  revolut-auth:
-    url: ${REVOLUT_AUTH_URL:http://revolut-auth:8002}
-  bourse-direct-auth:
-    url: ${BOURSE_DIRECT_AUTH_URL:http://bourse-direct-auth:8001}
-  degiro-auth:
-    url: ${DEGIRO_AUTH_URL:http://degiro-auth:8001}
-  amundi-auth:
-    url: ${AMUNDI_AUTH_URL:http://amundi-auth:8001}
-  cmes-auth:
-    url: ${CMES_AUTH_URL:http://cmes-auth:8001}
-  cic-auth:
-    url: ${CIC_AUTH_URL:http://cic-auth:8001}
-  amex-auth:
-    url: ${AMEX_AUTH_URL:http://amex-auth:8001}
-  fortuneo-auth:
-    url: ${FORTUNEO_AUTH_URL:http://fortuneo-auth:8001}
-  corum-auth:
-    url: ${CORUM_AUTH_URL:http://corum-auth:8001}
-  sofidy-auth:
-    url: ${SOFIDY_AUTH_URL:http://sofidy-auth:8001}
+  # One entry per connector sidecar, keyed by its compose service name. This is the only
+  # place the URLs are defined; SidecarProperties fails startup if a consumer asks for a missing one.
+  sidecars:
+    tr-auth:
+      url: ${TR_AUTH_URL:http://tr-auth:8001}
+    bourso-auth:
+      url: ${BOURSO_AUTH_URL:http://bourso-auth:8001}
+    caisse-epargne-auth:
+      url: ${CAISSE_EPARGNE_AUTH_URL:http://caisse-epargne-auth:8001}
+    revolut-auth:
+      url: ${REVOLUT_AUTH_URL:http://revolut-auth:8002}
+    bourse-direct-auth:
+      url: ${BOURSE_DIRECT_AUTH_URL:http://bourse-direct-auth:8001}
+    degiro-auth:
+      url: ${DEGIRO_AUTH_URL:http://degiro-auth:8001}
+    amundi-auth:
+      url: ${AMUNDI_AUTH_URL:http://amundi-auth:8001}
+    cmes-auth:
+      url: ${CMES_AUTH_URL:http://cmes-auth:8001}
+    cic-auth:
+      url: ${CIC_AUTH_URL:http://cic-auth:8001}
+    amex-auth:
+      url: ${AMEX_AUTH_URL:http://amex-auth:8001}
+    fortuneo-auth:
+      url: ${FORTUNEO_AUTH_URL:http://fortuneo-auth:8001}
+    corum-auth:
+      url: ${CORUM_AUTH_URL:http://corum-auth:8001}
+    sofidy-auth:
+      url: ${SOFIDY_AUTH_URL:http://sofidy-auth:8001}
   # Latest GitHub release, checked at most once per 6 h when an admin opens the app.
   # APP_UPDATE_CHECK_ENABLED=false skips the call entirely.
   update-check:

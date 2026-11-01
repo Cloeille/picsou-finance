@@ -2,6 +2,7 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.port.CmesErrorCode;
@@ -115,7 +116,8 @@ class CmesAdapterTest {
     @Test
     void springSelectsTheProductionConstructor() {
         new ApplicationContextRunner()
-            .withPropertyValues("app.cmes-auth.url=http://cmes-auth:8001", "app.sidecar.api-key=test-key")
+            .withPropertyValues("app.sidecars.cmes-auth.url=http://cmes-auth:8001", "app.sidecar.api-key=test-key")
+            .withUserConfiguration(SidecarTestSupport.BindSidecarProperties.class)
             .withBean(ObjectMapper.class)
             .withBean(SidecarWebClientFactory.class)
             .withBean(CmesAdapter.class)
