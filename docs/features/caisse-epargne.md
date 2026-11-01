@@ -1,7 +1,7 @@
 # Feature: Caisse d'Epargne sync
 
 > Last updated: 2026-10-31
-> Status: sidecar, backend and frontend are in the codebase. `docker-compose.yml` runs the `caisse-epargne-auth` sidecar and gives the backend its URL. The user connects from the Sync page (Caisse d'Epargne tab) or the add-account modal: a pop-up shows the bank's virtual keypad, the user clicks his own digits, then approves in Sécur'Pass. There is no keypad table: the sidecar never maps a key image to a digit. Sync is on demand only. Tested offline only: no test covers a full login against the real bank, and the card-transaction `accountIds` is still unverified live (see the sidecar README).
+> Status: sidecar, backend and frontend are in the codebase. `docker/docker-compose.yml` runs the `caisse-epargne-auth` sidecar; `application.yml` gives the backend its URL. The user connects from the Sync page (Caisse d'Epargne tab) or the add-account modal: a pop-up shows the bank's virtual keypad, the user clicks his own digits, then approves in Sécur'Pass. There is no keypad table: the sidecar never maps a key image to a digit. Sync is on demand only. Tested offline only: no test covers a full login against the real bank, and the card-transaction `accountIds` is still unverified live (see the sidecar README).
 
 ## Context
 

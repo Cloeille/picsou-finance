@@ -1,10 +1,10 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-11-01 (shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
+> Last updated: 2026-11-01 (one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
 
 ## Context
 
-Picsou deploys as the app and thirteen authentication sidecars orchestrated by `docker/docker-compose.yml`:
+Picsou deploys as the app and thirteen authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
 - **`picsou:latest`** — main app: frontend (Nginx) + backend (Spring Boot), no Python. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
@@ -13,8 +13,8 @@ Picsou deploys as the app and thirteen authentication sidecars orchestrated by `
 - **`caisse-epargne-auth`** — browserless Caisse d'Epargne read sidecar (session replay, no in-app login yet), published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
-- **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (Compose sets `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
-- **`cic-auth`** — browserless CIC online-banking login/2FA and account sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cic-auth`. The backend reaches it at `CIC_AUTH_URL` (Compose sets `http://cic-auth:8001`); see [`cic-banking.md`](cic-banking.md).
+- **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (`application.yml` defaults to `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
+- **`cic-auth`** — browserless CIC online-banking login/2FA and account sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cic-auth`. The backend reaches it at `CIC_AUTH_URL` (`application.yml` defaults to `http://cic-auth:8001`); see [`cic-banking.md`](cic-banking.md).
 - **`amex-auth`** — American Express login and account sidecar, built with Camoufox/Firefox, published as `ghcr.io/cloeille/picsou-finance/amex-auth`.
 - **`degiro-auth`** — browserless DEGIRO authentication and portfolio sidecar, published as `ghcr.io/cloeille/picsou-finance/degiro-auth`.
 
@@ -158,12 +158,12 @@ applies through `SidecarBaseUrl`.
 The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank, Caisse d'Epargne,
 Bourse Direct, Amundi, Fortuneo, DEGIRO, AMEX, CORUM, Sofidy, Crédit Mutuel / CIC
 Épargne Salariale, CIC online banking) share one secret.
-Generate it with `openssl rand -base64 32`. Both Compose files forward it
-explicitly to the app and to every sidecar service they define, and refuse to
-start when it is missing or empty. The root `docker-compose.yml` defines all
-thirteen sidecars, as does `docker/docker-compose.yml`. Both explicitly set
-`DEGIRO_AUTH_URL` on the backend rather than relying on its application default.
-Both AMEX service definitions use `init: true` so an init process reaps orphaned
+Generate it with `openssl rand -base64 32`. `docker/docker-compose.yml` forwards it
+explicitly to the app and to every sidecar service, and refuses to
+start when it is missing or empty. Sidecar URLs are set in one place,
+`backend/src/main/resources/application.yml` (`app.<sidecar>.url`, Compose service
+name); `application-dev.yml` gives each one its own `127.0.0.1` port. Compose and the
+entrypoint set none. The AMEX service uses `init: true` so an init process reaps orphaned
 browser children during repeated logins. The entrypoint does not generate the
 shared secret: the sidecars run in separate containers and
 cannot read the app's `/data/.secrets/` volume.
@@ -287,7 +287,7 @@ policy on the very first page view no matter what nginx was told.
 | Deployment | Browser-visible emitter |
 |---|---|
 | All-in-one image | **nginx only.** Its `add_header` covers proxied responses too, and `proxy_hide_header Strict-Transport-Security` on `/api` and `/actuator` discards the backend's copy so it is never sent twice |
-| Split stack / bare metal behind an operator's proxy | **Spring only.** `frontend/nginx.conf` sends no HSTS and hides nothing |
+| Bare metal behind an operator's proxy | **Spring only.** |
 
 So in the all-in-one image the Spring gate is defence in depth rather than the operative control —
 verifying it requires querying the backend directly on `:9090`, because nginx strips its header on
@@ -353,16 +353,10 @@ points directly at the app's published HTTP port. Restarting Caddy alone
 does not apply Compose network changes. Stopped or absent proxies remain untouched, even when
 the `tls` profile is enabled. Migration or app cutover failures leave the proxy untouched.
 
-The root split Compose stack uses a separate `picsou-ingress` bridge (`172.30.254.0/29`). nginx
-is `172.30.254.2`, the backend is `172.30.254.3`, and the ingress-only `ingress-backend` alias
-ensures the backend connection uses that path. Only the frontend's exact address is in
-`SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES`. If the subnet conflicts, change its subnet, both
-addresses and that regex together in a Compose override. For an additional proxy before the
-split frontend, mount a real-IP snippet using `frontend/picsou-realip.conf` as the template;
-the default snippet trusts no upstream peer. Other backend deployments must set
+Backend deployments outside the image must set
 `SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES` to the exact nginx peer expression.
 
-Both nginx configurations retain the public scheme/host and derive `X-Forwarded-Port` from
+The nginx configuration retains the public scheme/host and derives `X-Forwarded-Port` from
 an explicit public host port or an upstream port header, otherwise Tomcat uses the scheme
 default. This preserves same-origin requests on published HTTP and custom HTTPS ports.
 See [CORS & cookie security](./security-cors-cookies.md) and the
@@ -649,7 +643,7 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - **Closing the plain-HTTP `:8080` publish uses an overlay file**, `docker/docker-compose.no-http.yml` (`ports: !reset []`), not an env var. Compose cannot vary `ports` by profile, and two env-var forms were tried and rejected: `${VAR:-0.0.0.0}:8080:8080` binds IPv4 only and silently drops the `[::]` binding the unqualified short form gives (breaking IPv6 clients on *every* deployment), while the prefix form `${VAR:-}8080:8080` turns a value missing its trailing colon into `127.0.0.18080:8080` — an opaque "invalid published port" that aborts the whole stack, db and tr-auth included. Long-syntax `host_ip: ""` is rejected as an invalid IP. Requires Compose v2.24+ for `!reset`.
 - **`picsou.localhost` (the `PICSOU_DOMAIN` default) only resolves on the Docker host itself** — browsers map `*.localhost` to loopback. Fine for verifying the profile works; set a LAN IP or a real domain for access from other devices. Enable Banking's portal may also refuse to register a `.localhost` redirect URL.
 - **Enabling the `tls` profile against a pre-built GHCR image does not get the HSTS fix.** `HSTS_ENABLED` gating lives in `nginx.conf` + `entrypoint.sh`, so an image built before that change still sends HSTS unconditionally — which is precisely the lockout combination with an internal-CA certificate. Pull a current image, or rebuild with `--build`.
-- **`TR_AUTH_URL` default in entrypoint is `http://127.0.0.1:8001`** (legacy single-container fallback). In docker-compose it is overridden to `http://tr-auth:8001` via the `environment:` block.
+- **Sidecar URLs live only in `application.yml`.** Compose and `entrypoint.sh` set no `*_AUTH_URL`; an operator `.env` value still overrides the default.
 - **Bourse Direct 2FA state is process-local.** Keep `bourse-direct-auth` at one replica unless request affinity or shared pending state is added.
 - **Secrets are never regenerated.** If `/data/.secrets/jwt_secret` exists, it is reused. Deleting it will log out all users and invalidate all encrypted secrets in the DB.
 - **Spring Boot env var naming:** Properties under `app.*` require the `APP_` prefix. `app.finary.email` → `APP_FINARY_EMAIL`. Variables like `JWT_SECRET` work because `application.yml` maps them explicitly.
