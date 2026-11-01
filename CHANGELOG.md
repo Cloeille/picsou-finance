@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Caisse d'Epargne: a failed account import says where it failed.** The sidecar's
+  `accounts fetch failed` line now names the step (synthesis, transactions,
+  serialisation) and the cause (the bank's HTTP status, an oversized answer, or the
+  transport error class such as `ReadTimeout`). No URL, body or token is logged (#397).
+
 - **One sync-provider table in the frontend.** The browser-sidecar connectors are now
   entries in `features/sync/providers.ts` driven by generic `useProvider*` hooks, so adding
   one no longer means copying five hooks. Mutations that refresh queries go through

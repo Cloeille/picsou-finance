@@ -66,9 +66,16 @@ class FetchError(Exception):
     """Base class. `code` is the stable, caller-facing error code; messages are fixed."""
 
     code = "UPSTREAM_UNAVAILABLE"
+    # Logged when the import fails: a fixed token, the HTTP status or the
+    # transport exception's class name. Never a URL, a body or a message.
+    # Each subclass names its own default, so a raise without one never
+    # reports another class's cause.
+    cause = "unknown"
 
-    def __init__(self, message: Optional[str] = None):
+    def __init__(self, message: Optional[str] = None, *, cause: Optional[str] = None):
         super().__init__(message or self.code)
+        if cause is not None:
+            self.cause = cause
 
 
 class UpstreamUnavailable(FetchError):
@@ -77,6 +84,7 @@ class UpstreamUnavailable(FetchError):
 
 class UpstreamFormatChanged(FetchError):
     code = "UPSTREAM_FORMAT_CHANGED"
+    cause = "format"
 
 
 # --- Bounded GET ---------------------------------------------------------------
@@ -99,17 +107,18 @@ async def _get_json(
             async for chunk in response.aiter_bytes():
                 size += len(chunk)
                 if size > replay.MAX_RESPONSE_BYTES:
-                    raise UpstreamUnavailable("Upstream response too large")
+                    raise UpstreamUnavailable("Upstream response too large", cause="too-large")
                 chunks.append(chunk)
             status = response.status_code
             body = b"".join(chunks)
-    except httpx.HTTPError:
-        # Fixed message, no chained cause: httpx errors can embed URLs.
-        raise UpstreamUnavailable("Upstream request failed") from None
+    except httpx.HTTPError as exc:
+        # Fixed message, no chained cause: httpx errors can embed URLs. The class
+        # name alone (ReadTimeout, ConnectError...) is safe to log.
+        raise UpstreamUnavailable("Upstream request failed", cause=type(exc).__name__) from None
     if status == 401:
         raise replay.SessionExpired("Token no longer accepted")
     if status != 200:
-        raise UpstreamUnavailable("Upstream answered an unexpected status")
+        raise UpstreamUnavailable("Upstream answered an unexpected status", cause=f"status-{status}")
     try:
         return json.loads(body)
     except ValueError:
@@ -423,6 +432,7 @@ async def fetch_import(
     home_loan_base_url = home_loan_base_url.rstrip("/")
 
     client = replay.new_client(transport)
+    stage = "synthesis"  # which step failed, logged with the code
     try:
         client.headers["Authorization"] = f"Bearer {access_token}"
         synthesis = await _get_json(client, base_url + SYNTHESIS_PATH, dict(SYNTHESIS_QUERY))
@@ -433,6 +443,7 @@ async def fetch_import(
 
         transactions: dict = {}
         unavailable: dict = {}  # externalId -> code
+        stage = "transactions"  # only the current account's failure gets past the loop
         for account in accounts:
             external_id = account["externalId"]
             kind = account["kind"]
@@ -463,6 +474,7 @@ async def fetch_import(
         unavailable.update(loan_unavailable)
         unavailable.update(per_unavailable)
 
+        stage = "serialisation"
         result_accounts: list = []
         for account in accounts:
             external_id = account["externalId"]
@@ -494,7 +506,7 @@ async def fetch_import(
             "unavailable": unavailable_list,
         }
     except FetchError as exc:
-        log.warning("accounts fetch failed: %s", exc.code)
+        log.warning("accounts fetch failed: %s stage=%s cause=%s", exc.code, stage, exc.cause)
         raise
     finally:
         await client.aclose()
