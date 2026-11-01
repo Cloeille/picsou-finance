@@ -37,7 +37,6 @@ import type {
   SidecarAuthInitResponse,
 } from '@/types/api'
 
-export { syncKeys }
 
 // ---------------------------------------------------------------------------
 // Bank Sync (Enable Banking)
@@ -272,7 +271,6 @@ export function useProviderSession<I extends PanelProviderId>(id: I) {
     clear: useProviderClear(id),
   }
 }
-
 
 // ---------------------------------------------------------------------------
 // Revolut (on-demand phone+passcode sync)

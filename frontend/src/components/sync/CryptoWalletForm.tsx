@@ -35,9 +35,11 @@ export function CryptoWalletForm({ onSuccess, onCancel, variant }: CryptoWalletF
       { chain, address, label: label || undefined },
       {
         onSuccess,
-        onError: (err: unknown) => {
-          setError(getErrorDetail(err) || (err as { message?: string })?.message || t('sync.wallets.connectError'))
-        },
+        onError: modal
+          ? (err: unknown) => {
+              setError(getErrorDetail(err) || (err as { message?: string })?.message || t('sync.wallets.connectError'))
+            }
+          : undefined,
       },
     )
   }

@@ -1163,9 +1163,8 @@ export type SofidySessionStatus = SidecarSessionStatusOf<SofidyErrorCode>
 /**
  * Sofidy always asks for a six-digit code by e-mail, so `mfaRequired` is
  * effectively always true. It is kept because a portal that stopped asking would
- * then work without a change here.
+ * then work without a change here. No push variant: `mfaType` is null today.
  */
-/** No push variant: the code always arrives by e-mail, so `mfaType` is null today. */
 export type SofidyAuthInitResponse = SidecarAuthInitResponse<'EMAIL'>
 
 export type CorumErrorCode =

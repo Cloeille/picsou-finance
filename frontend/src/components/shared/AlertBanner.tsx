@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 /**
- * Class strings of the destructive banners that used to be hand-rolled. `inline` and `roomy` are
+ * Destructive banner styles. `inline` and `roomy` are
  * flex rows (optional icon, message, optional action); `bordered`, `plain` and `prominent` are
  * single paragraphs.
  */

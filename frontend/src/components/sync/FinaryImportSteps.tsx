@@ -18,7 +18,7 @@ import type {
 } from '@/types/api'
 
 /** `page` is the Sync tab (roomy, cards); `modal` is the compact add-account wizard. */
-export type FinaryVariant = 'page' | 'modal'
+type FinaryVariant = 'page' | 'modal'
 
 const SELECT_CLASS =
   'h-10 w-full rounded-xl border border-input bg-background text-foreground px-4 text-sm outline-none [color-scheme:light] dark:[color-scheme:dark]'

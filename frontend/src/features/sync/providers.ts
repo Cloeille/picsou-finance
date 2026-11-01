@@ -22,7 +22,7 @@ import type {
 } from '@/types/api'
 
 /** Login form of the providers that ask for an identifier and a password. */
-export type LoginCredentials = { login: string; password: string }
+type LoginCredentials = { login: string; password: string }
 
 /** What the shared panel submits: the login form plus any extra choice (`SidecarExtraField`). */
 export interface Credentials extends LoginCredentials {

@@ -28,7 +28,7 @@ type OnSettledOptions<TData, TVars> = BaseOptions<TData, TVars> & {
   invalidates?: Keys
 }
 
-export type InvalidatingMutationOptions<TData, TVars> =
+type InvalidatingMutationOptions<TData, TVars> =
   | OnSuccessOptions<TData, TVars>
   | OnSettledOptions<TData, TVars>
 

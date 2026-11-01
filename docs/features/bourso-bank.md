@@ -437,7 +437,7 @@ disconnect removes saved credentials with the session.
 - `backend/src/main/resources/db/migration/V78__bourso_session.sql`
 - `frontend/src/components/sync/BoursoPanel.tsx` (serves the Sync tab and the
   Add-account modal), `frontend/src/pages/sync/BoursoTab.tsx`
-- `frontend/src/features/sync/{api,hooks}.ts` — `boursoApi`, `useBourso*`
+- `frontend/src/features/sync/{api,hooks}.ts` — `boursoApi`, the `bourso` entry of `providers.ts` (`useProvider*('bourso')`)
 - `frontend/public/providers/boursobank.png` + `lib/provider-logos.ts` — every
   BoursoBank account carries the brand mark rather than a color circle
 - i18n namespace `sync.bourso.*` in all four locales

@@ -65,7 +65,7 @@ import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
 import type { Account } from '@/types/api'
 import { formatApiError, formatTrAuthError, isTrSessionDeadError } from '@/lib/errors'
-import { syncKeys } from '@/features/sync/hooks'
+import { syncKeys } from '@/features/sync/keys'
 import { revolutErrorLabel } from '@/features/sync/revolut-phase'
 import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 

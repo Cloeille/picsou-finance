@@ -16,10 +16,13 @@ const cryptoExchangeApi = vi.hoisted(() => ({
   add: vi.fn(),
 }))
 
-const { amundiApi, corumApi, sofidyApi } = vi.hoisted(() => ({
+const { amundiApi, corumApi, sofidyApi, boursoApi, caisseEpargneApi, fortuneoApi } = vi.hoisted(() => ({
   amundiApi: { getStatus: vi.fn() },
   corumApi: { getStatus: vi.fn() },
   sofidyApi: { getStatus: vi.fn() },
+  boursoApi: { getStatus: vi.fn() },
+  caisseEpargneApi: { getStatus: vi.fn() },
+  fortuneoApi: { getStatus: vi.fn() },
 }))
 
 vi.mock("./api", () => ({
@@ -28,20 +31,21 @@ vi.mock("./api", () => ({
   cryptoExchangeApi,
   cryptoWalletApi: {},
   finaryApi: {},
-  boursoApi: {},
-  caisseEpargneApi: {},
+  boursoApi,
+  caisseEpargneApi,
   bourseDirectApi,
   amundiApi,
   cmesApi: {},
   cicApi: {},
   amexApi: {},
-  fortuneoApi: {},
+  fortuneoApi,
   corumApi,
   sofidyApi,
 }))
 
+import { syncKeys } from "./keys"
+
 const {
-  syncKeys,
   useProviderStatus,
   useProviderInitiate,
   useProviderComplete,
@@ -212,5 +216,33 @@ describe("completed sidecar syncs", () => {
         expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
       }
     })
+  })
+})
+
+describe("completed bank-session syncs", () => {
+  it.each([
+    { name: "BoursoBank", api: boursoApi, id: "bourso" as const },
+    { name: "Caisse d'Epargne", api: caisseEpargneApi, id: "caisseEpargne" as const },
+    { name: "Fortuneo", api: fortuneoApi, id: "fortuneo" as const },
+  ])("refreshes accounts and dashboard only when $name finishes", async ({ api, id }) => {
+    api.getStatus.mockResolvedValue({ ...queuedStatus, syncStatus: "RUNNING" })
+    const { client, wrapper } = createHarness()
+    const refreshed = [["accounts"], ["dashboard"]]
+    const untouched = [["real-estate", "summary"], ["analysis", "wealth-pyramid"], ["scpi-funds"]]
+    ;[...refreshed, ...untouched].forEach(key => client.setQueryData(key, { previous: true }))
+    const { result } = renderHook(() => {
+      const status = useProviderStatus(id)
+      return { isSuccess: status.isSuccess, refetch: status.refetch }
+    }, { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    api.getStatus.mockResolvedValue({
+      ...queuedStatus, syncStatus: "SUCCESS", lastSyncCompletedAt: "2026-10-01T12:00:00Z",
+    })
+    await act(async () => { await result.current.refetch() })
+    await waitFor(() => {
+      for (const key of refreshed) expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
+    })
+    for (const key of untouched) expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(false)
   })
 })

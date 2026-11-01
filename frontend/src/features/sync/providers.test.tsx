@@ -25,7 +25,9 @@ vi.mock("./api", () => ({
   ...apis,
 }))
 
-const { syncKeys, useProviderInitiate, useProviderComplete, useProviderSync, useProviderClear, useProviderReconnect, useRecoverAmexHistory } =
+import { syncKeys } from "./keys"
+
+const { useProviderInitiate, useProviderComplete, useProviderSync, useProviderClear, useProviderReconnect, useRecoverAmexHistory } =
   await import("./hooks")
 
 const status = {

@@ -65,7 +65,7 @@ AccountsPage → "Add account" button
 
 ### Error handling
 
-Each shared form owns its error state as a local `useState<string | null>` (the wallet and exchange forms, the bank wizard, Revolut). On mutation failure, the backend `detail` field is extracted (falling back to `err.message`, then a translated i18n key). Errors are shown in a dismissible red banner inside the wizard, and cleared on the next attempt.
+Each shared form owns its error state as a local `useState<string | null>` (the wallet and exchange forms, the bank wizard, Revolut). On mutation failure, the backend `detail` field is extracted (falling back to `err.message`, then a translated i18n key). In the modal, errors are shown in a dismissible red banner and cleared on the next attempt. On the Sync page the exchange form shows a plain banner and the wallet form reads the mutation's own error.
 
 The Trade Republic wizard follows the same state rules as the dedicated Sync
 page: initiation errors keep the phone/PIN form visible and clear any stale
