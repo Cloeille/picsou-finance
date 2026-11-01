@@ -3,7 +3,7 @@
 # 2. Triggers mvn compile (incremental, ~3-5s)
 # 3. DevTools detects class change and restarts Spring (~2-3s)
 # Total: ~5-10s per change — not Vite-fast, but no Docker rebuild needed
-FROM maven:3.9-eclipse-temurin-21-alpine
+FROM maven:3.9-eclipse-temurin-26-alpine
 
 WORKDIR /app
 
