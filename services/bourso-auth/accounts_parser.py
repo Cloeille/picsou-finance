@@ -792,12 +792,26 @@ def parse_trading_summary(payload: Any, account_id: str) -> dict[str, Any]:
     lines_total = sum((position["currentValueEur"] for position in positions), Decimal("0"))
 
     # A securities account can split its lines across several sections of the
-    # summary. The richest list alone then misses the others: their union is kept,
-    # but only when it reconciles, so a payload repeating the same lines in two
-    # sections still reads the single richest list and a short read still fails.
+    # summary. Reconcile their union only after removing repeated holdings:
+    # counting a partial section twice could otherwise hide a missing holding.
+    # Conflicting versions of one holding cannot safely establish completeness.
     if len(position_lists) > 1 and not money_close(lines_total, valuation):
         union_raw = [item for items in position_lists for item in items]
-        union = [parsed for parsed in (_parse_position(item) for item in union_raw) if parsed]
+        unique: dict[tuple[str, str], dict[str, Any]] = {}
+        for item in union_raw:
+            parsed = _parse_position(item)
+            if not parsed:
+                continue
+            # Match the downstream holding identity, with the same symbol
+            # fallback as ISIN-less positions. Compare normalized financial
+            # fields, not section-specific display metadata or number formats.
+            key = ("isin", parsed["isin"]) if parsed["isin"] else ("symbol", parsed["symbol"].upper())
+            if key in unique and unique[key] != parsed:
+                raise AccountsFormatError(
+                    INVALID_DATA, "Trading summary has conflicting duplicate positions"
+                )
+            unique[key] = parsed
+        union = list(unique.values())
         union_total = sum((position["currentValueEur"] for position in union), Decimal("0"))
         if money_close(union_total, valuation):
             raw_positions, positions, lines_total = union_raw, union, union_total

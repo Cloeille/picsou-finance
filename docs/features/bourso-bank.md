@@ -279,9 +279,14 @@ no lines — which is exactly how this first failed in the wild. Each is therefo
 taken from whichever section carries it, and the richest positions list wins
 (a section can carry an empty one, which would look just like a cash-only
 account). Some accounts split their lines across several populated sections; when
-the richest list falls short of `valuation`, the union of all lists is tried and
-kept only if it reconciles, so duplicated sections and short reads are still
-refused (#361). Every money field is shaped `{value, decimals, currency}`, and `amount`
+the richest list does not reconcile with `valuation`, the union of all lists is
+tried. Before reconciling, repeated holdings are identified by ISIN (or the
+case-insensitive broker symbol when no ISIN is usable). Equal normalized rows
+count once; conflicting rows for the same identity raise `INVALID_DATA`.
+The union is kept only if its unique holdings reconcile, so repeated partial
+sections cannot hide missing holdings and short reads still raise
+`PORTFOLIO_INCOMPLETE` (#361). The richest-list path is unchanged when it already
+reconciles. Every money field is shaped `{value, decimals, currency}`, and `amount`
 is the line's **market** value — confirmed live, since `Σ amount` reconciled to
 the broker's own `valuation` to the cent.
 
