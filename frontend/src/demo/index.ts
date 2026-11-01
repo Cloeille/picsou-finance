@@ -1241,9 +1241,6 @@ handlers.set(key('GET', '/oauth2/consent-info'), (config) => {
     state: config.params?.state ?? null,
   }
 })
-// The demo login is the instance's only admin, so deleting it resets the instance.
-handlers.set(key('GET', '/me/deletion-impact'), () => ({ mode: 'RESET_LAST_ADMIN' }))
-
 // Family (solo demo profile: no managed members, a small shared view)
 handlers.set(key('GET', '/family/members'), () => [])
 // Read from the same fixtures as every other page, so a shared account keeps its name and balance.

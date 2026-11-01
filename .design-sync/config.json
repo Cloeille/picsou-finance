@@ -42,7 +42,6 @@
     "Sheet": "src/components/ui/sheet.tsx",
     "Sidebar": "src/components/ui/sidebar.tsx",
     "Skeleton": "src/components/ui/skeleton.tsx",
-    "Toaster": "src/components/ui/sonner.tsx",
     "Switch": "src/components/ui/switch.tsx",
     "Table": "src/components/ui/table.tsx",
     "Tabs": "src/components/ui/tabs.tsx",
@@ -57,6 +56,7 @@
     "AccountCard": "src/components/shared/AccountCard.tsx",
     "PriceFreshnessDot": "src/components/shared/PriceFreshnessDot.tsx",
     "NumericInput": "src/components/shared/NumericInput.tsx",
-    "TimeRangeSelector": "src/components/shared/TimeRangeSelector.tsx"
+    "TimeRangeSelector": "src/components/shared/TimeRangeSelector.tsx",
+    "Toaster": "src/components/shared/Toaster.tsx"
   }
 }

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Unused frontend scaffolding for self-service login deletion, its demo handler, and
+  draft documentation. No available screen or backend endpoint is removed.
+
 ### Added
 
 - **Helm chart.** `charts/picsou` deploys the app, every sidecar and an optional
@@ -338,6 +343,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   environment and the SSE default. Existing installations keep legacy SSE by default. Switching
   requires configuring other clients for Streamable HTTP. The existing Spring AI 1.1.8 supports
   this without a Boot 4 migration (#53).
+- **CIC instance monitoring.** Admin status checks now cover all thirteen authentication
+  sidecars, including CIC when a session exists. CIC's health response reports its shared
+  base so an outdated image is detected alongside an unreachable sidecar.
+- **Admin instance status with slow session counts.** Slow session-count queries no longer push
+  the check past its 3 s deadline or mark reachable sidecars unreachable.
+- **Toasts follow the selected theme.** Notifications use the app's light or dark palette
+  even when it differs from the OS preference, and update when the theme changes (#327).
 
 - **BoursoBank syncs a securities account whose lines sit in several sections.** The trading
   board can split an account's positions across more than one section of its summary. Only the
@@ -387,6 +399,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   HomeBank import now refuses these accounts, and a PER, as targets, like the Actual Budget
   import already did. Both importers and the manual ledger share one definition,
   `AccountType.isLedger()`.
+
+- **Privacy mode and locale formatting.** The budget allocation donut now masks its centre total
+  and uses the app locale for compact amounts. The money guard also rejects direct compact
+  formatting. Transaction details show the weekday and long date in the app language and keep
+  date-only values on their calendar day in every time zone. Admin activity timestamps follow
+  the app locale, and allocation comparison keys no longer depend on the browser locale.
 
 - **Enable Banking account balances and details.** Accounts in a shared balance list,
   such as Qonto business accounts, now select entries matching the account description
@@ -1067,12 +1085,6 @@ information architecture.
   share Finary sent with `quantity: null` vanished with its cost basis. Such a payload
   now keeps the account's holdings and cash as they were; an explicit zero still
   closes the position.
-- The account-deletion dialog scrolls on short screens and wraps long action
-  labels without horizontal overflow.
-- Account deletion preserves the last active administrator even when other
-  administrator logins are inactive. Committed deletion also purges pending
-  Finary and CSV import data, with member binding and expiry checked on execute.
-
 - **BoursoBank's fraud-education interstitial no longer reads as a wrong password.**
   When the bank parks a valid login on its fraud-prevention notice, the sidecar
   returns `FRAUD_ACK_REQUIRED` and the app tells the user to validate the notice

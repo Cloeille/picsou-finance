@@ -17,6 +17,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useAiCalls } from '@/features/admin/hooks'
+import { localeFromLanguage } from '@/lib/utils'
 
 const LIMIT = 50
 
@@ -48,7 +49,8 @@ function TokenCell({ value }: { value?: number | null }) {
 }
 
 function AiCallsDialog() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const [offset, setOffset] = useState(0)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const { data, isLoading, isError } = useAiCalls(LIMIT, offset)
@@ -112,7 +114,7 @@ function AiCallsDialog() {
                       }
                     >
                       <td className="py-2 pr-3 text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(call.createdAt).toLocaleString()}
+                        {new Date(call.createdAt).toLocaleString(locale)}
                       </td>
                       <td className="py-2 pr-3 max-w-[140px] truncate">
                         {call.merchantLabel ?? <span className="text-muted-foreground">—</span>}

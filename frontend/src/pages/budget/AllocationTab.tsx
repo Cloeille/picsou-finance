@@ -10,6 +10,7 @@ import {
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
 import { formatPercent } from '@/lib/utils'
+import { useMoney } from '@/hooks/use-money'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -25,6 +26,7 @@ const chartConfig = { amount: { label: 'Amount' } } satisfies ChartConfig
 
 export function AllocationTab() {
   const { t } = useTranslation()
+  const money = useMoney()
   const [period, setPeriod] = useState<CashflowPeriod>('CYCLE')
   const { anchor, setAnchor } = useBudgetPeriod()
   const { data, isLoading, isError, refetch } = useAllocation(period, anchor)
@@ -86,15 +88,9 @@ export function AllocationTab() {
                             return (
                               <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle"
                                 dominantBaseline="middle">
-                                <tspan x={viewBox.cx} y={(viewBox.cy ?? 0) - 4}
+                                <tspan x={viewBox.cx} y={viewBox.cy}
                                   className="fill-foreground text-lg font-bold">
-                                  {new Intl.NumberFormat(t('common.locale'), {
-                                    notation: 'compact', maximumFractionDigits: 1,
-                                  }).format(data.totalStock)}
-                                </tspan>
-                                <tspan x={viewBox.cx} y={(viewBox.cy ?? 0) + 16}
-                                  className="fill-muted-foreground text-xs">
-                                  {t('common.currency')}
+                                  {money.compact(data.totalStock, { maximumFractionDigits: 1 })}
                                 </tspan>
                               </text>
                             )

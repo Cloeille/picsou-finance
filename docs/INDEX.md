@@ -67,7 +67,7 @@
 | 2026-08-01 | [Estimate property value from French open data](./decisions/2026-08-01-open-data-property-valuation.md) | Active |
 | 2026-08-01 | [Per-member ownership shares on properties and loans](./decisions/2026-08-01-account-ownership-shares.md) | Active |
 | 2026-08-10 | [Verify an ISIN's ticker against Yahoo instead of predicting it](./decisions/2026-08-10-yahoo-verified-isin-tickers.md) | Active |
-| 2026-08-11 | [Deleting an account removes the connection behind it](./decisions/2026-08-11-account-deletion-removes-its-connection.md) | Active |
+| 2026-08-11 | [Deleting a financial account removes the connection behind it](./decisions/2026-08-11-account-deletion-removes-its-connection.md) | Active |
 | 2026-08-13 | [A country breakdown mixes domicile and exposure, and says so](./decisions/2026-08-13-equity-domicile-vs-etf-exposure.md) | Active |
 | 2026-08-13 | [Persist security profiles and warm them on a schedule](./decisions/2026-08-13-persisted-security-profiles.md) | Active |
 | 2026-08-15 | [Key security lookups on the ISIN, and read fund facts from justETF](./decisions/2026-08-15-isin-keyed-lookups-and-justetf.md) | Active |
@@ -93,10 +93,10 @@
 | MCP server + scoped access-keys | 2026-06-26 | [mcp-server.md](./features/mcp-server.md) |
 | Budget + OAuth2 tools in MCP | 2026-07-06 | [mcp-budget-oauth2.md](./features/mcp-budget-oauth2.md) |
 | Remote-MCP OAuth (claude.ai connector) | 2026-07-12 | [mcp-oauth-remote.md](./features/mcp-oauth-remote.md) |
-| Internationalization (FR/EN/DE/ES) | 2026-09-02 | [i18n.md](./features/i18n.md) |
-| Frontend utilities (lib/utils.ts) | 2026-08-07 | [frontend-utils.md](./features/frontend-utils.md) |
+| Internationalization (FR/EN/DE/ES) | 2026-10-31 | [i18n.md](./features/i18n.md) |
+| Frontend utilities (lib/utils.ts) | 2026-10-31 | [frontend-utils.md](./features/frontend-utils.md) |
 | Demo mode | 2026-10-31 | [demo-mode.md](./features/demo-mode.md) |
-| Theme (dark / light / system) + theme-adaptive rendering | 2026-06-02 | [theme-persistence.md](./features/theme-persistence.md) |
+| Theme (dark / light / system) + theme-adaptive rendering | 2026-10-31 | [theme-persistence.md](./features/theme-persistence.md) |
 | Dashboard — Time range isolation | 2026-04-13 | [dashboard-time-range-isolation.md](./features/dashboard-time-range-isolation.md) |
 | Bank sync | 2026-10-31 | [bank-sync.md](./features/bank-sync.md) |
 | SimpleFIN sync | 2026-10-04 | [simplefin-sync.md](./features/simplefin-sync.md) |
@@ -147,13 +147,13 @@
 | Kubernetes deployment (Helm chart) | 2026-11-01 | [helm-chart.md](./features/helm-chart.md) |
 | Navigation (sidebar + mobile bottom nav) | 2026-07-12 | [sidebar-navigation.md](./features/sidebar-navigation.md) |
 | UI control shape (shadcn theme radius) | 2026-08-10 | [ui-control-shape-system.md](./features/ui-control-shape-system.md) |
-| Privacy mode (hiding amounts for demos) | 2026-08-16 | [privacy-mode.md](./features/privacy-mode.md) |
+| Privacy mode (hiding amounts for demos) | 2026-10-31 | [privacy-mode.md](./features/privacy-mode.md) |
 | Multi-account family system | 2026-07-07 | [multi-account-family.md](./features/multi-account-family.md) |
 | CORS & cookie security | 2026-10-31 | [security-cors-cookies.md](./features/security-cors-cookies.md) |
 | 24H Intraday net worth chart | 2026-04-18 | [intraday-chart.md](./features/intraday-chart.md) |
 | First-launch Setup Wizard | 2026-07-19 | [setup-wizard.md](./features/setup-wizard.md) |
 | Admin page (instance settings) | 2026-05-29 | [admin-page.md](./features/admin-page.md) |
-| Admin instance-status alert (sidecar health, update available) | 2026-10-24 | [admin-instance-status.md](./features/admin-instance-status.md) |
+| Admin instance-status alert (sidecar health, update available) | 2026-10-31 | [admin-instance-status.md](./features/admin-instance-status.md) |
 | Admin recovery (lost-admin console reset) | 2026-05-29 | [admin-recovery.md](./features/admin-recovery.md) |
 | Frontend error display (`extractErrorMessage`) | 2026-05-31 | [frontend-error-display.md](./features/frontend-error-display.md) |
 | Loan accounts (LOAN type, amortization view) | 2026-04-26 | [loans.md](./features/loans.md) |
