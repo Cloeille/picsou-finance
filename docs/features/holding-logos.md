@@ -23,8 +23,9 @@ shared `HoldingLogo` renders them in:
   had a disc, so an absent mark leaves it unchanged.
 - `HoldingsCard` (the dashboard's holdings list): each portfolio line is one holding in one
   account and carries the holding's `logoUrl` / `logoUrlDark`. With a mark, it replaces the
-  ticker box. Without one (cash rows, a holding the sources have no mark for), the ticker box
-  stays as before.
+  ticker box and the ticker moves to the start of the description line (`AI.PA · 2 shares · PEA`),
+  so it stays visible when the image fails. Without one (a holding the sources have no mark
+  for), and always on cash rows, the ticker box stays as before.
 
 `logoUrlDark` is a mark drawn for a dark background, set only when the source has a distinct
 one (Apple's is black on the light variant, white on the dark one). `HoldingLogo` picks it when

@@ -225,6 +225,44 @@ describe('HoldingsCard', () => {
     })
     expect(container.querySelector('img')).toHaveAttribute('alt', 'AI.PA')
     expect(screen.queryByText('AI.P')).not.toBeInTheDocument()
+    expect(screen.getByText(/dashboard\.shares/).textContent).toBe('AI.PA · 2 dashboard.shares · PEA')
+  })
+
+  it('keeps the ticker in the row when the logo fails to load', async () => {
+    vi.stubGlobal('Image', StubImage)
+    setPortfolioData([{ ...normalLine, logoUrl: '/api/instrument-logos/broken' }])
+
+    const { container } = render(<HoldingsCard />)
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-slot="avatar-fallback"]')).toHaveTextContent('AL')
+    })
+    expect(container.querySelector('img')).toBeNull()
+    expect(screen.getByText(/dashboard\.shares/).textContent).toBe('AI.PA · 2 dashboard.shares · PEA')
+  })
+
+  it('uses the dark mark under the dark palette', async () => {
+    vi.stubGlobal('Image', StubImage)
+    document.documentElement.classList.add('dark')
+    setPortfolioData([{ ...normalLine, logoUrl: '/api/instrument-logos/AI.PA', logoUrlDark: '/api/instrument-logos/AI.PA?variant=dark' }])
+
+    try {
+      const { container } = render(<HoldingsCard />)
+      await waitFor(() => {
+        expect(container.querySelector('img')).toHaveAttribute('src', '/api/instrument-logos/AI.PA?variant=dark')
+      })
+    } finally {
+      document.documentElement.classList.remove('dark')
+    }
+  })
+
+  it('keeps the ticker box on a cash row even if it carries a logo', () => {
+    setPortfolioData([{ ...perEuroLine, logoUrl: '/api/instrument-logos/EUR' }])
+
+    const { container } = render(<HoldingsCard />)
+
+    expect(screen.getByText('EUR')).toBeInTheDocument()
+    expect(container.querySelector('[data-slot="avatar"]')).toBeNull()
   })
 
   it('keeps the ticker box for a holding without a logo', () => {

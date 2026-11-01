@@ -426,7 +426,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Holding logos on the dashboard.** The dashboard's holdings list now shows a share's, fund's
   or coin's logo where it printed the first letters of the ticker, as the account pages already
-  do. Holdings without a logo and cash rows keep the ticker box.
+  do. The ticker moves to the description line. Holdings without a logo and cash rows keep
+  the ticker box.
 - **Backend dependency baseline.** Restored Spring Boot 3.5.16 after a standalone Boot 4 parent
   bump left existing AOP and Testcontainers dependencies without managed versions. The coordinated
   Spring AI 2, Jackson 3, Spring Security 7, and test migration remains separate.

@@ -46,6 +46,13 @@ function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick?: () => 
   const money = useMoney()
   const { t } = useTranslation()
   const displayName = line.nameKey ? t(line.nameKey) : line.name
+  // The logo takes the ticker box's place, so the ticker moves into the description.
+  const logoTicker = !line.isCash && line.logoUrl ? line.ticker : null
+  const description = [
+    logoTicker,
+    line.quantity > 0 ? `${money.quantity(formatQuantity(line.quantity))} ${t('dashboard.shares')}` : null,
+    line.accountName,
+  ].filter(Boolean).join(' · ')
 
   return (
     <Item
@@ -54,11 +61,11 @@ function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick?: () => 
       onClick={onClick}
     >
       <ItemMedia>
-        {line.ticker && line.logoUrl ? (
+        {logoTicker ? (
           <HoldingLogo
             logoUrl={line.logoUrl}
             logoUrlDark={line.logoUrlDark}
-            ticker={line.ticker}
+            ticker={logoTicker}
             name={displayName}
             className="size-12"
           />
@@ -70,11 +77,7 @@ function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick?: () => 
       </ItemMedia>
       <ItemContent>
         <ItemTitle>{displayName}</ItemTitle>
-        <ItemDescription className="text-sm">
-          {line.quantity > 0
-            ? `${money.quantity(formatQuantity(line.quantity))} ${t('dashboard.shares')} · ${line.accountName}`
-            : line.accountName}
-        </ItemDescription>
+        <ItemDescription className="text-sm">{description}</ItemDescription>
       </ItemContent>
       <div className="flex shrink-0 items-center gap-6">
         <Badge variant="outline">
