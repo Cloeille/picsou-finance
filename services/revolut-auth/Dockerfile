@@ -9,7 +9,7 @@ RUN groupadd -r revoauth && useradd -r -u 999 -g revoauth -m -d /home/revoauth r
     && chown -R revoauth:revoauth /app /data/revolut-profiles
 USER revoauth
 
-COPY --chown=revoauth:revoauth main.py ./
+COPY --chown=revoauth:revoauth main.py captcha.py ./
 
 ENV REVOLUT_PROFILES_DIR=/data/revolut-profiles \
     SIDECAR_PORT=8002 \
