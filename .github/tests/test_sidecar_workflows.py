@@ -193,6 +193,19 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         self.assertIn("--env PYTHONPATH=/opt/sidecar-base", commands)
         self.assertIn("services:/services:ro", commands)
         self.assertIn("-m unittest -v test_entrypoint test_pin_camoufox", commands)
+
+    def test_every_shared_base_test_module_runs_once_in_ci(self):
+        # The package tests run in the python base, the Camoufox ones in the
+        # camoufox base: a new services/base test module must be added to one.
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        modules = []
+        for job in ("sidecar-package", "amex-auth-sidecar"):
+            for line in _run_commands(jobs[job]).splitlines():
+                if "-m unittest -v test_" in line:
+                    modules += line.split("-m unittest -v ", 1)[1].split()
+        expected = sorted(path.stem for path in (ROOT / "services/base").glob("test_*.py"))
+        self.assertEqual(sorted(modules), expected)
+
     def test_every_sidecar_image_test_mounts_the_shared_auth_contract_read_only(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         services = sorted(path.parent.name for path in (ROOT / "services").glob("*-auth/Dockerfile"))

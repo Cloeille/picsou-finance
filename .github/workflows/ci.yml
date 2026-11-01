@@ -542,6 +542,8 @@ jobs:
           persist-credentials: false
       - name: Build the shared python sidecar base
         run: docker build --target python --tag picsou-sidecar-python services/base
+      # The Camoufox installer and entrypoint tests need the camoufox base; the
+      # AMEX job runs them there.
       - name: Run the shared package tests in the base
         run: >-
           docker run --rm
@@ -549,7 +551,7 @@ jobs:
           --volume "${{ github.workspace }}/services/base:/tests:ro"
           --workdir /tests
           picsou-sidecar-python
-          python -m unittest discover -v
+          python -m unittest -v test_picsou_sidecar
 
   degiro-auth-sidecar:
     needs: changes
