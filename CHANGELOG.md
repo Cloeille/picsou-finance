@@ -365,6 +365,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **React Router v8 compatibility.** Use the DOM router provider's built-in
+  `flushSync` integration, removing an adapter whose return type broke frontend
+  compilation after the dependency upgrade.
 - **Revolut merge compatibility.** Nested challenge detection remains active alongside
   the shared sidecar authentication, health endpoint and sanitized logging.
 - **Modern MCP protocol support is selectable.** Set `MCP_PROTOCOL=STREAMABLE` to serve protocol
