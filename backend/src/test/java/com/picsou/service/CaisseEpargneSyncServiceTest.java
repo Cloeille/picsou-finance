@@ -66,6 +66,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.picsou.support.TestEntities.owner;
 
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("unchecked")
@@ -639,7 +640,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void queueSync_refusesToRunWithAnInactiveSession() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         session.markQueued();
         session.markFailed(SidecarErrorCode.SESSION_EXPIRED, Instant.now());
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
@@ -652,7 +653,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void queueSync_doesNotStackASecondJobOnAnInFlightSession() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         session.markQueued();
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
 
@@ -664,7 +665,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void anExpiredSessionIsDeactivatedSoTheUserIsToldToReconnect() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
             new SyncException("gone", null, SidecarErrorCode.SESSION_EXPIRED.name()));
@@ -679,7 +680,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void queueSync_turnsAnUnreadableEncryptedSessionIntoInvalidSessionStateAndDeactivatesIt() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted")).thenThrow(new IllegalStateException("bad key"));
@@ -696,7 +697,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void aTransientFailureKeepsTheSessionUsable() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
             new SyncException("down", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
@@ -709,7 +710,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void anUnexpectedExceptionIsRecordedAsAnInternalErrorWithoutLeakingItsMessage() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(new IllegalStateException("cookie=secret"));
 
@@ -721,7 +722,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void queueSync_discardsAResultWhoseSessionDisappearedMidFlight() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
@@ -738,7 +739,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void storeSession_encryptsTheStateReplacesTheOldRowAndDoesNotSyncByItself() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         CaisseEpargneSession old = activeSession(member);
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(old));
@@ -769,7 +770,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void clearSessionReportsTheSessionItDeleted() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
 
         assertThat(service.clearSession(7L)).isTrue();
@@ -1585,7 +1586,7 @@ class CaisseEpargneSyncServiceTest {
     }
 
     private CaisseEpargneSession arrangeCommittableSync(CaisseEpargnePort.AccountsSnapshot snapshot) {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         CaisseEpargneSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(snapshot);
@@ -1633,10 +1634,6 @@ class CaisseEpargneSyncServiceTest {
             .thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
-    }
-
-    private FamilyMember member() {
-        return FamilyMember.builder().id(7L).displayName("Owner").build();
     }
 
     private CaisseEpargneSession activeSession(FamilyMember member) {

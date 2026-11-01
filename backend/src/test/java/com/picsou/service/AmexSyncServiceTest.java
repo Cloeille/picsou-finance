@@ -42,6 +42,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static com.picsou.support.TestEntities.owner;
 
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("unchecked")
@@ -68,7 +69,7 @@ class AmexSyncServiceTest {
 
     @Test
     void syncPersistsConventionalAmericanExpressProviderName() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         AmexSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(accountData("amex_1")));
@@ -83,7 +84,7 @@ class AmexSyncServiceTest {
 
     @Test
     void reportingWrapperReportsSyncedWhenTheJobFinishesBeforeQueueReturns() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         AmexSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(accountData("amex_1")));
@@ -97,7 +98,7 @@ class AmexSyncServiceTest {
 
     @Test
     void reportingWrapperDistinguishesQueuedFromDisconnected() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         AmexSession session = activeSession(member);
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
@@ -466,7 +467,7 @@ class AmexSyncServiceTest {
     @NullAndEmptySource
     @ValueSource(strings = {"04/03/26", "2026-13-01"})
     void unparseableDueDate_isDroppedWithoutFailingTheSync(String dueDate) {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         AmexSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(accountData("amex_1", dueDate)));
@@ -485,7 +486,7 @@ class AmexSyncServiceTest {
         // Connecting (or reconnecting) must backfill the provider's whole history
         // automatically -- not just the 90-day window -- so the user never has to
         // reach for the separate recovery action after a fresh login.
-        FamilyMember member = member();
+        FamilyMember member = owner();
         when(port.completeAuth("process-123", "123456")).thenReturn("plain-state");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
@@ -518,7 +519,7 @@ class AmexSyncServiceTest {
 
     @Test
     void historyRecoveryMergesWithoutDeletingExistingTransactions() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         AmexSession session = activeSession(member);
         arrangeQueuedSession(session);
         AmexAdapter.Transaction oldCharge = new AmexAdapter.Transaction(null, "2020-01-02", "Old store", new BigDecimal("-7.00"), "posted");
@@ -779,7 +780,7 @@ class AmexSyncServiceTest {
 
     private void arrangeSync(List<Transaction> stored) {
         clearInvocations(transactionWriter, transactionRepository);
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
         arrangeNewAccountPersistence(20L);
@@ -858,10 +859,6 @@ class AmexSyncServiceTest {
         when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L)).thenReturn(Optional.of(session));
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
-    }
-
-    private FamilyMember member() {
-        return FamilyMember.builder().id(7L).displayName("Owner").build();
     }
 
     private AmexSession activeSession(FamilyMember member) {

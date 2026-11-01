@@ -45,6 +45,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.picsou.support.TestEntities.owner;
 
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("unchecked")
@@ -119,7 +120,7 @@ class CmesSyncServiceTest {
     void queueSync_refusesAPlanWhoseFundsDoNotAddUp() {
         CmesAdapter.PlanData broken = new CmesAdapter.PlanData(PEG_ID, List.of(), "Plan d'épargne groupe", "PEG", null,
             new BigDecimal("9999.99"), pegPlan().positions(), true);
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
         when(port.fetchPlans("plain-state")).thenReturn(List.of(broken));
 
@@ -130,7 +131,7 @@ class CmesSyncServiceTest {
 
     @Test
     void expiredSessionLogsInAgainWithTheStoredCredentialsAndThePreviousSession() {
-        CmesSession session = activeSession(member());
+        CmesSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
         arrangeCommittableSession(session);
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
@@ -151,7 +152,7 @@ class CmesSyncServiceTest {
 
     @Test
     void aReLoginThatAsksForANewConfirmationStopsAndAsksTheSaverToReconnect() {
-        CmesSession session = activeSession(member());
+        CmesSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
         arrangeQueuedSession(session);
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
@@ -170,7 +171,7 @@ class CmesSyncServiceTest {
 
     @Test
     void aRejectedStoredPasswordIsForgottenSoItIsNotReplayedDaily() {
-        CmesSession session = activeSession(member());
+        CmesSession session = activeSession(owner());
         session.setEncryptedCredentials("credentials-encrypted");
         arrangeQueuedSession(session);
         when(encryption.decrypt("credentials-encrypted")).thenReturn(CREDENTIALS_JSON);
@@ -188,7 +189,7 @@ class CmesSyncServiceTest {
 
     @Test
     void expiredSessionWithoutStoredCredentialsDoesNotTryToLogIn() {
-        CmesSession session = activeSession(member());
+        CmesSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchPlans("plain-state")).thenThrow(expired());
 
@@ -213,7 +214,7 @@ class CmesSyncServiceTest {
 
     @Test
     void aReconnectionReplaysThePreviousSessionToSkipTheConfirmation() {
-        CmesSession expiredSession = activeSession(member());
+        CmesSession expiredSession = activeSession(owner());
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(expiredSession));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(port.initiateAuth("12345678", "secret", "plain-state"))
@@ -230,7 +231,7 @@ class CmesSyncServiceTest {
         when(port.initiateAuth("12345678", "secret", null))
             .thenReturn(new SidecarInitiate("p2", true, "APP_PUSH", null));
         when(port.completeAuth("p2", null)).thenReturn("cookies");
-        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(encryption.encrypt(anyString())).thenAnswer(invocation ->
             "cookies".equals(invocation.getArgument(0)) ? "encrypted-state" : "encrypted-credentials");
         when(sessionRepository.saveAndFlush(any(CmesSession.class))).thenAnswer(invocation -> {
@@ -256,7 +257,7 @@ class CmesSyncServiceTest {
         when(port.completeAuth("p4", "000000"))
             .thenThrow(new SyncException("wrong", null, SidecarErrorCode.INVALID_OTP.name()));
         when(port.completeAuth("p4", "123456")).thenReturn("cookies");
-        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(encryption.encrypt(anyString())).thenAnswer(invocation ->
             "cookies".equals(invocation.getArgument(0)) ? "encrypted-state" : "encrypted-credentials");
         when(sessionRepository.saveAndFlush(any(CmesSession.class))).thenAnswer(invocation -> {
@@ -418,7 +419,7 @@ class CmesSyncServiceTest {
 
     @Test
     void aFailedFetchClosesNoPlan() {
-        arrangeQueuedSession(activeSession(member()));
+        arrangeQueuedSession(activeSession(owner()));
         when(port.fetchPlans("plain-state"))
             .thenThrow(new SyncException("partial", null, SidecarErrorCode.PORTFOLIO_INCOMPLETE.name()));
 
@@ -508,8 +509,8 @@ class CmesSyncServiceTest {
 
     @Test
     void anEarlierAccountTwoPlansMatchFailsTheSyncBeforeAnyWrite() {
-        arrangeQueuedSession(activeSession(member()));
-        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        arrangeQueuedSession(activeSession(owner()));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(port.fetchPlans("plain-state"))
             .thenReturn(List.of(pegPlan(LABEL_ID, List.of(PEG_ID)), pegPlan(PEG_SHARED_ID, List.of(PEG_ID))));
         Account imported = importedPlan(20L, PEG_ID, PEG_NAME, "1400.00");
@@ -528,8 +529,8 @@ class CmesSyncServiceTest {
 
     @Test
     void aPlanWhoseAccountWasDeletedUnderItsEarlierIdIsNotImportedAgain() {
-        arrangeQueuedSession(activeSession(member()));
-        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        arrangeQueuedSession(activeSession(owner()));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(port.fetchPlans("plain-state")).thenReturn(List.of(pegPlan(LABEL_ID, List.of(PEG_ID, PEG_SHARED_ID))));
         when(accountRepository.findByExternalAccountIdAndMemberId(any(), eq(7L))).thenReturn(Optional.empty());
         when(accountRepository.existsSoftDeletedByExternalAccountIdInAndNameAndMemberId(
@@ -545,8 +546,8 @@ class CmesSyncServiceTest {
     void aPlanDeletedUnderItsNewIdIsNotRevivedThroughAnEarlierAccount() {
         // The upgrade moved the newer of two earlier accounts to the new id and
         // left the older one at zero; the saver then deleted the moved account.
-        arrangeQueuedSession(activeSession(member()));
-        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        arrangeQueuedSession(activeSession(owner()));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(port.fetchPlans("plain-state")).thenReturn(List.of(pegPlan(LABEL_ID, List.of(PEG_ID, PEG_SHARED_ID))));
         when(accountRepository.findByExternalAccountIdAndMemberId(LABEL_ID, 7L)).thenReturn(Optional.empty());
         Account older = importedPlan(20L, PEG_ID, PEG_NAME, "0");
@@ -564,7 +565,7 @@ class CmesSyncServiceTest {
 
     @Test
     void aScheduledResyncAsksForReauthenticationOnceTheSessionIsGone() {
-        CmesSession session = activeSession(member());
+        CmesSession session = activeSession(owner());
         session.markQueued();
         session.markFailed(SidecarErrorCode.SESSION_EXPIRED, java.time.Instant.now());
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
@@ -580,13 +581,13 @@ class CmesSyncServiceTest {
     }
 
     private void arrangeCommittableSync(CmesAdapter.PlanData... plans) {
-        arrangeCommittableSession(activeSession(member()));
+        arrangeCommittableSession(activeSession(owner()));
         when(port.fetchPlans("plain-state")).thenReturn(List.of(plans));
     }
 
     private void arrangeCommittableSession(CmesSession session) {
         arrangeQueuedSession(session);
-        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(accountRepository.findByExternalAccountIdAndMemberId(any(), eq(7L))).thenReturn(Optional.empty());
         when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> {
             Account account = invocation.getArgument(0);
@@ -597,7 +598,7 @@ class CmesSyncServiceTest {
 
     /** Lenient: a login the disconnection cancelled never reaches these. */
     private void arrangeStorableSession() {
-        lenient().when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        lenient().when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         lenient().when(encryption.encrypt(anyString())).thenReturn("encrypted");
         lenient().when(sessionRepository.saveAndFlush(any(CmesSession.class)))
             .thenAnswer(invocation -> invocation.getArgument(0));
@@ -623,10 +624,6 @@ class CmesSyncServiceTest {
             .thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
-    }
-
-    private FamilyMember member() {
-        return FamilyMember.builder().id(7L).displayName("Owner").build();
     }
 
     private CmesSession activeSession(FamilyMember member) {
