@@ -265,15 +265,8 @@ def test_compose_assigns_the_same_exact_address_to_caddy_and_nginx():
     assert compose["networks"]["tls-proxy"]["ipam"]["config"][0]["ip_range"] == proxy_ip_range
 
 
-@pytest.mark.parametrize("addresses", [
-    {},
-    {
-        "PICSOU_PROXY_SUBNET": "172.30.252.0/28",
-        "PICSOU_PROXY_IP": "172.30.252.4",
-        "PICSOU_PROXY_IP_RANGE": "172.30.252.8/29",
-    },
-], ids=["defaults", "custom-addresses"])
-def test_tls_compose_starts_app_before_caddy_and_allows_concurrent_one_off_app(tmp_path, addresses):
+@pytest.mark.parametrize("custom_addresses", [False, True], ids=["defaults", "custom-addresses"])
+def test_tls_compose_starts_app_before_caddy_and_allows_concurrent_one_off_app(tmp_path, custom_addresses):
     project = f"picsou-tls-test-{uuid.uuid4().hex[:12]}"
     environment = {
         key: value for key, value in os.environ.items()
@@ -282,51 +275,57 @@ def test_tls_compose_starts_app_before_caddy_and_allows_concurrent_one_off_app(t
     environment.update({
         "APP_SIDECAR_API_KEY": "synthetic-tls-startup-test",
         "PICSOU_DOMAIN": "picsou.localhost",
-        **addresses,
     })
-    rendered = command([
-        "docker", "compose", "--project-directory", str(REPO / "docker"),
-        "--env-file", os.devnull, "--project-name", project,
-        "-f", str(REPO / "docker/docker-compose.yml"), "--profile", "tls",
-        "config", "--format", "json",
-    ], env=environment)
-    compose = json.loads(rendered.stdout)
-    if not addresses:
-        assert compose["services"]["app"]["environment"]["PICSOU_PROXY_IP"] == "172.30.253.2"
-        assert compose["services"]["proxy"]["networks"]["tls-proxy"]["ipv4_address"] == "172.30.253.2"
-        assert compose["networks"]["tls-proxy"]["ipam"]["config"] == [{
-            "subnet": "172.30.253.0/29", "ip_range": "172.30.253.4/30",
-        }]
-    upstream = tmp_path / "upstream.conf"
-    upstream.write_text('server { listen 8080; return 200 "synthetic TLS upstream\\n"; }\n')
-    compose["services"] = {
-        "app": {
-            "image": NGINX_IMAGE,
-            "networks": compose["services"]["app"]["networks"],
-            "volumes": [f"{upstream}:/etc/nginx/conf.d/default.conf:ro"],
-        },
-        "proxy": {**compose["services"]["proxy"], "ports": []},
-    }
+    network = f"{project}_tls-proxy"
     compose_file = tmp_path / "compose.json"
     args = [
         "docker", "compose", "--project-name", project,
         "-f", str(compose_file), "--profile", "tls",
     ]
-    network = compose["networks"]["tls-proxy"]["name"]
-    assert command(["docker", "network", "inspect", network], check=False).returncode != 0
-
     reserved_network = False
     try:
-        if not addresses:
-            # Reserve an unused network so a running install can keep the default subnet.
-            subnet = create_test_network(network, internal=True, subnet_prefix=29, ip_range_prefix=30)
-            reserved_network = True
-            addresses = {
-                "PICSOU_PROXY_IP": str(subnet.network_address + 2),
-                "PICSOU_PROXY_IP_RANGE": str(list(subnet.subnets(new_prefix=30))[-1]),
-            }
-            compose["networks"]["tls-proxy"] = {"name": network, "external": True}
-            compose["services"]["proxy"]["networks"]["tls-proxy"]["ipv4_address"] = addresses["PICSOU_PROXY_IP"]
+        # Reserve before rendering so custom values prove Compose interpolation too.
+        prefix = 28 if custom_addresses else 29
+        subnet = create_test_network(network, internal=True, subnet_prefix=prefix, ip_range_prefix=prefix + 1)
+        reserved_network = True
+        addresses = {
+            "PICSOU_PROXY_SUBNET": str(subnet),
+            "PICSOU_PROXY_IP": str(subnet.network_address + (4 if custom_addresses else 2)),
+            "PICSOU_PROXY_IP_RANGE": str(list(subnet.subnets(new_prefix=prefix + 1))[-1]),
+        }
+        if custom_addresses:
+            environment.update(addresses)
+        rendered = command([
+            "docker", "compose", "--project-directory", str(REPO / "docker"),
+            "--env-file", os.devnull, "--project-name", project,
+            "-f", str(REPO / "docker/docker-compose.yml"), "--profile", "tls",
+            "config", "--format", "json",
+        ], env=environment)
+        compose = json.loads(rendered.stdout)
+        expected = addresses if custom_addresses else {
+            "PICSOU_PROXY_SUBNET": "172.30.253.0/29",
+            "PICSOU_PROXY_IP": "172.30.253.2",
+            "PICSOU_PROXY_IP_RANGE": "172.30.253.4/30",
+        }
+        assert compose["networks"]["tls-proxy"]["name"] == network
+        assert compose["services"]["app"]["environment"]["PICSOU_PROXY_IP"] == expected["PICSOU_PROXY_IP"]
+        assert compose["services"]["proxy"]["networks"]["tls-proxy"]["ipv4_address"] == expected["PICSOU_PROXY_IP"]
+        assert compose["networks"]["tls-proxy"]["ipam"]["config"] == [{
+            "subnet": expected["PICSOU_PROXY_SUBNET"], "ip_range": expected["PICSOU_PROXY_IP_RANGE"],
+        }]
+        upstream = tmp_path / "upstream.conf"
+        upstream.write_text('server { listen 8080; return 200 "synthetic TLS upstream\\n"; }\n')
+        compose["services"] = {
+            "app": {
+                "image": NGINX_IMAGE,
+                "networks": compose["services"]["app"]["networks"],
+                "volumes": [f"{upstream}:/etc/nginx/conf.d/default.conf:ro"],
+            },
+            "proxy": {**compose["services"]["proxy"], "ports": []},
+        }
+        # Both cases run on the reserved bridge; defaults were checked above.
+        compose["networks"]["tls-proxy"] = {"name": network, "external": True}
+        compose["services"]["proxy"]["networks"]["tls-proxy"]["ipv4_address"] = addresses["PICSOU_PROXY_IP"]
         compose_file.write_text(json.dumps(compose))
         command([*args, "up", "--wait", "--wait-timeout", "60", "app", "proxy"], timeout=90)
         container_ids = command([*args, "ps", "--quiet", "app", "proxy"]).stdout.split()

@@ -82,13 +82,23 @@ the legacy builder rejects the empty `$BUILDPLATFORM`.
 
 Every sidecar builds `FROM` one of three shared bases, built from one common pin
 set (`services/base/requirements*.txt`): `python` (Python 3.12 slim bookworm,
-fastapi, uvicorn, pydantic, httpx), `chromium` (the same plus Playwright 1.52 and
+fastapi, uvicorn, pydantic, httpx), `chromium` (the same plus Playwright 1.64.1 and
 Chromium in `/opt/playwright-browsers`), and `camoufox` (the same Python base plus
-Playwright 1.55.0, Camoufox 0.4.11, Firefox 152.0.4-beta.30 and Xvfb).
+Playwright 1.64.1, Camoufox 0.4.11, Firefox 152.0.4-beta.30 and Xvfb).
 AMEX and Revolut use `camoufox`, including the target CPU's x86_64 or arm64 browser.
 Their shared browser/addons live in `/opt/camoufox-cache/camoufox`, readable by
 both service users; GeoIP is downloaded once into the Camoufox package directory.
 A sidecar Dockerfile only adds its user and code.
+
+Camoufox protocol compatibility depends on the Firefox release pinned in
+`services/base/pin_camoufox.py`, not just the Camoufox Python package version.
+Keep browser-specific requirements separate even when their Playwright pins match.
+For browser updates, run `services/base/smoke_camoufox.py` in both AMEX and Revolut
+images, in headless and headful modes on AMD64 and native ARM64, and run the
+Chromium navigation tests in `services/fortuneo-auth/test_navigation.py` and
+`services/bourse-direct-auth/test_navigation.py`. These offline checks cover
+browser launch and page operations, not provider login compatibility.
+
 All three targets retain Python 3.12 because the pinned Pydantic core has no CPython
 3.15 wheels and the slim base lacks the native toolchain for a source build. A Python
 runtime upgrade requires compatible dependency pins and successful builds of all
@@ -344,7 +354,11 @@ it force-recreates `proxy` only if it was running when deployment started. Recre
 `--no-deps` and preserves Caddy's certificate volumes. This applies the new `tls-proxy` attachment
 and loads the `app-tls` upstream. The script requires Compose v2.17+ for
 `--wait --wait-timeout 60` and waits for Caddy's health check before the API readiness probe.
-Proxy recreation or health-wait failure exits nonzero with a clear error, even when the API URL
+After recreation it reads the active JSON config through Caddy's container-local admin API.
+It requires at least one `app-tls:8080` reverse-proxy upstream and rejects other `app` or
+`app-tls` targets; unrelated upstream hosts are ignored. Update operator-edited Caddyfiles
+to use `reverse_proxy app-tls:8080` before deployment.
+Proxy recreation, health-wait or active-config verification failure exits nonzero with a clear error, even when the API URL
 points directly at the app's published HTTP port. Restarting Caddy alone
 does not apply Compose network changes. Stopped or absent proxies remain untouched, even when
 the `tls` profile is enabled. Migration or app cutover failures leave the proxy untouched.
@@ -365,8 +379,11 @@ the `app-tls` upstream. It also runs a one-off app container alongside the live 
 repeat deployments. The nginx fixtures create explicit randomized subnets for static test
 addresses, retrying subnet overlaps for compatibility with Docker versions used in CI.
 The Compose tests publish no host ports and remove their test containers, networks and volumes.
-They assert the rendered default TLS addresses but reserve an unused private subnet for that
-live case, so an existing install can keep the default bridge. Network allocation retries across
+Both live cases reserve an unused private subnet and use an external test network, so an existing
+install or concurrent test can keep its bridge. The defaults case asserts the rendered defaults
+before substituting its reserved /29; the custom-addresses case derives all three environment
+values from its reserved /28 and asserts their Compose interpolation before startup.
+Network allocation retries across
 multiple private `/16`s on overlap; a timed-out Docker availability check skips rather than
 failing test collection.
 `docker/tests/test_deploy_integration.py` also upgrades a running Caddy from the old
