@@ -10,12 +10,10 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
 import { AccountForm } from '@/components/shared/AccountForm'
 import { AddPropertyModal } from '@/components/property/AddPropertyModal'
-import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from '@/components/shared/BankCountrySelect'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { InstitutionSearch } from '@/components/sync/InstitutionSearch'
 import { BourseDirectPanel } from '@/components/sync/BourseDirectPanel'
 import { BoursoPanel } from '@/components/sync/BoursoPanel'
 import { CaisseEpargnePanel } from '@/components/sync/CaisseEpargnePanel'
@@ -34,10 +32,9 @@ import {
   EXCHANGE_API_SECRET_MAX_LENGTH,
   TR_VERIFICATION_CODE_LENGTH,
 } from '@/lib/constants'
-import { extractErrorMessage, formatTrAuthError, getErrorStatus, getErrorDetail } from '@/lib/errors'
+import { formatTrAuthError, getErrorStatus, getErrorDetail } from '@/lib/errors'
 import { useCreateAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
 import {
-  useSearchInstitutions,
   useInitiateBankSync,
   useInitiateTrAuth,
   useCompleteTrAuth,
@@ -73,7 +70,6 @@ import {
   ArrowLeft,
   Loader2,
   CheckCircle2,
-  Search,
   Eye,
   EyeOff,
   Upload,
@@ -333,32 +329,10 @@ function SuccessState({ message }: { message: string }) {
 // Wizard: Banques
 // ---------------------------------------------------------------------------
 
-function InstitutionLogo({ logoUrl }: { logoUrl?: string | null }) {
-  return (
-    <Avatar className="size-4 shrink-0 rounded-sm after:rounded-sm">
-      {logoUrl && <AvatarImage src={logoUrl} alt="" className="rounded-sm object-contain" />}
-      <AvatarFallback className="rounded-sm bg-transparent">
-        <Landmark className="size-4 text-muted-foreground" />
-      </AvatarFallback>
-    </Avatar>
-  )
-}
-
 function BankWizard({ onBack }: { onDone: () => void; onBack: () => void }) {
   const { t } = useTranslation()
-  const [searchQuery, setSearchQuery] = useState('')
-  const [country, setCountry] = useState(DEFAULT_BANK_COUNTRY)
   const [error, setError] = useState<string | null>(null)
-
-  const {
-    data: institutions,
-    isError: searchFailed,
-    isLoading: searchLoading,
-    error: searchError,
-  } = useSearchInstitutions(searchQuery.trim(), country)
   const initiateMutation = useInitiateBankSync()
-
-  const searchEnabled = searchQuery.trim().length >= 2
 
   function handleConnect(institutionId: string, institutionName: string) {
     setError(null)
@@ -385,68 +359,7 @@ function BankWizard({ onBack }: { onDone: () => void; onBack: () => void }) {
             <Button variant="ghost" size="sm" onClick={() => setError(null)}>x</Button>
           </div>
         )}
-        <div className="flex items-start gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t('sync.banks.searchPlaceholder')}
-              className="pl-10"
-              autoFocus
-            />
-          </div>
-          <BankCountrySelect value={country} onChange={setCountry} />
-        </div>
-
-        {searchLoading && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            {t('common.loading')}
-          </div>
-        )}
-
-        {searchEnabled && searchFailed && !searchLoading && (
-          <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            <span className="flex-1">
-              {extractErrorMessage(searchError, t('sync.banks.searchError'))}
-            </span>
-          </div>
-        )}
-
-        {searchEnabled && !searchFailed && institutions && institutions.length > 0 && (
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {institutions.map((inst) => (
-              <div
-                key={inst.id}
-                className="grid grid-cols-[minmax(0,1fr)_2.5rem_auto] items-center gap-4 rounded-lg border px-3 py-2"
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <InstitutionLogo logoUrl={inst.logoUrl} />
-                  <span className="min-w-0 text-sm font-medium leading-5">{inst.name}</span>
-                  {inst.psuType === 'business' && (
-                    <Badge variant="outline" title={t('sync.banks.proBadgeTitle')}>
-                      {t('sync.banks.proBadge')}
-                    </Badge>
-                  )}
-                </div>
-                <span className="justify-self-center text-xs text-muted-foreground">{inst.country}</span>
-                <Button
-                  size="sm"
-                  className="justify-self-end"
-                  onClick={() => handleConnect(inst.id, inst.name)}
-                  disabled={initiateMutation.isPending}
-                >
-                  {t('sync.banks.connect')}
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {searchEnabled && !searchFailed && institutions && institutions.length === 0 && !searchLoading && (
-          <p className="text-sm text-muted-foreground">{t('sync.banks.noConnections')}</p>
-        )}
+        <InstitutionSearch layout="modal" onConnect={handleConnect} connecting={initiateMutation.isPending} />
       </div>
     </>
   )
