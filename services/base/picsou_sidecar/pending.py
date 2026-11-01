@@ -16,8 +16,8 @@ class PendingStore:
     Each state is a dict carrying `created_at` (epoch seconds); `dispose`
     releases what it pins (a browser, an httpx client) and must not raise.
     Taking a state past `ttl_seconds` disposes it instead of returning it.
-    Parking sweeps expired entries before checking capacity; the background
-    sweep also releases abandoned resources without another request.
+    Parking sweeps expired entries only when capacity is exhausted; the
+    background sweep also releases abandoned resources without another request.
     """
 
     def __init__(
@@ -44,9 +44,16 @@ class PendingStore:
         return process_id in self._states
 
     async def put(self, process_id: str, state: State) -> bool:
-        """Expire old states, then return False if `max_size` live attempts remain."""
+        """Park immediately if there is room, reclaiming expiry only when full."""
+        async with self._lock:
+            if self.max_size is None or len(self._states) < self.max_size:
+                # A retry must not wait for unrelated expired browsers to close
+                # when it already has room. Initiation sweeps before opening resources.
+                self._states[process_id] = state
+                return True
         await self.expire()
         async with self._lock:
+            # Other requests may have filled the reclaimed slots during disposal.
             if self.max_size is not None and len(self._states) >= self.max_size:
                 return False
             self._states[process_id] = state

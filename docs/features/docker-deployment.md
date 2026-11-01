@@ -81,6 +81,9 @@ two shared bases, built from one pin set (`services/base/requirements*.txt`):
 `python` (Python 3.12 slim bookworm, fastapi, uvicorn, pydantic, httpx) and
 `chromium` (the same plus Playwright 1.52 and Chromium in
 `/opt/playwright-browsers`). A sidecar Dockerfile only adds its user and code.
+The base build context excludes local bytecode and test helpers (`picsou_sidecar/contract.py`
+and `euro_information/testing.py`). CI mounts the helpers read-only for image tests;
+they are absent from published images, including the library copied by AMEX and Revolut.
 The publish workflow pushes `sidecar-python` and `sidecar-chromium` first and
 builds every sidecar from them by digest, so a pull stores Chromium once. With
 `docker compose up --build`, the build-only services `sidecar-python` and
@@ -642,9 +645,12 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 
 `services/base/picsou_sidecar.PendingStore` enforces each sidecar's TTL when a
 completion takes an attempt. Expired states are disposed and returned as missing,
-without waiting for the background sweep. Parking first expires old entries, then
-checks capacity. Routes use `put_or_raise()` so a full store answers 503 with the
-provider's existing capacity detail; callers dispose resources if initial parking
+without waiting for the background sweep. Parking inserts immediately when there is
+room, so retries do not wait for unrelated expired browsers to close. Only a full
+store expires old entries and rechecks capacity under the lock, since another
+request may fill a reclaimed slot during disposal. Routes use `put_or_raise()` so
+a still-full store answers 503 with the provider's existing capacity detail;
+callers dispose resources if initial parking
 fails. Retrying routes transfer ownership to `repark()`, which disposes the state
 if parking fails or is cancelled. A failed background sweep logs only the exception
 type, keeping upstream URLs and exception messages out of logs, and continues

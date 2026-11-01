@@ -95,6 +95,42 @@ class PendingStoreTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("old", store)
         self.assertIn("new", store)
 
+    async def test_repark_does_not_close_unrelated_expired_resources_when_there_is_room(self):
+        for max_size in (None, 2):
+            with self.subTest(max_size=max_size):
+                store = _store(ttl_seconds=60, max_size=max_size)
+                old = FakeResource()
+                retry = {"created_at": time.time(), "resource": FakeResource()}
+                await store.put("old", {"created_at": 0, "resource": old})
+                await store.repark("retry", retry)
+                self.assertEqual(old.closed, 0)
+                self.assertIs(await store.take("retry"), retry)
+                await store.expire()
+                self.assertEqual(old.closed, 1)
+
+    async def test_put_rechecks_capacity_after_expired_resource_disposal(self):
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def dispose(state):
+            started.set()
+            await release.wait()
+            await _dispose(state)
+
+        store = PendingStore(dispose=dispose, log=logging.getLogger("test"), max_size=1)
+        old = FakeResource()
+        await store.put("old", {"created_at": 0, "resource": old})
+        parking = asyncio.create_task(store.put("waiting", {"created_at": time.time()}))
+        try:
+            await asyncio.wait_for(started.wait(), timeout=1)
+            self.assertTrue(await store.put("other", {"created_at": time.time()}))
+        finally:
+            release.set()
+            parked = await parking
+        self.assertFalse(parked)
+        self.assertNotIn("waiting", store)
+        self.assertIn("other", store)
+        self.assertEqual(old.closed, 1)
+
     async def test_put_or_raise_preserves_detail_and_caller_resource_ownership(self):
         store = _store(max_size=1)
         await store.put_or_raise("a", {"created_at": time.time()})
@@ -135,7 +171,8 @@ class PendingStoreTest(unittest.IsolatedAsyncioTestCase):
     async def test_repark_disposes_on_sweep_failure_or_cancellation(self):
         for failure in (RuntimeError("sweep failed"), asyncio.CancelledError()):
             with self.subTest(failure=type(failure).__name__):
-                store = _store()
+                store = _store(max_size=1)
+                await store.put("other", {"created_at": time.time()})
                 resource = FakeResource()
                 store.expire = AsyncMock(side_effect=failure)
                 with self.assertRaises(type(failure)):

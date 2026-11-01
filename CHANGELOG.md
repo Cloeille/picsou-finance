@@ -304,12 +304,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when a full pending pool prevents it from keeping the attempt. Sofidy now uses the shared
   request log, which omits the method and response status. Refused shared-key requests
   log no caller path; authenticated paths are control-sanitized and capped at 200 characters.
-  Pending stores reject expired completions immediately and reclaim expired capacity before
-  parking. A retryable code that cannot be parked answers 503 and releases its resources.
+  Pending stores reject expired completions immediately and reclaim expired capacity when
+  full; parking with room available does not wait for unrelated resource cleanup.
+  A retryable code that cannot be parked answers 503 and releases its resources.
   Every sidecar trims its configured
   API key before comparing it, escapes control characters in its whole log line and keeps its
-  pending-login sweeper running after a failed sweep. Fortuneo and Bourse Direct now refuse
-  to start when that key is missing or blank, matching the other sidecars. Crédit Mutuel
+  pending-login sweeper running after a failed sweep. Crédit Mutuel
   withdraws the phone confirmation when the bank answers an unknown state, as CIC did. Code
   no production path used goes (AMEX self-check, Fortuneo legacy parsers, unused helpers).
 

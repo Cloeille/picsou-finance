@@ -30,13 +30,16 @@ byte-identical (issue #338, part of #326).
   get them. The sidecar test jobs set `PYTHONPATH=/app`, which a `PYTHONPATH`
   install would hide. AMEX and Revolut keep their own Python and Camoufox pins
   and copy only that directory from the `python` base (`SIDECAR_LIB`). The base
-  image copies the Euro-Information runtime modules explicitly, leaving its
-  shared test-fixture module out of production images; the two relevant CI jobs
-  mount that module read-only for their test runs.
+  image copies the Euro-Information runtime modules explicitly. Its build context
+  excludes local bytecode and both packages' test helpers; CI mounts the shared
+  auth contract and the relevant Euro-Information fixtures read-only for tests.
 - Every sidecar's `test_sidecar_auth.py` binds the contract to its app; the
   `sidecar-package` CI job tests the package on its own.
-- `take()` disposes expired states and returns them as missing; `put()` expires
-  old states before checking capacity. Routes use `put_or_raise()` to report a
+- `take()` disposes expired states and returns them as missing; `put()` inserts
+  immediately when there is room. Only a full store sweeps expired states before
+  rechecking capacity under the lock. This keeps retries from waiting on unrelated
+  browser disposal and avoids a second sweep after initiation, unless concurrent
+  initiations fill the store in the meantime. Routes use `put_or_raise()` to report a
   full store with 503 while retaining responsibility for refused resources on
   initial parking. Retrying routes instead transfer ownership to `repark()`,
   which disposes a state if parking fails or is cancelled. The sweeper logs only

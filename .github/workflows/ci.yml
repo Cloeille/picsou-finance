@@ -307,6 +307,7 @@ jobs:
         run: >-
           docker run --rm --ipc=host
           --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/bourse-direct-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/bourse-direct-auth/test_navigation.py:/tests/test_navigation.py:ro"
           --volume "${{ github.workspace }}/services/bourse-direct-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
@@ -332,6 +333,7 @@ jobs:
         run: >-
           docker run --rm --ipc=host
           --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/fortuneo-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/fortuneo-auth/test_navigation.py:/tests/test_navigation.py:ro"
           --volume "${{ github.workspace }}/services/fortuneo-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
@@ -357,6 +359,7 @@ jobs:
         run: >-
           docker run --rm
           --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/fixtures.py:/tests/fixtures.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_virtual_pad.py:/tests/test_virtual_pad.py:ro"
           --volume "${{ github.workspace }}/services/bourso-auth/test_accounts_parser.py:/tests/test_accounts_parser.py:ro"
@@ -389,6 +392,7 @@ jobs:
         run: >-
           docker run --rm
           --env PYTHONDONTWRITEBYTECODE=1
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services:/src/services:ro"
           --env APP_SIDECAR_API_KEY=test-key
           --workdir /src/services/caisse-epargne-auth
@@ -413,6 +417,7 @@ jobs:
           --env PYTHONPATH=/app
           --env CORUM_BROWSER_TESTS=1
           --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/corum-auth/test_positions_parser.py:/tests/test_positions_parser.py:ro"
           --volume "${{ github.workspace }}/services/corum-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
           --volume "${{ github.workspace }}/services/corum-auth/test_navigation_security.py:/tests/test_navigation_security.py:ro"
@@ -437,6 +442,7 @@ jobs:
         run: >-
           docker run --rm
           --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/sofidy-auth/test_positions_parser.py:/tests/test_positions_parser.py:ro"
           --volume "${{ github.workspace }}/services/sofidy-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
           --volume "${{ github.workspace }}/services/sofidy-auth/test_redirect_security.py:/tests/test_redirect_security.py:ro"
@@ -463,6 +469,7 @@ jobs:
         run: >-
           docker run --rm --ipc=host
           --env PYTHONPATH=/app
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/amundi-auth/test_main.py:/tests/test_main.py:ro"
           --volume "${{ github.workspace }}/services/amundi-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
           --volume "${{ github.workspace }}/services/amundi-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
@@ -489,6 +496,7 @@ jobs:
           --entrypoint python
           --env PYTHONPATH=/app
           --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/amex-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
           --volume "${{ github.workspace }}/services/amex-auth/test_parsers.py:/tests/test_parsers.py:ro"
           --volume "${{ github.workspace }}/services/amex-auth/test_pin_camoufox.py:/tests/test_pin_camoufox.py:ro"
@@ -533,6 +541,7 @@ jobs:
           --entrypoint python
           --env PYTHONPATH=/app
           --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/degiro-auth/test_portfolio_url.py:/tests/test_portfolio_url.py:ro"
           --volume "${{ github.workspace }}/services/degiro-auth/test_portfolio_parser.py:/tests/test_portfolio_parser.py:ro"
           --volume "${{ github.workspace }}/services/degiro-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
@@ -558,6 +567,7 @@ jobs:
           --entrypoint python
           --env PYTHONPATH=/app
           --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/base/euro_information/testing.py:/opt/sidecar-base/lib/euro_information/testing.py:ro"
           --volume "${{ github.workspace }}/services/cmes-auth/fixtures.py:/tests/fixtures.py:ro"
           --volume "${{ github.workspace }}/services/cmes-auth/test_parsers.py:/tests/test_parsers.py:ro"
@@ -585,6 +595,7 @@ jobs:
           --entrypoint python
           --env PYTHONPATH=/app
           --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/base/euro_information/testing.py:/opt/sidecar-base/lib/euro_information/testing.py:ro"
           --volume "${{ github.workspace }}/services/cic-auth/fixtures.py:/tests/fixtures.py:ro"
           --volume "${{ github.workspace }}/services/cic-auth/test_accounts_parser.py:/tests/test_accounts_parser.py:ro"
@@ -612,6 +623,7 @@ jobs:
           --entrypoint python
           --env PYTHONPATH=/app
           --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/main.py:/tests/main.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_complete_url.py:/tests/test_complete_url.py:ro"
           --volume "${{ github.workspace }}/services/tr-auth/test_main.py:/tests/test_main.py:ro"
@@ -642,6 +654,7 @@ jobs:
           --entrypoint sh
           --env PYTHONDONTWRITEBYTECODE=1
           --env APP_SIDECAR_API_KEY=test-key
+          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "${{ github.workspace }}/services/revolut-auth/tests:/app/tests:ro"
           picsou-revolut-auth:test
           -c "python -m pip install --user --no-cache-dir --no-warn-script-location pytest==8.4.2 pytest-asyncio==1.2.0
