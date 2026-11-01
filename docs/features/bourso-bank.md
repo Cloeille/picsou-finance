@@ -278,7 +278,10 @@ Reading `positions` off the same section as `account` finds a funded account wit
 no lines — which is exactly how this first failed in the wild. Each is therefore
 taken from whichever section carries it, and the richest positions list wins
 (a section can carry an empty one, which would look just like a cash-only
-account). Every money field is shaped `{value, decimals, currency}`, and `amount`
+account). Some accounts split their lines across several populated sections; when
+the richest list falls short of `valuation`, the union of all lists is tried and
+kept only if it reconciles, so duplicated sections and short reads are still
+refused (#361). Every money field is shaped `{value, decimals, currency}`, and `amount`
 is the line's **market** value — confirmed live, since `Σ amount` reconciled to
 the broker's own `valuation` to the cent.
 

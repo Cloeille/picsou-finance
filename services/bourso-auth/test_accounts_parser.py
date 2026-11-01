@@ -406,6 +406,35 @@ class TradingSummaryTest(unittest.TestCase):
         sections.insert(1, {"id": "other", "positions": [], "count": 0})
         self.assertEqual(len(parse_trading_summary(sections, "acc")["positions"]), 1)
 
+    def test_lines_split_across_two_sections_are_read_from_both(self):
+        # #361: a securities account can spread its lines over two sections. The
+        # richest list alone is short of the valuation and failed the whole sync.
+        sections = summary(
+            positions=[position(symbol="1rTA", amount="600.00"), position(symbol="1rTB", amount="200.00")]
+        )
+        sections.append(
+            {"id": "positions-2", "positions": [position(symbol="1rTC", amount="100.00")], "count": 1}
+        )
+        parsed = parse_trading_summary(sections, "acc")
+        self.assertEqual(
+            [line["symbol"] for line in parsed["positions"]], ["1rTA", "1rTB", "1rTC"]
+        )
+
+    def test_two_sections_repeating_the_same_lines_are_not_counted_twice(self):
+        sections = summary()
+        sections.append({"id": "positions-copy", "positions": [position()], "count": 1})
+        parsed = parse_trading_summary(sections, "acc")
+        self.assertEqual(len(parsed["positions"]), 1)
+
+    def test_sections_that_still_fall_short_together_are_refused(self):
+        sections = summary(positions=[position(amount="400.00")])
+        sections.append(
+            {"id": "positions-2", "positions": [position(symbol="1rTC", amount="100.00")], "count": 1}
+        )
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(sections, "acc")
+        self.assertEqual(raised.exception.code, INCOMPLETE)
+
     def test_a_missing_valuation_field_is_refused(self):
         broken = summary()
         del broken[0]["account"]["valuation"]

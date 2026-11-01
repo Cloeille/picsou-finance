@@ -791,6 +791,17 @@ def parse_trading_summary(payload: Any, account_id: str) -> dict[str, Any]:
     positions = [parsed for parsed in (_parse_position(item) for item in raw_positions) if parsed]
     lines_total = sum((position["currentValueEur"] for position in positions), Decimal("0"))
 
+    # A securities account can split its lines across several sections of the
+    # summary. The richest list alone then misses the others: their union is kept,
+    # but only when it reconciles, so a payload repeating the same lines in two
+    # sections still reads the single richest list and a short read still fails.
+    if len(position_lists) > 1 and not money_close(lines_total, valuation):
+        union_raw = [item for items in position_lists for item in items]
+        union = [parsed for parsed in (_parse_position(item) for item in union_raw) if parsed]
+        union_total = sum((position["currentValueEur"] for position in union), Decimal("0"))
+        if money_close(union_total, valuation):
+            raw_positions, positions, lines_total = union_raw, union, union_total
+
     # Both checks are measured before either is raised: when one fails, the other
     # one's ratio is what says whether a field means something else entirely or
     # whether the read was simply truncated.
