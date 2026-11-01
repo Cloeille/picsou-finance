@@ -17,8 +17,9 @@ DOCKER_WORKFLOW = ROOT / ".github/workflows/docker.yml"
 CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
 CODEQL_WORKFLOW = ROOT / ".github/workflows/codeql.yml"
 APP_DOCKERFILE = ROOT / "docker/Dockerfile"
-ROOT_COMPOSE = ROOT / "docker-compose.yml"
 DOCKER_COMPOSE = ROOT / "docker/docker-compose.yml"
+APPLICATION_YML = ROOT / "backend/src/main/resources/application.yml"
+APPLICATION_DEV_YML = ROOT / "backend/src/main/resources/application-dev.yml"
 BASE_DOCKERFILE = "services/base/Dockerfile"
 # Camoufox sidecars keep their own Firefox and Playwright pin.
 OWN_BASE = {"amex-auth", "revolut-auth"}
@@ -93,19 +94,28 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
 
         self.assertIn("python -m pip install PyYAML==6.0.3", commands)
 
-    def test_root_backend_configures_the_degiro_sidecar_url(self):
-        compose = _load(ROOT_COMPOSE)
+    def test_application_yml_is_the_only_place_sidecar_urls_are_set(self):
+        for path in (DOCKER_COMPOSE, ROOT / "docker/entrypoint.sh", ROOT / ".env.example",
+                     ROOT / "docker/.env.example"):
+            with self.subTest(path=path.relative_to(ROOT)):
+                self.assertNotRegex(path.read_text(encoding="utf-8"), r"(?m)^[^#]*_AUTH_URL")
 
-        self.assertEqual(
-            compose["services"]["backend"]["environment"]["DEGIRO_AUTH_URL"],
-            "http://degiro-auth:8001",
-        )
+    def test_every_compose_sidecar_has_a_url_in_both_spring_profiles(self):
+        sidecars = {name for name in _load(DOCKER_COMPOSE)["services"] if name.endswith("-auth")}
+        default = _load(APPLICATION_YML)["app"]
+        dev = _load(APPLICATION_DEV_YML)["app"]
+        for name in sorted(sidecars):
+            with self.subTest(sidecar=name):
+                self.assertIn(name, default, "missing from application.yml")
+                self.assertIn(name, dev, "missing from application-dev.yml")
+                variable = name.upper().replace("-", "_") + "_URL"
+                self.assertRegex(default[name]["url"], rf"^\$\{{{variable}:http://{name}:\d+\}}$")
+                self.assertRegex(dev[name]["url"], rf"^\$\{{{variable}:http://127\.0\.0\.1:\d+\}}$")
+        dev_ports = [dev[name]["url"].rsplit(":", 1)[1] for name in sidecars if name in dev]
+        self.assertEqual(len(dev_ports), len(set(dev_ports)), "dev ports must not collide")
 
-    def test_amex_sidecar_uses_an_init_process_in_both_compose_files(self):
-        for path in (ROOT_COMPOSE, DOCKER_COMPOSE):
-            with self.subTest(compose_file=path.relative_to(ROOT)):
-                compose = _load(path)
-                self.assertIs(compose["services"]["amex-auth"]["init"], True)
+    def test_amex_sidecar_uses_an_init_process(self):
+        self.assertIs(_load(DOCKER_COMPOSE)["services"]["amex-auth"]["init"], True)
 
     def test_every_service_dockerfile_is_in_the_publish_matrix_exactly_once(self):
         workflow = _load(DOCKER_WORKFLOW)
@@ -375,15 +385,11 @@ class CiJobSelectionTest(unittest.TestCase):
             "docker/entrypoint.sh": {"backend", "docker-entrypoint", "release-deployment"},
             "docker/Dockerfile": {"docker-entrypoint", "release-deployment", "workflow-inventory"},
             "docker/docker-compose.yml": {"docker-entrypoint", "release-deployment", "helm-chart"} | services,
-            "docker-compose.yml": {"docker-entrypoint", "workflow-inventory"},
-            "frontend/Dockerfile": {
-                "docker-entrypoint", "e2e", "frontend", "release-deployment",
+            "backend/src/main/resources/application.yml": {
+                "backend", "helm-chart", "release-deployment", "workflow-inventory",
             },
-            "frontend/nginx.conf": {
-                "docker-entrypoint", "e2e", "frontend", "release-deployment",
-            },
-            "frontend/picsou-realip.conf": {
-                "docker-entrypoint", "e2e", "frontend", "release-deployment",
+            "backend/src/main/resources/application-dev.yml": {
+                "backend", "release-deployment", "workflow-inventory",
             },
             "charts/picsou/values.yaml": {"helm-chart"},
             "charts/picsou/templates/sidecars.yaml": {"helm-chart"},
@@ -590,8 +596,8 @@ class SharedSidecarBaseTest(unittest.TestCase):
                 self.assertIn(base, commands)
                 self.assertLess(commands.index(base), commands.index(f"--tag picsou-{service}:test"))
 
-    def test_both_compose_files_build_the_base_for_each_sidecar(self):
-        for path in (ROOT_COMPOSE, DOCKER_COMPOSE):
+    def test_compose_builds_the_base_for_each_sidecar(self):
+        for path in (DOCKER_COMPOSE,):
             compose = _load(path)["services"]
             for target in ("python", "chromium"):
                 with self.subTest(compose_file=path.relative_to(ROOT), base=target):

@@ -5,7 +5,7 @@
 > (login incl. TOTP, portfolio sync, holdings resolution). Wired into both
 > the DEGIRO tab in `SyncPage` and the unified "Add account" modal
 > (`AddAccountModal` → `DegiroPanel`, mirroring `BourseDirectPanel`).
-> `degiro-auth` must be enabled in `docker-compose.yml` (uncommented) to run.
+> `degiro-auth` runs as a service of `docker/docker-compose.yml`.
 > See "Known limitations" below for the couple of things still worth
 > double-checking, and "Fixed during live testing" for what a first real
 > account run actually caught.

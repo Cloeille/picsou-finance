@@ -105,7 +105,7 @@ multi-tenant in the SaaS sense.
 - [ ] Do not expose the app on the public internet without a reverse proxy
       with TLS (Caddy, Traefik, or Nginx).
 - [ ] Restrict PostgreSQL access to the Docker network (default in
-      `docker-compose.yml`).
+      `docker/docker-compose.yml`).
 - [ ] Regularly update Docker images and dependencies (`docker compose pull`
       + `docker compose up -d`).
 - [ ] Review `setup_audit` periodically to spot unexpected configuration

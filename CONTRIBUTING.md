@@ -26,6 +26,10 @@ bun install
 bun run dev
 ```
 
+The `dev` profile points each bank connector at its own `127.0.0.1` port
+(`backend/src/main/resources/application-dev.yml`). To use one, start its sidecar
+from `services/<name>/` with `uvicorn main:app --port <port>`.
+
 The frontend uses HTTPS in development. See the
 [local certificate setup](README.md#-https-in-development-hybrid-mode) for a
 trusted `mkcert` certificate or the zero-config self-signed fallback.
