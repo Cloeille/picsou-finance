@@ -428,6 +428,11 @@ class ErrorMappingTest(unittest.IsolatedAsyncioTestCase):
             ):
                 self.assertNotIn(value, rendered)
 
+    def test_a_raise_without_a_cause_logs_its_own_class_default(self):
+        self.assertEqual(fetcher.UpstreamUnavailable().cause, "unknown")
+        self.assertEqual(fetcher.UpstreamFormatChanged().cause, "format")
+        self.assertEqual(fetcher.UpstreamUnavailable(cause="status-503").cause, "status-503")
+
     async def test_non_json_or_wrong_shape_is_format_changed(self):
         cases = {
             "synthesis not json": FakeCE(synthesis_body=b"<html>"),

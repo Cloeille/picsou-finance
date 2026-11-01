@@ -66,12 +66,16 @@ class FetchError(Exception):
     """Base class. `code` is the stable, caller-facing error code; messages are fixed."""
 
     code = "UPSTREAM_UNAVAILABLE"
+    # Logged when the import fails: a fixed token, the HTTP status or the
+    # transport exception's class name. Never a URL, a body or a message.
+    # Each subclass names its own default, so a raise without one never
+    # reports another class's cause.
+    cause = "unknown"
 
-    def __init__(self, message: Optional[str] = None, *, cause: str = "format"):
+    def __init__(self, message: Optional[str] = None, *, cause: Optional[str] = None):
         super().__init__(message or self.code)
-        # Logged when the import fails: a fixed token, the HTTP status or the
-        # transport exception's class name. Never a URL, a body or a message.
-        self.cause = cause
+        if cause is not None:
+            self.cause = cause
 
 
 class UpstreamUnavailable(FetchError):
@@ -80,6 +84,7 @@ class UpstreamUnavailable(FetchError):
 
 class UpstreamFormatChanged(FetchError):
     code = "UPSTREAM_FORMAT_CHANGED"
+    cause = "format"
 
 
 # --- Bounded GET ---------------------------------------------------------------
