@@ -283,6 +283,10 @@ the richest list does not reconcile with `valuation`, the union of all lists is
 tried. Before reconciling, repeated holdings are identified by ISIN (or the
 case-insensitive broker symbol when no ISIN is usable). Equal normalized rows
 count once; conflicting rows for the same identity raise `INVALID_DATA`.
+The union also rejects rows sharing a case-insensitive broker symbol when only
+some have a usable ISIN. Missing or malformed ISINs must not give a repeated row
+a second identity, even if the backend would resolve the ISIN-bearing row to a
+different ticker. A standalone row without a usable ISIN remains valid.
 The union is kept only if its unique holdings reconcile, so repeated partial
 sections cannot hide missing holdings and short reads still raise
 `PORTFOLIO_INCOMPLETE` (#361). The richest-list path is unchanged when it already

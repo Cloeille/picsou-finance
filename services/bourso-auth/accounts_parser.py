@@ -798,14 +798,24 @@ def parse_trading_summary(payload: Any, account_id: str) -> dict[str, Any]:
     if len(position_lists) > 1 and not money_close(lines_total, valuation):
         union_raw = [item for items in position_lists for item in items]
         unique: dict[tuple[str, str], dict[str, Any]] = {}
+        symbol_has_isin: dict[str, bool] = {}
         for item in union_raw:
             parsed = _parse_position(item)
             if not parsed:
                 continue
+            # A missing ISIN must not give a repeated broker row a second
+            # identity, even when ticker resolution would separate the rows.
+            symbol = parsed["symbol"].upper()
+            has_isin = parsed["isin"] is not None
+            if symbol in symbol_has_isin and symbol_has_isin[symbol] != has_isin:
+                raise AccountsFormatError(
+                    INVALID_DATA, "Trading summary has mixed ISIN availability for one symbol"
+                )
+            symbol_has_isin[symbol] = has_isin
             # Match the downstream holding identity, with the same symbol
             # fallback as ISIN-less positions. Compare normalized financial
             # fields, not section-specific display metadata or number formats.
-            key = ("isin", parsed["isin"]) if parsed["isin"] else ("symbol", parsed["symbol"].upper())
+            key = ("isin", parsed["isin"]) if parsed["isin"] else ("symbol", symbol)
             if key in unique and unique[key] != parsed:
                 raise AccountsFormatError(
                     INVALID_DATA, "Trading summary has conflicting duplicate positions"

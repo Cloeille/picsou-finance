@@ -437,6 +437,25 @@ class TradingSummaryTest(unittest.TestCase):
                     parse_trading_summary(sections, "acc")
                 self.assertEqual(raised.exception.code, INCOMPLETE)
 
+    def test_repeated_partial_sections_with_mixed_isin_availability_are_refused(self):
+        # A repeated under its broker symbol cannot stand in for missing B,
+        # even if resolving the valid ISIN would give A a different ticker.
+        for broken_isin in (None, "NOT-AN-ISIN"):
+            for symbol in ("1rTCW8", "1rtcw8"):
+                for reverse in (False, True):
+                    with self.subTest(isin=broken_isin, symbol=symbol, reverse=reverse):
+                        rows = [
+                            position(quantity="5", amount="450.00"),
+                            position(symbol=symbol, quantity="5", amount="450.00", isin=broken_isin),
+                        ]
+                        if reverse:
+                            rows.reverse()
+                        sections = summary(positions=[rows[0]])
+                        sections.append({"positions": [rows[1]]})
+                        with self.assertRaises(AccountsFormatError) as raised:
+                            parse_trading_summary(sections, "acc")
+                        self.assertEqual(raised.exception.code, INVALID_DATA)
+
     def test_overlapping_sections_reconcile_using_each_holding_once(self):
         for isin in ("IE00B4L5Y983", None):
             with self.subTest(isin=isin):
