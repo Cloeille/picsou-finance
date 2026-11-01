@@ -72,10 +72,11 @@ listPositionsSalarieDispositifsDto[]          one entry per plan (dispositif)
   the Add-account modal), `frontend/src/pages/sync/AmundiTab.tsx`
 - `frontend/src/components/sync/SidecarSessionPanel.tsx` — the generic
   login / second factor / sync / disconnect panel shared with Bourse Direct;
-  `AmundiPanel` only supplies the i18n prefix, the icon, the provider hooks and
-  `appPush` (Amundi is the provider that can answer the second factor with a
-  mobile-app push)
-- `frontend/src/features/sync/{api,hooks}.ts` — `amundiApi`, `useAmundi*`
+  `AmundiPanel` only supplies the provider id (`amundi`), the i18n prefix, the
+  icon and `appPush` (Amundi is the provider that can answer the second factor
+  with a mobile-app push)
+- `frontend/src/features/sync/{api,providers,hooks}.ts` — `amundiApi`, the
+  `amundi` entry of `sidecarProviders` and the generic `useProvider*` hooks
 - i18n namespace `sync.amundi.*` in all four locales
 
 Reuses: `CryptoEncryption`, `AccountService.upsertSnapshot`,

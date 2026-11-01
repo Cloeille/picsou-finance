@@ -1,4 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { setupApi } from './api'
 import type {
   EnableBankingConfigRequest,
@@ -31,18 +32,18 @@ export function useSetupStatus(enabled = true) {
 }
 
 export function useSubmitAdmin() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (body: SetupAdminRequest) => setupApi.submitAdmin(body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY }),
+    invalidates: [SETUP_STATUS_KEY],
+    awaitRefresh: true,
   })
 }
 
 export function useSubmitSecurity() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (body: SetupSecurityRequest) => setupApi.submitSecurity(body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY }),
+    invalidates: [SETUP_STATUS_KEY],
+    awaitRefresh: true,
   })
 }
 
@@ -63,45 +64,39 @@ export function useImportEnableBankingPrivateKey() {
 }
 
 export function useTestEnableBanking() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: () => setupApi.testEnableBanking(),
-    onSuccess: (result) => {
-      if (result.ok) qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY })
-    },
+    invalidates: result => (result.ok ? [SETUP_STATUS_KEY] : []),
   })
 }
 
 export function useBoursoBankHealth() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: () => setupApi.checkBoursoBankSidecar(),
-    onSuccess: (result) => {
-      if (result.ok) qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY })
-    },
+    invalidates: result => (result.ok ? [SETUP_STATUS_KEY] : []),
   })
 }
 
 export function useGenerateCryptoKey() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: () => setupApi.generateCryptoKey(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY }),
+    invalidates: [SETUP_STATUS_KEY],
+    awaitRefresh: true,
   })
 }
 
 export function useAcknowledgeIntegration() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (key: 'traderepublic' | 'revolut' | 'finary' | 'boursedirect' | 'fortuneo') => setupApi.acknowledgeIntegration(key),
-    onSuccess: () => qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY }),
+    invalidates: [SETUP_STATUS_KEY],
+    awaitRefresh: true,
   })
 }
 
 export function useCompleteSetup() {
-  const qc = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: () => setupApi.complete(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY }),
+    invalidates: [SETUP_STATUS_KEY],
+    awaitRefresh: true,
   })
 }

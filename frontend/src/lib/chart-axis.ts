@@ -1,5 +1,11 @@
 import { getNiceTickValues } from 'recharts'
 
+/** Spread into every `<XAxis>`/`<YAxis>`: no tick line, no axis line, 8px between ticks and labels. */
+export const AXIS_PROPS = { tickLine: false, axisLine: false, tickMargin: 8 } as const
+
+/** `AXIS_PROPS` without the tick margin, for the few axes that keep Recharts' default. */
+export const AXIS_PROPS_FLUSH = { tickLine: false, axisLine: false } as const
+
 /** Upper bound of one tick glyph's advance at the charts' `text-xs` (12px Geist). */
 const TICK_CHAR_PX = 7.5
 
@@ -19,7 +25,7 @@ const TICK_CHAR_PX = 7.5
 export function yAxisWidth(
   values: Iterable<number>,
   format: (value: number) => string,
-  tickMargin = 8,
+  tickMargin: number = AXIS_PROPS.tickMargin,
   tickSize = 6,
 ): number {
   let min = Infinity

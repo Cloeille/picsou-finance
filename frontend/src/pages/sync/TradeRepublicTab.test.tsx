@@ -83,6 +83,17 @@ describe('TradeRepublicTab authentication flow', () => {
     })
   })
 
+  it('moves focus to the verification-code input once the PIN is accepted', async () => {
+    apiPost.mockResolvedValue({ data: { processId: 'process-123' } })
+
+    renderTab()
+    await fillCredentials()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    const tanInput = await screen.findByLabelText('sync.tr.tan')
+    await waitFor(() => expect(tanInput).toHaveFocus())
+  })
+
   it('keeps the verification-code step visible when TAN completion fails', async () => {
     apiPost.mockImplementation((url: string) => {
       if (url === '/tr/auth/initiate') {
