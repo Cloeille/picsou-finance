@@ -1,6 +1,6 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-10-31 (explicit proxy trust for client addresses)
+> Last updated: 2026-11-01 (shared sidecar Python runtime compatibility)
 
 ## Context
 
@@ -84,6 +84,11 @@ two shared bases, built from one pin set (`services/base/requirements*.txt`):
 `python` (Python 3.12 slim bookworm, fastapi, uvicorn, pydantic, httpx) and
 `chromium` (the same plus Playwright 1.52 and Chromium in
 `/opt/playwright-browsers`). A sidecar Dockerfile only adds its user and code.
+Both targets retain Python 3.12 because the pinned Pydantic core has no CPython
+3.15 wheels and the slim base lacks the native toolchain for a source build. A Python
+runtime upgrade requires compatible dependency pins and successful builds of both
+targets on amd64 and arm64. `services/base/test_dockerfile.py` guards the supported
+runtime and Chromium's inheritance from it in the shared package CI job.
 The base build context excludes local bytecode and test helpers (`picsou_sidecar/contract.py`
 and `euro_information/testing.py`). CI mounts the helpers read-only for image tests;
 they are absent from published images, including the library copied by AMEX and Revolut.
