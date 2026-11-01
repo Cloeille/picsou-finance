@@ -1,5 +1,5 @@
 # ─── Stage 1: Build ────────────────────────────────────────────────────────
-FROM node:20-alpine AS build
+FROM node:26-alpine AS build
 
 # Allow overriding demo mode at build time (default: false for production)
 ARG VITE_DEMO_MODE=false

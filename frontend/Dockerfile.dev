@@ -1,6 +1,6 @@
 # Dev-only Dockerfile — runs Vite dev server with HMR
 # Used automatically via docker-compose.override.yml
-FROM node:20-alpine
+FROM node:26-alpine
 
 WORKDIR /app
 
