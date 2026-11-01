@@ -5,6 +5,8 @@ import logging
 import time
 from typing import Any, Awaitable, Callable
 
+from fastapi import HTTPException
+
 State = dict[str, Any]
 
 
@@ -13,8 +15,9 @@ class PendingStore:
 
     Each state is a dict carrying `created_at` (epoch seconds); `dispose`
     releases what it pins (a browser, an httpx client) and must not raise.
-    A state that outlives `ttl_seconds` is swept and disposed, so an abandoned
-    login cannot hold its resources until shutdown.
+    Taking a state past `ttl_seconds` disposes it instead of returning it.
+    Parking sweeps expired entries before checking capacity; the background
+    sweep also releases abandoned resources without another request.
     """
 
     def __init__(
@@ -41,16 +44,27 @@ class PendingStore:
         return process_id in self._states
 
     async def put(self, process_id: str, state: State) -> bool:
-        """False, and nothing stored, when `max_size` attempts are already pending."""
+        """Expire old states, then return False if `max_size` live attempts remain."""
+        await self.expire()
         async with self._lock:
             if self.max_size is not None and len(self._states) >= self.max_size:
                 return False
             self._states[process_id] = state
             return True
 
+    async def put_or_raise(self, process_id: str, state: State, detail: str = "UPSTREAM_UNAVAILABLE") -> None:
+        """Park a login or answer 503; the caller still owns refused resources."""
+        if not await self.put(process_id, state):
+            raise HTTPException(status_code=503, detail=detail)
+
     async def take(self, process_id: str) -> State | None:
+        """Transfer a live state to its caller, disposing an expired one once."""
         async with self._lock:
-            return self._states.pop(process_id, None)
+            state = self._states.pop(process_id, None)
+        if state is not None and state["created_at"] < time.time() - self.ttl_seconds:
+            await self._dispose(state)
+            return None
+        return state
 
     async def close(self, process_id: str) -> None:
         state = await self.take(process_id)

@@ -638,6 +638,17 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
   writes wait for V47. With a Flyway target below V47, or a baseline at or above V47 (`47.0`
   included), the check is skipped.
 
+### Shared pending-login lifecycle
+
+`services/base/picsou_sidecar.PendingStore` enforces each sidecar's TTL when a
+completion takes an attempt. Expired states are disposed and returned as missing,
+without waiting for the background sweep. Parking first expires old entries, then
+checks capacity. Routes use `put_or_raise()` so a full store answers 503 with the
+provider's existing capacity detail; callers dispose resources if parking fails.
+A retryable OTP whose state cannot be parked also answers 503 instead of promising
+a retry for an attempt that no longer exists. Initiation also sweeps before
+opening a new upstream client or browser.
+
 ## Links
 
 - Related: [Trade Republic feature](./trade-republic.md) (tr-auth microservice)

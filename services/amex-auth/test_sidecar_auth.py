@@ -86,8 +86,8 @@ class PendingAuthenticationLifecycleTest(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaises(HTTPException) as caught:
                 await main.complete(main.CompleteRequest(processId="attempt", otp="1234"))
-        self.assertEqual(caught.exception.status_code, 401)
-        self.assertEqual(caught.exception.detail, "INVALID_OTP")
+        self.assertEqual(caught.exception.status_code, 503 if fill_pool else 401)
+        self.assertEqual(caught.exception.detail, "UPSTREAM_UNAVAILABLE" if fill_pool else "INVALID_OTP")
 
     async def test_retryable_otp_closes_resources_when_it_cannot_be_parked(self):
         await self.retry_wrong_otp(fill_pool=True)

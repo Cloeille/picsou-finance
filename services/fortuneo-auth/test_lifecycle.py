@@ -114,6 +114,50 @@ class RequestContractTest(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertEqual(response.json()["detail"], "INVALID_DATA")
 
+    def test_initiate_disposes_expired_attempt_before_starting_a_browser(self):
+        context = FakeResource("close")
+        browser = FakeResource("close")
+        playwright = FakeResource("stop")
+        state = {
+            "context": context,
+            "browser": browser,
+            "playwright": playwright,
+            "created_at": time.time(),
+        }
+        manager = MagicMock()
+        observed_at_browser_start = {}
+
+        async def record_pending_state():
+            observed_at_browser_start["state_present"] = "expired" in _pending
+            observed_at_browser_start["resource_calls"] = (
+                context.calls,
+                browser.calls,
+                playwright.calls,
+            )
+            raise RuntimeError("browser startup stopped by test")
+
+        manager.start = AsyncMock(side_effect=record_pending_state)
+        with (
+            patch("main.async_playwright", return_value=manager),
+            patch("main.log.exception"),
+            patch.object(_pending, "sweep_seconds", 3_600),
+            TestClient(app, headers=SIDECAR_HEADERS) as client,
+        ):
+            client.portal.call(_pending.put, "expired", state)
+            state["created_at"] = time.time() - PENDING_TTL_SECONDS - 1
+            response = client.post(
+                "/initiate",
+                json={"login": "synthetic-login", "password": "synthetic-password"},
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json(), {"detail": "INTERNAL_ERROR"})
+        manager.start.assert_awaited_once_with()
+        self.assertEqual(observed_at_browser_start, {
+            "state_present": False,
+            "resource_calls": (1, 1, 1),
+        })
+
     def test_accounts_rejects_a_non_object_storage_state(self):
         with TestClient(app, headers=SIDECAR_HEADERS) as client:
             response = client.post("/accounts", json={"sessionState": "[]"})

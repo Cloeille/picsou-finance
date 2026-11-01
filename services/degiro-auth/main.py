@@ -271,6 +271,7 @@ class PortfolioRequest(BaseModel):
 
 @app.post("/initiate")
 async def initiate(req: InitiateRequest):
+    await _pending.expire()
     log.info("DEGIRO auth initiate for user %s***", safe(req.username[:2]))
 
     client = _client()
@@ -287,7 +288,7 @@ async def initiate(req: InitiateRequest):
 
     if result.get("needsTotp"):
         await client.aclose()
-        await _pending.put(process_id, {"username": req.username, "password": req.password, "created_at": time.time()})
+        await _pending.put_or_raise(process_id, {"username": req.username, "password": req.password, "created_at": time.time()})
         return {"processId": process_id, "totpRequired": True}
 
     try:

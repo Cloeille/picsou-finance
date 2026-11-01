@@ -12,6 +12,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
@@ -75,6 +76,37 @@ class PendingStoreTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await store.take("p"))
         self.assertEqual(state["resource"].closed, 0)
 
+    async def test_take_disposes_expired_state_without_a_sweep(self):
+        store = _store(ttl_seconds=60)
+        resource = FakeResource()
+        with patch("picsou_sidecar.pending.time.time", return_value=100):
+            await store.put("p", {"created_at": 100, "resource": resource})
+        with patch("picsou_sidecar.pending.time.time", return_value=161):
+            self.assertIsNone(await store.take("p"))
+        self.assertIsNone(await store.take("p"))
+        self.assertEqual(resource.closed, 1)
+
+    async def test_put_reclaims_expired_capacity(self):
+        store = _store(ttl_seconds=60, max_size=1)
+        resource = FakeResource()
+        await store.put("old", {"created_at": 0, "resource": resource})
+        self.assertTrue(await store.put("new", {"created_at": time.time()}))
+        self.assertEqual(resource.closed, 1)
+        self.assertNotIn("old", store)
+        self.assertIn("new", store)
+
+    async def test_put_or_raise_preserves_detail_and_caller_resource_ownership(self):
+        store = _store(max_size=1)
+        await store.put_or_raise("a", {"created_at": time.time()})
+        resource = FakeResource()
+        for detail in ("UPSTREAM_UNAVAILABLE", "TOO_MANY_PENDING"):
+            with self.subTest(detail=detail), self.assertRaises(HTTPException) as raised:
+                await store.put_or_raise("b", {"created_at": time.time(), "resource": resource}, detail)
+            self.assertEqual(raised.exception.status_code, 503)
+            self.assertEqual(raised.exception.detail, detail)
+        self.assertEqual(resource.closed, 0)
+        self.assertNotIn("b", store)
+
     async def test_a_full_store_refuses_without_storing(self):
         store = _store(max_size=1)
         self.assertTrue(await store.put("a", {"created_at": time.time()}))
@@ -85,8 +117,10 @@ class PendingStoreTest(unittest.IsolatedAsyncioTestCase):
     async def test_expired_states_are_disposed_and_fresh_ones_kept(self):
         store = _store(ttl_seconds=60)
         old, fresh = FakeResource(), FakeResource()
-        await store.put("old", {"created_at": time.time() - 61, "resource": old})
+        old_state = {"created_at": time.time(), "resource": old}
+        await store.put("old", old_state)
         await store.put("fresh", {"created_at": time.time(), "resource": fresh})
+        old_state["created_at"] -= 61
         await store.expire()
         self.assertEqual((old.closed, fresh.closed), (1, 0))
         self.assertEqual(len(store), 1)
@@ -132,7 +166,9 @@ class PendingStoreTest(unittest.IsolatedAsyncioTestCase):
                 store = PendingStore(dispose=dispose, log=logging.getLogger("test"))
                 first, second = FakeResource(), FakeResource()
                 for pid, resource in (("first", first), ("second", second)):
-                    await store.put(pid, {"created_at": 0, "resource": resource})
+                    await store.put(pid, {"created_at": time.time(), "resource": resource})
+                for state in store._states.values():
+                    state["created_at"] = 0
                 with self.assertRaisesRegex(RuntimeError, "cleanup failed"):
                     await getattr(store, operation)()
                 self.assertIn("second", store)
@@ -155,7 +191,9 @@ class PendingStoreTest(unittest.IsolatedAsyncioTestCase):
                 store = PendingStore(dispose=dispose, log=logging.getLogger("test"))
                 first, second = FakeResource(), FakeResource()
                 for pid, resource in (("first", first), ("second", second)):
-                    await store.put(pid, {"created_at": 0, "resource": resource})
+                    await store.put(pid, {"created_at": time.time(), "resource": resource})
+                for state in store._states.values():
+                    state["created_at"] = 0
                 task = asyncio.create_task(getattr(store, operation)())
                 await asyncio.wait_for(started.wait(), timeout=1)
                 task.cancel()
@@ -200,9 +238,15 @@ class AppOptionsTest(unittest.TestCase):
         self.addCleanup(log.removeHandler, handler)
         with TestClient(_app(request_log=(log, "Bank"))) as client:
             client.get("/health")
-            client.get("/x%0Aforged%20line")
+            client.get("/x%0Aforged%20line", headers={KEY_HEADER: "k"})
+            for headers in ({}, {KEY_HEADER: "wrong"}):
+                response = client.get("/private-secret%0Aforged", headers=headers)
+                self.assertEqual(response.status_code, 401)
         lines = stream.getvalue().splitlines()
-        self.assertEqual(len(lines), 1)
+        self.assertEqual(len(lines), 3)
+        self.assertNotIn("private-secret", stream.getvalue())
+        for line in lines[1:]:
+            self.assertRegex(line, r"^Bank request refused \(duration=\d+\.\d\ds\)$")
         self.assertRegex(lines[0], r"^Bank request completed \(path=/x.?forged line; duration=\d+\.\d\ds\)$")
 
     def test_background_sweeps_while_up_and_closes_at_shutdown(self):

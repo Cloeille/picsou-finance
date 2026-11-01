@@ -813,7 +813,7 @@ async def initiate(req: InitiateRequest) -> dict:
         outcome = await _wait_for_login_outcome(page, client_id_holder, LOGIN_RESULT_TIMEOUT_SECONDS)
 
         if outcome == "otp":
-            await _pending.put(process_id, {
+            await _pending.put_or_raise(process_id, {
                 "page": page,
                 "context": context,
                 "browser": browser,
@@ -862,12 +862,8 @@ async def initiate(req: InitiateRequest) -> dict:
 
 @app.post("/complete", response_model=SessionResponse)
 async def complete(req: CompleteRequest) -> dict:
-    await _pending.expire()
     state = await _pending.take(req.processId)
     if not state:
-        raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
-    if state["created_at"] < time.time() - PENDING_TTL_SECONDS:
-        await _dispose_pending_state(state)
         raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
     page: Page = state["page"]
     context: BrowserContext = state["context"]

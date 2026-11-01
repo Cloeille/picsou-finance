@@ -70,7 +70,7 @@ def create_app(
 ) -> FastAPI:
     """A FastAPI app behind the shared sidecar key.
 
-    request_log: (logger, label) to log every request's path and duration.
+    request_log: (logger, label) to log duration and authenticated request paths.
     background: its sweeper runs while the app is up; close_all runs at shutdown.
     validation_detail: answer an invalid body with 400 and this detail, never the
         offending input. None keeps FastAPI's own 422.
@@ -100,7 +100,8 @@ def create_app(
     # unknown paths are refused too. The header value is never logged.
     @app.middleware("http")
     async def authenticate_sidecar_request(request: Request, call_next):
-        if request.url.path != HEALTH_PATH and not _key_matches(request.headers.get(KEY_HEADER, "")):
+        request.state.sidecar_authenticated = _key_matches(request.headers.get(KEY_HEADER, ""))
+        if request.url.path != HEALTH_PATH and not request.state.sidecar_authenticated:
             return JSONResponse(
                 status_code=401,
                 content={"detail": "UNAUTHORIZED"},
@@ -118,7 +119,9 @@ def create_app(
             try:
                 return await call_next(request)
             finally:
-                if request.url.path != HEALTH_PATH:
+                if request.url.path != HEALTH_PATH and not getattr(request.state, "sidecar_authenticated", False):
+                    log.info("%s request refused (duration=%.2fs)", label, time.monotonic() - started_at)
+                elif request.url.path != HEALTH_PATH:
                     # Uvicorn percent-decodes the path, so a caller can plant
                     # CR/LF in it and forge log lines.
                     log.info(

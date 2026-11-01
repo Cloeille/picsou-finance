@@ -170,8 +170,7 @@ def pending_store(sidecar_log: logging.Logger) -> PendingStore:
 async def _park(store: PendingStore, process_id: str, client: httpx.AsyncClient, state: dict[str, Any]) -> None:
     state["client"] = client
     state.setdefault("created_at", time.time())
-    if not await store.put(process_id, state):
-        raise HTTPException(status_code=503, detail="UPSTREAM_UNAVAILABLE")
+    await store.put_or_raise(process_id, state)
 
 
 # ─── HTTP plumbing ──────────────────────────────────────────────────────────
@@ -684,12 +683,8 @@ async def start_login(site: Site, store: PendingStore, req: InitiateRequest) -> 
 
 
 async def finish_login(site: Site, store: PendingStore, req: CompleteRequest) -> dict:
-    await store.expire()
     state = await store.take(req.processId)
     if not state:
-        raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
-    if state["created_at"] < time.time() - store.ttl_seconds:
-        await dispose_pending_state(state)
         raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
 
     client: httpx.AsyncClient = state["client"]

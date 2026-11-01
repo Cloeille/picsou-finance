@@ -762,8 +762,7 @@ async def initiate(req: InitiateRequest) -> dict:
         state = await _start_app_push(client)
         state["client"] = client
         state["created_at"] = time.time()
-        if not await _pending.put(process_id, state):
-            raise HTTPException(status_code=503, detail="UPSTREAM_UNAVAILABLE")
+        await _pending.put_or_raise(process_id, state)
         keep_client = True
         return {
             "processId": process_id,
@@ -792,12 +791,8 @@ async def initiate(req: InitiateRequest) -> dict:
 
 @app.post("/complete", response_model=SessionResponse)
 async def complete(req: CompleteRequest) -> dict:
-    await _pending.expire()
     state = await _pending.take(req.processId)
     if not state:
-        raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
-    if state["created_at"] < time.time() - PENDING_TTL_SECONDS:
-        await _dispose_pending_state(state)
         raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
 
     client: httpx.AsyncClient = state["client"]

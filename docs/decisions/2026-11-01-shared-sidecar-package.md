@@ -32,6 +32,9 @@ byte-identical (issue #338, part of #326).
   and copy only that directory from the `python` base (`SIDECAR_LIB`).
 - Every sidecar's `test_sidecar_auth.py` binds the contract to its app; the
   `sidecar-package` CI job tests the package on its own.
+- `take()` disposes expired states and returns them as missing; `put()` expires
+  old states before checking capacity. Routes use `put_or_raise()` to report a
+  full store with 503 while retaining responsibility for refused resources.
 - Pending expiry and shutdown remove and dispose of one state at a time. If
   disposal raises or is cancelled, unvisited states remain in the store for a
   later sweep or shutdown cleanup. Disposers remain responsible for releasing

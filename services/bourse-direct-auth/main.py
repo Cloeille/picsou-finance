@@ -920,7 +920,7 @@ async def initiate(req: InitiateRequest) -> dict:
         otp = page.locator('.code-input.react-code-input input, input[data-id]').first
         try:
             await otp.wait_for(state="visible", timeout=15_000)
-            await _pending.put(process_id, {
+            await _pending.put_or_raise(process_id, {
                 "playwright": pw, "browser": browser, "context": context,
                 "page": page, "created_at": time.time(),
             })
@@ -946,12 +946,8 @@ async def initiate(req: InitiateRequest) -> dict:
 
 @app.post("/complete", response_model=SessionResponse)
 async def complete(req: CompleteRequest) -> dict:
-    await _pending.expire()
     state = await _pending.take(req.processId)
     if not state:
-        raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
-    if state["created_at"] < time.time() - PENDING_TTL_SECONDS:
-        await _dispose_pending_state(state)
         raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
     page: Page = state["page"]
     try:

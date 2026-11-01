@@ -1,6 +1,6 @@
 """A reused session that fails to harvest keeps the session and never starts a login.
 
-Run: .venv/bin/python tests/test_reused_session_errors.py   (no pytest needed)
+Run from services/revolut-auth: PYTHONPATH=../base .venv/bin/python tests/test_reused_session_errors.py   (no pytest needed)
 """
 
 import os

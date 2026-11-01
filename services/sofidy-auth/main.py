@@ -295,8 +295,7 @@ async def initiate(req: InitiateRequest) -> dict:
                 "password": req.password,
                 "created_at": time.time(),
             }
-            if not await _pending.put(process_id, state):
-                raise HTTPException(status_code=503, detail="TOO_MANY_PENDING")
+            await _pending.put_or_raise(process_id, state, "TOO_MANY_PENDING")
             keep_client = True
             return {
                 "processId": process_id,
@@ -336,12 +335,8 @@ async def initiate(req: InitiateRequest) -> dict:
 
 @app.post("/complete", response_model=SessionResponse)
 async def complete(req: CompleteRequest) -> dict:
-    await _pending.expire()
     state = await _pending.take(req.processId)
     if not state:
-        raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
-    if state["created_at"] < time.time() - PENDING_TTL_SECONDS:
-        await _dispose_pending_state(state)
         raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
 
     client: httpx.AsyncClient = state["client"]
@@ -383,12 +378,14 @@ async def complete(req: CompleteRequest) -> dict:
     finally:
         # A wrong code is retryable: the portal keeps the same attempt open.
         # Disposing it here would turn the next code into an expired attempt.
-        if retryable:
-            restored = await _pending.put(req.processId, state)
+        restored = False
+        try:
+            if retryable:
+                await _pending.put_or_raise(req.processId, state, "TOO_MANY_PENDING")
+                restored = True
+        finally:
             if not restored:
                 await _dispose_pending_state(state)
-        else:
-            await _dispose_pending_state(state)
 
 
 @app.post("/positions", response_model=SnapshotPayload)

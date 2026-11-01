@@ -706,7 +706,7 @@ async def initiate(req: InitiateRequest) -> dict:
             await _select_otp_method(page, req.method)
             await _find_otp_input(page)  # confirms the input exists before storing pending state
 
-            stored = await _pending.put(
+            await _pending.put_or_raise(
                 process_id,
                 {
                     "page": page,
@@ -717,8 +717,6 @@ async def initiate(req: InitiateRequest) -> dict:
                     "enrichment": enrichment,
                 },
             )
-            if not stored:
-                raise HTTPException(status_code=503, detail="UPSTREAM_UNAVAILABLE")
             return {
                 "processId": process_id,
                 "mfaRequired": True,
@@ -779,12 +777,8 @@ async def _invalid_otp_visible(page: Page) -> bool:
 
 @app.post("/complete", response_model=SessionResponse)
 async def complete(req: CompleteRequest) -> dict:
-    await _pending.expire()
     state = await _pending.take(req.processId)
     if not state:
-        raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
-    if state["created_at"] < time.time() - PENDING_TTL_SECONDS:
-        await _dispose_pending_state(state)
         raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
 
     page: Page = state["page"]
@@ -964,11 +958,14 @@ async def complete(req: CompleteRequest) -> dict:
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
     finally:
         parked = False
-        if keep_pending:
-            state["created_at"] = time.time()
-            parked = await _pending.put(req.processId, state)
-        if not parked:
-            await _dispose_pending_state(state)
+        try:
+            if keep_pending:
+                state["created_at"] = time.time()
+                await _pending.put_or_raise(req.processId, state)
+                parked = True
+        finally:
+            if not parked:
+                await _dispose_pending_state(state)
 
 
 # ─── Accounts ───────────────────────────────────────────────────────────────
