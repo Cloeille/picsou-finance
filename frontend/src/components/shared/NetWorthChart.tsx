@@ -5,7 +5,7 @@ import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
 import { formatDate, localeFromLanguage } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
-import { yAxisWidth } from '@/lib/chart-axis'
+import { yAxisWidth, AXIS_PROPS } from '@/lib/chart-axis'
 import { EmptyChartState } from '@/components/shared/EmptyChartState'
 import type { IntradayPoint } from '@/features/dashboard/api'
 
@@ -383,15 +383,11 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
           dataKey="dateMs"
           domain={xDomain ?? ['dataMin', 'dataMax']}
           scale="time"
-          tickLine={false}
-          axisLine={false}
-          tickMargin={8}
+          {...AXIS_PROPS}
           tickFormatter={xAxisFormatter}
         />
         <YAxis
-          tickLine={false}
-          axisLine={false}
-          tickMargin={8}
+          {...AXIS_PROPS}
           tickFormatter={money.tick}
           width={yWidth}
           tickCount={5}

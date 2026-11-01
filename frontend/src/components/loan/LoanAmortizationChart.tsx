@@ -7,6 +7,7 @@ import { localeFromLanguage } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import { MONEY_AXIS_WIDTH } from '@/lib/money'
 import type { LoanInstallment } from '@/types/api'
+import { AXIS_PROPS } from '@/lib/chart-axis'
 
 interface LoanAmortizationChartProps {
   schedule: LoanInstallment[]
@@ -106,16 +107,12 @@ export function LoanAmortizationChart({ schedule }: LoanAmortizationChartProps) 
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
             <XAxis
               dataKey="date"
-              tickLine={false}
-              axisLine={false}
-              tickMargin={8}
+              {...AXIS_PROPS}
               tickFormatter={xAxisFormatter}
               interval={xInterval}
             />
             <YAxis
-              tickLine={false}
-              axisLine={false}
-              tickMargin={8}
+              {...AXIS_PROPS}
               tickFormatter={money.tick}
               width={MONEY_AXIS_WIDTH}
               tickCount={5}

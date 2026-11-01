@@ -16,6 +16,7 @@ import { MONEY_AXIS_WIDTH } from '@/lib/money'
 import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
 import { cn, formatPercent } from '@/lib/utils'
 import type { ProjectionScenario } from '@/types/api'
+import { AXIS_PROPS, AXIS_PROPS_FLUSH } from '@/lib/chart-axis'
 
 const HORIZONS = [10, 20, 30] as const
 
@@ -213,14 +214,11 @@ export function ProjectionSection() {
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
                 <XAxis
                   dataKey="date"
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={8}
+                  {...AXIS_PROPS}
                   tickFormatter={(value: string) => value.slice(0, 4)}
                 />
                 <YAxis
-                  tickLine={false}
-                  axisLine={false}
+                  {...AXIS_PROPS_FLUSH}
                   width={MONEY_AXIS_WIDTH}
                   domain={[0, yMax]}
                   tickFormatter={money.tick}

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
-import { useMutation } from "@tanstack/react-query"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import {
   AlertTriangle,
@@ -17,7 +16,11 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useProviderSession } from "@/features/sync/hooks"
+import { sidecarProviders } from "@/features/sync/providers"
+import type { Credentials, PanelProviderId, SecondFactor } from "@/features/sync/providers"
 import { extractErrorMessage, getErrorCode, getErrorStatus } from "@/lib/errors"
+import type { SidecarAuthInitResponse, SidecarSessionStatus } from "@/types/api"
 
 /**
  * `AWAITING_APP` has no form: the provider pushes a notification to its mobile
@@ -25,34 +28,6 @@ import { extractErrorMessage, getErrorCode, getErrorStatus } from "@/lib/errors"
  * Only reachable when the panel declares {@link SidecarSessionPanelProps.appPush}.
  */
 type AuthState = "IDLE" | "AWAITING_OTP" | "AWAITING_APP" | "ERROR"
-
-/** Shape shared by every sidecar session status DTO. */
-export interface SidecarSessionStatus {
-  isActive: boolean
-  syncStatus: "IDLE" | "QUEUED" | "RUNNING" | "SUCCESS" | "FAILED"
-  lastSyncCompletedAt: string | null
-  lastSyncError: string | null
-  /** Set by providers that can log in again from stored credentials (see `useReconnect`). */
-  canReconnect?: boolean
-}
-
-/** Shape shared by every sidecar `auth/initiate` response. */
-export interface SidecarAuthInitResponse {
-  processId: string | null
-  mfaRequired: boolean
-  mfaType: string | null
-}
-
-interface Credentials {
-  login: string
-  password: string
-  [key: string]: string
-}
-
-interface SecondFactor {
-  processId: string
-  code?: string
-}
 
 /**
  * A single extra choice appended to the login form and merged into the
@@ -124,17 +99,9 @@ function isLostRequest(value: unknown) {
   return httpStatus === undefined || httpStatus === 502 || httpStatus === 504
 }
 
-/** Stands in for `useReconnect` on the providers that have none; never fired. */
-function useNoReconnect<T>(): UseMutationResult<T, unknown, void> {
-  return useMutation<T, unknown, void>({
-    mutationFn: () => Promise.reject(new Error("This provider cannot reconnect from stored credentials")),
-  })
-}
-
-export interface SidecarSessionPanelProps<
-  TStatus extends SidecarSessionStatus,
-  TInit extends SidecarAuthInitResponse,
-> {
+export interface SidecarSessionPanelProps {
+  /** Entry of `sidecarProviders` whose session this panel drives. */
+  provider: PanelProviderId
   /** i18n namespace holding the panel's copy, e.g. `sync.amundi`. */
   translationPrefix: string
   /** Prefix for the form control ids, e.g. `amundi` -> `amundi-login`. */
@@ -150,21 +117,16 @@ export interface SidecarSessionPanelProps<
   otpRetryable?: boolean
   /** An extra login-form choice merged into the initiate payload (e.g. AMEX's SMS/e-mail pick). */
   extraField?: SidecarExtraField
-  useStatus: () => UseQueryResult<TStatus>
-  useInitiateAuth: () => UseMutationResult<TInit, unknown, Credentials>
   /**
-   * Logs in again from the credentials stored at the last login, answering like
-   * `useInitiateAuth`. Offered while the status reports `canReconnect`; the second
-   * factor then runs as after a typed login, with the user there to approve it.
+   * A provider whose table entry has a `reconnect` logs in again from the
+   * credentials stored at the last login. It is offered while the status reports
+   * `canReconnect`; the second factor then runs as after a typed login, with the
+   * user there to approve it. This starts that reconnect as soon as the status
+   * allows it, once.
    */
-  useReconnect?: () => UseMutationResult<TInit, unknown, void>
-  /** Start that reconnect as soon as the status allows it, once. */
   autoReconnect?: boolean
   /** Called once the auto-reconnect has been considered, whether it started or not. */
   onAutoReconnectStarted?: () => void
-  useCompleteAuth: () => UseMutationResult<TStatus, unknown, SecondFactor>
-  useSync: () => UseMutationResult<TStatus, unknown, void>
-  useClearSession: () => UseMutationResult<unknown, unknown, void>
   onConnected?: () => void
   recoveryAction?: { label: string; busyLabel: string; description: string; busy: boolean; onRun: () => void }
   /**
@@ -181,28 +143,20 @@ export interface SidecarSessionPanelProps<
  * polls the session status and surfaces a background failure the same way it
  * surfaces a failed request.
  */
-export function SidecarSessionPanel<
-  TStatus extends SidecarSessionStatus,
-  TInit extends SidecarAuthInitResponse,
->({
+export function SidecarSessionPanel({
+  provider,
   translationPrefix,
   fieldIdPrefix,
   loginIcon: LoginIcon,
   appPush = false,
   otpRetryable = false,
   extraField,
-  useStatus,
-  useInitiateAuth,
-  useReconnect,
   autoReconnect = false,
   onAutoReconnectStarted,
-  useCompleteAuth,
-  useSync,
-  useClearSession,
   onConnected,
   recoveryAction,
   successSummary,
-}: SidecarSessionPanelProps<TStatus, TInit>) {
+}: SidecarSessionPanelProps) {
   const { t } = useTranslation()
   const [authState, setAuthState] = useState<AuthState>("IDLE")
   const [login, setLogin] = useState("")
@@ -215,13 +169,12 @@ export function SidecarSessionPanel<
   const notifyConnectedOnSuccess = useRef(false)
   const autoReconnectHandled = useRef(false)
 
-  const status = useStatus()
-  const initiate = useInitiateAuth()
-  const useReconnectAuth = useReconnect ?? useNoReconnect<TInit>
-  const reconnect = useReconnectAuth()
-  const complete = useCompleteAuth()
-  const sync = useSync()
-  const logout = useClearSession()
+  const session = useProviderSession(provider)
+  const status = session.status as UseQueryResult<SidecarSessionStatus>
+  const initiate = session.initiate as UseMutationResult<SidecarAuthInitResponse, Error, Credentials>
+  const { reconnect, clear: logout } = session
+  const complete = session.complete as UseMutationResult<SidecarSessionStatus, Error, SecondFactor>
+  const sync = session.sync as UseMutationResult<SidecarSessionStatus, Error, void>
   const { mutate: completeMutate } = complete
 
   const key = (suffix: string) => `${translationPrefix}.${suffix}`
@@ -283,7 +236,7 @@ export function SidecarSessionPanel<
   }
 
   /** What follows a login request, typed or from stored credentials: a second factor, or a session. */
-  const handleInitResult = (result: TInit) => {
+  const handleInitResult = (result: SidecarAuthInitResponse) => {
     setPassword("")
     if (result.mfaRequired) {
       if (!result.processId) {
@@ -319,7 +272,7 @@ export function SidecarSessionPanel<
   }
 
   const connected = status.data?.isActive === true
-  const canReconnect = useReconnect !== undefined && status.data?.canReconnect === true
+  const canReconnect = "reconnect" in sidecarProviders[provider] && status.data?.canReconnect === true
   const syncStatus = status.data?.syncStatus ?? "IDLE"
   const isSyncing = syncStatus === "QUEUED" || syncStatus === "RUNNING"
   const requestingSync = sync.isPending || isSyncing
