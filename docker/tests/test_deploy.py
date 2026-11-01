@@ -34,6 +34,15 @@ if [[ "$1" == inspect ]]; then
   [[ "${!#}" == old-app-container ]] && { printf 'sha256:%064d\n' 7; exit 0; }
   exit 1
 fi
+if [[ "$args" == *"exec -T proxy wget -qO- http://127.0.0.1:2019/config/"* ]]; then
+  [[ "${MOCK_FAIL:-}" == proxy_config ]] && exit 19
+  if [[ -v MOCK_PROXY_CONFIG ]]; then
+    printf '%s\n' "$MOCK_PROXY_CONFIG"
+  else
+    printf '%s\n' '{"apps":{"http":{"servers":{"srv0":{"routes":[{"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"app-tls:8080"}]}]}]}}}}}'
+  fi
+  exit 0
+fi
 if [[ "$args" == *"pg_database_size"* ]]; then echo "${MOCK_DB_SIZE_KIB:-1024}"; exit 0; fi
 if [[ "$args" == *"df -Pk"* ]]; then echo "${MOCK_DB_FREE_KIB:-10485760}"; exit 0; fi
 if [[ "$args" == "image inspect sha256:"* && "$args" != *"--format"* && -n "${MOCK_ID_UNRUNNABLE:-}" ]]; then exit 1; fi
@@ -143,7 +152,9 @@ def test_running_tls_proxy_is_recreated_after_app_cutover_before_probe(fake_tool
     app_check = next(i for i, line in enumerate(commands) if "State.Running" in line)
     proxy_recreate = next(i for i, line in enumerate(commands) if "<up>" in line and "<proxy>" in line)
     probe = next(i for i, line in enumerate(commands) if line.startswith("curl"))
-    assert app_check < proxy_recreate < probe
+    config_query = next(i for i, line in enumerate(commands) if "2019/config/" in line)
+    assert app_check < proxy_recreate < config_query < probe
+    assert "Deployment verified" in result.stdout
     assert "<--force-recreate>" in commands[proxy_recreate]
     assert "<--no-deps>" in commands[proxy_recreate]
     assert "<--wait> <--wait-timeout> <60>" in commands[proxy_recreate]
@@ -168,12 +179,69 @@ def test_stopped_tls_proxy_is_not_started(fake_tools, tmp_path, flags, compose_p
     assert any("<up>" in line and "<app>" in line for line in commands)
     assert any(line.startswith("curl") for line in commands)
     assert not any("<up>" in line and "<proxy>" in line for line in commands)
+    assert not any("2019/config/" in line for line in commands)
 
 
 def test_absent_tls_proxy_is_not_started(fake_tools, tmp_path):
     result, commands, _ = run_deploy(fake_tools, tmp_path)
     assert result.returncode == 0, result.stderr
     assert not any("<up>" in line and "<proxy>" in line for line in commands)
+    assert not any("2019/config/" in line for line in commands)
+
+
+@pytest.mark.parametrize("dial_groups, ok", [
+    ([["app-tls:8080"]], True),
+    ([["APP-TLS:8080"]], True),
+    ([["app-tls:8080", "other-service:9090"]], True),
+    ([["app:8080"]], False),
+    ([["app-tls:8080", "app:8080"]], False),
+    ([["app-tls:8080", "APP:8080"]], False),
+    ([["app-tls:8080"], ["app:8080"]], False),
+    ([["app-tls:8080", "app:9090"]], False),
+    ([["app-tls:9090"]], False),
+    ([["app-tls:8080", "APP-TLS:9090"]], False),
+    ([["other-service:9090"]], False),
+    ([[]], False),
+])
+def test_tls_proxy_active_upstreams_must_use_trusted_app_target(fake_tools, tmp_path, dial_groups, ok):
+    config = {"apps": {"http": {"servers": {"site": {"routes": [{"handle": [{
+        "handler": "subroute", "routes": [{"handle": [{
+            "handler": "reverse_proxy", "upstreams": [{"dial": dial} for dial in dials],
+        }]} for dials in dial_groups],
+    }]}]}}}}}
+    result, commands, _ = run_deploy(
+        fake_tools, tmp_path, MOCK_PROXY_CONTAINER="old-proxy-container",
+        MOCK_PROXY_CONFIG=json.dumps(config, indent=2),
+    )
+    assert result.returncode == (0 if ok else 1), result.stderr
+    if ok:
+        assert "Deployment verified" in result.stdout
+    else:
+        assert "Deployment cut over, but TLS proxy active config is invalid" in result.stderr
+        assert "Caddyfile's reverse_proxy target to app-tls:8080" in result.stderr
+        assert "Deployment verified" not in result.stdout
+        assert not any(line.startswith("curl") for line in commands)
+
+
+@pytest.mark.parametrize("config", ["not-json", "null", "{}"])
+def test_tls_proxy_invalid_active_config_does_not_report_success(fake_tools, tmp_path, config):
+    result, commands, _ = run_deploy(
+        fake_tools, tmp_path, MOCK_PROXY_CONTAINER="old-proxy-container", MOCK_PROXY_CONFIG=config,
+    )
+    assert result.returncode == 1
+    assert "TLS proxy active config is invalid" in result.stderr
+    assert "Deployment verified" not in result.stdout
+    assert not any(line.startswith("curl") for line in commands)
+
+
+def test_tls_proxy_admin_api_failure_does_not_report_success(fake_tools, tmp_path):
+    result, commands, _ = run_deploy(
+        fake_tools, tmp_path, fail="proxy_config", MOCK_PROXY_CONTAINER="old-proxy-container",
+    )
+    assert result.returncode == 1
+    assert "TLS proxy active config could not be read from the admin API" in result.stderr
+    assert "Deployment verified" not in result.stdout
+    assert not any(line.startswith("curl") for line in commands)
 
 
 @pytest.mark.parametrize("failure", ["proxy", "proxy_wait"])

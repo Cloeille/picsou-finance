@@ -64,7 +64,7 @@ public class SecurityConfig {
      *
      * <p>In the all-in-one Docker image this is defence in depth — nginx strips the backend's
      * copy on {@code /api} and {@code /actuator} ({@code proxy_hide_header}) and emits its own.
-     * It is the operative control for the split stack and for bare-metal runs behind an
+     * It is the operative control for bare-metal runs behind an
      * operator's own proxy, where nothing hides it.
      *
      * <p>Bound as a {@code String} and parsed leniently on purpose. A primitive {@code boolean}
