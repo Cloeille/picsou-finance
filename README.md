@@ -114,11 +114,12 @@ Picsou publishes pre-built, multi-arch (amd64/arm64) images to the GitHub Contai
 | `ghcr.io/cloeille/picsou-finance/fortuneo-auth` | Fortuneo login/2FA and portfolio sidecar |
 | `ghcr.io/cloeille/picsou-finance/cmes-auth` | Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar |
 
-Bank connectors (the `*-auth` sidecars) are opt-in: with no profile, Compose pulls and runs only the app and the database. Pick the banks you sync through a comma-separated `COMPOSE_PROFILES` list, or use `all-connectors` for every one. Add `tls` to that same list when you use the bundled Caddy proxy. Profiles: `amex`, `amundi`, `bourse-direct`, `bourso`, `caisse-epargne`, `cic`, `cmes`, `corum`, `degiro`, `fortuneo`, `revolut`, `sofidy`, `tr` (Trade Republic), and `tls`. The app and the enabled connectors authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`, required as soon as one connector is enabled; each connector refuses to start without it. Set the shared key before the first launch:
+Bank connectors (the `*-auth` sidecars) are opt-in: with no profile, Compose pulls and runs only the app and the database. Pick the banks you sync through a comma-separated `COMPOSE_PROFILES` list, or use `all-connectors` for every one. Add `tls` to that same list when you use the bundled Caddy proxy. Connector profiles: `amex`, `amundi`, `bourse-direct`, `bourso`, `caisse-epargne`, `cic`, `cmes`, `corum`, `degiro`, `fortuneo`, `revolut`, `sofidy`, and `tr` (Trade Republic). The `tls` profile enables the bundled Caddy proxy. The app and the enabled connectors authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`, required as soon as one connector is enabled; each connector refuses to start without it. Set the shared key before the first launch:
 
 ```bash
 [ -f docker/.env ] || cp docker/.env.example docker/.env
-printf '\nCOMPOSE_PROFILES=%s\nAPP_SIDECAR_API_KEY=%s\n' bourso,revolut "$(openssl rand -base64 32)" >> docker/.env
+grep -q '^COMPOSE_PROFILES=' docker/.env || printf '\nCOMPOSE_PROFILES=%s\n' bourso,revolut >> docker/.env
+grep -q '^APP_SIDECAR_API_KEY=' docker/.env || printf '\nAPP_SIDECAR_API_KEY=%s\n' "$(openssl rand -base64 32)" >> docker/.env
 ```
 
 Edit `docker/.env` and set `COMPOSE_PROFILES=bourso,revolut`. If the file already has a
