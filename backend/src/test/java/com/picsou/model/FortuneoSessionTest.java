@@ -1,6 +1,7 @@
 package com.picsou.model;
 
 import com.picsou.port.SidecarErrorCode;
+import com.picsou.support.TestEntities;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -66,7 +67,6 @@ class FortuneoSessionTest {
     }
 
     private FortuneoSession newSession() {
-        FamilyMember member = FamilyMember.builder().id(7L).displayName("Owner").build();
-        return FortuneoSession.create(member, "encrypted", VALIDATED_AT);
+        return FortuneoSession.create(TestEntities.owner(), "encrypted", VALIDATED_AT);
     }
 }

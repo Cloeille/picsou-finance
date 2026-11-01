@@ -1,6 +1,7 @@
 package com.picsou.model;
 
 import com.picsou.port.SidecarErrorCode;
+import com.picsou.support.TestEntities;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -15,7 +16,7 @@ class CaisseEpargneSessionTest {
 
     private CaisseEpargneSession session() {
         return CaisseEpargneSession.create(
-            FamilyMember.builder().id(7L).displayName("Owner").build(), "encrypted", NOW);
+            TestEntities.owner(), "encrypted", NOW);
     }
 
     @Test

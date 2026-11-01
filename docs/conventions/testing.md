@@ -61,7 +61,8 @@ class GoalServiceTest {
 ### Patterns
 
 - **`@ExtendWith(MockitoExtension.class)`** with `@Mock` and `@InjectMocks` — no `MockitoAnnotations.openMocks()`.
-- **Lombok builders for test data** — `Account.builder()`, `Goal.builder()` etc. No test fixtures or mother objects.
+- **Lombok builders for test data** — `Account.builder()`, `Goal.builder()` etc. No test fixtures or mother objects, except `com.picsou.support.TestEntities` for the few member and user shapes that several classes built identically. A test that needs a different field builds its own entity.
+- **Canned HTTP answers via `WebClientStubs`** (`com.picsou.support`) — `returning(status, json)`, `neverResponding()`, `failing(error)`, `sequence(...)`, and `recording(...)` for the path and body of each request. Do not hand-roll an `ExchangeFunction` for those cases. A sidecar connector's error mapping (malformed error body, unknown or undeclared `detail` code, bare 401, 410, empty body, timeout) is tested once for all of them in `SidecarContractTest`: add a row there for a new connector, not a copy in its own test class.
 - **AssertJ** for all assertions (`assertThat`, `isEqualByComparingTo`). No JUnit `assertEquals`.
 - **No Spring context** in unit tests — pure Mockito mocking.
 - **Log capture on the root logger** — a `ListAppender` on the root logger also receives events from other threads, such as the schedulers of Spring contexts left by earlier test classes in the same JVM. Those threads can still append after `detachAppender`. Copy `appender.list` inside `synchronized (appender)` before you assert on it (see `CaisseEpargneAdapterAuthTest.snapshot`). Iterating the live list fails at random with `ConcurrentModificationException`. Prefer a ListAppender on the class's own logger when the test does not need every logger.
