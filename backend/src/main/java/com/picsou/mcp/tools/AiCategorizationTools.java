@@ -29,7 +29,8 @@ public class AiCategorizationTools {
         description = "Start the same background job as the inbox 'Categorize with AI' button over the "
             + "authenticated member's uncategorized transactions, using the instance's configured "
             + "provider, mode, threshold and concurrency. Rules are applied when transactions are imported; "
-            + "only transactions still without a category are sent. Never starts a second job while one "
+            + "only transactions still without a category are sent, so transactions with a pending "
+            + "suggestion are sent again on every run. Never starts a second job while one "
             + "runs (started=false, returns the running job). Returns immediately; while state is RUNNING, "
             + "poll get_ai_categorization_status until COMPLETED or FAILED. started=false with state "
             + "COMPLETED and total 0 means there was nothing to do (AI categorization disabled for the "
@@ -47,7 +48,9 @@ public class AiCategorizationTools {
     @Tool(name = "get_ai_categorization_status",
         description = "Read the progress of the authenticated member's AI categorization job: state "
             + "(IDLE, RUNNING, COMPLETED, FAILED) and aggregate counters only (total, processed, applied, "
-            + "suggested, unresolved). No transaction labels, amounts, prompts, model responses or "
+            + "suggested, unresolved). unresolved counts processed transactions that got neither a category "
+            + "nor a suggestion: the model gave no usable answer, or the transaction or its category changed "
+            + "while the job ran. No transaction labels, amounts, prompts, model responses or "
             + "provider error text. COMPLETED or FAILED describes the last job until the next one starts.")
     @RequiresScope(Scopes.BUDGET_AI_WRITE)
     public AiCategorizationProgress getAiCategorizationStatus() {
@@ -56,7 +59,10 @@ public class AiCategorizationTools {
 
     public record AiCategorizationStart(boolean started, AiCategorizationProgress job) {}
 
-    /** {@code unresolved}: processed transactions the model returned nothing usable for. */
+    /**
+     * {@code unresolved}: processed transactions that got neither a category nor a suggestion: the model
+     * gave no usable answer, or the transaction or its category changed while the job ran.
+     */
     public record AiCategorizationProgress(State state, int total, int processed, int applied, int suggested,
                                            int unresolved) {
 

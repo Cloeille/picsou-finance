@@ -14,6 +14,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -30,6 +31,7 @@ import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.times;
@@ -103,6 +105,9 @@ class AiCategorizationToolsTest {
 
         assertThat(result.started()).isTrue();
         assertThat(result.job()).isEqualTo(new AiCategorizationProgress(State.RUNNING, 42, 0, 0, 0, 0));
+        InOrder inOrder = inOrder(jobService);
+        inOrder.verify(jobService).status(MID);
+        inOrder.verify(jobService).start(MID);
     }
 
     @Test
