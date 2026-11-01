@@ -203,7 +203,7 @@ TRAdapter.refreshSession() --> retry with new token
 
 ## Docker / deployment
 
-The `tr-auth` sidecar builds on the shared `chromium` base (`services/base`, see [ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md)): Python 3.12 slim bookworm, Playwright 1.52 and Chromium only, shared with the other browser sidecars. Its own Dockerfile adds only the `trauth` user and `main.py`. The two rules below now live in `services/base/Dockerfile` (Chromium in `/opt/playwright-browsers`, world-readable). The original size rationale is in [ADR 2026-04-25](../decisions/2026-04-25-tr-auth-sidecar-slim-image.md). Two ordering rules matter:
+The `tr-auth` sidecar builds on the shared `chromium` base (`services/base`, see [ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md)): Python 3.12 slim bookworm, Playwright 1.64.1 and Chromium only, shared with the other browser sidecars. Its own Dockerfile adds only the `trauth` user and `main.py`. The two rules below now live in `services/base/Dockerfile` (Chromium in `/opt/playwright-browsers`, world-readable). The original size rationale is in [ADR 2026-04-25](../decisions/2026-04-25-tr-auth-sidecar-slim-image.md). Two ordering rules matter:
 
 1. **Chromium system deps must be `apt-get install`-ed manually.** `playwright install --with-deps` would be simpler but fails on Debian bookworm because it tries to install Ubuntu-only font packages (`ttf-unifont`, `ttf-ubuntu-font-family`). The Dockerfile lists the working subset explicitly.
 2. **`PLAYWRIGHT_BROWSERS_PATH` must be set BEFORE `playwright install chromium` runs**, so the browser lands in `/opt/playwright-browsers`, made world-readable for every sidecar user. Never `chown` it from a sidecar Dockerfile: that copies Chromium into a new layer per sidecar.
@@ -217,9 +217,7 @@ RUN pip install --no-cache-dir -r /opt/sidecar-base/requirements-chromium.txt \
 
 Without rule 2, Playwright installs to `/root/.cache/ms-playwright/`, which the `trauth` user cannot read → every `/initiate` call throws an unhandled exception → FastAPI returns 500 with no useful error message.
 
-Both compose files (`docker-compose.yml` at repo root and `docker/docker-compose.yml`) reference `services/tr-auth/Dockerfile`, so a fix here applies to both.
-
-Both also forward `APP_SIDECAR_API_KEY`. The sidecar refuses to start without it and answers every route except `/health` with a 401 `Picsou-Sidecar-Key` challenge unless the backend presents it; see [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
+`docker/docker-compose.yml` builds `services/tr-auth/Dockerfile` and forwards `APP_SIDECAR_API_KEY`. The sidecar refuses to start without it and answers every route except `/health` with a 401 `Picsou-Sidecar-Key` challenge unless the backend presents it; see [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
 
 ## Gotchas / Pitfalls
 

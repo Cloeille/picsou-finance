@@ -29,7 +29,7 @@ Backend sync persists these optional fields on `account`, exposes them through a
 
 AMEX and Revolut inherit the same `camoufox` target from `services/base`, passed
 by immutable digest when published. It provides the common FastAPI/uvicorn pins,
-Playwright 1.55.0, Camoufox 0.4.11, pinned Firefox 152.0.4-beta.30, GeoIP, addons
+Playwright 1.64.1, Camoufox 0.4.11, pinned Firefox 152.0.4-beta.30, GeoIP, addons
 and Xvfb. The shared installer selects the x86_64 or arm64 release for the target
 CPU. Browser assets are read from `/opt/camoufox-cache/camoufox` by the existing
 non-root `amex` user, without a second download in the service layer.
