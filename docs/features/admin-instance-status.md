@@ -1,14 +1,14 @@
 # Feature: Admin instance-status alert
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-01
 
 ## Context
 
 An install can drift from what the release expects without anyone noticing until a sync
 fails. The typical case came with the shared sidecar base images
-([ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md)): eleven sidecars are
-built `FROM sidecar-python` or `sidecar-chromium`. When that base is missing (custom Compose
-file without the two build-only services, Compose older than v2.33, base not pulled), the
+([ADR 2026-10-21](../decisions/2026-10-21-shared-sidecar-base-image.md)): every sidecar is
+built `FROM sidecar-python`, `sidecar-chromium` or `sidecar-camoufox`. When that base is missing (custom Compose
+file without the three build-only services, Compose older than v2.33, base not pulled), the
 sidecar build fails, Compose aborts, and the old sidecar keeps running or none runs at all.
 Self-hosters also have no in-app signal that a newer release exists. An admin now gets a
 pop-up for both.
@@ -45,8 +45,8 @@ the check starts no counts and reports no sidecar issue.
   base images set `PICSOU_SIDECAR_BASE` (`services/base/Dockerfile`) and every base-built
   sidecar echoes it in `/health`. An image from before the base images answers
   `{"status":"ok"}` only, so it is caught.
-- amex-auth and revolut-auth have their own image (Camoufox). They are checked for
-  reachability only (`expectedBase: null`).
+- amex-auth and revolut-auth report `sidecar-camoufox`; this detects an image from
+  before their Camoufox dependencies and Firefox browser were consolidated.
 
 **Update check.** `ReleaseCheckService` reads `tag_name` and `html_url` from
 `GET https://api.github.com/repos/Cloeille/picsou-finance/releases/latest` (5 s timeout) and
@@ -65,7 +65,9 @@ for the telemetry consent dialog, so two modals never stack. It waits only while
 is on screen (`useTelemetryConsentPrompt`): closing it unanswered leaves consent `UNSET` but
 lets the alert through for the rest of the page load. It lists each issue with the fix
 (`docker compose pull` then `docker compose up -d`, or `docker compose up -d --build` with
-Compose v2.33+) and the update with a link to the release notes. Closing it stores a
+Compose v2.33+) and the update with a link to the release notes. The build instructions
+name all three bases (`sidecar-python`, `sidecar-chromium` and `sidecar-camoufox`)
+in each supported language. Closing it stores a
 fingerprint (sorted `code:sidecar` plus the latest version) in the persisted app store; it
 shows again only when that fingerprint changes. A clean status clears the stored fingerprint,
 so a problem that is fixed and later comes back alerts again. The request opts out of the

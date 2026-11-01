@@ -1946,7 +1946,7 @@
       "outdated": "Dieser Sidecar antwortet, läuft aber nicht mit dem erwarteten gemeinsamen Basis-Image.",
       "expectedBase": "Erwartetes gemeinsames Basis-Image:",
       "fixIntro": "Zum Beheben die Images aktualisieren und neu starten:",
-      "fixBuildIntro": "Beim Bau aus dem Quellcode, mit Compose v2.33 oder neuer (baut zuerst sidecar-python und sidecar-chromium):",
+      "fixBuildIntro": "Beim Bau aus dem Quellcode, mit Compose v2.33 oder neuer (baut zuerst sidecar-python, sidecar-chromium und sidecar-camoufox):",
       "updateTitle": "Update verfügbar",
       "releaseNotes": "Versionshinweise",
       "later": "Später"
