@@ -1,6 +1,6 @@
 # Feature: CIC online-banking sync (livrets)
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-01
 
 ## Context
 
@@ -12,8 +12,10 @@ balance.
 ## How it works
 
 - **Sidecar** (`services/cic-auth`, browserless): same platform as Crédit Mutuel Épargne Salariale, so
-  the login and second-factor code is `cmes-auth`'s, kept in step by hand (each sidecar is its own
-  build context). Login form `bloc_ident` on `/fr/authentification.html`; second factor on
+  their login, second-factor and session code lives in
+  `services/base/euro_information/client.py`. Each sidecar passes the shared client its own frozen
+  `Site`, while keeping its bank-specific routes and parsers. Login form `bloc_ident` on
+  `/fr/authentification.html`; second factor on
   `/fr/banque/validation.aspx`, either a mobile confirmation (polled on
   `/fr/banque/async/otp/SOSD_OTP_GetTransactionState.htm`, woob's documented path, when the page
   script names none) or an SMS code posted with the form's `_FID_CheckOrDeliverBackup` button. On
@@ -113,9 +115,11 @@ two in Settings → Accounts.
 
 - Admin instance-status monitoring includes `cic-auth` when its session table has a row,
   including an expired session, using `CIC_AUTH_URL` and expecting the `sidecar-python` base.
-  The unauthenticated `/health` endpoint echoes `PICSOU_SIDECAR_BASE` when set; without it,
-  the response remains `{"status":"ok"}`. `InstanceStatusServiceTest` covers CIC's registry
-  entry, URL and session-count supplier, and `test_sidecar_auth.py` covers both health responses.
+  The unauthenticated `/health` endpoint, served by the shared `picsou_sidecar` app, echoes
+  `PICSOU_SIDECAR_BASE` when set; without it, the response remains `{"status":"ok"}`.
+  `InstanceStatusServiceTest` covers CIC's registry entry, URL and session-count supplier;
+  `test_sidecar_auth.py` runs the shared `SidecarAuthContract`, which covers both health
+  responses, and CI checks the built CIC image inherits `PICSOU_SIDECAR_BASE=sidecar-python`.
 - `services/cic-auth/test_accounts_parser.py` and `test_main.py` reject incomplete markup before
   `/accounts` can return a certified snapshot, including every cut before and throughout the
   savings-table opening tag, after the last table, after the savings caption,

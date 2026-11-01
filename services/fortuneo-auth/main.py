@@ -8,23 +8,19 @@ financial responses are never logged.
 
 import asyncio
 import json
-import logging
 import os
 import re
-import secrets
 import time
 import uuid
 from urllib.parse import urlencode
-from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 from typing import Literal
 from urllib.parse import parse_qs
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi import HTTPException
+from picsou_sidecar import PendingStore, configure_logging, create_app, otp_field_detail
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from playwright.async_api import (
     Browser,
@@ -53,9 +49,7 @@ from fortuneo_parser import (
     parse_portfolio_summary,
 )
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("fortuneo-auth")
-SIDECAR_API_KEY = os.environ.get("APP_SIDECAR_API_KEY", "")
+log = configure_logging("fortuneo-auth")
 
 # Provider endpoints used by the authenticated frontend.
 BASE_URL = "https://mabanque.fortuneo.fr"
@@ -341,72 +335,8 @@ query Equipment {
 """
 
 PENDING_TTL_SECONDS = 600
-PENDING_SWEEP_SECONDS = 30
-MFA_RESULT_TIMEOUT_SECONDS = 12
 RESOURCE_CLOSE_TIMEOUT_SECONDS = 5
 DATA_REQUEST_TIMEOUT_MS = 30_000
-
-_pending: dict[str, dict[str, Any]] = {}
-_pending_lock = asyncio.Lock()
-
-
-async def _pending_sweeper() -> None:
-    while True:
-        await asyncio.sleep(PENDING_SWEEP_SECONDS)
-        await _cleanup_expired()
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    if not SIDECAR_API_KEY.strip():
-        raise RuntimeError("APP_SIDECAR_API_KEY must be configured and non-blank")
-    sweeper = asyncio.create_task(_pending_sweeper())
-    try:
-        yield
-    finally:
-        sweeper.cancel()
-        try:
-            await sweeper
-        except asyncio.CancelledError:
-            pass
-        await _close_all_pending()
-
-
-app = FastAPI(lifespan=lifespan)
-
-
-@app.middleware("http")
-async def authenticate_sidecar_request(request: Request, call_next):
-    if request.url.path != "/health":
-        supplied_key = request.headers.get("X-Picsou-Sidecar-Key", "")
-        # Starlette exposes wire header bytes through Latin-1, not UTF-8.
-        if (
-            not SIDECAR_API_KEY.strip()
-            or not secrets.compare_digest(
-                supplied_key.encode("latin-1"), SIDECAR_API_KEY.encode("utf-8")
-            )
-        ):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "UNAUTHORIZED"},
-                headers={"WWW-Authenticate": "Picsou-Sidecar-Key"},
-            )
-    return await call_next(request)
-
-
-@app.middleware("http")
-async def log_request_duration(request: Request, call_next):
-    started_at = time.monotonic()
-    try:
-        return await call_next(request)
-    finally:
-        if request.url.path != "/health":
-            log.info(
-                "Fortuneo request completed (path=%s; duration=%.2fs)",
-                request.url.path,
-                time.monotonic() - started_at,
-            )
-
 
 class InitiateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -505,20 +435,6 @@ class SessionResponse(BaseModel):
     sessionState: str
 
 
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(
-    _: Request,
-    exc: RequestValidationError,
-) -> JSONResponse:
-    fields = {
-        str(error["loc"][-1])
-        for error in exc.errors()
-        if error.get("loc")
-    }
-    detail = "INVALID_OTP" if "code" in fields else "INVALID_DATA"
-    return JSONResponse(status_code=400, content={"detail": detail})
-
-
 async def _close_resources(
     context: BrowserContext | None,
     browser: Browser | None,
@@ -548,32 +464,12 @@ async def _dispose_pending_state(state: dict[str, Any]) -> None:
     )
 
 
-async def _close_pending(process_id: str) -> None:
-    async with _pending_lock:
-        state = _pending.pop(process_id, None)
-    if state:
-        await _dispose_pending_state(state)
-
-
-async def _take_pending(process_id: str) -> dict[str, Any] | None:
-    async with _pending_lock:
-        return _pending.pop(process_id, None)
-
-
-async def _cleanup_expired() -> None:
-    cutoff = time.time() - PENDING_TTL_SECONDS
-    async with _pending_lock:
-        expired = [pid for pid, state in _pending.items() if state["created_at"] < cutoff]
-    for pid in expired:
-        await _close_pending(pid)
-
-
-async def _close_all_pending() -> None:
-    async with _pending_lock:
-        states = list(_pending.values())
-        _pending.clear()
-    for state in states:
-        await _dispose_pending_state(state)
+_pending = PendingStore(dispose=_dispose_pending_state, log=log, ttl_seconds=PENDING_TTL_SECONDS)
+app = create_app(
+    request_log=(log, "Fortuneo"),
+    background=_pending,
+    validation_detail=otp_field_detail(),
+)
 
 
 async def _first_visible(page: Page, selectors: list[str], timeout_ms: int = 800):
@@ -881,15 +777,9 @@ async def _capture_api_key(
     return client_id_holder["value"]
 
 
-@app.get("/health")
-async def health() -> dict:
-    base = os.environ.get("PICSOU_SIDECAR_BASE")
-    return {"status": "ok", "base": base} if base else {"status": "ok"}
-
-
 @app.post("/initiate", response_model=InitiateResponse)
 async def initiate(req: InitiateRequest) -> dict:
-    await _cleanup_expired()
+    await _pending.expire()
     process_id = str(uuid.uuid4())
     pw: Playwright | None = None
     browser: Browser | None = None
@@ -923,15 +813,14 @@ async def initiate(req: InitiateRequest) -> dict:
         outcome = await _wait_for_login_outcome(page, client_id_holder, LOGIN_RESULT_TIMEOUT_SECONDS)
 
         if outcome == "otp":
-            async with _pending_lock:
-                _pending[process_id] = {
-                    "page": page,
-                    "context": context,
-                    "browser": browser,
-                    "playwright": pw,
-                    "client_id_holder": client_id_holder,
-                    "created_at": time.time(),
-                }
+            await _pending.put_or_raise(process_id, {
+                "page": page,
+                "context": context,
+                "browser": browser,
+                "playwright": pw,
+                "client_id_holder": client_id_holder,
+                "created_at": time.time(),
+            })
             return {
                 "processId": process_id,
                 "mfaRequired": True,
@@ -973,12 +862,8 @@ async def initiate(req: InitiateRequest) -> dict:
 
 @app.post("/complete", response_model=SessionResponse)
 async def complete(req: CompleteRequest) -> dict:
-    await _cleanup_expired()
-    state = await _take_pending(req.processId)
+    state = await _pending.take(req.processId)
     if not state:
-        raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
-    if state["created_at"] < time.time() - PENDING_TTL_SECONDS:
-        await _dispose_pending_state(state)
         raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
     page: Page = state["page"]
     context: BrowserContext = state["context"]

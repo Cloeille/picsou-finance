@@ -203,19 +203,6 @@ def new_client(transport: httpx.AsyncBaseTransport | None = None) -> httpx.Async
     )
 
 
-def serialize_cookies(client: httpx.AsyncClient) -> list[dict[str, str]]:
-    """Dump the jar with each cookie's own domain and path."""
-    return [
-        {
-            "name": cookie.name,
-            "value": cookie.value or "",
-            "domain": cookie.domain or "",
-            "path": cookie.path or "/",
-        }
-        for cookie in client.cookies.jar
-    ]
-
-
 def restore_cookies(client: httpx.AsyncClient, cookies: list[dict[str, str]]) -> None:
     for cookie in cookies:
         client.cookies.set(

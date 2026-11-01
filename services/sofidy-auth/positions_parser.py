@@ -27,7 +27,6 @@ _CODE_RE = re.compile(r"Code_Produit=([A-Za-z0-9_-]+)")
 _VALUATION_DATE_RE = re.compile(
     r"Portefeuille\s+SCPI\s+au\s+(\d{2}/\d{2}/\d{4})", re.IGNORECASE
 )
-_TOTAL_RE = re.compile(r"<td>\s*Total\s*</td>", re.IGNORECASE)
 _LOGIN_FORM_MARKER = "connexion_espace_partenaire"
 _HEADER_RE = re.compile(r"Nombre\s+de\s+parts", re.IGNORECASE)
 _TABLE_RE = re.compile(r"<table\b[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)

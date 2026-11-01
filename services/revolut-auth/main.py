@@ -32,11 +32,9 @@ Endpoints:
 """
 
 import asyncio
-import logging
 import math
 import os
 import re
-import secrets
 import shutil
 import time
 from collections import Counter
@@ -45,71 +43,14 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from camoufox.async_api import AsyncCamoufox
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import HTTPException
 from fastapi.responses import JSONResponse
+from picsou_sidecar import configure_logging, create_app, safe
 from playwright.async_api import TimeoutError as PlaywrightTimeout
 from pydantic import BaseModel
 
-# C0/C1 controls (CR, LF, ESC, NEL...) and the Unicode line/paragraph separators.
-_LOG_UNSAFE = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
-
-
-class SafeFormatter(logging.Formatter):
-    """Escapes line breaks and control characters in the whole formatted record,
-    traceback included, so a logged value cannot forge a log line."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        return _LOG_UNSAFE.sub(
-            lambda m: m.group().encode("unicode_escape").decode("ascii"),
-            super().format(record),
-        )
-
-
-def safe(value: object, limit: int = 500) -> str:
-    """An outside-controlled value made safe for a log line: truncated, line
-    breaks and control characters replaced with '?'. SafeFormatter already
-    covers the handler; this keeps the call site safe on its own."""
-    text = str(value)
-    if len(text) > limit:
-        text = text[:limit] + "..."
-    text = text.replace("\r\n", "?").replace("\n", "?")
-    return _LOG_UNSAFE.sub("?", text)
-
-
-_log_handler = logging.StreamHandler()
-_log_handler.setFormatter(SafeFormatter(logging.BASIC_FORMAT))
-logging.basicConfig(level=logging.INFO, handlers=[_log_handler])
-log = logging.getLogger("revolut-auth")
-SIDECAR_API_KEY = os.environ.get("APP_SIDECAR_API_KEY", "")
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    if not SIDECAR_API_KEY.strip():
-        raise RuntimeError("APP_SIDECAR_API_KEY must be configured and non-blank")
-    yield
-
-
-app = FastAPI(lifespan=lifespan)
-
-
-@app.middleware("http")
-async def authenticate_sidecar_request(request: Request, call_next):
-    if request.url.path != "/health":
-        supplied_key = request.headers.get("X-Picsou-Sidecar-Key", "")
-        # Starlette exposes wire header bytes through Latin-1, not UTF-8.
-        if (
-            not SIDECAR_API_KEY.strip()
-            or not secrets.compare_digest(
-                supplied_key.encode("latin-1"), SIDECAR_API_KEY.encode("utf-8")
-            )
-        ):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "UNAUTHORIZED"},
-                headers={"WWW-Authenticate": "Picsou-Sidecar-Key"},
-            )
-    return await call_next(request)
+log = configure_logging("revolut-auth")
+app = create_app()
 
 
 APP_URL = "https://app.revolut.com/"
@@ -279,13 +220,6 @@ def _pick(d: Optional[Dict[str, Any]], *keys: str, default: Any = None) -> Any:
         if k in d and d[k] is not None:
             return d[k]
     return default
-
-
-def _to_number(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
 
 
 def _minor_to_major(value: Any) -> float:
@@ -996,8 +930,3 @@ async def sync(req: SyncRequest):
 @app.get("/progress/{member_id}")
 async def progress(member_id: str):
     return _progress.get(_profile_key(member_id), {"phase": None})
-
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
