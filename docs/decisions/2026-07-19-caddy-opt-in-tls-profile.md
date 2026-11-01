@@ -23,7 +23,7 @@ A prior change (#39) added HTTPS to the Vite dev server via mkcert/basic-ssl, bu
 
 1. **Ship a Caddy TLS terminator** (`docker/Caddyfile`, `caddy:2-alpine`) as a `proxy` service in
    `docker/docker-compose.yml`.
-2. **Gate it behind the `tls` compose profile** — inert unless `--profile tls` is passed.
+2. **Gate it behind the `tls` compose profile** — inert unless `tls` is included in `COMPOSE_PROFILES`.
 3. **Select the certificate strategy from `PICSOU_DOMAIN` alone.** Caddy resolves this at runtime:
    a public FQDN gets ACME (Let's Encrypt); a LAN IP or `.local`/`.internal`/`.localhost` name gets
    Caddy's built-in CA. No issuer configuration is exposed.

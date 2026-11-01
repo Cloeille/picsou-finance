@@ -114,12 +114,21 @@ Picsou publishes pre-built, multi-arch (amd64/arm64) images to the GitHub Contai
 | `ghcr.io/cloeille/picsou-finance/fortuneo-auth` | Fortuneo login/2FA and portfolio sidecar |
 | `ghcr.io/cloeille/picsou-finance/cmes-auth` | Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar |
 
-The app and every `*-auth` sidecar authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`. Compose refuses to start without it, and each sidecar refuses any request that does not carry it. Set it once before the first launch:
+Bank connectors (the `*-auth` sidecars) are opt-in: with no profile, Compose pulls and runs only the app and the database. Pick the banks you sync through a comma-separated `COMPOSE_PROFILES` list, or use `all-connectors` for every one. Add `tls` to that same list when you use the bundled Caddy proxy. Connector profiles: `amex`, `amundi`, `bourse-direct`, `bourso`, `caisse-epargne`, `cic`, `cmes`, `corum`, `degiro`, `fortuneo`, `revolut`, `sofidy`, and `tr` (Trade Republic). The `tls` profile enables the bundled Caddy proxy. The app and the enabled connectors authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`, required as soon as one connector is enabled; each connector refuses to start without it. Set the shared key before the first launch:
 
 ```bash
 [ -f docker/.env ] || cp docker/.env.example docker/.env
-printf '\nAPP_SIDECAR_API_KEY=%s\n' "$(openssl rand -base64 32)" >> docker/.env
+grep -q '^COMPOSE_PROFILES=' docker/.env || printf '\nCOMPOSE_PROFILES=%s\n' bourso,revolut >> docker/.env
+grep -q '^APP_SIDECAR_API_KEY=' docker/.env || printf '\nAPP_SIDECAR_API_KEY=%s\n' "$(openssl rand -base64 32)" >> docker/.env
 ```
+
+Edit `docker/.env` and set `COMPOSE_PROFILES=bourso,revolut`. If the file already has a
+`COMPOSE_PROFILES` entry, edit that line instead of adding another one. Include `tls` in the
+same list when you use the Caddy proxy, for example `COMPOSE_PROFILES=bourso,revolut,tls`.
+
+Compose reads `COMPOSE_PROFILES` from `docker/.env`, so every later `pull`, `up` and `down` covers the same connectors. Enable another bank by adding it to the list and running `pull` then `up -d`. To disable a bank, remove it from the list and stop and remove its container with `docker compose -f docker/docker-compose.yml rm --stop --force <bank>-auth`. `up -d` and `down` leave a connector outside the active profiles running, and the app keeps syncing through it. Repeat the stop step whenever you disable a bank. You do not need it when the list contains `all-connectors`. Syncing a bank whose connector is not running shows that bank's "unavailable" error.
+
+> Upgrading an install that ran every connector? Set `COMPOSE_PROFILES=all-connectors` (or list your banks) in `docker/.env` first. If you list only some banks, stop excluded connectors with `docker compose -f docker/docker-compose.yml rm --stop --force <bank>-auth`. Edit an existing `COMPOSE_PROFILES` line instead of adding a duplicate. See the CHANGELOG.
 
 ```bash
 docker compose -f docker/docker-compose.yml pull    # fetch the published images from GHCR
@@ -180,19 +189,22 @@ to be publicly reachable for day-to-day use — only during certificate issuance
 
 #### 3b. Start the stack with TLS
 
-This replaces the `up -d` from step 2 — it starts the same services plus the proxy, so on a fresh
-install run this instead:
+This replaces the `up -d` from step 2. Edit the existing `COMPOSE_PROFILES` line in
+`docker/.env` to include `tls` and the connector profiles you need before starting the stack.
 
 ```bash
 # Start from the commented reference file if you don't have a .env yet
 [ -f docker/.env ] || cp docker/.env.example docker/.env
 
+# Edit or uncomment the existing COMPOSE_PROFILES line in docker/.env to include tls and the
+# connector profiles you need. Do not add a second COMPOSE_PROFILES line.
+
 # printf's leading \n guards against a .env that lacks a trailing newline —
 # plain `echo >>` would concatenate onto the last line and corrupt both values.
 printf '\nPICSOU_DOMAIN=picsou.example.com\n' >> docker/.env
 
-docker compose -f docker/docker-compose.yml --profile tls pull
-docker compose -f docker/docker-compose.yml --profile tls up -d
+docker compose -f docker/docker-compose.yml pull
+docker compose -f docker/docker-compose.yml up -d
 ```
 
 > [!IMPORTANT]
@@ -246,7 +258,7 @@ credentials included. Add the overlay file to remove that publish — the contai
 ```bash
 docker compose -f docker/docker-compose.yml \
                -f docker/docker-compose.no-http.yml \
-               --profile tls up -d
+               up -d
 ```
 
 Keep passing both `-f` flags from then on, or the publish comes back. (Requires Compose v2.24+ for
@@ -259,7 +271,7 @@ Keep passing both `-f` flags from then on, or the publish comes back. (Requires 
 printf '\nHSTS_ENABLED=true\n' >> docker/.env
 docker compose -f docker/docker-compose.yml \
                -f docker/docker-compose.no-http.yml \
-               --profile tls up -d --force-recreate app
+               up -d --force-recreate app
 ```
 
 Both `-f` flags again — dropping the overlay here would re-publish the `:8080` port you just closed,
@@ -316,14 +328,15 @@ same-origin deployment leave `ALLOWED_ORIGINS` blank and let the wizard handle i
 If the wizard already ran over HTTP, three values are stored in the **database**, which takes
 precedence over `.env` — editing environment variables will not change them.
 
-Start TLS as in 3b. Do **not** add the `no-http` overlay from 3d yet — you want plain HTTP on
-`:8080` to stay reachable as a fallback until HTTPS is confirmed from the machines you actually use:
+Add `tls` to the existing `COMPOSE_PROFILES` list in `docker/.env`, keeping any connector profiles
+already there. Start TLS as in 3b. Do **not** add the `no-http` overlay from 3d yet. Keep plain HTTP
+on `:8080` as a fallback until HTTPS works from the machines you use:
 
 ```bash
 [ -f docker/.env ] || cp docker/.env.example docker/.env
 printf '\nPICSOU_DOMAIN=picsou.example.com\n' >> docker/.env
-docker compose -f docker/docker-compose.yml --profile tls pull
-docker compose -f docker/docker-compose.yml --profile tls up -d
+docker compose -f docker/docker-compose.yml pull
+docker compose -f docker/docker-compose.yml up -d
 ```
 
 Then log in over HTTPS and fix the three settings in the UI:
@@ -370,7 +383,8 @@ cp docker/.env.example docker/.env
 
 | Variable | When to set | Description |
 |----------|-------------|-------------|
-| `APP_SIDECAR_API_KEY` | Always (required) | `openssl rand -base64 32`. Shared by the app and every `*-auth` sidecar; recreate them together after a rotation |
+| `COMPOSE_PROFILES` | To enable connectors or TLS | Comma-separated connector profiles (`bourso,revolut`), optionally including `tls`, or `all-connectors`. Empty: app and database only |
+| `APP_SIDECAR_API_KEY` | When a connector is enabled | `openssl rand -base64 32`. Shared by the app and every enabled `*-auth` sidecar; recreate them together after a rotation |
 | `POSTGRES_PASSWORD` | Override auto-gen | Strong random password |
 | `JWT_SECRET` | Override auto-gen | `openssl rand -base64 48` |
 | `CRYPTO_ENCRYPTION_KEY` | Override auto-gen | `openssl rand -base64 32` |
@@ -468,12 +482,13 @@ docker run --rm -v docker_picsou_data:/to -v "$PWD:/from" alpine tar xzf /from/p
 docker compose -f docker/docker-compose.yml up --build -d
 ```
 
-With the `tls` profile, put the copied `docker/.env` (same `PICSOU_DOMAIN`) in place and restore Caddy's volume before starting it:
+With the `tls` profile, put the copied `docker/.env` (same `PICSOU_DOMAIN` and `tls` in
+`COMPOSE_PROFILES`) in place and restore Caddy's volume before starting it:
 
 ```bash
 docker volume create docker_caddy_data
 docker run --rm -v docker_caddy_data:/to -v "$PWD:/from" alpine tar xzf /from/caddy_data.tar.gz -C /to
-docker compose -f docker/docker-compose.yml --profile tls up --build -d
+docker compose -f docker/docker-compose.yml up --build -d
 ```
 
 You must copy **both** `pgdata` and `picsou_data`. Restoring Postgres without `picsou_data` uses a new encryption key and Finary/bank secrets in the DB will not decrypt. Without `caddy_data`, Caddy generates a new root CA and devices that trusted the old one reject its certificate.

@@ -16,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.codec.json.Jackson2JsonDecoder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
@@ -82,6 +83,7 @@ public class DegiroAdapter implements DegiroPort {
                     "DEGIRO authentication failed. Please check your credentials and try again."));
             })
             .onErrorMap(TimeoutException.class, ex -> new SyncException(NO_RESPONSE, ex))
+            .onErrorMap(WebClientRequestException.class, ex -> new SyncException(NO_RESPONSE, ex))
             .blockOptional()
             .orElseThrow(() -> new SyncException(NO_RESPONSE));
 
@@ -119,6 +121,7 @@ public class DegiroAdapter implements DegiroPort {
                     "The verification code is invalid or has expired. Please request a new one."));
             })
             .onErrorMap(TimeoutException.class, ex -> new SyncException(NO_RESPONSE, ex))
+            .onErrorMap(WebClientRequestException.class, ex -> new SyncException(NO_RESPONSE, ex))
             .blockOptional()
             .orElseThrow(() -> new SyncException(NO_RESPONSE));
 
@@ -149,6 +152,7 @@ public class DegiroAdapter implements DegiroPort {
                     "Could not fetch your DEGIRO portfolio. Please try again later."));
             })
             .onErrorMap(TimeoutException.class, ex -> new SyncException(NO_RESPONSE, ex))
+            .onErrorMap(WebClientRequestException.class, ex -> new SyncException(NO_RESPONSE, ex))
             .blockOptional()
             .orElseThrow(() -> new SyncException(NO_RESPONSE));
 

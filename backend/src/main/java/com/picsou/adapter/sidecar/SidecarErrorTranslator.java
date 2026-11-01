@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 
 import java.time.Duration;
 import java.util.List;
@@ -133,6 +134,10 @@ public final class SidecarErrorTranslator<E extends Enum<E>> {
         if (causedByTimeout(ex)) {
             log.warn("{}: sidecar request timed out", message);
             return coded(unavailable, label + " took too long to respond. Please try again.", ex);
+        }
+        if (ex instanceof WebClientRequestException) {
+            log.warn("{}: sidecar is unreachable", message);
+            return coded(unavailable, message, ex);
         }
         if (ex instanceof WebClientResponseException response) {
             E upstreamCode = responseCode(response);

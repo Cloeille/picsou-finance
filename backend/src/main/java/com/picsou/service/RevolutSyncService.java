@@ -22,6 +22,7 @@ import com.picsou.service.sync.SyncProgressService;
 import com.picsou.service.sync.SyncProvider;
 import com.picsou.service.sync.SourceSyncResult;
 import com.picsou.util.LogSanitizer;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -393,7 +394,11 @@ public class RevolutSyncService {
             sync(memberId, null, null, true, false);
             return new SourceSyncResult("revolut", SourceSyncResult.Status.SYNCED, "");
         } catch (SyncException ex) {
-            log.warn("Revolut scheduled sync failed for member {} (code={})", memberId, ex.getCode(), ex);
+            if (causedBySidecarConnectionFailure(ex)) {
+                log.warn("Revolut scheduled sync failed for member {} (code={})", memberId, ex.getCode());
+            } else {
+                log.warn("Revolut scheduled sync failed for member {} (code={})", memberId, ex.getCode(), ex);
+            }
             return SourceSyncResult.fromSyncException("revolut", ex);
         } catch (Exception ex) {
             log.error("Revolut scheduled sync failed unexpectedly for member {}", memberId, ex);
@@ -403,6 +408,15 @@ public class RevolutSyncService {
 
     public void resyncIfSessionActive(Long memberId) {
         resyncReporting(memberId); // ignore return; no rethrow to keep existing callers/tests
+    }
+
+    private static boolean causedBySidecarConnectionFailure(Throwable failure) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            if (current instanceof WebClientRequestException) {
+                return true;
+            }
+        }
+        return false;
     }
 
 

@@ -17,7 +17,8 @@ services:
       # is the only way in? Add the override file, which removes this publish:
       #   docker compose -f docker/docker-compose.yml \
       #                  -f docker/docker-compose.no-http.yml \
-      #                  --profile tls up -d
+      #                  up -d
+      #   Add `tls` to COMPOSE_PROFILES in docker/.env.
       # Compose cannot vary `ports` by profile, and an env-var host prefix was
       # tried and reverted: a value missing its trailing colon expanded to
       # `127.0.0.18080:8080` and aborted the whole stack with an opaque
@@ -46,22 +47,9 @@ services:
       # Must match the proxy's exact address on tls-proxy below. The entrypoint
       # uses it as nginx's only trusted forwarded-address peer.
       PICSOU_PROXY_IP: ${PICSOU_PROXY_IP:-172.30.253.2}
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
     depends_on:
       - db
-      - tr-auth
-      - revolut-auth
-      - bourso-auth
-      - caisse-epargne-auth
-      - bourse-direct-auth
-      - amundi-auth
-      - fortuneo-auth
-      - corum-auth
-      - sofidy-auth
-      - amex-auth
-      - degiro-auth
-      - cmes-auth
-      - cic-auth
     networks:
       default:
       fortuneo-auth-net:
@@ -70,7 +58,7 @@ services:
           - app-tls
 
   # Optional TLS terminator — OFF unless the `tls` profile is requested:
-  #   docker compose -f docker/docker-compose.yml --profile tls up -d
+  #   set `tls` in COMPOSE_PROFILES in docker/.env, then run `up -d`
   # Left opt-in so it cannot collide with an ingress proxy the operator
   # already runs (Traefik, Nginx Proxy Manager, …) over :80/:443.
   # Certificate strategy is chosen by Caddy from PICSOU_DOMAIN — see Caddyfile.
@@ -94,7 +82,7 @@ services:
       # certificate every device was told to trust.
       - caddy_data:/data
       - caddy_config:/config
-    # Without this, `--profile tls up -d` reports success even when Caddy has
+    # Without this, `up -d` reports success even when Caddy has
     # exited — e.g. a PICSOU_DOMAIN that cannot be a certificate subject makes
     # it abort at config-adapt time, and with `restart: unless-stopped` that
     # becomes a restart loop the operator never sees. Probes Caddy's admin API,
@@ -120,6 +108,7 @@ services:
   # `--build` builds them before the sidecars (Compose v2.33+).
   sidecar-python:
     image: ghcr.io/cloeille/picsou-finance/sidecar-python:latest
+    profiles: ["bourso", "cic", "cmes", "degiro", "sofidy", "all-connectors"]
     build:
       context: ../services/base
       target: python
@@ -127,6 +116,7 @@ services:
 
   sidecar-chromium:
     image: ghcr.io/cloeille/picsou-finance/sidecar-chromium:latest
+    profiles: ["amundi", "bourse-direct", "caisse-epargne", "corum", "fortuneo", "tr", "all-connectors"]
     build:
       context: ../services/base
       target: chromium
@@ -134,6 +124,7 @@ services:
 
   sidecar-camoufox:
     image: ghcr.io/cloeille/picsou-finance/sidecar-camoufox:latest
+    profiles: ["amex", "revolut", "all-connectors"]
     build:
       context: ../services/base
       target: camoufox
@@ -141,6 +132,7 @@ services:
 
   tr-auth:
     image: ghcr.io/cloeille/picsou-finance/tr-auth:latest
+    profiles: ["tr", "all-connectors"]
     build:
       context: ../services/tr-auth
       dockerfile: Dockerfile
@@ -150,10 +142,11 @@ services:
         sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
   revolut-auth:
     image: ghcr.io/cloeille/picsou-finance/revolut-auth:latest
+    profiles: ["revolut", "all-connectors"]
     build:
       context: ../services/revolut-auth
       dockerfile: Dockerfile
@@ -163,12 +156,13 @@ services:
         sidecar-camoufox: service:sidecar-camoufox
     restart: unless-stopped
     environment:
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
     volumes:
       - revolut_profiles:/data/revolut-profiles
 
   bourso-auth:
     image: ghcr.io/cloeille/picsou-finance/bourso-auth:latest
+    profiles: ["bourso", "all-connectors"]
     build:
       context: ../services/bourso-auth
       dockerfile: Dockerfile
@@ -178,10 +172,11 @@ services:
         sidecar-python: service:sidecar-python
     restart: unless-stopped
     environment:
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
   caisse-epargne-auth:
     image: ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:latest
+    profiles: ["caisse-epargne", "all-connectors"]
     build:
       context: ../services/caisse-epargne-auth
       dockerfile: Dockerfile
@@ -191,10 +186,11 @@ services:
         sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
   bourse-direct-auth:
     image: ghcr.io/cloeille/picsou-finance/bourse-direct-auth:latest
+    profiles: ["bourse-direct", "all-connectors"]
     build:
       context: ../services/bourse-direct-auth
       dockerfile: Dockerfile
@@ -204,10 +200,11 @@ services:
         sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
   amundi-auth:
     image: ghcr.io/cloeille/picsou-finance/amundi-auth:latest
+    profiles: ["amundi", "all-connectors"]
     build:
       context: ../services/amundi-auth
       dockerfile: Dockerfile
@@ -217,10 +214,11 @@ services:
         sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
   fortuneo-auth:
     image: ghcr.io/cloeille/picsou-finance/fortuneo-auth:latest
+    profiles: ["fortuneo", "all-connectors"]
     build:
       context: ../services/fortuneo-auth
       dockerfile: Dockerfile
@@ -230,13 +228,14 @@ services:
         sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
     networks:
       - fortuneo-auth-net
       - fortuneo-egress
 
   corum-auth:
     image: ghcr.io/cloeille/picsou-finance/corum-auth:latest
+    profiles: ["corum", "all-connectors"]
     build:
       context: ../services/corum-auth
       dockerfile: Dockerfile
@@ -246,10 +245,11 @@ services:
         sidecar-chromium: service:sidecar-chromium
     restart: unless-stopped
     environment:
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
   sofidy-auth:
     image: ghcr.io/cloeille/picsou-finance/sofidy-auth:latest
+    profiles: ["sofidy", "all-connectors"]
     build:
       context: ../services/sofidy-auth
       dockerfile: Dockerfile
@@ -259,11 +259,11 @@ services:
         sidecar-python: service:sidecar-python
     restart: unless-stopped
     environment:
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
-
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
   amex-auth:
     image: ghcr.io/cloeille/picsou-finance/amex-auth:latest
+    profiles: ["amex", "all-connectors"]
     build:
       context: ../services/amex-auth
       dockerfile: Dockerfile
@@ -274,10 +274,11 @@ services:
     restart: unless-stopped
     init: true
     environment:
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
   degiro-auth:
     image: ghcr.io/cloeille/picsou-finance/degiro-auth:latest
+    profiles: ["degiro", "all-connectors"]
     build:
       context: ../services/degiro-auth
       dockerfile: Dockerfile
@@ -287,10 +288,11 @@ services:
         sidecar-python: service:sidecar-python
     restart: unless-stopped
     environment:
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
   cmes-auth:
     image: ghcr.io/cloeille/picsou-finance/cmes-auth:latest
+    profiles: ["cmes", "all-connectors"]
     build:
       context: ../services/cmes-auth
       dockerfile: Dockerfile
@@ -300,10 +302,11 @@ services:
         sidecar-python: service:sidecar-python
     restart: unless-stopped
     environment:
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
   cic-auth:
     image: ghcr.io/cloeille/picsou-finance/cic-auth:latest
+    profiles: ["cic", "all-connectors"]
     build:
       context: ../services/cic-auth
       dockerfile: Dockerfile
@@ -313,7 +316,7 @@ services:
         sidecar-python: service:sidecar-python
     restart: unless-stopped
     environment:
-      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
   db:
     image: postgres:16-alpine

@@ -3,7 +3,8 @@
 #
 #   docker compose -f docker/docker-compose.yml \
 #                  -f docker/docker-compose.no-http.yml \
-#                  --profile tls up -d
+#                  up -d
+#   Add `tls` to COMPOSE_PROFILES in docker/.env.
 #
 # Use it once HTTPS is confirmed working from every device you care about.
 # Until then, leave it off: :8080 is the fallback that lets you reach the app

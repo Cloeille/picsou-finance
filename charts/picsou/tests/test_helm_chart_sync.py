@@ -310,6 +310,16 @@ class SyncSidecarsTest(unittest.TestCase):
         self.assertEqual(self.single(
             service, "extraEnv:\n  - name: MODE\n    value: \"1\"\n"), {})
 
+    def test_compose_profiles_are_covered_by_the_chart_enabled_flag(self):
+        service = "image: x\nprofiles: [x, all-connectors]\nenvironment:\n  APP_SIDECAR_API_KEY: k\n"
+        self.assertEqual(self.single(service), {})
+        self.compose.write_text(
+            "services:\n  app:\n    image: app\n  x-auth:\n    image: x\n    profiles: [x]\n",
+            encoding="utf-8",
+        )
+        self.values.write_text("sidecars: {}\n", encoding="utf-8")
+        self.assertEqual(self.findings("--check"), (2, {("x-auth", "standard")}))
+
     def test_generic_compose_networks_are_covered_by_network_policies(self):
         self.assertEqual(self.single("image: x\nnetworks: [isolated]\n"), {})
 
