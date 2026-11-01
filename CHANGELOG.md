@@ -339,6 +339,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Revolut merge compatibility.** Nested challenge detection remains active alongside
+  the shared sidecar authentication, health endpoint and sanitized logging.
 - **Modern MCP protocol support is selectable.** Set `MCP_PROTOCOL=STREAMABLE` to serve protocol
   `2025-11-25` at `/mcp` for hosted connectors such as claude.ai, then recreate the app with
   `docker compose up -d --force-recreate app`: a plain `docker compose restart` keeps the old
@@ -661,14 +663,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
   Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
   of disappearing.
-- **Revolut tells you when it asks for a captcha instead of counting down for a push that never
-  comes.** Revolut can answer the phone number with an image challenge; the sidecar used to type
-  nothing further, then show "Approve the connection in your Revolut app… (300s left)" until it
-  timed out. It now stops at once and every Revolut sync screen says Revolut is asking for a human
-  verification and that no approval was sent. A sign-in page the sidecar does not recognise, or a
-  step of it that times out (previously an unexplained server error), is reported the same way.
-  Solving the challenge from Picsou is not available yet. See
+- **Revolut stops the approval wait when a captcha blocks login.** A visible challenge now takes
+  precedence over passcode fields and is checked again after passcode entry and during approval.
+  The sidecar returns `HUMAN_VERIFICATION_REQUIRED` and clears the countdown when a challenge
+  appears later. The error text reports the blocked sign-in without claiming whether a push was
+  sent. An unknown post-phone page or a login step that times out returns
+  `UPSTREAM_FORMAT_CHANGED`. Human challenge completion remains unavailable. See
   [feature note](docs/features/revolut-sidecar.md).
+- **Revolut recognizes nested hCaptcha challenges and ignores parked frames.** Challenge checks
+  follow the browser's frame tree and require visible space through every parent frame. Transparent,
+  offscreen, clipped, and one-pixel frames no longer block sign-in. Only hCaptcha hosts count.
+  Overflow clipping follows CSS containing blocks and transformed padding boxes, so visible positioned
+  challenges are detected and borders around empty wrappers do not trigger a false challenge.
+  A frame can restore visibility inside a hidden ancestor. Only visible iframe content counts,
+  excluding its own border and padding after transforms.
+  A detected challenge keeps the existing `HUMAN_VERIFICATION_REQUIRED` error. Manual challenge
+  completion remains unavailable.
+  The shared Camoufox image includes the detector alongside the login module and keeps
+  the shared Xvfb entrypoint and Revolut runtime settings.
 - **BoursoBank account names show apostrophes and ampersands as typed.** A name such as
   `LIVRET D'EPARGNE` was stored as `LIVRET D&#039;EPARGNE` and shown that way in the
   dashboard, legend and accounts list. The next BoursoBank sync rewrites existing names.
