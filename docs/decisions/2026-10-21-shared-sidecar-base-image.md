@@ -3,6 +3,7 @@
 > Date: 2026-10-21
 > Status: ✅ Active
 > Amended: 2026-10-31 — shared Camoufox target for AMEX and Revolut (#330).
+> Amended: 2026-11-01 — Playwright 1.64.1 for both browser targets (#386).
 
 ## Context
 
@@ -28,13 +29,13 @@ and `requirements-camoufox.txt`):
 - `python`: Python 3.12 slim bookworm (pinned digest) and fastapi, uvicorn,
   pydantic, httpx. Used by bourso-auth, sofidy-auth, degiro-auth, cmes-auth
   and cic-auth.
-- `chromium`: `python` plus Playwright 1.52, its Chromium and the Chromium
+- `chromium`: `python` plus Playwright 1.64.1, its Chromium and the Chromium
   system libraries. Used by amundi, bourse-direct, caisse-epargne, corum,
   fortuneo and tr-auth.
-- `camoufox`: `python` plus Playwright 1.55.0, Camoufox 0.4.11, pinned Firefox
+- `camoufox`: `python` plus Playwright 1.64.1, Camoufox 0.4.11, pinned Firefox
   152.0.4-beta.30 and Xvfb. Used by amex-auth and revolut-auth. The shared
   installer selects `lin.x86_64` or `lin.arm64` from the target CPU and rejects
-  unsupported architectures; the browser and Playwright pins stay unchanged.
+  unsupported architectures. The installer does not alter the browser or Playwright pins.
 
 Each sidecar Dockerfile is `FROM ${SIDECAR_BASE}` plus its own Unix user and its
 code. No sidecar installs a package.
