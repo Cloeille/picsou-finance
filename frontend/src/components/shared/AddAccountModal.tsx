@@ -1,4 +1,4 @@
-import { useContext, useState, useRef, useEffect } from 'react'
+import { useContext, useState, useRef, useEffect, type ComponentType } from 'react'
 import { OTPInputContext } from 'input-otp'
 import { useTranslation } from 'react-i18next'
 import {
@@ -157,6 +157,21 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
   { key: 'manual', icon: PenLine, labelKey: 'addAccount.manual', descKey: 'addAccount.desc.manual' },
 ]
 
+// Steps that are nothing but a sync Panel behind a Back button.
+const PANEL_STEPS: Partial<Record<WizardStep, ComponentType<{ onConnected?: () => void }>>> = {
+  bourso: BoursoPanel,
+  caisseEpargne: CaisseEpargnePanel,
+  bourseDirect: BourseDirectPanel,
+  degiro: DegiroPanel,
+  ibkr: IbkrPanel,
+  simplefin: SimplefinPanel,
+  amundi: AmundiPanel,
+  fortuneo: FortuneoPanel,
+  amex: AmexPanel,
+  corum: CorumPanel,
+  sofidy: SofidyPanel,
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -168,6 +183,7 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
   const [step, setStep] = useState<WizardStep>('selector')
   const [showManualForm, setShowManualForm] = useState(false)
   const [showPropertyForm, setShowPropertyForm] = useState(false)
+  const Panel = PANEL_STEPS[step]
 
   function handleSourceClick(key: string) {
     if (key === 'manual') {
@@ -290,70 +306,10 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
               {step === 'wallets' && <WalletWizard onDone={handleDone} onBack={() => setStep('selector')} />}
               {step === 'tr' && <TradeRepublicWizard onDone={handleDone} onBack={() => setStep('selector')} />}
               {step === 'revolut' && <RevolutWizard onDone={handleDone} onBack={() => setStep('selector')} />}
-              {step === 'bourso' && (
+              {Panel && (
                 <>
                   <BackButton onClick={() => setStep('selector')} />
-                  <BoursoPanel onConnected={handleDone} />
-                </>
-              )}
-              {step === 'caisseEpargne' && (
-                <>
-                  <BackButton onClick={() => setStep('selector')} />
-                  <CaisseEpargnePanel onConnected={handleDone} />
-                </>
-              )}
-              {step === 'bourseDirect' && (
-                <>
-                  <BackButton onClick={() => setStep('selector')} />
-                  <BourseDirectPanel onConnected={handleDone} />
-                </>
-              )}
-              {step === 'degiro' && (
-                <>
-                  <BackButton onClick={() => setStep('selector')} />
-                  <DegiroPanel onConnected={handleDone} />
-                </>
-              )}
-              {step === 'ibkr' && (
-                <>
-                  <BackButton onClick={() => setStep('selector')} />
-                  <IbkrPanel onConnected={handleDone} />
-                </>
-              )}
-              {step === 'simplefin' && (
-                <>
-                  <BackButton onClick={() => setStep('selector')} />
-                  <SimplefinPanel onConnected={handleDone} />
-                </>
-              )}
-              {step === 'amundi' && (
-                <>
-                  <BackButton onClick={() => setStep('selector')} />
-                  <AmundiPanel onConnected={handleDone} />
-                </>
-              )}
-              {step === 'fortuneo' && (
-                <>
-                  <BackButton onClick={() => setStep('selector')} />
-                  <FortuneoPanel onConnected={handleDone} />
-                </>
-              )}
-              {step === 'amex' && (
-                <>
-                  <BackButton onClick={() => setStep('selector')} />
-                  <AmexPanel onConnected={handleDone} />
-                </>
-              )}
-              {step === 'corum' && (
-                <>
-                  <BackButton onClick={() => setStep('selector')} />
-                  <CorumPanel onConnected={handleDone} />
-                </>
-              )}
-              {step === 'sofidy' && (
-                <>
-                  <BackButton onClick={() => setStep('selector')} />
-                  <SofidyPanel onConnected={handleDone} />
+                  <Panel onConnected={handleDone} />
                 </>
               )}
               {step === 'finary' && <FinaryWizard onDone={handleDone} onBack={() => setStep('selector')} />}
