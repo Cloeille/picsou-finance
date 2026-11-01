@@ -23,6 +23,7 @@ jobs:
       app-version: ${{ steps.versions.outputs.app-version }}
       image-tag: ${{ steps.versions.outputs.image-tag }}
       chart-release-version: ${{ steps.versions.outputs.chart-release-version }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
 
     steps:
       - name: Checkout
@@ -49,6 +50,11 @@ jobs:
             echo "image-tag=$image_tag"
             echo "chart-release-version=$chart_release_version"
           } >> "$GITHUB_OUTPUT"
+
+      # The app image, then one entry per services/*-auth folder with its base.
+      - name: List the images to build
+        id: matrix
+        run: echo "matrix=$(python3 .github/scripts/sidecars.py --publish)" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -184,90 +190,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: app
-            image: ${{ github.repository }}
-            context: .
-            dockerfile: docker/Dockerfile
-            versioned: true
-          - name: tr-auth
-            image: ${{ github.repository }}/tr-auth
-            context: services/tr-auth
-            dockerfile: services/tr-auth/Dockerfile
-            base: chromium
-            versioned: false
-          - name: revolut-auth
-            image: ${{ github.repository }}/revolut-auth
-            context: services/revolut-auth
-            dockerfile: services/revolut-auth/Dockerfile
-            base: camoufox
-            versioned: false
-          - name: bourse-direct-auth
-            image: ${{ github.repository }}/bourse-direct-auth
-            context: services/bourse-direct-auth
-            dockerfile: services/bourse-direct-auth/Dockerfile
-            base: chromium
-            versioned: false
-          - name: amundi-auth
-            image: ${{ github.repository }}/amundi-auth
-            context: services/amundi-auth
-            dockerfile: services/amundi-auth/Dockerfile
-            base: chromium
-            versioned: false
-          - name: bourso-auth
-            image: ${{ github.repository }}/bourso-auth
-            context: services/bourso-auth
-            dockerfile: services/bourso-auth/Dockerfile
-            base: python
-            versioned: false
-          - name: caisse-epargne-auth
-            image: ${{ github.repository }}/caisse-epargne-auth
-            context: services/caisse-epargne-auth
-            dockerfile: services/caisse-epargne-auth/Dockerfile
-            base: chromium
-            versioned: false
-          - name: fortuneo-auth
-            image: ${{ github.repository }}/fortuneo-auth
-            context: services/fortuneo-auth
-            dockerfile: services/fortuneo-auth/Dockerfile
-            base: chromium
-            versioned: false
-          - name: corum-auth
-            image: ${{ github.repository }}/corum-auth
-            context: services/corum-auth
-            dockerfile: services/corum-auth/Dockerfile
-            base: chromium
-            versioned: false
-          - name: sofidy-auth
-            image: ${{ github.repository }}/sofidy-auth
-            context: services/sofidy-auth
-            dockerfile: services/sofidy-auth/Dockerfile
-            base: python
-            versioned: false
-          - name: amex-auth
-            image: ${{ github.repository }}/amex-auth
-            context: services/amex-auth
-            dockerfile: services/amex-auth/Dockerfile
-            base: camoufox
-            versioned: false
-          - name: degiro-auth
-            image: ${{ github.repository }}/degiro-auth
-            context: services/degiro-auth
-            dockerfile: services/degiro-auth/Dockerfile
-            base: python
-            versioned: false
-          - name: cmes-auth
-            image: ${{ github.repository }}/cmes-auth
-            context: services/cmes-auth
-            dockerfile: services/cmes-auth/Dockerfile
-            base: python
-            versioned: false
-          - name: cic-auth
-            image: ${{ github.repository }}/cic-auth
-            context: services/cic-auth
-            dockerfile: services/cic-auth/Dockerfile
-            base: python
-            versioned: false
+        include: ${{ fromJSON(needs.base.outputs.matrix) }}
 
     steps:
       - name: Checkout

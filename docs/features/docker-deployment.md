@@ -109,7 +109,7 @@ All three targets retain Python 3.12 because the pinned Pydantic core has no CPy
 3.15 wheels and the slim base lacks the native toolchain for a source build. A Python
 runtime upgrade requires compatible dependency pins and successful builds of all
 three targets on amd64 and arm64. `services/base/test_dockerfile.py` guards the supported
-runtime and Chromium's inheritance from it in the shared package CI job.
+runtime and Chromium's inheritance from it in the `sidecar-base` CI job.
 
 The base build context excludes local bytecode and test helpers (`picsou_sidecar/contract.py`
 and `euro_information/testing.py`). CI mounts the helpers read-only for image tests;
@@ -137,10 +137,10 @@ supervised after that: if it exits later, the API keeps running and the next
 headful login fails until the container restarts. Revolut profiles still persist on the
 `revolut_profiles` volume. Its `revoauth` user stays at UID 999 so upgrades retain
 read/write access to existing volumes and their mode-700 member directories.
-The group is automatically allocated, and CI checks the built Revolut image's UID.
-On both native ARM64 and AMD64, CI runs both derived images as non-root and
-starts headless/headful Firefox against offline HTML without network access; the
-AMD64 jobs also check `PICSOU_SIDECAR_BASE` in each built image;
+The group is automatically allocated, and a test run inside the built Revolut image
+checks its UID. On both native ARM64 and AMD64, CI runs both derived images as
+non-root and starts headless/headful Firefox against offline HTML without network
+access; every sidecar job also checks `PICSOU_SIDECAR_BASE` in its built image;
 login compatibility requires a separate release check.
 
 A sidecar whose base is missing, or still on a pre-base image, is reported to the admin
@@ -467,8 +467,9 @@ docker load < picsou-release.tar.gz
 
 ### Pulling from GHCR
 
-The app and all thirteen sidecar images are published by `.github/workflows/docker.yml`
-(matrix build, one entry per image) **only after CI is green**: backend tests, frontend
+The app and every sidecar image are published by `.github/workflows/docker.yml`
+(matrix build, one entry per image, the sidecars listed from `services/*-auth` by
+`.github/scripts/sidecars.py`) **only after CI is green**: backend tests, frontend
 lint/typecheck/unit, Playwright e2e, every sidecar's image tests, the Compose sidecar build
 and the workflow inventory, then the `ci-ok` gate. `ci.yml` calls that workflow on a successful `push` to `main` or a
 version tag — not on pull requests, so a failing test never produces `nightly` / `latest` /
@@ -477,6 +478,9 @@ semver. `docker.yml` has no `workflow_dispatch`: a manual run would publish with
 On a pull request, the `changes` job selects only the jobs the changed paths can affect
 (`dorny/paths-filter`; any `.github/**` change selects all of them), and a new push cancels
 the stale run. Pushes to `main`, tags and pull requests of 3000 files or more run every job.
+A sidecar change runs only that sidecar's leg of the `sidecar` matrix; a change under
+`services/base` or `.github` runs all of them. Adding a connector folder adds its CI leg
+and its published image without a workflow change.
 `ci-ok` fails when a selected job did not succeed or when any job failed or was cancelled,
 so it is the one check branch protection needs.
 

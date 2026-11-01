@@ -33,7 +33,7 @@ byte-identical (issue #338, part of #326).
   excludes local bytecode and both packages' test helpers; CI mounts the shared
   auth contract and the relevant Euro-Information fixtures read-only for tests.
 - Every sidecar's `test_sidecar_auth.py` binds the contract to its app; the
-  `sidecar-package` CI job tests the package on its own.
+  `sidecar-base` CI job tests the package on its own.
 - `take()` disposes expired states and returns them as missing; `put()` inserts
   immediately when there is room. Only a full store sweeps expired states before
   rechecking capacity under the lock. This keeps retries from waiting on unrelated

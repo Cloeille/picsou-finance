@@ -153,10 +153,10 @@ The remaining live acceptance needs a maintainer with existing recent activity;
 do not generate financial activity just to exercise this connector.
 
 Run the Python tests with real installed dependencies:
-`PYTHONPATH=../base python -m pytest -p no:logging --asyncio-mode=auto -q tests` from
-`services/revolut-auth/`. CI's
-`revolut-auth-sidecar` job runs the same command inside the built image, after
-installing pinned `pytest` and `pytest-asyncio`, and image publishing waits for it.
+`PYTHONPATH=../base python -m unittest discover -v` from `services/revolut-auth/`.
+CI's `sidecar` job runs the same command inside the built image, on AMD64 and on native
+ARM64, and image publishing waits for it (see
+[testing conventions](../conventions/testing.md#sidecar-tests)).
 
 The sidecar uses `services/base/picsou_sidecar` for app creation, shared-key
 authentication, `/health`, and sanitized logging. The local `captcha` module remains
@@ -170,11 +170,11 @@ and while polling for approval; shared app initialization does not replace it.
   serialization + stale profile-lock clearing.
 - `services/revolut-auth/captcha.py` owns the shared challenge detector. It checks hCaptcha frame
   URLs and visible geometry throughout login, including nested frames.
-- `services/revolut-auth/tests/{test_profile_lock.py,test_harvest_shape.py,test_sidecar_auth.py}` —
+- `services/revolut-auth/{test_profile_lock.py,test_harvest_shape.py,test_sidecar_auth.py}` —
   regression tests (concurrent-sync 409, stale-lock removal, progress read-back; wallet-parent +
   same-currency sum; shared-key 401 challenge, `/health` exemption, startup refusal);
-  run `PYTHONPATH=../base .venv/bin/python tests/test_<name>.py` from
-  `services/revolut-auth/` (anyio, no pytest).
+  run `PYTHONPATH=../base .venv/bin/python -m unittest test_<name>` from
+  `services/revolut-auth/`.
 - `services/revolut-auth/Dockerfile` — thin non-root layer on the same `camoufox`
   base digest as AMEX. Common FastAPI/uvicorn pins come from `services/base/requirements.txt`;
   `picsou_sidecar` comes from the same base (no `SIDECAR_LIB` copy); the old
@@ -334,12 +334,11 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   The challenge is **reported, not solved**: letting the member complete it (remote view of the sidecar
   browser) is not implemented, and no third-party solver is used. A successful login on the persistent
   profile may avoid the challenge on later syncs, which is unverified.
-  `tests/test_login_screen.py` covers captcha precedence over each passcode input shape, a challenge
+  `test_login_screen.py` covers captcha precedence over each passcode input shape, a challenge
   after passcode entry, and one during approval, alongside the nominal and timeout paths. These
   overlapping and later challenge states are synthetic regressions, not captured live bank pages.
-  `tests/test_captcha_detection.py` covers URL matching, nested frame traversal, clipping between
-  parent frames, and detachment. It can also run with `python -m unittest discover -s tests
-  -p test_captcha_detection.py`. `tests/test_captcha_browser.py` runs offline Camoufox fixtures for
+  `test_captcha_detection.py` covers URL matching, nested frame traversal, clipping between
+  parent frames, and detachment. `test_captcha_browser.py` runs offline Camoufox fixtures for
   CSS visibility, nested documents, and a challenge inserted after the first poll. Positioned-frame
   fixtures cover escaped overflow and clips imposed by positioned or transformed containing blocks.
   Bordered-wrapper fixtures cover empty and partially visible padding boxes with scaling and rotation.
@@ -398,13 +397,13 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 
 ## Tests
 
-- `services/revolut-auth/tests/test_captcha_browser.py` covers offline Camoufox visibility, opacity
+- `services/revolut-auth/test_captcha_browser.py` covers offline Camoufox visibility, opacity
   changes between polls and during observation, nested frames, positioned frames escaping overflow,
   rotated empty padding boxes, viewport overflow propagation, and fractional padding boxes that
   expose content after scaling. `test_captcha_detection.py` covers host matching, frame traversal,
   detached frames, and unexpected browser errors.
-- `.github/tests/test_sidecar_workflows.py` ensures the Revolut CI job checks
-  that the built image runs as UID 999, preserving ownership of existing profiles.
+- `services/revolut-auth/test_profile_owner.py`, run inside the built image, checks that it
+  runs as UID 999 and owns the profiles directory, preserving ownership of existing profiles.
 - `services/base/test_entrypoint.py` covers the shared Xvfb startup, the per-service
   settings declared in each Dockerfile (checked against fixed values), stale display cleanup
   and explicit failures. `services/base/smoke_camoufox.py` checks the installed ELF
@@ -412,14 +411,14 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
   IP through the installed GeoIP database. CI runs both derived non-root images with networking disabled on native
   ARM64 and on AMD64. These checks do not verify bank login compatibility.
 
-- `services/revolut-auth/tests/test_login_screen.py` — fake-page tests of `sync()`: known device /
+- `services/revolut-auth/test_login_screen.py` — fake-page tests of `sync()`: known device /
   phone screen nominal paths, passcode URL before its inputs render, `?redirect=…passcode` query
   string, single-field passcode fallbacks, `504 LOGIN_SCREEN_TIMEOUT`, captcha after the phone step
   and on the first screen (also over a visible phone field; `403`, approval loop never entered),
   captcha over each passcode input shape, after passcode entry, and during approval with countdown
   removal, and the unchanged `408 APPROVAL_TIMEOUT` when no challenge appears,
   unknown post-phone state / missing passcode input / Playwright timeout in `goto` or a login step
-  (`424`). Needs `pytest` + `pytest-asyncio` (see the run command above).
+  (`424`).
 - `RevolutAdapterTest` (`403`/`424` mapping), `RevolutSyncServiceTest` (code + friendly message on
   `discover`/`sync`), `SyncProgressServiceTest` (`errorCode`), and `features/sync/revolut-phase.test.ts`
   plus `SyncAllModal.test.tsx` (translated captcha message, no countdown).

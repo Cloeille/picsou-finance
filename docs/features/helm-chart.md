@@ -89,7 +89,7 @@ job repeats the same strict lint, default and optional-resource render matrix, a
 chart test suite before packaging and pushing. Validation failures stop chart publication
 without affecting images that have already been pushed.
 Changes under `.github/` select every validation job, including `helm-chart` and
-`sidecar-package`. Changes under `services/base/` select the shared-package tests and
+`sidecar-base`. Changes under `services/base/` select the shared-package tests and
 all sidecar image tests, without selecting Helm validation.
 The repository inventory test accepts exit codes 0 (in sync) and 2 (drift), but still fails
 on script errors. All chart script tests live in `charts/picsou/tests`, outside the

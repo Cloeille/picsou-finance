@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -32,11 +33,41 @@ def _run_commands(job):
     return "\n".join(step.get("run", "") for step in job.get("steps", []))
 
 
-def _builds_then_runs_image(job, service):
-    commands = _run_commands(job)
-    build = commands.find(f"docker build --tag picsou-{service}:test services/{service}")
-    run = commands.find("docker run", build) if build != -1 else -1
-    return run != -1 and f"picsou-{service}:test" in commands[run:]
+SIDECARS_SCRIPT = ROOT / ".github/scripts/sidecars.py"
+
+
+def _sidecars(*args, env=None):
+    result = subprocess.run(
+        [sys.executable, str(SIDECARS_SCRIPT), *args],
+        capture_output=True, text=True, check=True, env={**os.environ, **(env or {})},
+    )
+    return result.stdout
+
+
+def _inventory():
+    return json.loads(_sidecars())
+
+
+def _legs():
+    with tempfile.NamedTemporaryFile(mode="r") as output:
+        _sidecars("--select", env={"ALL": "true", "FILES": "[]", "GITHUB_OUTPUT": output.name})
+        return json.loads(dict(line.rstrip("\n").split("=", 1) for line in output)["matrix"])
+
+
+def _sidecar_steps(service, arch="x86_64"):
+    """The sidecar matrix job's steps as they run for one service on one architecture."""
+    entry = next(item for item in _legs() if item["service"] == service and item["arch"] == arch)
+    job = _load(CI_WORKFLOW)["jobs"]["sidecar"]
+    steps = []
+    for step in job["steps"]:
+        condition = step.get("if")
+        if condition and condition != f"matrix.base == '{entry['base']}'":
+            continue
+        text = step.get("run", "")
+        for key, value in entry.items():
+            text = re.sub(r"\$\{\{ matrix\." + key + r" \}\}", value, text)
+        steps.append(text.replace('"$IMAGE"', job["env"]["IMAGE"].replace("${{ matrix.service }}", service)))
+    return "\n".join(steps)
 
 
 class SidecarWorkflowInventoryTest(unittest.TestCase):
@@ -117,7 +148,11 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
 
     def test_every_service_dockerfile_is_in_the_publish_matrix_exactly_once(self):
         workflow = _load(DOCKER_WORKFLOW)
-        matrix = workflow["jobs"]["build"]["strategy"]["matrix"]["include"]
+        self.assertEqual(
+            workflow["jobs"]["build"]["strategy"]["matrix"]["include"],
+            "${{ fromJSON(needs.base.outputs.matrix) }}",
+        )
+        matrix = json.loads(_sidecars("--publish", env={"GITHUB_REPOSITORY": "Owner/repo"}))
         expected = {
             path.relative_to(ROOT).as_posix()
             for path in (ROOT / "services").glob("*/Dockerfile")
@@ -130,104 +165,123 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
 
         self.assertEqual(set(entries), expected)
         self.assertEqual(Counter(entries), Counter({path: 1 for path in expected}))
+        self.assertEqual(matrix[0], {
+            "name": "app", "image": "Owner/repo", "context": ".",
+            "dockerfile": "docker/Dockerfile", "versioned": True,
+        })
         for service in ("amex-auth", "degiro-auth"):
             with self.subTest(service=service):
                 entry = next(item for item in matrix if item.get("name") == service)
                 self.assertEqual(entry["context"], f"services/{service}")
-                self.assertEqual(entry["image"], f"${{{{ github.repository }}}}/{service}")
+                self.assertEqual(entry["image"], f"Owner/repo/{service}")
                 self.assertEqual(entry["versioned"], False)
 
     def test_every_published_sidecar_runs_its_image_tests_before_publishing(self):
-        matrix = _load(DOCKER_WORKFLOW)["jobs"]["build"]["strategy"]["matrix"]["include"]
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        sidecar = jobs["sidecar"]
+        self.assertEqual(
+            sidecar["strategy"]["matrix"]["include"],
+            "${{ fromJSON(needs.changes.outputs.sidecar-matrix) }}",
+        )
+        self.assertIs(sidecar["strategy"]["fail-fast"], False)
+        self.assertIn("sidecar", jobs["docker"]["needs"])
         published = sorted(
             Path(entry["context"]).name
-            for entry in matrix
-            if entry.get("context", "").startswith("services/")
+            for entry in json.loads(_sidecars("--publish", env={"GITHUB_REPOSITORY": "o/r"}))
+            if entry["context"].startswith("services/")
         )
-        jobs = _load(CI_WORKFLOW)["jobs"]
-        gate = set(jobs["docker"]["needs"])
+        self.assertEqual(published, [entry["service"] for entry in _inventory()])
         self.assertIn("revolut-auth", published)
-        for service in published:
+
+    def test_every_sidecar_runs_all_its_unittest_modules_from_its_folder(self):
+        # Discovery from the read-only checkout runs every test_*.py next to
+        # main.py; no workflow lists a sidecar's test files.
+        for entry in _inventory():
+            service = entry["service"]
             with self.subTest(service=service):
-                testing = {name for name, job in jobs.items() if _builds_then_runs_image(job, service)}
-                self.assertTrue(testing, f"no CI job runs tests in the {service} image")
-                self.assertTrue(gate & testing, f"publishing does not wait for the {service} image tests")
-
-    def test_revolut_job_runs_the_whole_test_directory_in_the_image(self):
-        commands = _run_commands(_load(CI_WORKFLOW)["jobs"]["revolut-auth-sidecar"])
-
-        self.assertIn("services/revolut-auth/tests:/app/tests:ro", commands)
-        self.assertIn("python -m pytest -p no:cacheprovider -p no:logging --asyncio-mode=auto -v tests", commands)
-
-    def test_revolut_job_preserves_the_legacy_profile_owner(self):
-        commands = _run_commands(_load(CI_WORKFLOW)["jobs"]["revolut-auth-sidecar"])
-
-        self.assertIn(
-            "docker run --rm --network none --entrypoint sh picsou-revolut-auth:test "
-            "-c 'test \"$(id -u)\" = 999'",
-            commands,
-        )
-
-    def test_camoufox_starts_on_a_native_arm64_runner(self):
-        job = _load(CI_WORKFLOW)["jobs"]["camoufox-arm64-smoke"]
-        commands = _run_commands(job)
-
-        self.assertEqual(job["runs-on"], "ubuntu-24.04-arm")
-        self.assertIn('test "$(uname -m)" = aarch64', commands)
-        self.assertIn("docker build --target camoufox --tag picsou-sidecar-camoufox services/base", commands)
-        for service in ("amex-auth", "revolut-auth"):
-            with self.subTest(service=service):
-                image = f"picsou-{service}:arm64-smoke"
-                self.assertIn(f"docker build --tag {image} services/{service}", commands)
-                self.assertIn(image, commands)
-        self.assertEqual(commands.count("--network none"), 2)
-        self.assertIn('test "$(id -u)" -ne 0', commands)
-        self.assertIn("/opt/sidecar-base/entrypoint.sh", commands)
-        self.assertIn("python /opt/sidecar-base/smoke_camoufox.py", commands)
-
-    def test_camoufox_starts_on_amd64_in_each_built_sidecar(self):
-        for service in ("amex-auth", "revolut-auth"):
-            with self.subTest(service=service):
-                job = _load(CI_WORKFLOW)["jobs"][f"{service}-sidecar"]
-                commands = _run_commands(job)
+                commands = _sidecar_steps(service)
                 image = f"picsou-{service}:test"
-                self.assertEqual(job["runs-on"], "ubuntu-latest")
-                self.assertIn(f"docker run --rm --network none --entrypoint sh {image}", commands)
-                self.assertIn('test "$(uname -m)" = x86_64', commands)
-                self.assertIn('test "$PICSOU_SIDECAR_BASE" = sidecar-camoufox', commands)
-                self.assertIn("python /opt/sidecar-base/smoke_camoufox.py", commands)
+                self.assertIn(f"docker build --tag {image} services/{service}", commands)
+                self.assertIn('services:/src/services:ro"', commands)
+                self.assertIn(f"--workdir /src/services/{service} {image} -m unittest discover -v", commands)
+                self.assertIn("--entrypoint python", commands)
+                self.assertIn("--env APP_SIDECAR_API_KEY=test-key", commands)
+                self.assertTrue(list((ROOT / "services" / service).glob("test_*.py")))
+                self.assertFalse((ROOT / "services" / service / "tests").exists())
+        self.assertNotIn("pytest", _run_commands(_load(CI_WORKFLOW)["jobs"]["sidecar"]))
 
-    def test_shared_camoufox_tests_run_in_the_base_image(self):
-        commands = _run_commands(_load(CI_WORKFLOW)["jobs"]["amex-auth-sidecar"])
+    def test_every_sidecar_test_module_is_stdlib_unittest(self):
+        for path in sorted((ROOT / "services").glob("*-auth/test_*.py")):
+            with self.subTest(module=path.relative_to(ROOT).as_posix()):
+                self.assertNotRegex(path.read_text(encoding="utf-8"), r"(?m)^\s*(import|from) pytest\b")
 
-        self.assertIn("--env PYTHONPATH=/opt/sidecar-base", commands)
-        self.assertIn("services:/services:ro", commands)
-        self.assertIn("-m unittest -v test_entrypoint test_pin_camoufox", commands)
+    def test_every_sidecar_image_imports_main_non_root_on_its_base(self):
+        for entry in _inventory():
+            with self.subTest(service=entry["service"]):
+                self.assertIn(
+                    f'test "$(id -u)" -ne 0 && test "$PICSOU_SIDECAR_BASE" = sidecar-{entry["base"]} '
+                    '&& python -c "import main"',
+                    _sidecar_steps(entry["service"]),
+                )
 
-    def test_every_shared_base_test_module_runs_once_in_ci(self):
-        # The package tests run in the python base, the Camoufox ones in the
-        # camoufox base: a new services/base test module must be added to one.
-        jobs = _load(CI_WORKFLOW)["jobs"]
-        modules = []
-        for job in ("sidecar-package", "amex-auth-sidecar"):
-            for line in _run_commands(jobs[job]).splitlines():
-                if "-m unittest -v test_" in line:
-                    modules += line.split("-m unittest -v ", 1)[1].split()
-        expected = sorted(path.stem for path in (ROOT / "services/base").glob("test_*.py"))
-        self.assertEqual(sorted(modules), expected)
+    def test_revolut_image_keeps_the_legacy_profile_owner(self):
+        # Existing Revolut profile volumes belong to UID 999.
+        dockerfile = (ROOT / "services/revolut-auth/Dockerfile").read_text(encoding="utf-8")
 
-    def test_every_sidecar_image_test_mounts_the_shared_auth_contract_read_only(self):
-        jobs = _load(CI_WORKFLOW)["jobs"]
-        services = sorted(path.parent.name for path in (ROOT / "services").glob("*-auth/Dockerfile"))
+        self.assertRegex(dockerfile, r"useradd -r -u 999 -g revoauth .*revoauth")
+        self.assertRegex(dockerfile, r"(?m)^USER revoauth$")
+
+    def test_camoufox_sidecars_also_run_on_a_native_arm64_runner(self):
+        # A native runner proves the image contains an ARM Firefox binary; QEMU can
+        # build the manifest but cannot provide this runtime guarantee.
+        job = _load(CI_WORKFLOW)["jobs"]["sidecar"]
+        self.assertEqual(job["runs-on"], "${{ matrix.runner }}")
+        legs = {(leg["service"], leg["arch"]): leg["runner"] for leg in _legs()}
+        self.assertEqual(
+            {service for service, arch in legs if arch == "aarch64"},
+            {entry["service"] for entry in _inventory() if entry["base"] == "camoufox"},
+        )
+        self.assertEqual({service for service, arch in legs if arch == "x86_64"},
+                         {entry["service"] for entry in _inventory()})
+        for (service, arch), runner in legs.items():
+            with self.subTest(service=service, arch=arch):
+                self.assertEqual(runner, {"x86_64": "ubuntu-latest", "aarch64": "ubuntu-24.04-arm"}[arch])
+
+    def test_camoufox_starts_headful_offline_in_each_built_sidecar_on_both_architectures(self):
+        for service in ("amex-auth", "revolut-auth"):
+            for arch in ("x86_64", "aarch64"):
+                with self.subTest(service=service, arch=arch):
+                    commands = _sidecar_steps(service, arch)
+                    image = f"picsou-{service}:test"
+                    self.assertIn(f"docker run --rm --network none --entrypoint sh {image}", commands)
+                    self.assertIn(f'test "$(uname -m)" = {arch}', commands)
+                    self.assertIn('test "$PICSOU_SIDECAR_BASE" = sidecar-camoufox', commands)
+                    self.assertIn("/opt/sidecar-base/entrypoint.sh", commands)
+                    self.assertIn("python /opt/sidecar-base/smoke_camoufox.py", commands)
+                    self.assertIn("-m unittest discover -v", commands)
+        self.assertNotIn("smoke_camoufox.py", _sidecar_steps("tr-auth"))
+
+    def test_every_shared_base_test_module_runs_in_the_camoufox_base(self):
+        # The camoufox target inherits the python one: discovery there runs the
+        # package tests and the Camoufox installer and entrypoint tests alike.
+        commands = _run_commands(_load(CI_WORKFLOW)["jobs"]["sidecar-base"])
+
+        self.assertIn("docker build --target camoufox --tag picsou-sidecar-camoufox services/base", commands)
+        self.assertIn('services:/services:ro"', commands)
+        self.assertIn("--workdir /services/base picsou-sidecar-camoufox -m unittest discover -v", commands)
+        self.assertTrue(list((ROOT / "services/base").glob("test_*.py")))
+
+    def test_every_sidecar_image_test_mounts_the_test_only_helpers_read_only(self):
+        services = [entry["service"] for entry in _inventory()]
         self.assertEqual(len(services), 13)
         for service in services:
             with self.subTest(service=service):
-                job = next(job for job in jobs.values() if _builds_then_runs_image(job, service))
-                self.assertIn(
-                    "services/base/picsou_sidecar/contract.py:"
-                    "/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro",
-                    _run_commands(job),
-                )
+                commands = _sidecar_steps(service)
+                for helper in ("picsou_sidecar/contract.py", "euro_information/testing.py"):
+                    self.assertIn(f"services/base/{helper}:/opt/sidecar-base/lib/{helper}:ro", commands)
+        ignored = (ROOT / "services/base/.dockerignore").read_text(encoding="utf-8").split()
+        self.assertIn("picsou_sidecar/contract.py", ignored)
+        self.assertIn("euro_information/testing.py", ignored)
 
     def test_publish_workflow_keeps_both_platforms_and_branch_tagging(self):
         job_text = DOCKER_WORKFLOW.read_text(encoding="utf-8")
@@ -261,7 +315,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         build = workflow["jobs"]["build"]
         chart = workflow["jobs"]["chart"]
         self.assertEqual(set(base["outputs"]), {
-            "python", "chromium", "camoufox", "app-version", "image-tag", "chart-release-version",
+            "python", "chromium", "camoufox", "app-version", "image-tag", "chart-release-version", "matrix",
         })
         self.assertEqual(chart["needs"], ["base", "build"])
         version = next(step for step in chart["steps"] if step.get("id") == "version")
@@ -322,25 +376,6 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
                 values = self.run_chart_version(version)
                 self.assertEqual(values, {"publish": "false"})
 
-    def test_new_sidecar_jobs_build_and_run_every_test_read_only_in_the_image(self):
-        workflow = _load(CI_WORKFLOW)
-        for service in ("amex-auth", "degiro-auth", "tr-auth"):
-            with self.subTest(service=service):
-                job = workflow["jobs"][f"{service}-sidecar"]
-                commands = _run_commands(job)
-                image = f"picsou-{service}:test"
-                self.assertIn(f"docker build --tag {image} services/{service}", commands)
-                self.assertIn("--entrypoint python", commands)
-                self.assertIn(f"{image} -m unittest discover -v", commands)
-                self.assertIn("--env PYTHONPATH=/app", commands)
-                self.assertIn("--env APP_SIDECAR_API_KEY=test-key", commands)
-                test_files = sorted((ROOT / "services" / service).glob("test*.py"))
-                self.assertTrue(test_files)
-                for test_file in test_files:
-                    mount = f"services/{service}/{test_file.name}:/tests/{test_file.name}:ro"
-                    with self.subTest(test_file=test_file.name):
-                        self.assertIn(mount, commands)
-
 
 SELECTOR = "changes"
 GATE = "ci-ok"
@@ -381,11 +416,30 @@ def _glob_matches(pattern, path):
     return re.fullmatch(regex, path) is not None
 
 
+def _select_sidecars(files, every=False, changes=("sidecar",)):
+    with tempfile.NamedTemporaryFile(mode="r") as output:
+        _sidecars("--select", env={
+            "ALL": str(every).lower(), "FILES": json.dumps(files), "GITHUB_OUTPUT": output.name,
+            "CHANGES": json.dumps(list(changes)),
+        })
+        return dict(line.rstrip("\n").split("=", 1) for line in output)
+
+
 def _selected(jobs, path):
-    return {
+    """The jobs a one-file change runs; the sidecar matrix legs appear as sidecar:<service>."""
+    filtered = {
         name
         for name, patterns in _filters(jobs).items()
-        if name in _selectable(jobs) and any(_glob_matches(pattern, path) for pattern in patterns)
+        if name != "workflows" and any(_glob_matches(pattern, path) for pattern in patterns)
+    }
+    selection = _select_sidecars([path] if "sidecar" in filtered else [], changes=sorted(filtered))
+    filtered = set(json.loads(selection["jobs"]))
+    if "sidecar" not in filtered:
+        return filtered
+    legs = json.loads(selection["matrix"])
+    return (filtered - {"sidecar"}) | {
+        f"sidecar:{leg['service']}" if leg["arch"] == "x86_64" else f"sidecar:{leg['service']}:arm64"
+        for leg in legs
     }
 
 
@@ -414,24 +468,47 @@ class CiJobSelectionTest(unittest.TestCase):
     def test_every_job_runs_only_when_the_selector_picks_it(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         outputs = jobs[SELECTOR]["outputs"]
-        self.assertEqual(set(outputs), _selectable(jobs))
+        self.assertEqual(outputs, {
+            "all": "${{ steps.filter.outcome == 'skipped' }}",
+            "jobs": "${{ steps.sidecars.outputs.jobs }}",
+            "sidecar-matrix": "${{ steps.sidecars.outputs.matrix }}",
+        })
         self.assertEqual(set(_filters(jobs)) - {"workflows"}, _selectable(jobs))
         self.assertEqual(
             _filter_step(jobs)["if"],
             "github.event_name == 'pull_request' && github.event.pull_request.changed_files < 3000",
         )
+        self.assertEqual(_filter_step(jobs)["with"]["list-files"], "json")
+        sidecars = next(step for step in jobs[SELECTOR]["steps"] if step.get("id") == "sidecars")
+        self.assertEqual(sidecars["env"], {
+            "ALL": "${{ steps.filter.outcome == 'skipped' }}",
+            "CHANGES": "${{ steps.filter.outputs.changes }}",
+            "FILES": "${{ steps.filter.outputs.sidecar_files }}",
+        })
+        self.assertEqual(sidecars["run"].strip(), "python3 .github/scripts/sidecars.py --select")
         for name in _selectable(jobs):
             with self.subTest(job=name):
                 self.assertEqual(jobs[name]["needs"], SELECTOR)
-                self.assertEqual(jobs[name]["if"], f"needs.changes.outputs.{name} == 'true'")
                 self.assertEqual(
-                    outputs[name],
-                    f"${{{{ steps.filter.outcome == 'skipped' || steps.filter.outputs.{name} == 'true' }}}}",
+                    jobs[name]["if"],
+                    "needs.changes.outputs.all == 'true' || "
+                    f"contains(fromJSON(needs.changes.outputs.jobs), '{name}')",
                 )
+
+    def test_runs_without_a_file_list_select_every_sidecar(self):
+        everything = _select_sidecars([], every=True, changes=())
+        self.assertEqual(json.loads(everything["matrix"]), _legs())
+        self.assertEqual(len(_legs()), len(_inventory()) + 2)
+        self.assertEqual(_select_sidecars([], changes=["frontend"]), {"jobs": '["frontend"]', "matrix": "[]"})
+        removed = _select_sidecars(["services/gone-auth/main.py"], changes=["workflow-inventory", "sidecar"])
+        self.assertEqual(removed, {"jobs": '["workflow-inventory"]', "matrix": "[]"})
 
     def test_a_change_selects_the_jobs_it_can_affect(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
-        sidecars = {name for name in _selectable(jobs) if name.endswith("-sidecar")}
+        sidecars = {f"sidecar:{entry['service']}" for entry in _inventory()} | {
+            "sidecar:amex-auth:arm64", "sidecar:revolut-auth:arm64",
+        }
+        everything = (_selectable(jobs) - {"sidecar"}) | sidecars
         services = {"compose-sidecar-build", "workflow-inventory"}
         cases = {
             "docs/features/budget.md": set(),
@@ -452,36 +529,75 @@ class CiJobSelectionTest(unittest.TestCase):
             },
             "charts/picsou/values.yaml": {"helm-chart"},
             "charts/picsou/templates/sidecars.yaml": {"helm-chart"},
-            "services/sofidy-auth/main.py": {"sofidy-sidecar", "backend"} | services,
-            "services/tr-auth/main.py": {"tr-auth-sidecar"} | services,
-            "services/amex-auth/main.py": {"amex-auth-sidecar", "camoufox-arm64-smoke"}
+            "services/sofidy-auth/main.py": {"sidecar:sofidy-auth", "backend"} | services,
+            "services/tr-auth/main.py": {"sidecar:tr-auth"} | services,
+            "services/amex-auth/main.py": {"sidecar:amex-auth", "sidecar:amex-auth:arm64"}
             | services,
-            "services/revolut-auth/main.py": {"revolut-auth-sidecar", "camoufox-arm64-smoke"}
+            "services/revolut-auth/main.py": {"sidecar:revolut-auth", "sidecar:revolut-auth:arm64"}
             | services,
-            "services/revolut-auth/Dockerfile": {"revolut-auth-sidecar", "amex-auth-sidecar", "camoufox-arm64-smoke"}
+            "services/revolut-auth/Dockerfile": {"sidecar:revolut-auth", "sidecar:revolut-auth:arm64", "sidecar-base"}
             | services,
+            "services/new-bank-auth/main.py": services,
             "services/base/requirements.txt": sidecars
-            | {"backend", "camoufox-arm64-smoke", "sidecar-package"}
+            | {"backend", "sidecar-base"}
             | services,
             "services/base/picsou_sidecar/app.py": sidecars
-            | {"backend", "camoufox-arm64-smoke", "sidecar-package"}
+            | {"backend", "sidecar-base"}
             | services,
-            ".github/workflows/ci.yml": _selectable(jobs),
-            ".github/tests/test_sidecar_workflows.py": _selectable(jobs),
+            ".github/workflows/ci.yml": everything,
+            ".github/tests/test_sidecar_workflows.py": everything,
+            ".github/scripts/sidecars.py": everything,
         }
         for path, expected in cases.items():
             with self.subTest(path=path):
                 self.assertEqual(_selected(jobs, path), expected)
 
-    def test_each_sidecar_job_runs_for_its_own_service(self):
+    def test_each_sidecar_change_runs_only_its_own_sidecar(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
-        tested = 0
-        for name in _selectable(jobs):
-            for service in re.findall(r"docker build --tag picsou-([a-z-]+):test services/", _run_commands(jobs[name])):
-                with self.subTest(job=name, service=service):
-                    tested += 1
-                    self.assertIn(name, _selected(jobs, f"services/{service}/main.py"))
-        self.assertEqual(tested, len(list((ROOT / "services").glob("*-auth/Dockerfile"))))
+        services = [entry["service"] for entry in _inventory()]
+        self.assertEqual(services, sorted(path.parent.name for path in (ROOT / "services").glob("*-auth/Dockerfile")))
+        for service in services:
+            with self.subTest(service=service):
+                legs = {job for job in _selected(jobs, f"services/{service}/test_main.py") if job.startswith("sidecar:")}
+                arm = {f"sidecar:{service}:arm64"} if _sidecar_base(service) == "camoufox" else set()
+                self.assertEqual(legs, {f"sidecar:{service}"} | arm)
+        both = json.loads(_select_sidecars(["services/tr-auth/main.py", "services/cic-auth/main.py"])["matrix"])
+        self.assertEqual([(leg["service"], leg["arch"]) for leg in both], [("cic-auth", "x86_64"), ("tr-auth", "x86_64")])
+        mixed = _select_sidecars(["services/tr-auth/main.py", "services/base/requirements.txt"])
+        self.assertEqual(json.loads(mixed["matrix"]), _legs())
+
+    def test_a_new_connector_folder_joins_ci_and_publishing_without_a_workflow_change(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".github/scripts").mkdir(parents=True)
+            (root / ".github/scripts/sidecars.py").write_text(SIDECARS_SCRIPT.read_text(encoding="utf-8"))
+            for service, base in (("tr-auth", "chromium"), ("zz-bank-auth", "python")):
+                (root / "services" / service).mkdir(parents=True)
+                (root / "services" / service / "Dockerfile").write_text(
+                    f"ARG SIDECAR_BASE=picsou-sidecar-{base}\nFROM ${{SIDECAR_BASE}}\n"
+                )
+            (root / "services/base").mkdir()
+            (root / "services/base/Dockerfile").write_text("FROM scratch\n")
+            script = [sys.executable, str(root / ".github/scripts/sidecars.py")]
+            listed = json.loads(subprocess.run(script, capture_output=True, text=True, check=True).stdout)
+            published = json.loads(subprocess.run(
+                script + ["--publish"], capture_output=True, text=True, check=True,
+                env={**os.environ, "GITHUB_REPOSITORY": "o/r"},
+            ).stdout)
+            (root / "services/broken-auth").mkdir()
+            (root / "services/broken-auth/Dockerfile").write_text("FROM python:3.12\n")
+            broken = subprocess.run(script, capture_output=True, text=True)
+
+        self.assertEqual(listed, [
+            {"service": "tr-auth", "base": "chromium"},
+            {"service": "zz-bank-auth", "base": "python"},
+        ])
+        self.assertIn({
+            "name": "zz-bank-auth", "image": "o/r/zz-bank-auth", "context": "services/zz-bank-auth",
+            "dockerfile": "services/zz-bank-auth/Dockerfile", "base": "python", "versioned": False,
+        }, published)
+        self.assertNotEqual(broken.returncode, 0)
+        self.assertIn("services/broken-auth/Dockerfile does not name a shared base", broken.stderr)
 
     def test_the_gate_waits_for_every_blocking_job_and_publishing_waits_for_the_gate(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
@@ -505,7 +621,7 @@ class CiJobSelectionTest(unittest.TestCase):
                 name: {"result": "success" if name in selected else "skipped", "outputs": {}}
                 for name in jobs
             }
-            outputs = {name: str(name in selected).lower() for name in jobs}
+            outputs = {"all": "false", "jobs": json.dumps(sorted(selected))}
             needs[SELECTOR] = {"result": "success", "outputs": outputs}
             for name, result in results.items():
                 needs[name]["result"] = result
@@ -513,14 +629,23 @@ class CiJobSelectionTest(unittest.TestCase):
 
         selector_failed = {name: {"result": "skipped", "outputs": {}} for name in jobs}
         selector_failed[SELECTOR] = {"result": "failure", "outputs": {}}
+        unfiltered = needs(set())
+        unfiltered[SELECTOR]["outputs"] = {"all": "true", "jobs": "[]"}
         cases = {
             "everything selected and green": (needs(jobs), True),
+            "push run (no filter), a job skipped": (unfiltered, False),
             "frontend change, other jobs skipped": (needs(frontend_only), True),
             "selected job skipped": (needs(frontend_only, e2e="skipped"), False),
             "selected job failed": (needs(frontend_only, e2e="failure"), False),
             "selected job cancelled": (needs(frontend_only, frontend="cancelled"), False),
             "unselected job failed": (needs(frontend_only, backend="failure"), False),
             "selector failed": (selector_failed, False),
+            "sidecar change, matrix green": (needs({"sidecar", "compose-sidecar-build"}), True),
+            "sidecar selected but the matrix skipped": (
+                needs({"sidecar", "compose-sidecar-build"}, sidecar="skipped"), False,
+            ),
+            "one matrix leg failed": (needs({"sidecar"}, sidecar="failure"), False),
+            "shared base selected but skipped": (needs({"sidecar-base"}, **{"sidecar-base": "skipped"}), False),
         }
         for case, (state, green) in cases.items():
             with self.subTest(case=case):
@@ -639,7 +764,11 @@ class SharedSidecarBaseTest(unittest.TestCase):
             if step.get("name") == "Build and push"
         )
         self.assertIn("needs.base.outputs[matrix.base]", build_args)
-        matrix = {entry["name"]: entry for entry in workflow["jobs"]["build"]["strategy"]["matrix"]["include"]}
+        matrix = {
+            entry["name"]: entry
+            for entry in json.loads(_sidecars("--publish", env={"GITHUB_REPOSITORY": "o/r"}))
+        }
+        self.assertEqual(workflow["jobs"]["base"]["outputs"]["matrix"], "${{ steps.matrix.outputs.matrix }}")
         self.assertEqual(
             {matrix[service]["base"] for service in ("amex-auth", "revolut-auth")},
             {"camoufox"},
@@ -649,15 +778,10 @@ class SharedSidecarBaseTest(unittest.TestCase):
                 self.assertEqual(matrix[service].get("base"), _sidecar_base(service))
 
     def test_ci_builds_the_base_before_each_sidecar_image(self):
-        jobs = _load(CI_WORKFLOW)["jobs"]
         for service in _shared_base_services():
             target = _sidecar_base(service)
             with self.subTest(service=service):
-                job = next(
-                    job for job in jobs.values()
-                    if f"--tag picsou-{service}:test services/{service}" in _run_commands(job)
-                )
-                commands = _run_commands(job)
+                commands = _sidecar_steps(service)
                 base = f"docker build --target {target} --tag picsou-sidecar-{target} services/base"
                 self.assertIn(base, commands)
                 self.assertLess(commands.index(base), commands.index(f"--tag picsou-{service}:test"))

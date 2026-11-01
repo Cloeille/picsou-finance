@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **One CI job for every bank connector.** The 13 copy-pasted sidecar jobs are now one
+  matrix built from the `services/*-auth` folders, shared with image publishing, so adding a
+  connector touches no workflow file. A change to one connector tests only that connector.
+  Every connector's tests are stdlib `unittest` modules next to its code; the Revolut tests
+  moved off pytest, and nine BoursoBank transaction tests that CI never ran now run.
+  See [testing conventions](docs/conventions/testing.md#sidecar-tests).
+
 ### Removed
 
 - **Split Docker stack.** The root `docker-compose.yml`, `backend/Dockerfile`,

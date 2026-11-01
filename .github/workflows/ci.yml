@@ -6,8 +6,7 @@ on:
     branches: [main]
     tags: ['[0-9]*', 'v[0-9]*']
 
-permissions:
-  contents: read
+permissions: {contents: read}
 
 # A new push to a pull request cancels its stale run. Every other run gets its own
 # group: a shared group would still replace a queued main push with the next one.
@@ -20,163 +19,60 @@ jobs:
   # large for the files API (3000 files) skip the filter, which selects every job.
   changes:
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: read
+    permissions: {pull-requests: read}
     outputs:
-      release-deployment: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.release-deployment == 'true' }}
-      docker-entrypoint: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.docker-entrypoint == 'true' }}
-      backend: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.backend == 'true' }}
-      frontend: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.frontend == 'true' }}
-      bourse-direct-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.bourse-direct-sidecar == 'true' }}
-      fortuneo-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.fortuneo-sidecar == 'true' }}
-      bourso-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.bourso-sidecar == 'true' }}
-      caisse-epargne-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.caisse-epargne-sidecar == 'true' }}
-      corum-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.corum-sidecar == 'true' }}
-      sofidy-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.sofidy-sidecar == 'true' }}
-      amundi-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.amundi-sidecar == 'true' }}
-      amex-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.amex-auth-sidecar == 'true' }}
-      sidecar-package: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.sidecar-package == 'true' }}
-      degiro-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.degiro-auth-sidecar == 'true' }}
-      tr-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.tr-auth-sidecar == 'true' }}
-      revolut-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.revolut-auth-sidecar == 'true' }}
-      cmes-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.cmes-auth-sidecar == 'true' }}
-      cic-auth-sidecar: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.cic-auth-sidecar == 'true' }}
-      camoufox-arm64-smoke: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.camoufox-arm64-smoke == 'true' }}
-      compose-sidecar-build: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.compose-sidecar-build == 'true' }}
-      workflow-inventory: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.workflow-inventory == 'true' }}
-      helm-chart: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.helm-chart == 'true' }}
-      e2e: ${{ steps.filter.outcome == 'skipped' || steps.filter.outputs.e2e == 'true' }}
+      # The jobs to run, as a JSON list; `all` is 'true' when the filter did not run.
+      all: ${{ steps.filter.outcome == 'skipped' }}
+      jobs: ${{ steps.sidecars.outputs.jobs }}
+      sidecar-matrix: ${{ steps.sidecars.outputs.matrix }}
     steps:
+      # &name defines a step that later jobs reuse as *name.
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         if: github.event_name == 'pull_request' && github.event.pull_request.changed_files < 3000
         with:
+          list-files: json
           # backend reads services/sofidy-auth (Java/Python contract), services/base
           # (its interpreter's pins) and docker/entrypoint.sh (HSTS parsing).
           filters: |
-            workflows: &workflows
-              - '.github/**'
-            release-deployment:
-              - *workflows
-              - 'backend/**'
-              - 'frontend/**'
-              - 'docker/**'
-              - '.dockerignore'
-            docker-entrypoint:
-              - *workflows
-              - 'docker/**'
-            backend:
-              - *workflows
-              - 'backend/**'
-              - 'services/base/**'
-              - 'services/sofidy-auth/**'
-              - 'docker/entrypoint.sh'
-            frontend:
-              - *workflows
-              - 'frontend/**'
-            bourse-direct-sidecar:
-              - *workflows
-              - 'services/base/**'
-              - 'services/bourse-direct-auth/**'
-            fortuneo-sidecar:
-              - *workflows
-              - 'services/base/**'
-              - 'services/fortuneo-auth/**'
-            bourso-sidecar:
-              - *workflows
-              - 'services/base/**'
-              - 'services/bourso-auth/**'
-            caisse-epargne-sidecar:
-              - *workflows
-              - 'services/base/**'
-              - 'services/caisse-epargne-auth/**'
-            corum-sidecar:
-              - *workflows
-              - 'services/base/**'
-              - 'services/corum-auth/**'
-            sofidy-sidecar:
-              - *workflows
-              - 'services/base/**'
-              - 'services/sofidy-auth/**'
-            amundi-sidecar:
-              - *workflows
-              - 'services/base/**'
-              - 'services/amundi-auth/**'
-            amex-auth-sidecar:
-              - *workflows
-              - 'services/base/**'
-              - 'services/amex-auth/**'
-              # The shared base tests in this job check the Revolut runtime parameters too.
-              - 'services/revolut-auth/Dockerfile'
-            sidecar-package:
-              - *workflows
-              - 'services/base/**'
-            degiro-auth-sidecar:
-              - *workflows
-              - 'services/base/**'
-              - 'services/degiro-auth/**'
-            tr-auth-sidecar:
-              - *workflows
-              - 'services/base/**'
-              - 'services/tr-auth/**'
-            revolut-auth-sidecar:
-              - *workflows
-              - 'services/base/**'
-              - 'services/revolut-auth/**'
-            cmes-auth-sidecar:
-              - *workflows
-              - 'services/base/**'
-              - 'services/cmes-auth/**'
-            cic-auth-sidecar:
-              - *workflows
-              - 'services/base/**'
-              - 'services/cic-auth/**'
-            camoufox-arm64-smoke:
-              - *workflows
-              - 'services/base/**'
-              - 'services/amex-auth/**'
-              - 'services/revolut-auth/**'
-            compose-sidecar-build:
-              - *workflows
-              - 'services/**'
-              - 'docker/docker-compose.yml'
-            workflow-inventory:
-              - *workflows
-              - 'services/**'
-              - 'backend/src/main/resources/application*.yml'
-              - '.env.example'
-              - 'docker/.env.example'
-              - 'docker/entrypoint.sh'
-              - 'docker/docker-compose.yml'
-              - 'docker/Dockerfile'
-            helm-chart:
-              - *workflows
-              - 'charts/**'
-              - 'backend/src/main/resources/application.yml'
-              - 'docker/docker-compose.yml'
-            e2e:
-              - *workflows
-              - 'frontend/**'
-
+            workflows: &workflows ['.github/**']
+            release-deployment: [*workflows, 'backend/**', 'frontend/**', 'docker/**', '.dockerignore']
+            docker-entrypoint: [*workflows, 'docker/**']
+            backend: [*workflows, 'backend/**', 'services/base/**', 'services/sofidy-auth/**', 'docker/entrypoint.sh']
+            frontend: [*workflows, 'frontend/**']
+            # The entrypoint tests read each Camoufox sidecar's runtime parameters.
+            sidecar-base: [*workflows, 'services/base/**', 'services/*-auth/Dockerfile']
+            # A change under .github or services/base selects every sidecar,
+            # one under services/<name>-auth only that one (sidecars.py --select).
+            sidecar: [*workflows, 'services/base/**', 'services/*-auth/**']
+            compose-sidecar-build: [*workflows, 'services/**', 'docker/docker-compose.yml']
+            workflow-inventory: [*workflows, 'services/**', 'backend/src/main/resources/application*.yml', '.env.example',
+                                 'docker/.env.example', 'docker/entrypoint.sh', 'docker/docker-compose.yml', 'docker/Dockerfile']
+            helm-chart: [*workflows, 'charts/**', 'backend/src/main/resources/application.yml', 'docker/docker-compose.yml']
+            e2e: [*workflows, 'frontend/**']
+      - name: Select the jobs and the sidecar matrix
+        id: sidecars
+        env:
+          ALL: ${{ steps.filter.outcome == 'skipped' }}
+          CHANGES: ${{ steps.filter.outputs.changes }}
+          FILES: ${{ steps.filter.outputs.sidecar_files }}
+        run: python3 .github/scripts/sidecars.py --select
   release-deployment:
     needs: changes
-    if: needs.changes.outputs.release-deployment == 'true'
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'release-deployment')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.12'
-      - name: Check deployment shell syntax
-        run: bash -n docker/deploy.sh
-      - name: Lint deployment shell script
-        run: shellcheck -x docker/deploy.sh
-      - name: Install deployment test runner
-        run: python3 -m pip install pytest
+      - *checkout
+      - &python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with: {python-version: '3.12'}
+      - name: Check and lint the deployment shell script
+        run: bash -n docker/deploy.sh && shellcheck -x docker/deploy.sh
       - name: Test preflight ordering, failure isolation, and API readiness
-        run: python3 -m pytest docker/tests/test_deploy.py -v
+        run: python3 -m pip install pytest && python3 -m pytest docker/tests/test_deploy.py -v
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # A cold build downloads every Maven and bun dependency, and Maven Central answers
@@ -198,48 +94,35 @@ jobs:
             type=gha,scope=app
           cache-to: type=gha,mode=max,scope=release-smoke,ignore-error=true
       - name: Exercise packaged CLI, repeat deployment, and incompatible-schema isolation
-        env:
-          PICSOU_RELEASE_TEST_IMAGE: picsou-release-smoke:test
+        env: {PICSOU_RELEASE_TEST_IMAGE: 'picsou-release-smoke:test'}
         run: python3 -m pytest docker/tests/test_deploy_integration.py -v -s
 
   docker-entrypoint:
     needs: changes
-    if: needs.changes.outputs.docker-entrypoint == 'true'
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'docker-entrypoint')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.12'
+      - *checkout
+      - *python
       - name: Check entrypoint syntax
         run: bash -n docker/entrypoint.sh
-      - name: Install Docker proxy test runner
-        run: python3 -m pip install pytest
       - name: Test secrets passed to the backend process
         run: python -m unittest discover -s docker/tests -p 'test_entrypoint.py' -v
       - name: Test trusted proxy client address forwarding
         run: |
           docker info > /dev/null
+          python3 -m pip install pytest
           python3 -m pytest docker/tests/test_proxy_client_ip.py -v
 
   backend:
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'backend')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
+      - *checkout
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.12'
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - *python
       - name: Install the Sofidy contract interpreter
         run: pip install -r services/base/requirements.txt
       - name: Run backend tests
@@ -258,502 +141,110 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/services/base
         run: mvn -B test -Dsofidy.contract.python=python3
         working-directory: backend
-      - name: Require the SCPI PostgreSQL tests
-        run: >-
-          grep -q 'Tests run: 7, Failures: 0, Errors: 0, Skipped: 0'
-          backend/target/surefire-reports/com.picsou.service.ScpiSyncSessionPostgresTest.txt
-      - name: Require the HomeBank PostgreSQL persistence tests
+      # A skipped PostgreSQL test class reports green: require each one ran in full.
+      - name: Require the PostgreSQL tests
+        working-directory: backend/target/surefire-reports
         run: |
-          grep -q 'Tests run: 2, Failures: 0, Errors: 0, Skipped: 0' \
-            backend/target/surefire-reports/com.picsou.service.HomeBankImportPersistenceTest.txt
-          grep -q 'Tests run: 1, Failures: 0, Errors: 0, Skipped: 0' \
-            backend/target/surefire-reports/com.picsou.service.HomeBankQifPersistenceTest.txt
-      - name: Require the legacy migration renumbering tests
-        run: >-
-          grep -q 'Tests run: 15, Failures: 0, Errors: 0, Skipped: 0'
-          backend/target/surefire-reports/com.picsou.migration.LegacyMigrationRenumberingTest.txt
-      - name: Require the sidecar Budget PostgreSQL tests
-        run: >-
-          grep -q 'Tests run: 6, Failures: 0, Errors: 0, Skipped: 0'
-          backend/target/surefire-reports/com.picsou.service.SidecarBudgetPostgresTest.txt
+          while read -r count class; do
+            grep -q "Tests run: $count, Failures: 0, Errors: 0, Skipped: 0" "com.picsou.$class.txt"
+          done <<'EOF'
+          7 service.ScpiSyncSessionPostgresTest
+          2 service.HomeBankImportPersistenceTest
+          1 service.HomeBankQifPersistenceTest
+          15 migration.LegacyMigrationRenumberingTest
+          6 service.SidecarBudgetPostgresTest
+          EOF
 
   frontend:
     needs: changes
-    if: needs.changes.outputs.frontend == 'true'
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'frontend')
     runs-on: ubuntu-latest
+    defaults: {run: {working-directory: frontend}}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - name: Cache bun downloads
+      - *checkout
+      - &bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - &bun-cache
+        name: Cache bun downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
-      - name: Install
+        with: {path: ~/.bun/install/cache, key: "bun-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}"}
+      - &bun-install
+        name: Install
         run: bun install --frozen-lockfile
-        working-directory: frontend
-      - name: Lint
-        run: bun run lint
-        working-directory: frontend
-      - name: Typecheck
-        run: bun run typecheck
-        working-directory: frontend
-      - name: Unit tests
-        run: bun run test
-        working-directory: frontend
+      - name: Lint, typecheck and unit tests
+        run: bun run lint && bun run typecheck && bun run test
 
-  bourse-direct-sidecar:
+  # services/base tests. The Camoufox target inherits the python one, so it runs them all.
+  sidecar-base:
     needs: changes
-    if: needs.changes.outputs.bourse-direct-sidecar == 'true'
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'sidecar-base')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the shared chromium sidecar base
-        run: docker build --target chromium --tag picsou-sidecar-chromium services/base
-      - name: Build the Chromium-only sidecar image
-        run: docker build --tag picsou-bourse-direct-auth:test services/bourse-direct-auth
-      - name: Run parser, lifecycle, and browser navigation tests
-        run: >-
-          docker run --rm --ipc=host
-          --env PYTHONPATH=/app
-          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
-          --volume "${{ github.workspace }}/services/bourse-direct-auth/test_main.py:/tests/test_main.py:ro"
-          --volume "${{ github.workspace }}/services/bourse-direct-auth/test_navigation.py:/tests/test_navigation.py:ro"
-          --volume "${{ github.workspace }}/services/bourse-direct-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
-          --volume "${{ github.workspace }}/services/bourse-direct-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
-          --env APP_SIDECAR_API_KEY=test-key
-          --workdir /tests
-          picsou-bourse-direct-auth:test
-          python -m unittest discover -v
-
-  fortuneo-sidecar:
-    needs: changes
-    if: needs.changes.outputs.fortuneo-sidecar == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the shared chromium sidecar base
-        run: docker build --target chromium --tag picsou-sidecar-chromium services/base
-      - name: Build the Chromium-only sidecar image
-        run: docker build --tag picsou-fortuneo-auth:test services/fortuneo-auth
-      - name: Run parser, lifecycle, and browser navigation tests
-        run: >-
-          docker run --rm --ipc=host
-          --env PYTHONPATH=/app
-          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
-          --volume "${{ github.workspace }}/services/fortuneo-auth/test_main.py:/tests/test_main.py:ro"
-          --volume "${{ github.workspace }}/services/fortuneo-auth/test_navigation.py:/tests/test_navigation.py:ro"
-          --volume "${{ github.workspace }}/services/fortuneo-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
-          --volume "${{ github.workspace }}/services/fortuneo-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
-          --env APP_SIDECAR_API_KEY=test-key
-          --workdir /tests
-          picsou-fortuneo-auth:test
-          python -m unittest discover -v
-
-  bourso-sidecar:
-    needs: changes
-    if: needs.changes.outputs.bourso-sidecar == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the shared python sidecar base
-        run: docker build --target python --tag picsou-sidecar-python services/base
-      - name: Build the browserless sidecar image
-        run: docker build --tag picsou-bourso-auth:test services/bourso-auth
-      - name: Run parser, contract and lifecycle tests
-        run: >-
-          docker run --rm
-          --env PYTHONPATH=/app
-          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
-          --volume "${{ github.workspace }}/services/bourso-auth/fixtures.py:/tests/fixtures.py:ro"
-          --volume "${{ github.workspace }}/services/bourso-auth/test_virtual_pad.py:/tests/test_virtual_pad.py:ro"
-          --volume "${{ github.workspace }}/services/bourso-auth/test_accounts_parser.py:/tests/test_accounts_parser.py:ro"
-          --volume "${{ github.workspace }}/services/bourso-auth/test_life_insurance.py:/tests/test_life_insurance.py:ro"
-          --volume "${{ github.workspace }}/services/bourso-auth/test_main.py:/tests/test_main.py:ro"
-          --volume "${{ github.workspace }}/services/bourso-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
-          --volume "${{ github.workspace }}/services/bourso-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
-          --env APP_SIDECAR_API_KEY=test-key
-          --workdir /tests
-          picsou-bourso-auth:test
-          python -m unittest discover -v
-
-  caisse-epargne-sidecar:
-    needs: changes
-    if: needs.changes.outputs.caisse-epargne-sidecar == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the shared chromium sidecar base
-        run: docker build --target chromium --tag picsou-sidecar-chromium services/base
-      - name: Build the sidecar image
-        run: docker build --tag picsou-caisse-epargne-auth:test services/caisse-epargne-auth
-      # Every test is a stdlib `unittest` case, so the production image runs
-      # them as is. The whole services/ tree is mounted read-only:
-      # test_dockerfile.py checks this service's Dockerfile and the shared
-      # chromium base in services/base.
-      - name: Run parser, replay, fetcher, login and contract tests
-        run: >-
-          docker run --rm
-          --env PYTHONDONTWRITEBYTECODE=1
-          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
-          --volume "${{ github.workspace }}/services:/src/services:ro"
-          --env APP_SIDECAR_API_KEY=test-key
-          --workdir /src/services/caisse-epargne-auth
-          picsou-caisse-epargne-auth:test
-          python -m unittest discover -v
-
-  corum-sidecar:
-    needs: changes
-    if: needs.changes.outputs.corum-sidecar == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the shared chromium sidecar base
-        run: docker build --target chromium --tag picsou-sidecar-chromium services/base
-      - name: Build the Chromium-only sidecar image
-        run: docker build --tag picsou-corum-auth:test services/corum-auth
-      - name: Run parser, navigation and live-contract tests
-        run: >-
-          docker run --rm --ipc=host
-          --env PYTHONPATH=/app
-          --env CORUM_BROWSER_TESTS=1
-          --env APP_SIDECAR_API_KEY=test-key
-          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
-          --volume "${{ github.workspace }}/services/corum-auth/test_positions_parser.py:/tests/test_positions_parser.py:ro"
-          --volume "${{ github.workspace }}/services/corum-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
-          --volume "${{ github.workspace }}/services/corum-auth/test_navigation_security.py:/tests/test_navigation_security.py:ro"
-          --volume "${{ github.workspace }}/services/corum-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
-          --workdir /tests
-          picsou-corum-auth:test
-          python -m unittest discover -v
-
-  sofidy-sidecar:
-    needs: changes
-    if: needs.changes.outputs.sofidy-sidecar == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the shared python sidecar base
-        run: docker build --target python --tag picsou-sidecar-python services/base
-      - name: Build the browserless sidecar image
-        run: docker build --tag picsou-sofidy-auth:test services/sofidy-auth
-      - name: Run parser, redirect and live-contract tests
-        run: >-
-          docker run --rm
-          --env PYTHONPATH=/app
-          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
-          --volume "${{ github.workspace }}/services/sofidy-auth/test_positions_parser.py:/tests/test_positions_parser.py:ro"
-          --volume "${{ github.workspace }}/services/sofidy-auth/test_live_contract.py:/tests/test_live_contract.py:ro"
-          --volume "${{ github.workspace }}/services/sofidy-auth/test_redirect_security.py:/tests/test_redirect_security.py:ro"
-          --volume "${{ github.workspace }}/services/sofidy-auth/test_java_contract.py:/tests/test_java_contract.py:ro"
-          --volume "${{ github.workspace }}/services/sofidy-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
-          --env APP_SIDECAR_API_KEY=test-key
-          --workdir /tests
-          picsou-sofidy-auth:test
-          python -m unittest discover -v
-
-  amundi-sidecar:
-    needs: changes
-    if: needs.changes.outputs.amundi-sidecar == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the shared chromium sidecar base
-        run: docker build --target chromium --tag picsou-sidecar-chromium services/base
-      - name: Build the Chromium-only sidecar image
-        run: docker build --tag picsou-amundi-auth:test services/amundi-auth
-      - name: Run parser and lifecycle tests
-        run: >-
-          docker run --rm --ipc=host
-          --env PYTHONPATH=/app
-          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
-          --volume "${{ github.workspace }}/services/amundi-auth/test_main.py:/tests/test_main.py:ro"
-          --volume "${{ github.workspace }}/services/amundi-auth/test_lifecycle.py:/tests/test_lifecycle.py:ro"
-          --volume "${{ github.workspace }}/services/amundi-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
-          --env APP_SIDECAR_API_KEY=test-key
-          --workdir /tests
-          picsou-amundi-auth:test
-          python -m unittest discover -v
-
-  amex-auth-sidecar:
-    needs: changes
-    if: needs.changes.outputs.amex-auth-sidecar == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
+      - *checkout
       - name: Build the shared Camoufox sidecar base
         run: docker build --target camoufox --tag picsou-sidecar-camoufox services/base
-      - name: Test the Camoufox installer and entrypoint in the base image
+      - name: Run the shared package, installer and entrypoint tests in the base
         run: >-
-          docker run --rm
-          --entrypoint python
-          --env PYTHONPATH=/opt/sidecar-base
-          --volume "${{ github.workspace }}/services:/services:ro"
-          --workdir /services/base
-          picsou-sidecar-camoufox
-          -m unittest -v test_entrypoint test_pin_camoufox
-      - name: Build the AMEX sidecar image
-        run: docker build --tag picsou-amex-auth:test services/amex-auth
-      - name: Start Camoufox headful on AMD64 in the built image
+          docker run --rm --entrypoint python --volume "$PWD/services:/services:ro"
+          --workdir /services/base picsou-sidecar-camoufox -m unittest discover -v
+
+  # One job per services/*-auth folder (.github/scripts/sidecars.py), plus a native
+  # ARM64 one for Camoufox sidecars. Each sidecar keeps its tests as test_*.py stdlib
+  # unittest modules next to main.py; they run in the built image, from the read-only
+  # checkout, with the test-only helpers the image does not ship mounted back in.
+  sidecar:
+    needs: changes
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'sidecar')
+    name: sidecar (${{ matrix.service }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.sidecar-matrix) }}
+    env:
+      IMAGE: picsou-${{ matrix.service }}:test
+    steps:
+      - *checkout
+      - name: Build the shared ${{ matrix.base }} base, then the sidecar image
         run: |
-          docker run --rm --network none --entrypoint sh picsou-amex-auth:test \
-            -c 'test "$(uname -m)" = x86_64 && test "$PICSOU_SIDECAR_BASE" = sidecar-camoufox'
-          docker run --rm --network none --entrypoint sh picsou-amex-auth:test \
-            /opt/sidecar-base/entrypoint.sh \
+          docker build --target ${{ matrix.base }} --tag picsou-sidecar-${{ matrix.base }} services/base
+          docker build --tag "$IMAGE" services/${{ matrix.service }}
+      # Fails when the Dockerfile misses a module main.py imports, or when the
+      # image loses its base marker (the backend would report it as outdated).
+      - name: The image runs main.py non-root on its shared base
+        run: >-
+          docker run --rm --network none --entrypoint sh "$IMAGE"
+          -c 'test "$(id -u)" -ne 0 && test "$PICSOU_SIDECAR_BASE" = sidecar-${{ matrix.base }}
+          && python -c "import main"'
+      - name: Start Camoufox headful in the built image, offline
+        if: matrix.base == 'camoufox'
+        run: |
+          docker run --rm --network none --entrypoint sh "$IMAGE" -c 'test "$(uname -m)" = ${{ matrix.arch }}'
+          docker run --rm --network none --entrypoint sh "$IMAGE" /opt/sidecar-base/entrypoint.sh \
             python /opt/sidecar-base/smoke_camoufox.py
-      - name: Run sidecar authentication tests in the image
+      - name: Run the sidecar tests in the image
         run: >-
-          docker run --rm
-          --entrypoint python
-          --env PYTHONPATH=/app
-          --env APP_SIDECAR_API_KEY=test-key
-          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
-          --volume "${{ github.workspace }}/services/amex-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
-          --volume "${{ github.workspace }}/services/amex-auth/test_parsers.py:/tests/test_parsers.py:ro"
-          --workdir /tests
-          picsou-amex-auth:test
-          -m unittest discover -v
-
-  sidecar-package:
-    needs: changes
-    if: needs.changes.outputs.sidecar-package == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the shared python sidecar base
-        run: docker build --target python --tag picsou-sidecar-python services/base
-      # The Camoufox installer and entrypoint tests need the camoufox base; the
-      # AMEX job runs them there.
-      - name: Run the shared package tests in the base
-        run: >-
-          docker run --rm
-          --env PYTHONPATH=/app
-          --volume "${{ github.workspace }}/services/base:/tests:ro"
-          --workdir /tests
-          picsou-sidecar-python
-          python -m unittest -v test_picsou_sidecar test_dockerfile
-
-  degiro-auth-sidecar:
-    needs: changes
-    if: needs.changes.outputs.degiro-auth-sidecar == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the shared python sidecar base
-        run: docker build --target python --tag picsou-sidecar-python services/base
-      - name: Build the DEGIRO sidecar image
-        run: docker build --tag picsou-degiro-auth:test services/degiro-auth
-      - name: Run sidecar tests in the image
-        run: >-
-          docker run --rm
-          --entrypoint python
-          --env PYTHONPATH=/app
-          --env APP_SIDECAR_API_KEY=test-key
-          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
-          --volume "${{ github.workspace }}/services/degiro-auth/test_portfolio_url.py:/tests/test_portfolio_url.py:ro"
-          --volume "${{ github.workspace }}/services/degiro-auth/test_portfolio_parser.py:/tests/test_portfolio_parser.py:ro"
-          --volume "${{ github.workspace }}/services/degiro-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
-          --workdir /tests
-          picsou-degiro-auth:test
-          -m unittest discover -v
-
-  cmes-auth-sidecar:
-    needs: changes
-    if: needs.changes.outputs.cmes-auth-sidecar == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the shared python sidecar base
-        run: docker build --target python --tag picsou-sidecar-python services/base
-      - name: Build the Crédit Mutuel Épargne Salariale sidecar image
-        run: docker build --tag picsou-cmes-auth:test services/cmes-auth
-      - name: Run sidecar tests in the image
-        run: >-
-          docker run --rm
-          --entrypoint python
-          --env PYTHONPATH=/app
-          --env APP_SIDECAR_API_KEY=test-key
-          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
-          --volume "${{ github.workspace }}/services/base/euro_information/testing.py:/opt/sidecar-base/lib/euro_information/testing.py:ro"
-          --volume "${{ github.workspace }}/services/cmes-auth/fixtures.py:/tests/fixtures.py:ro"
-          --volume "${{ github.workspace }}/services/cmes-auth/test_parsers.py:/tests/test_parsers.py:ro"
-          --volume "${{ github.workspace }}/services/cmes-auth/test_main.py:/tests/test_main.py:ro"
-          --volume "${{ github.workspace }}/services/cmes-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
-          --workdir /tests
-          picsou-cmes-auth:test
-          -m unittest discover -v
-
-  cic-auth-sidecar:
-    needs: changes
-    if: needs.changes.outputs.cic-auth-sidecar == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the shared python sidecar base
-        run: docker build --target python --tag picsou-sidecar-python services/base
-      - name: Build the CIC online-banking sidecar image
-        run: docker build --tag picsou-cic-auth:test services/cic-auth
-      - name: Run sidecar tests in the image
-        run: >-
-          docker run --rm
-          --entrypoint python
-          --env PYTHONPATH=/app
-          --env APP_SIDECAR_API_KEY=test-key
-          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
-          --volume "${{ github.workspace }}/services/base/euro_information/testing.py:/opt/sidecar-base/lib/euro_information/testing.py:ro"
-          --volume "${{ github.workspace }}/services/cic-auth/fixtures.py:/tests/fixtures.py:ro"
-          --volume "${{ github.workspace }}/services/cic-auth/test_accounts_parser.py:/tests/test_accounts_parser.py:ro"
-          --volume "${{ github.workspace }}/services/cic-auth/test_main.py:/tests/test_main.py:ro"
-          --volume "${{ github.workspace }}/services/cic-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
-          --workdir /tests
-          picsou-cic-auth:test
-          -m unittest discover -v
-      # The health tests set PICSOU_SIDECAR_BASE themselves; this checks the
-      # built image still inherits it, or the backend reports CIC as outdated.
-      - name: Check the CIC image reports the shared python base
-        run: >-
-          docker run --rm --entrypoint python picsou-cic-auth:test
-          -c "import os, sys; base = os.environ.get('PICSOU_SIDECAR_BASE');
-          sys.exit(None if base == 'sidecar-python' else f'PICSOU_SIDECAR_BASE is {base!r}, expected sidecar-python')"
-
-  tr-auth-sidecar:
-    needs: changes
-    if: needs.changes.outputs.tr-auth-sidecar == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the shared chromium sidecar base
-        run: docker build --target chromium --tag picsou-sidecar-chromium services/base
-      - name: Build the Trade Republic sidecar image
-        run: docker build --tag picsou-tr-auth:test services/tr-auth
-      - name: Run sidecar tests in the image
-        run: >-
-          docker run --rm
-          --entrypoint python
-          --env PYTHONPATH=/app
-          --env APP_SIDECAR_API_KEY=test-key
-          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
-          --volume "${{ github.workspace }}/services/tr-auth/main.py:/tests/main.py:ro"
-          --volume "${{ github.workspace }}/services/tr-auth/test_complete_url.py:/tests/test_complete_url.py:ro"
-          --volume "${{ github.workspace }}/services/tr-auth/test_main.py:/tests/test_main.py:ro"
-          --volume "${{ github.workspace }}/services/tr-auth/test_mask_phone.py:/tests/test_mask_phone.py:ro"
-          --volume "${{ github.workspace }}/services/tr-auth/test_refresh_method.py:/tests/test_refresh_method.py:ro"
-          --volume "${{ github.workspace }}/services/tr-auth/test_sidecar_auth.py:/tests/test_sidecar_auth.py:ro"
-          --volume "${{ github.workspace }}/services/tr-auth/test_waf_rejection.py:/tests/test_waf_rejection.py:ro"
-          --workdir /tests
-          picsou-tr-auth:test
-          -m unittest discover -v
-
-  revolut-auth-sidecar:
-    needs: changes
-    if: needs.changes.outputs.revolut-auth-sidecar == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build the shared Camoufox sidecar base
-        run: docker build --target camoufox --tag picsou-sidecar-camoufox services/base
-      - name: Build the Revolut sidecar image
-        run: docker build --tag picsou-revolut-auth:test services/revolut-auth
-      - name: Verify the legacy Revolut profile owner
-        run: >-
-          docker run --rm --network none --entrypoint sh picsou-revolut-auth:test
-          -c 'test "$(id -u)" = 999'
-      - name: Start Camoufox headful on AMD64 in the built image
-        run: |
-          docker run --rm --network none --entrypoint sh picsou-revolut-auth:test \
-            -c 'test "$(uname -m)" = x86_64 && test "$PICSOU_SIDECAR_BASE" = sidecar-camoufox'
-          docker run --rm --network none --entrypoint sh picsou-revolut-auth:test \
-            /opt/sidecar-base/entrypoint.sh \
-            python /opt/sidecar-base/smoke_camoufox.py
-      # The async tests need pytest-asyncio, a test-only dependency the image does not ship.
-      - name: Run sidecar tests in the image
-        run: >-
-          docker run --rm
-          --entrypoint sh
-          --env PYTHONDONTWRITEBYTECODE=1
-          --env APP_SIDECAR_API_KEY=test-key
-          --volume "${{ github.workspace }}/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
-          --volume "${{ github.workspace }}/services/revolut-auth/tests:/app/tests:ro"
-          picsou-revolut-auth:test
-          -c "python -m pip install --user --no-cache-dir --no-warn-script-location pytest==8.4.2 pytest-asyncio==1.2.0
-          && python -m pytest -p no:cacheprovider -p no:logging --asyncio-mode=auto -v tests"
-
-  camoufox-arm64-smoke:
-    needs: changes
-    if: needs.changes.outputs.camoufox-arm64-smoke == 'true'
-    # A native runner proves the image contains an ARM Firefox binary. QEMU can
-    # build the manifest but cannot provide this runtime guarantee.
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - name: Verify the runner architecture
-        run: test "$(uname -m)" = aarch64
-      - name: Build the shared Camoufox sidecar base
-        run: docker build --target camoufox --tag picsou-sidecar-camoufox services/base
-      - name: Build both derived sidecars on native ARM64
-        run: |
-          docker build --tag picsou-amex-auth:arm64-smoke services/amex-auth
-          docker build --tag picsou-revolut-auth:arm64-smoke services/revolut-auth
-      - name: Start Camoufox headful in both non-root sidecars
-        run: |
-          for image in picsou-amex-auth:arm64-smoke picsou-revolut-auth:arm64-smoke; do
-            docker run --rm --network none --entrypoint sh "$image" \
-              -c 'test "$(id -u)" -ne 0'
-            docker run --rm --network none --entrypoint sh "$image" \
-              /opt/sidecar-base/entrypoint.sh \
-              python /opt/sidecar-base/smoke_camoufox.py
-          done
+          docker run --rm --ipc=host --entrypoint python --env PYTHONDONTWRITEBYTECODE=1
+          --env APP_SIDECAR_API_KEY=test-key --env CORUM_BROWSER_TESTS=1
+          --volume "$PWD/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
+          --volume "$PWD/services/base/euro_information/testing.py:/opt/sidecar-base/lib/euro_information/testing.py:ro"
+          --volume "$PWD/services:/src/services:ro" --workdir /src/services/${{ matrix.service }}
+          "$IMAGE" -m unittest discover -v
 
   compose-sidecar-build:
     needs: changes
-    if: needs.changes.outputs.compose-sidecar-build == 'true'
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'compose-sidecar-build')
     # The Compose wiring (build-only bases, `additional_contexts: service:`)
     # as users run it, not only as YAML assertions.
     runs-on: ubuntu-latest
-    env:
-      APP_SIDECAR_API_KEY: ci-test-only
+    env: {APP_SIDECAR_API_KEY: ci-test-only}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Resolve the published Compose file
+      - *checkout
+      - name: Resolve the published Compose file and build one sidecar per base through it
         run: |
           docker compose version
           docker compose -f docker/docker-compose.yml config --quiet
-      - name: Build one sidecar per base through Compose
-        run: docker compose -f docker/docker-compose.yml build tr-auth bourso-auth amex-auth
+          docker compose -f docker/docker-compose.yml build tr-auth bourso-auth amex-auth
       - name: The sidecars run on their base
         run: >-
           docker compose -f docker/docker-compose.yml run --rm --no-deps
@@ -764,34 +255,27 @@ jobs:
 
   workflow-inventory:
     needs: changes
-    if: needs.changes.outputs.workflow-inventory == 'true'
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'workflow-inventory')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.12'
-      - name: Install workflow test dependency
-        run: python -m pip install PyYAML==6.0.3
+      - *checkout
+      - *python
       - name: Check sidecar workflow inventory
-        run: python -m unittest discover -s .github/tests -v
+        run: |
+          python -m pip install PyYAML==6.0.3
+          python -m unittest discover -s .github/tests -v
 
   # A sidecar missing from the chart is a warning, never a failure: publishing adds
   # the standard ones (docker.yml, chart job) and the chart maintainer follows up
   # on the others. A chart that does not lint or render fails.
   helm-chart:
     needs: changes
-    if: needs.changes.outputs.helm-chart == 'true'
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'helm-chart')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
+      - *checkout
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
-        with:
-          version: v4.3.1
+        with: {version: v4.3.1}
       - name: Lint the chart
         run: helm lint --strict charts/picsou
       - name: Render the default and the optional resources
@@ -814,115 +298,51 @@ jobs:
 
   e2e:
     needs: changes
-    if: needs.changes.outputs.e2e == 'true'
+    if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'e2e')
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
+    defaults: {run: {working-directory: frontend}}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - name: Cache bun downloads
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
-      - name: Install
-        run: bun install --frozen-lockfile
+      - *checkout
+      - *bun
+      - *bun-cache
+      - *bun-install
       - name: Cache Playwright browsers
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
+        with: {path: ~/.cache/ms-playwright, key: "playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}"}
       - name: Install Playwright Chromium
         run: bunx playwright install --with-deps chromium
       - name: Run Playwright E2E (demo mode)
-        env:
-          VITE_DEMO_MODE: 'true'
+        env: {VITE_DEMO_MODE: 'true'}
         run: bun run test:e2e
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: playwright-report
-          path: frontend/playwright-report/
-          retention-days: 7
+        with: {name: playwright-report, path: frontend/playwright-report/, retention-days: 7}
 
   # Green only when every release-blocking job the change selected passed and no
   # such job failed or was cancelled. Helm validation remains an independent check:
   # chart failures must not prevent application images from being published.
   ci-ok:
     if: always()
-    needs:
-      - changes
-      - release-deployment
-      - docker-entrypoint
-      - backend
-      - frontend
-      - e2e
-      - bourse-direct-sidecar
-      - fortuneo-sidecar
-      - bourso-sidecar
-      - caisse-epargne-sidecar
-      - corum-sidecar
-      - sofidy-sidecar
-      - amundi-sidecar
-      - amex-auth-sidecar
-      - sidecar-package
-      - degiro-auth-sidecar
-      - tr-auth-sidecar
-      - revolut-auth-sidecar
-      - cmes-auth-sidecar
-      - cic-auth-sidecar
-      - camoufox-arm64-smoke
-      - compose-sidecar-build
-      - workflow-inventory
+    needs: [changes, release-deployment, docker-entrypoint, backend, frontend, e2e, sidecar-base, sidecar, compose-sidecar-build, workflow-inventory]
     runs-on: ubuntu-latest
     steps:
       - name: Every selected job succeeded
-        env:
-          NEEDS: ${{ toJSON(needs) }}
+        env: {NEEDS: '${{ toJSON(needs) }}'}
         run: |
           jq -en --argjson needs "$NEEDS" '
-            $needs.changes.outputs as $selected
-            | [$needs | to_entries[]
-                | select(.value.result != "success"
-                    and (.value.result != "skipped" or $selected[.key] != "false"))
+            $needs.changes.outputs as $out
+            | [$needs | to_entries[] | .key as $job
+                | select(.value.result != "success" and (.value.result != "skipped"
+                    or $out.all == "true" or ($out.jobs // "[]" | fromjson | index($job)) != null))
                 | "\(.key): \(.value.result)"]
             | if . == [] then true else error("not green: \(join(", "))") end'
 
   # Images are only published after every release-blocking CI job is green, and
   # only on a push to main or a version tag — not on pull requests.
   docker:
-    needs:
-      - ci-ok
-      - release-deployment
-      - docker-entrypoint
-      - backend
-      - frontend
-      - e2e
-      - bourse-direct-sidecar
-      - fortuneo-sidecar
-      - bourso-sidecar
-      - caisse-epargne-sidecar
-      - corum-sidecar
-      - sofidy-sidecar
-      - amundi-sidecar
-      - amex-auth-sidecar
-      - sidecar-package
-      - degiro-auth-sidecar
-      - tr-auth-sidecar
-      - revolut-auth-sidecar
-      - cmes-auth-sidecar
-      - cic-auth-sidecar
-      - camoufox-arm64-smoke
-      - compose-sidecar-build
-      - workflow-inventory
+    needs: [ci-ok, release-deployment, docker-entrypoint, backend, frontend, e2e, sidecar-base, sidecar, compose-sidecar-build, workflow-inventory]
     if: github.event_name == 'push'
     uses: ./.github/workflows/docker.yml
     secrets: inherit
-    permissions:
-      contents: read
-      packages: write
+    permissions: {contents: read, packages: write}
