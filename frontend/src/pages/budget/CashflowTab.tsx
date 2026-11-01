@@ -20,6 +20,7 @@ import type { CashflowPeriod } from '@/types/api'
 import { PeriodToggle } from './budget-utils'
 import { PeriodNavigator } from './PeriodNavigator'
 import { useBudgetPeriod } from './BudgetPeriodContext'
+import { AXIS_PROPS } from '@/lib/chart-axis'
 
 function StatCard({ labelKey, value, tone }: { labelKey: string; value: number; tone?: string }) {
   const { t } = useTranslation()
@@ -95,10 +96,10 @@ export function CashflowTab() {
                 <ChartContainer config={chartConfig} className="h-[260px] w-full">
                   <BarChart data={data.series} accessibilityLayer>
                     <CartesianGrid vertical={false} />
-                    <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8}
+                    <XAxis dataKey="label" {...AXIS_PROPS}
                       fontSize={12} />
-                    <YAxis tickLine={false} axisLine={false} width={MONEY_AXIS_WIDTH} fontSize={12}
-                      tickMargin={8} tickFormatter={money.tick} />
+                    <YAxis {...AXIS_PROPS} width={MONEY_AXIS_WIDTH} fontSize={12}
+                      tickFormatter={money.tick} />
                     <ChartTooltip content={<MoneyChartTooltip config={chartConfig} />} />
                     <ChartLegend content={<ChartLegendContent />} />
                     <Bar dataKey="income" fill="var(--color-income)" radius={4} />
