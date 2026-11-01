@@ -3,6 +3,7 @@
 import io
 import json
 import logging
+import os
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -30,7 +31,7 @@ OK_KEYPAD = {"processId": "p" * 32, "status": "SECURPASS_PENDING"}
 
 class InitiateContractTest(unittest.TestCase):
     def setUp(self):
-        key = patch.object(main, "SIDECAR_API_KEY", TEST_KEY)
+        key = patch.dict(os.environ, {"APP_SIDECAR_API_KEY": TEST_KEY})
         key.start()
         self.addCleanup(key.stop)
 
@@ -233,7 +234,7 @@ class InitiateContractTest(unittest.TestCase):
 
 class LifespanTest(unittest.TestCase):
     def test_shutdown_closes_every_pending_browser(self):
-        with patch.object(main, "SIDECAR_API_KEY", TEST_KEY), patch.object(
+        with patch.dict(os.environ, {"APP_SIDECAR_API_KEY": TEST_KEY}), patch.object(
             login, "close_all", AsyncMock()
         ) as close_all:
             with TestClient(main.app):
@@ -249,7 +250,7 @@ class LifespanTest(unittest.TestCase):
 
             await asyncio.sleep(3600)
 
-        with patch.object(main, "SIDECAR_API_KEY", TEST_KEY), patch.object(
+        with patch.dict(os.environ, {"APP_SIDECAR_API_KEY": TEST_KEY}), patch.object(
             login, "sweeper", fake_sweeper
         ), patch.object(login, "close_all", AsyncMock()):
             with TestClient(main.app):

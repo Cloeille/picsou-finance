@@ -14,6 +14,7 @@ _FORM_RE = re.compile(r"<form\b(?P<attrs>[^>]*)>(?P<body>.*?)</form>", re.DOTALL
 _INPUT_RE = re.compile(r"<input\b(?P<attrs>[^>]*)/?>", re.IGNORECASE)
 _ATTR_RE = re.compile(r'(?P<name>[\w:-]+)\s*=\s*(?:"(?P<dq>[^"]*)"|\'(?P<sq>[^\']*)\')')
 _QUOTED_RE = re.compile(r'"[^"]*"|\'[^\']*\'')
+_TAG_RE = re.compile(r"<[^>]+>")
 # `checked` as an attribute name (bare or with a value), never inside a value.
 _CHECKED_RE = re.compile(r"(?<![\w:-])checked(?![\w:-])", re.IGNORECASE)
 
@@ -31,6 +32,11 @@ class Form:
     fields: dict[str, str] = field(default_factory=dict)
     # Submit buttons, name -> value: sent only when pressed.
     buttons: dict[str, str] = field(default_factory=dict)
+
+
+def html_text(fragment: str) -> str:
+    """The text of an HTML fragment: tags dropped, entities decoded, whitespace (non-breaking included) collapsed."""
+    return " ".join(html_module.unescape(_TAG_RE.sub(" ", fragment)).split())
 
 
 def _attrs(raw: str) -> dict[str, str]:

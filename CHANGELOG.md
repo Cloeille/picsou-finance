@@ -297,6 +297,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Sidecars share their plumbing.** The bank sidecars' key check, health endpoint, request
+  log, log sanitising and pending-login store now live once, in `services/base/picsou_sidecar`,
+  and CIC and Crédit Mutuel share one login client. AMEX answers a wrong sidecar key with
+  `{"detail": "UNAUTHORIZED"}` like the others and closes the browser for a retryable code
+  when a full pending pool prevents it from keeping the attempt. Sofidy now uses the shared
+  request log, which omits the method and response status. Refused shared-key requests
+  log no caller path; authenticated paths are control-sanitized and capped at 200 characters.
+  Pending stores reject expired completions immediately and reclaim expired capacity when
+  full; parking with room available does not wait for unrelated resource cleanup.
+  A retryable code that cannot be parked answers 503 and releases its resources.
+  Every sidecar trims its configured
+  API key before comparing it, escapes control characters in its whole log line and keeps its
+  pending-login sweeper running after a failed sweep. Crédit Mutuel
+  withdraws the phone confirmation when the bank answers an unknown state, as CIC did. Code
+  no production path used goes (AMEX self-check, Fortuneo legacy parsers, unused helpers).
+
 - **Pull requests go green sooner.** CI runs only the jobs a pull request's changed paths can
   affect, a new push cancels the stale run, and the demo Playwright suite runs once instead of
   twice. Pushes to `main` and tags still run every job, and a new `ci-ok` check fails when a
@@ -314,9 +330,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   requires configuring other clients for Streamable HTTP. The existing Spring AI 1.1.8 supports
   this without a Boot 4 migration (#53).
 
+- **BoursoBank syncs a securities account whose lines sit in several sections.** The trading
+  board can split an account's positions across more than one section of its summary. Only the
+  longest list was read, so the lines of the others went missing and the whole sync stopped with
+  `PORTFOLIO_INCOMPLETE`. All sections are now read when that is what makes the lines add up to
+  the account's valuation (#361). The combined sections count identical holdings only once
+  and reject conflicting duplicates, including a repeated broker symbol with an ISIN on only
+  some rows (missing or malformed on the others), so repeated partial sections cannot hide
+  missing holdings.
 - **AI categorization works with Anthropic.** Every call to Claude failed with
   `400 max_tokens: Field required`, so no transaction was ever categorized with that
-  provider. Picsou now sends the token limit the Anthropic API requires.
+  provider. Picsou now sends the token limit the Anthropic API requires, with room for
+  thinking and the answer. Categorization and the admin Test read the text answer after
+  the model's thinking, including when thinking contains a summary, and Test reports a
+  failure when the model returns no text answer.
 
 - **Client addresses behind trusted proxies.** The bundled TLS proxy now preserves separate
   per-client login limits. nginx and Tomcat resolve forwarded addresses only from configured

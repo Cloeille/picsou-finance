@@ -1,6 +1,6 @@
 # Feature: CIC online-banking sync (livrets)
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-01
 
 ## Context
 
@@ -12,8 +12,10 @@ balance.
 ## How it works
 
 - **Sidecar** (`services/cic-auth`, browserless): same platform as Crédit Mutuel Épargne Salariale, so
-  the login and second-factor code is `cmes-auth`'s, kept in step by hand (each sidecar is its own
-  build context). Login form `bloc_ident` on `/fr/authentification.html`; second factor on
+  their login, second-factor and session code lives in
+  `services/base/euro_information/client.py`. Each sidecar passes the shared client its own frozen
+  `Site`, while keeping its bank-specific routes and parsers. Login form `bloc_ident` on
+  `/fr/authentification.html`; second factor on
   `/fr/banque/validation.aspx`, either a mobile confirmation (polled on
   `/fr/banque/async/otp/SOSD_OTP_GetTransactionState.htm`, woob's documented path, when the page
   script names none) or an SMS code posted with the form's `_FID_CheckOrDeliverBackup` button. On
