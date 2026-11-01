@@ -266,7 +266,7 @@ if [[ -n "$running_proxy" ]]; then
         echo 'Deployment cut over, but TLS proxy active config could not be read from the admin API.' >&2
         exit 1
     fi
-    if ! python3 - "$work_dir/proxy-config.json" <<'PYCONFIG'
+    if ! python3 -I - "$work_dir/proxy-config.json" <<'PYCONFIG'
 import json
 import sys
 
@@ -285,7 +285,10 @@ def upstream_dials(node):
 
 try:
     with open(sys.argv[1]) as config:
-        dials = list(upstream_dials(json.load(config)))
+        dials = []
+        for dial in upstream_dials(json.load(config)):
+            host, separator, port = dial.partition(":")
+            dials.append(f"{host.lower()}{separator}{port}")
     # Other sites may proxy unrelated hosts; only Picsou service names constrain this gate.
     valid = "app-tls:8080" in dials and all(
         dial == "app-tls:8080" or dial.split(":", 1)[0] not in {"app", "app-tls"}

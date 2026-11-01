@@ -189,21 +189,25 @@ def test_absent_tls_proxy_is_not_started(fake_tools, tmp_path):
     assert not any("2019/config/" in line for line in commands)
 
 
-@pytest.mark.parametrize("dials, ok", [
-    (["app-tls:8080"], True),
-    (["app-tls:8080", "other-service:9090"], True),
-    (["app:8080"], False),
-    (["app-tls:8080", "app:8080"], False),
-    (["app-tls:8080", "app:9090"], False),
-    (["app-tls:9090"], False),
-    (["other-service:9090"], False),
-    ([], False),
+@pytest.mark.parametrize("dial_groups, ok", [
+    ([["app-tls:8080"]], True),
+    ([["APP-TLS:8080"]], True),
+    ([["app-tls:8080", "other-service:9090"]], True),
+    ([["app:8080"]], False),
+    ([["app-tls:8080", "app:8080"]], False),
+    ([["app-tls:8080", "APP:8080"]], False),
+    ([["app-tls:8080"], ["app:8080"]], False),
+    ([["app-tls:8080", "app:9090"]], False),
+    ([["app-tls:9090"]], False),
+    ([["app-tls:8080", "APP-TLS:9090"]], False),
+    ([["other-service:9090"]], False),
+    ([[]], False),
 ])
-def test_tls_proxy_active_upstreams_must_use_trusted_app_target(fake_tools, tmp_path, dials, ok):
+def test_tls_proxy_active_upstreams_must_use_trusted_app_target(fake_tools, tmp_path, dial_groups, ok):
     config = {"apps": {"http": {"servers": {"site": {"routes": [{"handle": [{
         "handler": "subroute", "routes": [{"handle": [{
             "handler": "reverse_proxy", "upstreams": [{"dial": dial} for dial in dials],
-        }]}],
+        }]} for dials in dial_groups],
     }]}]}}}}}
     result, commands, _ = run_deploy(
         fake_tools, tmp_path, MOCK_PROXY_CONTAINER="old-proxy-container",
