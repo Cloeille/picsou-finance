@@ -5,6 +5,7 @@ import com.nimbusds.jose.proc.SecurityContext;
 import com.picsou.model.AppUser;
 import com.picsou.model.UserRole;
 import com.picsou.repository.AppUserRepository;
+import com.picsou.support.PostgresContainers;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -68,7 +69,7 @@ class AuthorizationServerConfigTest {
 
     @Container
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @DynamicPropertySource
     static void secrets(DynamicPropertyRegistry registry) {

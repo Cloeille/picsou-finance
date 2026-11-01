@@ -1,6 +1,8 @@
 package com.picsou.migration;
 
 import com.picsou.config.LegacyMigrationRenumberingCallback;
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
 import org.flywaydb.core.api.MigrationVersion;
@@ -10,11 +12,8 @@ import org.flywaydb.core.api.callback.Event;
 import org.flywaydb.core.api.exception.FlywayValidateException;
 import org.flywaydb.core.api.output.MigrateResult;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.net.URISyntaxException;
 import java.nio.file.Files;
@@ -46,24 +45,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>The old numbering never existed as one tree that Flyway could run (V80 had three files), so
  * each legacy line is the set a deployed instance actually ran: V1-V79 plus that line's files.
  */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 class LegacyMigrationRenumberingTest {
 
-    static {
-        System.setProperty("api.version", "1.44");
-    }
-
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && System.getenv("PICSOU_REQUIRE_DOCKER_TESTS") != null) {
-            throw new IllegalStateException("Docker is required but unavailable");
-        }
-        return available;
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     /** The 1.1.0 branch after the security-profile work landed: old V80, V81, V86, V87, V88. */
     private static final Map<String, String> SECURITY_PROFILE_LINE = Map.ofEntries(

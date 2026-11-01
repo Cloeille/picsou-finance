@@ -9,6 +9,7 @@ import com.picsou.port.CmesPort;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CmesSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.support.PostgresContainers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,7 +52,7 @@ import static org.mockito.Mockito.when;
 class CmesPlanMigrationPostgresTest {
     @Container
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     private static final String PEE_ID = "cmes_12345_PEE";
     private static final String PEE_LABEL = "Plan d'épargne entreprise";

@@ -1,16 +1,15 @@
 package com.picsou.migration;
 
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
+
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -23,8 +22,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * and refuses a value outside the three known natures. Every statement is a constant with bound
  * parameters: no value is concatenated into SQL.
  */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 class V111AccountCardNatureMigrationTest {
 
     private static final String INSERT_ACCOUNT =
@@ -33,22 +31,8 @@ class V111AccountCardNatureMigrationTest {
     private static final String SET_NATURE = "UPDATE account SET card_nature = ? WHERE id = ?";
     private static final String READ_NATURE = "SELECT name, card_nature FROM account WHERE id = ?";
 
-    static {
-        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
-    }
-
     @Container
-    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
-            throw new IllegalStateException(
-                "PICSOU_REQUIRE_DOCKER_TESTS is set but the V111 upgrade test cannot be skipped.");
-        }
-        return available;
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @BeforeAll
     static void migrateToV110() {
@@ -60,12 +44,8 @@ class V111AccountCardNatureMigrationTest {
             .migrate();
     }
 
-    private static Connection connection() throws SQLException {
-        return DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-    }
-
     private static long newMember(String name) throws SQLException {
-        try (Connection c = connection();
+        try (Connection c = PostgresContainers.connection(POSTGRES);
              PreparedStatement st = c.prepareStatement(
                  "INSERT INTO family_member (display_name) VALUES (?) RETURNING id")) {
             st.setString(1, name);
@@ -77,7 +57,7 @@ class V111AccountCardNatureMigrationTest {
     }
 
     private static long newAccount(long member, String name, String type) throws SQLException {
-        try (Connection c = connection(); PreparedStatement st = c.prepareStatement(INSERT_ACCOUNT)) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); PreparedStatement st = c.prepareStatement(INSERT_ACCOUNT)) {
             st.setString(1, name);
             st.setString(2, type);
             st.setString(3, "test-provider");
@@ -93,7 +73,7 @@ class V111AccountCardNatureMigrationTest {
     }
 
     private static void setNature(long account, String nature) throws SQLException {
-        try (Connection c = connection(); PreparedStatement st = c.prepareStatement(SET_NATURE)) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); PreparedStatement st = c.prepareStatement(SET_NATURE)) {
             st.setString(1, nature);
             st.setLong(2, account);
             st.executeUpdate();
@@ -101,7 +81,7 @@ class V111AccountCardNatureMigrationTest {
     }
 
     private static String readNature(long account, String expectedName) throws SQLException {
-        try (Connection c = connection(); PreparedStatement st = c.prepareStatement(READ_NATURE)) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); PreparedStatement st = c.prepareStatement(READ_NATURE)) {
             st.setLong(1, account);
             try (ResultSet rs = st.executeQuery()) {
                 assertThat(rs.next()).isTrue();

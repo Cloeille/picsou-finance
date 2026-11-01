@@ -5,6 +5,7 @@ import com.picsou.model.*;
 import com.picsou.port.CorumPort;
 import com.picsou.port.SofidyPort;
 import com.picsou.repository.*;
+import com.picsou.support.PostgresContainers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -48,7 +49,7 @@ import static org.mockito.Mockito.when;
 class ScpiSyncSessionPostgresTest {
     @Container
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @TestConfiguration
     static class Transactions {

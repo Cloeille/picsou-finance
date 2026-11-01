@@ -1,17 +1,15 @@
 package com.picsou.migration;
 
 import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -27,8 +25,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <p>Every statement is a constant with bound parameters: no value is concatenated into SQL.
  */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 class V109CaisseEpargneSessionMigrationTest {
 
     private static final String INSERT_SESSION =
@@ -39,23 +36,8 @@ class V109CaisseEpargneSessionMigrationTest {
         "INSERT INTO caisse_epargne_session (member_id, session_state, sync_status, last_sync_error) "
             + "VALUES (?, ?, ?, ?)";
 
-    static {
-        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
-    }
-
     @Container
-    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
-            throw new IllegalStateException(
-                "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
-                    + "The V109 migration test cannot be skipped. Needs Docker Engine >= 25.0.");
-        }
-        return available;
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @BeforeAll
     static void migrate() throws SQLException {
@@ -67,12 +49,8 @@ class V109CaisseEpargneSessionMigrationTest {
             .migrate();
     }
 
-    private static Connection connection() throws SQLException {
-        return DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-    }
-
     private static void exec(String sql, Object... params) throws SQLException {
-        try (Connection c = connection(); PreparedStatement st = c.prepareStatement(sql)) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); PreparedStatement st = c.prepareStatement(sql)) {
             for (int i = 0; i < params.length; i++) {
                 st.setObject(i + 1, params[i]);
             }
@@ -81,7 +59,7 @@ class V109CaisseEpargneSessionMigrationTest {
     }
 
     private static long newMember(String name) throws SQLException {
-        try (Connection c = connection();
+        try (Connection c = PostgresContainers.connection(POSTGRES);
              PreparedStatement st = c.prepareStatement(
                  "INSERT INTO family_member (display_name) VALUES (?) RETURNING id")) {
             st.setString(1, name);
@@ -95,7 +73,7 @@ class V109CaisseEpargneSessionMigrationTest {
     @Test
     void theTableHasNoCredentialColumn() throws SQLException {
         List<String> columns = new ArrayList<>();
-        try (Connection c = connection();
+        try (Connection c = PostgresContainers.connection(POSTGRES);
              PreparedStatement st = c.prepareStatement(
                  "SELECT column_name FROM information_schema.columns WHERE table_name = 'caisse_epargne_session'");
              ResultSet rs = st.executeQuery()) {
@@ -160,7 +138,7 @@ class V109CaisseEpargneSessionMigrationTest {
 
         exec("DELETE FROM family_member WHERE id = ?", member);
 
-        try (Connection c = connection();
+        try (Connection c = PostgresContainers.connection(POSTGRES);
              PreparedStatement st = c.prepareStatement(
                  "SELECT COUNT(*) FROM caisse_epargne_session WHERE member_id = ?")) {
             st.setLong(1, member);

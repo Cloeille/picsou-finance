@@ -1,19 +1,17 @@
 package com.picsou.migration;
 
-import org.flywaydb.core.Flyway;
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
+
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -29,44 +27,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * thirty days by a timestamp neither had earned. The migration must put those rows back in the
  * queue while leaving genuinely resolved ones alone.
  */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class V98SecurityProfileStatusMigrationTest {
 
-    static {
-        System.setProperty("api.version", "1.44");
-    }
-
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && System.getenv("PICSOU_REQUIRE_DOCKER_TESTS") != null) {
-            throw new IllegalStateException("Docker is required but unavailable");
-        }
-        return available;
-    }
-
-    private static void migrateTo(String version) {
-        Flyway.configure()
-            .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-            .locations("classpath:db/migration")
-            .target(version)
-            .load()
-            .migrate();
-    }
-
-    private static Connection connection() throws SQLException {
-        return DriverManager.getConnection(
-            POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @BeforeAll
     static void migrateAndSeed() throws SQLException {
-        migrateTo("97");
-        try (Connection c = connection(); Statement st = c.createStatement()) {
+        PostgresContainers.migrateTo(POSTGRES, "97");
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement()) {
             // A share that resolved.
             st.execute("INSERT INTO security_profile (id, ticker, asset_type, sector_key, refreshed_at) "
                 + "VALUES (1, 'AI.PA', 'STOCK', 'basic_materials', NOW() - INTERVAL '2 days')");
@@ -85,9 +56,9 @@ class V98SecurityProfileStatusMigrationTest {
     @Test
     @Order(1)
     void aResolvedProfileIsMarkedOkAndKeepsItsTimestamp() throws SQLException {
-        migrateTo("98");
+        PostgresContainers.migrateTo(POSTGRES, "98");
 
-        try (Connection c = connection(); Statement st = c.createStatement();
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement();
              ResultSet rs = st.executeQuery(
                  "SELECT ticker, status, refreshed_at, last_attempt_at FROM security_profile "
                      + "WHERE ticker IN ('AI.PA', 'CW8.PA') ORDER BY ticker")) {
@@ -108,7 +79,7 @@ class V98SecurityProfileStatusMigrationTest {
     @Test
     @Order(2)
     void anEmptiedProfileIsPutBackInTheQueue() throws SQLException {
-        try (Connection c = connection(); Statement st = c.createStatement();
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement();
              ResultSet rs = st.executeQuery(
                  "SELECT status, refreshed_at, last_attempt_at FROM security_profile "
                      + "WHERE ticker = 'ESE.PA'")) {
@@ -124,7 +95,7 @@ class V98SecurityProfileStatusMigrationTest {
     @Test
     @Order(3)
     void anUnknownStatusIsRefused() throws SQLException {
-        try (Connection c = connection(); Statement st = c.createStatement()) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement()) {
             org.assertj.core.api.Assertions.assertThatThrownBy(() -> st.execute(
                 "UPDATE security_profile SET status = 'PROBABLY' WHERE ticker = 'AI.PA'"))
                 .isInstanceOf(SQLException.class)

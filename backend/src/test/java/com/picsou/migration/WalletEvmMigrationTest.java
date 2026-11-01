@@ -1,22 +1,20 @@
 package com.picsou.migration;
 
-import org.flywaydb.core.Flyway;
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -43,46 +41,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * PostgreSQL-flavoured — {@code CREATE TYPE ... AS ENUM} and V56's own
  * {@code split_part()} do not exist in H2.
  */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class WalletEvmMigrationTest {
 
-    static {
-        // docker-java otherwise negotiates down to Docker API 1.32, which Engine >= 28
-        // refuses outright ("minimum supported API version is 1.40") -- which surfaces as
-        // the *same* "no valid Docker environment" error a machine without Docker gives,
-        // so the guard below would quietly skip this test on a perfectly capable host.
-        // Set here rather than in surefire config so it also applies when the class is run
-        // from an IDE or failsafe. 1.44 is satisfied by Engine >= 25.0 (Jan 2024).
-        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
-    }
-
     @Container
-    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    /**
-     * Gates the whole class on a reachable Docker daemon so the other 570-odd tests stay
-     * runnable without one (notably {@code mvn test} inside a Maven image with no
-     * {@code /var/run/docker.sock} mount). Evaluated as a JUnit {@code ExecutionCondition},
-     * which runs <em>before</em> the Testcontainers extension tries to start the container.
-     *
-     * <p>A skip is invisible in a green build, so CI sets
-     * {@code PICSOU_REQUIRE_DOCKER_TESTS=true},
-     * which turns "no Docker" into a hard failure instead. Environment drift then shows up
-     * as a red build rather than silently deleting the coverage.
-     */
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
-            throw new IllegalStateException(
-                "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
-                    + "The V56/V57 migration test cannot be skipped here -- it is the only "
-                    + "coverage of a data-mutating migration. Needs Docker Engine >= 25.0.");
-        }
-        return available;
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     private static Long ethWalletId;
     private static Long solWalletId;
@@ -99,9 +63,9 @@ class WalletEvmMigrationTest {
      */
     @BeforeAll
     static void migrateAndSeed() throws SQLException {
-        migrateTo("53");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "53");
 
-        try (Connection conn = connect()) {
+        try (Connection conn = PostgresContainers.connection(POSTGRES)) {
             long memberId = insertReturningId(conn,
                 "INSERT INTO family_member (display_name) VALUES ('Test') RETURNING id");
 
@@ -143,7 +107,7 @@ class WalletEvmMigrationTest {
                 + "VALUES (" + ethAccountId + ", 'ETH', 0.96100000, 1850.00000000)");
         }
 
-        migrateTo("57");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "57");
     }
 
     @Test
@@ -269,11 +233,11 @@ class WalletEvmMigrationTest {
     @Test
     @Order(Integer.MAX_VALUE - 2)
     void latestSchema_hardensAndBackfillsOnlyReconciledBourseDirectData() throws Exception {
-        migrateTo("61");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "61");
         long memberId;
         long reconciledAccountId;
         long unreconciledAccountId;
-        try (Connection conn = connect()) {
+        try (Connection conn = PostgresContainers.connection(POSTGRES)) {
             memberId = insertReturningId(conn,
                 "INSERT INTO family_member (display_name) VALUES ('Bourse Direct') RETURNING id");
             exec(conn, "INSERT INTO bourse_direct_session (member_id, session_state) VALUES ("
@@ -300,7 +264,7 @@ class WalletEvmMigrationTest {
                 + unreconciledAccountId + ", 'US0000000001', 10, 80, 100)");
         }
 
-        migrateTo("65");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "65");
 
         assertThat(queryString("SELECT sync_status FROM bourse_direct_session WHERE member_id = " + memberId))
             .isEqualTo("IDLE");
@@ -319,7 +283,7 @@ class WalletEvmMigrationTest {
             "SELECT provider_value_eur::text FROM account_holding WHERE account_id = " + unreconciledAccountId))
             .isNull();
 
-        try (Connection conn = connect()) {
+        try (Connection conn = PostgresContainers.connection(POSTGRES)) {
             exec(conn, "UPDATE account_holding SET quote_currency = 'USD', "
                 + "provider_value_eur = 1900, provider_pnl_eur = 120 WHERE account_id = " + ethAccountId);
             assertThatThrownBy(() -> exec(conn,
@@ -358,27 +322,12 @@ class WalletEvmMigrationTest {
             assertThat(in).as("%s must be on the test classpath", migrationFile).isNotNull();
             sql = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
-        try (Connection conn = connect(); Statement st = conn.createStatement()) {
+        try (Connection conn = PostgresContainers.connection(POSTGRES); Statement st = conn.createStatement()) {
             st.execute(sql);
         }
     }
 
     // ─── helpers ──────────────────────────────────────────────────────────────
-
-    private static void migrateTo(String version) {
-        Flyway.configure()
-            .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-            .locations("classpath:db/migration")
-            .target(version)
-            .outOfOrder(true) // mirrors application.yml
-            .load()
-            .migrate();
-    }
-
-    private static Connection connect() throws SQLException {
-        return DriverManager.getConnection(
-            POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-    }
 
     private static long insertAccount(Connection conn, long memberId, String name, String externalId)
         throws SQLException {
@@ -420,7 +369,7 @@ class WalletEvmMigrationTest {
      */
     private static <T> T querySingle(String sql, SqlFunction<T> extractor) throws SQLException {
         if (readConn == null || readConn.isClosed()) {
-            readConn = connect();
+            readConn = PostgresContainers.connection(POSTGRES);
         }
         try (PreparedStatement ps = readConn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {

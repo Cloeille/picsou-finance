@@ -1,17 +1,16 @@
 package com.picsou.migration;
 
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
+
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -20,26 +19,11 @@ import java.time.LocalDate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Verifies V114 preserves existing holdings and stores the bank valuation date as a DATE. */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 class V114AccountHoldingProviderPriceDateMigrationTest {
 
-    static {
-        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
-    }
-
     @Container
-    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
-            throw new IllegalStateException(
-                "PICSOU_REQUIRE_DOCKER_TESTS is set but the V114 migration test cannot be skipped.");
-        }
-        return available;
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @BeforeAll
     static void migrateToV113() {
@@ -51,12 +35,8 @@ class V114AccountHoldingProviderPriceDateMigrationTest {
             .migrate();
     }
 
-    private static Connection connection() throws SQLException {
-        return DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-    }
-
     private static long newMember() throws SQLException {
-        try (Connection c = connection();
+        try (Connection c = PostgresContainers.connection(POSTGRES);
              PreparedStatement st = c.prepareStatement(
                  "INSERT INTO family_member (display_name) VALUES (?) RETURNING id")) {
             st.setString(1, "before-v114");
@@ -68,7 +48,7 @@ class V114AccountHoldingProviderPriceDateMigrationTest {
     }
 
     private static long newPerAccount(long memberId) throws SQLException {
-        try (Connection c = connection();
+        try (Connection c = PostgresContainers.connection(POSTGRES);
              PreparedStatement st = c.prepareStatement(
                  "INSERT INTO account (member_id, name, type, provider, currency, current_balance, is_manual, color) "
                      + "VALUES (?, ?, 'PER', ?, 'EUR', ?, FALSE, '#123456') RETURNING id")) {
@@ -84,7 +64,7 @@ class V114AccountHoldingProviderPriceDateMigrationTest {
     }
 
     private static long insertHolding(long accountId) throws SQLException {
-        try (Connection c = connection();
+        try (Connection c = PostgresContainers.connection(POSTGRES);
              PreparedStatement st = c.prepareStatement(
                  "INSERT INTO account_holding (account_id, ticker, quantity, provider_value_eur) "
                      + "VALUES (?, ?, ?, ?) RETURNING id")) {
@@ -115,7 +95,7 @@ class V114AccountHoldingProviderPriceDateMigrationTest {
         assertHolding(holdingId, null);
 
         LocalDate navDate = LocalDate.of(2026, 10, 12);
-        try (Connection c = connection();
+        try (Connection c = PostgresContainers.connection(POSTGRES);
              PreparedStatement st = c.prepareStatement(
                  "UPDATE account_holding SET provider_price_date = ? WHERE id = ?")) {
             st.setDate(1, java.sql.Date.valueOf(navDate));
@@ -126,7 +106,7 @@ class V114AccountHoldingProviderPriceDateMigrationTest {
     }
 
     private static void assertHolding(long holdingId, LocalDate expectedNavDate) throws SQLException {
-        try (Connection c = connection();
+        try (Connection c = PostgresContainers.connection(POSTGRES);
              PreparedStatement st = c.prepareStatement(
                  "SELECT provider_value_eur, provider_price_date FROM account_holding WHERE id = ?")) {
             st.setLong(1, holdingId);
