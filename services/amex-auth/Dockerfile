@@ -1,3 +1,9 @@
+# The shared sidecar package (services/base/picsou_sidecar), copied from the
+# python base: this image keeps its own Python and Camoufox pins. Compose and CI
+# build that base first; the publish workflow passes it by digest.
+ARG SIDECAR_LIB=picsou-sidecar-python
+FROM ${SIDECAR_LIB} AS sidecar-lib
+
 FROM python:3.12-slim-bookworm
 
 WORKDIR /app
@@ -23,6 +29,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+COPY --from=sidecar-lib /opt/sidecar-base/lib /opt/sidecar-base/lib
+RUN echo /opt/sidecar-base/lib > "$(python -c 'import site; print(site.getsitepackages()[0])')/picsou-sidecar.pth"
 
 # camoufox[geoip] writes GeoLite2-City.mmdb INTO its own package dir at fetch time, so
 # that dir must be owned by the runtime user too -- otherwise `camoufox fetch` below

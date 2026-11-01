@@ -234,6 +234,11 @@ same `ScpiPositionService.save` and never sends a CORUM or Sofidy fund code. See
   `services/sofidy-auth/test_sidecar_auth.py` — missing, empty and wrong keys,
   authenticated dispatch, public health and fail-closed configuration
 
+Sofidy request logs omit method and status. Refused shared-key requests log only a
+fixed refusal message and duration, without the caller's path. Authenticated
+requests log a control-sanitized path capped at 200 characters plus an ellipsis.
+Health checks produce no request log line.
+
 ## Links
 
 - Related ADR: [A SCPI share is not a property](../decisions/2026-09-23-scpi-not-a-property.md)

@@ -20,6 +20,17 @@ ENV PICSOU_SIDECAR_BASE=sidecar-python
 COPY requirements.txt /opt/sidecar-base/requirements.txt
 RUN pip install --no-cache-dir -r /opt/sidecar-base/requirements.txt
 
+# The shared sidecar packages: picsou_sidecar for every bank, euro_information
+# for CIC and Credit Mutuel. A .pth file rather than PYTHONPATH: the sidecar test
+# jobs set PYTHONPATH=/app, which would hide them.
+# .dockerignore excludes test helpers and local bytecode; CI mounts helpers read-only.
+COPY picsou_sidecar /opt/sidecar-base/lib/picsou_sidecar
+# Copy runtime modules explicitly: euro_information/testing.py contains shared
+# test fixtures and must remain outside production images.
+COPY euro_information/__init__.py euro_information/client.py euro_information/forms.py /opt/sidecar-base/lib/euro_information/
+RUN echo /opt/sidecar-base/lib > "$(python -c 'import site; print(site.getsitepackages()[0])')/picsou-sidecar.pth" \
+    && python -c "import picsou_sidecar"
+
 FROM python AS chromium
 
 ENV PICSOU_SIDECAR_BASE=sidecar-chromium

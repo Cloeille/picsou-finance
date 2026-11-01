@@ -1,5 +1,6 @@
 """/complete builds a TR path from processId and tan: only well-formed values reach it."""
 
+import os
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -47,7 +48,7 @@ class CompleteEndpointTest(unittest.TestCase):
         self.post = AsyncMock(return_value=httpx.Response(
             401, text="denied", request=httpx.Request("POST", "https://api.traderepublic.com/")))
         for p in (
-            patch.object(main, "SIDECAR_API_KEY", TEST_KEY),
+            patch.dict(os.environ, {"APP_SIDECAR_API_KEY": TEST_KEY}),
             patch.object(main, "get_waf_token", AsyncMock(return_value="waf")),
             patch.object(httpx.AsyncClient, "post", self.post),
         ):

@@ -120,6 +120,10 @@ services:
     build:
       context: ./services/revolut-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_LIB: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:?Set APP_SIDECAR_API_KEY}
@@ -245,6 +249,10 @@ services:
     build:
       context: ./services/amex-auth
       dockerfile: Dockerfile
+      args:
+        SIDECAR_LIB: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
     restart: unless-stopped
     init: true
     expose:
