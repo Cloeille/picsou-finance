@@ -1,7 +1,7 @@
 # Design: SSO login through an external OIDC provider, alongside passwords
 
 > Date: 2026-10-31
-> Status: 🎨 Design (agreed in discussion — implementation pending)
+> Status: 🎨 Design (awaiting maintainer approval — implementation pending)
 > Branch: `feature/sso-login`
 
 ## Context
