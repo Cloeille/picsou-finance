@@ -3,10 +3,12 @@
 Each test here corresponds to a defect that a fixture-based test could not see,
 because the fixture was written from the same wrong assumption as the code.
 """
+import os
 import unittest
 from unittest.mock import patch
 
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 import main
 
@@ -287,6 +289,14 @@ class SelectsTheRealEstateContract(unittest.TestCase):
 
         self.assertEqual(caught.exception.status_code, 502)
         self.assertEqual(caught.exception.detail, "PORTFOLIO_INCOMPLETE")
+
+
+class InvalidBodyTest(unittest.TestCase):
+    def test_an_invalid_body_is_400_invalid_data_without_echoing_it(self):
+        with patch.dict(os.environ, {"APP_SIDECAR_API_KEY": "k"}), TestClient(main.app) as client:
+            response = client.post("/initiate", json={"password": "secret"}, headers={"X-Picsou-Sidecar-Key": "k"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"detail": "INVALID_DATA"})
 
 
 if __name__ == "__main__":

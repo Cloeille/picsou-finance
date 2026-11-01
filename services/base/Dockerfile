@@ -5,8 +5,8 @@
 # pulls these layers once for every sidecar. See
 # docs/decisions/2026-10-21-shared-sidecar-base-image.md.
 
-# 3.12.14-slim-bookworm, multi-arch index (amd64 CI and arm64 local).
-FROM python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS python
+# 3.12.16-slim-bookworm, multi-arch index (amd64 CI and arm64 local).
+FROM python:3.12-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337 AS python
 
 WORKDIR /app
 
@@ -19,6 +19,17 @@ ENV PICSOU_SIDECAR_BASE=sidecar-python
 
 COPY requirements.txt /opt/sidecar-base/requirements.txt
 RUN pip install --no-cache-dir -r /opt/sidecar-base/requirements.txt
+
+# The shared sidecar packages: picsou_sidecar for every bank, euro_information
+# for CIC and Credit Mutuel. A .pth file rather than PYTHONPATH: the sidecar test
+# jobs set PYTHONPATH=/app, which would hide them.
+# .dockerignore excludes test helpers and local bytecode; CI mounts helpers read-only.
+COPY picsou_sidecar /opt/sidecar-base/lib/picsou_sidecar
+# Copy runtime modules explicitly: euro_information/testing.py contains shared
+# test fixtures and must remain outside production images.
+COPY euro_information/__init__.py euro_information/client.py euro_information/forms.py /opt/sidecar-base/lib/euro_information/
+RUN echo /opt/sidecar-base/lib > "$(python -c 'import site; print(site.getsitepackages()[0])')/picsou-sidecar.pth" \
+    && python -c "import picsou_sidecar"
 
 FROM python AS chromium
 

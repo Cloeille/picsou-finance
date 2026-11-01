@@ -10,19 +10,14 @@ never logged.
 
 import asyncio
 import json
-import logging
-import os
-import secrets
 import time
 import uuid
-from contextlib import asynccontextmanager
 from decimal import Decimal
 from typing import Any
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi import HTTPException
+from picsou_sidecar import PendingStore, configure_logging, create_app, otp_field_detail
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from playwright.async_api import (
     Browser,
@@ -34,9 +29,7 @@ from playwright.async_api import (
 )
 from positions_parser import PositionsFormatError, parse_plans
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("amundi-auth")
-SIDECAR_API_KEY = os.environ.get("APP_SIDECAR_API_KEY", "")
+log = configure_logging("amundi-auth")
 
 BASE_URL = "https://epargnant.amundi-ee.com"
 # Angular SPA with hash routing; "/" redirects here anyway, but going straight
@@ -49,7 +42,6 @@ AUTHENTICATED_API_PREFIX = "/api/individu/"
 TOKEN_HEADER = "x-noee-authorization"
 
 PENDING_TTL_SECONDS = 600
-PENDING_SWEEP_SECONDS = 30
 RESOURCE_CLOSE_TIMEOUT_SECONDS = 5
 # The espace épargnant is a slow SPA: give the dashboard time to fire its first
 # authenticated call, which is where the bearer is harvested from.
@@ -71,9 +63,6 @@ MIN_CAPTCHA_SOLUTION_LENGTH = 100
 APP_VALIDATION_TIMEOUT_SECONDS = 120
 SMS_VALIDATION_TIMEOUT_SECONDS = 45
 POSITIONS_TIMEOUT_SECONDS = 30
-
-_pending: dict[str, dict[str, Any]] = {}
-_pending_lock = asyncio.Lock()
 
 # Every /initiate starts a Playwright driver and a Chromium process, and a
 # pending second factor keeps its browser alive for PENDING_TTL_SECONDS. The
@@ -97,70 +86,6 @@ async def _release_browser_slot() -> None:
     global _browsers
     async with _browser_lock:
         _browsers = max(0, _browsers - 1)
-
-
-async def _pending_sweeper() -> None:
-    while True:
-        await asyncio.sleep(PENDING_SWEEP_SECONDS)
-        await _cleanup_expired()
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    if not SIDECAR_API_KEY.strip():
-        raise RuntimeError("APP_SIDECAR_API_KEY must be configured and non-blank")
-    sweeper = asyncio.create_task(_pending_sweeper())
-    try:
-        yield
-    finally:
-        sweeper.cancel()
-        try:
-            await sweeper
-        except asyncio.CancelledError:
-            pass
-        await _close_all_pending()
-
-
-app = FastAPI(lifespan=lifespan)
-
-
-@app.middleware("http")
-async def authenticate_sidecar_request(request: Request, call_next):
-    if request.url.path != "/health":
-        supplied_key = request.headers.get("X-Picsou-Sidecar-Key", "")
-        # Starlette exposes wire header bytes through Latin-1, not UTF-8.
-        if (
-            not SIDECAR_API_KEY.strip()
-            or not secrets.compare_digest(
-                supplied_key.encode("latin-1"), SIDECAR_API_KEY.encode("utf-8")
-            )
-        ):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "UNAUTHORIZED"},
-                headers={"WWW-Authenticate": "Picsou-Sidecar-Key"},
-            )
-    return await call_next(request)
-
-
-@app.middleware("http")
-async def log_request_duration(request: Request, call_next):
-    started_at = time.monotonic()
-    try:
-        return await call_next(request)
-    finally:
-        if request.url.path != "/health":
-            # Uvicorn percent-decodes the path, so a caller can plant CR/LF in
-            # it and forge log lines. Strip controls and bound the length.
-            log.info(
-                "Amundi request completed (path=%s; duration=%.2fs)",
-                _log_safe(request.url.path),
-                time.monotonic() - started_at,
-            )
-
-
-def _log_safe(value: str) -> str:
-    return "".join(ch for ch in value if ch.isprintable())[:200]
 
 
 class InitiateRequest(BaseModel):
@@ -222,21 +147,6 @@ class SessionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     sessionState: str
-
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(
-    _: Request,
-    exc: RequestValidationError,
-) -> JSONResponse:
-    fields = {
-        str(error["loc"][-1])
-        for error in exc.errors()
-        if error.get("loc")
-    }
-    detail = "INVALID_OTP" if "code" in fields else "INVALID_DATA"
-    return JSONResponse(status_code=400, content={"detail": detail})
-
 
 
 class TokenCollector:
@@ -313,32 +223,12 @@ async def _dispose_pending_state(state: dict[str, Any]) -> None:
     )
 
 
-async def _close_pending(process_id: str) -> None:
-    async with _pending_lock:
-        state = _pending.pop(process_id, None)
-    if state:
-        await _dispose_pending_state(state)
-
-
-async def _take_pending(process_id: str) -> dict[str, Any] | None:
-    async with _pending_lock:
-        return _pending.pop(process_id, None)
-
-
-async def _cleanup_expired() -> None:
-    cutoff = time.time() - PENDING_TTL_SECONDS
-    async with _pending_lock:
-        expired = [pid for pid, state in _pending.items() if state["created_at"] < cutoff]
-    for pid in expired:
-        await _close_pending(pid)
-
-
-async def _close_all_pending() -> None:
-    async with _pending_lock:
-        states = list(_pending.values())
-        _pending.clear()
-    for state in states:
-        await _dispose_pending_state(state)
+_pending = PendingStore(dispose=_dispose_pending_state, log=log, ttl_seconds=PENDING_TTL_SECONDS)
+app = create_app(
+    request_log=(log, "Amundi"),
+    background=_pending,
+    validation_detail=otp_field_detail(),
+)
 
 
 async def _first_visible(page: Page, selectors: list[str]):
@@ -533,15 +423,9 @@ async def _new_browser(
     return browser, context, collector
 
 
-@app.get("/health")
-async def health() -> dict:
-    base = os.environ.get("PICSOU_SIDECAR_BASE")
-    return {"status": "ok", "base": base} if base else {"status": "ok"}
-
-
 @app.post("/initiate", response_model=InitiateResponse)
 async def initiate(req: InitiateRequest) -> dict:
-    await _cleanup_expired()
+    await _pending.expire()
     process_id = str(uuid.uuid4())
     pw: Playwright | None = None
     browser: Browser | None = None
@@ -609,12 +493,11 @@ async def initiate(req: InitiateRequest) -> dict:
             await asyncio.sleep(0.25)
 
         if mfa_type is not None:
-            async with _pending_lock:
-                _pending[process_id] = {
-                    "playwright": pw, "browser": browser, "context": context,
-                    "page": page, "collector": collector, "mfaType": mfa_type,
-                    "created_at": time.time(),
-                }
+            await _pending.put_or_raise(process_id, {
+                "playwright": pw, "browser": browser, "context": context,
+                "page": page, "collector": collector, "mfaType": mfa_type,
+                "created_at": time.time(),
+            })
             return {
                 "processId": process_id,
                 "mfaRequired": True,
@@ -650,12 +533,8 @@ async def initiate(req: InitiateRequest) -> dict:
 
 @app.post("/complete", response_model=SessionResponse)
 async def complete(req: CompleteRequest) -> dict:
-    await _cleanup_expired()
-    state = await _take_pending(req.processId)
+    state = await _pending.take(req.processId)
     if not state:
-        raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
-    if state["created_at"] < time.time() - PENDING_TTL_SECONDS:
-        await _dispose_pending_state(state)
         raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
 
     page: Page = state["page"]

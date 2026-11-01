@@ -79,7 +79,7 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 
 ### Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) & Docker Compose v2 (v2.33+ to build the sidecars from source with `--build`)
+- [Docker](https://docs.docker.com/get-docker/) & Docker Compose v2.17+ (v2.33+ to build the sidecars from source with `--build`)
 - (Optional) An [Enable Banking](https://enablebanking.com/) account for bank sync
 
 ### 1. Clone
@@ -142,6 +142,15 @@ On first launch the entrypoint auto-generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_K
 Otherwise, open http://localhost:8080 — the **setup wizard** walks you through admin credentials, CORS, and (optionally) Enable Banking.
 
 For subsequent production releases, do not replace the app with a bare `compose up`.
+Before upgrading, check that the new `tls-proxy` subnet `172.30.253.0/29` does not overlap
+an existing Docker, LAN, or VPN network. **This applies to non-TLS installs too**, because
+`app` always joins this bridge. If Docker reports `networks have overlapping IPv4`,
+`docker compose up -d` and `deploy.sh` cannot proceed. If it conflicts, set `PICSOU_PROXY_SUBNET`,
+`PICSOU_PROXY_IP`, and `PICSOU_PROXY_IP_RANGE` together in your existing `docker/.env`
+to an unused subnet, a proxy address, and an automatic allocation range within that subnet.
+Keep the proxy address and gateway outside the allocation range. See the
+[proxy network requirements](docs/features/docker-deployment.md#trusted-proxy-client-addresses).
+
 Use the [migration-safe deployment workflow](docs/features/docker-deployment.md#safe-release-deployment)
 to rehearse migrations on a restored backup, migrate the live database, and verify the API
 before declaring the release ready. Keep Flyway enabled; a historical
@@ -292,10 +301,15 @@ docker compose -f docker/docker-compose.yml exec app \
 
 Skip the profile entirely and point Traefik / Nginx Proxy Manager / a Cloudflare Tunnel at the app
 container's `:8080`. Your proxy **must** forward `X-Forwarded-Proto: https` (all of the above do by
-default). Picsou honors that header to know it is served over HTTPS; without it the backend treats
-same-origin HTTPS requests as cross-origin and login / the wizard's **Origins** step fail with
-**403**. For a same-origin deployment leave `ALLOWED_ORIGINS` blank and let the wizard handle it,
-and keep `SECURE_COOKIES=true`.
+default). Set `PICSOU_PROXY_IP` in `docker/.env` to the proxy's exact IPv4 address as seen by
+Picsou's nginx, then recreate the app. nginx accepts forwarded client addresses only from that
+peer; direct connections retain their connection address. The bundled `tls` profile configures
+its dedicated proxy address automatically. See [proxy configuration](docs/features/docker-deployment.md#trusted-proxy-client-addresses)
+for subnet overrides and the split development stack.
+
+Picsou uses the forwarded public scheme, host and port for same-origin HTTPS requests. For a
+same-origin deployment leave `ALLOWED_ORIGINS` blank and let the wizard handle it, and keep
+`SECURE_COOKIES=true`.
 
 #### 3f. Adding HTTPS to an install that is already set up
 
@@ -388,6 +402,19 @@ openssl rsa -pubout -in docker/secrets/enablebanking.pem -out enablebanking_publ
 ```
 
 Upload `enablebanking_public.pem` to your Enable Banking dashboard.
+
+### Kubernetes (Helm)
+
+A Helm chart in [`charts/picsou`](charts/picsou/README.md) deploys the same images on Kubernetes:
+the app, the sidecars, an optional single-instance PostgreSQL, network policies, and a pre-upgrade
+migration Job. TLS terminates on your Ingress or Gateway.
+
+```bash
+helm install picsou oci://ghcr.io/cloeille/charts/picsou -n picsou --create-namespace -f values.yaml
+```
+
+Each release publishes the chart under its version; every push to `main` publishes a pre-release
+(`--devel`) pinned to that commit's images.
 
 ## Another machine
 

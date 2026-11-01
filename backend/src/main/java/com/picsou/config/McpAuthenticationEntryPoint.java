@@ -24,10 +24,8 @@ import java.io.IOException;
  * this entry point runs inside Spring Security's filter chain (from {@code
  * ExceptionTranslationFilter}), which short-circuits the response before the request ever reaches
  * {@code DispatcherServlet}, so {@code RequestContextHolder} has no thread-bound attributes yet at
- * this point. Reading straight off the request works regardless, and — because {@code
- * server.forward-headers-strategy: framework} wraps the request with {@code
- * ForwardedHeaderFilter} ahead of the security chain — still honours {@code X-Forwarded-*} behind
- * the reverse proxy.
+ * this point. Reading straight off the request works regardless. Tomcat's native forwarding
+ * support resolves the public origin from configured nginx peers before the security chain.
  */
 public class McpAuthenticationEntryPoint implements AuthenticationEntryPoint {
 

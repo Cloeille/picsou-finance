@@ -1,0 +1,81 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $app := include "picsou.selectorLabels" (dict "ctx" $ "component" "app") }}
+{{- /* Sidecars carry bank logins and one-time codes: only the app may call them. */}}
+{{- range $name, $sc := .Values.sidecars }}
+{{- if $sc.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "picsou.sidecarName" (dict "ctx" $ "name" $name) }}
+  labels:
+    {{- include "picsou.componentLabels" (dict "ctx" $ "component" $name) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "picsou.selectorLabels" (dict "ctx" $ "component" $name) | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- $app | nindent 14 }}
+      ports:
+        - port: http
+          protocol: TCP
+{{- end }}
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "picsou.postgresql.fullname" . }}
+  labels:
+    {{- include "picsou.componentLabels" (dict "ctx" $ "component" "postgresql") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "postgresql") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- $app | nindent 14 }}
+        # The pre-upgrade migration Job.
+        - podSelector:
+            matchLabels:
+              {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "migrate") | nindent 14 }}
+      ports:
+        - port: postgresql
+          protocol: TCP
+{{- end }}
+{{- with .Values.networkPolicy.appIngressFrom }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "picsou.fullname" $ }}
+  labels:
+    {{- include "picsou.componentLabels" (dict "ctx" $ "component" "app") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- $app | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- toYaml . | nindent 8 }}
+        # The chart's own test pod.
+        - podSelector:
+            matchLabels:
+              {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "test") | nindent 14 }}
+      ports:
+        - port: http
+          protocol: TCP
+{{- end }}
+{{- end }}

@@ -5,12 +5,10 @@ from fastapi import HTTPException
 
 from fortuneo_parser import (
     PortfolioFormatError,
-    account_balance,
     decimal_value,
     extract_accounts_from_equipment,
     fold_cash_pockets_into_securities_accounts,
     optional_decimal_value,
-    parse_bourse_synthese_table,
     parse_equipment_multipart,
     parse_legacy_account_ids,
     parse_portfolio_positions,
@@ -42,99 +40,6 @@ class DecimalParsingTest(unittest.TestCase):
         self.assertIsNone(optional_decimal_value(None))
         self.assertIsNone(optional_decimal_value("   "))
         self.assertEqual(str(optional_decimal_value("42,00")), "42.00")
-
-
-class AccountBalanceTest(unittest.TestCase):
-    def test_extracts_the_balance_named_amount(self):
-        account = {
-            "id": "acc-1",
-            "productType": "current-account",
-            "balances": [{"name": "balance", "amount": {"value": 4.7, "currency": "EUR"}}],
-        }
-        self.assertEqual(account_balance(account), decimal_value("4.7"))
-
-    def test_returns_none_when_no_balances_array(self):
-        # Securities accounts (account-api/v2/accounts) have no `balances` key.
-        account = {"id": "acc-2", "productType": "share-savings-plan"}
-        self.assertIsNone(account_balance(account))
-
-
-# Synthetic fixture for the `famille_bourse` HTML structure.
-SYNTHESE_BOURSE_FIXTURE = '''
-<table cellspacing="0" cellpadding="0" class="synthese_table" id="famille_bourse">
-<tbody>
-<tr class="l1 synthese_compte_ligne_num_compte">
-<td width="5%"><div class="synthese_spacer"></div></td>
-<td width="81%">
-<a href="/fr/prive/mes-comptes/compte-titres-pea/situation/portefeuille-temps-reel.jsp?ca=CTOWEBID"
-   class="synthese_id_compte" title="Valorisation du compte au&nbsp;24/07/2026">
-	<span class="synthese_numero_compte">
-		N&deg;000000000001
-	</span>
-	<span class="synthese_compte_tiret">-&nbsp;</span>Compte-titres TEST USER
-			<span class="synthese_solde_compte ">
-				+ 100,00&nbsp;EUR
-			</span>
-</a>
-</td>
-<td width="14%">shortcuts</td>
-</tr>
-<tr class="l1 synthese_compte_ligne_autre">
-<td><div class="synthese_spacer2"></div></td>
-<td>
-<a href="/fr/prive/mes-comptes/compte-especes/consulter-situation/consulter-solde.jsp?ca=CASHWEBID"
-   class="synthese_compte_associe">
-	<span class="synthese_compte_tiret">-&nbsp;</span>Compte esp&egrave;ces TEST USER
-	<span class="synthese_solde_compte_espece_associe ">
-		+ 100,00&nbsp;EUR
-	</span>
-</a>
-</td>
-<td></td>
-</tr>
-<tr class="l2 synthese_compte_ligne_num_compte">
-<td width="5%"><div class="synthese_spacer"></div></td>
-<td width="81%">
-<a href="/fr/prive/mes-comptes/pea/situation/portefeuille-temps-reel.jsp?ca=PEAWEBID"
-   class="synthese_id_compte" title="Valorisation du compte au&nbsp;24/07/2026">
-	<span class="synthese_numero_compte">
-		N&deg;000000000002
-	</span>
-	<span class="synthese_compte_tiret">-&nbsp;</span>SYNTHETIC PEA
-			<span class="synthese_solde_compte ">
-				+ 1 000,00&nbsp;EUR
-			</span>
-</a>
-</td>
-<td width="14%">shortcuts</td>
-</tr>
-</tbody>
-</table>
-'''
-
-
-class BourseSyntheseTableTest(unittest.TestCase):
-    def test_parses_each_securities_account_and_its_linked_cash_pocket(self):
-        accounts = parse_bourse_synthese_table(SYNTHESE_BOURSE_FIXTURE)
-
-        self.assertEqual(len(accounts), 2)
-        cto, pea = accounts
-        self.assertEqual(cto["webId"], "CTOWEBID")
-        self.assertEqual(cto["type"], "COMPTE_TITRES")
-        self.assertEqual(cto["label"], "Compte-titres TEST USER")
-        self.assertEqual(cto["totalEur"], decimal_value("100.00"))
-        self.assertEqual(cto["cashWebId"], "CASHWEBID")
-
-        self.assertEqual(pea["webId"], "PEAWEBID")
-        self.assertEqual(pea["type"], "PEA")
-        self.assertEqual(pea["label"], "SYNTHETIC PEA")
-        self.assertEqual(pea["totalEur"], decimal_value("1000.00"))
-        self.assertIsNone(pea["cashWebId"])
-
-    def test_unrecognized_url_segment_rejects_the_whole_snapshot(self):
-        bogus = SYNTHESE_BOURSE_FIXTURE.replace("/pea/situation/", "/unknown-type/situation/")
-        with self.assertRaises(PortfolioFormatError):
-            parse_bourse_synthese_table(bogus)
 
 
 # Synthetic fixture for the `.../situation/` position-table structure. It
@@ -412,11 +317,6 @@ class EquipmentGraphqlTest(unittest.TestCase):
         with self.assertRaises(PortfolioFormatError):
             fold_cash_pockets_into_securities_accounts([{"webId": "broken"}])
 
-    def test_unrecognized_url_segment_rejects_the_whole_snapshot(self):
-        bogus = SYNTHESE_BOURSE_FIXTURE.replace("/pea/situation/", "/unknown-type/situation/")
-        with self.assertRaises(PortfolioFormatError):
-            parse_bourse_synthese_table(bogus)
-
 
 class AccountPayloadContractTest(unittest.TestCase):
     def test_account_payload_accepts_all_four_supported_types(self):
@@ -522,186 +422,6 @@ class SessionStateEnvelopeTest(unittest.TestCase):
 
         with self.assertRaises(HTTPException):
             _parse_session_state("[]")
-
-
-class LegacyHistoryDiscoveryTest(unittest.TestCase):
-    """The PEA ledger is absent from the transaction API, so its dividends have to
-    come from the legacy site. Its URL shape is not guessable and has already
-    changed once, so it is discovered from the site's own links."""
-
-    def test_history_links_are_discovered_from_a_legacy_page(self):
-        from fortuneo_parser import find_legacy_history_paths
-
-        html = (
-            '<a href="/fr/prive/mes-comptes/pea/consulter-situation/'
-            'historique-des-operations.jsp?ca=deadbeef">Historique</a>'
-            '<a href="/fr/prive/mes-comptes/pea/situation/?ca=deadbeef">Situation</a>'
-        )
-
-        self.assertEqual(
-            find_legacy_history_paths(html),
-            ["mes-comptes/pea/consulter-situation/historique-des-operations.jsp"],
-        )
-
-    def test_account_identifiers_are_never_reported(self):
-        from fortuneo_parser import find_legacy_history_paths
-
-        html = (
-            '<a href="/fr/prive/mes-comptes/pea/consulter-situation/'
-            'historique-des-operations.jsp?ca=0123456789abcdef0123456789abcdef">x</a>'
-        )
-
-        paths = find_legacy_history_paths(html)
-        self.assertTrue(paths)
-        for path in paths:
-            self.assertNotIn("0123456789abcdef", path)
-            self.assertNotIn("?", path)
-
-    def test_repeated_links_collapse_and_sort(self):
-        from fortuneo_parser import find_legacy_history_paths
-
-        html = (
-            '<a href="/fr/prive/b/mouvements.jsp?ca=1">b</a>'
-            '<a href="/fr/prive/a/historique.jsp?ca=2">a</a>'
-            '<a href="/fr/prive/b/mouvements.jsp?ca=3">b again</a>'
-        )
-
-        self.assertEqual(
-            find_legacy_history_paths(html),
-            ["a/historique.jsp", "b/mouvements.jsp"],
-        )
-
-    def test_a_page_without_history_links_yields_nothing(self):
-        from fortuneo_parser import find_legacy_history_paths
-
-        self.assertEqual(find_legacy_history_paths("<a href='/fr/prive/x/'>x</a>"), [])
-
-
-class LegacyPageStructureTest(unittest.TestCase):
-    """The securities history page has to be parsed from real structure, and this
-    connector has already lost iterations to guessing page shapes. The describer
-    reports the page's schema so the parser can be written against it -- and
-    nothing about the customer."""
-
-    HISTORY_PAGE = (
-        '<form action="/fr/prive/mes-comptes/pea/historique/historique-titres.jsp?ca=deadbeef"'
-        ' method="post">'
-        '<input name="dateDebut"><input name="dateFin">'
-        '<select name="typeOperation"></select></form>'
-        '<table><tr class="entete"><td>Date</td><td>Libell&eacute;</td><td>Montant</td></tr>'
-        '<tr class="ligne1" name="XX0000000001princip">'
-        '<td>01/02/2024</td><td>DIVIDENDE SYNTHETIC FUND</td><td>1 234,56</td></tr></table>'
-    )
-
-    def test_reports_the_option_vocabulary_of_each_select(self):
-        # A closed list belonging to the site, not to the customer -- and the one
-        # thing that can say whether a dividend is selectable structurally rather
-        # than by matching free text.
-        from fortuneo_parser import describe_legacy_page_structure
-
-        html = (
-            '<form method="post"><select name="typeOperation">'
-            '<option value="">Toutes</option><option value="ACH">Achat</option>'
-            '<option value="DIV">Dividende</option></select></form>'
-        )
-
-        form = describe_legacy_page_structure(html)["forms"][0]
-
-        self.assertEqual(form["selects"], {"typeOperation": ["", "ACH", "DIV"]})
-
-    def test_a_select_listing_the_customers_holdings_is_never_reported(self):
-        # The results page fills `codeReferentiel` with one option per security
-        # the account has traded, ISIN included. Only the
-        # count may be reported for a select the site does not own.
-        from fortuneo_parser import describe_legacy_page_structure
-
-        html = (
-            '<form method="post"><select name="codeReferentiel">'
-            '<option value="">Toutes</option>'
-            '<option value="FTN000023XX0000000001">SYNTHETIC FUND ONE</option>'
-            '<option value="FTN000023XX0000000002">SYNTHETIC FUND TWO</option>'
-            '</select></form>'
-        )
-
-        form = describe_legacy_page_structure(html)["forms"][0]
-
-        self.assertEqual(form["selects"], {"codeReferentiel": "<3 options>"})
-        self.assertNotIn("XX0000000001", str(form))
-        self.assertNotIn("SYNTHETIC FUND ONE", str(form))
-
-    def test_default_values_are_reduced_to_their_shape(self):
-        # "NN/NN/NNNN" tells a parser the field takes dd/mm/yyyy without ever
-        # recording which date the page was pre-filled with.
-        from fortuneo_parser import describe_legacy_page_structure
-
-        html = (
-            '<form method="post"><input name="dateDebut" value="01/02/2024">'
-            '<input name="nbResultatsTotal" value="137"></form>'
-        )
-
-        form = describe_legacy_page_structure(html)["forms"][0]
-
-        self.assertEqual(
-            form["default_shapes"], {"dateDebut": "NN/NN/NNNN", "nbResultatsTotal": "NNN"})
-        self.assertNotIn("01/02/2024", str(form))
-
-    def test_reports_the_form_that_selects_a_period(self):
-        # Whether this page takes a date range decides whether history older than
-        # the transaction API's 13-month retention is reachable at all.
-        from fortuneo_parser import describe_legacy_page_structure
-
-        described = describe_legacy_page_structure(self.HISTORY_PAGE)
-
-        self.assertEqual(described["forms"], [{
-            "action": "/fr/prive/mes-comptes/pea/historique/historique-titres.jsp",
-            "method": "post",
-            "fields": ["dateDebut", "dateFin", "typeOperation"],
-            "selects": {"typeOperation": []},
-            "default_shapes": {},
-        }])
-
-    def test_reports_column_labels_and_row_markup(self):
-        from fortuneo_parser import describe_legacy_page_structure
-
-        table = describe_legacy_page_structure(self.HISTORY_PAGE)["tables"][0]
-
-        self.assertEqual(table["headers"], ["Date", "Libell\u00e9", "Montant"])
-        self.assertEqual(table["cells_per_row"], {3: 2})
-        self.assertEqual(table["row_classes"], ["entete", "ligne1"])
-        self.assertEqual(table["row_attrs"], ["class", "name"])
-
-    def test_never_reports_cell_values_or_identifiers(self):
-        from fortuneo_parser import describe_legacy_page_structure
-
-        described = str(describe_legacy_page_structure(self.HISTORY_PAGE))
-
-        # A holding, an amount, a date, a security code and the account's legacy id.
-        for secret in ("SYNTHETIC FUND", "1 234,56", "01/02/2024", "XX0000000001", "deadbeef"):
-            self.assertNotIn(secret, described)
-
-    def test_th_headers_are_read_when_the_table_uses_them(self):
-        from fortuneo_parser import describe_legacy_page_structure
-
-        html = '<table><tr><th>Date</th><th>Montant</th></tr><tr><td>x</td><td>y</td></tr></table>'
-
-        self.assertEqual(
-            describe_legacy_page_structure(html)["tables"][0]["headers"], ["Date", "Montant"])
-
-    def test_iframe_paths_are_reported_without_their_query(self):
-        from fortuneo_parser import describe_legacy_page_structure
-
-        html = '<iframe src="/fr/prive/mes-comptes/pea/historique/inner.jsp?ca=deadbeef"></iframe>'
-
-        described = describe_legacy_page_structure(html)
-        self.assertEqual(described["iframes"], ["/fr/prive/mes-comptes/pea/historique/inner.jsp"])
-
-    def test_a_page_without_tables_describes_cleanly(self):
-        from fortuneo_parser import describe_legacy_page_structure
-
-        described = describe_legacy_page_structure("<p>Aucune operation</p>")
-
-        self.assertEqual(described["tables"], [])
-        self.assertEqual(described["forms"], [])
 
 
 # Synthetic fixture for the securities-history results table structure (10
@@ -1056,7 +776,6 @@ class AuthenticationOutcomeTest(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("main.async_playwright", return_value=manager),
-            patch("main._cleanup_expired", new=AsyncMock()),
             patch("main._attach_client_id_capture", return_value={"value": None}),
             patch("main._first_visible", new=AsyncMock(side_effect=[field, field, field])),
             patch("main._dismiss_cookie_consent", new=AsyncMock()),

@@ -28,22 +28,17 @@ attempts is worse than a clear MFA_TYPE_UNSUPPORTED.
 import asyncio
 import html as html_module
 import json
-import logging
-import os
 import re
-import secrets
 import time
 import uuid
-from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi import HTTPException
+from picsou_sidecar import PendingStore, configure_logging, create_app, otp_field_detail
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from accounts_parser import (
@@ -60,12 +55,9 @@ from accounts_parser import (
 )
 from virtual_pad import VirtualPadError, encode_password, extract_challenge, parse_virtual_pad
 
-logging.basicConfig(level=logging.INFO)
 # httpx logs every request URL at INFO, and the identity-switch URL embeds a
 # per-session token.
-logging.getLogger("httpx").setLevel(logging.WARNING)
-log = logging.getLogger("bourso-auth")
-SIDECAR_API_KEY = os.environ.get("APP_SIDECAR_API_KEY", "")
+log = configure_logging("bourso-auth", quiet=("httpx",))
 
 BASE_URL = "https://clients.boursobank.com"
 LOGIN_PATH = "/connexion/"
@@ -84,7 +76,6 @@ ACCOUNTS_PATH = "/dashboard/liste-comptes?rumroute=dashboard.new_accounts&_hincl
 IDENTITY_SELECTOR_PATH = "/connexion/lister-identites"
 
 PENDING_TTL_SECONDS = 600
-PENDING_SWEEP_SECONDS = 30
 # A push has to be approved by a human on their phone. Stay under the Java
 # adapter's 150 s validation timeout so the sidecar is always the one to give up.
 APP_VALIDATION_TIMEOUT_SECONDS = 120
@@ -108,9 +99,6 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
-_pending: dict[str, dict[str, Any]] = {}
-_pending_lock = asyncio.Lock()
-
 _BRS_MIT_RE = re.compile(r"__brs_mit=(?P<value>[^;\"'\s]+)")
 _FORM_TOKEN_RE = re.compile(
     r'name="form\[_token\]"[^>]*?value="(?P<token>[^"]*)"'
@@ -125,79 +113,6 @@ _BAD_CREDENTIALS_MARKERS = (
     "Erreur d&#039;authentification",
     "Erreur d'authentification",
 )
-
-
-# ─── Lifecycle ──────────────────────────────────────────────────────────────
-
-
-async def _pending_sweeper() -> None:
-    while True:
-        await asyncio.sleep(PENDING_SWEEP_SECONDS)
-        try:
-            await _cleanup_expired()
-        except Exception:
-            # One bad sweep must not end the task: without it, expired pending
-            # states keep their client and cookie jar until shutdown and
-            # MAX_PENDING eventually rejects every new login.
-            log.warning("BoursoBank pending sweep failed", exc_info=True)
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    if not SIDECAR_API_KEY.strip():
-        raise RuntimeError("APP_SIDECAR_API_KEY must be configured and non-blank")
-    sweeper = asyncio.create_task(_pending_sweeper())
-    try:
-        yield
-    finally:
-        sweeper.cancel()
-        try:
-            await sweeper
-        except asyncio.CancelledError:
-            pass
-        await _close_all_pending()
-
-
-app = FastAPI(lifespan=lifespan)
-
-
-@app.middleware("http")
-async def authenticate_sidecar_request(request: Request, call_next):
-    if request.url.path != "/health":
-        supplied_key = request.headers.get("X-Picsou-Sidecar-Key", "")
-        # Starlette exposes wire header bytes through Latin-1, not UTF-8.
-        if (
-            not SIDECAR_API_KEY.strip()
-            or not secrets.compare_digest(
-                supplied_key.encode("latin-1"), SIDECAR_API_KEY.encode("utf-8")
-            )
-        ):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "UNAUTHORIZED"},
-                headers={"WWW-Authenticate": "Picsou-Sidecar-Key"},
-            )
-    return await call_next(request)
-
-
-@app.middleware("http")
-async def log_request_duration(request: Request, call_next):
-    started_at = time.monotonic()
-    try:
-        return await call_next(request)
-    finally:
-        if request.url.path != "/health":
-            # Uvicorn percent-decodes the path, so a caller can plant CR/LF in it
-            # and forge log lines. Strip controls and bound the length.
-            log.info(
-                "BoursoBank request completed (path=%s; duration=%.2fs)",
-                _log_safe(request.url.path),
-                time.monotonic() - started_at,
-            )
-
-
-def _log_safe(value: str) -> str:
-    return "".join(char for char in value if char.isprintable())[:200]
 
 
 # ─── Contract ───────────────────────────────────────────────────────────────
@@ -274,13 +189,6 @@ class SessionResponse(BaseModel):
     sessionState: str
 
 
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
-    fields = {str(error["loc"][-1]) for error in exc.errors() if error.get("loc")}
-    detail = "MFA_TYPE_UNSUPPORTED" if "code" in fields else "INVALID_DATA"
-    return JSONResponse(status_code=400, content={"detail": detail})
-
-
 # ─── Pending second factors ─────────────────────────────────────────────────
 
 
@@ -294,33 +202,14 @@ async def _dispose_pending_state(state: dict[str, Any]) -> None:
         log.warning("BoursoBank client cleanup failed", exc_info=True)
 
 
-async def _take_pending(process_id: str) -> dict[str, Any] | None:
-    async with _pending_lock:
-        return _pending.pop(process_id, None)
-
-
-async def _cleanup_expired() -> None:
-    cutoff = time.time() - PENDING_TTL_SECONDS
-    async with _pending_lock:
-        expired = [pid for pid, state in _pending.items() if state["created_at"] < cutoff]
-        states = [_pending.pop(pid) for pid in expired]
-    for state in states:
-        await _dispose_pending_state(state)
-
-
-async def _close_all_pending() -> None:
-    async with _pending_lock:
-        states = list(_pending.values())
-        _pending.clear()
-    for state in states:
-        await _dispose_pending_state(state)
-
-
-async def _store_pending(process_id: str, state: dict[str, Any]) -> None:
-    async with _pending_lock:
-        if len(_pending) >= MAX_PENDING:
-            raise HTTPException(status_code=503, detail="UPSTREAM_UNAVAILABLE")
-        _pending[process_id] = state
+_pending = PendingStore(
+    dispose=_dispose_pending_state, log=log, ttl_seconds=PENDING_TTL_SECONDS, max_size=MAX_PENDING
+)
+app = create_app(
+    request_log=(log, "BoursoBank"),
+    background=_pending,
+    validation_detail=otp_field_detail("MFA_TYPE_UNSUPPORTED"),
+)
 
 
 # ─── HTTP plumbing ──────────────────────────────────────────────────────────
@@ -840,15 +729,9 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
 # ─── Routes ─────────────────────────────────────────────────────────────────
 
 
-@app.get("/health")
-async def health() -> dict:
-    base = os.environ.get("PICSOU_SIDECAR_BASE")
-    return {"status": "ok", "base": base} if base else {"status": "ok"}
-
-
 @app.post("/initiate", response_model=InitiateResponse)
 async def initiate(req: InitiateRequest) -> dict:
-    await _cleanup_expired()
+    await _pending.expire()
     process_id = str(uuid.uuid4())
     client = _new_client()
     keep_client = False
@@ -879,7 +762,7 @@ async def initiate(req: InitiateRequest) -> dict:
         state = await _start_app_push(client)
         state["client"] = client
         state["created_at"] = time.time()
-        await _store_pending(process_id, state)
+        await _pending.put_or_raise(process_id, state)
         keep_client = True
         return {
             "processId": process_id,
@@ -908,12 +791,8 @@ async def initiate(req: InitiateRequest) -> dict:
 
 @app.post("/complete", response_model=SessionResponse)
 async def complete(req: CompleteRequest) -> dict:
-    await _cleanup_expired()
-    state = await _take_pending(req.processId)
+    state = await _pending.take(req.processId)
     if not state:
-        raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
-    if state["created_at"] < time.time() - PENDING_TTL_SECONDS:
-        await _dispose_pending_state(state)
         raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
 
     client: httpx.AsyncClient = state["client"]

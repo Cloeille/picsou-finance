@@ -1,0 +1,132 @@
+{{- $d := .Values.sidecarDefaults }}
+{{- range $name, $sc := .Values.sidecars }}
+{{- if $sc.enabled }}
+{{- $fullName := include "picsou.sidecarName" (dict "ctx" $ "name" $name) }}
+{{- /* Resources and security contexts are merged over sidecarDefaults; probes and scheduling replace them. */}}
+{{- $resources := mergeOverwrite (deepCopy ($d.resources | default dict)) ($sc.resources | default dict) }}
+{{- $podSec := mergeOverwrite (deepCopy ($d.podSecurityContext | default dict)) ($sc.podSecurityContext | default dict) }}
+{{- $sec := mergeOverwrite (deepCopy ($d.securityContext | default dict)) ($sc.securityContext | default dict) }}
+{{- $image := merge (dict) ($sc.image | default dict) (dict "repository" (printf "%s/%s" $.Values.global.imageRepository $name)) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "picsou.componentLabels" (dict "ctx" $ "component" $name) | nindent 4 }}
+spec:
+  replicas: 1
+  {{- if $sc.persistence }}
+  {{- if $sc.persistence.enabled }}
+  strategy:
+    type: Recreate
+  {{- end }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "picsou.selectorLabels" (dict "ctx" $ "component" $name) | nindent 6 }}
+  template:
+    metadata:
+      {{- with $sc.podAnnotations }}
+      annotations:
+        {{- range $k, $v := . }}
+        {{ $k }}: {{ toString $v | quote }}
+        {{- end }}
+      {{- end }}
+      labels:
+        {{- include "picsou.selectorLabels" (dict "ctx" $ "component" $name) | nindent 8 }}
+    spec:
+      {{- with $.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      {{- if $sc.shareProcessNamespace }}
+      shareProcessNamespace: true
+      {{- end }}
+      {{- with $podSec }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "picsou.image" (dict "ctx" $ "image" $image) }}
+          imagePullPolicy: {{ include "picsou.pullPolicy" (dict "ctx" $ "image" $image) }}
+          {{- with $sec }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $sc.port }}
+              protocol: TCP
+          env:
+            - name: APP_SIDECAR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "picsou.secretName" $ }}
+                  key: sidecar-api-key
+            {{- range $k, $v := $sc.env }}
+            - name: {{ $k }}
+              value: {{ toString $v | quote }}
+            {{- end }}
+            {{- with $sc.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with ($sc.readinessProbe | default $d.readinessProbe) }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with ($sc.livenessProbe | default $d.livenessProbe) }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $sc.persistence }}
+          {{- if .enabled }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .mountPath }}
+          {{- end }}
+          {{- end }}
+      {{- with $sc.persistence }}
+      {{- if .enabled }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .existingClaim | default (printf "%s-data" $fullName) }}
+      {{- end }}
+      {{- end }}
+      {{- with ($sc.nodeSelector | default $d.nodeSelector) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with ($sc.tolerations | default $d.tolerations) }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with ($sc.affinity | default $d.affinity) }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "picsou.componentLabels" (dict "ctx" $ "component" $name) | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ $sc.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "picsou.selectorLabels" (dict "ctx" $ "component" $name) | nindent 4 }}
+{{- end }}
+{{- end }}
