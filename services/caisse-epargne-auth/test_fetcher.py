@@ -389,15 +389,22 @@ class ErrorMappingTest(unittest.IsolatedAsyncioTestCase):
         def timeout(request: httpx.Request) -> httpx.Response | None:
             raise httpx.ReadTimeout("secret-host-detail " + SECRET_TOKEN)
 
-        cases = {
-            "UPSTREAM_UNAVAILABLE stage=synthesis cause=status-403": (FakeCE(synthesis_http=403), None),
-            "UPSTREAM_UNAVAILABLE stage=synthesis cause=too-large": (FakeCE(), 64),
-            "UPSTREAM_UNAVAILABLE stage=transactions cause=status-502": (FakeCE(tx_http=502), None),
-            "UPSTREAM_UNAVAILABLE stage=transactions cause=ReadTimeout": (FakeCE(tx_override=timeout), None),
-            "UPSTREAM_FORMAT_CHANGED stage=transactions cause=format": (
-                FakeCE(tx_body=b'{"marker": "BODY-MARKER"}'), None
+        cases = [
+            ("UPSTREAM_UNAVAILABLE stage=synthesis cause=status-403", FakeCE(synthesis_http=403), None),
+            ("UPSTREAM_UNAVAILABLE stage=synthesis cause=too-large", FakeCE(), 64),
+            ("UPSTREAM_UNAVAILABLE stage=transactions cause=status-502", FakeCE(tx_http=502), None),
+            ("UPSTREAM_UNAVAILABLE stage=transactions cause=ReadTimeout", FakeCE(tx_override=timeout), None),
+            (
+                "UPSTREAM_FORMAT_CHANGED stage=transactions cause=format",
+                FakeCE(tx_body=b'{"marker": "BODY-MARKER"}'),
+                None,
             ),
-        }
+            (
+                "UPSTREAM_FORMAT_CHANGED stage=transactions cause=format",
+                FakeCE(tx_body=b"<html>NONJSON-MARKER</html>"),
+                None,
+            ),
+        ]
         real_serialise = fetcher._serialise_account
 
         def serialise_fails_on_current(account, transactions, loan=None, per=None):
@@ -405,10 +412,10 @@ class ErrorMappingTest(unittest.IsolatedAsyncioTestCase):
                 raise TypeError("SERIALISE-MARKER")
             return real_serialise(account, transactions, loan, per)
 
-        cases["UPSTREAM_FORMAT_CHANGED stage=serialisation cause=format"] = (FakeCE(), None)
-        for expected, (ce, cap) in cases.items():
+        cases.append(("UPSTREAM_FORMAT_CHANGED stage=serialisation cause=format", FakeCE(), None))
+        for index, (expected, ce, cap) in enumerate(cases):
             serialise = serialise_fails_on_current if "serialisation" in expected else real_serialise
-            with self.subTest(expected), self.assertLogs("caisse-epargne-auth", "WARNING") as logs:
+            with self.subTest(index, expected=expected), self.assertLogs("caisse-epargne-auth", "WARNING") as logs:
                 with patch.object(replay, "MAX_RESPONSE_BYTES", cap or replay.MAX_RESPONSE_BYTES), \
                         patch.object(fetcher, "_serialise_account", serialise):
                     with self.assertRaises(fetcher.FetchError):
@@ -417,7 +424,7 @@ class ErrorMappingTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn(f"accounts fetch failed: {expected}", rendered)
             for value in (
                 SECRET_TOKEN, "secret-host-detail", DATA_HOST, SYNTHESIS_PATH, TX_PATH, "1001",
-                "BODY-MARKER", "SERIALISE-MARKER",
+                "BODY-MARKER", "NONJSON-MARKER", "SERIALISE-MARKER",
             ):
                 self.assertNotIn(value, rendered)
 
