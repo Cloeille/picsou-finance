@@ -31,7 +31,6 @@
     "no": "No",
     "today": "Today",
     "currency": "EUR",
-    "locale": "en-US",
     "category": "Category",
     "done": "Done",
     "labelColon": "{{label}}:"

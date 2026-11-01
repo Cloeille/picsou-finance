@@ -31,7 +31,6 @@
     "no": "Non",
     "today": "Aujourd'hui",
     "currency": "EUR",
-    "locale": "fr-FR",
     "category": "Catégorie",
     "done": "Terminé",
     "labelColon": "{{label}}\u00a0:"

@@ -65,7 +65,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Caisse d'Epargne in *Sync all*.** The dashboard's *Sync all* modal lists Caisse d'Epargne
   like the other session connectors: a live session syncs in place, an expired one opens the
   Caisse d'Epargne tab, where the keypad and Sécur'Pass login run, and *Sync all* skips it.
-  Caisse d'Epargne tab, where the keypad and Sécur'Pass login run.
 - **Reconnect from stored credentials.** A session panel can offer a *Reconnect* button that
   logs in again with the credentials stored at the last login, then runs the second factor
   as after a typed login, with the user there to approve it. CIC uses it: its daily
@@ -123,6 +122,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sidecar. AMEX and Revolut share the Camoufox base. All three bases retain
   Python 3.12 for compatibility with the pinned native dependencies. See
   [ADR](docs/decisions/2026-10-21-shared-sidecar-base-image.md).
+  Deployment and admin-status documentation retain CIC's connection details alongside
+  the shared Camoufox base for AMEX and Revolut.
 - **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
   the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
   and SCPI distributions, from the annual distribution per share and the frequency you enter
@@ -338,6 +339,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Modern MCP protocol support is selectable.** Set `MCP_PROTOCOL=STREAMABLE` to serve protocol
+  `2025-11-25` at `/mcp` for hosted connectors such as claude.ai, then recreate the app with
+  `docker compose up -d --force-recreate app`: a plain `docker compose restart` keeps the old
+  environment and the SSE default. Existing installations keep legacy SSE by default. Switching
+  requires configuring other clients for Streamable HTTP. The existing Spring AI 1.1.8 supports
+  this without a Boot 4 migration (#53).
+- **CIC instance monitoring.** Admin status checks now cover all thirteen authentication
+  sidecars, including CIC when a session exists. CIC's health response reports its shared
+  base so an outdated image is detected alongside an unreachable sidecar.
+- **Admin instance status with slow session counts.** Slow session-count queries no longer push
+  the check past its 3 s deadline or mark reachable sidecars unreachable.
+- **Toasts follow the selected theme.** Notifications use the app's light or dark palette
+  even when it differs from the OS preference, and update when the theme changes (#327).
+
 - **BoursoBank syncs a securities account whose lines sit in several sections.** The trading
   board can split an account's positions across more than one section of its summary. Only the
   longest list was read, so the lines of the others went missing and the whole sync stopped with
@@ -399,6 +414,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   HomeBank import now refuses these accounts, and a PER, as targets, like the Actual Budget
   import already did. Both importers and the manual ledger share one definition,
   `AccountType.isLedger()`.
+
+- **Privacy mode and locale formatting.** The budget allocation donut now masks its centre total
+  and uses the app locale for compact amounts. The money guard also rejects direct compact
+  formatting. Transaction details show the weekday and long date in the app language and keep
+  date-only values on their calendar day in every time zone. Admin activity timestamps follow
+  the app locale, and allocation comparison keys no longer depend on the browser locale.
 
 - **Enable Banking account balances and details.** Accounts in a shared balance list,
   such as Qonto business accounts, now select entries matching the account description

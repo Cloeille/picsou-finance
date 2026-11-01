@@ -14,7 +14,7 @@ Picsou deploys as the app and thirteen authentication sidecars orchestrated by `
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
 - **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (Compose sets `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
-- **`cic-auth`** — browserless CIC online-banking sidecar on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cic-auth`; see [`cic-banking.md`](cic-banking.md).
+- **`cic-auth`** — browserless CIC online-banking login/2FA and account sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cic-auth`. The backend reaches it at `CIC_AUTH_URL` (Compose sets `http://cic-auth:8001`); see [`cic-banking.md`](cic-banking.md).
 - **`amex-auth`** — American Express login and account sidecar, built with Camoufox/Firefox, published as `ghcr.io/cloeille/picsou-finance/amex-auth`.
 - **`degiro-auth`** — browserless DEGIRO authentication and portfolio sidecar, published as `ghcr.io/cloeille/picsou-finance/degiro-auth`.
 
@@ -155,13 +155,13 @@ applies through `SidecarBaseUrl`.
 
 ### Sidecar shared secret — `APP_SIDECAR_API_KEY`
 
-The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank,
+The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank, Caisse d'Epargne,
 Bourse Direct, Amundi, Fortuneo, DEGIRO, AMEX, CORUM, Sofidy, Crédit Mutuel / CIC
-Épargne Salariale) share one secret.
+Épargne Salariale, CIC online banking) share one secret.
 Generate it with `openssl rand -base64 32`. Both Compose files forward it
 explicitly to the app and to every sidecar service they define, and refuse to
 start when it is missing or empty. The root `docker-compose.yml` defines all
-twelve sidecars, as does `docker/docker-compose.yml`. Both explicitly set
+thirteen sidecars, as does `docker/docker-compose.yml`. Both explicitly set
 `DEGIRO_AUTH_URL` on the backend rather than relying on its application default.
 Both AMEX service definitions use `init: true` so an init process reaps orphaned
 browser children during repeated logins. The entrypoint does not generate the
@@ -406,6 +406,7 @@ docker compose -f docker/docker-compose.yml up
   → corum-auth (uvicorn:8001, internal only)
   → sofidy-auth (uvicorn:8001, internal only)
   → cmes-auth (uvicorn:8001, internal only)
+  → cic-auth (uvicorn:8001, internal only)
   → amex-auth (uvicorn:8001, internal only)
   → degiro-auth (uvicorn:8001, internal only)
   → postgres:16-alpine (:5432)
@@ -439,6 +440,7 @@ docker save ghcr.io/cloeille/picsou-finance:latest \
   ghcr.io/cloeille/picsou-finance/corum-auth:latest \
   ghcr.io/cloeille/picsou-finance/sofidy-auth:latest \
   ghcr.io/cloeille/picsou-finance/cmes-auth:latest \
+  ghcr.io/cloeille/picsou-finance/cic-auth:latest \
   ghcr.io/cloeille/picsou-finance/amex-auth:latest \
   ghcr.io/cloeille/picsou-finance/degiro-auth:latest \
   | gzip > picsou-release.tar.gz
@@ -448,7 +450,7 @@ docker load < picsou-release.tar.gz
 
 ### Pulling from GHCR
 
-The app and all twelve sidecar images are published by `.github/workflows/docker.yml`
+The app and all thirteen sidecar images are published by `.github/workflows/docker.yml`
 (matrix build, one entry per image) **only after CI is green**: backend tests, frontend
 lint/typecheck/unit, Playwright e2e, every sidecar's image tests, the Compose sidecar build
 and the workflow inventory, then the `ci-ok` gate. `ci.yml` calls that workflow on a successful `push` to `main` or a
@@ -476,6 +478,7 @@ docker pull ghcr.io/cloeille/picsou-finance/fortuneo-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/corum-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/sofidy-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/cmes-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/cic-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0
 ```

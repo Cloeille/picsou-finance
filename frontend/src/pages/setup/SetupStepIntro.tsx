@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { HelloGreeting } from './HelloGreeting'
 import { useSetupStatus } from '@/features/setup/hooks'
