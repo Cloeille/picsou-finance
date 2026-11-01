@@ -86,6 +86,11 @@ bounces the browser through the SPA's `/login?redirect=…`.
     of strings, a single string, or an object whose keys are the groups. Matching is exact and
     case-sensitive.
 13. **Logging out at the IdP** (RP-initiated logout) is optional and off by default.
+14. **Both ends of the flow are same-origin POSTs**, as the "never change state on GET" convention
+    requires ([api-rest.md](../conventions/api-rest.md)). The SPA starts the flow with a form POST,
+    and the IdP returns to a SPA page that posts the result to the backend, the pattern the bank
+    OAuth callback already follows. The SSO chain refuses GET, and refuses cross-site POSTs even
+    without an auth cookie.
 
 ## Session and token model
 
@@ -105,8 +110,9 @@ bounces the browser through the SPA's `/login?redirect=…`.
   That round trip is silent while the IdP session is alive, and it re-reads the groups.
 - **Unchanged**: `tv` token-version revocation, the cross-site request check, member scoping.
 - **Handshake state** (`state`, `nonce`, PKCE verifier, Picsou's intent) lives in a short-lived
-  HTTP session that only exists between the redirect and the callback. The SSO filter chain never
-  stores a SecurityContext in it, and the session is invalidated at the callback.
+  HTTP session that only exists between the redirect and the callback. Its cookie is the
+  container's `JSESSIONID`. The SSO filter chain never stores a SecurityContext in it, and the
+  session is invalidated at the callback.
 
 ## Who gets in: account resolution at the callback
 
@@ -181,29 +187,31 @@ bounces the browser through the SPA's `/login?redirect=…`.
 
 ```
 Login
- 1. SPA /login → "Sign in with <provider>"
-    → GET /oauth2/sso/authorization/oidc?intent=login&redirect=/x&rememberMe=1
- 2. SsoStartGuardFilter: rate limit, intent checks (setup state, signed-in user, invitation),
-    lazy discovery (IdP down → /login?ssoError=IDP_UNAVAILABLE)
+ 1. SPA /login → "Sign in with <provider>" submits a form:
+    POST /oauth2/sso/authorization/oidc   intent=login, redirect=/x, rememberMe=1
+ 2. SsoStartGuardFilter: POST only, rate limit, intent checks (setup state, signed-in user,
+    invitation), lazy discovery (IdP down → /login?ssoError=IDP_UNAVAILABLE)
  3. SsoAuthorizationRequestResolver: state + nonce + PKCE S256 (+ prompt=login&max_age=0 for
     reauth); the intent is stored with the authorization request
- 4. → IdP login (+ IdP MFA) → GET /oauth2/sso/code/oidc?code=…&state=…
- 5. Spring: state check, code + verifier exchange, ID token (signature, nonce), userinfo merge
+ 4. → IdP login (+ IdP MFA) → GET /login/sso/callback?code=…&state=…
+    A SPA page that changes nothing: it clears the URL and re-posts what it received
+ 5. POST /oauth2/sso/code/oidc   code, state
+    Spring: state check, code + verifier exchange, ID token (signature, nonce), userinfo merge
  6. SsoAuthenticationSuccessHandler: resolve account → role sync → SessionIssuer cookies
     → 302 /login/sso-complete?redirect=/x   SPA clears client state, probes the session, navigates
     → 302 /oauth2/authorize?…              iOS / remote-MCP authorize flows resume directly
 
 Re-authentication (password-less user, e.g. before an export)
- … ?intent=reauth&redirect=/settings?resume=export → IdP forced login → auth_time check
- → reauth_proof cookie → /settings?resume=export → the dialog resumes
+ POST … intent=reauth, redirect=/settings?resume=export → IdP forced login → callback page
+ → auth_time check → reauth_proof cookie → /settings?resume=export → the dialog resumes
 
 First admin (fresh instance, SSO_ADMIN_GROUP set)
- /setup/admin → "Continue with <provider>" → intent=setup → admin group required
+ /setup/admin → "Continue with <provider>" → POST … intent=setup → admin group required
  → SetupService.seedSsoAdmin (same CAS + SERIALIZABLE guards as seedAdmin) → cookies
  → /setup/security → the rest of the wizard is unchanged
 ```
 
-Two framework facts shape this flow:
+Four framework facts shape this flow; the last two were checked in Spring Security 6.5's source:
 
 - **`SetupFilter` does not protect the SSO chain.** `SecurityConfig` adds it only to the API
   chain. As a `@Component` filter, Spring Boot also registers it for every request, but after
@@ -214,6 +222,15 @@ Two framework facts shape this flow:
   only. That path is disjoint from the Authorization Server's endpoint matcher (`@Order(1)`) and
   falls under the existing nginx `location /oauth2` block. Its paths are deliberately distinct
   from the Authorization Server's `/oauth2/authorize`.
+- **The IdP returns to a SPA page, and Spring processes the result at another URL.** Spring's OIDC
+  login compares only `state` and `nonce` (`OidcAuthorizationCodeAuthenticationProvider`), never
+  the callback URL, and its token request sends the authorization request's `redirect_uri`
+  (`OAuth2AuthorizationCodeGrantRequest.defaultParameters`). So the redirect URI registered at the
+  IdP is the SPA page `/login/sso/callback`, while Spring's processing URL stays
+  `/oauth2/sso/code/oidc`. The integration test pins this.
+- **The start can be a POST.** Spring's authorization endpoint matches its path for any HTTP
+  method (`DefaultOAuth2AuthorizationRequestResolver`), so the SPA starts the flow with a form
+  POST.
 
 ## Components & files
 
@@ -224,9 +241,10 @@ Two framework facts shape this flow:
 - `config/SsoEnabledCondition.java`: gates every SSO bean on the same rules.
 - `config/SsoClientRegistrationRepository.java`: lazy OIDC discovery, cached, retried with a
   backoff. Uses `requireProofKey(true)`; the client is public when no secret is set. Redirect URI
-  `{baseUrl}/oauth2/sso/code/{registrationId}`.
-- `config/SsoSecurityConfig.java`: the `@Order(0)` chain with `oauth2Login`, custom base URIs,
-  and an `OidcUserService` that always calls userinfo.
+  `{baseUrl}/login/sso/callback`, the SPA callback page.
+- `config/SsoSecurityConfig.java`: the `@Order(0)` chain with `oauth2Login`, custom base URIs, an
+  `OidcUserService` that always calls userinfo, and the API chain's cross-site check without its
+  auth-cookie condition.
 - `config/SsoStartGuardFilter.java`, `config/SsoAuthorizationRequestResolver.java`,
   `config/SsoAuthorizationRequestRepository.java` (session-backed; exposes the removed request to
   the handlers).
@@ -266,7 +284,10 @@ Two framework facts shape this flow:
 - `FamilyService` and `FamilyMemberResponse`: `hasPassword`, `ssoLinked`.
 - `AppUserRepository.findAllByRoleForUpdate`.
 - `RateLimitConfig`: `ssoStartBuckets`, `reauthBuckets`.
-- `SecurityConfig`: permit `GET /api/auth/sso`.
+- `SecurityConfig`: permit `GET /api/auth/sso`; its cross-site 403 handler is shared with the SSO
+  chain.
+- `CrossSiteCookieRequestMatcher`: a switch that drops the auth-cookie condition, for the SSO
+  chain.
 - `GlobalExceptionHandler`.
 - `application.yml`, `pom.xml` (`spring-boot-starter-oauth2-client`, managed by the BOM).
 
@@ -281,9 +302,11 @@ Two framework facts shape this flow:
 ### Frontend
 
 - New:
-  - `features/sso/{api,hooks,urls}.ts` and `lib/sso-revalidate.ts`;
-  - `pages/login/SsoCompletePage.tsx` (route `/login/sso-complete`, outside the guards, like
-    `/consent`);
+  - `features/sso/{api,hooks,start}.ts` and `lib/sso-revalidate.ts`;
+  - `pages/login/SsoCallbackPage.tsx` (route `/login/sso/callback`): the IdP's redirect target,
+    which re-posts the result to `/oauth2/sso/code/oidc`;
+  - `pages/login/SsoCompletePage.tsx` (route `/login/sso-complete`). Both routes sit outside the
+    guards, like `/consent`;
   - `pages/settings/security/{SignInMethodsCard,ReauthPanel,RemovePasswordDialog,SetPasswordDialog,UnlinkIdentityDialog}.tsx`.
 - Modified:
   - `LoginPage`: SSO button, `ssoError`, Remember Me passed through, automatic restart on
@@ -308,8 +331,8 @@ Two framework facts shape this flow:
   headers, which since #348 it only does for the loopback peers in
   `server.tomcat.remoteip.internal-proxies`. The Vite proxy connects over loopback when the
   backend runs on the same machine.
-- nginx: no change; `location /oauth2` already forwards `/oauth2/sso/**` with the forwarded
-  headers.
+- nginx: no change. `location /oauth2` already forwards `/oauth2/sso/**` with the forwarded
+  headers, and `/login/sso/callback` is an SPA route served by `location /`, like `/consent`.
 
 ## Configuration
 
@@ -325,7 +348,7 @@ Two framework facts shape this flow:
 | `SSO_SESSION_REVALIDATE_AFTER` | `24h`                  | Maximum age of an SSO session before it must pass through the IdP again                                                                                                                                     |
 | `SSO_IDP_LOGOUT`               | `false`                | Also end the IdP session on logout (RP-initiated logout with `client_id` and `post_logout_redirect_uri`)                                                                                                    |
 
-To register at the IdP: redirect URI `https://<host>/oauth2/sso/code/oidc`, and post-logout URI
+To register at the IdP: redirect URI `https://<host>/login/sso/callback`, and post-logout URI
 `https://<host>/login` when `SSO_IDP_LOGOUT=true`.
 
 ## Security properties (must hold)
@@ -335,7 +358,11 @@ To register at the IdP: redirect URI `https://<host>/oauth2/sso/code/oidc`, and 
 - **S2. Binding by `(iss, sub)` only.** Email and username are display data and never used for
   matching.
 - **S3. Handshake integrity.** `state` is bound to the handshake session; `nonce` and PKCE S256
-  are always sent; the handshake session is discarded at the callback.
+  are always sent; the handshake session is discarded at the callback. The start and the callback
+  only run as same-origin POSTs: the SSO chain refuses GET, and refuses cross-site POSTs with the
+  API chain's origin rules, auth cookie or not. So a link on another site can neither start a flow
+  in the user's browser nor complete one. This matters most for `link`: with an IdP session alive,
+  a started flow would finish without any interaction.
 - **S4. No account without a trust path.** An account is only created from an invitation token,
   admin-group membership, or the setup bootstrap. Everything else is refused.
 - **S5. Credential changes need a fresh re-authentication**: link, unlink, turning password login
@@ -367,6 +394,8 @@ To register at the IdP: redirect URI `https://<host>/oauth2/sso/code/oidc`, and 
   `REAUTH_WRONG_ACCOUNT`, `ACCOUNT_INACTIVE`, `ADMIN_RECOVERY_ACTIVE`, `ACTIVATION_INVALID`,
   `SETUP_ALREADY_CLAIMED`, `IDP_UNAVAILABLE`, `IDP_ERROR`, `SESSION_EXPIRED` (handshake session
   gone), `RATE_LIMITED`.
+- **Refused requests:** a GET to `/oauth2/sso/**` redirects to `/login`, and a cross-site POST gets
+  the API chain's 403 (`Cross-site request rejected`).
 - **API errors** are ProblemDetail responses with a stable `code`, per
   [api-rest.md](../conventions/api-rest.md):
   - `SSO_ADMIN_REQUIRED` (409, setup);
@@ -412,7 +441,7 @@ Backend (`mvn test`):
   guard, resolver and handlers, `SessionIssuer`, `ReAuthService`, `SignInMethodsController`,
   `AdminIdentityController`, `SetupService.seedSsoAdmin`, `JwtUtil` and `SafeRedirect`.
 - **MockMvc** for HTTP-level behavior: the chain exists only when SSO is configured, routing of
-  `/oauth2/sso/**`, and `GET /api/auth/sso` being public.
+  `/oauth2/sso/**`, the GET and cross-site refusals, and `GET /api/auth/sso` being public.
 - **One Testcontainers `@SpringBootTest` integration test** (pattern:
   `Oauth2ConsentHandshakeIntegrationTest`) against an in-process **`FakeOidcProvider`**: a test
   helper built on the JDK `HttpServer` and Nimbus, both already on the classpath. It serves
@@ -420,16 +449,17 @@ Backend (`mvn test`):
   userinfo, echoes the nonce, and lets each test choose `auth_time` and groups.
 
 Frontend (`bunx vitest run`, a clean `bun run build`, `bun run lint` at zero warnings): login
-button and errors, the SSO-complete page, the sign-in methods card and dialogs, `ReauthPanel`, the
-setup SSO mode, activation with SSO, member badges, the api-client revalidation flag, the logout
-redirect, and locale parity.
+button and errors, the start form, the callback and SSO-complete pages, the sign-in methods card
+and dialogs, `ReauthPanel`, the setup SSO mode, activation with SSO, member badges, the api-client
+revalidation flag, the logout redirect, and locale parity.
 
 Manual end-to-end against Zitadel: the runbook at the end of the plan.
 
 ## Framework-version caveats (confirm during implementation)
 
 - `ClientRegistration.ClientSettings.requireProofKey` is in Spring Security 6.5 (Boot 3.5.16
-  BOM). If it is missing, use `OAuth2AuthorizationRequestCustomizers.withPkce()` in the resolver.
+  BOM): `DefaultOAuth2AuthorizationRequestResolver` applies PKCE when it is set or the client is
+  public. Checked in the 6.5 source, like the redirect URI facts above.
 - `OidcUserService#setRetrieveUserInfo` (Spring Security ≥ 6.3) makes Spring call userinfo even
   when the granted scopes do not include `profile` or `email`.
 - `ClientRegistrations.fromIssuerLocation` performs network calls, so it is only ever called
@@ -454,12 +484,12 @@ Manual end-to-end against Zitadel: the runbook at the end of the plan.
 | Phase                                                  | Developer-days |
 | ------------------------------------------------------ | -------------- |
 | 1. Groundwork (schema, properties, two extractions)    | 2.5–3.5        |
-| 2. SSO login core, role sync, re-validation            | 6–8            |
+| 2. SSO login core, role sync, re-validation            | 6.5–8.5        |
 | 3. Password-less accounts, re-auth, linking, invites   | 4–5.5          |
 | 4. First admin through SSO                             | 1.5–2          |
-| 5. Frontend                                            | 5–7            |
+| 5. Frontend                                            | 5.5–7.5        |
 | 6. Integration test, dev/infra, docs                   | 3–4            |
-| **Total**                                                  | **≈22–30**         |
+| **Total**                                                  | **≈23–31**         |
 
 ## Follow-ups
 
