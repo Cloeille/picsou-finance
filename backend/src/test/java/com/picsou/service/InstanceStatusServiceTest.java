@@ -227,9 +227,10 @@ class InstanceStatusServiceTest {
         HttpServer healthy = health(healthyHits, 200, "{\"status\":\"ok\",\"base\":\"sidecar-python\"}");
         try {
             InstantStart start = InstantStart.now();
+            // Counts run in list order: the healthy target is counted before the slow one blocks the task.
             var response = service(Duration.ofMillis(200), Duration.ofMillis(500),
-                slowCountTarget("cic-auth", url(slow)),
-                target("bourso-auth", "sidecar-python", url(healthy), 1)).status();
+                target("bourso-auth", "sidecar-python", url(healthy), 1),
+                slowCountTarget("cic-auth", url(slow))).status();
             assertThat(start.elapsed()).isLessThan(Duration.ofMillis(1500));
             assertThat(healthyHits).hasValue(1);
             assertThat(slowHits).hasValue(0);
@@ -238,6 +239,29 @@ class InstanceStatusServiceTest {
             slow.stop(0);
             healthy.stop(0);
         }
+    }
+
+    @Test
+    void sessionCounts_runOneAtATime() {
+        AtomicInteger active = new AtomicInteger();
+        AtomicInteger maxActive = new AtomicInteger();
+        SidecarTarget[] targets = new SidecarTarget[6];
+        for (int i = 0; i < targets.length; i++) {
+            targets[i] = new SidecarTarget("sidecar-" + i, "sidecar-python", () -> "", () -> {
+                maxActive.accumulateAndGet(active.incrementAndGet(), Math::max);
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    active.decrementAndGet();
+                }
+                return 0;
+            });
+        }
+        var response = service(Duration.ofMillis(200), Duration.ofSeconds(3), targets).status();
+        assertThat(response.issues()).isEmpty();
+        assertThat(maxActive).hasValue(1);
     }
 
     @Test

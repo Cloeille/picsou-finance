@@ -153,6 +153,7 @@ public class InstanceStatusService {
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         try {
             List<SidecarProbe> probes = sidecars.stream().map(target -> start(target, executor)).toList();
+            executor.execute(() -> countSessions(probes));
             List<CompletableFuture<Optional<SidecarIssue>>> futures = probes.stream()
                 .map(SidecarProbe::result)
                 .toList();
@@ -181,20 +182,32 @@ public class InstanceStatusService {
         }
     }
 
-    /** Counts sessions, then probes only if the sidecar is in use; both steps run under the shared deadline. */
+    /** The count future completes later; the probe starts as soon as it does, so probes run in parallel. */
     private SidecarProbe start(SidecarTarget target, ExecutorService executor) {
-        CompletableFuture<Long> count = CompletableFuture.supplyAsync(() -> sessionCount(target), executor);
+        CompletableFuture<Long> count = new CompletableFuture<>();
         return new SidecarProbe(target, count,
             count.thenApplyAsync(sessions -> sessions > 0 ? probe(target) : Optional.empty(), executor));
     }
 
-    /** A count that fails is treated as not in use. */
-    private static long sessionCount(SidecarTarget target) {
-        try {
-            return target.sessions().getAsLong();
-        } catch (RuntimeException ex) {
-            log.warn("instance-status.sidecar.count_failed name={}", target.name(), ex);
-            return 0;
+    /**
+     * Counts one sidecar after another: one pooled DB connection at a time, because an interrupted
+     * JDBC query keeps its connection. A count that fails is treated as not in use; one cut off by
+     * the deadline stays incomplete and is reported as a timeout.
+     */
+    private static void countSessions(List<SidecarProbe> probes) {
+        for (SidecarProbe probe : probes) {
+            if (Thread.currentThread().isInterrupted()) {
+                return;
+            }
+            try {
+                probe.count().complete(probe.target().sessions().getAsLong());
+            } catch (RuntimeException ex) {
+                if (Thread.currentThread().isInterrupted()) {
+                    return;
+                }
+                log.warn("instance-status.sidecar.count_failed name={}", probe.target().name(), ex);
+                probe.count().complete(0L);
+            }
         }
     }
 
