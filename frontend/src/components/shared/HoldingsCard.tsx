@@ -28,6 +28,7 @@ import { accountTypeLabelKey } from '@/lib/constants'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { formatApiError } from '@/lib/errors'
 import { HoldingDetailModal } from '@/components/shared/HoldingDetailModal'
+import { HoldingLogo } from '@/components/shared/HoldingLogo'
 import type { Account } from '@/types/api'
 
 type FilterType = 'all' | Account['type'] | 'cash'
@@ -45,6 +46,13 @@ function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick?: () => 
   const money = useMoney()
   const { t } = useTranslation()
   const displayName = line.nameKey ? t(line.nameKey) : line.name
+  // The logo takes the ticker box's place, so the ticker moves into the description.
+  const logoTicker = !line.isCash && line.logoUrl ? line.ticker : null
+  const description = [
+    logoTicker,
+    line.quantity > 0 ? `${money.quantity(formatQuantity(line.quantity))} ${t('dashboard.shares')}` : null,
+    line.accountName,
+  ].filter(Boolean).join(' · ')
 
   return (
     <Item
@@ -53,17 +61,23 @@ function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick?: () => 
       onClick={onClick}
     >
       <ItemMedia>
-        <div className="flex size-12 items-center justify-center rounded-lg border text-sm font-semibold">
-          {line.ticker ? line.ticker.slice(0, 4) : line.name.slice(0, 3).toUpperCase()}
-        </div>
+        {logoTicker ? (
+          <HoldingLogo
+            logoUrl={line.logoUrl}
+            logoUrlDark={line.logoUrlDark}
+            ticker={logoTicker}
+            name={displayName}
+            className="size-12"
+          />
+        ) : (
+          <div className="flex size-12 items-center justify-center rounded-lg border text-sm font-semibold">
+            {line.ticker ? line.ticker.slice(0, 4) : line.name.slice(0, 3).toUpperCase()}
+          </div>
+        )}
       </ItemMedia>
       <ItemContent>
         <ItemTitle>{displayName}</ItemTitle>
-        <ItemDescription className="text-sm">
-          {line.quantity > 0
-            ? `${money.quantity(formatQuantity(line.quantity))} ${t('dashboard.shares')} · ${line.accountName}`
-            : line.accountName}
-        </ItemDescription>
+        <ItemDescription className="text-sm">{description}</ItemDescription>
       </ItemContent>
       <div className="flex shrink-0 items-center gap-6">
         <Badge variant="outline">

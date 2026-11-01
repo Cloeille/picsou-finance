@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Trade Republic bond values no longer use percentage quotes as euro prices.** EUR bond
+  ticker prices are divided by 100. Non-EUR or unknown bond currencies keep the position's
+  current price empty and value it at its average buy-in. A sync updates current holdings and
+  today's snapshot; earlier daily snapshots keep their recorded values.
+
 ### Changed
 
 - **Bank connectors are opt-in.** `docker compose up` now starts only the app and the
@@ -469,6 +476,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Holding logos on the dashboard.** The dashboard's holdings list now shows a share's, fund's
+  or coin's logo where it printed the first letters of the ticker, as the account pages already
+  do. The ticker moves to the description line. Holdings without a logo and cash rows keep
+  the ticker box.
 - **Backend dependency baseline.** Restored Spring Boot 3.5.16 after a standalone Boot 4 parent
   bump left existing AOP and Testcontainers dependencies without managed versions. The coordinated
   Spring AI 2, Jackson 3, Spring Security 7, and test migration remains separate.
