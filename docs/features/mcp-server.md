@@ -84,7 +84,7 @@ Three security properties are guaranteed structurally (not by per-call checks):
 
 **Backend — MCP surface**
 - `backend/src/main/java/com/picsou/config/McpToolConfig.java` — the single `ToolCallbackProvider` bean; the one place tools are wired.
-- `backend/src/main/java/com/picsou/mcp/tools/{Account,Transaction,Goal,Insight,Sync,Analysis}Tools.java` — the `@Tool` methods, each gated by `@RequiresScope`.
+- `backend/src/main/java/com/picsou/mcp/tools/{Account,Transaction,Goal,Insight,Sync,Analysis,Budget,OAuth2,AiCategorization}Tools.java` — the `@Tool` methods, each gated by `@RequiresScope`.
 - `backend/src/main/java/com/picsou/mcp/RequiresScope.java` + `backend/src/main/java/com/picsou/mcp/ScopeEnforcementAspect.java` + `backend/src/main/java/com/picsou/exception/MissingScopeException.java` — scope enforcement (AOP) and its clean error.
 - `backend/src/main/java/com/picsou/controller/AccessKeyController.java` + `dto/AccessKey{CreateRequest,Response,CreatedResponse}.java` — self-service management REST API under `/api/access-keys`.
 - `backend/src/main/java/com/picsou/config/RateLimitConfig.java` — `mcpKeyBuckets`, `accessKeyCreateBuckets`, and the bucket factories.
@@ -205,7 +205,7 @@ refresh (a rate-limited fan-out to external providers) and every analysis write 
 targets, savings config, real-estate, debt, ownership and visibility settings).
 
 The `budget:*` and `oauth2:*` scopes (including `budget:recurring-write` for recurring-series
-triage) and their tools are listed in [Budget + OAuth2 tools in MCP](./mcp-budget-oauth2.md).
+triage and `budget:ai-write` for the AI categorization job) and their tools are listed in [Budget + OAuth2 tools in MCP](./mcp-budget-oauth2.md).
 
 **Never exposed** (no `@Tool` exists, so no scope can initiate them): authentication flows,
 credential submission or retrieval, connecting a new bank / broker / exchange / wallet, MFA,

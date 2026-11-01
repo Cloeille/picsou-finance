@@ -1,12 +1,12 @@
 # Feature: Budget + OAuth2 tools in MCP
 
-> Last updated: 2026-10-04
+> Last updated: 2026-11-01
 
 ## Context
 
 The MCP server initially exposed Account/Transaction/Goal/Dashboard/Price and Sync tools — read and write operations on the core financial data model. This feature adds two new tool families:
 
-1. **Budget tools** (36 tools, 11 scopes) — full read/write surface over categorization rules (with a dry-run preview), transactions (budgeted view), recurring series (triage, manual declaration, detection, activity feed and calendar), spending envelopes, period-selectable spending and cashflow reads, and a composed dashboard (cashflow + top categories + upcoming subscriptions).
+1. **Budget tools** (38 tools, 12 scopes) — full read/write surface over categorization rules (with a dry-run preview), the AI categorization job, transactions (budgeted view), recurring series (triage, manual declaration, detection, activity feed and calendar), spending envelopes, period-selectable spending and cashflow reads, and a composed dashboard (cashflow + top categories + upcoming subscriptions).
 2. **OAuth2 tools** (2 tools, 2 scopes) — discovery of the authorization server's configuration and inspection of the access-key's own session metadata.
 
 Together they bring the MCP surface to feature parity with the Budget page's read-only access and enable external AI apps (e.g. claude.ai via an MCP client) to analyze spending and manage rules.
@@ -26,7 +26,7 @@ Together they bring the MCP surface to feature parity with the Budget page's rea
 
 ## Budget Tools
 
-36 tools across 11 scopes covering categories, rules, categorized transactions, recurring series, envelopes, spending/cashflow, and dashboard aggregates.
+38 tools across 12 scopes covering categories, rules, AI categorization, categorized transactions, recurring series, envelopes, spending/cashflow, and dashboard aggregates.
 
 ### Read surface (6 scopes, 17 tools)
 
@@ -39,7 +39,7 @@ Together they bring the MCP surface to feature parity with the Budget page's rea
 | `budget:envelopes-read` | `list_budget_envelopes`, `get_budget_envelope` | Spending envelopes + their allocations. A single envelope can be queried with its full subtree rollup (children's balances). |
 | `budget:dashboard-read` | `get_budget_dashboard`, `get_spending_by_category`, `get_cashflow`, `get_cashflow_flow` | Composed dashboard (same data as the Budget Overview page): hero "left to spend", mini Sankey flow, top-5 categories by spend, and 30-day upcoming subscriptions. The three others mirror `GET /api/spending/by-category` and `/api/cashflow{,/flow}` and return aggregates only: `period` is `CYCLE` (default) or `YTD`, `anchor` defaults to today. |
 
-### Write surface (5 scopes, 19 tools)
+### Write surface (6 scopes, 21 tools)
 
 | Scope | Tools | What they do |
 |-------|-------|------------|
@@ -48,6 +48,7 @@ Together they bring the MCP surface to feature parity with the Budget page's rea
 | `budget:transactions-write` | `update_budget_transaction` | Manually categorize a transaction or mark it as reviewed. |
 | `budget:recurring-write` | `confirm_recurring_series`, `ignore_recurring_series`, `undo_recurring_series_change`, `create_recurring_series`, `update_recurring_series`, `delete_recurring_series`, `detect_recurring_series` | Triage what the detector found, declare a series it missed, correct or delete one, and re-run detection. Each tool returns the updated series (delete and detect return a summary). |
 | `budget:envelopes-write` | `create_budget_envelope`, `update_budget_envelope`, `delete_budget_envelope`, `set_envelope_allocation` | Create/edit/delete spending envelopes; set money limit. Envelopes form a tree; operations on a node affect only that node, not its subtree. |
+| `budget:ai-write` | `start_ai_categorization`, `get_ai_categorization_status` | Start the inbox's AI categorization job and poll its progress. The status is aggregate counters only. See the design note below. |
 
 ### Design notes
 
@@ -64,11 +65,15 @@ Together they bring the MCP surface to feature parity with the Budget page's rea
 - **Detection is bounded, not throttled** — `detect_recurring_series` scans only the last 400 days (`RecurringDetectionService.LOOKBACK_DAYS`) and is idempotent: re-running refreshes amounts and dates, links transactions, may auto-confirm a high-confidence `SUGGESTED` series, and never flips a `CONFIRMED` or `IGNORED` decision. There is no cooldown or rate limit on it, neither over REST nor over MCP; detection also runs after each sync.
 - **A read scope returns nothing its description does not promise** — transaction rows need `budget:transactions-read`, card-account data needs `accounts:read`. `ScopeEnforcementAspect` checks exactly one scope per tool. `get_spending_category_detail` is mostly rows, so `budget:transactions-read` gates the whole tool. `preview_budget_rule` is gated the same way. Even its match count leaks content, because a `KEYWORD` pattern is a case-insensitive substring match over counterparty, description and merchant label: probing `a`, `ca`, `cas`… would rebuild transaction text one character at a time. When a tool is still useful without the extra data, it checks the second scope with `ScopeEnforcementAspect.isGranted` and leaves that data out. `get_recurring_calendar` drops the credit-card entries without `accounts:read`. Pre-existing and unchanged: `get_budget_dashboard` still lists card payments in its 30-day upcoming list under `budget:dashboard-read`.
 - **Rule preview is a pure dry run** — `CategorizationService.previewRule` runs in a read-only transaction, builds an unsaved synthetic rule, and only reads `TransactionRepository.findChangeable`. No rule is persisted and no transaction changes.
-- **Not built: AI categorization** — `POST /api/transactions/categorize-ai` spends the instance's AI provider budget and is already asynchronous with its own status endpoint; exposing it needs its own decision.
+- **AI categorization has its own write scope** — `start_ai_categorization` calls `AiCategorizationJobService.start`, the method behind `POST /api/transactions/categorize-ai`, so it keeps every REST behavior: the instance's provider, the member's mode and threshold, `ai.max-concurrency`, the `ai_call_log` audit rows, and only transactions with no category. The deterministic rules ran when each transaction was imported; the job does not rerun them, so call `apply_rule_to_transactions` first after adding a rule. It spends the instance's AI provider budget, so it sits under `budget:ai-write`, not `budget:transactions-write`: a key that can categorize one transaction by hand cannot start inference over all of them. A key also needs `budget:ai-write` to read the status. The status says nothing a caller that could not start the job needs.
+  - **No duplicate job.** The service's per-member `compute` guard is unchanged. A call while a job runs returns `started=false` and the running job. When AI is off for the member, no category exists, or nothing is uncategorized, the call returns `started=false` with `state=COMPLETED` and `total=0`. No job is stored, so the caller must not poll: the status would stay on the previous job, or `IDLE`. `started` comes from a status read before the start, so it is advisory; the returned job is the truth.
+  - **No cooldown.** The `trigger_*` sync cooldown does not apply; the one-job-per-member guard is the only limit, as on REST. The tool name does not start with `trigger_` for that reason.
+  - **Aggregates only.** `get_ai_categorization_status` returns `state` (`IDLE`, `RUNNING`, `COMPLETED`, `FAILED`), `total`, `processed`, `applied`, `suggested` and `unresolved` (`processed - applied - suggested`: the model answered nothing usable). The job's error message is dropped, because a provider error can echo prompt or response text. The detail stays in Admin → AI activity. A `COMPLETED` or `FAILED` status describes the last job until the next one starts; there is no run id.
+  - **State is in memory**, as on REST: after a restart the status is `IDLE` and the caller starts again.
 - **Calendar horizon mirrors REST** — `horizonDays` has no bound on `GET /api/recurring/calendar` either; the projection is capped at 400 occurrences per series.
 - **Dashboard composition** — `get_budget_dashboard` assembles data from `CashflowService.compute()` (mini Sankey), `CashflowFlowService.spendingByCategory()` (top-5 categories), and `RecurringSeriesService.upcoming(30)` (subscriptions). No single backend endpoint backs it; both the tool and the UI compose the same pieces.
 
-## Scopes (13 total)
+## Scopes (14 total)
 
 OAuth2:
 - `oauth2:discover` — read configuration
@@ -81,6 +86,7 @@ Budget:
 - `budget:recurring-read`, `budget:recurring-write`
 - `budget:envelopes-read`, `budget:envelopes-write`
 - `budget:dashboard-read`
+- `budget:ai-write`
 
 No scope exists for: connecting new bank/broker/exchange/wallet accounts, changing MFA settings, member management, GDPR data export, or modifying admin settings. Those flows stay behind the cookie-authenticated HTTP API.
 
@@ -90,7 +96,8 @@ Backend (`mvn test`):
 - `OAuth2ToolsTest` (4) — configuration discovery, session status (own key only), denial cases.
 - `BudgetToolsTest` (30) — categories (CRUD + not-found), rules (CRUD + application), transactions (list + categorize), recurring (list/get), envelopes (tree + CRUD), dashboard composition, spending/cashflow period and anchor defaults.
 - `BudgetToolsRecurringTriageTest` (40) — the new tools driven through the real recurring, categorization and cashflow services over mocked repositories: undo (price step vs. auto-confirm), ignore not resurrected by detection, other-member series/category not found and never modified, bean-validation errors, preview writes nothing, and each new tool refused through the real `ScopeEnforcementAspect` without its exact scope. A `budget:dashboard-read`-only key cannot read the spending detail. A `budget:rules-read`-only key cannot preview a rule; with `budget:transactions-read` the preview returns the count and the rows. The calendar lists card payments only with `accounts:read`.
-- `OAuth2AndBudgetScopeDenialTest` (13 parameterized) — scope enforcement denies each tool when its required scope is absent.
+- `AiCategorizationToolsTest` — both tools carry `budget:ai-write` and are refused without it, even with every other scope; start when idle, while a job runs (no second job) and when AI is off; status mapping for each state, `unresolved`, and a failed job whose error text never reaches the result.
+- `OAuth2AndBudgetScopeDenialTest` (14 parameterized) — scope enforcement denies each tool when its required scope is absent.
 - `McpToolCatalogTest` — wiring verification (exact tool count), no leaked auth/credential/admin tools.
 
 No regression: all existing Account/Transaction/Goal/Insight/Sync tools pass their tests unchanged.
@@ -110,6 +117,7 @@ No regression: all existing Account/Transaction/Goal/Insight/Sync tools pass the
 - "Review the subscriptions you found" → `list_recurring_series(status=SUGGESTED)` + `confirm_recurring_series` / `ignore_recurring_series`.
 - "Add a rule for my supermarket" → `preview_budget_rule` first, then `create_budget_rule`.
 - "Auto-categorize my uncategorized transactions" → `list_budget_transactions(uncategorizedOnly=true)` + `apply_rule_to_transactions`.
+- "Run the AI on what the rules missed" (e.g. a scheduler that starts a local Ollama host, then stops it) → `start_ai_categorization`; if it returned `RUNNING`, poll `get_ai_categorization_status` until `COMPLETED` or `FAILED`.
 - "Create a new spending envelope for groceries and set a $400 limit" → `create_budget_envelope` + `set_envelope_allocation`.
 - "Check if my access-key is about to expire" → `get_oauth2_session_status`.
 
