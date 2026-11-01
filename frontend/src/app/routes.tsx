@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter } from 'react-router'
 import { RequireAuth, PublicOnly, RequireAdmin } from '@/features/auth/guards'
 import { RequireSetup, SetupOnly } from '@/features/setup/guards'
 import { AppLayout } from '@/components/layout/AppLayout'

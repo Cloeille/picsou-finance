@@ -133,12 +133,27 @@ describe('formatLocalDate', () => {
     expect(formatLocalDate('2026-10-01', 'fr-FR')).toBe('1er octobre 2026')
   })
 
+  it('optionally includes the weekday without losing the French ordinal', () => {
+    expect(formatLocalDate('2026-10-01', 'fr-FR', { weekday: 'long' }))
+      .toBe('jeudi 1er octobre 2026')
+  })
+
   it('drops the leading zero on other days', () => {
     expect(formatLocalDate('2026-09-05', 'fr-FR')).toBe('5 septembre 2026')
   })
 
   it('keeps other languages on their own convention', () => {
     expect(formatLocalDate('2026-10-01', 'en-US')).toBe('October 1, 2026')
+  })
+
+  it('keeps a date-only value on its own day west of UTC', () => {
+    vi.stubEnv('TZ', 'America/New_York')
+    try {
+      expect(formatLocalDate('2026-07-31', 'fr-FR', { weekday: 'long' }))
+        .toBe('vendredi 31 juillet 2026')
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })
 

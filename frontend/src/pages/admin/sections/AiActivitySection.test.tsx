@@ -16,6 +16,7 @@ vi.mock('react-i18next', () => ({
       }
       return key
     },
+    i18n: { resolvedLanguage: 'en', language: 'en' },
   }),
 }))
 

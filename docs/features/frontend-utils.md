@@ -1,6 +1,6 @@
 # Feature: Frontend utility library (`frontend/src/lib/utils.ts`)
 
-> Last updated: 2026-08-19 (DateInput no longer rewrites text mid-typing; `ageAt`)
+> Last updated: 2026-10-31 (transaction detail dates follow the app locale)
 
 ## Context
 
@@ -26,7 +26,7 @@ Shared formatting functions used across the frontend. Centralised in one file to
 | `formatDateTime` | `(dateStr, locale=getLocale(), format?)` | `"08/04/2026 14:30"` (locale) or `"08-04-2026 14:30"` (iso) |
 | `normalizeDecimal` | `(value: string \| null \| undefined) => string` | `"12,50"` → `"12.50"` (replaces first `,` with `.`) |
 | `parseAmount` | `(value: string \| null \| undefined) => number` | `"12,50"` → `12.5`; tolerant `parseFloat` over `normalizeDecimal` |
-| `formatLocalDate` | `(dateStr, locale=getLocale())` | `"8 avril 2026"` (long month) |
+| `formatLocalDate` | `(dateStr, locale=getLocale(), options={})` | `"8 avril 2026"` (long month); `{ weekday: 'long' }` also includes the weekday |
 | `formatPercent` | `(points, { fractionDigits=1, signed=false }, locale=getLocale())` | `8.3` → `"8,3 %"` (fr), `"8.3%"` (en); `signed` → `"+8,3 %"`, never on zero |
 | `formatDecimal` | `(value, fractionDigits, locale=getLocale())` | `4.7` → `"4,7"` (fr) — a plain number beside a unit that is not a percentage |
 | `formatQuantity` | `(value, locale=getLocale())` | `0.0001` → `"0,0001"` (fr) — a holding quantity, up to eight decimals so a small crypto position never reads as 0 |
@@ -111,6 +111,10 @@ Wired into the four date fields: `AddTransactionModal` (transaction date),
 - **`getLocale()` reads `document.documentElement.lang`** — `frontend/src/i18n/index.ts` keeps that attribute in sync on every `languageChanged` event, but `getLocale()` itself is not reactive: an already-rendered component won't re-render on language switch. For UI that must react immediately, use `localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)` with the `useTranslation()` hook (the established pattern in charts and `CurrencyDisplay`).
 - **`formatCurrency()` validates its locale before calling `Intl.NumberFormat`** — invalid translation/mocking values must not crash the UI. Invalid currency codes fall back to a decimal number followed by the raw code.
 - **`formatDate` vs `formatLocalDate`**: `formatDate` outputs `dd/mm/yyyy` (compact, for tables) or `DD-MM-YYYY` if the user selected the ISO format in settings; `formatLocalDate` outputs long-month form (for readable labels). Don't swap them.
+- **Transaction detail dates use `formatLocalDate` with `{ weekday: 'long' }`** and the active
+  app locale, including when the language changes while the detail stays open. A backend
+  date-only value stays on its calendar day in every time zone; French first-of-month labels
+  retain the shared helper's `1er` ordinal.
 - **`formatDate` format resolution**: reads `useAppStore.getState().dateFormat` at call time (`'locale'` or `'iso'`). The optional `format` parameter overrides the store value — used by callers that need a specific format regardless of user preference.
 - **Store import in `utils.ts`**: `formatDate` imports `useAppStore` directly — safe because `app-store.ts` has no dependency on `utils.ts` (no circular dependency).
 - **`formatPercent` expects points** (50 = 50 %), not a ratio. A 0–1 ratio (recurring-series `confidence`, goal-calendar ratios) must be multiplied by 100 first.
@@ -129,4 +133,6 @@ Wired into the four date fields: `AddTransactionModal` (transaction date),
 
 ## Tests
 
+- `frontend/src/components/shared/TransactionDetailSheet.test.tsx` — app locale changes on the
+  mounted detail and calendar-day preservation west of UTC.
 - `frontend/src/lib/utils.test.ts` — covers `cn`, `formatCurrency` including invalid currency/locale fallback, `formatDate`, `formatPercent` and `formatDecimal` in fr/de/es/en, `formatQuantity` keeping a 0.0001 holding, and `parseDate` (dd/mm vs mm/dd ordering, iso mode, mixed separators, 2-digit years, impossible-date rejection, malformed input, and the `formatDate`∘`parseDate` round-trip across both formats × both locales).
