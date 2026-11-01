@@ -246,7 +246,7 @@ If either step fails the upgrade stops and the running app is left untouched.
 The app also migrates on startup, as defence in depth.
 
 The Job inherits `app.env`, `app.extraEnv`, `app.envFrom`, `app.extraVolumes`,
-`app.extraVolumeMounts`, `app.podLabels`, `app.nodeSelector`, `app.tolerations`
+`app.extraVolumeMounts`, `app.podLabels`, `app.podAnnotations`, `app.nodeSelector`, `app.tolerations`
 and `app.affinity`. Use the extra mounts for database CA certificates referenced
 by `externalDatabase.jdbcParams`. It keeps its own `migrate` component label
 and does not mount the app's `/data` volume, which may still be in use.
@@ -254,8 +254,27 @@ Datasource defaults and explicit overrides are shared with the app. The CLI uses
 `SPRING_DATASOURCE_PASSWORD` when nonempty, otherwise `POSTGRES_PASSWORD`, just
 like the image entrypoint. Kubernetes gives explicit `env` entries precedence over
 `envFrom`; use `app.env` or `app.extraEnv` to override generated datasource values.
+Use `app.podAnnotations` for mesh opt-outs such as `sidecar.istio.io/inject: "false"`
+so the migration pod can finish without a long-running injected proxy.
 Secrets, ConfigMaps and volumes needed by the hook must already exist before the
 upgrade: a pre-upgrade hook runs before Helm updates ordinary release resources.
+
+The migration hook rejects upgrades when its generated `postgres-password` is missing
+or differs from the requested inline password, before creating a Job. When switching
+from `secrets.existingSecret` to the generated Secret, first provision the Secret named
+after the release fullname with the current `postgres-password` and `sidecar-api-key`.
+Preserve any `jwt-secret` and `crypto-encryption-key` too; never generate replacement
+keys for existing data. For Helm to adopt the pre-provisioned Secret, set its label
+`app.kubernetes.io/managed-by: Helm` and annotations `meta.helm.sh/release-name`
+and `meta.helm.sh/release-namespace` to the release name and namespace.
+Then clear `secrets.existingSecret` and upgrade. If using an
+external database and changing `secrets.postgresPassword`, coordinate the database
+password rotation and update `postgres-password` in the generated Secret **before**
+upgrading, so the hook sees the current credential. Back up first and arrange a
+maintenance window for credential changes. Externally managed Secrets and explicit
+`app.env`/`app.extraEnv` password sources must also be ready before the hook runs.
+Offline upgrade rendering cannot look up generated Secrets; use `secrets.existingSecret`
+for GitOps as described above.
 
 Allow the hook to finish before Helm times out (Helm defaults to only five minutes):
 
@@ -333,7 +352,7 @@ with the `sidecars` map (requires [yq](https://github.com/mikefarah/yq) v4):
 
 ```bash
 charts/picsou/sync-sidecars.sh --check   # report, exit 2 on differences
-charts/picsou/sync-sidecars.sh --apply   # add standard sidecars, disable stale ones; fail on wiring mismatches
+charts/picsou/sync-sidecars.sh --apply   # add standard sidecars, disable stale or broken entries; warn on differences
 ```
 
 A sidecar is standard when its Compose service has only an image, a build, a
@@ -357,9 +376,10 @@ new Compose sidecars cannot make those assertions block releases. All script tes
 live in `charts/picsou/tests` and run only in the independent chart job. Helm validation
 is independent of `ci-ok` and image publishing, so a chart failure does not block application releases.
 When publishing, stale entries are disabled in the packaged values so removed images
-are never deployed. Port or URL-variable mismatches and missing app wiring for
-listed sidecars, plus semantic `drift` findings, fail publishing. Correct them in the chart before retrying,
-including for custom sidecars.
+are never deployed. Port or URL-variable mismatches, missing app wiring and semantic `drift` findings
+disable the affected sidecars in the packaged values, including custom sidecars,
+and emit warnings. This keeps Compose-only changes from blocking chart publication
+without deploying known-broken sidecars. Script usage, read and write errors still fail.
 The missing standard sidecars are added to the packaged chart,
 so a new sidecar of that kind is available without a chart change; the others
 are left out of the published chart until it supports them.
@@ -409,6 +429,11 @@ first 33 characters plus a hyphen and six-character hash of the full name to kee
 sidecar Service names within 63 characters and distinguish long release names.
 Upgrading a release whose old fullname was truncated changes its resource names;
 plan the migration of existing claims and Secrets explicitly before upgrading.
+
+A chart installed or packaged from a checkout defaults to the upstream
+`ghcr.io/cloeille/picsou-finance` images and `nightly` tag. For local fork installs,
+set `global.imageRepository=ghcr.io/<owner>/<repository>` and `global.imageTag`
+to a tag published by that fork. CI-published charts already stamp both values.
 
 ## Values
 

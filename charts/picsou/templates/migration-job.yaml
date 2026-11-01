@@ -6,6 +6,22 @@ Not run on install, where the database does not exist yet and the app migrates
 it on first boot.
 */}}
 {{- if .Values.migrationJob.enabled }}
+{{- /* Ordinary Secrets are applied after this hook. Reject unsafe generated-password
+changes at render time, rather than waiting for a missing Secret or using stale data.
+Inspect the rendered env so explicit app password overrides remain supported. */}}
+{{- if and .Release.IsUpgrade (not .Values.secrets.existingSecret) (or .Values.postgresql.enabled (not .Values.externalDatabase.existingSecret)) }}
+{{- $name := include "picsou.fullname" . }}
+{{- range (include "picsou.database.env" . | fromYamlArray) }}
+{{- if and (eq .name "POSTGRES_PASSWORD") (eq .valueFrom.secretKeyRef.name $name) }}
+{{- $stored := (lookup "v1" "Secret" $.Release.Namespace $name).data | default dict }}
+{{- $password := index $stored "postgres-password" | default "" }}
+{{- $inline := $.Values.secrets.postgresPassword | include "picsou.secret.inlineValue" | b64enc }}
+{{- if or (not $password) (and $inline (ne $inline $password)) }}
+{{- fail "migration hook requires the generated Secret postgres-password to already exist and match secrets.postgresPassword: provision or update the Secret before upgrading (see chart README, Upgrades)" }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -21,6 +37,12 @@ spec:
   activeDeadlineSeconds: {{ .Values.migrationJob.activeDeadlineSeconds }}
   template:
     metadata:
+      {{- with .Values.app.podAnnotations }}
+      annotations:
+        {{- range $k, $v := . }}
+        {{ $k }}: {{ toString $v | quote }}
+        {{- end }}
+      {{- end }}
       labels:
         {{- include "picsou.selectorLabels" (dict "ctx" $ "component" "migrate") | nindent 8 }}
         {{- with omit .Values.app.podLabels "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}

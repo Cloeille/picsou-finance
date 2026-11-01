@@ -46,13 +46,14 @@ The `chart` job of `.github/workflows/docker.yml` runs after every image of the 
 and publishes to `oci://ghcr.io/<owner>/charts/picsou`:
 
 - a version tag publishes the chart under that version, `appVersion` = the release;
-- a push to `main` publishes `<latest release + 1 patch>-main.<UTC timestamp>.g<short sha>`, a
+- a push to `main` publishes `<latest release + 1 patch>-main.<UTC commit timestamp>.g<short sha>`, a
   pre-release that sorts above the latest release and that Helm only installs with `--devel`, with
   `appVersion` = `sha-<short sha>`, the image tag `docker/metadata-action` gives every image of the
   commit.
 
 The chart checkout fetches full history and tags. Main version selection uses local
-`git tag --list` without a remote lookup. Release tags must be complete SemVer,
+`git tag --list` without a remote lookup. The timestamp comes from the HEAD commit
+in UTC, so late-finishing pipelines do not get newer versions from job execution time. Release tags must be complete SemVer,
 including no leading zeros in numeric prerelease identifiers; invalid tags skip
 chart publishing.
 
@@ -63,9 +64,10 @@ which lowercases repository names so mixed-case GitHub owners and forks publish 
 
 Before packaging, `sync-sidecars.sh --apply` adds to the packaged copy the standard sidecars that
 `values.yaml` does not list yet and disables entries removed from Compose, preserving their other
-settings. A port or URL-variable mismatch, or missing app wiring for a listed sidecar, fails publishing
-(including for custom sidecars), as does semantic `drift` (missing chart capabilities), so
-known-broken wiring requires an explicit chart correction. `--check` remains warning-only in CI.
+settings. Port or URL-variable mismatches, missing app wiring and semantic `drift`
+(missing chart capabilities) disable affected sidecars in the packaged values and warn,
+including for custom sidecars. Compose-only changes cannot block publication or deploy
+known-broken sidecars; script errors still fail. `--check` remains warning-only in CI.
 Live inventory tests parse a JSON array and accept exit 0 or 2; supported customization checks use a frozen synthetic
 inventory so new Compose sidecars cannot turn inventory drift into a release-blocking test failure.
 `global.imageRepository` is set to `ghcr.io/<repository>`, where
@@ -91,7 +93,7 @@ pod templates across inline secret changes.
 - `charts/picsou/templates/migration-job.yaml` — pre-upgrade migration and verification
 - `charts/picsou/templates/networkpolicy.yaml` — isolation of sidecars and database
 - `charts/picsou/sync-sidecars.sh` — compares the Compose sidecars with `values.yaml`, adds the
-  standard ones and disables stale entries on `--apply`; rejects wiring mismatches
+  standard ones and disables stale or broken entries on `--apply` with warnings
 - `.github/workflows/docker.yml` (`chart` job) — packages and publishes the chart
 - `.github/workflows/ci.yml` (`helm-chart` job) — lint, render, sidecar comparison
 - `charts/picsou/README.md` — operator documentation
@@ -148,6 +150,14 @@ helm upgrade
   The app migrates the new empty database on startup; once ready, re-enable the Job
   for subsequent upgrades. This does not transfer existing data; plan a separate
   backup and restore if the existing database must be preserved.
+- **Generated database credentials must precede the migration hook.** Upgrades reject a
+  missing generated `postgres-password` or a different inline password before starting
+  the Job. Before switching away from `secrets.existingSecret`, provision the generated
+  Secret with the current database password, sidecar key and any optional app keys.
+  For external database password changes, rotate the server credential and update the
+  generated Secret before upgrading, during a maintenance window. This avoids using
+  stale credentials or waiting for a Secret applied only after the pre-upgrade hook.
+  Operator-managed Secrets and explicit environment overrides must also exist beforehand.
 - **App readiness has no startup deadline.** The default `app.startupProbe` is `{}`,
   so slow migrations and database outages hold readiness without restarting the app.
   TCP liveness remains enabled. PostgreSQL uses `pg_isready` startup checks every
@@ -177,7 +187,7 @@ helm upgrade
 - **Migration database context matches the app.** Shared helpers render datasource defaults
   and `app.env`/`app.extraEnv` overrides; explicit overrides replace defaults by name.
   The Job also inherits `app.envFrom`, extra volumes/mounts (including database CA files),
-  pod labels and node selector, tolerations and affinity. It keeps its `migrate` component
+  pod labels, pod annotations (including mesh injection opt-outs) and node selector, tolerations and affinity. It keeps its `migrate` component
   label and does not attach the app's `/data` PVC. The CLI password falls back from
   `SPRING_DATASOURCE_PASSWORD` to `POSTGRES_PASSWORD`, as the app entrypoint does.
   Explicit env entries take precedence over `envFrom`, so generated datasource values
@@ -221,7 +231,9 @@ helm upgrade
   chart capabilities, not individual mount or network-rule equivalence. JSON mode
   emits only an array, even with `--github`; annotations are restricted to text mode.
 - **A checkout of the repository describes main** (`appVersion: nightly`, `version: 0.0.0-main`);
-  only published charts carry a release version.
+  only published charts carry a release version. Local fork installs must set
+  `global.imageRepository` and `global.imageTag` to their own published images; CI
+  stamps these automatically.
 
 ## Tests
 
@@ -231,7 +243,7 @@ helm upgrade
   verify `--check` reports each kind of difference, including nonstandard settings on known
   sidecars; `--apply` adds only standard
   sidecars, disables stale ones and keeps unrelated values byte for byte; a second `--apply`
-  is a no-op; port and URL-variable mismatches fail `--apply`, including for custom sidecars;
+  is a no-op; port and URL-variable mismatches disable sidecars on `--apply`, including custom ones;
   `--github` warns about unacknowledged differences but not added sidecars; the current
   supported inventory emits no warnings
 - `sync-sidecars.sh` on modified Compose files: new standard sidecar (added by `--apply`, values
@@ -243,7 +255,9 @@ helm upgrade
 - `charts/picsou/tests/test_review_regressions.py` packages the chart and verifies that the
   rendered package retains the `test-health` hook while excluding local Python tests.
   It also checks database TLS mounts, environment overrides and password fallback, migration
-  scheduling and labels, numeric and null inline secrets, stored-key fallback, all generated
+  scheduling, labels and quoted mesh annotations, missing or changing generated database
+  passwords on upgrade (including explicit password and external Secret overrides),
+  numeric and null inline secrets, stored-key fallback, all generated
   app environment overrides, duplicate-name rejection, and health-test images and scheduling.
   Review regressions also verify stored-password mismatch rejection, the zero/one replica
   boundary, reserved pod labels, app readiness without a startup deadline, PostgreSQL recovery

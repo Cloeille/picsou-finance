@@ -8,12 +8,12 @@
 # needs a chart change by hand, so it is reported and never guessed.
 #
 #   --check   report differences; exit 2 when there are any (default)
-#   --apply   add missing standard sidecars and disable stale ones;
-#             exit 1 on wiring mismatches or usage/read errors
+#   --apply   add missing standard sidecars; disable stale or broken entries;
+#             warn on differences, exit 1 on usage/read errors
 #   --github  also emit GitHub Actions ::warning annotations
 #   --json    print the findings as a JSON array instead of text
 #
-# Requires yq v4 (mikefarah). Exit 1 on errors or --apply wiring mismatches.
+# Requires yq v4 (mikefarah). Exit 1 on usage/read/write errors.
 set -eu
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -83,7 +83,6 @@ disable_in_values() {
   cat "$tmp" > "$values" && rm -f "$tmp"
 }
 
-publish_error=false
 findings=""   # one "sidecar|kind|detail" line per finding
 add_finding() { findings="${findings}$1|$2|$3
 "; }
@@ -108,14 +107,15 @@ for name in $compose_sidecars; do
   extra_env=$(yq -r ".services[\"$name\"].environment // {} | keys | .[]
     | select(. != \"APP_SIDECAR_API_KEY\")" "$compose" | tr '\n' ' ')
 
+  sidecar_error=false
   if printf '%s\n' "$chart_sidecars" | grep -qx "$name"; then
     chart_port=$(yq -r ".sidecars[\"$name\"].port" "$values")
     chart_env=$(yq -r ".sidecars[\"$name\"].urlEnv" "$values")
     if [ -z "$wiring" ]; then
-      publish_error=true
+      sidecar_error=true
       add_finding "$name" unwired "no *_AUTH_URL of the app service points at it"
     elif [ "$chart_port" != "$port" ] || [ "$chart_env" != "$url_env" ]; then
-      publish_error=true
+      sidecar_error=true
       add_finding "$name" mismatch "Compose: $url_env on port $port, chart: $chart_env on port $chart_port"
     fi
     # Only acknowledge keys when this chart entry enables their Kubernetes
@@ -128,7 +128,7 @@ for name in $compose_sidecars; do
         compose_has_volumes=$(yq -r ".services[\"$name\"].volumes // [] | length > 0" "$compose")
         if [ "$compose_has_volumes" = true ] &&
            [ "$(yq -r ".sidecars[\"$name\"].persistence.enabled // false" "$values")" != true ]; then
-          publish_error=true
+          sidecar_error=true
           add_finding "$name" drift "Compose volumes require sidecars.$name.persistence.enabled=true"
         fi
         ;;
@@ -138,7 +138,7 @@ for name in $compose_sidecars; do
         compose_init=$(yq -r ".services[\"$name\"].init // false" "$compose")
         if [ "$compose_init" = true ] &&
            [ "$(yq -r ".sidecars[\"$name\"].shareProcessNamespace // false" "$values")" != true ]; then
-          publish_error=true
+          sidecar_error=true
           add_finding "$name" drift "Compose init requires sidecars.$name.shareProcessNamespace=true"
         fi
         ;;
@@ -156,12 +156,16 @@ for name in $compose_sidecars; do
       BEGIN { count = split(known, names, "\n"); for (i = 1; i <= count; i++) present[names[i]] = 1 }
       { for (i = 1; i <= NF; i++) if (!present[$i]) printf "%s ", $i }')
     if [ -n "$missing_env" ]; then
-      publish_error=true
+      sidecar_error=true
       add_finding "$name" drift "Compose variables missing from chart env/extraEnv: ${missing_env% }"
     fi
     if [ -n "$extra_keys" ]; then
       detail="review custom chart settings: keys ${extra_keys% }"
       add_finding "$name" special "$detail"
+    fi
+    if [ "$mode" = apply ] && [ "$sidecar_error" = true ]; then
+      disable_in_values "$name"
+      add_finding "$name" disabled "left out of the packaged chart until its wiring or capabilities are corrected"
     fi
     continue
   fi
@@ -206,10 +210,6 @@ if [ "$github" = true ] && [ "$json" != true ] && [ -n "$findings" ]; then
   printf '%s\n' "$findings" | awk -F'|' '$2 != "added" { printf "::warning title=Helm chart: %s::%s\n", $1, $3 }'
 fi
 
-# Publishing must not deploy known-broken wiring, including custom sidecars.
-if [ "$mode" = apply ] && [ "$publish_error" = true ]; then
-  exit 1
-fi
 # --check reports all drift without changing the files.
 if [ "$mode" = check ] && [ -n "$findings" ]; then
   exit 2

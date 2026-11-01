@@ -30,6 +30,44 @@ class ReviewRegressionsTest(unittest.TestCase):
         )
         return [json.loads(line) for line in parsed.stdout.splitlines() if line != "null"]
 
+    def test_migration_inherits_quoted_pod_annotations(self):
+        resources = self.configured_resources({"app": {"podAnnotations": {
+            "sidecar.istio.io/inject": "false", "example.org/revision": 2}}})
+        job = next(r for r in resources if r["kind"] == "Job")
+        self.assertEqual(job["spec"]["template"]["metadata"]["annotations"], {
+            "sidecar.istio.io/inject": "false", "example.org/revision": "2"})
+
+    def test_migration_rejects_missing_or_changing_generated_password_on_upgrade(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            chart = Path(tmp) / "picsou"
+            shutil.copytree(CHART, chart)
+            template = chart / "templates/migration-job.yaml"
+            original = template.read_text()
+            for stored in ({}, {"sidecar-api-key": "c3ludGhldGlj"},
+                           {"postgres-password": base64.b64encode(b"synthetic-old").decode()}):
+                with self.subTest(stored_keys=list(stored)):
+                    template.write_text(original.replace(
+                        '(lookup "v1" "Secret" $.Release.Namespace $name).data',
+                        '(' + json.dumps(json.dumps(stored)) + ' | fromJson)'))
+                    args = ("--is-upgrade", "--set", "postgresql.enabled=false",
+                            "--set", "externalDatabase.host=pg-rw", "--set-string",
+                            "secrets.postgresPassword=synthetic-new")
+                    result = self.render(*args, chart=chart)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("provision or update the Secret before upgrading", result.stderr)
+                    # Install and explicit operator-managed sources remain supported.
+                    for override in (("--set", "secrets.existingSecret=operator-secret"),
+                                     ("--set", "externalDatabase.existingSecret=db-secret"),
+                                     ("--set", "externalDatabase.existingSecret=picsou"),
+                                     ("--set", "app.env.POSTGRES_PASSWORD=synthetic-override"),
+                                     ("--set", "migrationJob.enabled=false")):
+                        self.resources(*args, *override, chart=chart)
+                    self.resources(*args[1:], chart=chart)
+                    if "postgres-password" in stored:
+                        self.resources(*args, "--set-string",
+                                       "secrets.postgresPassword=synthetic-old", chart=chart)
+                        self.resources("--is-upgrade", chart=chart)
+
     def test_bundled_database_rejects_stored_password_mismatch(self):
         stored = {"postgres-password": base64.b64encode(b"synthetic-old-password").decode()}
         with tempfile.TemporaryDirectory() as tmp:

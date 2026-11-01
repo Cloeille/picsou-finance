@@ -214,15 +214,20 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
             git = Path(directory) / "git"
             git.write_text(
                 "#!/bin/sh\n"
-                "[ \"$*\" = \"tag --list\" ] || exit 93\n"
-                "printf '%s\\n' v1.2.3 1.9.09 2.0.0 v2.0.1-rc.1 not-a-version\n",
+                "case \"$*\" in\n"
+                "  'tag --list') printf '%s\\n' v1.2.3 1.9.09 2.0.0 v2.0.1-rc.1 not-a-version ;;\n"
+                "  'show -s --format=%cd --date=format-local:%Y%m%d%H%M%S HEAD')\n"
+                "    [ \"$TZ\" = UTC ] || exit 94\n"
+                "    echo 20261031010203 ;;\n"
+                "  *) exit 93 ;;\n"
+                "esac\n",
                 encoding="utf-8",
             )
             git.chmod(0o755)
             values = self.run_chart_version("", command_directory=directory)
 
         self.assertEqual(values["publish"], "true")
-        self.assertRegex(values["version"], r"^2\.0\.1-main\.\d{14}\.g0123456$")
+        self.assertEqual(values["version"], "2.0.1-main.20261031010203.g0123456")
 
     def test_chart_version_enforces_semver_prerelease_identifiers(self):
         valid = ("1.2.3", "1.2.3-rc.1", "1.2.3-main.20261101010203.g0123456")

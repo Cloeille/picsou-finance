@@ -134,6 +134,7 @@ app:
     periodSeconds: 30
     failureThreshold: 3
 
+  # Also inherited by the migration Job, including mesh injection opt-outs.
   podAnnotations: {}
   # Selector keys app.kubernetes.io/{name,instance,component} are reserved and ignored.
   podLabels: {}

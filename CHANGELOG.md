@@ -14,16 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   isolation and a pre-upgrade Job that migrates and verifies the schema before the app is
   replaced. TLS terminates on the cluster's Ingress or Gateway. CI publishes it to
   `oci://ghcr.io/cloeille/charts/picsou` with every release, and as a pre-release pinned to the
-  commit's images with every push to `main`. Revolut's non-root process can write browser
-  profiles to a fresh PVC through a pod supplemental group. Sidecar inventory drift remains
-  warnings-only in CI, including customization tests, while script errors still fail.
-  Empty or null Ingress host lists route to the app through a valid default backend.
-  Bundled database password mismatches and multiple app replicas fail rendering;
-  selector labels are protected. Slow app initialization no longer has a startup
-  deadline, and PostgreSQL has a ten-minute recovery allowance. Database transition
-  and password rotation procedures are documented. Long names include a hash.
-  Publishing uses local tags and complete SemVer validation; sidecar checks detect
-  missing chart capabilities, accept HTTPS wiring and keep JSON output parseable.
+  commit's images with every push to `main`.
   See [feature note](docs/features/helm-chart.md).
 
 - **SCPI positions over MCP.** An MCP client can now record a SCPI account's share count,

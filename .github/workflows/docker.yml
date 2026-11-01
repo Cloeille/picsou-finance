@@ -353,7 +353,9 @@ jobs:
                 done \
               | sort -V | tail -1)
             IFS=. read -r major minor patch <<< "${latest:-0.0.0}"
-            version="${major}.${minor}.$((patch + 1))-main.$(date -u +%Y%m%d%H%M%S).g${IMAGE_TAG#sha-}"
+            # Commit time keeps late-finishing pipelines from publishing newer versions.
+            timestamp=$(TZ=UTC git show -s --format=%cd --date=format-local:%Y%m%d%H%M%S HEAD)
+            version="${major}.${minor}.$((patch + 1))-main.${timestamp}.g${IMAGE_TAG#sha-}"
           fi
           if [[ ! "$version" =~ $semver ]]; then
             echo "::notice title=Helm chart::'$version' is not a semantic version, chart not published"

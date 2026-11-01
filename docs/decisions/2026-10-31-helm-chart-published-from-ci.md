@@ -21,7 +21,7 @@ bootstrap. A chart that does not move with them breaks silently.
    commit is pushed, to `oci://ghcr.io/<owner>/charts/picsou`:
    - a version tag publishes that version, `appVersion` = the release;
    - a push to `main` publishes a pre-release `<latest release + 1 patch>-main.<timestamp>.g<sha>`
-     pinned to the commit's `sha-<short>` images.
+     using the UTC commit timestamp rather than job execution time, pinned to the commit's `sha-<short>` images.
    Version, `appVersion` and `global.imageRepository` are stamped at publish time; nothing is
    committed back.
 3. **Terminate TLS on the cluster's Ingress or Gateway**, not with the Caddy profile of the Compose
@@ -31,7 +31,9 @@ bootstrap. A chart that does not move with them breaks silently.
    `helm-chart` job of `ci.yml` reports differences as warnings and fails only on a broken chart.
    This independent check is not a dependency of `ci-ok` or image publishing.
    Sidecars that need more than the generic template are left out of the published chart until
-   the chart maintainer adds them.
+   the chart maintainer adds them. Existing sidecars with detected wiring or capability
+   drift are disabled in the packaged values with warnings, so Compose-only changes
+   cannot block chart publication; script errors still fail.
 5. **Upgrades migrate before the app is replaced**: a `pre-upgrade` Job runs `ReleaseMigrationCli
    migrate` then `verify`, as [the release migrations ADR](./2026-10-08-rehearse-release-migrations.md)
    requires of `docker/deploy.sh`.

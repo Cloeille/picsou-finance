@@ -132,6 +132,19 @@ class SyncSidecarsTest(unittest.TestCase):
         result = self.run_script(*args, "--json")
         return result.returncode, {(f["sidecar"], f["kind"]) for f in json.loads(result.stdout)}
 
+    def assert_sidecar_disabled(self, name):
+        enabled = subprocess.run(
+            ["yq", "-r", f'.sidecars["{name}"].enabled', str(self.values)],
+            check=True, capture_output=True, text=True,
+        )
+        self.assertEqual(enabled.stdout.strip(), "false")
+        rendered = subprocess.run(
+            ["helm", "template", "picsou", str(VALUES.parent), "-f", str(self.values)],
+            check=True, capture_output=True, text=True,
+        )
+        self.assertNotIn(f"name: picsou-{name}\n", rendered.stdout)
+        self.assertNotIn(f"http://picsou-{name}:", rendered.stdout)
+
     def test_repository_inventory_check_succeeds(self):
         result = self.run_script("--check", "--json",
                                  compose=ROOT / "docker/docker-compose.yml", values=VALUES)
@@ -189,7 +202,8 @@ class SyncSidecarsTest(unittest.TestCase):
                 self.assertIn((sidecar, "drift"),
                               {(f["sidecar"], f["kind"]) for f in json.loads(result.stdout)})
                 result = self.run_script("--apply", "--json")
-                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assert_sidecar_disabled(sidecar)
 
     def test_unused_supported_settings_do_not_require_chart_equivalents(self):
         self.compose.write_text(CUSTOM_COMPOSE.replace(
@@ -214,7 +228,10 @@ class SyncSidecarsTest(unittest.TestCase):
         findings = json.loads(result.stdout)
         self.assertTrue(any(f["sidecar"] == "amex-auth" and f["kind"] == "drift"
                             and "BROWSER_MODE" in f["detail"] for f in findings), findings)
-        self.assertEqual(self.run_script("--apply", "--json").returncode, 1)
+        result = self.run_script("--apply", "--json", "--github")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_sidecar_disabled("amex-auth")
+        self.assertIn("disabled", {f["kind"] for f in json.loads(result.stdout)})
 
         for setting in ("    env:\n      BROWSER_MODE: synthetic\n",
                         "    extraEnv:\n      - name: BROWSER_MODE\n        value: synthetic\n"):
@@ -288,22 +305,24 @@ class SyncSidecarsTest(unittest.TestCase):
         # The following top-level section must remain enabled.
         self.assertIn("postgresql:\n  enabled: true", self.values.read_text())
 
-    def test_apply_rejects_port_and_url_variable_mismatches(self):
+    def test_apply_disables_port_and_url_variable_mismatches(self):
         for old, new in (("known-auth:8001", "known-auth:9000"),
                          ("KNOWN_AUTH_URL:", "RENAMED_AUTH_URL:")):
             with self.subTest(change=new):
                 self.compose.write_text(COMPOSE.replace(old, new), encoding="utf-8")
                 result = self.run_script("--apply", "--json")
-                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assert_sidecar_disabled("known-auth")
                 self.assertTrue(any(f["kind"] == "mismatch" for f in json.loads(result.stdout)))
 
-    def test_apply_rejects_an_unwired_known_sidecar(self):
+    def test_apply_disables_an_unwired_known_sidecar(self):
         self.compose.write_text(COMPOSE.replace(
             "KNOWN_AUTH_URL: https://known-auth:8001",
             "TRADE_REPUBLIC_AUTH_URL: http://renamed-auth:8001",
         ), encoding="utf-8")
         result = self.run_script("--apply", "--json")
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assert_sidecar_disabled("known-auth")
         findings = json.loads(result.stdout)
         self.assertIn({
             "sidecar": "known-auth",
@@ -311,12 +330,13 @@ class SyncSidecarsTest(unittest.TestCase):
             "detail": "no *_AUTH_URL of the app service points at it",
         }, findings)
 
-    def test_apply_rejects_mismatches_on_custom_sidecars(self):
+    def test_apply_disables_mismatches_on_custom_sidecars(self):
         self.compose.write_text(COMPOSE.replace(
             "  known-auth:\n    image: known", "  known-auth:\n    image: known\n    init: true"
         ).replace("known-auth:8001", "known-auth:9000"), encoding="utf-8")
         result = self.run_script("--apply")
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assert_sidecar_disabled("known-auth")
         self.assertIn("mismatch", result.stdout)
 
     def test_known_sidecars_report_nonstandard_compose_settings(self):
@@ -338,8 +358,9 @@ class SyncSidecarsTest(unittest.TestCase):
                 self.assertEqual(self.values.read_text(), CHART_VALUES)
                 result = self.run_script("--apply", "--json")
                 expected_kind = "drift" if "environment" in setting else "special"
-                expected_code = 1 if expected_kind == "drift" else 0
-                self.assertEqual(result.returncode, expected_code, result.stderr)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                if expected_kind == "drift":
+                    self.assert_sidecar_disabled("known-auth")
                 self.assertTrue(any(f["sidecar"] == "known-auth" and f["kind"] == expected_kind
                                     for f in json.loads(result.stdout)))
 
