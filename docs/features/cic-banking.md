@@ -42,7 +42,8 @@ balance.
   account markers in supported
   tables and unrecognized table or row blocks, preserving strict completeness checks.
   An unnamed or unrecognized table with a balance fails the whole page. Its error names the
-  normalized category, truncated to 60 characters. Product titles are omitted because they
+  normalized category, truncated to 60 characters. Skipped-category log entries use the same
+  60-character limit. Product titles are omitted because they
   can contain holder names and balances that must not reach sidecar logs. Balance
   detection collects element class tokens, balance-element text, and text with and without
   titles in one HTML parse per fragment. Unknown rows also fail on visible French decimal
@@ -57,10 +58,14 @@ balance.
   Explicit percentages such as "À partir de 2,99 % TAEG" or "Taux annuel : 3,50 %"
   are excluded only from the bare-decimal fallback, with or without whitespace before `%`.
   Account markers, populated balance elements, currency amounts, and other bare monetary
-  decimals in the same row still fail closed.
-  Outside supported contract tables, an alphabetic currency prefix requires decimal punctuation
-  or at least four digits in the amount. Uppercase prose such as `TOP 3`, `ALL 4 YOU`, or `SOS 112`
-  therefore preserves the accounts in layout tables, unknown-category captions, and offer subtitles.
+  decimals in the same row still fail closed, including a balance before a percentage.
+  The percentage exclusion applies to each decimal token, even when text from separate cells
+  joins into one numeric run.
+  Outside supported contract tables, the ambiguous currency prefixes `TOP`, `ALL`, and `SOS`
+  require decimal punctuation or at least four digits in the amount. Uppercase prose such as
+  `TOP 3`, `ALL 4 YOU`, or `SOS 112` therefore preserves the accounts in layout tables,
+  unknown-category captions, and offer subtitles. Other recognized currency prefixes count
+  even for small whole-number balances such as `EUR 0`, `EUR 12`, `eur 999`, and `USD 500`.
   Number-first amounts and currency symbols still fail closed, as do decimal amounts such as
   `EUR 12,34` and larger whole-number balances such as `ARS 2026` or `EUR 1 234`.
   Supported contract tables retain strict whole-number prefix detection. Class-marked account

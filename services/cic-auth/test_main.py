@@ -275,6 +275,37 @@ class FlowTest(unittest.TestCase):
             for private_text in (title, "12 500", "EXAMPLE", "Assurance"):
                 self.assertNotIn(private_text, message)
 
+    def test_skipped_categories_are_bounded_in_logs(self):
+        session = self.confirm()
+        category = "x" * 60 + "synthetic-private-suffix" * 20
+        row = '<tr><td><span class="ei_sdsf_title">Nos offres</span></td></tr>'
+        table = accounts_table(category, row)
+        self.bank.accounts_page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+
+        for path in ("/accounts", "/accounts/listing"):
+            with self.subTest(path=path), self.assertLogs(main.log, level="INFO") as logs:
+                response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+            self.assertEqual(response.status_code, 200, response.text)
+            message = " ".join(logs.output)
+            self.assertIn("x" * 60, message)
+            self.assertNotIn("synthetic-private-suffix", message)
+
+    def test_unknown_balances_cannot_certify_a_partial_snapshot(self):
+        session = self.confirm()
+        for cells in ('<td>EUR 0</td>', '<td>EUR 12</td>', '<td>eur 999</td>',
+                      '<td>USD 500</td>', '<td>1 234,56</td><td>3,50 %</td>',
+                      '<td>3,50 %</td><td>1 234,56</td>'):
+            for category in ("", "Nouveaux comptes"):
+                row = ('<tr><td><span class="ei_sdsf_title">LIVRET X</span></td>'
+                       + cells + '</tr>')
+                table = accounts_table(category, row)
+                self.bank.accounts_page = ACCOUNTS_PAGE.replace("</body>", table + "</body>")
+                for path in ("/accounts", "/accounts/listing"):
+                    with self.subTest(cells=cells, category=category, path=path):
+                        response = self.client.post(path, json={"sessionState": session}, headers=HEADERS)
+                        self.assertEqual((response.status_code, response.json()),
+                                         (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
+
     def test_a_renamed_savings_table_cannot_certify_a_partial_snapshot(self):
         session = self.confirm()
         prefix, remaining = ACCOUNTS_PAGE.split("ei_comptescontrats", 1)

@@ -134,6 +134,20 @@ class PageTest(unittest.TestCase):
 
                     self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
 
+    def test_short_currency_prefix_balances_fail_in_account_containers(self):
+        for amount in ("EUR 0", "eur 12", "USD 500", "CHF 7"):
+            fragments = (
+                f'<table class="layout"><tr><td>{amount}</td></tr></table>',
+                accounts_table(amount, ""),
+                accounts_table("Autres", f"<tr><td>{amount}</td></tr>"),
+            )
+            for fragment in fragments:
+                page = ACCOUNTS_PAGE.replace("</body>", f"{fragment}</body>")
+                with self.subTest(amount=amount, fragment=fragment):
+                    with self.assertRaises(AccountsFormatError) as error:
+                        parse_accounts(page)
+                    self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
     def test_an_account_row_without_balance_fails_the_page(self):
         row = account_row(0, "LIVRET A", "10000 000123456 02", "+1,00 EUR").replace("ei_sdsf_montant", "other")
         page = accounts_table("Livrets et comptes d&#39;épargne", row)
@@ -758,6 +772,18 @@ class PageTest(unittest.TestCase):
                     '<span>À partir de 2,99 % TAEG</span></td>' + data
                 )
 
+    def test_a_percentage_after_a_bare_balance_cannot_hide_it(self):
+        for data in (
+            '<td>1 234,56</td><td>3,50 %</td>',
+            '<td><span>1 234,56 3,50 %</span></td>',
+            '<td>3,50 %</td><td>1 234,56</td>',
+        ):
+            with self.subTest(data=data):
+                self.assert_unknown_row_fails(
+                    '<td><span class="ei_sdsf_title">Vos contrats et nos offres</span></td>'
+                    + data
+                )
+
     def test_whole_euro_currency_words_after_amounts_fail(self):
         for amount in ("1 EURO", "1 234,56 euros", "1 euro", "1 EUROS", "1\u202feuro"):
             with self.subTest(amount=amount):
@@ -838,7 +864,8 @@ class PageTest(unittest.TestCase):
                     self.assertNotIn(private_text, str(error.exception))
 
     def test_unknown_rows_with_prefix_or_lowercase_currency_fail(self):
-        for amount in ("EUR 1 234,56", "ARS 2026", "€ 1 234", "1 234,56 eur", "eur 1 234,56",
+        for amount in ("EUR 0", "EUR 12", "eur 999", "USD 500", "CHF 7",
+                       "EUR 1 234,56", "ARS 2026", "€ 1 234", "1 234,56 eur", "eur 1 234,56",
                        "$1 234", "£1 234", "€ -1 234", "EUR -1 234,56"):
             with self.subTest(amount=amount):
                 self.assert_unknown_row_fails(f"<td>{amount}</td>")

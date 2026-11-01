@@ -129,7 +129,7 @@ async def _collect_accounts(client: httpx.AsyncClient) -> AccountsResponse:
     accounts, skipped, categories = parse_accounts_listing(page)
     if skipped:
         # Category names only: insurance, links to sister sites and the like.
-        log.info("CIC: skipped out-of-scope categories %s", skipped)
+        log.info("CIC: skipped out-of-scope categories %s", [category[:60] for category in skipped])
     if not accounts:
         raise UpstreamError("PORTFOLIO_INCOMPLETE", "No current or savings account on the page")
     return AccountsResponse(

@@ -74,6 +74,8 @@ _BALANCE_RE = re.compile(
     r"(?P<number>\d[\d\s.,]*+)(?P<suffix>(?:[A-Z]{3}|(?i:EUR))\b|[€$£])?",
 )
 _EURO_WORD_RE = re.compile(r"\beuros?\b", re.IGNORECASE)
+_AMBIGUOUS_CURRENCY_PREFIXES = frozenset({"ALL", "SOS", "TOP"})
+_BARE_DECIMAL_RE = re.compile(r",\d{2}\b(?!\s*+%)")
 
 # Ordered: the first match wins, so the specific products come before the
 # generic "livret".
@@ -267,14 +269,14 @@ def _has_money(text: str, *, explicit: bool = False, contract: bool = True) -> b
                    for token in currencies):
             continue
         decimal = re.search(r"[.,]\d", match.group("number"))
-        # Short alphabetic prefixes also occur in offers ("TOP 3", "ALL 4 YOU").
-        # An unrecognized trailing word is prose, not a currency suffix. Keep
-        # four-digit and grouped balances fail-closed, even without decimals.
+        # Some ISO codes are also words used in offer and help text. Keep their
+        # short whole-number forms skippable, but fail closed for other currencies.
         suffix = match.group("suffix")
         currency_suffix = suffix and (suffix in "€$£" or suffix.upper() in _CURRENCY_CODES)
         large_whole = len(re.sub(r"\s", "", match.group("number"))) >= 4
-        if (not contract and not currency_suffix and match.group("prefix")
-                and match.group("prefix").isalpha() and not decimal and not large_whole):
+        prefix = match.group("prefix")
+        if (not contract and not currency_suffix and prefix in _AMBIGUOUS_CURRENCY_PREFIXES
+                and not decimal and not large_whole):
             continue
         # A title can contain a year and a currency ("Contrat 2024 USD").
         # Grouped thousands, decimal punctuation, or a symbol distinguish money.
@@ -301,11 +303,11 @@ def _has_balance(fragment: str) -> bool:
     outside_title = " ".join(parser.outside_title_parts)
     # Unknown rows may expose a balance without a currency or class marker.
     # Reuse numeric runs to avoid retrying a decimal regex at every digit.
-    # Runs consume trailing whitespace, so an adjacent % identifies an offer
-    # rate. Only the unmarked-decimal fallback ignores it; markers still win.
+    # Check each decimal token because one numeric run can span several cells.
+    # An adjacent % excludes only that token; markers still win.
     return (_balance_data(parser, contract=False)
-            or any((re.search(r",\d{2}\b", match.group("number"))
-                    and not outside_title.startswith("%", match.end()))
+            or any(_BARE_DECIMAL_RE.search(
+                       match.group("number") + outside_title[match.end():match.end() + 1])
                    # Currency words must follow an amount, not just occur in prose.
                    or _EURO_WORD_RE.match(outside_title, match.end())
                    for match in _BALANCE_RE.finditer(outside_title)))

@@ -103,7 +103,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Account-number markers and nonempty balance cells in those tables also fail the import,
   including bare numeric balances on any element carrying the balance class.
   Unknown-category errors name only the category, limited to 60 characters, so product titles
-  containing holder names or balances do not reach logs. Plain-text balances, including dollar
+  containing holder names or balances do not reach logs. Skipped-category log entries also
+  limit each category to 60 characters. Plain-text balances, including dollar
   and pound symbols, and account data in unrecognized table or row blocks cannot be silently dropped.
   Summary totals, promotions, and grey-text elements outside tables or rows are ignored.
   Complete document and table endings and unique account-row fields remain required; category
@@ -112,15 +113,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   symbols, including whole-number amounts; `EUR` also accepts lowercase.
   Ordinary words such as `ils`, uppercase offers such as `TOP 10` or `ALL 3 offres`,
   and help text such as `SOS 112` or `SOS 24h/24` in layout tables do not block imports.
-  Alphabetic currency prefixes in layout tables and unknown-category captions or rows require
-  decimal punctuation or at least four digits; short offer prose such as `TOP 3` and `ALL 4 YOU`
-  does not block imports. Number-first amounts and currency symbols still count there.
+  Only the ambiguous currency prefixes `TOP`, `ALL`, and `SOS` in layout tables and
+  unknown-category captions or rows require decimal punctuation or at least four digits;
+  short offer prose such as `TOP 3` and `ALL 4 YOU` does not block imports. Other recognized
+  prefixes also detect small whole-number balances such as `EUR 0`, `EUR 12`, `eur 999`, and
+  `USD 500`. Number-first amounts and currency symbols still count there.
   Unknown rows with bare French decimal amounts or numeric amounts followed by the whole
   currency word `euro` or `euros` (case-insensitive) outside the title fail closed,
   even without a balance class or currency symbol. Balance-free offer text mentioning Europe
   or "Montants en euros" no longer blocks imports. Advertised percentages such as
   "À partir de 2,99 % TAEG" and "Taux annuel : 3,50 %" also preserve imports when no
-  account markers or balances are present. Account endpoints collect categories during
+  account markers or balances are present. Each decimal is checked separately, so a percentage
+  cannot hide a bare decimal balance before it, including in a preceding cell.
+  Account endpoints collect categories during
   validation so the full page is preprocessed only once. Money nested in product titles
   is detected when it includes decimal punctuation, a symbol, or grouped thousands such as
   `1 234 EUR`; a title such as `Contrat 2024 USD` remains a link.
