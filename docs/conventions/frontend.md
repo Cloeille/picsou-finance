@@ -315,6 +315,10 @@ Size a new or touched money Y axis with `yAxisWidth(values, money.tick)` (`lib/c
 
 ## Form controls
 
+Chart axes spread `AXIS_PROPS` (`lib/chart-axis.ts`: `tickLine={false} axisLine={false} tickMargin={8}`) instead of repeating the three props; `AXIS_PROPS_FLUSH` omits the margin. Keep `XAxis`/`YAxis` as direct children of the chart.
+
+A failed query on a tab renders `ErrorState`; pass `messageOnly` for the compact message plus retry button without the icon and heading.
+
 A destructive error banner (message, optional icon, optional dismiss) goes through `AlertBanner` (`components/shared/AlertBanner.tsx`); its `variant` picks the padding and shape of the older hand-rolled strings.
 
 A new native `<select>` goes through `NativeSelect` (`components/shared/NativeSelect.tsx`), which shares `Input`'s 40px height, border and fill. About ten older selects still use `SELECT_CONTROL_CLASS` or `rounded-xl` classes of their own. A date field goes through `DateInput`, which displays the user's date format. A range input takes the `range-input` class and sets `--range-fill` to its value's percentage.

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { formatDate } from '@/lib/utils'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { ErrorState } from '@/components/shared/ErrorState'
 import { CryptoExchangeForm } from '@/components/sync/CryptoExchangeForm'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent } from '@/components/ui/card'
@@ -59,12 +60,7 @@ export function CryptoExchangeTab() {
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-center">
-        <p className="text-sm text-muted-foreground">{extractErrorMessage(error)}</p>
-        <Button variant="outline" onClick={() => refetch()} className="mt-4">
-          {t('common.retry')}
-        </Button>
-      </div>
+      <ErrorState messageOnly message={extractErrorMessage(error)} onRetry={() => refetch()} />
     )
   }
 
