@@ -121,9 +121,9 @@ Bank connectors (the `*-auth` sidecars) are opt-in: with no profile, Compose pul
 printf '\nCOMPOSE_PROFILES=%s\nAPP_SIDECAR_API_KEY=%s\n' bourso,revolut "$(openssl rand -base64 32)" >> docker/.env
 ```
 
-Compose reads `COMPOSE_PROFILES` from `docker/.env`, so every later `pull`, `up` and `down` covers the same connectors. Enable another bank by adding it to the list and running `pull` then `up -d`. Syncing a bank whose connector is off shows that bank's "unavailable" error.
+Compose reads `COMPOSE_PROFILES` from `docker/.env`, so every later `pull`, `up` and `down` covers the same connectors. Enable another bank by adding it to the list and running `pull` then `up -d`. Disable one by removing it from the list, then stopping its container with `docker compose -f docker/docker-compose.yml rm --stop --force <bank>-auth`: `up -d` and `down` leave a connector outside the active profiles running, and the app keeps syncing through it. Syncing a bank whose connector is not running shows that bank's "unavailable" error.
 
-> Upgrading an install that ran every connector? Add `COMPOSE_PROFILES=all-connectors` (or your banks) to `docker/.env` first; see the CHANGELOG.
+> Upgrading an install that ran every connector? Add `COMPOSE_PROFILES=all-connectors` (or your banks) to `docker/.env` first. If you list only some banks, `rm --stop --force` the connectors you left out; see the CHANGELOG.
 
 ```bash
 docker compose -f docker/docker-compose.yml pull    # fetch the published images from GHCR

@@ -31,7 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Migration** for an existing install: add `COMPOSE_PROFILES=all-connectors` to
   `docker/.env` (or list only your banks) before the next `pull` / `up -d`. Running
   connectors keep running after the upgrade either way, but without the profile Compose
-  stops pulling, recreating and stopping them.
+  stops pulling, recreating and stopping them. If you list only some banks, stop the
+  connectors you left out: `docker compose -f docker/docker-compose.yml rm --stop --force
+  <bank>-auth …`. Otherwise they keep running and the app still syncs through them;
+  `up -d --remove-orphans` and `down` do not stop them. `all-connectors` needs no extra
+  step. Disabling a bank later works the same way: remove it from the list, then
+  `rm --stop --force` its service.
 
 - **One CI job for every bank connector.** The 13 copy-pasted sidecar jobs are now one
   matrix built from the `services/*-auth` folders, shared with image publishing, so adding a

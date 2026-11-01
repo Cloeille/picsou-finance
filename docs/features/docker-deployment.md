@@ -186,9 +186,18 @@ every command, so `pull`, `up` and `down` all address the same connectors.
   profile, Compose stops pulling, recreating or stopping them, and `down` leaves them
   running. Existing installs set `COMPOSE_PROFILES=all-connectors`, as the CHANGELOG
   migration says.
-- A sync against a disabled connector reaches no host. Every adapter maps that
-  connection failure to its existing unavailable error (`UPSTREAM_UNAVAILABLE`, the
-  Trade Republic or DEGIRO "service unavailable" message); none of them surfaces a 500.
+- Leaving a connector out of `COMPOSE_PROFILES` does not stop a container that already
+  runs, at upgrade or later. It is still a service in the file, so it is no orphan:
+  `up -d --remove-orphans` keeps it, `down` only removes the active services, and the
+  app keeps syncing through it with a valid key. Stop it by name, no profile needed:
+  `docker compose -f docker/docker-compose.yml rm --stop --force <bank>-auth …`. An
+  upgrade that lists only some banks runs this for the banks left out;
+  `all-connectors` needs no step. Disabling a bank later is the same two steps: remove
+  it from the list, then `rm --stop --force` its service.
+- A sync against a connector that is not running (never started, or stopped as above)
+  reaches no host. Every adapter maps that connection failure to its existing
+  unavailable error (`UPSTREAM_UNAVAILABLE`, the Trade Republic or DEGIRO "service
+  unavailable" message); none of them surfaces a 500.
 - The [instance-status alert](./admin-instance-status.md) probes only sidecars that hold
   sessions, so a bank nobody connected never raises `SIDECAR_UNREACHABLE`. A connector
   disabled after it was used does, which is the intended warning.
