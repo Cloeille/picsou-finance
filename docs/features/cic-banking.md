@@ -26,7 +26,7 @@ balance.
   names accept straight and typographic apostrophes. Tables
   outside these categories are skipped only when their rows contain no account-number markers
   or balance data. A product title alone, such as "Vos contrats et nos offres", can be a
-  contract link without a balance, including when accompanied by an empty `ei_sdsf_solde` cell.
+  contract or offer link without a balance, including when accompanied by an empty `ei_sdsf_solde` cell.
   An actual `doux` account-number
   marker or any visible non-whitespace text in an `ei_sdsf_solde` element fails closed, including
   bare numeric balances without a currency. Product-title text requires decimal punctuation,

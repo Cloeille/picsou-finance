@@ -98,6 +98,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tag or the next cell implicitly closes the title. Markers and both text
   variants are collected in one HTML pass per fragment.
   Numeric runs are scanned once to avoid quadratic retries on long text without currency.
+  The merged parser retains regression coverage for captionless rows with account markers or
+  balances, script text with dollar signs, and bounded category diagnostics.
   Comments and script and style bodies are excluded with an HTML parser before table and
   marker detection. Fake script or style openings inside comments or attributes cannot hide
   accounts from either account response or category discovery. JavaScript

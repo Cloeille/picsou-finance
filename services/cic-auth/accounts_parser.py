@@ -17,7 +17,8 @@ table per category, each with an invisible caption naming it:
 
 Only current accounts and savings accounts are in scope. Other tables are
 skipped only when their rows contain no account-number markers or balance data.
-A title alone can be a contract link. An unrecognized category with a balance fails the whole page,
+A title alone can be a contract or offer link, including with an empty balance cell.
+An unrecognized category with a balance fails the whole page,
 as does account data in unrecognized table or row blocks or an unreadable
 account row in a supported category. Silently dropping an account would hide an incomplete sync.
 """

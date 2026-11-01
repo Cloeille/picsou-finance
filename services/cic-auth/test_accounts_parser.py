@@ -2,10 +2,12 @@
 
 import subprocess
 import sys
+import time
 import unittest
 from decimal import Decimal
 
 from accounts_parser import AccountsFormatError, account_type, categories_read, parse_accounts, parse_accounts_listing, parse_amount
+from accounts_parser import _BALANCE_RE, _has_balance
 from fixtures import ACCOUNTS_PAGE, account_row, accounts_table
 
 
@@ -19,6 +21,16 @@ class AmountTest(unittest.TestCase):
         for raw in ("+12,00 USD", "", "N/A"):
             with self.subTest(raw=raw), self.assertRaises(AccountsFormatError):
                 parse_amount(raw)
+
+
+class MoneyScanTest(unittest.TestCase):
+    def test_scanning_text_for_money_stays_linear_on_a_long_digit_run(self):
+        text = "1 " * 20000
+        for name, scan in (("balance", _BALANCE_RE.search), ("row money", _has_balance)):
+            with self.subTest(name):
+                started = time.perf_counter()
+                scan(text)
+                self.assertLess(time.perf_counter() - started, 1)
 
 
 class TypeTest(unittest.TestCase):
@@ -602,7 +614,6 @@ class PageTest(unittest.TestCase):
         self.assertEqual(len(accounts), 4)
 
     def test_script_text_in_an_unsupported_contract_row_is_not_mistaken_for_money(self):
-        # Inside a selected contract table, so _has_balance itself reads the script.
         extra = ('<table class="ei_comptescontrats"><tr><td>'
                  '<script>s.replace(/x/, "$1")</script></td></tr></table>')
         page = ACCOUNTS_PAGE.replace('</form>', extra + '</form>')
@@ -874,6 +885,60 @@ class PageTest(unittest.TestCase):
             capture_output=True, text=True, timeout=3,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_captionless_row_with_more_than_a_title_fails_the_page(self):
+        title = '<span class="ei_sdsf_title">LIVRET X</span>'
+        empty_solde = '<td class="d nowrap ei_sdsf_solde"></td>'
+        variants = {
+            "bare number in the balance cell":
+                f'<td>{title}</td><td class="d nowrap ei_sdsf_solde">1 234,56</td>',
+            "account number without an amount span":
+                f'<td>{title}<span class="nowrap doux">0001 0000000</span></td>{empty_solde}',
+            "amount cell": f'<td>{title}</td><td class="ei_sdsf_montant">1,00 EUR</td>',
+            "single-quoted amount span": f"<td>{title}<span class='ei_sdsf_montant'>1,00 EUR</span></td>",
+            "code before the amount": f"<td>{title} EUR 1 234,56</td>",
+            "symbol before the amount": f"<td>{title} € 1 234</td>",
+            "lower-case code": f"<td>{title} 1 234,56 eur</td>",
+            "separator before the amount": f"<td>{title} Solde. 1 234,56 EUR</td>",
+            "amount nested in the title":
+                '<td><span class="ei_sdsf_title">LIVRET X <span>1 234,56 EUR</span></span></td>',
+        }
+        for name, row in variants.items():
+            with self.subTest(name):
+                table = f'<table class="ei_comptescontrats"><tr>{row}</tr></table>'
+                page = ACCOUNTS_PAGE.replace('</form>', table + '</form>')
+
+                with self.assertRaises(AccountsFormatError) as error:
+                    parse_accounts(page)
+
+                self.assertEqual(error.exception.code, "UPSTREAM_FORMAT_CHANGED")
+                self.assertIn("unrecognized category", str(error.exception))
+
+    def test_script_text_with_dollar_signs_does_not_fail_the_page(self):
+        script = '<script>f(1, $("#a")); var k = "item1${id}";</script>'
+        pages = {
+            "layout table": f"<table><tr><td>{script}</td></tr></table>",
+            "captionless contract row": (
+                f'<table class="ei_comptescontrats"><tr><td>{script}'
+                '<span class="ei_sdsf_title">Vos contrats et nos offres</span></td></tr></table>'
+            ),
+        }
+        for name, extra in pages.items():
+            with self.subTest(name):
+                page = ACCOUNTS_PAGE.replace('</form>', extra + '</form>')
+
+                accounts, _ = parse_accounts(page)
+
+                self.assertEqual(len(accounts), 4)
+
+    def test_a_long_category_name_is_truncated_in_the_error(self):
+        page = ACCOUNTS_PAGE.replace("Livrets et comptes d&#39;épargne", "x" * 100)
+
+        with self.assertRaises(AccountsFormatError) as error:
+            parse_accounts(page)
+
+        self.assertIn(repr("x" * 60), str(error.exception))
+        self.assertNotIn("x" * 61, str(error.exception))
 
     def test_a_balance_row_without_its_title_fails_the_whole_page(self):
         page = ACCOUNTS_PAGE.replace('ei_sdsf_title _c1">LIVRET A', 'other _c1">LIVRET A')
