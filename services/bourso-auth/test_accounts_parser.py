@@ -406,6 +406,99 @@ class TradingSummaryTest(unittest.TestCase):
         sections.insert(1, {"id": "other", "positions": [], "count": 0})
         self.assertEqual(len(parse_trading_summary(sections, "acc")["positions"]), 1)
 
+    def test_lines_split_across_two_sections_are_read_from_both(self):
+        # #361: a securities account can spread its lines over two sections. The
+        # richest list alone is short of the valuation and failed the whole sync.
+        sections = summary(
+            positions=[position(symbol="1rTA", amount="600.00"), position(symbol="1rTB", isin="FR0000000001", amount="200.00")]
+        )
+        sections.append(
+            {"id": "positions-2", "positions": [position(symbol="1rTC", isin="FR0000000002", amount="100.00")], "count": 1}
+        )
+        parsed = parse_trading_summary(sections, "acc")
+        self.assertEqual(
+            [line["symbol"] for line in parsed["positions"]], ["1rTA", "1rTB", "1rTC"]
+        )
+
+    def test_two_sections_repeating_the_same_lines_are_not_counted_twice(self):
+        sections = summary()
+        sections.append({"id": "positions-copy", "positions": [position()], "count": 1})
+        parsed = parse_trading_summary(sections, "acc")
+        self.assertEqual(len(parsed["positions"]), 1)
+
+    def test_repeated_partial_sections_cannot_hide_a_missing_holding(self):
+        # A is worth 450; B is missing. Counting A twice must not prove that
+        # the account's 900 valuation is complete, even with a valid ISIN.
+        for isin in ("IE00B4L5Y983", None):
+            with self.subTest(isin=isin):
+                sections = summary(positions=[position(quantity="5", amount="450.00", isin=isin)])
+                sections.append({"positions": [position(quantity="5", amount="450.00", isin=isin)]})
+                with self.assertRaises(AccountsFormatError) as raised:
+                    parse_trading_summary(sections, "acc")
+                self.assertEqual(raised.exception.code, INCOMPLETE)
+
+    def test_repeated_partial_sections_with_mixed_isin_availability_are_refused(self):
+        # A repeated under its broker symbol cannot stand in for missing B,
+        # even if resolving the valid ISIN would give A a different ticker.
+        for broken_isin in (None, "NOT-AN-ISIN"):
+            for symbol in ("1rTCW8", "1rtcw8"):
+                for reverse in (False, True):
+                    with self.subTest(isin=broken_isin, symbol=symbol, reverse=reverse):
+                        rows = [
+                            position(quantity="5", amount="450.00"),
+                            position(symbol=symbol, quantity="5", amount="450.00", isin=broken_isin),
+                        ]
+                        if reverse:
+                            rows.reverse()
+                        sections = summary(positions=[rows[0]])
+                        sections.append({"positions": [rows[1]]})
+                        with self.assertRaises(AccountsFormatError) as raised:
+                            parse_trading_summary(sections, "acc")
+                        self.assertEqual(raised.exception.code, INVALID_DATA)
+
+    def test_overlapping_sections_reconcile_using_each_holding_once(self):
+        for isin in ("IE00B4L5Y983", None):
+            with self.subTest(isin=isin):
+                a = position(quantity="5", amount="450.00", isin=isin)
+                b = position(symbol="1rTB", isin="FR0000000001", amount="250.00")
+                c = position(symbol="1rTC", isin="FR0000000002", amount="200.00")
+                sections = summary(positions=[a, b])
+                # Display-only metadata and decimal formatting do not change a holding.
+                sections.append({"positions": [dict(a, amount=money("450.0"), headings=[]), c]})
+                parsed = parse_trading_summary(sections, "acc")
+                guard_symbol_collisions(parsed["positions"])
+                self.assertEqual(parsed["positions"][0]["quantity"], Decimal("5"))
+                self.assertEqual(
+                    [line["symbol"] for line in parsed["positions"]], ["1rTCW8", "1rTB", "1rTC"]
+                )
+
+    def test_conflicting_duplicates_are_refused_even_if_the_sum_reconciles(self):
+        for isin, overrides in (
+            ("IE00B4L5Y983", {"quantity": money("6")}),
+            ("IE00B4L5Y983", {"amount": money("500.00")}),
+            ("IE00B4L5Y983", {"last": money("91.00")}),
+            ("IE00B4L5Y983", {"symbol": "1rTOTHER"}),
+            (None, {"quantity": money("6")}),
+        ):
+            with self.subTest(isin=isin, overrides=overrides):
+                a = position(quantity="5", amount="450.00", isin=isin)
+                changed = dict(a, **overrides)
+                valuation = str(Decimal("450") + Decimal(changed["amount"]["value"]))
+                sections = summary(valuation=valuation, total=str(Decimal(valuation) + 100), positions=[a])
+                sections.append({"positions": [changed]})
+                with self.assertRaises(AccountsFormatError) as raised:
+                    parse_trading_summary(sections, "acc")
+                self.assertEqual(raised.exception.code, INVALID_DATA)
+
+    def test_sections_that_still_fall_short_together_are_refused(self):
+        sections = summary(positions=[position(amount="400.00")])
+        sections.append(
+            {"id": "positions-2", "positions": [position(symbol="1rTC", isin="FR0000000002", amount="100.00")], "count": 1}
+        )
+        with self.assertRaises(AccountsFormatError) as raised:
+            parse_trading_summary(sections, "acc")
+        self.assertEqual(raised.exception.code, INCOMPLETE)
+
     def test_a_missing_valuation_field_is_refused(self):
         broken = summary()
         del broken[0]["account"]["valuation"]

@@ -6,24 +6,18 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-import main
 from positions_parser import parse_plans
 from main import (
     MAX_CONCURRENT_BROWSERS,
     PlanPayload,
     _acquire_browser_slot,
-    _log_safe,
     _release_browser_slot,
     PENDING_TTL_SECONDS,
     TokenCollector,
-    _cleanup_expired,
-    _close_all_pending,
     _close_resources,
     _decode_session,
     _encode_session,
     _pending,
-    _pending_lock,
-    _take_pending,
     app,
 )
 
@@ -134,17 +128,6 @@ class ResponseModelTest(unittest.TestCase):
         self.assertEqual(plans[0].positions[0].isin, "FR0010405035")
 
 
-class LogSafetyTest(unittest.TestCase):
-    def test_control_characters_cannot_forge_a_log_line(self):
-        forged = _log_safe("/positions\r\nINFO:amundi-auth:all clear")
-        self.assertNotIn("\n", forged)
-        self.assertNotIn("\r", forged)
-        self.assertTrue(forged.startswith("/positions"))
-
-    def test_the_logged_path_is_bounded(self):
-        self.assertEqual(len(_log_safe("/" + "a" * 5000)), 200)
-
-
 class BrowserSlotTest(unittest.IsolatedAsyncioTestCase):
     """A refused slot must not be given back, or capacity leaks upward."""
 
@@ -175,30 +158,22 @@ class BrowserSlotTest(unittest.IsolatedAsyncioTestCase):
 
 class PendingAuthenticationLifecycleTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        await _close_all_pending()
+        await _pending.close_all()
 
     async def asyncTearDown(self):
-        await _close_all_pending()
+        await _pending.close_all()
 
     async def test_expired_attempts_are_swept_and_their_browsers_closed(self):
         context, browser, playwright = FakeResource("close"), FakeResource("close"), FakeResource("stop")
-        async with _pending_lock:
-            _pending["stale"] = {
-                "context": context, "browser": browser, "playwright": playwright,
-                "created_at": time.time() - PENDING_TTL_SECONDS - 1,
-            }
+        await _pending.put("stale", {
+            "context": context, "browser": browser, "playwright": playwright,
+            "created_at": time.time() - PENDING_TTL_SECONDS - 1,
+        })
 
-        await _cleanup_expired()
+        await _pending.expire()
 
         self.assertNotIn("stale", _pending)
         self.assertEqual((context.calls, browser.calls, playwright.calls), (1, 1, 1))
-
-    async def test_an_attempt_can_only_be_consumed_once(self):
-        async with _pending_lock:
-            _pending["once"] = {"created_at": time.time()}
-
-        self.assertIsNotNone(await _take_pending("once"))
-        self.assertIsNone(await _take_pending("once"))
 
     async def test_a_browser_that_refuses_to_close_does_not_break_cleanup(self):
         await _close_resources(FailingResource(), None, None)
@@ -206,16 +181,10 @@ class PendingAuthenticationLifecycleTest(unittest.IsolatedAsyncioTestCase):
 
 class ContractTest(unittest.TestCase):
     def setUp(self):
-        key_patch = patch.object(main, "SIDECAR_API_KEY", "test-key")
+        key_patch = patch.dict(os.environ, {"APP_SIDECAR_API_KEY": "test-key"})
         key_patch.start()
         self.addCleanup(key_patch.stop)
         self.client = TestClient(app, headers={"X-Picsou-Sidecar-Key": "test-key"})
-
-    def test_health_is_unauthenticated(self):
-        with patch.dict(os.environ):
-            os.environ.pop("PICSOU_SIDECAR_BASE", None)
-            body = self.client.get("/health").json()
-        self.assertEqual(body, {"status": "ok"})
 
     def test_an_unknown_attempt_reports_an_expired_authentication(self):
         response = self.client.post("/complete", json={"processId": "gone"})

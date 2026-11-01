@@ -1,17 +1,20 @@
 """The sidecar's flows end to end, against a fake saver's site.
 
-`main._new_client` is patched to an `httpx.MockTransport` that plays the site:
+`euro_information.client.new_client` is patched to an `httpx.MockTransport` that plays the site:
 login form, mobile confirmation, remembered-device cookie, detailed situation
 and fund pages. Nothing reaches the real site.
 """
 
 import json
+import os
 import unittest
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs
 
 import httpx
+from euro_information import client as euro_client
+from euro_information import forms
 from fastapi.testclient import TestClient
 
 import main
@@ -131,21 +134,23 @@ class FakeSite:
 
 class FlowTest(unittest.TestCase):
     def setUp(self):
-        for name, value in (("SIDECAR_API_KEY", KEY), ("APP_VALIDATION_POLL_SECONDS", 0)):
-            patcher = patch.object(main, name, value)
+        for patcher in (
+            patch.dict(os.environ, {"APP_SIDECAR_API_KEY": KEY}),
+            patch.object(euro_client, "APP_VALIDATION_POLL_SECONDS", 0),
+        ):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.site = FakeSite()
-        patcher = patch.object(main, "_new_client", self.client_factory)
+        patcher = patch.object(euro_client, "new_client", self.client_factory)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.client = TestClient(main.app)
         self.client.__enter__()
         self.addCleanup(self.client.__exit__, None, None, None)
 
-    def client_factory(self):
+    def client_factory(self, site):
         return httpx.AsyncClient(
-            base_url=main.BASE_URL,
+            base_url=site.base_url,
             transport=httpx.MockTransport(self.site),
             follow_redirects=False,
         )
@@ -286,7 +291,7 @@ class FlowTest(unittest.TestCase):
         self.site.states = ["PENDING"] * 1000
         started = self.initiate()
 
-        with patch.object(main, "APP_VALIDATION_TIMEOUT_SECONDS", 0.05):
+        with patch.object(euro_client, "APP_VALIDATION_TIMEOUT_SECONDS", 0.05):
             response = self.client.post("/complete", json={"processId": started.json()["processId"]}, headers=HEADERS)
 
         self.assertEqual((response.status_code, response.json()), (408, {"detail": "APP_VALIDATION_TIMEOUT"}))
@@ -315,11 +320,11 @@ class FlowTest(unittest.TestCase):
 
     def test_a_wrong_code_the_full_pool_cannot_keep_is_disposed_of(self):
         process = self.sms_login()
-        dispose = AsyncMock(wraps=main._dispose_pending_state)
+        dispose = AsyncMock(wraps=euro_client.dispose_pending_state)
 
         with (
-            patch.object(main, "_store_pending", AsyncMock(side_effect=main.HTTPException(503, "UPSTREAM_UNAVAILABLE"))),
-            patch.object(main, "_dispose_pending_state", dispose),
+            patch.object(main._pending, "put", AsyncMock(return_value=False)),
+            patch.object(main._pending, "_dispose", dispose),
         ):
             wrong = self.client.post("/complete", json={"processId": process, "code": "000000"}, headers=HEADERS)
 
@@ -412,7 +417,7 @@ class FlowTest(unittest.TestCase):
     def test_an_entity_encoded_skip_link_is_found(self):
         page = '<a href="/skip.html">Passer cette &eacute;tape</a>'
 
-        self.assertEqual(main._link_with(page, "passer cette étape"), "/skip.html")
+        self.assertEqual(euro_client.link_with(page, "passer cette étape"), "/skip.html")
 
     def test_an_unknown_process_has_expired(self):
         response = self.client.post("/complete", json={"processId": "nope"}, headers=HEADERS)

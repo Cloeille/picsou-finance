@@ -153,11 +153,7 @@ public class DynamicClientRegistrationController {
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
     }
 
-    /**
-     * Mirrors {@code AuthController#getClientIp}: never trust {@code X-Forwarded-For} from the
-     * client — it is user-controllable and would allow rate-limit bypass by spoofing IPs. Only the
-     * TCP-level remote address is used, which is the nginx container's internal IP in production.
-     */
+    /** Uses the native container's proxy-validated address, like every per-IP limiter. */
     private String getClientIp(HttpServletRequest request) {
         return request.getRemoteAddr();
     }

@@ -2,6 +2,7 @@ package com.picsou.config;
 import com.picsou.model.AiProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.anthropic.AnthropicChatModel;
+import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -17,6 +18,16 @@ class AiChatModelFactoryTest {
     @Test void anthropicBuildsAnthropicModel() {
         assertThat(factory.build(new AiProviderConfig(AiProvider.ANTHROPIC, "sk-ant", "", "")).get())
             .isInstanceOf(AnthropicChatModel.class);
+    }
+    @Test void anthropicSendsMaxTokensWhichTheApiRequires() {
+        var m = (AnthropicChatModel) factory.build(
+            new AiProviderConfig(AiProvider.ANTHROPIC, "sk-ant", "claude-haiku-4-5", "")).get();
+        var opts = (AnthropicChatOptions) m.getDefaultOptions();
+        // Pin the budget so lowering the constant cannot silently starve the answer after thinking.
+        assertThat(opts.getMaxTokens()).isEqualTo(4096);
+        assertThat(opts.getModel()).isEqualTo("claude-haiku-4-5");
+        // Current Claude models reject non-default sampling values (the builder default was 0.8).
+        assertThat(opts.getTemperature()).isNull();
     }
     @Test void ollamaBuildsOllamaModelWithoutKey() {
         assertThat(factory.build(new AiProviderConfig(AiProvider.OLLAMA, null, "", "")).get())

@@ -1,6 +1,6 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-10-31 (CI release image build reuses the GitHub Actions layer cache)
+> Last updated: 2026-11-01 (shared sidecar Python runtime compatibility)
 
 ## Context
 
@@ -51,6 +51,9 @@ or banking credentials are used.
 
 PostgreSQL 16 and the optional Caddy TLS proxy use upstream images.
 
+On Kubernetes, the Helm chart in `charts/picsou` deploys the same images; the `chart` job of
+`docker.yml` publishes it after the image builds. See [helm-chart.md](./helm-chart.md).
+
 ## How it works
 
 ### Main image — `docker/Dockerfile` (3-stage build, context: project root)
@@ -81,6 +84,14 @@ two shared bases, built from one pin set (`services/base/requirements*.txt`):
 `python` (Python 3.12 slim bookworm, fastapi, uvicorn, pydantic, httpx) and
 `chromium` (the same plus Playwright 1.52 and Chromium in
 `/opt/playwright-browsers`). A sidecar Dockerfile only adds its user and code.
+Both targets retain Python 3.12 because the pinned Pydantic core has no CPython
+3.15 wheels and the slim base lacks the native toolchain for a source build. A Python
+runtime upgrade requires compatible dependency pins and successful builds of both
+targets on amd64 and arm64. `services/base/test_dockerfile.py` guards the supported
+runtime and Chromium's inheritance from it in the shared package CI job.
+The base build context excludes local bytecode and test helpers (`picsou_sidecar/contract.py`
+and `euro_information/testing.py`). CI mounts the helpers read-only for image tests;
+they are absent from published images, including the library copied by AMEX and Revolut.
 The publish workflow pushes `sidecar-python` and `sidecar-chromium` first and
 builds every sidecar from them by digest, so a pull stores Chromium once. With
 `docker compose up --build`, the build-only services `sidecar-python` and
@@ -137,7 +148,10 @@ cannot read the app's `/data/.secrets/` volume.
   route except the exact `/health` path, including `/docs` and
   `/openapi.json`, requires the header. A constant-time comparison
   (`secrets.compare_digest`) runs in an HTTP middleware, before routing, body
-  parsing or any upstream work.
+  parsing or any upstream work. That middleware lives once, in the shared
+  `services/base/picsou_sidecar` package, and every sidecar's
+  `test_sidecar_auth.py` runs the same contract (`picsou_sidecar.contract`)
+  against its own app.
 - A missing or wrong key returns HTTP 401 `{"detail": "UNAUTHORIZED"}` with
   `WWW-Authenticate: Picsou-Sidecar-Key`. The backend matches on that challenge
   and raises `SidecarAuthenticationException` (`SIDECAR_UNAUTHORIZED`), so a key
@@ -183,7 +197,7 @@ and PRODUCTION is the only mode listing real banks — so bank sync is unreachab
 [bank-sync.md](./bank-sync.md).
 
 `docker/Caddyfile` is a single site block, `{$PICSOU_DOMAIN:picsou.localhost}` →
-`reverse_proxy app:8080`. Caddy resolves the certificate strategy at **runtime** from the hostname
+`reverse_proxy app-tls:8080`. Caddy resolves the certificate strategy at **runtime** from the hostname
 (not at config-adapt time — the adapted JSON shows no explicit issuer for either case):
 
 | `PICSOU_DOMAIN` | Runtime issuer | Trust |
@@ -191,9 +205,9 @@ and PRODUCTION is the only mode listing real banks — so bank sync is unreachab
 | Public FQDN | ACME (Let's Encrypt / ZeroSSL) | Public, zero manual steps |
 | `.localhost` / `.local` / `.internal` / bare IP | `local` (Caddy's built-in CA) | Root must be installed per device, from `/data/caddy/pki/authorities/local/root.crt` in the `caddy_data` volume |
 
-Caddy sets `X-Forwarded-Proto`/`-Host`/`-For` by default, which is exactly what `nginx.conf`'s
-`map` block preserves and what `forward-headers-strategy: framework` needs — so no backend change
-was required for the *proxying* itself. (HSTS did require one — see below.)
+Caddy sets `X-Forwarded-Proto`/`-Host`/`-For` by default. nginx resolves the client from the
+known Caddy peer, normalizes the address header and forwards the public origin to Tomcat's native
+forwarding support. See [trusted proxy client addresses](#trusted-proxy-client-addresses).
 
 #### TLS is a first-boot decision, not an add-on
 
@@ -238,8 +252,8 @@ silent. Interior whitespace is deliberately *not* stripped, so `t rue` warns ins
 
 Gating only nginx is **not sufficient** — a mistake worth not repeating. Spring Security's
 `HstsHeaderWriter` fires on any request where `isSecure()` is true, and
-`forward-headers-strategy: framework` makes that true from `X-Forwarded-Proto: https`, which is
-exactly what the proxy sends. Since the SPA calls the API on load, an ungated backend pins the
+`forward-headers-strategy: native` makes that true from `X-Forwarded-Proto: https` sent by a
+configured proxy. Since the SPA calls the API on load, an ungated backend pins the
 policy on the very first page view no matter what nginx was told.
 
 **Which emitter the browser actually sees, per deployment:**
@@ -267,6 +281,78 @@ fixed at create time, so the new value is never seen.
 > `HSTS_ENABLED=true`. Intentional — the header only helps when the certificate is already trusted,
 > and defaulting it on is what created the trap.
 
+### Trusted proxy client addresses
+
+The bundled path is `client -> Caddy -> nginx -> Tomcat`. The optional `proxy` service has
+one exact IPv4 address on the dedicated internal `tls-proxy` bridge, with its default network
+retained for ACME egress. It reaches the app through the bridge-only `app-tls` alias. No sidecar
+joins this bridge. nginx's real-IP module trusts only the address the entrypoint writes from
+`PICSOU_PROXY_IP`, and replaces outgoing client headers with the resolved address. Tomcat uses
+native forwarding and trusts only the local nginx loopback hop. Rate limiters, session metadata
+and audit logs share the resolved remote address.
+
+Defaults in `docker/docker-compose.yml` are `PICSOU_PROXY_SUBNET=172.30.253.0/29`,
+`PICSOU_PROXY_IP=172.30.253.2` for Caddy, and `PICSOU_PROXY_IP_RANGE=172.30.253.4/30`
+for Docker's automatic address allocation. The app has no fixed TLS address, so `deploy.sh`
+can run one-off migration containers while the live app remains up. Caddy stays outside the
+allocation range, preventing the app from taking its address when it starts first. Set all
+three in `docker/.env` if this subnet overlaps an existing network. The range must be inside
+the subnet and exclude Caddy's address and the gateway; Caddy needs a usable host address
+inside the subnet. Allow at least two usable addresses in the range for the live app and
+one migration container. Compose also passes `PICSOU_PROXY_IP` to the app as nginx's trusted
+peer. The entrypoint rejects proxy values other than a plain IPv4 literal. Standalone image
+runs with `PICSOU_PROXY_IP` unset trust no upstream client-address header.
+
+The app always joins `tls-proxy`, even when the `tls` profile is disabled. Check for subnet
+overlap before upgrading non-TLS installs too. If Docker reports `networks have overlapping IPv4`,
+`docker compose up -d` and `deploy.sh` cannot proceed. Set all three variables above in your existing
+`docker/.env` to non-conflicting values before upgrading.
+
+For a custom proxy, set `PICSOU_PROXY_IP` to that proxy's exact address as seen by nginx and
+recreate the app.
+Do not use a shared Docker subnet or all private networks as a trust list.
+
+When upgrading an existing bundled TLS deployment, use the
+[release deployment script](./release-deployment.md). After checking the new app container,
+it force-recreates `proxy` only if it was running when deployment started. Recreation uses
+`--no-deps` and preserves Caddy's certificate volumes. This applies the new `tls-proxy` attachment
+and loads the `app-tls` upstream. The script requires Compose v2.17+ for
+`--wait --wait-timeout 60` and waits for Caddy's health check before the API readiness probe.
+Proxy recreation or health-wait failure exits nonzero with a clear error, even when the API URL
+points directly at the app's published HTTP port. Restarting Caddy alone
+does not apply Compose network changes. Stopped or absent proxies remain untouched, even when
+the `tls` profile is enabled. Migration or app cutover failures leave the proxy untouched.
+
+The root split Compose stack uses a separate `picsou-ingress` bridge (`172.30.254.0/29`). nginx
+is `172.30.254.2`, the backend is `172.30.254.3`, and the ingress-only `ingress-backend` alias
+ensures the backend connection uses that path. Only the frontend's exact address is in
+`SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES`. If the subnet conflicts, change its subnet, both
+addresses and that regex together in a Compose override. For an additional proxy before the
+split frontend, mount a real-IP snippet using `frontend/picsou-realip.conf` as the template;
+the default snippet trusts no upstream peer. Other backend deployments must set
+`SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES` to the exact nginx peer expression.
+
+Both nginx configurations retain the public scheme/host and derive `X-Forwarded-Port` from
+an explicit public host port or an upstream port header, otherwise Tomcat uses the scheme
+default. This preserves same-origin requests on published HTTP and custom HTTPS ports.
+See [CORS & cookie security](./security-cors-cookies.md) and the
+[proxy address ADR](../decisions/2026-10-31-trusted-proxy-client-address.md).
+
+`docker/tests/test_proxy_client_ip.py` starts fresh isolated Compose projects with real Caddy
+and a lightweight app stand-in. It preserves the shipped network attachments and startup
+dependency, checks default and custom addresses, waits for Caddy's health check, and probes
+the `app-tls` upstream. It also runs a one-off app container alongside the live app to cover
+repeat deployments. The nginx fixtures create explicit randomized subnets for static test
+addresses, retrying subnet overlaps for compatibility with Docker versions used in CI.
+The Compose tests publish no host ports and remove their test containers, networks and volumes.
+They assert the rendered default TLS addresses but reserve an unused private subnet for that
+live case, so an existing install can keep the default bridge. Network allocation retries across
+multiple private `/16`s on overlap; a timed-out Docker availability check skips rather than
+failing test collection.
+`docker/tests/test_deploy_integration.py` also upgrades a running Caddy from the old
+default-network-only layout and verifies the new network, active upstream, preserved CA
+and HTTPS API response through the deployment script.
+
 ### Key files
 
 - `docker/Dockerfile` — main image, 3-stage build
@@ -277,7 +363,7 @@ fixed at create time, so the new value is never seen.
 - `services/fortuneo-auth/Dockerfile` — Fortuneo sidecar image
 - `docker/nginx.conf` — Nginx reverse proxy config (`/api`, `/actuator`, `/mcp` → backend)
 - `docker/supervisord.conf` — supervisor (nginx + backend)
-- `docker/entrypoint.sh` — secret bootstrap + HSTS snippet + exec supervisord
+- `docker/entrypoint.sh` — secret bootstrap + trusted-proxy/HSTS snippets + exec supervisord
 
 ### Flow
 
@@ -535,6 +621,12 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 
 ## Tests
 
+- `uv run --with pytest pytest docker/tests/test_proxy_client_ip.py -v` runs the real nginx
+  configuration in Docker: exact trusted proxy resolution, independent forwarded clients,
+  ignored direct client-address headers, public origin ports and Compose address consistency.
+- `python3 -m unittest discover -s docker/tests -p 'test_entrypoint.py' -v` also checks empty
+  standalone proxy trust, exact configured addresses and rejection of malformed configuration.
+
 - `python3 -m pytest docker/tests/test_deploy.py -v` exercises deployment ordering and failure
   isolation against command doubles. CI runs it independently of the application tests.
 - `ReleaseMigrationCliTest` checks strict migration history and idempotency on real PostgreSQL.
@@ -556,6 +648,24 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
   also when a second connection commits the duplicate after the first check, and that account
   writes wait for V47. With a Flyway target below V47, or a baseline at or above V47 (`47.0`
   included), the check is skipped.
+
+### Shared pending-login lifecycle
+
+`services/base/picsou_sidecar.PendingStore` enforces each sidecar's TTL when a
+completion takes an attempt. Expired states are disposed and returned as missing,
+without waiting for the background sweep. Parking inserts immediately when there is
+room, so retries do not wait for unrelated expired browsers to close. Only a full
+store expires old entries and rechecks capacity under the lock, since another
+request may fill a reclaimed slot during disposal. Routes use `put_or_raise()` so
+a still-full store answers 503 with the provider's existing capacity detail;
+callers dispose resources if initial parking
+fails. Retrying routes transfer ownership to `repark()`, which disposes the state
+if parking fails or is cancelled. A failed background sweep logs only the exception
+type, keeping upstream URLs and exception messages out of logs, and continues
+with the next sweep.
+A retryable OTP whose state cannot be parked also answers 503 instead of promising
+a retry for an attempt that no longer exists. Initiation also sweeps before
+opening a new upstream client or browser.
 
 ## Links
 

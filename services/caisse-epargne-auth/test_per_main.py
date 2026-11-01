@@ -1,6 +1,7 @@
 """Offline checks for PER transport wiring into the production accounts entry point."""
 
 import copy
+import os
 import unittest
 import urllib.parse
 from types import SimpleNamespace
@@ -125,7 +126,7 @@ class PerAccountsHttpTest(unittest.TestCase):
                 token_forms.append(dict(urllib.parse.parse_qsl(request.content.decode())))
             return ce.handle(request)
 
-        with patch.object(main, "SIDECAR_API_KEY", "synthetic-test-key"), \
+        with patch.dict(os.environ, {"APP_SIDECAR_API_KEY": "synthetic-test-key"}), \
              patch.object(main, "_token_cache", replay.TokenCache()), \
              patch.object(main, "_TRANSPORT", httpx.MockTransport(handle)), \
              TestClient(main.app) as client:
@@ -161,7 +162,7 @@ class PerAccountsHttpTest(unittest.TestCase):
                 return httpx.Response(461)
             return ce.handle(request)
 
-        with patch.object(main, "SIDECAR_API_KEY", "synthetic-test-key"), \
+        with patch.dict(os.environ, {"APP_SIDECAR_API_KEY": "synthetic-test-key"}), \
              patch.object(main, "_token_cache", replay.TokenCache()), \
              patch.object(main, "_TRANSPORT", httpx.MockTransport(handle)), \
              TestClient(main.app) as client:

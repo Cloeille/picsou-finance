@@ -21,6 +21,10 @@ import java.util.Optional;
 @Component
 public class AiChatModelFactory {
     private static final Logger log = LoggerFactory.getLogger(AiChatModelFactory.class);
+    /** Caps thinking + answer. The JSON answer is ~25 tokens and Haiku 5.5's thinking stayed under
+     *  300, but always-thinking models (Opus 5.5, Fable) can think longer; tokens are billed as
+     *  generated, so headroom is free. Kept within every current model's output cap. */
+    static final int ANTHROPIC_MAX_TOKENS = 4096;
 
     public Optional<ChatModel> build(AiProviderConfig cfg) {
         if (cfg == null) return Optional.empty();
@@ -39,8 +43,12 @@ public class AiChatModelFactory {
                 case ANTHROPIC -> {
                     AnthropicApi api = AnthropicApi.builder()
                         .baseUrl(cfg.effectiveBaseUrl()).apiKey(key).build();
+                    // Auto-config is disabled, so property-based defaults do not reach this model.
+                    // Our defaultOptions replace the builder's token limit; set max_tokens explicitly
+                    // because the Messages API requires it. Leave sampling parameters unset.
                     yield Optional.of(AnthropicChatModel.builder().anthropicApi(api)
-                        .defaultOptions(AnthropicChatOptions.builder().model(cfg.effectiveModel()).build())
+                        .defaultOptions(AnthropicChatOptions.builder().model(cfg.effectiveModel())
+                            .maxTokens(ANTHROPIC_MAX_TOKENS).build())
                         .build());
                 }
                 case OLLAMA -> {

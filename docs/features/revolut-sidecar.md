@@ -153,11 +153,15 @@ The remaining live acceptance needs a maintainer with existing recent activity;
 do not generate financial activity just to exercise this connector.
 
 Run the Python tests with real installed dependencies:
-`python -m pytest -p no:logging --asyncio-mode=auto -q tests` from
-`services/revolut-auth/`. Disabling pytest's logging plugin lets the existing
-root-formatter installation test inspect the application's own logger. CI's
+`PYTHONPATH=../base python -m pytest -p no:logging --asyncio-mode=auto -q tests` from
+`services/revolut-auth/`. CI's
 `revolut-auth-sidecar` job runs the same command inside the built image, after
 installing pinned `pytest` and `pytest-asyncio`, and image publishing waits for it.
+
+The sidecar uses `services/base/picsou_sidecar` for app creation, shared-key
+authentication, `/health`, and sanitized logging. The local `captcha` module remains
+responsible for challenge detection during screen selection, after passcode entry,
+and while polling for approval; shared app initialization does not replace it.
 
 ### Key files
 
@@ -169,7 +173,8 @@ installing pinned `pytest` and `pytest-asyncio`, and image publishing waits for 
 - `services/revolut-auth/tests/{test_profile_lock.py,test_harvest_shape.py,test_sidecar_auth.py}` —
   regression tests (concurrent-sync 409, stale-lock removal, progress read-back; wallet-parent +
   same-currency sum; shared-key 401 challenge, `/health` exemption, startup refusal);
-  run `.venv/bin/python tests/test_*.py` (anyio, no pytest).
+  run `PYTHONPATH=../base .venv/bin/python tests/test_<name>.py` from
+  `services/revolut-auth/` (anyio, no pytest).
 - `services/revolut-auth/Dockerfile` — Camoufox image (Firefox deps + Xvfb + `pin_camoufox.py`).
 - `services/revolut-auth/pin_camoufox.py` — build-time install of the pinned Camoufox
   `152.0.4-beta.30` browser, its default addons, and the GeoIP database from the release's direct

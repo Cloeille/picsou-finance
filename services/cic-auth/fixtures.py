@@ -4,6 +4,8 @@ The markup keeps the classes, captions and nesting the parsers rely on, copied
 from real pages; nothing else of them is kept.
 """
 
+from euro_information.testing import transaction_state, wrong_password_page  # noqa: F401
+
 LOGOUT_LINK = '<a href="/fr/identification/deconnexion/deconnexion.cgi">Déconnexion</a>'
 
 LOGIN_PAGE = """
@@ -17,10 +19,7 @@ LOGIN_PAGE = """
 </body></html>
 """
 
-LOGIN_PAGE_WRONG_PASSWORD = LOGIN_PAGE.replace(
-    "<body>",
-    '<body><div class="blocmsg err"><p>Votre identifiant ou mot de passe est incorrect.</p></div>',
-)
+LOGIN_PAGE_WRONG_PASSWORD = wrong_password_page(LOGIN_PAGE)
 
 
 def account_row(index: int, title: str, number: str, amount: str) -> str:
@@ -94,6 +93,3 @@ AUTHORITY_MANAGEMENT_PAGE = """
 </body></html>
 """
 
-
-def transaction_state(state: str) -> str:
-    return f'<?xml version="1.0" encoding="utf-8"?><root><transactionState>{state}</transactionState></root>'

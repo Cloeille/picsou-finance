@@ -7,7 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Unused frontend scaffolding for self-service login deletion, its demo handler, and
+  draft documentation. No available screen or backend endpoint is removed.
+
 ### Added
+
+- **Helm chart.** `charts/picsou` deploys the app, every sidecar and an optional
+  single-instance PostgreSQL on Kubernetes, with network policies that mirror the Compose
+  isolation and a pre-upgrade Job that migrates and verifies the schema before the app is
+  replaced. TLS terminates on the cluster's Ingress or Gateway. CI publishes it to
+  `oci://ghcr.io/cloeille/charts/picsou` with every release, and as a pre-release pinned to the
+  commit's images with every push to `main`.
+  See [feature note](docs/features/helm-chart.md).
 
 - **SCPI positions over MCP.** An MCP client can now record a SCPI account's share count,
   subscription and withdrawal prices and distribution with the new `set_scpi_position` tool
@@ -106,7 +119,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Shared sidecar base images.** Nine sidecars now build on two shared images,
   `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per
-  sidecar. Amex and Revolut keep their own image (Camoufox). See
+  sidecar. Both bases retain Python 3.12 for compatibility with the pinned native
+  dependencies. Amex and Revolut keep their own image (Camoufox). See
   [ADR](docs/decisions/2026-10-21-shared-sidecar-base-image.md).
 - **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
   the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
@@ -297,6 +311,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Sidecars share their plumbing.** The bank sidecars' key check, health endpoint, request
+  log, log sanitising and pending-login store now live once, in `services/base/picsou_sidecar`,
+  and CIC and Crédit Mutuel share one login client. AMEX answers a wrong sidecar key with
+  `{"detail": "UNAUTHORIZED"}` like the others and closes the browser for a retryable code
+  when a full pending pool prevents it from keeping the attempt. Sofidy now uses the shared
+  request log, which omits the method and response status. Refused shared-key requests
+  log no caller path; authenticated paths are control-sanitized and capped at 200 characters.
+  Pending stores reject expired completions immediately and reclaim expired capacity when
+  full; parking with room available does not wait for unrelated resource cleanup.
+  A retryable code that cannot be parked answers 503 and releases its resources.
+  Every sidecar trims its configured
+  API key before comparing it, escapes control characters in its whole log line and keeps its
+  pending-login sweeper running after a failed sweep. Crédit Mutuel
+  withdraws the phone confirmation when the bank answers an unknown state, as CIC did. Code
+  no production path used goes (AMEX self-check, Fortuneo legacy parsers, unused helpers).
+
 - **Pull requests go green sooner.** CI runs only the jobs a pull request's changed paths can
   affect, a new push cancels the stale run, and the demo Playwright suite runs once instead of
   twice. Pushes to `main` and tags still run every job, and a new `ci-ok` check fails when a
@@ -306,6 +336,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Building `docker/Dockerfile` yourself now needs BuildKit (`docker buildx`).
 
 ### Fixed
+
+- **Revolut merge compatibility.** Nested challenge detection remains active alongside
+  the shared sidecar authentication, health endpoint and sanitized logging.
+
+- **BoursoBank syncs a securities account whose lines sit in several sections.** The trading
+  board can split an account's positions across more than one section of its summary. Only the
+  longest list was read, so the lines of the others went missing and the whole sync stopped with
+  `PORTFOLIO_INCOMPLETE`. All sections are now read when that is what makes the lines add up to
+  the account's valuation (#361). The combined sections count identical holdings only once
+  and reject conflicting duplicates, including a repeated broker symbol with an ISIN on only
+  some rows (missing or malformed on the others), so repeated partial sections cannot hide
+  missing holdings.
+- **AI categorization works with Anthropic.** Every call to Claude failed with
+  `400 max_tokens: Field required`, so no transaction was ever categorized with that
+  provider. Picsou now sends the token limit the Anthropic API requires, with room for
+  thinking and the answer. Categorization and the admin Test read the text answer after
+  the model's thinking, including when thinking contains a summary, and Test reports a
+  failure when the model returns no text answer.
+
+- **Client addresses behind trusted proxies.** The bundled TLS proxy now preserves separate
+  per-client login limits. nginx and Tomcat resolve forwarded addresses only from configured
+  proxy peers, and rate limiters and audit logs use the same resolved address. Direct client
+  headers do not replace the connection address. Public HTTP and HTTPS ports remain available
+  to same-origin checks. Caddy's configurable static address stays outside the TLS bridge's
+  automatic allocation range, allowing fresh startup and repeat deployment migrations
+  alongside the running app without address conflicts. The release deployment script
+  recreates a running bundled TLS proxy after the app cutover, applying the new network
+  and upstream while preserving certificates, so upgrades also receive the fix. It waits up to
+  60 seconds for proxy health before the API probe and fails clearly if recreation or health
+  verification fails (Compose v2.17+ required). Stopped proxies remain stopped, even when the
+  `tls` profile is enabled. Docker proxy tests handle daemon timeouts and retry subnets across
+  private ranges; the live default-address case uses an unused subnet to avoid existing installs.
+  **Upgrade note:** the app always joins the new `tls-proxy` bridge (`172.30.253.0/29`),
+  including on non-TLS installs. If it overlaps an existing Docker network,
+  `docker compose up -d` and `deploy.sh` fail with `networks have overlapping IPv4`.
+  Before upgrading, set `PICSOU_PROXY_SUBNET`, `PICSOU_PROXY_IP`, and
+  `PICSOU_PROXY_IP_RANGE` together in your existing `docker/.env` to non-conflicting values.
+  See the [proxy network requirements](docs/features/docker-deployment.md#trusted-proxy-client-addresses).
+- **Caisse d'Epargne sync after Sécur'Pass approval.** If the login completion response is
+  lost or returns 502 or 504, the approval card stays open while Picsou checks the session
+  every three seconds for up to 180 seconds. An active session queues the first sync once.
+  Status requests taking longer than three seconds are allowed to finish.
+  If no session appears, the panel reports the approval timeout. Login requests are never
+  replayed (#350).
+
+- **A transaction no longer overwrites a valued account.** Adding, editing or deleting a
+  transaction by hand on a SCPI, a property or an employee-savings plan, a dividend for
+  instance, replaced its value with the sum of its transactions, and deleting the last one left
+  it at zero. The transaction is still recorded, but the balance keeps its valuation. The
+  HomeBank import now refuses these accounts, and a PER, as targets, like the Actual Budget
+  import already did. Both importers and the manual ledger share one definition,
+  `AccountType.isLedger()`.
 
 - **Enable Banking account balances and details.** Accounts in a shared balance list,
   such as Qonto business accounts, now select entries matching the account description
@@ -994,12 +1076,6 @@ information architecture.
   share Finary sent with `quantity: null` vanished with its cost basis. Such a payload
   now keeps the account's holdings and cash as they were; an explicit zero still
   closes the position.
-- The account-deletion dialog scrolls on short screens and wraps long action
-  labels without horizontal overflow.
-- Account deletion preserves the last active administrator even when other
-  administrator logins are inactive. Committed deletion also purges pending
-  Finary and CSV import data, with member binding and expiry checked on execute.
-
 - **BoursoBank's fraud-education interstitial no longer reads as a wrong password.**
   When the bank parks a valid login on its fraud-prevention notice, the sidecar
   returns `FRAUD_ACK_REQUIRED` and the app tells the user to validate the notice

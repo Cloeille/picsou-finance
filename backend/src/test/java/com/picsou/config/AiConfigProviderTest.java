@@ -12,9 +12,15 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.Prompt;
 
 import java.util.Base64;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -174,6 +180,57 @@ class AiConfigProviderTest {
 
         assertThat(result.ok()).isFalse();
         assertThat(result.message()).contains("boom");
+    }
+
+    // ─── 8b. test() reads past a thinking block ──────────────────────────────
+
+    private static ChatModel replying(Generation... gens) {
+        ChatModel model = mock(ChatModel.class);
+        when(model.call(any(Prompt.class))).thenReturn(new ChatResponse(List.of(gens)));
+        return model;
+    }
+
+    private static Generation thinkingBlock() {
+        return new Generation(AssistantMessage.builder().content("")
+            .properties(Map.of("signature", "sig")).build());
+    }
+
+    @Test
+    void test_thinkingThenAnswer_isOk() {
+        ChatModel model = replying(thinkingBlock(), new Generation(new AssistantMessage("OK")));
+        when(factory.build(any())).thenReturn(Optional.of(model));
+
+        AiTestResponse result = provider.test("anthropic", "m", "u", "somekey");
+
+        assertThat(result.ok()).isTrue();
+        assertThat(result.message()).endsWith("OK");
+    }
+
+    @Test
+    void test_thinkingOnly_isNotOk() {
+        // e.g. the thinking used up max_tokens before any answer was written
+        ChatModel model = replying(thinkingBlock());
+        when(factory.build(any())).thenReturn(Optional.of(model));
+
+        AiTestResponse result = provider.test("anthropic", "m", "u", "somekey");
+
+        assertThat(result.ok()).isFalse();
+        assertThat(result.message()).contains("no text answer");
+    }
+
+    @Test
+    void test_summarizedThinkingOnly_isNotOk() {
+        // a summarized thinking block carries text, but it is not the answer
+        Generation summary = new Generation(AssistantMessage.builder()
+            .content("The user wants a single word.")
+            .properties(Map.of("signature", "sig")).build());
+        ChatModel model = replying(summary);
+        when(factory.build(any())).thenReturn(Optional.of(model));
+
+        AiTestResponse result = provider.test("anthropic", "m", "u", "somekey");
+
+        assertThat(result.ok()).isFalse();
+        assertThat(result.message()).contains("no text answer");
     }
 
     // ─── 9. save_evictsCache ─────────────────────────────────────────────────

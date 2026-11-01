@@ -1,0 +1,5 @@
+**/__pycache__
+**/*.py[cod]
+**/test_*.py
+picsou_sidecar/contract.py
+euro_information/testing.py
