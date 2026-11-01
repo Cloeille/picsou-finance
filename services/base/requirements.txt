@@ -7,7 +7,7 @@
 # Starlette and drops those three from the images.
 fastapi==0.162.0
 uvicorn==0.52.1
-pydantic==2.13.4
+pydantic==2.14.1
 # Production dependency for the browserless sidecars (BoursoBank, Sofidy,
 # DEGIRO, Caisse d'Epargne replay); fastapi.testclient needs it for the
 # contract tests of the others.
