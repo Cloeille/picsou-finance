@@ -23,7 +23,7 @@ COPY frontend/ .
 RUN bun run build
 
 # ---------- Stage 2: Build backend ----------
-FROM --platform=$BUILDPLATFORM maven:3.9-eclipse-temurin-21-alpine AS backend-build
+FROM --platform=$BUILDPLATFORM maven:3.9-eclipse-temurin-26-alpine AS backend-build
 
 WORKDIR /build/backend
 
