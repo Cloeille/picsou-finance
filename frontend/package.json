@@ -29,7 +29,7 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-hook-form": "^7.77.0",
-    "react-i18next": "^17.0.8",
+    "react-i18next": "^17.1.9",
     "react-router": "^8.5.1",
     "recharts": "3.8.0",
     "sonner": "^2.0.7",
