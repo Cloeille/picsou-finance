@@ -238,7 +238,7 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 | **Camoufox** (stealth Firefox) | Revolut's anti-bot fingerprints & blocks a vanilla Playwright Chromium; a Firefox engine is accepted (the user's own Firefox browser logs in fine) | Playwright Chromium (blocked); patchright/Chromium (still Chromium); plain httpx (Bourso's approach — dies on JS challenges) |
 | **Persistent Camoufox profile per member** | Keeps fingerprint **and** cookies stable across launches, which is what keeps a session alive | Storing a `storageState` blob and replaying it from fresh instances (random fingerprint → session invalidated) |
 | **On-demand `/sync`** (reuse-or-login) | The captured session is short-lived; sync when the user asks, reuse a live session if present | Stored-session daily unattended sync (blocked until TTL is measured) |
-| `playwright==1.55.0` | Camoufox 0.4.11's Firefox speaks an older Juggler protocol | 1.60+ (breaks with `Browser.setDefaultViewport`/`setContrast` errors) |
+| `playwright==1.64.1` | Reviewed with the pinned Firefox 152.0.4-beta.30 protocol and the shared headless and headful offline smoke tests | Upgrading without testing the pinned browser |
 | Optional remembered creds (user's choice) | Convenience (1-click) vs security (re-enter) — the user decides | Always store / never store |
 | Guard PSD2 reconstruction on `RevolutSession.lastSyncedAt` | Stand down ONLY once the sidecar produced real pockets | `provider='Revolut'` account check (matches EB-synced wallets too → breaks EB-only users) |
 

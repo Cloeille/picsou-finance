@@ -331,6 +331,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Upgrade Playwright to 1.64.1 in both shared browser sidecar bases, including
+  the bundled Chromium. Camoufox remains on package 0.4.11 and Firefox
+  152.0.4-beta.30. Browser updates still require the offline image smoke tests.
+
 - **Sidecar URLs are set only in `application.yml`.** Compose and `docker/entrypoint.sh` no longer
   set any `*_AUTH_URL`; `application.yml` holds every default. A `*_AUTH_URL` in your `.env`
   still overrides it. The image's old `TR_AUTH_URL`/`REVOLUT_AUTH_URL` loopback fallbacks

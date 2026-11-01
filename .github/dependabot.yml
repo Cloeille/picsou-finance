@@ -15,7 +15,7 @@ updates:
     schedule:
       interval: weekly
   # All sidecars inherit these pins; requirements-{chromium,camoufox}.txt keep
-  # their different Playwright versions separate. Browser bumps require review
+  # browser-specific dependencies separate. Browser bumps require review
   # of the Camoufox protocol compatibility and the image smoke tests.
   - package-ecosystem: pip
     directory: /services/base
