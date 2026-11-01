@@ -307,6 +307,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **BoursoBank syncs a securities account whose lines sit in several sections.** The trading
+  board can split an account's positions across more than one section of its summary. Only the
+  longest list was read, so the lines of the others went missing and the whole sync stopped with
+  `PORTFOLIO_INCOMPLETE`. All sections are now read when that is what makes the lines add up to
+  the account's valuation (#361). The combined sections count identical holdings only once
+  and reject conflicting duplicates, including a repeated broker symbol with an ISIN on only
+  some rows (missing or malformed on the others), so repeated partial sections cannot hide
+  missing holdings.
 - **AI categorization works with Anthropic.** Every call to Claude failed with
   `400 max_tokens: Field required`, so no transaction was ever categorized with that
   provider. Picsou now sends the token limit the Anthropic API requires, with room for
