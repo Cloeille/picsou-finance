@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { AccountForm } from '@/components/shared/AccountForm'
 import { AddPropertyModal } from '@/components/property/AddPropertyModal'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { CryptoExchangeForm } from '@/components/sync/CryptoExchangeForm'
 import { InstitutionSearch } from '@/components/sync/InstitutionSearch'
 import { BourseDirectPanel } from '@/components/sync/BourseDirectPanel'
 import { BoursoPanel } from '@/components/sync/BoursoPanel'
@@ -28,8 +29,6 @@ import { SimplefinPanel } from '@/components/sync/SimplefinPanel'
 import {
   ACCOUNT_COLORS,
   ACCOUNT_TYPES,
-  EXCHANGE_API_KEY_MAX_LENGTH,
-  EXCHANGE_API_SECRET_MAX_LENGTH,
   TR_VERIFICATION_CODE_LENGTH,
 } from '@/lib/constants'
 import { formatTrAuthError, getErrorStatus, getErrorDetail } from '@/lib/errors'
@@ -42,7 +41,6 @@ import {
   useStartRevolutSync,
   useSyncProgress,
   useConfirmRevolutSync,
-  useAddCryptoExchange,
   useAddCryptoWallet,
   useFinaryConnectionStatus,
   useFinaryLogin,
@@ -83,9 +81,9 @@ import {
 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { formatApiError } from '@/lib/errors'
-import type { ExchangeType, ChainType, AccountRequest, FinaryPreviewResponse, FinaryAccountMapping, FinaryMappingAction, FinaryImportResultResponse, AccountType } from '@/types/api'
+import type { ChainType, AccountRequest, FinaryPreviewResponse, FinaryAccountMapping, FinaryMappingAction, FinaryImportResultResponse, AccountType } from '@/types/api'
 import { availableTargets, initialFinaryMappings } from '@/features/sync/finary-mappings'
-import { SUPPORTED_CHAINS, SUPPORTED_EXCHANGES, exchangeRequiresApiSecret } from '@/types/api'
+import { SUPPORTED_CHAINS } from '@/types/api'
 
 // ---------------------------------------------------------------------------
 // Props & types
@@ -371,126 +369,14 @@ function BankWizard({ onBack }: { onDone: () => void; onBack: () => void }) {
 
 function ExchangeWizard({ onBack }: { onDone: () => void; onBack: () => void }) {
   const { t } = useTranslation()
-  const [exchangeType, setExchangeType] = useState<ExchangeType>('BINANCE')
-  const [apiKey, setApiKey] = useState('')
-  const [apiSecret, setApiSecret] = useState('')
-  const [showSecret, setShowSecret] = useState(false)
   const [done, setDone] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const addMutation = useAddCryptoExchange()
-  const requiresSecret = exchangeRequiresApiSecret(exchangeType)
-
-  function selectExchange(type: ExchangeType) {
-    setExchangeType(type)
-    // Drop anything typed under the previous exchange: sending a secret to a single-key exchange
-    // is a 400, and it would be entirely self-inflicted.
-    setApiSecret('')
-    setShowSecret(false)
-  }
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError(null)
-    addMutation.mutate(
-      { type: exchangeType, apiKey, apiSecret: requiresSecret ? apiSecret : undefined },
-      {
-        onSuccess: () => setDone(true),
-        onError: (err: unknown) => {
-          // The fallback names only the credentials this exchange actually takes — a Meria user
-          // told to check a secret goes looking for a field the form never showed them.
-          const fallback = requiresSecret
-            ? 'sync.exchanges.connectError' : 'sync.exchanges.connectErrorKeyOnly'
-          setError(getErrorDetail(err) || (err as { message?: string })?.message || t(fallback))
-        },
-      },
-    )
-  }
-
-  if (done) {
-    return (
-      <>
-        <BackButton onClick={onBack} />
-        <SuccessState message={t('addAccount.exchangeConnected')} />
-      </>
-    )
-  }
 
   return (
     <>
       <BackButton onClick={onBack} />
-      {error && (
-        <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <span className="flex-1">{error}</span>
-          <Button variant="ghost" size="sm" onClick={() => setError(null)}>x</Button>
-        </div>
-      )}
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label>{t('sync.exchanges.type')}</Label>
-          {/* wrap: these buttons are wide (px-8) and there is no room for three in a row on a
-              narrow viewport — without it the row stretches the whole form past the dialog. */}
-          <div className="flex flex-wrap gap-2">
-            {SUPPORTED_EXCHANGES.map((exchange) => (
-              <Button
-                key={exchange.type}
-                type="button"
-                variant={exchangeType === exchange.type ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => selectExchange(exchange.type)}
-              >
-                {exchange.type}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="exchange-api-key">{t('sync.exchanges.apiKey')}</Label>
-          <Input
-            id="exchange-api-key"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder={t('sync.exchanges.apiKey')}
-            required
-            maxLength={EXCHANGE_API_KEY_MAX_LENGTH}
-          />
-          {!requiresSecret && (
-            <p className="text-xs text-muted-foreground">{t('sync.exchanges.apiKeyOnly')}</p>
-          )}
-        </div>
-
-        {requiresSecret && (
-          <div className="space-y-2">
-            <Label htmlFor="exchange-api-secret">{t('sync.exchanges.apiSecret')}</Label>
-            <div className="relative">
-              <Input
-                id="exchange-api-secret"
-                type={showSecret ? 'text' : 'password'}
-                value={apiSecret}
-                onChange={(e) => setApiSecret(e.target.value)}
-                placeholder={t('sync.exchanges.apiSecret')}
-                required
-                maxLength={EXCHANGE_API_SECRET_MAX_LENGTH}
-                className="pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowSecret((p) => !p)}
-                aria-label={t(showSecret ? 'sync.exchanges.hideSecret' : 'sync.exchanges.showSecret')}
-                className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                {showSecret ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-              </button>
-            </div>
-          </div>
-        )}
-
-        <Button type="submit" disabled={addMutation.isPending} className="w-full">
-          {addMutation.isPending && <Loader2 className="size-4 animate-spin" />}
-          {t('sync.exchanges.connect')}
-        </Button>
-      </form>
+      {done
+        ? <SuccessState message={t('addAccount.exchangeConnected')} />
+        : <CryptoExchangeForm variant="modal" onSuccess={() => setDone(true)} />}
     </>
   )
 }
