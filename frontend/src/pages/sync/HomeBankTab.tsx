@@ -5,6 +5,7 @@ import { ACCOUNT_COLORS, ACCOUNT_TYPES, NON_LEDGER_ACCOUNT_TYPES, SUPPORTED_CURR
 import { formatDate } from '@/lib/utils'
 import { extractErrorMessage } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
+import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
@@ -150,7 +151,7 @@ export function HomeBankTab() {
 
   return (
     <div className="space-y-6">
-      {error && <div role="alert" className="flex items-center gap-2 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive"><X className="size-4 shrink-0" /><span className="flex-1">{error}</span></div>}
+      {error && <AlertBanner variant="roomy" role="alert" icon={<X className="size-4 shrink-0" />}>{error}</AlertBanner>}
 
       {!preview && !result && <div className="mx-auto max-w-xl space-y-4">
         <div className={`flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed p-10 text-center ${dragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'}`}

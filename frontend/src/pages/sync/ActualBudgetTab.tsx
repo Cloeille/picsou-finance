@@ -7,6 +7,7 @@ import { extractErrorMessage } from '@/lib/errors'
 import { formatDate } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -226,10 +227,7 @@ export function ActualBudgetTab() {
   return (
     <div className="space-y-6">
       {error && (
-        <div role="alert" className="flex items-center gap-2 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          <X className="size-4 shrink-0" />
-          <span className="flex-1">{error}</span>
-        </div>
+        <AlertBanner variant="roomy" role="alert" icon={<X className="size-4 shrink-0" />}>{error}</AlertBanner>
       )}
 
       {!preview && !result && (

@@ -10,6 +10,16 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
+    # Spring Boot 4 and Spring AI 2 require each other, and with them Jackson 3,
+    # Spring Security 7 and test changes. That is one coordinated migration on
+    # 1.1.0, not a version bump: a lone parent or BOM bump does not compile
+    # (#380 was reverted, #403 and #374 failed the same way). Minor and patch
+    # updates within Boot 3.5 / Spring AI 1.1 still come through.
+    ignore:
+      - dependency-name: org.springframework.boot:spring-boot-starter-parent
+        update-types: ["version-update:semver-major"]
+      - dependency-name: org.springframework.ai:spring-ai-bom
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: bun
     directory: /frontend
     schedule:
@@ -43,6 +53,12 @@ updates:
       # looks like a patch or minor bump and update-types cannot isolate it.
       # The tag floats on Maven 3.9.x patches; move it by hand with the JDK.
       - dependency-name: maven
+      # Only services/base uses the python image. It stays on 3.12 until a
+      # deliberate runtime migration: for CPython 3.15, orjson (via camoufox)
+      # publishes only manylinux_2_39 wheels, which bookworm's glibc 2.36
+      # cannot install. services/base/test_dockerfile.py guards the pin.
+      - dependency-name: python
+        versions: [">=3.13"]
   # Compose image references are a separate ecosystem from Dockerfiles.
   - package-ecosystem: docker-compose
     directories:

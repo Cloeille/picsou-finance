@@ -1,68 +1,47 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { RefreshCw, LogOut, Smartphone, Lock, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { RefreshCw, LogOut, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import {
   useRevolutStatus,
   useForgetRevolut,
-  useStartRevolutSync,
-  useSyncProgress,
   useConfirmRevolutSync,
 } from '@/features/sync/hooks'
-import { revolutErrorLabel, revolutPhaseLabel } from '@/features/sync/revolut-phase'
+import { revolutPhaseLabel } from '@/features/sync/revolut-phase'
+import { useRevolutDiscovery } from '@/features/sync/use-revolut-discovery'
+import { RevolutCredentialsForm, type RevolutCredentials } from '@/components/sync/RevolutCredentialsForm'
 import { formatApiError } from '@/lib/errors'
 import { formatDateTime } from '@/lib/utils'
 
+const EMPTY_CREDENTIALS: RevolutCredentials = { phoneNumber: '', passcode: '', remember: false }
+
 export function RevolutTab() {
   const { t } = useTranslation()
-  const [phoneNumber, setPhoneNumber] = useState('')
-  const [passcode, setPasscode] = useState('')
-  const [remember, setRemember] = useState(false)
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  // Whether a discovery job is currently running (from the moment the 202 comes back
-  // to the running → done transition detected below) — gates both the poll and the UI.
-  const [isSyncing, setIsSyncing] = useState(false)
+  const [credentials, setCredentials] = useState<RevolutCredentials>(EMPTY_CREDENTIALS)
   // Brief success card once the auto-confirm below has persisted the discovery;
   // cleared as soon as the next sync starts.
   const [justSynced, setJustSynced] = useState(false)
 
   const { data: status, isLoading: statusLoading } = useRevolutStatus()
-  const startSync = useStartRevolutSync()
-  const progress = useSyncProgress('revolut', isSyncing)
   const confirmSync = useConfirmRevolutSync()
   const forgetMutation = useForgetRevolut()
 
   const remembered = status?.remembered ?? false
-  // Covers the brief round-trip before the 202 response flips isSyncing to true, plus
-  // the auto-confirm that follows discovery.
-  const busy = isSyncing || startSync.isPending || confirmSync.isPending
 
-  // Detect the running → done transition (mirrors CategorizeTab's AI-job pattern) to stop
-  // polling and surface a discovery error. This tab is pure auto-sync — no selection step —
-  // so a successful discovery immediately persists everything found: refreshes accounts
-  // already imported and auto-adds any new pocket/vault.
-  const prevRunningRef = useRef<boolean | undefined>(undefined)
-  useEffect(() => {
-    const running = progress.data?.running
-    if (prevRunningRef.current === true && running === false) {
-      setIsSyncing(false)
-      const data = progress.data
-      if (data?.error) {
-        // Reacting to the running → done transition detected above, not deriving render state.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setErrorMsg(revolutErrorLabel(t, data))
-      } else if (data && data.discovered.length > 0) {
+  // This tab is pure auto-sync — no selection step — so a successful discovery immediately
+  // persists everything found: refreshes accounts already imported and auto-adds any new
+  // pocket/vault.
+  const { errorMsg, setErrorMsg, isSyncing, progress, startPending, startDiscovery } = useRevolutDiscovery({
+    onStart: () => setJustSynced(false),
+    onFinished: (data) => {
+      if (data && data.discovered.length > 0) {
         confirmSync.mutate(
-          { selectedExternalIds: data.discovered.map((d) => d.externalId), remember, voluntary: false },
+          { selectedExternalIds: data.discovered.map((d) => d.externalId), remember: credentials.remember, voluntary: false },
           {
             onSuccess: () => {
-              setPhoneNumber('')
-              setPasscode('')
+              setCredentials((c) => ({ ...c, phoneNumber: '', passcode: '' }))
               setJustSynced(true)
             },
             onError: (err) => setErrorMsg(formatApiError(err, t)),
@@ -71,21 +50,12 @@ export function RevolutTab() {
       } else {
         setJustSynced(true)
       }
-    }
-    prevRunningRef.current = running
-    // progress.data/confirmSync/remember/t are read through the running dep on purpose
-    // (see CategorizeTab) — confirmSync in particular is a fresh object every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progress.data?.running])
+    },
+  })
 
-  function startDiscovery(body: { phoneNumber?: string; passcode?: string }) {
-    setErrorMsg(null)
-    setJustSynced(false)
-    startSync.mutate(body, {
-      onSuccess: () => setIsSyncing(true),
-      onError: (err) => setErrorMsg(formatApiError(err, t)),
-    })
-  }
+  // Covers the brief round-trip before the 202 response flips isSyncing to true, plus
+  // the auto-confirm that follows discovery.
+  const busy = isSyncing || startPending || confirmSync.isPending
 
   function handleQuickSync() {
     startDiscovery({})
@@ -93,7 +63,7 @@ export function RevolutTab() {
 
   function handleFormSync(e: React.FormEvent) {
     e.preventDefault()
-    startDiscovery({ phoneNumber, passcode })
+    startDiscovery({ phoneNumber: credentials.phoneNumber, passcode: credentials.passcode })
   }
 
   function handleForget() {
@@ -185,58 +155,13 @@ export function RevolutTab() {
           </Button>
         </div>
       ) : (
-        <form onSubmit={handleFormSync} className="space-y-4">
-          <Card size="sm">
-            <CardContent className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="revolut-phone">
-                  <Smartphone className="size-4 inline-block mr-1" />
-                  {t('sync.revolut.phone')}
-                </Label>
-                <Input
-                  id="revolut-phone"
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  required
-                  disabled={busy}
-                  placeholder="+33..."
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="revolut-passcode">
-                  <Lock className="size-4 inline-block mr-1" />
-                  {t('sync.revolut.passcode')}
-                </Label>
-                <Input
-                  id="revolut-passcode"
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={passcode}
-                  onChange={(e) => setPasscode(e.target.value)}
-                  required
-                  disabled={busy}
-                />
-              </div>
-
-              <label className="flex items-center gap-2 cursor-pointer">
-                <Checkbox
-                  checked={remember}
-                  onCheckedChange={(checked) => setRemember(checked === true)}
-                  disabled={busy}
-                />
-                <span className="text-sm text-muted-foreground">{t('sync.revolut.remember')}</span>
-              </label>
-
-              <Button type="submit" disabled={busy} className="w-full">
-                {busy && <Loader2 className="size-4 animate-spin" />}
-                {busy ? t('sync.revolut.syncing') : t('sync.revolut.sync')}
-              </Button>
-            </CardContent>
-          </Card>
-        </form>
+        <RevolutCredentialsForm
+          variant="page"
+          value={credentials}
+          onChange={setCredentials}
+          onSubmit={handleFormSync}
+          busy={busy}
+        />
       )}
     </div>
   )

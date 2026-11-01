@@ -6,6 +6,7 @@ import { useProjectionDateLabel } from '@/features/analysis/hooks'
 import { SLICE_PALETTE } from '@/lib/chart-palette'
 import { formatPercent } from '@/lib/utils'
 import type { AllocationPoint, WealthTier } from '@/types/api'
+import { AXIS_PROPS, AXIS_PROPS_FLUSH } from '@/lib/chart-axis'
 
 /** Bottom to top, heaviest first — the order the pyramid itself reads in. */
 const TIER_ORDER: WealthTier[] = [
@@ -63,14 +64,11 @@ export function AllocationTrajectory({ allocation }: { allocation: AllocationPoi
           <CartesianGrid vertical={false} strokeDasharray="3 3" />
           <XAxis
             dataKey="date"
-            tickLine={false}
-            axisLine={false}
-            tickMargin={8}
+            {...AXIS_PROPS}
             tickFormatter={(value: string) => value.slice(0, 4)}
           />
           <YAxis
-            tickLine={false}
-            axisLine={false}
+            {...AXIS_PROPS_FLUSH}
             width={44}
             domain={[0, 100]}
             tickFormatter={(value: number) => formatPercent(value, { fractionDigits: 0 })}
