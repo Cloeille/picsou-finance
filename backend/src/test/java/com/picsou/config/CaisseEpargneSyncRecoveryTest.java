@@ -24,7 +24,7 @@ class CaisseEpargneSyncRecoveryTest {
 
     @Test
     void theSyncExecutorIsASingleWorkerSoSyncsNeverOverlap() {
-        Executor executor = new CaisseEpargneSyncConfig().caisseEpargneSyncExecutor();
+        Executor executor = new SyncExecutorConfig().caisseEpargneSyncExecutor();
 
         assertThat(executor).isInstanceOf(ThreadPoolTaskExecutor.class);
         ThreadPoolTaskExecutor pool = (ThreadPoolTaskExecutor) executor;

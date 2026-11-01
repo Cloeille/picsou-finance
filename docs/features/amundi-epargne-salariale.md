@@ -64,7 +64,7 @@ listPositionsSalarieDispositifsDto[]          one entry per plan (dispositif)
   reconciliation, atomic persistence
 - `backend/.../controller/AmundiController.java` — `/api/amundi/*`
 - `backend/.../model/AmundiSession.java`, `AmundiSyncStatus.java`
-- `backend/.../config/AmundiSyncConfig.java` (single-thread executor),
+- `backend/.../config/SyncExecutorConfig.java` (single-thread executor),
   `AmundiSyncRecovery.java` (fails interrupted jobs at boot)
 - `backend/src/main/resources/db/migration/V69__account_type_employee_savings.sql`,
   `V70__amundi_session.sql`

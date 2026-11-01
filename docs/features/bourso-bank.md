@@ -433,7 +433,7 @@ disconnect removes saved credentials with the session.
 - `backend/.../service/BoursoSyncService.java` — job state machine, validation, atomic persistence
 - `backend/.../controller/BoursoController.java` — `/api/bourso/*`
 - `backend/.../model/BoursoSession.java`, `BoursoSyncStatus.java`
-- `backend/.../config/BoursoSyncConfig.java`, `BoursoSyncRecovery.java`
+- `backend/.../config/SyncExecutorConfig.java`, `BoursoSyncRecovery.java`
 - `backend/src/main/resources/db/migration/V78__bourso_session.sql`
 - `frontend/src/components/sync/BoursoPanel.tsx` (serves the Sync tab and the
   Add-account modal), `frontend/src/pages/sync/BoursoTab.tsx`
