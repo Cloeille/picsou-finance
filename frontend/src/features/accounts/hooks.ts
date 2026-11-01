@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { accountsApi, realEstateApi } from './api'
 import type { AccountRequest, Account, DebtRequest, HoldingResponse, OwnershipRequest, RealEstateMetadataRequest, ScpiPositionRequest, ScpiProvider, TransactionImportRequest, TransactionRequest } from '@/types/api'
 import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES, QUERY_STALE_TIMES } from '@/lib/constants'
@@ -448,25 +449,16 @@ export function useAccountHistory(id: number, from?: string) {
 }
 
 export function useCreateAccount() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (data: AccountRequest) => accountsApi.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    invalidates: [['accounts'], ['dashboard']],
   })
 }
 
 export function useUpdateAccount() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: number; data: AccountRequest }) => accountsApi.update(id, data),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', variables.id] })
-    },
+    invalidates: (_data, variables) => [['accounts'], ['dashboard'], ['accounts', variables.id]],
   })
 }
 
@@ -485,40 +477,30 @@ export function useAccountDeletionImpact(accountId: number | null) {
 }
 
 export function useDeleteAccount() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (id: number) => accountsApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['goals'] })
-    },
+    invalidates: [['accounts'], ['dashboard'], ['goals']],
   })
 }
 
 export function useAddSnapshot() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ id, balance, date }: { id: number; balance: number; date: string }) =>
       accountsApi.addSnapshot(id, balance, date),
-    onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ['accounts', id, 'history'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', id] })
-    },
+    invalidates: (_, { id }) => [['accounts', id, 'history'], ['accounts', id]],
   })
 }
 
 export function useUpdateRealEstateMetadata() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: number; data: RealEstateMetadataRequest }) =>
       accountsApi.updateRealEstateMetadata(id, data),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', variables.id] })
-      queryClient.invalidateQueries({ queryKey: ['real-estate'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    invalidates: (_data, variables) => [
+      ['accounts'],
+      ['accounts', variables.id],
+      ['real-estate'],
+      ['dashboard'],
+    ],
   })
 }
 
@@ -531,23 +513,19 @@ export function useScpiFunds(enabled = true) {
 
 /** Unlinks the fund from its account (which stays) and keeps later syncs away from it. */
 export function useIgnoreScpiFund() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ provider, fundCode }: { provider: ScpiProvider; fundCode: string }) =>
       accountsApi.ignoreScpiFund(provider, fundCode),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: scpiFundsKey })
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-    },
+    invalidates: [scpiFundsKey, ['accounts']],
   })
 }
 
 export function useRestoreScpiFund() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ provider, fundCode }: { provider: ScpiProvider; fundCode: string }) =>
       accountsApi.restoreScpiFund(provider, fundCode),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: scpiFundsKey }),
+    invalidates: [scpiFundsKey],
+    awaitRefresh: true,
   })
 }
 
@@ -570,15 +548,14 @@ export function useUpdateScpiPosition() {
 }
 
 export function useUpdateDebtMetadata() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: number; data: DebtRequest }) =>
       accountsApi.updateDebtMetadata(id, data),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['accounts', variables.id] })
-      queryClient.invalidateQueries({ queryKey: ['loan-summary', variables.id] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    invalidates: (_data, variables) => [
+      ['accounts', variables.id],
+      ['loan-summary', variables.id],
+      ['dashboard'],
+    ],
   })
 }
 
@@ -608,15 +585,14 @@ export function usePropertyValuations(accountId: number, enabled: boolean = true
  * net worth moves with it.
  */
 export function useRefreshValuation() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (id: number) => accountsApi.refreshValuation(id),
-    onSuccess: (_data, id) => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['real-estate'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['real-estate', id, 'valuations'] })
-    },
+    invalidates: (_data, id) => [
+      ['accounts'],
+      ['real-estate'],
+      ['dashboard'],
+      ['real-estate', id, 'valuations'],
+    ],
   })
 }
 
@@ -631,17 +607,16 @@ export function useOwnership(id: number, enabled: boolean = true) {
 
 /** Changing a split changes every total the member sees, so this invalidates broadly. */
 export function useUpdateOwnership() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: number; data: OwnershipRequest }) =>
       accountsApi.updateOwnership(id, data),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', variables.id, 'ownership'] })
-      queryClient.invalidateQueries({ queryKey: ['real-estate'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['history'] })
-    },
+    invalidates: (_data, variables) => [
+      ['accounts'],
+      ['accounts', variables.id, 'ownership'],
+      ['real-estate'],
+      ['dashboard'],
+      ['history'],
+    ],
   })
 }
 
@@ -655,81 +630,64 @@ export function useLoanSummary(id: number, enabled: boolean = true) {
 }
 
 export function useImportTRTransactions(accountId: number) {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (file: File) => accountsApi.importTRTransactions(accountId, file),
-    onSuccess: () => {
-      // The CSV import creates transactions on multiple TR accounts (Cash, PEA, Titres),
-      // so we need to invalidate all account-level queries — not just the triggering account.
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    // The CSV import creates transactions on multiple TR accounts (Cash, PEA, Titres),
+    // so we need to invalidate all account-level queries — not just the triggering account.
+    invalidates: [['accounts'], ['dashboard']],
   })
 }
 
 export function useAddTransaction(accountId: number) {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (data: TransactionRequest) => accountsApi.addTransaction(accountId, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'history'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    invalidates: [
+      ['accounts', accountId, 'transactions'],
+      ['accounts', accountId, 'history'],
+      ['accounts', accountId],
+      ['dashboard'],
+    ],
   })
 }
 
 export function useDeleteTransaction(accountId: number) {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (txId: number) => accountsApi.deleteTransaction(accountId, txId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'history'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    invalidates: [
+      ['accounts', accountId, 'transactions'],
+      ['accounts', accountId, 'history'],
+      ['accounts', accountId],
+      ['dashboard'],
+    ],
   })
 }
 
 export function useUpdateTransaction(accountId: number) {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ txId, data }: { txId: number; data: TransactionRequest }) =>
       accountsApi.updateTransaction(accountId, txId, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'holdings'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'history'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    invalidates: [
+      ['accounts', accountId, 'transactions'],
+      ['accounts', accountId, 'holdings'],
+      ['accounts', accountId, 'history'],
+      ['accounts', accountId],
+      ['dashboard'],
+    ],
   })
 }
 
 export function useUpdateHolding(accountId: number) {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ ticker, data }: { ticker: string; data: { quantity: number; averageBuyIn?: number } }) =>
       accountsApi.updateHolding(accountId, ticker, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'holdings'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    invalidates: [['accounts', accountId, 'holdings'], ['accounts', accountId], ['dashboard']],
   })
 }
 
 export function useDeleteHolding(accountId: number) {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (ticker: string) => accountsApi.deleteHolding(accountId, ticker),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'holdings'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    invalidates: [['accounts', accountId, 'holdings'], ['accounts', accountId], ['dashboard']],
   })
 }
 
@@ -744,17 +702,16 @@ export function usePreviewImport(accountId: number) {
 }
 
 export function useExecuteImport(accountId: number) {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (data: TransactionImportRequest) => accountsApi.importExecute(accountId, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'holdings'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'history'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'realized-pnl'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', accountId] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
+    invalidates: [
+      ['accounts', accountId, 'transactions'],
+      ['accounts', accountId, 'holdings'],
+      ['accounts', accountId, 'history'],
+      ['accounts', accountId, 'realized-pnl'],
+      ['accounts', accountId],
+      ['dashboard'],
+    ],
   })
 }
 
@@ -811,13 +768,8 @@ export function useAllAccounts() {
 }
 
 export function useToggleAccountVisibility() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: ({ id, hidden }: { id: number; hidden: boolean }) => accountsApi.setVisibility(id, hidden),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['history'] })
-    },
+    invalidates: [['accounts'], ['dashboard'], ['history']],
   })
 }

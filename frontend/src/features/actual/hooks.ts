@@ -1,4 +1,5 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
+import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { actualBudgetApi } from './api'
 import type { ActualImportRequest } from './types'
 
@@ -27,13 +28,8 @@ export function usePlanActualImport() {
 }
 
 export function useImportActualBudget() {
-  const queryClient = useQueryClient()
-  return useMutation({
+  return useInvalidatingMutation({
     mutationFn: (request: ActualImportRequest) => actualBudgetApi.execute(request),
-    onSuccess: () => {
-      for (const queryKey of ACTUAL_IMPORT_INVALIDATIONS) {
-        void queryClient.invalidateQueries({ queryKey })
-      }
-    },
+    invalidates: ACTUAL_IMPORT_INVALIDATIONS,
   })
 }

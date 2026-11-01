@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **One sync-provider table in the frontend.** The browser-sidecar connectors are now
+  entries in `features/sync/providers.ts` driven by generic `useProvider*` hooks, so adding
+  one no longer means copying five hooks. Mutations that refresh queries go through
+  `useInvalidatingMutation`. The add-account modal reuses the Sync page's forms instead of
+  copies, and error banners and chart axes use shared pieces (`AlertBanner`, `AXIS_PROPS`).
+  No visible change. See [frontend conventions](docs/conventions/frontend.md).
 - **One CI job for every bank connector.** The 13 copy-pasted sidecar jobs are now one
   matrix built from the `services/*-auth` folders, shared with image publishing, so adding a
   connector touches no workflow file. A change to one connector tests only that connector.

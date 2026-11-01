@@ -6,6 +6,7 @@ import { localeFromLanguage } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import { MONEY_AXIS_WIDTH } from '@/lib/money'
 import { usePropertyValuations } from '@/features/accounts/hooks'
+import { AXIS_PROPS } from '@/lib/chart-axis'
 
 interface PropertyValuationChartProps {
   accountId: number
@@ -56,16 +57,12 @@ export function PropertyValuationChart({ accountId, costBasis }: PropertyValuati
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
             <XAxis
               dataKey="date"
-              tickLine={false}
-              axisLine={false}
-              tickMargin={8}
+              {...AXIS_PROPS}
               tickFormatter={(value) =>
                 new Date(value).toLocaleDateString(locale, { month: 'short', year: '2-digit' })}
             />
             <YAxis
-              tickLine={false}
-              axisLine={false}
-              tickMargin={8}
+              {...AXIS_PROPS}
               // Compact on the axis: full currency labels collide at this width, and the
               // tooltip already gives the exact figure.
               tickFormatter={money.tick}

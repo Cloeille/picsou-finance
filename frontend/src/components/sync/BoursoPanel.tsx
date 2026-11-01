@@ -14,11 +14,11 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  useBoursoSessionStatus,
-  useClearBoursoSession,
-  useCompleteBoursoAuth,
-  useInitiateBoursoAuth,
-  useSyncBourso,
+  useProviderClear,
+  useProviderComplete,
+  useProviderInitiate,
+  useProviderStatus,
+  useProviderSync,
 } from "@/features/sync/hooks"
 import { extractErrorMessage, getErrorCode, getErrorStatus } from "@/lib/errors"
 import type { BoursoErrorCode } from "@/types/api"
@@ -42,11 +42,11 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
   const [error, setError] = useState<string | null>(null)
   const notifyConnectedOnSuccess = useRef(false)
 
-  const status = useBoursoSessionStatus()
-  const initiate = useInitiateBoursoAuth()
-  const complete = useCompleteBoursoAuth()
-  const sync = useSyncBourso()
-  const logout = useClearBoursoSession()
+  const status = useProviderStatus("bourso")
+  const initiate = useProviderInitiate("bourso")
+  const complete = useProviderComplete("bourso")
+  const sync = useProviderSync("bourso")
+  const logout = useProviderClear("bourso")
   const { mutate: completeMutate } = complete
 
   const messageForCode = (value: BoursoErrorCode | string | null | undefined) => {
