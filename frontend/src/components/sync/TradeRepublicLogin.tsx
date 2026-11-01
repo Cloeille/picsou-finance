@@ -211,7 +211,7 @@ export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginP
   ))
 
   const form = authState === 'AWAITING_TAN' ? (
-    <form onSubmit={handleTan} className="space-y-4">
+    <form key="tan" onSubmit={handleTan} className="space-y-4">
       {modal ? (
         <>
           {tanField}
@@ -227,7 +227,7 @@ export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginP
       )}
     </form>
   ) : (
-    <form onSubmit={handleInitiate} className="space-y-4">
+    <form key="initiate" onSubmit={handleInitiate} className="space-y-4">
       {modal ? (
         <>
           {phoneField}
