@@ -297,6 +297,10 @@ Rules:
   wait included. On expiry the browser is closed, the slot released and the
   answer is 502 `UPSTREAM_UNAVAILABLE`. The human wait stays 150 s and the
   reload / authorize wait after it are clamped to the 10 s left.
+- Identifier field: its id varies with the instance the bank serves (`#neo-input-1`
+  observed 2026-10-07, `#neo-input-2` observed 2026-10-31 for the same region).
+  `login.IDENTIFIER_INPUT` matches the `neo-input-` prefix on a text input, and
+  `test_identifier_selectors.py` checks both variants in Chromium.
 - Error banner: only read on the identifier page (identifier refused) and on the
   password page right after Valider. Never during the Sécur'Pass wait: there only
   the client-space URL or the timeout decide, so an informational alert can never
