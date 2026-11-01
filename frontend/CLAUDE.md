@@ -37,7 +37,7 @@ src/
 
 **Auth guard:** `RequireAuth` in `frontend/src/features/auth/guards.tsx` checks `sessionStorage.getItem('picsou_user')` (JS-readable signal; the actual session cookies are HttpOnly). sessionStorage doesn't survive a tab/browser close, so when it's empty `RequireAuth` probes the cookie-backed session once via `useSessionProbe()` (`frontend/src/features/auth/hooks.ts`, calls `POST /auth/refresh`) before redirecting to `/login` — this is what makes "Remember Me" (`persistent_token`, 90 days) actually keep users signed in across restarts instead of only within a single tab session. Because the probe's success is cached, **always log out via `useLogout()`** (never the raw `useAuthStore().logout()` action directly) — it's the only path that also revokes the session server-side and clears the query cache (`resetClientState`), so a later probe can't silently resurrect a session the UI claims is logged out.
 
-**Routing:** React Router v7 in `frontend/src/app/routes.tsx`. Lazy code-splitting per page. `/sync/callback` and `/sync` share SyncPage (OAuth redirect target).
+**Routing:** React Router v8 in `frontend/src/app/routes.tsx`. The entry point imports `RouterProvider` from `react-router/dom` for automatic DOM `flushSync` integration. Lazy code-splitting per page. `/sync/callback` and `/sync` share SyncPage (OAuth redirect target).
 
 ## Conventions
 

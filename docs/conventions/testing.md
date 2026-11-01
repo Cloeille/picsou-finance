@@ -199,6 +199,30 @@ unspecified, so otherwise the other tests may assert against post-mutation state
   bun run test:e2e        # E2E tests (starts Vite with VITE_DEMO_MODE=true)
   ```
 
+## Sidecar tests
+
+Every `services/<name>-auth` folder keeps its tests next to `main.py` as `test_*.py`
+modules for the standard library's `unittest`: no pytest, no `tests/` subfolder, no
+`sys.path` edits. CI discovers them, so adding a connector or a test file touches no
+workflow file. The only inputs are the folder and the `ARG SIDECAR_BASE=picsou-sidecar-…`
+line of its Dockerfile (`.github/scripts/sidecars.py` lists them). The `sidecar` job
+builds the base and the image, then runs, from the repository root:
+
+```bash
+docker run --rm --ipc=host --entrypoint python \
+  --env PYTHONDONTWRITEBYTECODE=1 --env APP_SIDECAR_API_KEY=test-key --env CORUM_BROWSER_TESTS=1 \
+  --volume "$PWD/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro" \
+  --volume "$PWD/services/base/euro_information/testing.py:/opt/sidecar-base/lib/euro_information/testing.py:ro" \
+  --volume "$PWD/services:/src/services:ro" --workdir /src/services/<name>-auth \
+  picsou-<name>-auth:test -m unittest discover -v
+```
+
+The checkout is mounted read-only, so a test must not write next to itself. A test
+that needs a live account or a real login is a script, not a `test_*.py` module (e.g.
+`services/sofidy-auth/test_live_portal.py` has no test case, so discovery runs nothing
+from it). `services/base` tests run the same way in the Camoufox base, which includes
+the Python one (`sidecar-base` job). Camoufox sidecars also run on a native ARM64 runner.
+
 ## Running tests
 
 Backend Maven runs enforce Java 21 during `validate`; set `JAVA_HOME` to a JDK 21

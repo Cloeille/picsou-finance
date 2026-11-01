@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **One CI job for every bank connector.** The 13 copy-pasted sidecar jobs are now one
+  matrix built from the `services/*-auth` folders, shared with image publishing, so adding a
+  connector touches no workflow file. A change to one connector tests only that connector.
+  Every connector's tests are stdlib `unittest` modules next to its code; the Revolut tests
+  moved off pytest, and nine BoursoBank transaction tests that CI never ran now run.
+  See [testing conventions](docs/conventions/testing.md#sidecar-tests).
+
 ### Removed
 
 - **Split Docker stack.** The root `docker-compose.yml`, `backend/Dockerfile`,
@@ -369,6 +378,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Backend dependency baseline.** Restored Spring Boot 3.5.16 after a standalone Boot 4 parent
+  bump left existing AOP and Testcontainers dependencies without managed versions. The coordinated
+  Spring AI 2, Jackson 3, Spring Security 7, and test migration remains separate.
+- **AMEX and Revolut browser base.** Restored Camoufox 0.4.11 to prevent Playwright
+  dependency resolution and installer import failures while preserving the pinned browser
+  and persistent-profile fingerprint behavior.
+- **React Router v8 compatibility.** Use the DOM router provider's built-in
+  `flushSync` integration, removing an adapter whose return type broke frontend
+  compilation after the dependency upgrade.
+  Resolved frontend documentation merge conflicts while preserving the v8 routing
+  guidance and the DOM provider integration rationale.
 - Release deployment verifies that a recreated bundled TLS proxy's active configuration uses
   `app-tls:8080`, reports legacy app targets or unreadable configuration before API readiness,
   and preserves unrelated upstreams. TLS Compose tests reserve unused subnets for custom
@@ -603,6 +623,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   importer and duplicate checks as the current account. A livret whose history page cannot
   be read, or is too slow (the history reads only use what is left of a 60 s budget counted
   from the start of the accounts read, after balances and holdings), still syncs its balance. ([#167](https://github.com/Cloeille/picsou-finance/issues/167))
+- **Caisse d'Epargne login no longer stalls on the identifier page.** Some instances of the
+  bank's login page name the identifier field differently, so the sidecar waited 30 s for a
+  field that never appeared and reported a changed data format before anything was typed.
+  Both variants are now recognised.
 - **Controls no longer spill out of their card on phones** (#273). At 360–390px the Settings
   theme and language switches (Spanish was hidden), the family sharing choices, the Analysis
   card toggles and the account Transactions buttons were cut at the card edge. Settings and
