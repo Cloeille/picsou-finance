@@ -103,6 +103,7 @@ single_container() {
 # otherwise create, back up and migrate an empty database in another Compose project.
 existing_db=$(docker_compose ps -aq db)
 existing_app=$(docker_compose ps -aq app)
+running_proxy=$(docker_compose ps -q --status running proxy)
 if (( ! fresh )) && ! { single_container "$existing_db" && single_container "$existing_app"; }; then
     echo 'No existing db and app container in the addressed Compose project.' >&2
     echo 'Pass the production project name (-p or COMPOSE_PROJECT_NAME) and the same Compose flags,' >&2
@@ -252,6 +253,55 @@ app_state=$(docker inspect --format '{{.State.Running}} {{.Image}}' "$app_contai
 if [[ "$app_state" != "true $candidate_image" ]]; then
     echo 'The app container is not running the candidate image after cutover.' >&2
     exit 1
+fi
+
+# A restart reloads the Caddyfile but leaves old Compose network attachments intact.
+if [[ -n "$running_proxy" ]]; then
+    if ! docker_compose up -d --no-deps --force-recreate --wait --wait-timeout 60 proxy; then
+        echo 'Deployment cut over, but TLS proxy recreation or health check failed (60-second wait limit).' >&2
+        exit 1
+    fi
+    # Health only proves the admin API responds, not that app traffic uses the trusted bridge.
+    if ! docker_compose exec -T proxy wget -qO- http://127.0.0.1:2019/config/ > "$work_dir/proxy-config.json"; then
+        echo 'Deployment cut over, but TLS proxy active config could not be read from the admin API.' >&2
+        exit 1
+    fi
+    if ! python3 -I - "$work_dir/proxy-config.json" <<'PYCONFIG'
+import json
+import sys
+
+
+def upstream_dials(node):
+    if isinstance(node, dict):
+        if node.get("handler") == "reverse_proxy":
+            for upstream in node.get("upstreams", []):
+                yield upstream.get("dial", "")
+        for value in node.values():
+            yield from upstream_dials(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from upstream_dials(value)
+
+
+try:
+    with open(sys.argv[1]) as config:
+        dials = []
+        for dial in upstream_dials(json.load(config)):
+            host, separator, port = dial.partition(":")
+            dials.append(f"{host.lower()}{separator}{port}")
+    # Other sites may proxy unrelated hosts; only Picsou service names constrain this gate.
+    valid = "app-tls:8080" in dials and all(
+        dial == "app-tls:8080" or dial.split(":", 1)[0] not in {"app", "app-tls"}
+        for dial in dials
+    )
+except (OSError, ValueError, TypeError, AttributeError):
+    valid = False
+sys.exit(0 if valid else 1)
+PYCONFIG
+    then
+        echo "Deployment cut over, but TLS proxy active config is invalid; set the Caddyfile's reverse_proxy target to app-tls:8080 (remove other app targets)." >&2
+        exit 1
+    fi
 fi
 
 probe_url="$api_base/api/auth/me"

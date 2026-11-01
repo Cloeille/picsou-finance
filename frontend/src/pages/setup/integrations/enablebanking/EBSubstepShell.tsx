@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'

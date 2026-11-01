@@ -1,8 +1,8 @@
 import { useEffect } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate } from 'react-router'
 import { useAuthStore } from '@/stores/auth-store'
 import { useAppStore } from '@/stores/app-store'
-import { LoadingSkeleton } from '@/components/shared/LoadingSkeleton'
+import { RouteSpinner } from '@/components/shared/RouteFallback'
 import { useSessionProbe } from './hooks'
 
 export function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -10,14 +10,16 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   const login = useAuthStore(s => s.login)
   const demoMode = useAppStore(s => s.demoMode)
 
-  const probe = useSessionProbe(!demoMode && !isAuthenticated)
+  // Demo mode probes too: its adapter answers /auth/refresh with the demo user, which is how
+  // pages reading the signed-in user (Settings, RequireAdmin) get one.
+  const probe = useSessionProbe(!isAuthenticated)
 
   useEffect(() => {
     if (probe.isSuccess) login(probe.data)
   }, [probe.isSuccess, probe.data, login])
 
   if (demoMode || isAuthenticated) return <>{children}</>
-  if (probe.isPending || probe.isSuccess) return <LoadingSkeleton />
+  if (probe.isPending || probe.isSuccess) return <RouteSpinner />
 
   return <Navigate to="/login" replace />
 }
@@ -51,13 +53,18 @@ export function PublicOnly({
   if (demoMode || isAuthenticated) return <Navigate to="/" replace />
   // While the probe resolves (only when actually enabled), hold the form back so
   // a restorable session redirects into the app rather than flashing /login.
-  if (shouldProbe && (sessionProbe.isPending || sessionProbe.isSuccess)) return <LoadingSkeleton />
+  if (shouldProbe && (sessionProbe.isPending || sessionProbe.isSuccess)) return <RouteSpinner />
 
   return <>{children}</>
 }
 
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
   const user = useAuthStore(s => s.user)
+  const demoMode = useAppStore(s => s.demoMode)
+  const shouldProbe = demoMode && !user
+  const probe = useSessionProbe(shouldProbe)
+
+  if (shouldProbe && (probe.isPending || probe.isSuccess)) return <RouteSpinner />
   if (!user) return <Navigate to="/login" replace />
   if (user.role !== 'ADMIN') return <Navigate to="/error/403" replace />
   return <>{children}</>

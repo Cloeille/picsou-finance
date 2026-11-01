@@ -8,14 +8,11 @@ test.describe('Goals page', () => {
     await page.waitForURL('**/goals')
   })
 
-  test('should show goal cards or empty state', async ({ page }) => {
-    // Either goal cards are visible or the empty state message
-    const hasGoals = (await page.locator('.grid > *').count()) > 0
-    if (hasGoals) {
-      // Goal cards with progress bars
-      await expect(page.locator('.grid').first()).toBeVisible()
-    } else {
-      await expect(page.getByText('Aucun objectif défini')).toBeVisible()
+  test('should show demo savings goal cards with progress bars', async ({ page }) => {
+    for (const name of ['Voyage au Japon', 'Apport immobilier', 'Nouvelle voiture']) {
+      const card = page.locator('[data-slot="card"]').filter({ hasText: name })
+      await expect(card).toBeVisible()
+      await expect(card.getByRole('progressbar')).toBeVisible()
     }
   })
 
@@ -84,5 +81,26 @@ test.describe('Goals page', () => {
     // The benchmark is indicative only, so it is quoted in a tooltip rather than as a verdict.
     await page.getByRole('button', { name: 'À propos de la moyenne française' }).hover()
     await expect(page.getByRole('tooltip')).toContainText(/ménages en France.*17[.,]5\s%/)
+  })
+})
+
+test.describe('Goal calendar on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test('should wrap the months instead of running them off the screen', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-10-15T12:00:00'))
+    await login(page)
+    await page.goto('/goals/2/calendar')
+
+    // 12 = Nov 2025 through Oct 2026: demo goal 2 is created 11 months before today (the frozen
+    // date), and the current month is included. `:not([title])` skips the backfill button.
+    const months = page.locator('[data-slot="card-content"] > .grid > button:not([title])')
+    await expect(months).toHaveCount(12)
+
+    // Horizontal containment only: a wrapping year is allowed to run below the fold.
+    for (const box of await months.evaluateAll(els => els.map(el => el.getBoundingClientRect().toJSON()))) {
+      expect(box.x).toBeGreaterThanOrEqual(0)
+      expect(box.x + box.width).toBeLessThanOrEqual(390)
+    }
   })
 })

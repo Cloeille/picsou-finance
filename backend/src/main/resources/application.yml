@@ -44,10 +44,8 @@ spring:
       max-file-size: 10MB
       max-request-size: 10MB
 
-  # Embedded MCP server (Model Context Protocol). Transport is HTTP+SSE, pinned with
-  # `protocol: SSE`: existing clients (Claude Code, `mcp-remote`) are configured for SSE. Both the SSE
-  # stream (GET /mcp) and the message channel (POST /mcp/message) live under /mcp/** so
-  # AccessKeyAuthFilter gates them and a `psk_` key can never reach /api/** (security Property A).
+  # MCP_PROTOCOL=STREAMABLE enables protocol 2025-11-25 for hosted connectors. SSE remains the
+  # default for existing clients. Both transports stay under /mcp/** for access-key/OAuth scoping.
   ai:
     mcp:
       server:
@@ -65,7 +63,10 @@ spring:
         sse-endpoint: /mcp
         sse-message-endpoint: /mcp/message
         request-timeout: 30s
-        protocol: SSE
+        protocol: ${MCP_PROTOCOL:SSE}
+        streamable-http:
+          mcp-endpoint: /mcp
+          keep-alive-interval: ${MCP_KEEP_ALIVE_INTERVAL:60s}
         # The server pings every open SSE session at this interval. Without it the stream stays
         # silent between two replies, and clients drop it as idle: Bun's fetch (Claude Code) after
         # ~6 min, the Python MCP SDK's SSE client after 300 s. The next call then times out.
@@ -90,22 +91,17 @@ spring:
 
 server:
   port: 8080
-  # Trust X-Forwarded-* from the local nginx so request scheme/host/port reflect the
-  # public-facing values when running behind a TLS-terminating reverse proxy. Without
-  # this, request.getScheme() stays "http" and Spring's CorsUtils.isCorsRequest() wrongly
-  # classifies genuinely same-origin HTTPS requests as cross-origin, rejecting them with
-  # 403. "framework" (Spring's ForwardedHeaderFilter) is used because the backend is only
-  # reachable through nginx — no per-IP trusted-proxy config needed — and it is a no-op
-  # when no X-Forwarded-* headers are present (dev / direct-HTTP access).
-  #
-  # Side effect: this ALSO rewrites request.getRemoteAddr() from the leftmost
-  # X-Forwarded-For entry, which nginx's proxy_add_x_forwarded_for only appends to (never
-  # replaces) — so a raw client can set that entry itself and getRemoteAddr() is no longer
-  # a trustworthy per-client identity. Never key a rate limiter (or anything else
-  # security-sensitive) on getRemoteAddr() while this is "framework"; use
-  # com.picsou.config.ClientIp#resolve(request) instead, which reads the nginx-owned
-  # X-Real-IP header — see docs/features/security-cors-cookies.md ("client IP trust").
-  forward-headers-strategy: framework
+  # Resolve forwarded addresses and the public origin only from known nginx peers.
+  # Bundled nginx connects over loopback. Do not use Tomcat's broad private-network proxy defaults.
+  # All rate limiters and audit readers share this container-resolved remote address.
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      internal-proxies: '127\.0\.0\.1|::1|0:0:0:0:0:0:0:1'
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
+      host-header: X-Forwarded-Host
+      port-header: X-Forwarded-Port
   error:
     include-stacktrace: never     # never expose stack traces to clients
     include-message: never
@@ -141,7 +137,7 @@ app:
   #
   # Changing it also changes what "today" means for snapshots already stored under the old zone;
   # set it once, before the first sync. An unknown zone ID fails startup rather than falling back.
-  # In Docker, keep the image's TZ / -Duser.timezone in step with it (see backend/Dockerfile).
+  # In Docker, keep the image's TZ / -Duser.timezone in step with it (see docker/Dockerfile).
   timezone: ${APP_TIMEZONE:Europe/Paris}
 
   # Property valuation from French open data. No credentials of any kind: every source
@@ -208,6 +204,8 @@ app:
     url: ${AMUNDI_AUTH_URL:http://amundi-auth:8001}
   cmes-auth:
     url: ${CMES_AUTH_URL:http://cmes-auth:8001}
+  cic-auth:
+    url: ${CIC_AUTH_URL:http://cic-auth:8001}
   amex-auth:
     url: ${AMEX_AUTH_URL:http://amex-auth:8001}
   fortuneo-auth:

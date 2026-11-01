@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { ScrollStrip } from '@/components/shared/ScrollStrip'
 import { Badge } from '@/components/ui/badge'
@@ -46,7 +46,7 @@ export function BudgetLayout() {
               <Icon className="size-4" />
               <span>{t(labelKey)}</span>
               {badge && toReview > 0 && (
-                <Badge variant="secondary" className="ml-1">{toReview}</Badge>
+                <Badge variant="outline" className="tabular-nums">{toReview}</Badge>
               )}
             </NavLink>
           ))}

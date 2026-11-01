@@ -1,6 +1,6 @@
 # Feature: Remote-MCP OAuth for third-party clients (claude.ai)
 
-> Last updated: 2026-07-12
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -35,7 +35,10 @@ feature is that design. See the ADR [2026-07-12 remote-MCP OAuth](../decisions/2
      - authenticated → redirect to the SPA consent page /consent
      - user ticks scopes, Approve → auth code → redirect to https://claude.ai/api/mcp/auth_callback
 6. POST /oauth2/token (code + PKCE verifier)   → { access_token: <MCP JWT>, refresh_token }
-7. GET /mcp  Authorization: Bearer <MCP JWT>    → scoped MCP session; tools run under the granted scopes
+7. Authorization: Bearer <MCP JWT> on every /mcp request  → scoped MCP session; tools run under the granted scopes
+     - SSE (default): GET /mcp opens the session stream
+     - MCP_PROTOCOL=STREAMABLE: POST /mcp `initialize` starts the session, then JSON-RPC is POSTed to /mcp
+       (GET /mcp is only the optional server stream)
 ```
 
 ### Token model — the load-bearing security decision
@@ -97,7 +100,7 @@ Properties B (no `?memberId=` override) and C (scope-only authorities, never `RO
 - `features/connectedApps/` + `pages/settings/sections/ConnectedAppsSection.tsx`.
 
 **Reverse proxy**
-- `frontend/nginx.conf` + `docker/nginx.conf` — `location /.well-known/oauth-` → backend.
+- `docker/nginx.conf` — `location /.well-known/oauth-` → backend.
 
 ## Gotchas / Pitfalls
 
@@ -124,10 +127,19 @@ For `mcp-picsou.patato.es` (→ `192.168.1.149`) the front reverse-proxy on the 
 3. Serve over HTTPS (Secure cookies during the in-browser login).
 
 ### Manual e2e check (once up + exposed)
+
+For clients requesting protocol `2025-11-25`, first set `MCP_PROTOCOL=STREAMABLE` in the app
+environment and recreate it. With production Compose, set it in `docker/.env` and run
+`docker compose up -d --force-recreate app` from `docker/`. Update other MCP clients to
+Streamable HTTP at the same `/mcp` URL. See [transport selection](./mcp-server.md#use-protocol-2025-11-25-with-a-hosted-connector)
+for the HTTP client config and rollback. SSE remains the default for existing installations.
+
 1. `curl -i https://<host>/mcp` → 401 + `WWW-Authenticate … resource_metadata=…`.
 2. `curl https://<host>/.well-known/oauth-protected-resource` and `…/oauth-authorization-server` → JSON.
 3. claude.ai → add custom connector `https://<host>/mcp` → OAuth → login (password+TOTP) → consent → connected.
-4. Run a read tool → scoped data. Settings → Connected apps → revoke → access lost after token expiry.
+4. Confirm `initialize` negotiates `2025-11-25` and `tools/list` includes `list_accounts`. Run a
+   read tool and check the member's scoped data. OAuth completion alone is not a successful MCP check.
+5. Settings → Connected apps → revoke → access lost after token expiry.
 
 ## Tests
 

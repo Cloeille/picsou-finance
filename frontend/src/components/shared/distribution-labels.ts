@@ -10,7 +10,7 @@ export interface DistributionItem {
 }
 
 function normalizedName(name: string): string {
-  return name.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+  return name.trim().replace(/\s+/g, ' ').toLowerCase()
 }
 
 /**

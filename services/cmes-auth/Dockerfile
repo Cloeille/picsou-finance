@@ -7,7 +7,7 @@ FROM ${SIDECAR_BASE}
 
 RUN groupadd -r cmes && useradd -r -g cmes cmes
 
-COPY main.py forms.py situation_parser.py fund_parser.py ./
+COPY main.py situation_parser.py fund_parser.py ./
 
 RUN chown -R cmes:cmes /app
 USER cmes

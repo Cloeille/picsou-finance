@@ -7,6 +7,11 @@
 
 Picsou is a self-hosted personal-finance dashboard for an individual or a small family. It aggregates accounts from banks (PSD2/scraping), brokers (Trade Republic), crypto exchanges (Binance, Meria), and on-chain wallets (BTC/ETH/SOL); tracks balances over time, computes net worth, and helps members set savings goals, manage debts, and export their data. Each authenticated `AppUser` is linked to a `FamilyMember`, and every financial row is scoped by `member_id` with optional sharing.
 
+The backend uses Spring Boot 3.5.16 with Spring AI 1.1.8, as recorded in the
+[Spring AI keep-alive decision](./decisions/2026-10-27-spring-ai-1-1-for-mcp-sse-keep-alive.md).
+A Spring Boot 4 upgrade also requires coordinated Spring AI, Jackson, Spring Security, and test
+changes, so it remains a separately scoped migration.
+
 ## Backend modules
 
 ```
@@ -49,7 +54,7 @@ com.picsou/
 │   ├── EnableBankingBankConnector (bank sync)
 │   ├── PowensBankConnector (Powens / Budget Insight — experimental, disabled in 1.0.0)
 │   ├── BoursoAdapter (BoursoBank — current accounts, livrets and PEA/CTO sidecar)
-│   ├── DegiroAdapter (DEGIRO — compte-titres sync; requires `degiro-auth` uncommented in docker-compose.yml)
+│   ├── DegiroAdapter (DEGIRO — compte-titres sync; runs as `degiro-auth` in docker/docker-compose.yml)
 │   ├── CoinGeckoPriceProvider, YahooFinancePriceProvider (prices)
 │   ├── OpenFigiIsinConverter (ISIN → Yahoo ticker)
 │   ├── TradeRepublicAdapter (broker)
@@ -219,6 +224,12 @@ Browser → SetupFilter → /setup → SetupController → SetupService → AppS
 
 ### 12. Authentication & MFA
 
+nginx resolves forwarded client addresses only from its configured upstream proxy and replaces
+client-address headers before forwarding to Java. Tomcat's native forwarding support trusts only
+explicit nginx peers (loopback in the bundled image, a dedicated ingress address in the split
+stack). All per-IP limiters, session metadata and audit readers share `getRemoteAddr()` through
+this policy. See [CORS & cookie security](./features/security-cors-cookies.md).
+
 ```
 POST /api/auth/login → AuthController → (if 2FA) issue mfa_challenge JWT → 401 + cookie
 POST /api/mfa/verify → MfaController → MfaService.verifyTotp() → issue access + refresh
@@ -274,7 +285,7 @@ Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month r
 | Fortuneo | Current accounts, PEA/PEA-PME/CTO and transaction history via internal Python sidecar | `FORTUNEO_AUTH_URL` |
 | BoursoBank | Current accounts, livrets and PEA/CTO sync via internal Python sidecar | `BOURSO_AUTH_URL` |
 | Caisse d'Epargne | Current account, Livret A and deferred-debit card read via internal Python sidecar, on demand, no in-app login yet | `CAISSE_EPARGNE_AUTH_URL` |
-| DEGIRO | Compte-titres sync via internal Python sidecar (sidecar off by default — uncomment in `docker-compose.yml`) | `DEGIRO_AUTH_URL` |
+| DEGIRO | Compte-titres sync via internal Python sidecar (`degiro-auth` in `docker/docker-compose.yml`) | `DEGIRO_AUTH_URL` |
 | Binance | Crypto exchange balances | Via CryptoExchangePort |
 | Meria | Crypto exchange balances (wallets + staking + lending) | Via CryptoExchangePort |
 | CoinGecko | Crypto prices (free) | No config |

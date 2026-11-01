@@ -1,6 +1,6 @@
 # Feature: Privacy mode (hiding amounts)
 
-> Last updated: 2026-08-16
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -27,6 +27,10 @@ i18n locale ─────────────────────┘
 `CurrencyDisplay` calls the hook, which covers 29 files without touching them. The rest — chart
 axes, hand-rolled tooltips, an amount interpolated into a translated sentence — call `useMoney()`
 themselves.
+
+The budget allocation donut's centre total also uses `money.compact()`, with at most one
+fraction digit. The amount and its currency form one centered label, so the locale owns symbol
+placement and the entire total responds immediately to the privacy toggle.
 
 ### Key files
 
@@ -86,8 +90,9 @@ Placeholders in the goal calendar *are* masked: they are display-only, unlike a 
   that happens to be open when the toggle flips redraws with it.
 - **`money.compact()` replaced two hand-rolled compact formatters** (`formatCompactEur` in the
   projection, `formatCompact` in the goal calendar). Both were invisible leaks, and both existed
-  because someone needed a short axis label and reached for `Intl` — which is what guard rule B
-  now makes noisy.
+  because someone needed a short axis label and reached for `Intl`. The guard rejects both
+  currency-style formats and compact notation outside `money.ts`: compact decimal notation
+  without `style: 'currency'` can leak a monetary total just as easily.
 
 ## Tests
 
@@ -101,9 +106,18 @@ Placeholders in the goal calendar *are* masked: they are display-only, unlike a 
 - `money-axis.test.tsx` — recharts does not lay out in jsdom, so `YAxis` is mocked by a probe that
   renders whatever formatter the chart handed it. Proves both that the scale is masked and that a
   toggle reaches it
-- `money-guard.test.ts` — five lexical rules over the source tree (raw formatter allowlist, no
-  hand-built currency format, no `€` in JSX, every amount axis imports `useMoney`, no
-  amount-shaped identifier printed bare). Its docstring states what it cannot catch
+- `money-guard.test.ts` — seven lexical rules over the source tree (raw formatter allowlist, no
+  hand-built currency or compact format, no `€` in JSX, every `<YAxis>` passes `tickFormatter={money.tick}`,
+  every `<ChartTooltipContent>` passes a `formatter`, no amount-shaped identifier printed bare).
+  Percent charts are exempt from the `<YAxis>` and `<ChartTooltipContent>` rules:
+  `AllocationTrajectory.tsx`.
+  The axis and tooltip rules check each element, not the file: a file-level check let the
+  cashflow axis print raw euros because it had no formatter at all. Its docstring states what it
+  cannot catch
+- `CashflowTab.test.tsx` — the cashflow bar chart's axis and hovered tooltip carry no digit in
+  privacy mode
+- `AllocationTab.test.tsx` — the donut centre masks on toggle, restores when revealed, masks zero
+  on initial render, and follows app language changes without relying on a locale translation key
 - `AppSidebar.test.tsx` — the toggle flips, `aria-pressed` follows, and the choice is persisted
 
 ## Links

@@ -7,7 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **Split Docker stack.** The root `docker-compose.yml`, `backend/Dockerfile`,
+  `frontend/Dockerfile`, `frontend/nginx.conf`, `frontend/picsou-realip.conf`, both
+  `Dockerfile.dev` and `backend/watch-and-compile.sh` are gone; they duplicated the
+  supported stack and still installed with npm. `docker/docker-compose.yml` is the only
+  stack and `docker/nginx.conf` the only nginx config. The supported stack retains
+  main's shared sidecar bases and explicit proxy trust configuration. **Migration** if you ran
+  `docker compose up` from the repository root:
+  1. Dump the database: `docker compose exec db pg_dump -U <user> <db> > picsou.sql`.
+     The old stack's volume is `<checkout-dir>_pgdata`; the new one is `docker_pgdata`.
+  2. Copy the root `.env` to `docker/.env` (the old stack read `./.env`). Keep
+     `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY`: without them the new stack generates
+     fresh ones and the stored bank secrets no longer decrypt.
+  3. Start `docker compose -f docker/docker-compose.yml up -d db`, load the dump with
+     `docker compose -f docker/docker-compose.yml exec -T db psql -U <user> <db> < picsou.sql`,
+     then `up -d`. The app is now on port `8080` instead of `5173`.
+
+  For local development, run the backend with `mvn spring-boot:run -Dspring-boot.run.profiles=dev`
+  and the frontend with `bun run dev` (CONTRIBUTING.md).
+- Unused frontend scaffolding for self-service login deletion, its demo handler, and
+  draft documentation. No available screen or backend endpoint is removed.
+
 ### Added
+
+- **Helm chart.** `charts/picsou` deploys the app, every sidecar and an optional
+  single-instance PostgreSQL on Kubernetes, with network policies that mirror the Compose
+  isolation and a pre-upgrade Job that migrates and verifies the schema before the app is
+  replaced. TLS terminates on the cluster's Ingress or Gateway. CI publishes it to
+  `oci://ghcr.io/cloeille/charts/picsou` with every release, and as a pre-release pinned to the
+  commit's images with every push to `main`.
+  See [feature note](docs/features/helm-chart.md).
+
+- **SCPI positions over MCP.** An MCP client can now record a SCPI account's share count,
+  subscription and withdrawal prices and distribution with the new `set_scpi_position` tool
+  (`accounts:write`). It goes through the same service as the account form, so the balance is
+  still the withdrawal price times the share count, and a call never detaches a CORUM or Sofidy
+  fund. `get_account` already returned the position, so reading needs no new tool.
 
 - **Caisse d'Epargne home loans.** A home loan listed in the synthesis was reported as
   unsupported. The sidecar now reads its detail from the bank's home-loan app (amount borrowed,
@@ -15,7 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A property you linked the mortgage to stays linked when the loan syncs again. A loan due on
   the 31st keeps that due day in its schedule, even after a shorter month, and a detail with
   figures out of range, or amounts too large to store, leaves only that loan's details aside
-  instead of failing the import.
+  instead of failing the import. Personal and home loans accept up to 600 monthly
+  installments (50 years); longer durations are refused before calculating insurance,
+  so they cannot block the other accounts' import.
 
 - **Received dividends are recognised.** When a dividend lands on a compte-titres or a PEA,
   Picsou matches it to the dividend history it already holds, marks it as a dividend and files
@@ -44,6 +83,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Caisse d'Epargne in *Sync all*.** The dashboard's *Sync all* modal lists Caisse d'Epargne
   like the other session connectors: a live session syncs in place, an expired one opens the
   Caisse d'Epargne tab, where the keypad and Sécur'Pass login run, and *Sync all* skips it.
+- **Reconnect from stored credentials.** A session panel can offer a *Reconnect* button that
+  logs in again with the credentials stored at the last login, then runs the second factor
+  as after a typed login, with the user there to approve it. CIC uses it: its daily
+  confirmation no longer means retyping the customer number and password, and the *Sync all*
+  row of a lapsed CIC session opens the tab with the reconnect already started.
+- **CIC savings accounts.** A browserless `cic-auth` sidecar reads the CIC customer site and imports
+  the current and savings accounts (Livret A, LDDS, PEL…) that the PSD2 connection does not return,
+  balances only. CIC asks for a mobile confirmation at least once every 24 hours, so the daily sync
+  only goes through within a day of the last confirmation. It is listed in the dashboard's
+  *Sync all* modal, which opens the CIC tab when the session has lapsed.
+  After a complete fetch, an account CIC no longer lists is closed at zero, with a zero balance
+  and snapshot. The account is kept so it can be imported again if it reappears.
+  Its last balance no longer counts toward net worth.
+  Deleting its last account removes the session and credentials and revokes pending logins,
+  including a confirmation already in progress or a stored-credentials reconnect still reading
+  its password. Unreadable account rows and unrecognized tables containing account data fail the
+  whole import, including renamed tables, rows outside the parser's selectors, and truncated
+  account tables or rows, preserving existing balances and snapshots. Recognized contract tables
+  also fail when cut off after their opening tag or caption, before any account markers appear.
+  The accounts page must end with its closing HTML tag, so cuts between tables or within their
+  opening tags also fail without changing balances or snapshots. Complete pages containing only
+  checking accounts remain valid.
+  Completion has its own 10-attempt quota per IP per 15 minutes,
+  separate from the five password checks shared by initiate and reconnect.
+  Savings captions accept typographic apostrophes. Savings labels with accents or typographic
+  apostrophes are recognized. The CIC panel is now translated into German and Spanish.
+  A wrong SMS code can be corrected
+  without another login, and expired attempts have their pending passwords cleared every minute.
+  Rejected credentials make the session inactive and require credential entry, including after an
+  explicit reconnect, without erasing a newer login's password. Expired sessions stay in *Sync all*
+  before their first import. MCP `get_sync_status`
+  reports CIC progress and reconnection requirements. Terminal polling failures withdraw the phone
+  confirmation, with HTTP 429 and 5xx reported as upstream unavailability.
+  See [docs](docs/features/cic-banking.md).
 - **Crédit Mutuel / CIC Épargne Salariale sync.** A browserless `cmes-auth` sidecar reads the
   saver's space (www.creditmutuel-ere.fr) and imports each plan (PEE, PEG, PERCOL) with its funds:
   units, unit value and gain. The login is confirmed once, in the bank's app or with a code
@@ -60,11 +133,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   phone, so a late approval stores nothing. A plan deleted under its new id stays deleted
   even while an account from an earlier id is still there.
   See [docs](docs/features/cmes-epargne-salariale.md).
-- **Shared sidecar base images.** Nine sidecars now build on two shared images,
-  `sidecar-python` and `sidecar-chromium` (`services/base`), from one pin set. A Docker
+- **Shared sidecar base images.** All sidecars now build on three shared images,
+  `sidecar-python`, `sidecar-chromium` and `sidecar-camoufox` (`services/base`),
+  from one common pin set. A Docker
   install downloads and stores Chromium and the Python packages once instead of once per
-  sidecar. Amex and Revolut keep their own image (Camoufox). See
+  sidecar. AMEX and Revolut share the Camoufox base. All three bases retain
+  Python 3.12 for compatibility with the pinned native dependencies. See
   [ADR](docs/decisions/2026-10-21-shared-sidecar-base-image.md).
+  Deployment and admin-status documentation retain CIC's connection details alongside
+  the shared Camoufox base for AMEX and Revolut.
 - **Upcoming dividends in Budget.** The Budget overview shows the capital income expected in
   the next 60 days: dividends of listed shares and ETFs, forecast from their payment history,
   and SCPI distributions, from the annual distribution per share and the frequency you enter
@@ -252,8 +329,284 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Accounts you created yourself, and accounts created for another Actual budget, only ever
   gain new transactions. Loan accounts can't receive an Actual import.
 
+### Changed
+
+- Upgrade Playwright to 1.64.1 in both shared browser sidecar bases, including
+  the bundled Chromium. Camoufox remains on package 0.4.11 and Firefox
+  152.0.4-beta.30. Browser updates still require the offline image smoke tests.
+
+- **Sidecar URLs are set only in `application.yml`.** Compose and `docker/entrypoint.sh` no longer
+  set any `*_AUTH_URL`; `application.yml` holds every default. A `*_AUTH_URL` in your `.env`
+  still overrides it. The image's old `TR_AUTH_URL`/`REVOLUT_AUTH_URL` loopback fallbacks
+  are gone; they pointed at no process since the sidecars left the image. The `dev` profile
+  now gives every connector its own `127.0.0.1` port: Amundi 8003, CMES 8009, Revolut 8010,
+  DEGIRO 8011, CIC 8012 and AMEX 8013 were missing and fell back to Docker names that do
+  not resolve outside Compose.
+
+- **Sidecars share their plumbing.** The bank sidecars' key check, health endpoint, request
+  log, log sanitising and pending-login store now live once, in `services/base/picsou_sidecar`,
+  and CIC and Crédit Mutuel share one login client. AMEX answers a wrong sidecar key with
+  `{"detail": "UNAUTHORIZED"}` like the others and closes the browser for a retryable code
+  when a full pending pool prevents it from keeping the attempt. Sofidy now uses the shared
+  request log, which omits the method and response status. Refused shared-key requests
+  log no caller path; authenticated paths are control-sanitized and capped at 200 characters.
+  Pending stores reject expired completions immediately and reclaim expired capacity when
+  full; parking with room available does not wait for unrelated resource cleanup.
+  A retryable code that cannot be parked answers 503 and releases its resources.
+  Every sidecar trims its configured
+  API key before comparing it, escapes control characters in its whole log line and keeps its
+  pending-login sweeper running after a failed sweep. Crédit Mutuel
+  withdraws the phone confirmation when the bank answers an unknown state, as CIC did. Code
+  no production path used goes (AMEX self-check, Fortuneo legacy parsers, unused helpers).
+
+- **Pull requests go green sooner.** CI runs only the jobs a pull request's changed paths can
+  affect, a new push cancels the stale run, and the demo Playwright suite runs once instead of
+  twice. Pushes to `main` and tags still run every job, and a new `ci-ok` check fails when a
+  selected job did not pass. The app image builds its frontend and backend once, natively,
+  instead of once per platform, and a new `APP_VERSION` build argument no longer reinstalls the
+  dependencies (an edit to `frontend/package.json`, version field included, still does).
+  Building `docker/Dockerfile` yourself now needs BuildKit (`docker buildx`).
+
 ### Fixed
 
+- **Backend dependency baseline.** Restored Spring Boot 3.5.16 after a standalone Boot 4 parent
+  bump left existing AOP and Testcontainers dependencies without managed versions. The coordinated
+  Spring AI 2, Jackson 3, Spring Security 7, and test migration remains separate.
+- **AMEX and Revolut browser base.** Restored Camoufox 0.4.11 to prevent Playwright
+  dependency resolution and installer import failures while preserving the pinned browser
+  and persistent-profile fingerprint behavior.
+- **React Router v8 compatibility.** Use the DOM router provider's built-in
+  `flushSync` integration, removing an adapter whose return type broke frontend
+  compilation after the dependency upgrade.
+  Resolved frontend documentation merge conflicts while preserving the v8 routing
+  guidance and the DOM provider integration rationale.
+- Release deployment verifies that a recreated bundled TLS proxy's active configuration uses
+  `app-tls:8080`, reports legacy app targets or unreadable configuration before API readiness,
+  and preserves unrelated upstreams. TLS Compose tests reserve unused subnets for custom
+  addresses to avoid collisions on shared Docker hosts.
+
+- **Revolut merge compatibility.** Nested challenge detection remains active alongside
+  the shared sidecar authentication, health endpoint and sanitized logging.
+- **Modern MCP protocol support is selectable.** Set `MCP_PROTOCOL=STREAMABLE` to serve protocol
+  `2025-11-25` at `/mcp` for hosted connectors such as claude.ai, then recreate the app with
+  `docker compose up -d --force-recreate app`: a plain `docker compose restart` keeps the old
+  environment and the SSE default. Existing installations keep legacy SSE by default. Switching
+  requires configuring other clients for Streamable HTTP. The existing Spring AI 1.1.8 supports
+  this without a Boot 4 migration (#53).
+- **CIC instance monitoring.** Admin status checks now cover all thirteen authentication
+  sidecars, including CIC when a session exists. CIC's health response reports its shared
+  base so an outdated image is detected alongside an unreachable sidecar.
+- **Admin instance status with slow session counts.** Slow session-count queries no longer push
+  the check past its 3 s deadline or mark reachable sidecars unreachable.
+- **Toasts follow the selected theme.** Notifications use the app's light or dark palette
+  even when it differs from the OS preference, and update when the theme changes (#327).
+
+- **BoursoBank syncs a securities account whose lines sit in several sections.** The trading
+  board can split an account's positions across more than one section of its summary. Only the
+  longest list was read, so the lines of the others went missing and the whole sync stopped with
+  `PORTFOLIO_INCOMPLETE`. All sections are now read when that is what makes the lines add up to
+  the account's valuation (#361). The combined sections count identical holdings only once
+  and reject conflicting duplicates, including a repeated broker symbol with an ISIN on only
+  some rows (missing or malformed on the others), so repeated partial sections cannot hide
+  missing holdings.
+- **AI categorization works with Anthropic.** Every call to Claude failed with
+  `400 max_tokens: Field required`, so no transaction was ever categorized with that
+  provider. Picsou now sends the token limit the Anthropic API requires, with room for
+  thinking and the answer. Categorization and the admin Test read the text answer after
+  the model's thinking, including when thinking contains a summary, and Test reports a
+  failure when the model returns no text answer.
+
+- **Client addresses behind trusted proxies.** The bundled TLS proxy now preserves separate
+  per-client login limits. nginx and Tomcat resolve forwarded addresses only from configured
+  proxy peers, and rate limiters and audit logs use the same resolved address. Direct client
+  headers do not replace the connection address. Public HTTP and HTTPS ports remain available
+  to same-origin checks. Caddy's configurable static address stays outside the TLS bridge's
+  automatic allocation range, allowing fresh startup and repeat deployment migrations
+  alongside the running app without address conflicts. The release deployment script
+  recreates a running bundled TLS proxy after the app cutover, applying the new network
+  and upstream while preserving certificates, so upgrades also receive the fix. It waits up to
+  60 seconds for proxy health before the API probe and fails clearly if recreation or health
+  verification fails (Compose v2.17+ required). Stopped proxies remain stopped, even when the
+  `tls` profile is enabled. Docker proxy tests handle daemon timeouts and retry subnets across
+  private ranges; the live default-address case uses an unused subnet to avoid existing installs.
+  **Upgrade note:** the app always joins the new `tls-proxy` bridge (`172.30.253.0/29`),
+  including on non-TLS installs. If it overlaps an existing Docker network,
+  `docker compose up -d` and `deploy.sh` fail with `networks have overlapping IPv4`.
+  Before upgrading, set `PICSOU_PROXY_SUBNET`, `PICSOU_PROXY_IP`, and
+  `PICSOU_PROXY_IP_RANGE` together in your existing `docker/.env` to non-conflicting values.
+  See the [proxy network requirements](docs/features/docker-deployment.md#trusted-proxy-client-addresses).
+
+- **Shared Camoufox images for AMEX and Revolut.** Both sidecars now inherit the
+  same published browser base digest and common FastAPI/uvicorn pins. Revolut's
+  ARM64 image downloads the ARM64 Firefox build instead of the x86_64 archive.
+  Browser/Playwright versions and ports are preserved. Revolut pins its service
+  UID to 999 so existing profile volumes stay readable and writable after upgrades.
+  Their shared Xvfb startup clears stale locks and refuses to start
+  without a ready display. The admin status check detects older Camoufox images.
+  CI adds offline browser smoke checks on native ARM64;
+  bank login compatibility remains unverified. The shared Python runtime guard
+  remains in CI alongside the separate Camoufox tests. Dependabot now covers Maven,
+  bun, shared pip requirements, all Dockerfile directories and Compose images weekly.
+
+- **Caisse d'Epargne sync after Sécur'Pass approval.** If the login completion response is
+  lost or returns 502 or 504, the approval card stays open while Picsou checks the session
+  every three seconds for up to 180 seconds. An active session queues the first sync once.
+  Status requests taking longer than three seconds are allowed to finish.
+  If no session appears, the panel reports the approval timeout. Login requests are never
+  replayed (#350).
+
+- **A transaction no longer overwrites a valued account.** Adding, editing or deleting a
+  transaction by hand on a SCPI, a property or an employee-savings plan, a dividend for
+  instance, replaced its value with the sum of its transactions, and deleting the last one left
+  it at zero. The transaction is still recorded, but the balance keeps its valuation. The
+  HomeBank import now refuses these accounts, and a PER, as targets, like the Actual Budget
+  import already did. Both importers and the manual ledger share one definition,
+  `AccountType.isLedger()`.
+
+- **Privacy mode and locale formatting.** The budget allocation donut now masks its centre total
+  and uses the app locale for compact amounts. The money guard also rejects direct compact
+  formatting. Transaction details show the weekday and long date in the app language and keep
+  date-only values on their calendar day in every time zone. Admin activity timestamps follow
+  the app locale, and allocation comparison keys no longer depend on the browser locale.
+
+- **Enable Banking account balances and details.** Accounts in a shared balance list,
+  such as Qonto business accounts, now select entries matching the account description
+  before applying ISO balance-type priority. For Qonto or an unknown ASPSP, unmatched lists
+  with distinct labels fail even when one balance type has higher priority. Missing or unmatched
+  descriptions cannot use entries claimed by another session account. Shared descriptions
+  cannot establish ownership for Qonto or unknown ASPSPs. Other accounts keep syncing. Generic-label
+  fallback requires a single unclaimed entry or consistent unclaimed labels. Overlapping
+  fallback labels are ambiguous for Qonto and unknown ASPSPs even when both responses have
+  one label, so shared lists cannot assign the same preferred balance to several accounts.
+  Other named ASPSPs retain account-scoped type ranking, including distinct balance-type labels,
+  overlapping labels and independent zero balances, unless the response names a distinct sibling.
+  Accounts at these banks can share their own description and still sync independently.
+  Unique description matches still sync zero balances.
+  Ownership never depends on amounts or changes between requests. Competing
+  fallback accounts all fail safely. Unavailable sibling details prevent shared-description
+  matches as well as fallback. Invalid sibling balance responses prevent shared fallback
+  while preserving complete description claims. Skipping a soft-deleted account logs
+  an IBAN fingerprint instead of the full IBAN.
+  Flat account details supply the IBAN and the description, product, or holder name
+  for new accounts, bounded to 100 characters after matching the full description.
+  Ambiguous or missing balances fail explicitly
+  instead of selecting another account's balance or storing zero. Existing account
+  names stay unchanged and can be edited in the account form. Currency subaccounts sharing
+  an IBAN remain separate, with balances and snapshots valued in the correct currency.
+  IBAN matching and deletion guards include currency while retaining uid-rotation support.
+  A deleted uid takes precedence over an active IBAN match, so deleting an old Enable Banking
+  duplicate stops its balance and transaction imports without taking over another connector's row.
+  Accounts found by uid reconcile previously misparsed currencies before saving balances
+  and converting the current day's snapshot to EUR, so later syncs keep those accounts separate.
+  Revolut discovery and sync use the same currency-aware match for these imported accounts.
+  Deleting or voluntarily restoring one currency does not affect another sharing its IBAN.
+  IBAN backfill respects deleted accounts, so reconnecting Revolut restores its original
+  row without creating an ambiguous active match.
+  Caisse d'Epargne loans link to the member's EUR account when currencies share an IBAN,
+  keeping the import from failing on multiple matches. Revolut converts native balances to
+  EUR before writing snapshots, keeping their value and invested amount in the same currency.
+- **The demo no longer looks broken.** Every page now gets an answer from the demo build:
+  holdings on every account, prices, connected apps, the status of each provider, the budget's
+  transactions and the fourth goal no longer leave a card loading forever or a table empty. Its
+  figures agree from page to page: the dashboard's net worth and portfolio performance match the
+  Accounts total, an investment account is worth its holdings at the quotes shown and its
+  performance over a range follows those quotes, the family view shows the same accounts, and the car loan and the house's
+  mortgage are real accounts under French names. Performance and the 24-hour chart cover the
+  accounts the dashboard selects, the 24-hour chart follows the hourly quotes, and the history
+  ends on today's value instead of placing it on the first of the month. The budget's
+  transaction list holds the same expenses as the spending breakdown for the month and the
+  year to date, even on the first day of the month. Cashflow totals and every chart bucket
+  sum those same dated rows, and the checking account lists the same transactions as global
+  search. Categorizing a transaction updates the inbox, spending, category drill, envelopes,
+  cashflow, and Sankey together, including direct parent assignments. Loan history follows
+  each dated amortization installment. Goal calendars no longer change on every
+  reload, and a goal's badge matches its calendar. Dates follow today, so the card's next debit
+  and the goal deadlines are ahead of you, and the budget opens on the current month instead of
+  the previous one in France. Settings shows the demo user's name, and opening `/admin` in a
+  fresh demo tab waits for that user's role. SCPI edits update the dashboard, aggregate history,
+  P&L and 24-hour chart during the same session (#277).
+- **Enable Banking setup guidance.** Registration now lists the required application fields,
+  explains email-link sign-in and account-linked activation, and describes restricted-mode
+  limits. Key import is the default. Server key generation requires an explicit action.
+  The success screen distinguishes application configuration from connecting bank accounts,
+  and network failures show a translated Picsou connection message in all four languages.
+- **Caisse d'Epargne loan insurance rounding.** Personal and home loans now
+  retain the correct cent-rounded insurance at exact half-cent annuity boundaries
+  and extremely small positive nominal rates. Directed Decimal bounds certify
+  the rounded annuity, with an exact rational fallback when the bounds disagree.
+  This prevents an extra cent of insurance from reducing the capital repaid in
+  the amortization schedule.
+- **Trade Republic crypto is valued at its market price again.** The connector guessed the
+  venue of each price subscription (`TRD0` for crypto). Trade Republic refused that guess, and
+  every crypto position was valued at its average buy-in, which hid its whole gain or loss
+  from the net worth. The connector now asks Trade Republic which venue prices each
+  instrument. When a price still does not come back, the holding shows no current price
+  instead of its buy-in, and the sync log names it (#268).
+- **Numbers and labels follow the interface language.** Percentages are formatted by the
+  locale everywhere ("8,3 %" in French, "8.3%" in English) instead of a dot and a hand-placed
+  sign. Every amount axis uses one compact format ("60 k €", "1,25 M €") instead of "60.0k",
+  in a gutter wide enough for the widest negative tick, German "-250.000 €". The cashflow
+  chart's axis and tooltip, and the allocation donut's tooltip, are now hidden in privacy mode
+  like every other amount. French thousands separators are visible again
+  in large amounts: the bundled font has no narrow no-break space, so "51 646,95 €" used to
+  read as "51646,95 €". Holding quantities, the average buy-in, card reward points and the
+  valuation sample size follow the interface language rather than the browser's.
+  In French, English leftovers are translated ("/mo", "Browser",
+  "Timeline", "YTD", "Exchanges", "Wallets", "pockets", the raw `LINKED` connection status),
+  "1 autre objectif" takes the singular, labels take a space before the colon, and the
+  settings and Revolut texts that said "tu" now say "vous". German and Spanish translate the
+  auto-confirmed subscription badge, the AI suggestion and the savings rate labels. The
+  profile form shows its amounts in the member's notation with their unit (#274).
+- **Pages no longer jump while they load, and error pages keep the app around them.**
+  A page that loads quickly now appears directly. A slower one shows a page title and
+  one block in its place, not a dashboard-shaped placeholder that the real page then
+  replaces. The 404, 403 and 500 pages appear inside the sidebar and navigation when
+  you are signed in, including after a browser restart with "Remember Me". A server
+  error inside that sidebar no longer reloads the error page in a loop. Each error page
+  offers "Back to dashboard" and "Back". Session checks and opening the setup wizard
+  show a centred spinner rather than a full-screen dashboard placeholder or an empty
+  screen. Moving between setup steps keeps the wizard frame on screen; only the step
+  area stays empty until the next step loads.
+- **Demo budget dates are no longer one day early east of UTC.** In Paris the demo showed the
+  current cycle as 30/09 to 30/10 on 31 October, opened the budget pages on September, and
+  listed every upcoming recurring charge a day before its series' next date. The demo now
+  writes local calendar dates, so the cycle is 01/10 to 31/10 and both recurring cards agree
+  in every timezone (#280). The demo's upcoming-charges calendar also no longer skips a
+  month after a charge due on the 31st: it moves to the last day of a shorter month, as the
+  backend does.
+- **The cashflow diagram labels every destination again.** With a dozen destinations the
+  Sankey squeezed each node to a few pixels and hid all their labels; it now grows taller
+  instead and shows each name with its amount. A card too narrow for those labels (a phone, or a
+  small window with the sidebar open) lists the flows as bars instead of folding the diagram's
+  columns over each other. The list under the flow is titled
+  "Répartition du revenu", so "Sorties" only ever means spending. A transaction card with
+  nothing to show (an account without transactions, a search with no match, an empty
+  period on `/budget/transactions`) now says so instead of staying blank, the demo serves
+  `/budget/transactions`, and the "Sans catégorie" row lines up with the rows above it.
+- **The goal calendar shows every month without a hidden scroller.** The year grid now wraps
+  (six months per row on a desktop, three on a phone) and opens on the current month, where it
+  used to cut off at May or June and hide the recent months behind a horizontal scroll. The goal
+  name is the page title, with "Calendrier" above it, instead of "Calendrier de Apport
+  immobilier". Ring amounts and objectives are written in whole euros at 11px or larger, so a
+  row no longer mixes "984,72 €" with "1 k €", and the objective reads 1 373 € like the header.
+  A legend tells the share of the objective reached (94%) from the overshoot (+8%), and the
+  overshoot arc is now drawn at the ring's width (#282).
+- **Alignment and control consistency pass (budget, account detail, charts).** Chart Y axes
+  are now wide enough for every tick they draw, so labels such as "10.00k", "-3.5k" and
+  "-250k" are no longer clipped. The investment account chart is titled "Valeur et capital investi", the
+  name of what it plots. A holding or dividend without a logo shows its name's initials
+  instead of an empty grey circle, unless that name is only its ticker. A dividend with no
+  payment date says "Date inconnue" and stays on one line. Income on an account's
+  transactions carries its "+", and a zero amount carries no sign. Monthly
+  statements line up with their title and read "1er octobre 2026". In Budget, "OK" in "Ce
+  qui a changé" has a check mark rather than the undo arrow, and the dates and amounts of
+  the recurring lists stay in fixed columns. Envelopes say "87,70 € restants · 82 %" or
+  "37,90 € de dépassement", in German and Spanish too. Category pickers, rule buttons and
+  filters share one 40px height, the transaction filters show dates in your date format,
+  and screen readers announce the account and category filters by name. The confidence slider
+  and the switches follow the dark theme, category names are no longer cut short on mobile,
+  and the "À catégoriser" count sits next to its label.
+  ([#283](https://github.com/Cloeille/picsou-finance/issues/283))
 - **Every BoursoBank livret now syncs its transactions, not only the LEP.** A Livret A, LDDS,
   Livret Jeune, PEL, CEL or Livret Bourso+ used to sync its balance with no operations, so
   money moving in and out of it never reached Budget. The BoursoBank sync now reads the last
@@ -360,14 +713,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Sofidy were missing from both windows. An expired CORUM or Sofidy session stays listed in
   Sync all with a reconnect button while you still hold one of their SCPI accounts, instead
   of disappearing.
-- **Revolut tells you when it asks for a captcha instead of counting down for a push that never
-  comes.** Revolut can answer the phone number with an image challenge; the sidecar used to type
-  nothing further, then show "Approve the connection in your Revolut app… (300s left)" until it
-  timed out. It now stops at once and every Revolut sync screen says Revolut is asking for a human
-  verification and that no approval was sent. A sign-in page the sidecar does not recognise, or a
-  step of it that times out (previously an unexplained server error), is reported the same way.
-  Solving the challenge from Picsou is not available yet. See
+- **Revolut stops the approval wait when a captcha blocks login.** A visible challenge now takes
+  precedence over passcode fields and is checked again after passcode entry and during approval.
+  The sidecar returns `HUMAN_VERIFICATION_REQUIRED` and clears the countdown when a challenge
+  appears later. The error text reports the blocked sign-in without claiming whether a push was
+  sent. An unknown post-phone page or a login step that times out returns
+  `UPSTREAM_FORMAT_CHANGED`. Human challenge completion remains unavailable. See
   [feature note](docs/features/revolut-sidecar.md).
+- **Revolut recognizes nested hCaptcha challenges and ignores parked frames.** Challenge checks
+  follow the browser's frame tree and require visible space through every parent frame. Transparent,
+  offscreen, clipped, and one-pixel frames no longer block sign-in. Only hCaptcha hosts count.
+  Overflow clipping follows CSS containing blocks and transformed padding boxes, so visible positioned
+  challenges are detected and borders around empty wrappers do not trigger a false challenge.
+  A frame can restore visibility inside a hidden ancestor. Only visible iframe content counts,
+  excluding its own border and padding after transforms.
+  A detected challenge keeps the existing `HUMAN_VERIFICATION_REQUIRED` error. Manual challenge
+  completion remains unavailable.
+  The shared Camoufox image includes the detector alongside the login module and keeps
+  the shared Xvfb entrypoint and Revolut runtime settings.
 - **BoursoBank account names show apostrophes and ampersands as typed.** A name such as
   `LIVRET D'EPARGNE` was stored as `LIVRET D&#039;EPARGNE` and shown that way in the
   dashboard, legend and accounts list. The next BoursoBank sync rewrites existing names.
@@ -799,12 +1162,6 @@ information architecture.
   share Finary sent with `quantity: null` vanished with its cost basis. Such a payload
   now keeps the account's holdings and cash as they were; an explicit zero still
   closes the position.
-- The account-deletion dialog scrolls on short screens and wraps long action
-  labels without horizontal overflow.
-- Account deletion preserves the last active administrator even when other
-  administrator logins are inactive. Committed deletion also purges pending
-  Finary and CSV import data, with member binding and expiry checked on execute.
-
 - **BoursoBank's fraud-education interstitial no longer reads as a wrong password.**
   When the bank parks a valid login on its fraud-prevention notice, the sidecar
   returns `FRAUD_ACK_REQUIRED` and the app tells the user to validate the notice

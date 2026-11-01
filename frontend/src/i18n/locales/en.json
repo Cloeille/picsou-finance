@@ -16,7 +16,8 @@
       "unauthorized": "Your session has expired. Please sign in again.",
       "forbidden": "You don't have permission to do that.",
       "tooManyRequests": "Too many attempts. Please wait a moment and try again.",
-      "serverError": "Something went wrong on our side. Please try again."
+      "serverError": "Something went wrong on our side. Please try again.",
+      "network": "Can't reach the Picsou server. Check your connection and try again."
     },
     "dateHint": "dd/mm/yyyy",
     "search": "Search",
@@ -30,9 +31,9 @@
     "no": "No",
     "today": "Today",
     "currency": "EUR",
-    "locale": "en-US",
     "category": "Category",
-    "done": "Done"
+    "done": "Done",
+    "labelColon": "{{label}}:"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -132,7 +133,8 @@
     "newGoal": "New Goal",
     "achieved": "achieved",
     "goalsSummary": "Track your progress towards your financial goals.",
-    "otherGoals": "{{count}} other goals",
+    "otherGoals": "{{count}} other goal",
+    "otherGoals_other": "{{count}} other goals",
     "holdings": "Holdings",
     "holdingsDescription": "Your portfolio at a glance",
     "searchHoldings": "Search holdings or tickers...",
@@ -145,6 +147,7 @@
     "totalAssets": "Total assets",
     "liabilities": "Liabilities",
     "monthlyPayment": "Monthly payment",
+    "perMonthSuffix": "/mo",
     "loanParamsUnconfigured": "Parameters not configured",
     "amountDue": "Amount due",
     "dueOn": "Due {{date}}",
@@ -183,6 +186,7 @@
     "neverSynced": "Never synced",
     "holdings": "Holdings",
     "transactions": "Transactions",
+    "noTransactions": "No transactions on this account.",
     "addTransaction": "Add transaction",
     "editTransaction": "Edit transaction",
     "transactionDate": "Date",
@@ -201,6 +205,7 @@
     "priceStale": "Price from {{time}}",
     "priceAsOf": "Price from {{date}} — the price provider did not respond",
     "history": "History",
+    "valueAndInvested": "Value and invested capital",
     "manual": "Manual",
     "allTypes": "All types",
     "accountName": "Account name",
@@ -233,7 +238,7 @@
       "next": "Next dividends",
       "exDate": "Ex-date",
       "paymentDate": "Payment",
-      "paymentUnknown": "Payment date unknown",
+      "paymentUnknown": "Unknown date",
       "estimated": "estimated",
       "announced": "Announced",
       "estimatedBasis": "Estimated",
@@ -297,7 +302,7 @@
     "editTargets": "My targets",
     "error": "Could not load the analysis",
     "points": "pts",
-    "targetShort": "target {{value}}%",
+    "targetShort": "target {{value}}",
     "empty": {
       "title": "Nothing to analyse yet",
       "description": "Add accounts so Picsou can judge how your wealth is built."
@@ -316,14 +321,14 @@
       "cryptoPenalty": "Crypto penalty",
       "leverageBonus": "Leverage bonus",
       "notRated": "not rated",
-      "misplaced": "{{value}}% of your wealth would have to move to hit your targets.",
+      "misplaced": "{{value}} of your wealth would have to move to hit your targets.",
       "safetyNetUnknownHint": "Set your compulsory monthly expenses so the emergency fund can be scored.",
       "notRatedYet": "No score yet: state your monthly expenses, or invest beyond your cushion."
     },
     "safetyNet": {
       "title": "Emergency fund and allocation",
       "ofTarget": "of a target of",
-      "short": "{{value}}% of target",
+      "short": "{{value}} of target",
       "covered": "Covered",
       "excess": "Excess",
       "excessHint": "Anything beyond the target is idle cash to redeploy: it does not enter the allocation below.",
@@ -343,7 +348,7 @@
       "useSuggestion": "Use",
       "months": "Months of expenses to cover",
       "allocation": "Target split of the rest",
-      "sum": "Total {{value}}% / 100%",
+      "sum": "Total {{value}} / {{max}}",
       "allocationHint": "The four percentages must add up to 100%."
     },
     "targetAmount": "target",
@@ -352,7 +357,7 @@
       "sectors": "Sectors",
       "countries": "Regions",
       "effective": "{{value}} effective positions / {{target}} targeted",
-      "coverage": "Computed over {{value}}% of the stocks & ETFs sleeve",
+      "coverage": "Computed over {{value}} of the stocks & ETFs sleeve",
       "unclassified": "unclassified",
       "noData": "No breakdown data available",
       "noHoldings": "No stock or ETF line to analyse.",
@@ -371,10 +376,10 @@
       "nothingToProject": "Set a monthly investment under Goals to see a projection.",
       "disclaimer": "Projected from your recurring contributions, compounded monthly. Excludes property, loans and alternative assets. This is not a forecast.",
       "scenarios": {
-        "PESSIMISTIC": "Pessimistic ({{value}} %)",
-        "CAUTIOUS": "Cautious ({{value}} %)",
-        "REFERENCE": "Reference ({{value}} %)",
-        "OPTIMISTIC": "Optimistic ({{value}} %)"
+        "PESSIMISTIC": "Pessimistic ({{value}})",
+        "CAUTIOUS": "Cautious ({{value}})",
+        "REFERENCE": "Reference ({{value}})",
+        "OPTIMISTIC": "Optimistic ({{value}})"
       },
       "contributed": "Your contributions",
       "views": {
@@ -415,7 +420,7 @@
       "hint": "Select a slice to see what makes it up."
     },
     "alerts": {
-      "SINGLE_ASSET_CONCENTRATION": "{{label}} is {{percent}} % of your wealth — a single asset carries most of the risk.",
+      "SINGLE_ASSET_CONCENTRATION": "{{label}} is {{percent}} of your wealth — a single asset carries most of the risk.",
       "EMPTY_TIER": "Nothing at all in {{label}}: this tier is empty, not merely under target.",
       "CUSHION_OVERFUNDED": "{{value}} beyond your cushion target — money available to put elsewhere.",
       "title": "Worth noting"
@@ -547,7 +552,7 @@
     "interestAndInsurance": "Interest and insurance",
     "paidInstallments": "Paid installments",
     "remainingInstallments": "Remaining installments",
-    "capitalRepaidPct": "You have repaid {{pct}}% of the loan principal",
+    "capitalRepaidPct": "You have repaid {{pct}} of the loan principal",
     "summary": "Summary",
     "totalCost": "Total cost of the loan",
     "totalRepaid": "Total repaid",
@@ -688,7 +693,8 @@
     "noGoals": "No goals defined",
     "waiting": "In progress",
     "calendar": "Calendar",
-    "calendarTitle": "{{name}} Calendar",
+    "legendProgress": "Share of the month's objective reached (e.g. 94%)",
+    "legendOvershoot": "Above the objective (e.g. +8%)",
     "viewGrid": "Year grid",
     "viewTimeline": "Timeline",
     "viewCalendar": "Calendar",
@@ -749,7 +755,7 @@
       "title": "Savings rate",
       "perMonth": "per month",
       "benchmarkLabel": "About the French average",
-      "benchmark": "The average savings rate of French households sits at around {{rate}}% of their gross disposable income",
+      "benchmark": "The average savings rate of French households sits at around {{rate}} of their gross disposable income",
       "needsIncome": "Add your monthly net before tax and your withholding rate to see your savings rate.",
       "goToSettings": "Go to settings"
     }
@@ -838,7 +844,7 @@
       "diagram": "This cycle's flow",
       "breakdown": "Where your money goes",
       "inflows": "In",
-      "outflows": "Out",
+      "outflows": "Income allocation",
       "empty": "No flow to show for this period.",
       "error": "Could not load the flow diagram.",
       "ariaSummary": "Flow diagram: {{income}} in, {{expense}} out, net {{net}}.",
@@ -893,6 +899,8 @@
       "emptyHint": "Create an envelope to track spending by category.",
       "error": "Could not load envelopes.",
       "deleteTitle": "Delete envelope",
+      "remaining": "{{amount}} left · {{percent}}",
+      "overspent": "{{amount}} over · {{percent}}",
       "deleteDescription": "Delete the \"{{name}}\" envelope? Transactions are kept."
     },
     "recurring": {
@@ -915,7 +923,7 @@
       "noCategory": "No category",
       "formHint": "Manually add a recurring payment.",
       "variable": "Variable amount",
-      "autoConfirmedConfident": "Auto-confirmed · {{percent}}% confidence",
+      "autoConfirmedConfident": "Auto-confirmed · {{percent}} confidence",
       "priceFromTo": "{{from}} → {{to}}",
       "undo": "Undo",
       "status": {
@@ -941,7 +949,7 @@
       "subtitle": "Assign a category to unclassified transactions.",
       "recategorize": "Re-categorize",
       "categorizeAi": "Categorize with AI",
-      "aiSuggested": "AI: {{name}} · {{confidence}}%",
+      "aiSuggested": "AI: {{name}} · {{confidence}}",
       "selectCategory": "Pick a category",
       "learnRule": "Remember a rule",
       "assign": "Assign",
@@ -1060,6 +1068,16 @@
   },
   "sync": {
     "title": "Synchronization",
+    "connectionStatus": {
+      "CREATED": "Pending",
+      "LINKED": "Connected",
+      "CONNECTED": "Connected",
+      "active": "Connected",
+      "EXPIRED": "Expired",
+      "FAILED": "Failed",
+      "ERROR": "Error",
+      "TOTP_REQUIRED": "2FA code required"
+    },
     "banks": {
       "title": "Banks",
       "search": "Search a bank",
@@ -1130,7 +1148,7 @@
         "harvesting": "Fetching your accounts… ({{count}} found)"
       },
       "errors": {
-        "humanVerificationRequired": "Revolut is asking you to prove you are human (captcha), and Picsou cannot do that for you. No approval was sent to your phone. Try again later.",
+        "humanVerificationRequired": "Revolut is asking you to prove you are human (captcha), and Picsou cannot do that for you. Sign-in cannot continue. Try again later.",
         "upstreamFormatChanged": "The sign-in didn't go through. Check your phone number and try again."
       },
       "selection": {
@@ -1604,6 +1622,44 @@
         "invalidCode": "Wrong SMS code. Check it and type it again."
       }
     },
+    "cic": {
+      "title": "CIC (livrets)",
+      "login": "Customer number",
+      "password": "Password",
+      "otpCode": "Code received by SMS",
+      "otpPrompt": "Enter the confirmation code you received by SMS.",
+      "appValidationPrompt": "Open the CIC app and confirm the sign-in (mobile confirmation).",
+      "appValidationHint": "This page updates on its own as soon as you confirm. CIC asks for a new confirmation at least every 24 hours.",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "reconnect": "Reconnect",
+      "reconnectHint": "Your credentials are stored: CIC will send a confirmation request to your phone.",
+      "validate": "Submit code",
+      "validating": "Validating…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "Accounts synced.",
+      "clearSession": "Disconnect",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs your CIC current and savings accounts (Livret A, LDDS, PEL…), which the PSD2 bank connection does not return. Balances only.",
+      "errors": {
+        "tooManyAttempts": "Too many attempts. Please wait before retrying.",
+        "invalidCredentials": "Invalid CIC customer number or password.",
+        "actionRequired": "The site needs you to act first (terms to accept, contact details to complete). Sign in once on the website, then retry.",
+        "mfaTypeUnsupported": "The site asked for a Digipass or Safetrans, which Picsou cannot handle. Choose mobile confirmation or SMS in your security settings.",
+        "appValidationTimeout": "The mobile confirmation was not approved in time. Please start over.",
+        "appValidationCancelled": "The mobile confirmation was refused in the app.",
+        "authAttemptExpired": "The authentication attempt expired. Please start over.",
+        "sessionExpired": "The session expired and the site asks for a new mobile confirmation. Please reconnect.",
+        "portfolioIncomplete": "CIC returned an incomplete account list. Your existing data was kept.",
+        "formatChanged": "The CIC website format changed. Your existing data was kept.",
+        "invalidData": "CIC returned inconsistent data. Your existing data was kept.",
+        "serverError": "Could not reach the CIC website. Please try again.",
+        "invalidCode": "Wrong SMS code. Check it and type it again."
+      }
+    },
     "corum": {
       "title": "CORUM",
       "login": "Client number",
@@ -1821,6 +1877,8 @@
     "sessionsEmpty": "No trusted devices — you'll need to sign in on every visit.",
     "sessionsCurrent": "This device",
     "sessionsTrusted": "2FA-trusted",
+    "sessionsUnknownDevice": "Unknown device",
+    "sessionsBrowser": "Browser",
     "sessionsLastUsed": "Last used",
     "sessionsCreated": "Created",
     "sessionsExpires": "Expires",
@@ -1845,14 +1903,14 @@
       },
       "taxHouseholdParts": "Tax household shares",
       "dependents": "Dependents",
-      "annualGrossIncome": "Annual gross income",
+      "annualGrossIncome": "Annual gross income (€)",
       "incomeHint": "The gross figure from your payslip. Fiscal context — the savings rate is computed on the net below.",
       "netPay": "What actually reaches the account",
       "netPayHint": "Both figures are on your payslip. Gross is not enough: social contributions come off first, at a rate that depends on your status.",
-      "monthlyNetBeforeTax": "Monthly net before tax",
+      "monthlyNetBeforeTax": "Monthly net before tax (€)",
       "withholdingTaxRate": "Withholding tax rate (%)",
       "netIncomeDerived": "Monthly net received:",
-      "savingsCapacity": "Monthly savings capacity",
+      "savingsCapacity": "Monthly savings capacity (€)",
       "riskProfile": "Risk profile",
       "risk": {
         "PRUDENT": "Cautious",
@@ -2199,7 +2257,7 @@
       "outdated": "This sidecar answers, but it is not running on the expected shared base image.",
       "expectedBase": "Expected shared base image:",
       "fixIntro": "To fix it, refresh the images, then restart:",
-      "fixBuildIntro": "When building from source, with Compose v2.33 or newer (it builds sidecar-python and sidecar-chromium first):",
+      "fixBuildIntro": "When building from source, with Compose v2.33 or newer (it builds sidecar-python, sidecar-chromium and sidecar-camoufox first):",
       "updateTitle": "Update available",
       "releaseNotes": "Release notes",
       "later": "Later"
@@ -2388,60 +2446,75 @@
         "psd2Body": "PSD2 is the EU regulation that lets licensed aggregators read your bank account with your consent. Your credentials never leave your bank.",
         "prodWarningTitle": "Create a PRODUCTION application",
         "prodWarningBody": "In your Enable Banking dashboard, make sure to choose \"Production\" when creating the application — the SANDBOX only gives you access to fake test banks, not your real ones.",
-        "psd2ScopeNote": "Enable Banking only syncs current accounts (PSD2 limitation). For PEA, life insurance, savings accounts, etc.: use the dedicated integrations (Trade Republic, Boursobank, Finary) or add them manually."
+        "psd2ScopeNote": "Enable Banking only syncs current accounts (PSD2 limitation). For PEA, life insurance, savings accounts, etc.: use the dedicated integrations (Trade Republic, Boursobank, Finary) or add them manually.",
+        "magicLinkHint": "Enter your email on the sign-in page. Enable Banking creates your account on first sign-in and sends you a one-time sign-in link."
       },
       "creds": {
         "title": "Paste your Application ID",
-        "body": "In your Enable Banking dashboard, create an application named \"Picsou\", then copy its Application ID here.",
+        "body": "Copy the Application ID of the application you just registered in the Enable Banking Control Panel.",
         "applicationId": "Application ID",
-        "applicationIdHint": "This is your Enable Banking application UUID — it's also used as the Key ID when signing requests.",
+        "applicationIdHint": "The Application ID is also the downloaded .pem filename without the .pem extension. It is used as the Key ID too.",
         "prodAcknowledge": "I confirm my Enable Banking application is in PRODUCTION mode (not SANDBOX)."
       },
       "keypair": {
-        "modeGenerate": "Generate a key pair",
-        "modeImport": "I already have an EB .pem",
-        "title": "We generate your key pair",
-        "body": "Picsou generates an RSA-2048 key pair on the server. The private half never leaves your machine; you upload the public half to Enable Banking.",
+        "modeGenerate": "Advanced: use a server key pair",
+        "modeImport": "Import the Enable Banking .pem (recommended)",
+        "title": "Use a Picsou server key pair",
+        "body": "Use this option only if you manage the key registered with your application yourself. If Enable Banking downloaded a .pem file, import that file instead.",
         "generating": "Generating your key pair...",
         "copy": "Copy public key",
         "copied": "Copied!",
         "download": "Download public.pem",
-        "uploadInstruction": "Now in your EB dashboard → your app → Public key → paste this block.",
-        "uploadedCta": "I've uploaded it — continue",
+        "uploadInstruction": "Your Enable Banking application must be registered with this exact public key. This is a public key, not a certificate. If the form asks for a certificate, keep its default browser key generation and import the downloaded .pem instead.",
+        "uploadedCta": "This key is registered, continue",
         "error": "We couldn't generate a key pair. Please retry.",
         "importTitle": "Import your Enable Banking private key",
-        "importBody": "Enable Banking gave you a .pem file when you created your application. Upload it here — Picsou derives the public key from it for verification.",
+        "importBody": "Choose the <application-id>.pem file downloaded by Enable Banking when you registered this application, or paste its contents. Picsou stores the private key on your server.",
         "chooseFile": "Choose .pem file",
         "orPaste": "or paste the contents directly",
         "importCta": "Import key",
         "importing": "Importing...",
-        "importSuccess": "Key imported. Derived public key:",
-        "importError": "Could not read the key. Make sure it's a PKCS#8 .pem file from Enable Banking."
+        "importSuccess": "Key imported. No public-key upload is needed. Derived public key:",
+        "importError": "Could not read the key. Make sure it's a PKCS#8 .pem file from Enable Banking.",
+        "generateCta": "Get the server public key",
+        "privateKeyLabel": "Private key (PEM)"
       },
       "redirect": {
-        "title": "Add this redirect URI to Enable Banking",
-        "body": "Open your Enable Banking dashboard, create your application (name it \"Picsou\"), and paste this exact URL into the \"Allowed redirect URIs\" list. Do this before generating your Application ID and Key ID — Enable Banking only accepts the redirect URI you whitelist here.",
+        "title": "Register your Enable Banking application",
+        "body": "In the Enable Banking Control Panel, open \"Add a new application\". Add this exact URL to the redirect URLs and fill in the checklist below.",
         "copy": "Copy URL",
         "copied": "Copied!",
-        "addedCta": "Added — continue"
+        "addedCta": "Application registered and activated, continue",
+        "uriLabel": "Redirect URL",
+        "checklistTitle": "Application checklist",
+        "environment": "Environment: Production. Sandbox only provides fictitious test banks.",
+        "name": "Name: Picsou, or a name you recognise.",
+        "description": "Description, for example: \"Personal use, aggregating my own accounts in a self-hosted Picsou instance\".",
+        "email": "Email for data protection matters: your own contact email.",
+        "policyUrls": "Privacy URL and Terms URL are required. For a personal instance, review the repository links below as possible values. Use URLs that describe your own use.",
+        "keyMethod": "Keep \"Generate in the browser (using SubtleCrypto) and export private key\". Register the application and keep the downloaded <application-id>.pem file for the import step.",
+        "activationTitle": "Activate the application before continuing",
+        "activationBody": "A new Production application is Inactive. Choose \"Activate by linking accounts\" and authorise your own bank accounts. Do not choose \"Request activation\", which is the commercial path.",
+        "restrictedMode": "In restricted mode, only accounts linked to this application in the Enable Banking Control Panel are accessible. Before adding another bank in Picsou later, link its accounts there first."
       },
       "test": {
         "title": "Test your connection",
         "body": "We'll make a quick authenticated call to Enable Banking to make sure everything lines up.",
         "run": "Run test",
         "running": "Testing...",
-        "success": "Enable Banking is ready!",
+        "success": "Enable Banking is configured",
         "retry": "Retry test",
         "backToPrevious": "Back to previous step",
-        "activationNotice": "Heads up: Enable Banking only activates your application once you've connected at least one real bank account from their dashboard. If you skip that step, this test will report your key as invalid even though it isn't. Open your Enable Banking dashboard, link a bank account on your application, then come back and run the test.",
+        "activationNotice": "Before testing, use \"Activate by linking accounts\" in the Enable Banking Control Panel and authorise your own accounts. Restricted mode only allows those linked accounts. \"Request activation\" is the commercial path.",
         "hints": {
           "invalid_application_id": "The Application ID doesn't match what Enable Banking has on file. Double-check it on the credentials step.",
-          "invalid_key_id": "Enable Banking rejected the JWT. Two common causes: (1) the Application ID or Key ID doesn't match what's in your EB dashboard, or (2) your application isn't activated yet — Enable Banking activates it only after you connect at least one real bank account from their dashboard.",
-          "public_key_not_uploaded": "Your public key isn't uploaded yet — go back to the key-pair step, upload it to your EB application, then retry.",
+          "invalid_key_id": "Enable Banking rejected the request signature. Check that the Application ID and imported .pem belong to the same application, then check that you activated it with \"Activate by linking accounts\".",
+          "public_key_not_uploaded": "The application key does not match. Import the .pem downloaded for this Application ID. If you manage a server key pair, check that the application is registered with that exact public key.",
           "redirect_uri_mismatch": "The redirect URI isn't whitelisted on Enable Banking's side. Re-check the redirect step.",
           "network": "We couldn't reach Enable Banking. Check your network and try again.",
           "unknown": "Something went wrong. Open the server logs if you need more detail."
-        }
+        },
+        "successBody": "This test checks the application configuration. Connect your bank accounts in Picsou after setup. Continue to the next integration."
       }
     },
     "bourso": {
@@ -2667,7 +2740,7 @@
       "costBasis": "Total cost",
       "currentValue": "Current value",
       "gain": "Gain",
-      "coOwnedNote": "You hold {{percent}}% of this property. Totals count only your share."
+      "coOwnedNote": "You hold {{percent}} of this property. Totals count only your share."
     },
     "valuation": {
       "title": "Valuation",
@@ -2709,7 +2782,7 @@
       "gross": "Gross value",
       "debt": "Outstanding debt",
       "net": "Net value",
-      "equityShare": "{{pct}}% of the property is genuinely yours"
+      "equityShare": "{{pct}} of the property is genuinely yours"
     },
     "summary": {
       "title": "Property wealth",
@@ -2717,7 +2790,7 @@
       "debt": "Debt",
       "net": "Net",
       "gain": "Gain",
-      "loanToValue": "Loan-to-value: {{pct}}% of the properties' value",
+      "loanToValue": "Loan-to-value: {{pct}} of the properties' value",
       "rentalIncome": "Monthly rental income:"
     },
     "ownership": {
@@ -2725,7 +2798,7 @@
       "hint": "Set each member's share. Everyone counts only their own part in their net worth.",
       "total": "Total assigned",
       "overAllocated": "The shares add up to more than 100%.",
-      "unassigned": "{{percent}}% is assigned to nobody: that part is held outside Picsou and counts towards no one's net worth.",
+      "unassigned": "{{percent}} is assigned to nobody: that part is held outside Picsou and counts towards no one's net worth.",
       "saveError": "Could not save the ownership split"
     },
     "chart": {

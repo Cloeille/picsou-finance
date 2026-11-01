@@ -65,17 +65,6 @@ class OpenFigiIsinConverterTest {
     }
 
     @Test
-    void isTrCryptoIsin_detectsXf000PrefixCaseAndWhitespaceInsensitively() {
-        // Shared with TradeRepublicAdapter's exchange choice; must tolerate the same
-        // case/whitespace variants resolve()'s normalization does (unlike a raw startsWith).
-        assertThat(OpenFigiIsinConverter.isTrCryptoIsin("XF000BTC0017")).isTrue();
-        assertThat(OpenFigiIsinConverter.isTrCryptoIsin(" xf000btc0017 ")).isTrue();
-        assertThat(OpenFigiIsinConverter.isTrCryptoIsin("IE00B4L5Y983")).isFalse(); // real ISIN
-        assertThat(OpenFigiIsinConverter.isTrCryptoIsin("BTC")).isFalse();
-        assertThat(OpenFigiIsinConverter.isTrCryptoIsin(null)).isFalse();
-    }
-
-    @Test
     void resolve_parsesTickerAndNameForTradeRepublicCryptoIsins() {
         OpenFigiIsinConverter converter = converterWith(silentCatalog());
 

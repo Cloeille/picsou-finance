@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useDarkTheme } from '@/hooks/use-dark-theme'
-import { cn } from '@/lib/utils'
+import { cn, deriveMonogram } from '@/lib/utils'
 
 /**
  * A holding's mark, sized to sit in a table's first column beside its ticker.
@@ -15,11 +15,13 @@ import { cn } from '@/lib/utils'
  * - The image is sized to the same box as the fallback rather than overflowing it. Coin logos are
  *   circular PNGs with transparent margins, so `object-contain` inside a fixed square keeps the
  *   mark from being cropped at the edges on a table row that is taller than the mark.
- * - The fallback is an **empty** mark, not the ticker. Every caller already renders the ticker as
- *   text right beside this component, so a text fallback would print it twice — and that is not a
- *   cosmetic detail: `PositionsByProduct.test.tsx` asserts one `BTC` per product group, and a
- *   duplicate is a real signal that the layout is wrong. An empty disc keeps the column width
- *   stable when an image is absent, exactly as the account cards' colour circle does.
+ * - The fallback is the **name's** initials, not the ticker. Every caller already renders the ticker
+ *   as text right beside this component, so a ticker fallback would print it twice — and that is
+ *   not a cosmetic detail: `PositionsByProduct.test.tsx` asserts one `BTC` per product group, and a
+ *   duplicate is a real signal that the layout is wrong. Initials read as a mark where an empty disc
+ *   read as a missing image. A holding without a name (an exchange coin line), or whose name is only
+ *   its ticker (a nameless dividend), keeps the empty disc, since its only initials would be the
+ *   ticker's. Either way the column width stays stable.
  * - The `onError` reset is what makes a *transient* failure recoverable: Radix keeps the image
  *   mounted after a load error, so without flipping back to "no image" a single failed request
  *   would leave the mark blank for that holding. Remounting on the next URL change also picks up
@@ -31,12 +33,15 @@ export function HoldingLogo({
   logoUrl,
   logoUrlDark,
   ticker,
+  name,
   className,
 }: {
   logoUrl: string | null | undefined
   logoUrlDark?: string | null
   /** The image's accessible name, so the asset is read whether or not the mark loads. */
   ticker: string
+  /** The holding's name, whose initials stand in for a missing mark. Blank, or equal to the ticker, the disc stays empty. */
+  name?: string | null
   className?: string
 }) {
   const dark = useDarkTheme()
@@ -44,6 +49,9 @@ export function HoldingLogo({
   // Keyed on the URL: changing it remounts the image, so a previously failed one is retried.
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const src = url && url !== failedUrl ? url : null
+  // The dividend API substitutes the ticker for a missing name.
+  const label = name?.trim()
+  const monogram = label && label.toLowerCase() !== ticker.toLowerCase() ? deriveMonogram(label) : ''
 
   return (
     <Avatar className={cn('size-6 shrink-0', className)}>
@@ -56,7 +64,9 @@ export function HoldingLogo({
           onError={() => setFailedUrl(src)}
         />
       )}
-      <AvatarFallback className="bg-muted" />
+      <AvatarFallback aria-hidden className="bg-muted text-[0.6rem] font-semibold">
+        {monogram}
+      </AvatarFallback>
     </Avatar>
   )
 }

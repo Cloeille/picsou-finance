@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMoney } from '@/hooks/use-money'
-import { ACCOUNT_COLORS, ACCOUNT_TYPES, SUPPORTED_CURRENCIES } from '@/lib/constants'
+import { ACCOUNT_COLORS, ACCOUNT_TYPES, NON_LEDGER_ACCOUNT_TYPES, SUPPORTED_CURRENCIES } from '@/lib/constants'
 import { formatDate } from '@/lib/utils'
 import { extractErrorMessage } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
@@ -14,9 +14,7 @@ import { useImportHomeBank, usePreviewHomeBank } from '@/features/homebank/hooks
 import type { HomeBankAccountMapping, HomeBankCategoryMapping, HomeBankCategoryPreview, HomeBankPreviewResponse } from '@/features/homebank/types'
 import type { AccountType } from '@/types/api'
 
-const allowedAccountTypes = ACCOUNT_TYPES.filter(({ value }) =>
-  !(['PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI'] as AccountType[]).includes(value),
-)
+const allowedAccountTypes = ACCOUNT_TYPES.filter(({ value }) => !NON_LEDGER_ACCOUNT_TYPES.includes(value))
 const intlSupportedValuesOf = (Intl as typeof Intl & { supportedValuesOf?: (key: 'currency') => string[] }).supportedValuesOf
 const validCurrencyCodes = new Set(intlSupportedValuesOf?.call(Intl, 'currency') ?? SUPPORTED_CURRENCIES)
 
@@ -80,7 +78,7 @@ export function HomeBankTab() {
   }
 
   function isLedgerType(type: AccountType) {
-    return !(['PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI'] as AccountType[]).includes(type)
+    return !NON_LEDGER_ACCOUNT_TYPES.includes(type)
   }
 
   function updateAccount(index: number, patch: Partial<HomeBankAccountMapping>) {
@@ -175,7 +173,7 @@ export function HomeBankTab() {
             const mapping = accountMappings[index]
             const compatible = preview.existingAccounts.filter(item => item.currency === account.currency && isLedgerType(item.type))
             return <Card key={account.sourceId} size="sm"><CardContent className="space-y-3 pt-0">
-              <div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="truncate font-medium">{account.name}</p><p className="text-sm text-muted-foreground">{account.institution} · {account.currency} · {account.transactionCount} {t('sync.homebank.transactions')}</p></div><div className="shrink-0 text-right"><p className="text-sm">{money.amount(account.balance, account.currency)}</p><p className="text-xs text-muted-foreground">{t('sync.homebank.initialBalance')}: {money.amount(account.initialBalance, account.currency)}</p></div></div>
+              <div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="truncate font-medium">{account.name}</p><p className="text-sm text-muted-foreground">{account.institution} · {account.currency} · {account.transactionCount} {t('sync.homebank.transactions')}</p></div><div className="shrink-0 text-right"><p className="text-sm">{money.amount(account.balance, account.currency)}</p><p className="text-xs text-muted-foreground">{t('common.labelColon', { label: t('sync.homebank.initialBalance') })} {money.amount(account.initialBalance, account.currency)}</p></div></div>
               <div className="flex flex-wrap gap-2">{(['SKIP', 'MAP_EXISTING', 'CREATE_NEW'] as const).map(action => <Button key={action} size="sm" variant={mapping.action === action ? 'default' : 'outline'} onClick={() => updateAccount(index, action === 'SKIP' ? { action, targetAccountId: undefined, newAccount: undefined } : action === 'MAP_EXISTING' ? { action, newAccount: undefined } : { action, targetAccountId: undefined, newAccount: mapping.newAccount ?? { name: account.name, type: allowedAccountTypes.some(type => type.value === account.suggestedType) ? account.suggestedType : 'OTHER', provider: account.institution || undefined, currency: account.currency } })}>{t(`sync.homebank.${action === 'SKIP' ? 'skip' : action === 'MAP_EXISTING' ? 'mapExisting' : 'createNew'}`)}</Button>)}</div>
               {mapping.action === 'MAP_EXISTING' && <select aria-label={t('sync.homebank.targetAccount', { name: account.name })} className="h-10 w-full rounded-md border border-input bg-background px-4 text-sm" value={mapping.targetAccountId ?? ''} onChange={event => updateAccount(index, { targetAccountId: event.target.value ? Number(event.target.value) : undefined })}><option value="">{t('sync.homebank.chooseAccount')}</option>{compatible.map(item => <option key={item.id} value={item.id}>{item.name} ({item.currency})</option>)}</select>}
               {mapping.action === 'CREATE_NEW' && mapping.newAccount && <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1"><Label>{t('sync.homebank.accountName')}</Label><Input value={mapping.newAccount.name} onChange={event => updateAccount(index, { newAccount: { ...mapping.newAccount!, name: event.target.value } })} /></div><div className="space-y-1"><Label>{t('sync.homebank.accountType')}</Label><select className="h-10 w-full rounded-md border border-input bg-background px-4 text-sm" value={mapping.newAccount.type} onChange={event => updateAccount(index, { newAccount: { ...mapping.newAccount!, type: event.target.value as AccountType } })}>{allowedAccountTypes.map(type => <option key={type.value} value={type.value}>{t(type.labelKey)}</option>)}</select></div></div>}

@@ -74,8 +74,13 @@ api.interceptors.response.use(
       }
     }
 
+    // Error pages render the app shell, whose own queries (members, telemetry,
+    // instance status) can fail too. Redirecting from there would reload the
+    // error page and refire those queries forever.
+    const onErrorPage = window.location.pathname.startsWith('/error/')
+
     // 403: Forbidden
-    if (error.response?.status === 403 && error.config?.method === 'get') {
+    if (error.response?.status === 403 && error.config?.method === 'get' && !onErrorPage) {
       window.location.href = '/error/403'
       return Promise.reject(error)
     }
@@ -100,7 +105,8 @@ api.interceptors.response.use(
       error.response?.status >= 500 &&
       error.response?.status < 600 &&
       error.config?.method === 'get' &&
-      !error.config?.skipGlobalErrorRedirect
+      !error.config?.skipGlobalErrorRedirect &&
+      !onErrorPage
     ) {
       window.location.href = '/error/500?code=' + error.response.status
       return Promise.reject(error)

@@ -8,7 +8,7 @@ Self-hosted personal-finance dashboard for an individual or a small family — b
 - Frontend: React 19 / TypeScript 5.9 / Vite 7 / Tailwind v4
 - DB: PostgreSQL 16 / Flyway
 - Build: Maven (backend), bun (frontend)
-- Deployment: Docker Compose
+- Deployment: Docker Compose; Kubernetes with the Helm chart in `charts/picsou`
 
 ## Essential commands
 

@@ -50,7 +50,7 @@ class FakePage:
             update(self)
 
     def locator(self, selector):
-        kinds = {main._PHONE_INPUT: "phone", main._HCAPTCHA_FRAME: "captcha",
+        kinds = {main._PHONE_INPUT: "phone",
                  **{sel: sel for sel in main._PASSCODE_FIELD_INPUTS}}
         return FakeLocator(self, kinds[selector])
 
@@ -86,7 +86,7 @@ async def _fake_camoufox(page):
 
 
 async def _run_sync(monkeypatch, page, calls, *, after_phone=_show_passcode, passcode_typed=True,
-                    typed_with_inputs=None):
+                    typed_with_inputs=None, after_passcode=None, approval_after_polls=1):
     """`after_phone` is what the page does once the phone number is submitted."""
     typed_with_inputs = [] if typed_with_inputs is None else typed_with_inputs
 
@@ -100,11 +100,16 @@ async def _run_sync(monkeypatch, page, calls, *, after_phone=_show_passcode, pas
     async def fill_passcode(p, _passcode):
         calls.append("passcode")
         typed_with_inputs.append(p.counts["textbox"] >= 6)
+        if after_passcode:
+            after_passcode(p)
         return passcode_typed
 
     async def logged_in(p):
         p.approval_polls += 1
-        return True
+        return p.approval_polls >= approval_after_polls
+
+    async def captcha_visible(p):
+        return bool(p.counts["captcha"])
 
     async def device_id(_ctx):
         return "dev"
@@ -120,6 +125,7 @@ async def _run_sync(monkeypatch, page, calls, *, after_phone=_show_passcode, pas
     monkeypatch.setattr(main, "_fill_phone", fill_phone)
     monkeypatch.setattr(main, "_fill_passcode", fill_passcode)
     monkeypatch.setattr(main, "_logged_in", logged_in)
+    monkeypatch.setattr(main.captcha, "visible", captcha_visible)
     monkeypatch.setattr(main, "_device_id", device_id)
     monkeypatch.setattr(main, "_settle", settle)
     monkeypatch.setattr(main, "harvest_accounts", harvest)
@@ -279,3 +285,63 @@ async def test_goto_timeout_is_upstream_format_changed(monkeypatch):
     result = await _run_sync(monkeypatch, page, calls)
 
     _assert_login_aborted(result, 424, "UPSTREAM_FORMAT_CHANGED", page, calls, [])
+
+
+@pytest.mark.parametrize("passcode_input", ["textbox", *main._PASSCODE_FIELD_INPUTS])
+async def test_captcha_blocks_visible_passcode_inputs(monkeypatch, passcode_input):
+    page = FakePage({})
+    page.counts.update({"captcha": 1, passcode_input: 6 if passcode_input == "textbox" else 1})
+    calls = []
+
+    result = await _run_sync(monkeypatch, page, calls)
+
+    _assert_login_aborted(result, 403, "HUMAN_VERIFICATION_REQUIRED", page, calls, [])
+
+
+async def test_captcha_blocks_passcode_inputs_after_phone_submission(monkeypatch):
+    page = FakePage({2: _show_phone})
+    calls = []
+
+    def passcode_under_captcha(p):
+        _show_passcode(p)
+        _show_captcha(p)
+
+    result = await _run_sync(monkeypatch, page, calls, after_phone=passcode_under_captcha)
+
+    _assert_login_aborted(result, 403, "HUMAN_VERIFICATION_REQUIRED", page, calls, ["phone"])
+
+
+async def test_captcha_after_passcode_submission_never_starts_approval_countdown(monkeypatch):
+    page = FakePage({2: _show_passcode})
+    calls = []
+
+    result = await _run_sync(monkeypatch, page, calls, after_passcode=_show_captcha)
+
+    _assert_login_aborted(result, 403, "HUMAN_VERIFICATION_REQUIRED", page, calls, ["passcode"])
+    progress = await main.progress("1")
+    assert "remainingSeconds" not in progress
+    assert "elapsedSeconds" not in progress
+
+
+async def test_captcha_during_approval_ends_wait_and_clears_countdown(monkeypatch):
+    page = FakePage({2: _show_passcode, 3: _show_captcha})
+
+    result = await _run_sync(monkeypatch, page, [], approval_after_polls=2)
+
+    assert result.status_code == 403
+    assert json.loads(result.body) == {"error": "HUMAN_VERIFICATION_REQUIRED"}
+    assert page.approval_polls == 1
+    progress = await main.progress("1")
+    assert progress["phase"] != "AWAITING_APPROVAL"
+    assert "remainingSeconds" not in progress
+    assert "elapsedSeconds" not in progress
+
+
+async def test_approval_without_a_captcha_keeps_existing_timeout(monkeypatch):
+    page = FakePage({2: _show_passcode})
+
+    result = await _run_sync(monkeypatch, page, [], approval_after_polls=float("inf"))
+
+    assert result.status_code == 408
+    assert json.loads(result.body) == {"error": "APPROVAL_TIMEOUT"}
+    assert page.approval_polls == main.ENROLMENT_APPROVE_WAIT_S * 1000 // main.POLL_MS

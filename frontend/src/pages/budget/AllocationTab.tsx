@@ -6,9 +6,11 @@ import {
   type ChartConfig,
   ChartContainer,
   ChartTooltip,
-  ChartTooltipContent,
 } from '@/components/ui/chart'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
+import { formatPercent } from '@/lib/utils'
+import { useMoney } from '@/hooks/use-money'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -24,6 +26,7 @@ const chartConfig = { amount: { label: 'Amount' } } satisfies ChartConfig
 
 export function AllocationTab() {
   const { t } = useTranslation()
+  const money = useMoney()
   const [period, setPeriod] = useState<CashflowPeriod>('CYCLE')
   const { anchor, setAnchor } = useBudgetPeriod()
   const { data, isLoading, isError, refetch } = useAllocation(period, anchor)
@@ -73,7 +76,7 @@ export function AllocationTab() {
                 <>
                   <ChartContainer config={chartConfig} className="mx-auto h-[220px] w-full">
                     <PieChart>
-                      <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                      <ChartTooltip content={<MoneyChartTooltip config={chartConfig} hideLabel />} />
                       <Pie data={stockData} dataKey="amount" nameKey="name"
                         cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={2}
                         strokeWidth={0}>
@@ -85,15 +88,9 @@ export function AllocationTab() {
                             return (
                               <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle"
                                 dominantBaseline="middle">
-                                <tspan x={viewBox.cx} y={(viewBox.cy ?? 0) - 4}
+                                <tspan x={viewBox.cx} y={viewBox.cy}
                                   className="fill-foreground text-lg font-bold">
-                                  {new Intl.NumberFormat(t('common.locale'), {
-                                    notation: 'compact', maximumFractionDigits: 1,
-                                  }).format(data.totalStock)}
-                                </tspan>
-                                <tspan x={viewBox.cx} y={(viewBox.cy ?? 0) + 16}
-                                  className="fill-muted-foreground text-xs">
-                                  {t('common.currency')}
+                                  {money.compact(data.totalStock, { maximumFractionDigits: 1 })}
                                 </tspan>
                               </text>
                             )
@@ -108,7 +105,7 @@ export function AllocationTab() {
                         <ColorDot color={s.color} />
                         <span className="truncate">{s.name}</span>
                         <span className="ml-auto tabular-nums text-muted-foreground">
-                          {s.percent}%
+                          {formatPercent(s.percent, { fractionDigits: 2 })}
                         </span>
                         <span className="w-24 text-right tabular-nums">
                           <CurrencyDisplay value={s.amount} />

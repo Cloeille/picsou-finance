@@ -1,6 +1,6 @@
 # Feature: First-launch Setup Wizard
 
-> Last updated: 2026-07-19 (HSTS is opt-in, no longer an always-on nginx header)
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -101,6 +101,39 @@ Hello greeting → Admin → Security → Integration picker
 Done → POST /api/setup/complete → auto-login → /
 ```
 
+### Enable Banking registration and key import
+
+The wizard keeps five substeps. Registration guidance appears before the Application ID
+and key import forms:
+
+1. Explain Enable Banking. The sign-in page accepts an email address and sends a one-time
+   link. It creates the account on first sign-in.
+2. Register a **Production** application. Copy the callback URL and fill in the name,
+   description, data-protection contact email, Privacy URL, and Terms URL. The wizard
+   links to `SECURITY.md` and `LICENSE` as possible values for a personal instance.
+   Operators must review whether these describe their own use. Keep the default browser
+   key generation and retain the downloaded `<application-id>.pem` file. Before continuing,
+   choose **Activate by linking accounts** and authorise the accounts. **Request activation**
+   is the commercial path. Restricted mode permits only accounts linked in the Control Panel.
+   Link another bank's accounts there before adding it in Picsou later.
+3. Enter the Application ID. The downloaded filename without `.pem` contains the same ID.
+4. Import the downloaded private key. Import is the default mode. Server key generation
+   remains an advanced option and requires an explicit action. Entering the step or changing
+   modes never generates a key. A server public key is not a certificate. If registration
+   asks for a certificate, use Enable Banking's default browser generation and import its PEM.
+5. Test the configuration. Success names Enable Banking and waits for **Continue** before
+   opening the next selected integration. The confirmation explains that connecting accounts
+   in Picsou happens after setup. The configuration test does not import bank accounts.
+
+The draft stores a `keyPair` containing its mode and public PEM together. Returning to the
+key step restores the matching mode. Older drafts without this metadata require key setup
+again. Switching modes clears the draft result, so a generated key cannot appear as an
+import success. The private PEM stays in component memory and is cleared after import.
+Transport failures use the shared translated error formatter.
+
+This change retains the existing step order. A separate activation substep or a combined
+Application ID and PEM form remains possible follow-up work.
+
 ## Technical choices
 
 | Choice | Why | Rejected alternative |
@@ -150,9 +183,11 @@ Done → POST /api/setup/complete → auto-login → /
   wizard will show raw translation keys under the form fields. Inline errors should
   only be shown after the user has typed into the field; empty untouched fields keep
   their neutral helper copy.
-- **Setup loading is intentionally blank.** The generic dashboard `LoadingSkeleton`
-  must not be used for `/setup` route guards or lazy-route fallbacks; it flashes
-  dashboard-shaped grey placeholders before the wizard appears.
+- **Setup loading is a delayed centred spinner.** The `/setup` guards and the
+  `SetupLayout` fallback use `RouteSpinner`, which paints nothing for the first 200 ms
+  and then a centred spinner. Step fallbacks inside the wizard frame stay `null`. The
+  dashboard `LoadingSkeleton` must not be used there; it flashes dashboard-shaped grey
+  placeholders before the wizard appears.
 - **Setup form scale is intentionally consistent.** Wizard steps use `max-w-2xl`,
   `h-10` inputs / primary CTAs, rounded field controls, and no decorative uppercase
   surtitles. Multiple primary choices in a wizard step should stack vertically instead
@@ -255,11 +290,17 @@ The wizard makes zero outbound requests on first load:
 — no dedicated unit test today, since its logic is a thin HTTP-client wrapper whose
 failure modes are better exercised at the controller boundary.
 
-Frontend coverage is smoke-tested via `bun run typecheck` + `bun run build` + manual
-flow verification until a Playwright e2e suite is added (tracked as future work).
+`frontend/src/pages/setup/integrations/enablebanking/EnableBankingSetup.test.tsx` covers
+registration guidance, email-link sign-in, import by default, explicit generation, mode
+changes, pending imports, credential transport errors, and the success-to-Revolut transition.
+It renders the components with real setup hooks and synthetic responses from the setup API.
+`frontend/src/lib/errors.test.ts` covers transport-error formatting, and
+`frontend/src/i18n/locales-parity.test.ts` checks all four locales.
 
 ## Links
 
+- Enable Banking [quick start](https://enablebanking.com/docs/api/quick-start/) documents
+  email-link sign-in, browser key generation, and the Application ID in the PEM filename.
 - Related ADR: [`docs/decisions/2026-04-23-first-launch-wizard.md`](../decisions/2026-04-23-first-launch-wizard.md)
 - Encryption-at-rest ADR (context for CryptoKeyGeneratorService): [`docs/decisions/2026-04-08-mandatory-encryption-key.md`](../decisions/2026-04-08-mandatory-encryption-key.md)
 - Docker deployment feature: [`docs/features/docker-deployment.md`](./docker-deployment.md)

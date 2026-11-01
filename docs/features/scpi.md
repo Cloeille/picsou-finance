@@ -1,6 +1,6 @@
 # Feature: SCPI shares
 
-> Last updated: 2026-10-16
+> Last updated: 2026-10-31
 
 ## Context
 
@@ -42,6 +42,11 @@ is stored and shown beside that figure. It is never used as the balance: entry f
 between the two, and substituting one for the other would overstate net worth.
 
 A missing withdrawal price leaves the previous balance alone and returns `PRICE_INCOMPLETE`.
+
+After a manual SCPI save, the frontend invalidates account data, the dashboard, and history,
+P&L and intraday queries that include the edited account. Aggregate queries for other accounts
+stay cached. In demo mode, these responses read the editable account snapshot, so the new
+withdrawal value appears on refetch during the same session. Past monthly values stay fixed.
 
 `SCPI` is not an investment account. Quantity is not rebuilt from BUY/SELL. No holding row
 is written in this version, so the hourly price job cannot send the ISIN to Yahoo.
@@ -134,11 +139,15 @@ See the [ADR](../decisions/2026-10-16-scpi-sync-creates-accounts.md).
 ### Flow
 
 ```
-PUT /api/accounts/{id}/scpi
+PUT /api/accounts/{id}/scpi   (or the MCP tool set_scpi_position)
   └─ withdrawal price present?
        ├─ yes → balance = withdrawal price × share count, status OK
        └─ no  → previous balance kept, status PRICE_INCOMPLETE
 ```
+
+An MCP client records a position with `set_scpi_position` (`accounts:write`), which calls the
+same `ScpiPositionService.save` and never sends a CORUM or Sofidy fund code. See
+[mcp-server.md](./mcp-server.md).
 
 ## Technical choices
 
@@ -150,6 +159,11 @@ PUT /api/accounts/{id}/scpi
 
 ## Gotchas / Pitfalls
 
+- A transaction on a SCPI account (a dividend noted by hand) is recorded but never moves the
+  balance: `AccountType.isLedger()` is false for `SCPI`, so `ManualTransactionService` skips its
+  cash-ledger recomputation and snapshot rebuild, and the Actual Budget and HomeBank imports
+  refuse it as a target. Summing the transactions would replace the withdrawal value with the
+  dividends.
 - `CORUM_AUTH_URL` and `SOFIDY_AUTH_URL` are bound in both backend configurations.
   Development defaults use loopback ports 8006 and 8007, avoiding BoursoBank's
   8004 and Fortuneo's 8005. Compose uses the internal service names on port 8001;
@@ -186,6 +200,10 @@ PUT /api/accounts/{id}/scpi
 ## Tests
 
 - `ScpiPositionServiceTest` — fractional shares, withdrawal value, missing price, wrong type
+- `AccountToolsTest#setScpiPosition_*` — the MCP tool delegates to the form service, never
+  sends a fund code, keeps omitted distribution fields and rejects what `@Valid` rejects
+- `ManualTransactionServiceTest#*_valuedAccount_*` — adding, editing or deleting a transaction
+  on a SCPI, a property or an employee-savings plan keeps its value and its snapshot history
 - `ScpiFundReconcilerTest` — first sync creates, second updates without a duplicate,
   same-name manual account linked, two matches ambiguous, ignored fund not recreated,
   vanished fund reported and kept, missing price reported
@@ -215,6 +233,11 @@ PUT /api/accounts/{id}/scpi
 - `services/corum-auth/test_sidecar_auth.py` and
   `services/sofidy-auth/test_sidecar_auth.py` — missing, empty and wrong keys,
   authenticated dispatch, public health and fail-closed configuration
+
+Sofidy request logs omit method and status. Refused shared-key requests log only a
+fixed refusal message and duration, without the caller's path. Authenticated
+requests log a control-sanitized path capped at 200 characters plus an ellipsis.
+Health checks produce no request log line.
 
 ## Links
 

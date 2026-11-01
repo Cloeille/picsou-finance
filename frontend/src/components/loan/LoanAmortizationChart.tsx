@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
 import { localeFromLanguage } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
+import { MONEY_AXIS_WIDTH } from '@/lib/money'
 import type { LoanInstallment } from '@/types/api'
 
 interface LoanAmortizationChartProps {
@@ -70,15 +71,6 @@ export function LoanAmortizationChart({ schedule }: LoanAmortizationChartProps) 
     return Math.floor(len / 6)
   }, [points.length])
 
-  const yTickFormatter = useMemo(() => {
-    const maxVal = points.length ? Math.max(...points.map(p => p.remaining)) : 0
-    if (maxVal >= 1_000_000) return (v: number) => `${(v / 1_000_000).toFixed(1)}M`
-    if (maxVal >= 100_000) return (v: number) => `${(v / 1_000).toFixed(0)}k`
-    if (maxVal >= 10_000) return (v: number) => `${(v / 1_000).toFixed(1)}k`
-    if (maxVal >= 1_000) return (v: number) => `${(v / 1_000).toFixed(2)}k`
-    return (v: number) => v.toFixed(0)
-  }, [points])
-
   const chartConfig = useMemo(() => ({
     remaining: {
       label: t('debt.remainingBalance'),
@@ -124,8 +116,8 @@ export function LoanAmortizationChart({ schedule }: LoanAmortizationChartProps) 
               tickLine={false}
               axisLine={false}
               tickMargin={8}
-              tickFormatter={money.tick(yTickFormatter)}
-              width={45}
+              tickFormatter={money.tick}
+              width={MONEY_AXIS_WIDTH}
               tickCount={5}
             />
             <ChartTooltip content={<AmortizationTooltip labels={labels} />} />

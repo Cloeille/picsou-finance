@@ -26,7 +26,8 @@ import {
   useDeleteBudget,
   useUpdateBudget,
 } from '@/features/budget/hooks'
-import { parseAmount } from '@/lib/utils'
+import { formatPercent, parseAmount } from '@/lib/utils'
+import { useMoney } from '@/hooks/use-money'
 import type { Budget } from '@/types/api'
 import { ColorDot } from './budget-utils'
 
@@ -116,7 +117,9 @@ function EnvelopeRow({ budget, onEdit, onDelete }: {
   onDelete: () => void
 }) {
   const { t } = useTranslation()
+  const money = useMoney()
   const pct = Math.min(budget.percent, 100)
+  const percent = formatPercent(budget.percent, { fractionDigits: 0 })
   const barTone = budget.overBudget
     ? 'bg-destructive'
     : budget.percent >= 80 ? 'bg-amber-500' : 'bg-primary'
@@ -146,7 +149,7 @@ function EnvelopeRow({ budget, onEdit, onDelete }: {
         <div className="mt-3 h-2 w-full overflow-hidden rounded-md bg-muted"
           role="progressbar" aria-label={budget.categoryName}
           aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}
-          aria-valuetext={`${budget.percent}%`}>
+          aria-valuetext={formatPercent(budget.percent, { fractionDigits: 0 })}>
           <div className={`h-full rounded-md transition-all ${barTone}`}
             style={{ width: `${pct}%` }} />
         </div>
@@ -155,7 +158,10 @@ function EnvelopeRow({ budget, onEdit, onDelete }: {
             <CurrencyDisplay value={budget.spent} /> / <CurrencyDisplay value={budget.monthlyLimit} />
           </span>
           <span className={budget.overBudget ? 'font-medium text-destructive' : 'text-muted-foreground'}>
-            <CurrencyDisplay value={budget.remaining} showSign /> {budget.percent}%
+            {t(budget.overBudget ? 'budget.envelope.overspent' : 'budget.envelope.remaining', {
+              amount: money.amount(Math.abs(budget.remaining)),
+              percent,
+            })}
           </span>
         </div>
       </CardContent>

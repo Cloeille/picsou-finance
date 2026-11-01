@@ -11,13 +11,13 @@
 | Zustand | v5 | Client state (auth, app settings) |
 | shadcn/ui | latest | Component library (Radix primitives) |
 | Tailwind CSS | v4 | Styling |
-| React Router | v7 | Routing with lazy code splitting |
+| React Router | v8 | Routing with lazy code splitting |
 | Axios | latest | HTTP client with interceptors |
 | react-i18next | latest | Internationalization (FR/EN) |
 | Recharts | v3 | Charts |
 | react-hook-form + Zod | latest | Form handling + validation |
 | Sonner | latest | Toast notifications |
-| next-themes | latest | Dark/light mode |
+| Root `.dark` class + `useDarkTheme` | — | Dark/light/system mode |
 
 ## Directory structure
 
@@ -150,7 +150,12 @@ When `VITE_DEMO_MODE=true` (or runtime toggle via `app-store.ts`), a request int
 
 ## Routing and code splitting
 
-React Router v7 with `lazy()` per page:
+React Router v8 with `lazy()` per page:
+
+Routing APIs come from `react-router`. The browser entry point imports
+`RouterProvider` from `react-router/dom`, which wires in `ReactDOM.flushSync`
+automatically. Use this DOM provider instead of a custom callback adapter so
+synchronous router updates preserve the callback's return value required by v8.
 
 ```typescript
 const DashboardPage = lazy(() =>
@@ -160,7 +165,8 @@ const DashboardPage = lazy(() =>
 
 - Auth-protected routes wrapped in `<RequireAuth>` guard.
 - Public-only routes (login) wrapped in `<PublicOnly>`.
-- `SuspensePage` wrapper with `<LoadingSkeleton />` fallback.
+- `SuspensePage` wrapper with a `<RouteFallback />` fallback: a page-header bar and one block, shown only after 200 ms. Routes outside the app shell (guards, setup wizard) use `<RouteSpinner />` instead. `LoadingSkeleton` is the dashboard's own data-loading placeholder, not a route fallback.
+- Error routes (`*`, `/error/403`, `/error/500`) sit under `ErrorLayout`, which renders the app shell for a signed-in user and a bare full-screen page otherwise. It probes the cookie session like `RequireAuth`, so a Remember Me user keeps the shell. On `/error/*` the API client never redirects to another error page, because the shell's own queries could fail there and reload the page forever.
 - Vite path aliases: `@/` maps to `src/`.
 
 ## Styling
@@ -243,6 +249,9 @@ Use icons from `lucide-react` as direct JSX components (e.g., `<Pencil className
 - Supported languages live in the `SUPPORTED_LOCALES` registry (`frontend/src/i18n/locales.ts`); selectors and `Intl` formatting derive from it — never hardcode language lists in components. Normalize raw tags with `resolveLocale()`.
 - Flat keys with feature-based grouping.
 - All user-visible text must use `useTranslation()` — no hardcoded strings in any language.
+- A label followed by a value renders through `t('common.labelColon', { label: t('…') })`, never `{t('…')}:`. French needs a space before the colon.
+- Counts use i18next plurals: the base key holds the singular, `_other` the plural, and the caller passes `count`.
+- French copy uses "vous", including imperatives ("Saisissez", "Réessayez").
 - Date/number formatting via `Intl.*` through the `frontend/src/lib/utils.ts` helpers (`formatDate`…), which resolve the active locale via `getLocale()`.
 - **Amounts go through `<CurrencyDisplay>` or `useMoney()` (`frontend/src/hooks/use-money.ts`), never through `Intl` directly.** Privacy mode blanks every amount on screen, so a figure formatted outside that path stays legible during a demo. The raw formatter is private for that reason, and `frontend/src/lib/money-guard.test.ts` fails the build on a hand-built currency format, a `€` in JSX, or an amount-shaped value printed bare. See [`docs/features/privacy-mode.md`](../features/privacy-mode.md).
 - Full details: [`docs/features/i18n.md`](../features/i18n.md).
@@ -255,7 +264,16 @@ Use icons from `lucide-react` as direct JSX components (e.g., `<Pencil className
 
 Recharts v3 for all data visualizations. Chart color tokens (`--chart-1` through `--chart-5`) are defined in the Tailwind theme.
 
+Size a new or touched money Y axis with `yAxisWidth(values, money.tick)` (`lib/chart-axis.ts`), passing the same `money.tick` formatter the axis uses, rather than a fixed `width`. A fixed width clips the longer labels, such as "-250.000 €" (German). `NetWorthChart` and `AccountsStackedChart` use it. `LoanAmortizationChart`, `PropertyValuationChart`, `BalanceHistoryChart`, `ProjectionSection` and `CashflowTab` use the fixed `MONEY_AXIS_WIDTH`; `AllocationTrajectory` is a percent axis.
+
+## Form controls
+
+A new native `<select>` goes through `NativeSelect` (`components/shared/NativeSelect.tsx`), which shares `Input`'s 40px height, border and fill. About ten older selects still use `SELECT_CONTROL_CLASS` or `rounded-xl` classes of their own. A date field goes through `DateInput`, which displays the user's date format. A range input takes the `range-input` class and sets `--range-fill` to its value's percentage.
+
 ## Scripts
+
+Build tools and compiled CSS inputs (`@tailwindcss/vite`, `tailwindcss`,
+`tw-animate-css`, and the `shadcn` CLI) live in `devDependencies`.
 
 ```bash
 bun run dev          # Dev server on :5173, proxies /api/* to localhost:8080

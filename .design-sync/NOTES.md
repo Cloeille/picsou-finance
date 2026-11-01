@@ -36,11 +36,12 @@ Repo-specific gotchas for future syncs. Field-level config lives in `config.json
   `cursive`. No DS component uses it. Do not chase.
 
 ## Synced surface (36 components)
-- **general/** — 25 shadcn primitives (`src/components/ui/*`). 23 have authored previews;
-  **ChartContainer** and **Toaster** ship the floor card (see below).
-- **shared/** — 11 Picsou-specific presentational compositions (`src/components/shared/*`):
+- **general/** — 24 shadcn primitives (`src/components/ui/*`). 23 have authored previews;
+  **ChartContainer** ships the floor card (see below).
+- **shared/** — 12 Picsou-specific presentational compositions (`src/components/shared/*`):
   AccountCard, AccountTypeBadge, CurrencyDisplay, EmptyState, ErrorState, GoalProgressBar,
-  MerchantAvatar, NumericInput, PageHeader, PriceFreshnessDot, TimeRangeSelector.
+  MerchantAvatar, NumericInput, PageHeader, PriceFreshnessDot, TimeRangeSelector, Toaster
+  (ships the floor card, see below).
 - **Deliberately NOT synced**: chart feature components (recharts — see below), data-bound
   modals/sections (heavy react-query/router state), pure-plumbing (ErrorBoundary, guards).
 

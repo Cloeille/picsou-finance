@@ -59,9 +59,9 @@ describe('ProjectionSection', () => {
 
     // The rates are never restated client-side: a label that disagrees with the curve behind it
     // is worse than no label.
-    expect(screen.getByText('analysis.projection.scenarios.PESSIMISTIC:4.4')).toBeInTheDocument()
-    expect(screen.getByText('analysis.projection.scenarios.REFERENCE:6.4')).toBeInTheDocument()
-    expect(screen.getByText('analysis.projection.scenarios.OPTIMISTIC:8.2')).toBeInTheDocument()
+    expect(screen.getByText('analysis.projection.scenarios.PESSIMISTIC:4.4%')).toBeInTheDocument()
+    expect(screen.getByText('analysis.projection.scenarios.REFERENCE:6.4%')).toBeInTheDocument()
+    expect(screen.getByText('analysis.projection.scenarios.OPTIMISTIC:8.2%')).toBeInTheDocument()
   })
 
   it('keeps the legend in the payload order, not alphabetical', () => {
@@ -71,10 +71,10 @@ describe('ProjectionSection', () => {
     expect(labels).toEqual([
       // Contributions first: they are the floor the gain sits on, not a scenario.
       'analysis.projection.contributed',
-      'analysis.projection.scenarios.PESSIMISTIC:4.4',
-      'analysis.projection.scenarios.CAUTIOUS:5.6',
-      'analysis.projection.scenarios.REFERENCE:6.4',
-      'analysis.projection.scenarios.OPTIMISTIC:8.2',
+      'analysis.projection.scenarios.PESSIMISTIC:4.4%',
+      'analysis.projection.scenarios.CAUTIOUS:5.6%',
+      'analysis.projection.scenarios.REFERENCE:6.4%',
+      'analysis.projection.scenarios.OPTIMISTIC:8.2%',
     ])
   })
 
@@ -114,7 +114,7 @@ describe('ProjectionSection', () => {
     // of them means removing the other three. The assertion is on the control's pressed state
     // rather than on the curve: the chart body is mocked out here, as everywhere in this file.
     const optimistic = screen.getByRole('button', {
-      name: 'analysis.projection.scenarios.OPTIMISTIC:8.2',
+      name: 'analysis.projection.scenarios.OPTIMISTIC:8.2%',
     })
     expect(optimistic).toHaveAttribute('aria-pressed', 'true')
 
@@ -122,7 +122,7 @@ describe('ProjectionSection', () => {
     expect(optimistic).toHaveAttribute('aria-pressed', 'false')
     // Toggling one leaves the others alone -- the legend is a set of independent switches.
     expect(
-      screen.getByRole('button', { name: 'analysis.projection.scenarios.REFERENCE:6.4' }),
+      screen.getByRole('button', { name: 'analysis.projection.scenarios.REFERENCE:6.4%' }),
     ).toHaveAttribute('aria-pressed', 'true')
 
     fireEvent.click(optimistic)

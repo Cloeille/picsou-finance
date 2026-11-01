@@ -1,7 +1,9 @@
-import { createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter } from 'react-router'
 import { RequireAuth, PublicOnly, RequireAdmin } from '@/features/auth/guards'
 import { RequireSetup, SetupOnly } from '@/features/setup/guards'
 import { AppLayout } from '@/components/layout/AppLayout'
+import { ErrorLayout } from '@/components/layout/ErrorLayout'
+import { RouteSpinner } from '@/components/shared/RouteFallback'
 import '@/pages/setup/setup.css'
 import {
   LoginPage,
@@ -74,22 +76,6 @@ export const router = createBrowserRouter([
     ),
   },
   {
-    path: '/error/403',
-    element: (
-      <SuspensePage>
-        <ForbiddenPage />
-      </SuspensePage>
-    ),
-  },
-  {
-    path: '/error/500',
-    element: (
-      <SuspensePage>
-        <ServerErrorPage />
-      </SuspensePage>
-    ),
-  },
-  {
     // Spring Authorization Server redirects here (`consentPage("/consent")`) when an
     // interactive-consent OAuth2 client (every DCR-registered remote-MCP client) reaches
     // /oauth2/authorize. Deliberately NOT nested under the `/` + RequireAuth tree: the page
@@ -109,7 +95,7 @@ export const router = createBrowserRouter([
     path: '/setup',
     element: (
       <SetupOnly>
-        <SuspensePage fallback={null}>
+        <SuspensePage fallback={<RouteSpinner />}>
           <SetupLayout />
         </SuspensePage>
       </SetupOnly>
@@ -177,11 +163,11 @@ export const router = createBrowserRouter([
     ),
   },
   {
-    path: '*',
-    element: (
-      <SuspensePage>
-        <NotFoundPage />
-      </SuspensePage>
-    ),
+    element: <ErrorLayout />,
+    children: [
+      { path: '/error/403', element: <SuspensePage><ForbiddenPage /></SuspensePage> },
+      { path: '/error/500', element: <SuspensePage><ServerErrorPage /></SuspensePage> },
+      { path: '*', element: <SuspensePage><NotFoundPage /></SuspensePage> },
+    ],
   },
 ])

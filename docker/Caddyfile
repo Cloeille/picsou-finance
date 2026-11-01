@@ -27,21 +27,14 @@
 
 {$PICSOU_DOMAIN:picsou.localhost} {
 	# The app container serves nginx on 8080 (SPA + /api + /actuator).
-	# Caddy sets X-Forwarded-Proto/Host/For by default, which is exactly
-	# what docker/nginx.conf preserves and what the backend needs for
-	# same-origin detection (server.forward-headers-strategy=framework).
+	# app-tls resolves only on the dedicated Compose network, where Caddy has
+	# the exact address configured as nginx's trusted forwarded-address peer.
+	# Caddy sets X-Forwarded-Proto/Host/For by default; nginx resolves the
+	# client address, replaces the forwarded chain with that single value,
+	# and passes it to Tomcat's loopback-only RemoteIpValve.
 	# Do NOT add `header_up X-Forwarded-For {remote_host}` here. Caddy already
 	# sets X-Forwarded-For to the real peer address and ignores whatever the
-	# client sent, because `trusted_proxies` is empty — verified by sending a
-	# spoofed `X-Forwarded-For: 10.0.0.99` through this config and observing
-	# only the peer address reach the upstream. Stating it explicitly is
-	# redundant and makes Caddy log "Unnecessary header_up X-Forwarded-For"
-	# on every start.
-	#
-	# It is worth knowing why this matters: Spring's
-	# forward-headers-strategy=framework makes getRemoteAddr() return XFF[0],
-	# and AuthController.getClientIp() uses that as the bucket4j key for the
-	# 5-attempts/15-min login and MFA-verify limits. A client-controlled XFF[0]
-	# would let an attacker mint a fresh bucket per request.
-	reverse_proxy app:8080
+	# client sent because `trusted_proxies` is empty. Stating it explicitly is
+	# redundant and makes Caddy log "Unnecessary header_up X-Forwarded-For".
+	reverse_proxy app-tls:8080
 }

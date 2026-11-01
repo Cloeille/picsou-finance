@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import type { ReactNode } from 'react'
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DashboardData } from '@/types/api'
 
@@ -153,7 +153,7 @@ describe('DashboardPage portfolio performance', () => {
 
     const row = screen.getByText('dashboard.portfolioPerformance').parentElement
     expect(row?.querySelector('[data-testid="currency"]')).toHaveTextContent('0')
-    expect(row).toHaveTextContent('(+0.0%)')
+    expect(row).toHaveTextContent('(0.0%)')
     expect(row?.querySelector('svg')).not.toBeNull()
   })
 })

@@ -1,9 +1,9 @@
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
-import { localeFromLanguage } from '@/lib/utils'
+import { formatPercent, localeFromLanguage } from '@/lib/utils'
 import type { RealEstatePropertyLine } from '@/types/api'
 
 interface PropertyFinancingCardProps {
@@ -46,7 +46,7 @@ export function PropertyFinancingCard({ line }: PropertyFinancingCardProps) {
         <div className="space-y-2">
           <Progress value={equityPct} className="h-2" />
           <p className="text-xs text-muted-foreground">
-            {t('property.financing.equityShare', { pct: equityPct.toFixed(0) })}
+            {t('property.financing.equityShare', { pct: formatPercent(equityPct, { fractionDigits: 0 }, locale) })}
           </p>
         </div>
 

@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Account } from '@/types/api'
 
@@ -45,7 +45,8 @@ vi.mock('@/features/budget/hooks', () => ({
 }))
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => key === 'accounts.perEuroFundBalance' ? 'Fonds euro' : key,
+    t: (key: string, opts?: { label?: string }) =>
+      opts?.label ? `${opts.label}:` : key === 'accounts.perEuroFundBalance' ? 'Fonds euro' : key,
     i18n: { resolvedLanguage: 'fr', language: 'fr' },
   }),
 }))

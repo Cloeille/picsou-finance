@@ -1,14 +1,12 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { ChevronRight, Receipt } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CashflowSankey } from '@/components/shared/CashflowSankey'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { ErrorState } from '@/components/shared/ErrorState'
-import { FlowBars } from '@/components/shared/FlowBars'
-import { useIsMobile } from '@/hooks/use-mobile'
 import { useCashflowFlow, useSpendingByCategory } from '@/features/budget/hooks'
 import type { CashflowPeriod, CategorySpend } from '@/types/api'
 import { FALLBACK_COLOR } from './budget-meta'
@@ -17,9 +15,10 @@ import { PeriodNavigator } from './PeriodNavigator'
 import { useBudgetPeriod } from './BudgetPeriodContext'
 
 /**
- * `/budget/spending` — where the money goes. A flow diagram (Sankey on ≥md, proportion
- * bars on phones) sits above a ranked, tappable breakdown. Each real category drills into
- * `/budget/spending/:categoryId`; the uncategorized bucket has no drill target.
+ * `/budget/spending` — where the money goes. A flow diagram (Sankey where the card is
+ * wide enough, proportion bars otherwise) sits above a ranked, tappable breakdown. Each real
+ * category drills into `/budget/spending/:categoryId`; the uncategorized bucket has no drill
+ * target.
  */
 
 /** A compact income · expense · net line — the diagram already shows the shape visually. */
@@ -81,9 +80,15 @@ function BreakdownRow({ row, total }: { row: CategorySpend; total: number }) {
     </div>
   )
 
-  // The uncategorized bucket has no id, so it isn't drillable — render it static.
+  // The uncategorized bucket has no id, so it isn't drillable — render it static, keeping the
+  // chevron's slot so its amount and bar line up with the rows above.
   if (row.categoryId == null) {
-    return <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">{content}</div>
+    return (
+      <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">
+        {content}
+        <span aria-hidden="true" className="size-4 shrink-0" />
+      </div>
+    )
   }
 
   return (
@@ -172,7 +177,6 @@ export function SpendingPage() {
   const { t } = useTranslation()
   const [period, setPeriod] = useState<CashflowPeriod>('CYCLE')
   const { anchor, setAnchor } = useBudgetPeriod()
-  const isMobile = useIsMobile()
   const flow = useCashflowFlow(period, anchor)
   const breakdown = useSpendingByCategory(period, anchor)
 
@@ -230,8 +234,6 @@ export function SpendingPage() {
           <CardContent>
             {!hasFlow ? (
               <p className="py-8 text-center text-sm text-muted-foreground">{t('budget.flow.empty')}</p>
-            ) : isMobile ? (
-              <FlowBars flow={flow.data} />
             ) : (
               <CashflowSankey flow={flow.data} />
             )}

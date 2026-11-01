@@ -3,14 +3,22 @@ package com.picsou.mcp.tools;
 import com.picsou.dto.AccountRequest;
 import com.picsou.dto.AccountResponse;
 import com.picsou.dto.HoldingResponse;
+import com.picsou.dto.ScpiPositionRequest;
+import com.picsou.dto.ScpiPositionResponse;
 import com.picsou.dto.SnapshotRequest;
 import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
+import com.picsou.model.DistributionFrequency;
+import com.picsou.model.DividendPolicy;
 import com.picsou.model.FamilyMember;
 import com.picsou.service.AccountConnectionService;
 import com.picsou.service.AccountService;
 import com.picsou.service.AccountConnectionService.DeletionImpact;
+import com.picsou.service.ScpiPositionService;
 import com.picsou.service.UserContext;
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -23,7 +31,12 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -40,6 +53,8 @@ class AccountToolsTest {
     @Mock AccountService accountService;
     @Mock UserContext userContext;
     @Mock AccountConnectionService accountConnectionService;
+    @Mock ScpiPositionService scpiPositionService;
+    @Mock Validator validator;
     @InjectMocks AccountTools tools;
 
     @Test
@@ -85,7 +100,7 @@ class AccountToolsTest {
         FamilyMember member = FamilyMember.builder().id(MID).build();
         AccountResponse created = mock(AccountResponse.class);
         when(userContext.currentMember()).thenReturn(member);
-        when(accountService.create(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(member)))
+        when(accountService.create(org.mockito.ArgumentMatchers.any(), eq(member)))
             .thenReturn(created);
 
         AccountResponse out = tools.createManualAccount(
@@ -93,7 +108,7 @@ class AccountToolsTest {
 
         assertThat(out).isSameAs(created);
         ArgumentCaptor<AccountRequest> captor = ArgumentCaptor.forClass(AccountRequest.class);
-        verify(accountService).create(captor.capture(), org.mockito.ArgumentMatchers.eq(member));
+        verify(accountService).create(captor.capture(), eq(member));
         AccountRequest req = captor.getValue();
         assertThat(req.isManual()).isTrue();              // MCP can only create *manual* accounts
         assertThat(req.name()).isEqualTo("Livret");
@@ -106,15 +121,15 @@ class AccountToolsTest {
     void updateAccount_delegatesScopedToCurrentMember() {
         AccountResponse updated = mock(AccountResponse.class);
         when(userContext.currentMemberId()).thenReturn(MID);
-        when(accountService.update(org.mockito.ArgumentMatchers.eq(5L), org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.eq(MID))).thenReturn(updated);
+        when(accountService.update(eq(5L), org.mockito.ArgumentMatchers.any(),
+            eq(MID))).thenReturn(updated);
 
         AccountResponse out = tools.updateAccount(
             5L, "Renamed", AccountType.CHECKING, "EUR", null, null, null);
 
         assertThat(out).isSameAs(updated);
-        verify(accountService).update(org.mockito.ArgumentMatchers.eq(5L),
-            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(MID));
+        verify(accountService).update(eq(5L),
+            org.mockito.ArgumentMatchers.any(), eq(MID));
     }
 
     @Test
@@ -173,6 +188,7 @@ class AccountToolsTest {
             accountRepository, accountServiceForConn, walletRepository, exchangeSessionRepository,
             requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService,
             mock(com.picsou.service.CmesSyncService.class),
+            mock(com.picsou.service.CicSyncService.class),
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
             fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService);
         return new RealServiceFixture(realService, accountRepository, accountServiceForConn,
@@ -189,7 +205,7 @@ class AccountToolsTest {
         when(fixture.accountRepository().findByIdAndMemberId(5L, MID)).thenReturn(java.util.Optional.of(boursoAccount));
         when(fixture.accountRepository().findAllByMemberIdOrderByCreatedAtAsc(MID)).thenReturn(java.util.List.of(boursoAccount));
         when(fixture.boursoSyncService().clearSession(MID)).thenReturn(true);
-        AccountTools toolsWithReal = new AccountTools(accountService, userContext, fixture.service());
+        AccountTools toolsWithReal = new AccountTools(accountService, userContext, fixture.service(), scpiPositionService, validator);
         DeletionImpact impact = toolsWithReal.deleteAccount(5L);
         assertThat(impact.removesConnection()).isTrue();
         assertThat(impact.connectionLabel()).isEqualTo("BoursoBank");
@@ -216,7 +232,7 @@ class AccountToolsTest {
             liveAccounts.set(List.of(cash, securities));
             return null;
         }).when(fixture.accountService()).delete(5L, MID);
-        AccountTools toolsWithReal = new AccountTools(accountService, userContext, fixture.service());
+        AccountTools toolsWithReal = new AccountTools(accountService, userContext, fixture.service(), scpiPositionService, validator);
 
         DeletionImpact impact = toolsWithReal.deleteAccount(5L);
 
@@ -245,7 +261,7 @@ class AccountToolsTest {
             return null;
         }).when(fixture.accountService()).delete(5L, MID);
         when(fixture.tradeRepublicSyncService().clearSession(MID)).thenReturn(true);
-        AccountTools toolsWithReal = new AccountTools(accountService, userContext, fixture.service());
+        AccountTools toolsWithReal = new AccountTools(accountService, userContext, fixture.service(), scpiPositionService, validator);
 
         DeletionImpact impact = toolsWithReal.deleteAccount(5L);
 
@@ -259,16 +275,16 @@ class AccountToolsTest {
         BalanceSnapshot saved = mock(BalanceSnapshot.class);
         LocalDate date = LocalDate.of(2026, 6, 4);
         when(userContext.currentMemberId()).thenReturn(MID);
-        when(accountService.addManualSnapshot(org.mockito.ArgumentMatchers.eq(5L),
-            org.mockito.ArgumentMatchers.eq(MID), org.mockito.ArgumentMatchers.any(SnapshotRequest.class)))
+        when(accountService.addManualSnapshot(eq(5L),
+            eq(MID), org.mockito.ArgumentMatchers.any(SnapshotRequest.class)))
             .thenReturn(saved);
 
         BalanceSnapshot out = tools.addBalanceSnapshot(5L, new BigDecimal("250.50"), date);
 
         assertThat(out).isSameAs(saved);
         ArgumentCaptor<SnapshotRequest> captor = ArgumentCaptor.forClass(SnapshotRequest.class);
-        verify(accountService).addManualSnapshot(org.mockito.ArgumentMatchers.eq(5L),
-            org.mockito.ArgumentMatchers.eq(MID), captor.capture());
+        verify(accountService).addManualSnapshot(eq(5L),
+            eq(MID), captor.capture());
         assertThat(captor.getValue().balance()).isEqualByComparingTo("250.50");
         assertThat(captor.getValue().date()).isEqualTo(date);
     }
@@ -293,5 +309,74 @@ class AccountToolsTest {
         tools.deleteHolding(5L, "AAPL");
 
         verify(accountService).deleteHolding(5L, MID, "AAPL");
+    }
+
+    @Test
+    void setScpiPosition_delegatesToTheFormService_scopedToCurrentMember() {
+        ScpiPositionResponse saved = mock(ScpiPositionResponse.class);
+        when(userContext.currentMemberId()).thenReturn(MID);
+        when(scpiPositionService.save(anyLong(), anyLong(), any())).thenReturn(saved);
+
+        ScpiPositionResponse result = tools.setScpiPosition(5L, new BigDecimal("12.5"), new BigDecimal("200"),
+            new BigDecimal("180"), "Example REIM", "FR0000000000", DividendPolicy.REINVEST, LocalDate.of(2026, 6, 1),
+            new BigDecimal("9.6"), DistributionFrequency.QUARTERLY);
+
+        ArgumentCaptor<ScpiPositionRequest> captor = ArgumentCaptor.forClass(ScpiPositionRequest.class);
+        verify(scpiPositionService).save(eq(5L), eq(MID), captor.capture());
+        ScpiPositionRequest req = captor.getValue();
+        assertThat(result).isSameAs(saved);
+        assertThat(req.shareCount()).isEqualByComparingTo("12.5");
+        assertThat(req.subscriptionPriceEur()).isEqualByComparingTo("200");
+        assertThat(req.withdrawalPriceEur()).isEqualByComparingTo("180");
+        assertThat(req.managementCompany()).isEqualTo("Example REIM");
+        assertThat(req.isin()).isEqualTo("FR0000000000");
+        assertThat(req.dividendPolicy()).isEqualTo(DividendPolicy.REINVEST);
+        assertThat(req.jouissanceDate()).isEqualTo(LocalDate.of(2026, 6, 1));
+        assertThat(req.annualDistributionPerShareEur()).isEqualByComparingTo("9.6");
+        assertThat(req.distributionFrequency()).isEqualTo(DistributionFrequency.QUARTERLY);
+    }
+
+    @Test
+    void setScpiPosition_neverTouchesFundLinks_andKeepsOmittedDistribution() {
+        when(userContext.currentMemberId()).thenReturn(MID);
+
+        tools.setScpiPosition(5L, new BigDecimal("25"), null, null, null, null, null, null, null, null);
+
+        ArgumentCaptor<ScpiPositionRequest> captor = ArgumentCaptor.forClass(ScpiPositionRequest.class);
+        verify(scpiPositionService).save(eq(5L), eq(MID), captor.capture());
+        ScpiPositionRequest req = captor.getValue();
+        // Null fund codes are "not sent": the service leaves CORUM/Sofidy links as they are.
+        assertThat(req.corumFundCode()).isNull();
+        assertThat(req.sofidyFundCode()).isNull();
+        // Omitted distribution fields must not be read as an explicit clear.
+        assertThat(req.annualDistributionSpecified()).isFalse();
+        assertThat(req.distributionFrequencySpecified()).isFalse();
+    }
+
+    @Test
+    void setScpiPosition_rejectsANegativeShareCount() {
+        assertThatThrownBy(() -> toolsWithRealValidator().setScpiPosition(5L, new BigDecimal("-1"), null, null, null, null, null, null, null, null))
+            .isInstanceOf(ConstraintViolationException.class);
+        verify(scpiPositionService, never()).save(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void setScpiPosition_rejectsAMissingShareCount() {
+        assertThatThrownBy(() -> toolsWithRealValidator().setScpiPosition(5L, null, null, null, null, null, null, null, null, null))
+            .isInstanceOf(ConstraintViolationException.class);
+        verify(scpiPositionService, never()).save(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void setScpiPosition_rejectsAnIsinLongerThanTheColumn() {
+        assertThatThrownBy(() -> toolsWithRealValidator().setScpiPosition(5L, BigDecimal.ONE, null, null, null, "FR00140099999X", null, null, null, null))
+            .isInstanceOf(ConstraintViolationException.class);
+        verify(scpiPositionService, never()).save(anyLong(), anyLong(), any());
+    }
+
+    /** A real validator: the tool must reject what the REST controller's {@code @Valid} rejects. */
+    private AccountTools toolsWithRealValidator() {
+        Validator real = Validation.buildDefaultValidatorFactory().getValidator();
+        return new AccountTools(accountService, userContext, accountConnectionService, scpiPositionService, real);
     }
 }

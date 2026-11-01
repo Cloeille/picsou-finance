@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { useDashboard, useNetWorthIntraday, usePnl } from '@/features/dashboard/hooks'
 import { useHistory } from '@/features/history/hooks'
 import { useBankSyncStatus } from '@/features/sync/hooks'
@@ -40,6 +40,7 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { TrendingUp, TrendingDown, Plus, RefreshCw, ChevronDown, AlertTriangle } from 'lucide-react'
 import { GoalDetailModal } from '@/pages/goals/GoalDetailModal'
+import { formatPercent } from '@/lib/utils'
 
 type WealthMode = 'net' | 'gross' | 'financial'
 
@@ -133,8 +134,8 @@ export function DashboardPage() {
   // ALL uses live PnL; selected ranges use only their range PnL. Unknown is not zero.
   const pnl = range === 'ALL' ? (pnlData?.pnl ?? null) : (pnlData?.rangePnl ?? null)
   const pnlPct = range === 'ALL'
-    ? (pnlData?.pnlPercent != null ? pnlData.pnlPercent.toFixed(1) : null)
-    : (pnlData?.rangePnlPercent != null ? pnlData.rangePnlPercent.toFixed(1) : null)
+    ? (pnlData?.pnlPercent ?? null)
+    : (pnlData?.rangePnlPercent ?? null)
   const pnlPositive = pnl != null && pnl >= 0
 
   if (isLoading || !data) {
@@ -219,12 +220,12 @@ export function DashboardPage() {
           {(data.totalLiabilities ?? 0) > 0 && wealthMode === 'net' && (
             <div className="mt-2 flex items-center gap-4 text-sm">
               <span className="text-muted-foreground">
-                {t('dashboard.totalAssets')}:
+                {t('common.labelColon', { label: t('dashboard.totalAssets') })}
               </span>
               <CurrencyDisplay value={data.totalNetWorth + (data.totalLiabilities ?? 0)} />
               <span className="text-red-500">-</span>
               <span className="text-muted-foreground">
-                {t('dashboard.totalLiabilities')}:
+                {t('common.labelColon', { label: t('dashboard.totalLiabilities') })}
               </span>
               <CurrencyDisplay value={data.totalLiabilities ?? 0} className="text-red-500" />
             </div>
@@ -242,7 +243,7 @@ export function DashboardPage() {
                   <CurrencyDisplay value={pnl} />
                   {pnlPct !== null && (
                     <span className="ml-1 font-normal text-muted-foreground">
-                      ({pnlPositive ? '+' : ''}{pnlPct}%)
+                      ({formatPercent(pnlPct, { signed: true })})
                     </span>
                   )}
                 </span>
@@ -321,7 +322,7 @@ export function DashboardPage() {
                   </ItemContent>
                   <ItemFooter>
                     <span className="text-sm text-muted-foreground">
-                      {Math.round(goal.percentComplete ?? 0)}% {t('dashboard.achieved')}
+                      {formatPercent(goal.percentComplete ?? 0, { fractionDigits: 0 })} {t('dashboard.achieved')}
                     </span>
                     <CurrencyDisplay
                       value={goal.targetAmount ?? 0}

@@ -149,6 +149,20 @@ public class RateLimitConfig {
      * 15 minutes. Every attempt sends the password to the site, which locks an
      * access after a few wrong passwords.
      */
+    @Bean("cicAuthBuckets")
+    public Map<String, Bucket> cicAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
+     * Per-IP CIC second-factor rate limiter, kept apart from the login budget so a
+     * confirmation or a retyped SMS code is never refused once the phone was notified.
+     */
+    @Bean("cicCompleteBuckets")
+    public Map<String, Bucket> cicCompleteBuckets() {
+        return boundedBucketStore();
+    }
+
     @Bean("cmesAuthBuckets")
     public Map<String, Bucket> cmesAuthBuckets() {
         return boundedBucketStore();
@@ -454,6 +468,16 @@ public class RateLimitConfig {
             .build();
     }
 
+    /** CIC online banking: same platform and same lockout as Épargne Salariale. */
+    public static Bucket createCicAuthBucket() {
+        return createCmesAuthBucket();
+    }
+
+    /** CIC second factor: same platform and same budget as Épargne Salariale's. */
+    public static Bucket createCicCompleteBucket() {
+        return createCmesCompleteBucket();
+    }
+
     /** Five password checks per 15 minutes: only {@code /auth/initiate} sends the password. */
     public static Bucket createCmesAuthBucket() {
         return Bucket.builder()
@@ -615,11 +639,16 @@ public class RateLimitConfig {
      * (each user turn can fan out into several tool calls) while capping a runaway or hostile key.
      */
     public static Bucket createMcpKeyBucket() {
+        return createMcpKeyBucket(TimeMeter.SYSTEM_NANOTIME);
+    }
+
+    static Bucket createMcpKeyBucket(TimeMeter timeMeter) {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(120)
                 .refillIntervally(120, Duration.ofMinutes(1))
                 .build())
+            .withCustomTimePrecision(timeMeter)
             .build();
     }
 

@@ -40,6 +40,15 @@ export function normalizeIntlLocale(locale: string): string {
   }
 }
 
+/**
+ * Swaps ICU's narrow no-break space (U+202F, the French digit-group and percent separator) for a
+ * plain one. Geist has no U+202F glyph, so the browser drew a fallback sliver and "51 646,95 €"
+ * read as "51646,95 €". U+00A0 is in the font and does not break a line either.
+ */
+export function withDrawableSpaces(formatted: string): string {
+  return formatted.replace(/\u202f/g, '\u00a0')
+}
+
 // formatCurrency used to live here. It moved to `lib/money.ts` and became private, so that every
 // amount on screen goes through the formatter that knows whether amounts are hidden. Reaching for
 // a raw currency format is now a compile error rather than a silent leak during a demo.
@@ -130,8 +139,39 @@ export function formatDateTime(dateStr: string | null | undefined, locale = getL
   return new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(d)
 }
 
-export function formatPercent(value: number, locale = getLocale()): string {
-  return new Intl.NumberFormat(locale, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)
+/**
+ * A percentage given in points (`8.3` → "8,3 %" in French, "8.3%" in English). Every percentage on
+ * screen goes through here: the locale, not a `toFixed(1) + '%'`, owns the separator and the space.
+ */
+export function formatPercent(
+  points: number,
+  { fractionDigits = 1, signed = false }: { fractionDigits?: number; signed?: boolean } = {},
+  locale = getLocale(),
+): string {
+  return withDrawableSpaces(new Intl.NumberFormat(normalizeIntlLocale(locale), {
+    style: 'percent',
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+    signDisplay: signed ? 'exceptZero' : 'auto',
+  }).format(points / 100))
+}
+
+/** A plain decimal at a fixed precision, with the locale's separator. */
+export function formatDecimal(value: number, fractionDigits: number, locale = getLocale()): string {
+  return withDrawableSpaces(new Intl.NumberFormat(normalizeIntlLocale(locale), {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(value))
+}
+
+/** A count or a quantity at Intl's default precision (up to three decimals), grouped by the locale. */
+export function formatNumber(value: number, locale = getLocale()): string {
+  return withDrawableSpaces(new Intl.NumberFormat(normalizeIntlLocale(locale)).format(value))
+}
+
+/** A holding quantity, up to eight decimals so a small crypto position such as 0.0001 does not show as 0. */
+export function formatQuantity(value: number, locale = getLocale()): string {
+  return withDrawableSpaces(new Intl.NumberFormat(normalizeIntlLocale(locale), { maximumFractionDigits: 8 }).format(value))
 }
 
 function capitalizeFirstCharacter(value: string, locale = getLocale()): string {
@@ -145,9 +185,47 @@ export function todayLabel(locale = getLocale(), date = new Date()): string {
   return capitalizeFirstCharacter(label, safeLocale)
 }
 
-export function formatLocalDate(dateStr: string | null | undefined, locale = getLocale()): string {
+const graphemeSegmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null
+
+/**
+ * First `count` user-perceived characters of `value`. Never splits a surrogate pair. Where Intl.Segmenter
+ * is available, also keeps ZWJ emojis, flags and combining accents whole; otherwise falls back to code points.
+ */
+export function firstGraphemes(value: string, count: number): string {
+  const parts = graphemeSegmenter
+    ? Array.from(graphemeSegmenter.segment(value), (s) => s.segment)
+    : Array.from(value)
+  return parts.slice(0, count).join('')
+}
+
+/** First character of up to two words, else the first two characters (user-perceived, not UTF-16 units). Always uppercase. At most two characters. */
+export function deriveMonogram(label: string | null | undefined): string {
+  const clean = (label ?? '').trim()
+  if (!clean) return '•'
+  const words = clean.split(/\s+/).filter(Boolean)
+  const letters =
+    words.length >= 2
+      ? firstGraphemes(words[0]!.toUpperCase(), 1) + firstGraphemes(words[1]!.toUpperCase(), 1)
+      : firstGraphemes(clean.toUpperCase(), 2)
+  return letters
+}
+
+export function formatLocalDate(
+  dateStr: string | null | undefined,
+  locale = getLocale(),
+  options: Pick<Intl.DateTimeFormatOptions, 'weekday'> = {},
+): string {
   if (!dateStr) return '—'
-  return new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'long', year: 'numeric' }).format(toDate(dateStr))
+  const d = toDate(dateStr)
+  const parts = new Intl.DateTimeFormat(locale, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    ...options,
+  }).formatToParts(d)
+  // French writes the first of the month as an ordinal ("1er octobre"); Intl has no option for it.
+  const firstOrdinal = d.getDate() === 1 && locale.toLowerCase().startsWith('fr')
+  return parts.map((p) => (p.type === 'day' && firstOrdinal ? '1er' : p.value)).join('')
 }
 
 /**

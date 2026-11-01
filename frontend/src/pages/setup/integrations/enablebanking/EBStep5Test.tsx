@@ -1,18 +1,22 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { CheckCircle2, CircleAlert, Info, Loader2, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EBSubstepShell } from './EBSubstepShell'
 import { useTestEnableBanking } from '@/features/setup/hooks'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'
 import { nextIntegrationRoute } from '../navigation'
+import { formatApiError } from '@/lib/errors'
 
 interface Props {
   onBack: () => void
 }
 
-type Phase = 'idle' | 'running' | 'ok' | 'ko'
+type TestState =
+  | { phase: 'idle' | 'running' | 'ok' }
+  | { phase: 'ko'; code: string }
+  | { phase: 'ko'; error: unknown }
 
 const KNOWN_CODES = new Set([
   'invalid_application_id',
@@ -30,41 +34,36 @@ export function EBStep5Test({ onBack }: Props) {
   const markDone = useSetupFlowStore((s) => s.markIntegrationDone)
   const updateEbDraft = useSetupFlowStore((s) => s.updateEbDraft)
 
-  const [phase, setPhase] = useState<Phase>('idle')
-  const [failCode, setFailCode] = useState<string | null>(null)
+  const [state, setState] = useState<TestState>({ phase: 'idle' })
+  const { phase } = state
 
   const run = () => {
-    setPhase('running')
-    setFailCode(null)
+    setState({ phase: 'running' })
     test.mutate(undefined, {
       onSuccess: (result) => {
         if (result.ok) {
-          setPhase('ok')
+          setState({ phase: 'ok' })
           updateEbDraft({ tested: true })
           markDone('enablebanking')
         } else {
-          setPhase('ko')
-          setFailCode(result.code)
+          setState({ phase: 'ko', code: result.code })
         }
       },
-      onError: () => {
-        setPhase('ko')
-        setFailCode('network')
+      onError: (err) => {
+        setState({ phase: 'ko', error: err })
       },
     })
   }
 
   const proceed = () => navigate(nextIntegrationRoute('enablebanking', selected))
 
-  /**
-   * Translate the backend's structured code to a friendly hint. Any code
-   * we don't recognize falls back to the `unknown` message — we never dump
-   * a raw code at the user; it's meaningless noise to a self-hoster.
-   */
-  const hintKey =
-    failCode && KNOWN_CODES.has(failCode)
-      ? `setup.enablebanking.test.hints.${failCode}`
-      : 'setup.enablebanking.test.hints.unknown'
+  const failureMessage = state.phase !== 'ko'
+    ? null
+    : 'error' in state
+      ? formatApiError(state.error, t)
+      : t(KNOWN_CODES.has(state.code)
+        ? `setup.enablebanking.test.hints.${state.code}`
+        : 'setup.enablebanking.test.hints.unknown')
 
   return (
     <EBSubstepShell current={5} total={5}>
@@ -111,9 +110,10 @@ export function EBStep5Test({ onBack }: Props) {
         )}
 
         {phase === 'ok' && (
-          <div className="space-y-4 rounded-2xl border border-emerald-500/40 bg-emerald-500/5 p-6 text-center">
+          <div role="status" className="space-y-4 rounded-2xl border border-emerald-500/40 bg-emerald-500/5 p-6 text-center">
             <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500" />
             <p className="text-lg font-medium">{t('setup.enablebanking.test.success')}</p>
+            <p className="text-sm text-muted-foreground">{t('setup.enablebanking.test.successBody')}</p>
             <Button
               onClick={proceed}
               className="w-full rounded-full"
@@ -130,7 +130,7 @@ export function EBStep5Test({ onBack }: Props) {
           >
             <div className="flex items-start gap-3">
               <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
-              <p className="text-sm text-destructive">{t(hintKey)}</p>
+              <p className="text-sm text-destructive">{failureMessage}</p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
               <Button

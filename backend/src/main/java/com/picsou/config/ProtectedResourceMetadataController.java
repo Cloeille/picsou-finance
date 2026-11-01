@@ -36,8 +36,8 @@ public class ProtectedResourceMetadataController {
     @GetMapping(PATH)
     public Map<String, Object> metadata(HttpServletRequest request) {
         // Derived straight from the request (not a configured base-url property) so the document is
-        // correct behind the reverse proxy: forward-headers-strategy: framework already rewrote
-        // scheme/host/port from X-Forwarded-* before this controller runs.
+        // correct behind the reverse proxy: forward-headers-strategy: native already rewrote
+        // scheme/host/port from X-Forwarded-* supplied by a configured proxy.
         String base = ServletUriComponentsBuilder.fromContextPath(request).build().toUriString();
 
         Map<String, Object> body = new LinkedHashMap<>();

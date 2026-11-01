@@ -44,7 +44,8 @@ const UNKNOWN_POINT_TOOLTIP: TooltipEntry[] = [
   },
 ]
 
-vi.mock('recharts', () => {
+vi.mock('recharts', async (importOriginal) => {
+  const { getNiceTickValues } = await importOriginal<typeof import('recharts')>()
   const ResponsiveContainer = ({ children }: { children?: ReactNode }) => <div>{children}</div>
   const AreaChart = ({ data, children }: { data: ChartPoint[]; children?: ReactNode }) => (
     <div data-testid="area-chart">
@@ -63,6 +64,7 @@ vi.mock('recharts', () => {
   const Empty = () => null
 
   return {
+    getNiceTickValues,
     ResponsiveContainer,
     AreaChart,
     Area,
@@ -71,7 +73,7 @@ vi.mock('recharts', () => {
     CartesianGrid: Empty,
     ReferenceLine: Empty,
     XAxis: Empty,
-    YAxis: Empty,
+    YAxis: ({ width }: { width?: number }) => <span data-testid="y-axis" data-width={width} />,
     Tooltip: Empty,
   }
 })
@@ -95,7 +97,7 @@ vi.mock('@/components/shared/EmptyChartState', () => ({ EmptyChartState: () => n
 vi.mock('@/hooks/use-money', () => ({
   useMoney: () => ({
     amount: (value: number) => String(value),
-    tick: (formatter: (value: number) => string) => formatter,
+    tick: (value: number) => String(value),
   }),
 }))
 vi.mock('react-i18next', () => ({
@@ -132,5 +134,28 @@ describe('NetWorthChart nullable performance data', () => {
     expect(tooltip).not.toHaveTextContent('dashboard.gainLoss')
     const displayedValues = Array.from(tooltip.querySelectorAll('span'), span => span.textContent?.trim())
     expect(displayedValues).not.toContain('0')
+  })
+})
+
+describe('NetWorthChart Y axis width', () => {
+  const axisWidth = (props: { invested: number | null; showInvested: boolean }) => {
+    const { unmount } = render(
+      <NetWorthChart
+        data={[{ date: '2026-02-01', total: 100, invested: props.invested, pnl: null }]}
+        range="ALL"
+        onRangeChange={() => {}}
+        showInvested={props.showInvested}
+      />,
+    )
+    const width = Number(screen.getByTestId('y-axis').dataset.width)
+    unmount()
+    return width
+  }
+
+  it('is sized for the visible series only when invested capital is hidden', () => {
+    const withoutInvestedData = axisWidth({ invested: null, showInvested: false })
+
+    expect(axisWidth({ invested: 100_000, showInvested: false })).toBe(withoutInvestedData)
+    expect(axisWidth({ invested: 100_000, showInvested: true })).toBeGreaterThan(withoutInvestedData)
   })
 })
