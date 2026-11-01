@@ -115,15 +115,15 @@ for name in $compose_sidecars; do
   extra_env=$(yq -r ".services[\"$name\"].environment // {} | keys | .[]
     | select(. != \"APP_SIDECAR_API_KEY\")" "$compose" | tr '\n' ' ')
 
-  sidecar_error=false
+  wiring_error=false
   if printf '%s\n' "$chart_sidecars" | grep -qx "$name"; then
     chart_port=$(yq -r ".sidecars[\"$name\"].port" "$values")
     chart_env=$(yq -r ".sidecars[\"$name\"].urlEnv" "$values")
     if [ -z "$wiring" ]; then
-      sidecar_error=true
+      wiring_error=true
       add_finding "$name" unwired "no *_AUTH_URL of the app service points at it"
     elif [ "$chart_port" != "$port" ] || [ "$chart_env" != "$url_env" ]; then
-      sidecar_error=true
+      wiring_error=true
       add_finding "$name" mismatch "Compose: $url_env on port $port, chart: $chart_env on port $chart_port"
     fi
     # Compare capabilities for every listed sidecar, not just known service names.
@@ -131,13 +131,11 @@ for name in $compose_sidecars; do
     compose_has_volumes=$(yq -r ".services[\"$name\"].volumes // [] | length > 0" "$compose")
     if [ "$compose_has_volumes" = true ] &&
        [ "$(yq -r ".sidecars[\"$name\"].persistence.enabled // false" "$values")" != true ]; then
-      sidecar_error=true
       add_finding "$name" drift "Compose volumes require sidecars.$name.persistence.enabled=true"
     fi
     compose_init=$(yq -r ".services[\"$name\"].init // false" "$compose")
     if [ "$compose_init" = true ] &&
        [ "$(yq -r ".sidecars[\"$name\"].shareProcessNamespace // false" "$values")" != true ]; then
-      sidecar_error=true
       add_finding "$name" drift "Compose init requires sidecars.$name.shareProcessNamespace=true"
     fi
     extra_keys=$(printf '%s\n' "$extra_keys" | awk '
@@ -153,16 +151,17 @@ for name in $compose_sidecars; do
       BEGIN { count = split(known, names, "\n"); for (i = 1; i <= count; i++) present[names[i]] = 1 }
       { for (i = 1; i <= NF; i++) if (!present[$i]) printf "%s ", $i }')
     if [ -n "$missing_env" ]; then
-      sidecar_error=true
       add_finding "$name" drift "Compose variables missing from chart env/extraEnv: ${missing_env% }"
     fi
     if [ -n "$extra_keys" ]; then
       detail="review custom chart settings: keys ${extra_keys% }"
       add_finding "$name" special "$detail"
     fi
-    if [ "$mode" = apply ] && [ "$sidecar_error" = true ]; then
+    # Capability drift does not prove an existing sidecar is unusable. Preserve
+    # its settings so an optional Compose change cannot remove a working bank sync.
+    if [ "$mode" = apply ] && [ "$wiring_error" = true ]; then
       disable_in_values "$name"
-      add_finding "$name" disabled "left out of the packaged chart until its wiring or capabilities are corrected"
+      add_finding "$name" disabled "left out of the packaged chart until its wiring is corrected"
     fi
     continue
   fi

@@ -408,13 +408,18 @@ differences as warnings and never fails because of them. The repository inventor
 test accepts exit codes 0 (in sync) and 2 (drift), while script errors still fail
 that check. Supported customization tests use a frozen synthetic inventory so
 new Compose sidecars cannot make those assertions block releases. All script tests
-live in `charts/picsou/tests` and run only in the independent chart job. Helm validation
+live in `charts/picsou/tests` and run in PR validation and before chart publication. Helm validation
 is independent of `ci-ok` and image publishing, so a chart failure does not block application releases.
 When publishing, stale entries are disabled in the packaged values so removed images
-are never deployed. Port or URL-variable mismatches, missing app wiring and semantic `drift` findings
-disable the affected sidecars in the packaged values, including custom sidecars,
-and emit warnings. This keeps Compose-only changes from blocking chart publication
-without deploying known-broken sidecars. Script usage, read and write errors still fail.
+are never deployed. Port or URL-variable mismatches and missing app wiring disable
+the affected sidecars in the packaged values, including custom sidecars, and emit warnings.
+Capability `drift` (volumes, `init` or extra environment variables) only warns and preserves
+existing entries, including their enabled state: an optional Compose setting must not
+silently remove a working bank integration. Review these warnings to decide which chart
+settings need updating. Script usage, read and write errors still fail.
+Before packaging and pushing, the publishing job runs the same strict lint, default and
+optional-resource renders, and chart tests as PR validation. A failure stops chart
+publication; the commit's images have already been published.
 The missing standard sidecars are added to the packaged chart,
 so a new sidecar of that kind is available without a chart change; the others
 are left out of the published chart until it supports them.

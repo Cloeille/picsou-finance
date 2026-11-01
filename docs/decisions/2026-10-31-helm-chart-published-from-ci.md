@@ -31,10 +31,13 @@ bootstrap. A chart that does not move with them breaks silently.
    sidecars with `values.yaml`: publishing adds the standard ones to the packaged chart, the
    `helm-chart` job of `ci.yml` reports differences as warnings and fails only on a broken chart.
    This independent check is not a dependency of `ci-ok` or image publishing.
-   Sidecars that need more than the generic template are left out of the published chart until
-   the chart maintainer adds them. Existing sidecars with detected wiring or capability
-   drift are disabled in the packaged values with warnings, so Compose-only changes
-   cannot block chart publication; script errors still fail.
+   Missing sidecars that need more than the generic template are left out of the published
+   chart until the chart maintainer adds them. Existing sidecars with stale images or broken
+   URL wiring are disabled in the packaged values with warnings. Capability drift only warns
+   and preserves existing entries: a new optional Compose setting does not prove a working
+   integration is unusable. Script errors still fail. The publishing job repeats PR chart
+   validation (strict lint, default and optional-resource renders, chart tests) before packaging
+   and pushing. Failures stop chart publication after application images are already published.
 5. **Upgrades migrate before the app is replaced**: a `pre-upgrade` Job runs `ReleaseMigrationCli
    migrate` then `verify`, as [the release migrations ADR](./2026-10-08-rehearse-release-migrations.md)
    requires of `docker/deploy.sh`.

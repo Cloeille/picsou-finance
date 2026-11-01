@@ -162,6 +162,35 @@ class SyncSidecarsTest(unittest.TestCase):
         self.assertNotIn(f"name: picsou-{name}\n", rendered.stdout)
         self.assertNotIn(f"http://picsou-{name}:", rendered.stdout)
 
+    def assert_apply_preserves_drift(self):
+        before = self.values.read_bytes()
+        result = self.run_script("--apply", "--json")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.values.read_bytes(), before)
+        kinds = {f["kind"] for f in json.loads(result.stdout)}
+        self.assertIn("drift", kinds)
+        self.assertNotIn("disabled", kinds)
+        result = self.run_script("--apply", "--github")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::warning title=Helm chart:", result.stdout)
+        self.assertEqual(self.values.read_bytes(), before)
+
+    def test_apply_preserves_enabled_and_disabled_entries_with_extra_compose_env(self):
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled):
+                self.single("image: x\nenvironment:\n  LOG_LEVEL: debug\n")
+                if not enabled:
+                    self.values.write_text(self.values.read_text().replace(
+                        "enabled: true", "enabled: false"))
+                self.assert_apply_preserves_drift()
+                rendered = subprocess.run(
+                    ["helm", "template", "picsou", str(VALUES.parent), "-f", str(self.values)],
+                    check=True, capture_output=True, text=True,
+                )
+                self.assertEqual("name: picsou-x-auth\n" in rendered.stdout, enabled)
+                expected_url = "http://picsou-x-auth:8001" if enabled else "http://127.0.0.1:8001"
+                self.assertIn(expected_url, rendered.stdout)
+
     def test_repository_inventory_check_succeeds(self):
         result = self.run_script("--check", "--json",
                                  compose=ROOT / "docker/docker-compose.yml", values=VALUES)
@@ -219,19 +248,13 @@ class SyncSidecarsTest(unittest.TestCase):
     def test_a_generic_compose_volume_needs_persistence_in_the_chart_entry(self):
         service = "image: x\nvolumes: [data:/data]\n"
         self.assertIn("volumes", self.single(service)["drift"])
-        result = self.run_script("--apply", "--json")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assert_sidecar_disabled("x-auth")
-        self.assertIn("disabled", {f["kind"] for f in json.loads(result.stdout)})
+        self.assert_apply_preserves_drift()
         self.assertEqual(self.single(service, "persistence:\n  enabled: true\n"), {})
 
     def test_generic_compose_init_needs_share_process_namespace(self):
         service = "image: x\ninit: true\n"
         self.assertIn("shareProcessNamespace", self.single(service)["drift"])
-        result = self.run_script("--apply", "--json")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assert_sidecar_disabled("x-auth")
-        self.assertIn("disabled", {f["kind"] for f in json.loads(result.stdout)})
+        self.assert_apply_preserves_drift()
         self.assertEqual(self.single(service, "shareProcessNamespace: true\n"), {})
 
     def test_a_generic_compose_variable_needs_chart_env_or_extra_env(self):
@@ -254,9 +277,7 @@ class SyncSidecarsTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
                 self.assertIn((sidecar, "drift"),
                               {(f["sidecar"], f["kind"]) for f in json.loads(result.stdout)})
-                result = self.run_script("--apply", "--json")
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assert_sidecar_disabled(sidecar)
+                self.assert_apply_preserves_drift()
 
     def test_unused_supported_settings_do_not_require_chart_equivalents(self):
         self.compose.write_text(CUSTOM_COMPOSE.replace(
@@ -281,10 +302,7 @@ class SyncSidecarsTest(unittest.TestCase):
         findings = json.loads(result.stdout)
         self.assertTrue(any(f["sidecar"] == "amex-auth" and f["kind"] == "drift"
                             and "BROWSER_MODE" in f["detail"] for f in findings), findings)
-        result = self.run_script("--apply", "--json", "--github")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assert_sidecar_disabled("amex-auth")
-        self.assertIn("disabled", {f["kind"] for f in json.loads(result.stdout)})
+        self.assert_apply_preserves_drift()
 
         for setting in ("    env:\n      BROWSER_MODE: synthetic\n",
                         "    extraEnv:\n      - name: BROWSER_MODE\n        value: synthetic\n"):

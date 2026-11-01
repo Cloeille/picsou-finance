@@ -371,13 +371,29 @@ jobs:
           sed -i "s|^  imageRepository: .*|  imageRepository: ${repository}|" charts/picsou/values.yaml
           [ "$(yq -r .global.imageRepository charts/picsou/values.yaml)" = "$repository" ]
 
+      - name: Lint the chart
+        if: steps.version.outputs.publish == 'true'
+        run: helm lint --strict charts/picsou
+      - name: Render the default and the optional resources
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          helm template picsou charts/picsou > /dev/null
+          helm template picsou charts/picsou \
+            --set ingress.enabled=true \
+            --set httpRoute.enabled=true --set 'httpRoute.parentRefs[0].name=gateway' \
+            --set postgresql.enabled=false --set externalDatabase.host=db \
+            --set secrets.existingSecret=picsou --set app.enableBanking.existingSecret=eb \
+            --set 'networkPolicy.appIngressFrom[0].podSelector.matchLabels.app=ingress' > /dev/null
+      - name: Test chart storage and upgrade safety
+        if: steps.version.outputs.publish == 'true'
+        run: python3 -m unittest discover -s charts/picsou/tests -v
+
       - name: Package
         if: steps.version.outputs.publish == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           APP_VERSION: ${{ steps.version.outputs.app-version }}
         run: |
-          helm lint --strict charts/picsou
           helm package charts/picsou --version "$VERSION" --app-version "$APP_VERSION" --destination dist
 
       - name: Push to GHCR

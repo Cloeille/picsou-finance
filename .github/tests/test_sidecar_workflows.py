@@ -202,7 +202,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         self.assertNotIn("PUBLISH", version["env"])
         self.assertNotIn("$PUBLISH", version["run"])
         downstream = chart["steps"][chart["steps"].index(version) + 1:]
-        self.assertEqual(len(downstream), 4)
+        self.assertEqual(len(downstream), 7)
         for step in downstream:
             self.assertEqual(step["if"], "steps.version.outputs.publish == 'true'")
         metadata = next(step for step in build["steps"] if step.get("id") == "meta")

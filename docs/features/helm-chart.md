@@ -70,10 +70,12 @@ which lowercases repository names so mixed-case GitHub owners and forks publish 
 
 Before packaging, `sync-sidecars.sh --apply` adds to the packaged copy the standard sidecars that
 `values.yaml` does not list yet and disables entries removed from Compose, preserving their other
-settings. Port or URL-variable mismatches, missing app wiring and semantic `drift`
-(missing chart capabilities) disable affected sidecars in the packaged values and warn,
-including for custom sidecars. Compose-only changes cannot block publication or deploy
-known-broken sidecars; script errors still fail. `--check` remains warning-only in CI.
+settings. Port or URL-variable mismatches and missing app wiring disable affected
+sidecars in the packaged values and warn, including for custom sidecars. Capability
+`drift` (volumes, `init` or extra variables) warns without modifying existing entries
+or their enabled state, so an optional Compose change cannot remove a working bank
+integration. These warnings need manual review for chart configuration updates.
+Script errors still fail. `--check` remains warning-only in CI.
 Live inventory tests parse a JSON array and accept exit 0 or 2; supported customization checks use a frozen synthetic
 inventory so new Compose sidecars cannot turn inventory drift into a release-blocking test failure.
 `global.imageRepository` is set to `ghcr.io/<repository>`, where
@@ -82,6 +84,10 @@ committed back). The `helm-chart` job of `ci.yml`
 lints and renders the chart and runs `sync-sidecars.sh --check` on pull requests that touch the
 chart, the Compose file or the workflows; differences are warnings, a broken chart fails
 that independent check. Neither `ci-ok` nor image publishing depends on `helm-chart`.
+After synchronizing the packaged values and setting the image repository, the publishing
+job repeats the same strict lint, default and optional-resource render matrix, and full
+chart test suite before packaging and pushing. Validation failures stop chart publication
+without affecting images that have already been pushed.
 Changes under `.github/` select every validation job, including `helm-chart` and
 `sidecar-package`. Changes under `services/base/` select the shared-package tests and
 all sidecar image tests, without selecting Helm validation.
@@ -254,7 +260,7 @@ helm upgrade
   the published chart until `values.yaml` and the templates support it; `sync-sidecars.sh --check`
   lists it. For every existing entry, volumes require `persistence.enabled`, `init: true`
   requires `shareProcessNamespace`, and extra variables must exist in `env` or
-  `extraEnv`; missing equivalents emit `drift` and disable the entry on `--apply`.
+  `extraEnv`; missing equivalents emit `drift` and preserve the entry on `--apply`.
   HTTP and HTTPS app URLs are recognized. Compose networks are acknowledged through
   NetworkPolicies for every sidecar; other unsupported keys still warn. These checks verify
   chart capabilities, not individual mount or network-rule equivalence. JSON mode
