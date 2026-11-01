@@ -65,10 +65,6 @@ jobs:
             docker-entrypoint:
               - *workflows
               - 'docker/**'
-              - 'docker-compose.yml'
-              - 'frontend/Dockerfile'
-              - 'frontend/nginx.conf'
-              - 'frontend/picsou-realip.conf'
             backend:
               - *workflows
               - 'backend/**'
@@ -147,12 +143,16 @@ jobs:
             workflow-inventory:
               - *workflows
               - 'services/**'
-              - 'docker-compose.yml'
+              - 'backend/src/main/resources/application*.yml'
+              - '.env.example'
+              - 'docker/.env.example'
+              - 'docker/entrypoint.sh'
               - 'docker/docker-compose.yml'
               - 'docker/Dockerfile'
             helm-chart:
               - *workflows
               - 'charts/**'
+              - 'backend/src/main/resources/application.yml'
               - 'docker/docker-compose.yml'
             e2e:
               - *workflows
