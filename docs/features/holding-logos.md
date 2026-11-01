@@ -21,9 +21,10 @@ shared `HoldingLogo` renders them in:
   disc: its only initials would repeat the ticker printed beside it.
 - `HoldingDetailModal`: the mark beside the title, only when there is one. That header never
   had a disc, so an absent mark leaves it unchanged.
-
-`HoldingsCard` does not show one. It is a *portfolio line* (an account, not a holding), so the
-identity on it is the account, which already has a logo from `bank-logos.md`.
+- `HoldingsCard` (the dashboard's holdings list): each portfolio line is one holding in one
+  account and carries the holding's `logoUrl` / `logoUrlDark`. With a mark, it replaces the
+  ticker box. Without one (cash rows, a holding the sources have no mark for), the ticker box
+  stays as before.
 
 `logoUrlDark` is a mark drawn for a dark background, set only when the source has a distinct
 one (Apple's is black on the light variant, white on the dark one). `HoldingLogo` picks it when

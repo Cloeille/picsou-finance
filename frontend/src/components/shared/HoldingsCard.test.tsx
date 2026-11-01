@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PortfolioLine } from '@/features/accounts/hooks'
+import { StubImage } from '@/test/stubImage'
 const { modalRender } = vi.hoisted(() => ({ modalRender: vi.fn() }))
 
 vi.mock('react-i18next', () => ({
@@ -119,6 +120,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 describe('HoldingsCard', () => {
@@ -210,5 +212,27 @@ describe('HoldingsCard', () => {
     expect(screen.getByText('350')).toBeInTheDocument()
     expect(screen.queryByRole('img', { name: 'accounts.priceLive' })).not.toBeInTheDocument()
     expect(screen.queryByRole('img', { name: 'accounts.priceAsOf 2026-08-18' })).not.toBeInTheDocument()
+  })
+  it("shows the holding's logo in place of the ticker box when one was resolved", async () => {
+    vi.stubGlobal('Image', StubImage)
+    const logo = '/api/instrument-logos/AI.PA'
+    setPortfolioData([{ ...normalLine, logoUrl: logo }])
+
+    const { container } = render(<HoldingsCard />)
+
+    await waitFor(() => {
+      expect(container.querySelector('img')).toHaveAttribute('src', logo)
+    })
+    expect(container.querySelector('img')).toHaveAttribute('alt', 'AI.PA')
+    expect(screen.queryByText('AI.P')).not.toBeInTheDocument()
+  })
+
+  it('keeps the ticker box for a holding without a logo', () => {
+    setPortfolioData([{ ...normalLine, logoUrl: null }])
+
+    const { container } = render(<HoldingsCard />)
+
+    expect(screen.getByText('AI.P')).toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
   })
 })

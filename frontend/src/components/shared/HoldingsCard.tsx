@@ -28,6 +28,7 @@ import { accountTypeLabelKey } from '@/lib/constants'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { formatApiError } from '@/lib/errors'
 import { HoldingDetailModal } from '@/components/shared/HoldingDetailModal'
+import { HoldingLogo } from '@/components/shared/HoldingLogo'
 import type { Account } from '@/types/api'
 
 type FilterType = 'all' | Account['type'] | 'cash'
@@ -53,9 +54,19 @@ function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick?: () => 
       onClick={onClick}
     >
       <ItemMedia>
-        <div className="flex size-12 items-center justify-center rounded-lg border text-sm font-semibold">
-          {line.ticker ? line.ticker.slice(0, 4) : line.name.slice(0, 3).toUpperCase()}
-        </div>
+        {line.ticker && line.logoUrl ? (
+          <HoldingLogo
+            logoUrl={line.logoUrl}
+            logoUrlDark={line.logoUrlDark}
+            ticker={line.ticker}
+            name={displayName}
+            className="size-12"
+          />
+        ) : (
+          <div className="flex size-12 items-center justify-center rounded-lg border text-sm font-semibold">
+            {line.ticker ? line.ticker.slice(0, 4) : line.name.slice(0, 3).toUpperCase()}
+          </div>
+        )}
       </ItemMedia>
       <ItemContent>
         <ItemTitle>{displayName}</ItemTitle>
