@@ -331,7 +331,12 @@ public final class SidecarSyncTemplate<T> {
                 sessions.save(session);
             });
         } catch (RuntimeException ex) {
-            log.error("Could not persist {} sync failure (member={}; code={})", bank.label(), job.memberId(), code, ex);
+            if (strategy.redactsUnexpectedFailures()) {
+                log.error("Could not persist {} sync failure (member={}; code={}; type={})",
+                    bank.label(), job.memberId(), code, ex.getClass().getSimpleName());
+            } else {
+                log.error("Could not persist {} sync failure (member={}; code={})", bank.label(), job.memberId(), code, ex);
+            }
         }
     }
 
