@@ -146,7 +146,7 @@ Never serialized in any form:
 - `AppUser.passwordHash`
 - `UserMfa.*` — TOTP secrets, recovery code hashes
 - `UserMfaRecoveryCode.*`
-- `BoursoSession.*` / `TradeRepublicSession.*` / `FinarySession.*` / `CryptoExchangeSession.*` — all encrypted credentials
+- `SidecarSession.*` / `TradeRepublicSession.*` / `FinarySession.*` / `CryptoExchangeSession.*` — all encrypted credentials
 - `Requisition.accessToken` / `refreshToken` / any encrypted Enable Banking blobs
 - `PersistentSession.tokenHash`
 - `SetupAudit`, `AppSetting` — instance-wide, not user-specific
@@ -208,10 +208,10 @@ Backend:
 - `DataExportServiceTest` — verifies ZIP file list given options, presence/absence of `balance_snapshots.csv` based on toggle, presence of `README.txt`. Wires **all** `EntityExporter` beans (matching production Spring injection, not a subset) with one fixture per entity carrying a unique tripwire literal in every sensitive, non-exported field (e.g. `Requisition.authLink`); asserts none of the tripwires appear anywhere in the archive bytes. **New exporter ⇒ new wiring + new tripwire(s) in this test** — the net only protects what it exercises, and a partial exporter list (as this test shipped with for a while) silently blinds it to whichever exporters are missing.
 - `BalanceSnapshotsExporterTest` — drives the exporter directly (2 accounts × 3 snapshots): asserts CSV/JSON row order (account, then date) and, via `Mockito.verify`, exactly one `balanceSnapshotRepository.findByAccountIdOrderByDateAsc` call per account per pass (2 passes) — never a whole-member collecting call.
 - `MeExportControllerTest` (`@WebMvcTest`) — happy path, re-auth fail (password), re-auth fail (TOTP), missing body, rate-limit exceeded.
-- `DataExportIntegrationTest` (`@SpringBootTest` + H2) — seed an `AppUser` with **all** entity types populated **and** every secret-bearing entity (MFA secret, recovery codes, BoursoSession ciphertext, requisition tokens, persistent session). Hit the endpoint, parse the ZIP in memory, assert:
+- `DataExportIntegrationTest` (`@SpringBootTest` + H2) — seed an `AppUser` with **all** entity types populated **and** every secret-bearing entity (MFA secret, recovery codes, SidecarSession ciphertext, requisition tokens, persistent session). Hit the endpoint, parse the ZIP in memory, assert:
   - all expected files present
   - row counts match seeded entity counts
-  - **raw byte grep**: no occurrence of the seeded `passwordHash`, MFA secret bytes, requisition token bytes, BoursoSession ciphertext bytes, persistent-session token hash bytes
+  - **raw byte grep**: no occurrence of the seeded `passwordHash`, MFA secret bytes, requisition token bytes, SidecarSession ciphertext bytes, persistent-session token hash bytes
   - This is the principal GDPR safety net.
 
 Frontend:
