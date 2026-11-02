@@ -48,8 +48,15 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
      */
     private static final Duration MAX_COOLDOWN = Duration.ofMinutes(15);
 
-    /** Page size of {@code /coins/markets}, the API maximum: one request per learning batch. */
+    /** Page size of {@code /coins/markets}, the API maximum. */
     private static final int SYMBOL_LOOKUP_PAGE = 250;
+
+    /**
+     * Pages a symbol lookup reads at most. Each page is a request against the shared free-tier
+     * budget, and a batch whose ranked homonyms still fill the last allowed page is left
+     * undecided rather than judged on a partial list.
+     */
+    private static final int SYMBOL_LOOKUP_MAX_PAGES = 4;
 
     /**
      * A symbol's leading coin must be worth at least this many times the next ranked one to be
@@ -284,6 +291,12 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
      * The best-ranked candidate is accepted when alone, or when its market cap is at least
      * {@link #DOMINANCE_RATIO} times the runner-up's; otherwise the symbol is ambiguous and is
      * rejected with a WARN saying why.
+     *
+     * <p>The rule is only sound on every ranked candidate: a runner-up cut off by the page limit
+     * would let the leader skip the dominance check. Pages are read in {@code market_cap_desc}
+     * order until one comes back short, or until a page ends on an entry with no market cap
+     * (everything after it is uncapped, so unranked). A batch still crowded after
+     * {@link #SYMBOL_LOOKUP_MAX_PAGES} pages is undecided.
      */
     public Resolution resolveBySymbol(Set<String> tickers) {
         Set<String> wanted = tickers == null ? Set.of() : tickers.stream()
@@ -298,29 +311,20 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
             .collect(java.util.stream.Collectors.joining(","));
 
         try {
-            List<MarketEntry> markets = webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                    .path("/coins/markets")
-                    .queryParam("vs_currency", "eur")
-                    .queryParam("symbols", symbols)
-                    .queryParam("include_tokens", "all")
-                    .queryParam("per_page", SYMBOL_LOOKUP_PAGE)
-                    .build())
-                .retrieve()
-                .bodyToMono(new org.springframework.core.ParameterizedTypeReference<List<MarketEntry>>() {})
-                .timeout(TIMEOUT)
-                .block();
-
-            if (markets == null) {
-                log.warn("CoinGecko returned an empty body for symbol lookup {} -- learning nothing", LogSanitizer.safe(wanted));
-                return new Resolution(Map.of(), false);
-            }
-            if (markets.size() >= SYMBOL_LOOKUP_PAGE) {
-                // Only one page is read: a full one may have dropped a ticker's runner-up (which
-                // would skip the dominance check) or all of its entries (a false refusal).
-                log.warn("CoinGecko symbol lookup {} filled a whole page of {} -- results may be truncated, learning nothing",
-                    LogSanitizer.safe(wanted), SYMBOL_LOOKUP_PAGE);
-                return new Resolution(Map.of(), false);
+            List<MarketEntry> markets = new ArrayList<>();
+            for (int page = 1; ; page++) {
+                List<MarketEntry> batch = symbolLookupPage(symbols, page);
+                if (batch == null) {
+                    log.warn("CoinGecko returned an empty body for symbol lookup {} -- learning nothing", LogSanitizer.safe(wanted));
+                    return new Resolution(Map.of(), false);
+                }
+                markets.addAll(batch);
+                if (batch.size() < SYMBOL_LOOKUP_PAGE || endsUncapped(batch)) break;
+                if (page == SYMBOL_LOOKUP_MAX_PAGES) {
+                    log.warn("CoinGecko symbol lookup {} still lists ranked coins after {} pages -- learning nothing",
+                        LogSanitizer.safe(wanted), SYMBOL_LOOKUP_MAX_PAGES);
+                    return new Resolution(Map.of(), false);
+                }
             }
 
             Map<String, CryptoAssetRegistry.Coin> accepted = new TreeMap<>();
@@ -337,6 +341,29 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
             handleFetchFailure("symbol lookup", wanted, TIMEOUT, ex);
             return new Resolution(Map.of(), false);
         }
+    }
+
+    private List<MarketEntry> symbolLookupPage(String symbols, int page) {
+        return webClient.get()
+            .uri(uriBuilder -> uriBuilder
+                .path("/coins/markets")
+                .queryParam("vs_currency", "eur")
+                .queryParam("symbols", symbols)
+                .queryParam("include_tokens", "all")
+                .queryParam("order", "market_cap_desc")
+                .queryParam("per_page", SYMBOL_LOOKUP_PAGE)
+                .queryParam("page", page)
+                .build())
+            .retrieve()
+            .bodyToMono(new org.springframework.core.ParameterizedTypeReference<List<MarketEntry>>() {})
+            .timeout(TIMEOUT)
+            .block();
+    }
+
+    /** Whether a {@code market_cap_desc} page has reached the coins with no market cap, which carry no rank. */
+    private static boolean endsUncapped(List<MarketEntry> page) {
+        MarketEntry last = page.get(page.size() - 1);
+        return last == null || last.marketCap() == null || last.marketCap().signum() <= 0;
     }
 
     /** The accept rule of {@link #resolveBySymbol}; logs the reason for a rejection. */

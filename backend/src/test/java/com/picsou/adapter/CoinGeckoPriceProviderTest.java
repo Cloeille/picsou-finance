@@ -543,7 +543,8 @@ class CoinGeckoPriceProviderTest {
         assertThat(requests.get()).isEqualTo(1);
         assertThat(captured.get())
             .contains("/coins/markets").contains("vs_currency=eur").contains("symbols=cro,nexo")
-            .contains("include_tokens=all").contains("per_page=250");
+            .contains("include_tokens=all").contains("per_page=250")
+            .contains("order=market_cap_desc").contains("page=1");
     }
 
     @Test
@@ -590,20 +591,86 @@ class CoinGeckoPriceProviderTest {
         assertThat(failed.accepted()).isEmpty();
     }
 
-    @Test
-    void resolveBySymbol_aFullPageIsUndecided_becauseTheBatchMayHaveBeenTruncated() {
-        // 250 entries is the page size: a requested ticker may have lost its runner-up or all of
-        // its entries, so nothing is accepted and the caller retries soon instead of refusing.
-        String page = java.util.stream.IntStream.range(0, 250)
-            .mapToObj(i -> market("coin-" + i, i == 0 ? "nexo" : "other", "Coin " + i, i + 1, 1000000000L - i))
+    /** A CoinGecko that serves {@code pages.get(n - 1)} for {@code page=n} and {@code []} past the end. */
+    private CoinGeckoPriceProvider providerPaging(List<String> pages, java.util.List<String> urls) {
+        ExchangeFunction exchange = request -> {
+            String url = request.url().toString();
+            urls.add(url);
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("[?&]page=(\\d+)").matcher(url);
+            int page = m.find() ? Integer.parseInt(m.group(1)) : 1;
+            String body = page <= pages.size() ? pages.get(page - 1) : "[]";
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE).body(body).build());
+        };
+        return new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
+    }
+
+    /** A full page of 250 capped, ranked coins under symbol {@code other}, ranks from {@code firstRank}. */
+    private static String fullPageOfOther(int firstRank, String leading) {
+        return java.util.stream.IntStream.range(0, 250)
+            .mapToObj(i -> i == 0 && leading != null ? leading
+                : market("other-" + (firstRank + i), "other", "Other " + i, firstRank + i, 1_000_000_000L - firstRank - i))
             .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+    }
 
-        var resolution = providerWithJson(page).resolveBySymbol(Set.of("NEXO", "OTHER"));
+    @Test
+    void resolveBySymbol_readsTheNextPage_soARunnerUpPastTheFirstPageStillCountsAgainstTheLeader() {
+        // NEXO's leader is on page 1, its close runner-up only on page 2: judged on page 1 alone it
+        // would pass as the only ranked coin.
+        String page1 = fullPageOfOther(2, market("nexo", "nexo", "NEXO", 1, 2_000_000_000L));
+        String page2 = "[" + market("nexo-clone", "nexo", "Nexo Clone", 400, 1_000_000_000L) + "]";
+        var urls = new java.util.ArrayList<String>();
 
+        var resolution = providerPaging(List.of(page1, page2), urls).resolveBySymbol(Set.of("NEXO", "OTHER"));
+
+        assertThat(urls).hasSize(2);
+        assertThat(urls.get(0)).contains("order=market_cap_desc").contains("page=1");
+        assertThat(urls.get(1)).contains("page=2");
+        assertThat(resolution.answered()).isTrue();
+        assertThat(resolution.accepted()).doesNotContainKey("NEXO");
+    }
+
+    @Test
+    void resolveBySymbol_acceptsADominantCoin_onceThePagesRunOut() {
+        String page1 = fullPageOfOther(2, market("nexo", "nexo", "NEXO", 1, 2_000_000_000L));
+        String page2 = "[" + market("nexo-dust", "nexo", "Nexo Dust", 900, 1_000_000L) + "]";
+        var urls = new java.util.ArrayList<String>();
+
+        var resolution = providerPaging(List.of(page1, page2), urls).resolveBySymbol(Set.of("NEXO"));
+
+        assertThat(urls).hasSize(2);
+        assertThat(resolution.accepted()).containsEntry("NEXO", new CryptoAssetRegistry.Coin("nexo", "NEXO"));
+    }
+
+    @Test
+    void resolveBySymbol_stopsPaging_whenAPageEndsOnCoinsWithNoMarketCap() {
+        // market_cap_desc puts uncapped entries last, and an uncapped entry has no rank: nothing
+        // past it can change the decision, so the next page is not worth a request.
+        String page1 = java.util.stream.IntStream.range(0, 250)
+            .mapToObj(i -> i == 0 ? market("nexo", "nexo", "NEXO", 1, 2_000_000_000L)
+                : market("bridged-" + i, "nexo", "Bridged " + i, null, 0L))
+            .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+        var urls = new java.util.ArrayList<String>();
+
+        var resolution = providerPaging(List.of(page1, fullPageOfOther(2, null)), urls).resolveBySymbol(Set.of("NEXO"));
+
+        assertThat(urls).hasSize(1);
+        assertThat(resolution.accepted()).containsKey("NEXO");
+    }
+
+    @Test
+    void resolveBySymbol_isUndecided_whenRankedCoinsStillFillTheLastAllowedPage() {
+        var pages = List.of(fullPageOfOther(1, null), fullPageOfOther(251, null),
+            fullPageOfOther(501, null), fullPageOfOther(751, null), fullPageOfOther(1001, null));
+        var urls = new java.util.ArrayList<String>();
+
+        var resolution = providerPaging(pages, urls).resolveBySymbol(Set.of("OTHER"));
+
+        assertThat(urls).hasSize(4);
         assertThat(resolution.accepted()).isEmpty();
         assertThat(resolution.answered()).isFalse();
         assertThat(eventsAt(Level.WARN)).singleElement()
-            .satisfies(e -> assertThat(e.getFormattedMessage()).contains("whole page"));
+            .satisfies(e -> assertThat(e.getFormattedMessage()).contains("after 4 pages"));
     }
 
     @Test
