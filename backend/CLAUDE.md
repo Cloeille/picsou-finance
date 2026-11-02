@@ -4,12 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-```bash
-mvn spring-boot:run -Dspring-boot.run.profiles=dev   # Run locally (needs PostgreSQL on :5432)
-mvn test                                              # Run all tests
-mvn test -Dtest=GoalServiceTest                       # Run a single test class
-mvn package -DskipTests                               # Build JAR
-```
+See [`CONTRIBUTING.md`](../CONTRIBUTING.md#commands).
 
 Most tests are pure Mockito unit tests — no database needed. Several tests spin up a real
 PostgreSQL 16 via Testcontainers (Docker Engine ≥ 25.0) where H2 can't reproduce the behavior:

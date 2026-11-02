@@ -5,26 +5,31 @@ side of getting a change merged.
 
 ## Prerequisites
 
-- Java 21 + Maven (backend)
+- GNU Make, Docker
+- Java 21 + Maven (backend). Maven enforces Java 21 during `validate`: point
+  `JAVA_HOME` at a JDK 21.
 - [Bun](https://bun.sh) (frontend)
-- PostgreSQL 16 on `:5432`, e.g. `docker run -d --name picsou-db -p 127.0.0.1:5432:5432 -e POSTGRES_DB=picsou -e POSTGRES_USER=picsou -e POSTGRES_PASSWORD=picsou postgres:16-alpine`
 
-## Build & run
+## Commands
 
-Run each process in its own terminal (the backend stays in the foreground):
+Every command runs from the repository root. CI calls the same targets, so a
+green `make test-…` locally is the CI job. `make help` lists them.
 
-```bash
-# Terminal 1 — backend (http://localhost:8080)
-cd backend
-mvn spring-boot:run -Dspring-boot.run.profiles=dev
-```
+| Command | What it does |
+|---|---|
+| `make dev` | PostgreSQL in Docker on `127.0.0.1:5432` (container `picsou-db`, kept between runs), the backend on http://localhost:8080 (`dev` profile, with a `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` generated once into the gitignored `backend/.local/dev.env`) and Vite on https://localhost:5173 (proxies `/api/*` to the backend). Ctrl-C stops both processes. |
+| `make test` | Every suite below, in order. |
+| `make test-backend` | Backend Maven tests. `TEST=GoalServiceTest` or `TEST=GoalServiceTest#method` runs one class or method. The PostgreSQL tests need Docker and skip themselves without it. `SOFIDY_PYTHON=python3` also runs the Java/Python Sofidy contract test (`pip install -r services/base/requirements.txt` first). |
+| `make test-frontend` | ESLint (zero warnings), TypeScript, Vitest. |
+| `make test-e2e` | Playwright against demo mode; starts its own Vite, so stop `make dev` first (port 5173). |
+| `make test-sidecar SIDECAR=tr-auth` | Builds one connector's shared base and image, then runs its tests inside it. |
+| `make test-sidecars` | The `services/base` tests, then every connector. |
+| `make build` | Every image Compose builds: the app, the connectors and their bases. `SERVICES="app tr-auth"` builds only those. |
+| `make deps` | Reinstalls the frontend dependencies (after a `bun.lock` change). |
+| `make release VERSION=x.y.z` | Maintainers. Checks that `CHANGELOG.md` has a `## [x.y.z]` section, that the tree is clean and `HEAD` is on `origin/main`, then tags and pushes the tag (`REMOTE=upstream` from a fork). CI publishes the images and the chart once green. |
 
-```bash
-# Terminal 2 — frontend (https://localhost:5173, proxies /api/* to the backend)
-cd frontend
-bun install
-bun run dev
-```
+`bun run build` (`tsc` + Vite) runs inside the app image, so `make build` fails on
+a type error.
 
 The `dev` profile points each bank connector at its own `127.0.0.1` port
 (`backend/src/main/resources/application-dev.yml`). To use one, start its sidecar
@@ -35,26 +40,6 @@ from `services/<name>/` with `APP_SIDECAR_API_KEY=<same key as the backend> uvic
 The frontend uses HTTPS in development. See the
 [local certificate setup](README.md#-https-in-development-hybrid-mode) for a
 trusted `mkcert` certificate or the zero-config self-signed fallback.
-
-## Tests
-
-Run the relevant suites before opening a PR:
-
-Each command is wrapped in a subshell, so it runs from the repository root
-without leaving you in a subdirectory:
-
-```bash
-# Backend
-(cd backend && mvn test)
-
-# Frontend
-(cd frontend && bun run typecheck)   # TypeScript
-(cd frontend && bun run lint)        # ESLint (zero-warning policy)
-(cd frontend && bunx vitest run)     # Unit tests
-(cd frontend && bun run test:e2e)    # Playwright E2E (needs the dev server)
-```
-
-`bun run build` must pass — it runs `tsc` and fails on type errors.
 
 ## Conventions
 
@@ -86,7 +71,7 @@ Documentation lives in `docs/` and is written in **English**:
 ## Pull requests
 
 1. Fork, branch from `main`, keep the PR focused on one change.
-2. Make sure tests, lint, and typecheck pass locally.
+2. Run the `make test-…` targets your change touches.
 3. Describe *what* and *why*; link the issue if one exists.
 4. Update `CHANGELOG.md` under `[Unreleased]` for user-visible changes.
 

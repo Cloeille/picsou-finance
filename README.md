@@ -495,36 +495,18 @@ You must copy **both** `pgdata` and `picsou_data`. Restoring Postgres without `p
 
 ## Development
 
-### Backend
-
-```bash
-cd backend
-JAVA_HOME=$(/usr/libexec/java_home -v 21) mvn spring-boot:run -Dspring-boot.run.profiles=dev   # Requires PostgreSQL on :5432
-JAVA_HOME=$(/usr/libexec/java_home -v 21) mvn test                                              # Run tests
-```
-
-Backend Maven runs enforce Java 21 during `validate`; set `JAVA_HOME` to a JDK 21 installation before running backend commands locally.
-
-### Frontend
-
-```bash
-cd frontend
-bun install        # Install dependencies
-bun run dev        # HTTPS dev server on https://localhost:5173 (proxies /api/* → localhost:8080)
-bun run build      # TypeScript check + Vite build
-bunx vitest run    # Unit tests
-bun run test:e2e   # Playwright E2E (demo mode; starts Vite itself)
-```
+Contributor commands (`make dev`, `make test`, `make build`) live in
+[CONTRIBUTING.md](CONTRIBUTING.md#commands).
 
 ### CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and every
 push to `main` or a version tag:
 
-- backend `mvn test` (Docker required for Flyway migration tests)
-- frontend lint, typecheck, Vitest
-- Playwright e2e in demo mode
-- Bourse Direct sidecar unit tests
+- `make test-backend` (Docker required for Flyway migration tests)
+- `make test-frontend`: lint, typecheck, Vitest
+- `make test-e2e`: Playwright in demo mode
+- `make test-sidecar`, once per connector, and `make test-sidecar-base`
 
 A pull request runs only the jobs its changed paths can affect, unless it changes
 3,000 or more files; then it runs every job. A new push cancels its stale run; the
