@@ -48,6 +48,43 @@ Sofidy has not published yet still prints the `€` currency mark, so an empty-s
 check reads it as a parse failure instead of a missing price. A cell with no digit in it
 is the missing value, and `0.00` is a price.
 
+## Data-flow assessment (2026-11-02, #422)
+
+Issue #422 asks every connector that reads page markup to look for the data flow
+underneath it first. Sofidy was reassessed against a real account: one login with the
+e-mail code, read only, with every XHR and fetch the pages made recorded, and a
+[REA](https://github.com/morluto/rea) `inspect-web-page` run over `3,clients.html`
+that clicked through its tabs.
+
+- **No data request exists.** `3,clients.html` loads no JSON, opens no WebSocket and
+  keeps nothing in browser storage. Its three tabs are already in the served HTML; a
+  tab click only posts `savechartimage.php`, which uploads a chart image.
+- **The inline chart script is not a source.** It sets `patrimoine[N] = [name, amount]`
+  for Google Charts: no product code and no share count, so it cannot be matched to
+  an account or checked against the table.
+- **Two structured exports exist, neither carries a valuation.** Both are legacy
+  binary Excel files (BIFF), served in two steps: a first GET returns an HTML page
+  whose script redirects to the same URL with `next=1`, which returns the file.
+  - `scripts/ajax/rapportdetail.php?Code_Produit=XX`: the fund's movement history
+    (operation, share count, dates, purchase unit price) and a total share count.
+    Its unit price is the purchase price, not the withdrawal price.
+  - `scripts/ajax/dividende_export_xls.php`: distributed dividends (fund, year,
+    label, amount, validation date).
+- **The withdrawal price and the list of product codes exist only in the table.**
+  They are the two figures a synced balance is built from.
+
+The connector therefore keeps reading the table. Replacing it would trade the only
+source of the withdrawal price for files that do not carry it. Cross-checking the
+share count against `rapportdetail.php` was considered and rejected: it costs two
+requests per fund (about 2.5 s each), a BIFF reader in the image, and its own HTML
+interstitial, to re-check a figure the table's total row already reconciles. The
+dividend export is a separate feature, tracked in #425.
+
+The same session showed that every cookie is host-only on `moncompte.sofidy.com`,
+`httpOnly` and `secure`. `PHPSESSID` is a browser-session cookie, and the
+`user` cookie expires after 12 hours. That bounds how long a stored session can be
+expected to sync without a fresh login. Multi-day survival stays unverified.
+
 ## Decision
 
 1. A dedicated internal-only FastAPI sidecar, `services/sofidy-auth`, on the
