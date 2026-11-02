@@ -307,8 +307,11 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     public QuoteProbe probeQuote(String ticker) {
         if (cooldown.active()) return QuoteProbe.UNAVAILABLE;
         try {
-            Meta meta = fetchMeta(ticker, VERIFY_TIMEOUT);
-            if (meta == null) return QuoteProbe.UNKNOWN_SYMBOL;
+            ChartResult chart = fetchChart(VERIFY_TIMEOUT, "/v8/finance/chart/{ticker}?range=1d&interval=1d", ticker);
+            if (chart == null) return QuoteProbe.UNKNOWN_SYMBOL;
+            // Yahoo returned a series for the symbol: a missing meta is a payload we cannot read.
+            Meta meta = chart.meta();
+            if (meta == null) return QuoteProbe.UNAVAILABLE;
             // A chart with no positive price is a halted or delisted listing, not a free symbol.
             return meta.regularMarketPrice() > 0 ? QuoteProbe.QUOTED : QuoteProbe.UNAVAILABLE;
         } catch (Exception ex) {

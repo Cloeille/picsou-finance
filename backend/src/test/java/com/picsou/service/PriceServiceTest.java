@@ -253,6 +253,32 @@ class PriceServiceTest {
     }
 
     @Test
+    void learningATickerAsCrypto_dropsItsCachedPrice_soTheNextReadAsksCoinGecko() {
+        // Cached from a mixed path, where NEXO still went to Yahoo.
+        when(priceProvider.getPricesEur(Set.of("NEXO")))
+            .thenReturn(Map.of("NEXO", new BigDecimal("9.99")))
+            .thenReturn(Map.of("NEXO", new BigDecimal("1.20")));
+        priceService.getQuotes(Set.of("NEXO"));
+        // Unknown before learning, crypto after it.
+        when(priceProvider.supportsCrypto("NEXO")).thenReturn(false, true);
+
+        assertThat(priceService.getCryptoQuotes(Set.of("NEXO")).get("NEXO").price())
+            .isEqualByComparingTo("1.20");
+        verify(priceProvider, times(2)).getPricesEur(Set.of("NEXO"));
+    }
+
+    @Test
+    void aTickerAlreadyCrypto_keepsItsCachedPrice() {
+        when(priceProvider.supportsCrypto("BTC")).thenReturn(true);
+        when(priceProvider.getPricesEur(Set.of("BTC"))).thenReturn(Map.of("BTC", new BigDecimal("50000")));
+
+        priceService.getCryptoQuotes(Set.of("BTC"));
+        priceService.getCryptoQuotes(Set.of("BTC"));
+
+        verify(priceProvider, times(1)).getPricesEur(Set.of("BTC"));
+    }
+
+    @Test
     void aStockPath_neverOffersTickersToTheRegistry() {
         when(priceProvider.getPricesEur(any())).thenReturn(Map.of("AAPL", new BigDecimal("200")));
 

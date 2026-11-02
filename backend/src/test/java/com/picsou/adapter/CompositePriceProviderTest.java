@@ -290,6 +290,27 @@ class CompositePriceProviderTest {
     }
 
     @Test
+    void learn_stopsProbingYahooOnceTheCallBudgetIsSpent_andAsksTheRestNextCall() {
+        // Each probe takes 3 s of the 5 s budget: the third ticker is left for the next call,
+        // with no retry window holding it back.
+        when(yahoo.probeQuote(any())).thenAnswer(inv -> {
+            clock.advance(Duration.ofSeconds(3));
+            return YahooFinancePriceProvider.QuoteProbe.QUOTED;
+        });
+        CompositePriceProvider composite = composite();
+        Set<String> tickers = new java.util.LinkedHashSet<>(java.util.List.of("AAA", "BBB", "CCC"));
+
+        composite.learnCryptoTickers(tickers);
+        verify(yahoo).probeQuote("AAA");
+        verify(yahoo).probeQuote("BBB");
+        verify(yahoo, never()).probeQuote("CCC");
+
+        composite.learnCryptoTickers(tickers);
+        verify(yahoo, times(1)).probeQuote("AAA");
+        verify(yahoo, times(1)).probeQuote("CCC");
+    }
+
+    @Test
     void learn_nullOrEmpty_doesNothing() {
         CompositePriceProvider composite = composite();
         composite.learnCryptoTickers(null);

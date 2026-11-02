@@ -43,6 +43,11 @@ public class CompositePriceProvider implements PriceProviderPort {
     private static final Duration DECIDED_RETRY = Duration.ofHours(24);
     /** "Could not tell" (Yahoo or CoinGecko down or cooling) is retried soon, and never remembered as a no. */
     private static final Duration UNDECIDED_RETRY = Duration.ofMinutes(15);
+    /**
+     * Wall-clock budget for the serial Yahoo probes of one call (each may take 3 s). This runs
+     * inside page renders and syncs; tickers past it get no retry entry and are asked next call.
+     */
+    private static final Duration PROBE_BUDGET = Duration.ofSeconds(5);
 
     private final CoinGeckoPriceProvider coinGecko;
     private final YahooFinancePriceProvider yahoo;
@@ -92,12 +97,20 @@ public class CompositePriceProvider implements PriceProviderPort {
      *
      * <p>Retry windows: 24 h once the answer is definitive, 15 min when it is not. A CoinGecko
      * batch that could not be asked (cooling down, outage) is treated like an unavailable Yahoo:
-     * its candidates were never judged, so remembering a refusal would hide them for a day.
+     * its candidates were never judged, so remembering a refusal would hide them for a day. The
+     * Yahoo probes of one call stop after {@link #PROBE_BUDGET}; the rest wait for a later call.
+     *
+     * <p>Known limit: Yahoo answers 404 both for a symbol it never had and for a delisted one, so
+     * a delisted stock symbol held in a crypto account can be learned if CoinGecko has a dominant
+     * coin under it. The trigger is a crypto-context holding, never a stock one.
      */
     @Override
     public void learnCryptoTickers(Set<String> tickers) {
         if (tickers == null || tickers.isEmpty()) return;
         Instant now = clock.instant();
+        // Expired entries already read as absent; dropping them keeps the map to live windows.
+        retryAfter.values().removeIf(next -> !now.isBefore(next));
+        Instant probeDeadline = now.plus(PROBE_BUDGET);
 
         Set<String> candidates = new TreeSet<>();
         for (String raw : tickers) {
@@ -106,6 +119,7 @@ public class CompositePriceProvider implements PriceProviderPort {
             if (coinGecko.supports(ticker)) continue;
             Instant next = retryAfter.get(ticker);
             if (next != null && now.isBefore(next)) continue;
+            if (!clock.instant().isBefore(probeDeadline)) break;
 
             switch (yahoo.probeQuote(ticker)) {
                 case QUOTED -> retryAfter.put(ticker, now.plus(DECIDED_RETRY));

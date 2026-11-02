@@ -17,9 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Crypto coins outside the built-in list get a price.** NEXO and CRO are now priced
   ([#419](https://github.com/Cloeille/picsou-finance/issues/419)). Beyond them, a coin held in a
-  crypto account that Picsou does not know yet is looked up on CoinGecko once and remembered,
-  provided Yahoo Finance does not quote the same symbol as a stock and one coin clearly dominates
-  that symbol. An ambiguous symbol such as ONE stays unpriced and is logged. Past daily snapshots
+  crypto account that Picsou does not know yet is looked up on CoinGecko and remembered once it is
+  identified, provided Yahoo Finance does not quote the same symbol as a stock and one coin clearly
+  dominates that symbol. An ambiguous symbol such as ONE stays unpriced and is logged. A refused
+  symbol is asked again after 24 hours, an undecided one (provider down or rate-limited) after
+  15 minutes; these windows are kept in memory, so a restart asks again. Past daily snapshots
   keep their recorded values.
 - **Trade Republic bond values no longer use percentage quotes as euro prices.** EUR bond
   ticker prices are divided by 100. Non-EUR or unknown bond currencies keep the position's

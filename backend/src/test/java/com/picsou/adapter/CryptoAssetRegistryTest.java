@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 import java.util.Map;
@@ -91,6 +93,45 @@ class CryptoAssetRegistryTest {
         registry.learn("CRO", "other-cro", "Other");
 
         assertThat(registry.find("CRO")).contains(new CryptoAssetRegistry.Coin("crypto-com-chain", "Cronos"));
+    }
+
+    @Test
+    void learn_publishesTheCoinOnlyOnceItsTransactionCommits() {
+        when(repository.findAll()).thenReturn(List.of());
+        when(repository.insertAutoIfAbsent("NEXO", "nexo", "NEXO")).thenReturn(1);
+        var registry = new CryptoAssetRegistry(repository);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            registry.learn("NEXO", "nexo", "NEXO");
+            // Not committed yet: a rollback here must leave NEXO unknown so the caller retries.
+            assertThat(registry.find("NEXO")).isEmpty();
+
+            TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+            assertThat(registry.find("NEXO")).contains(new CryptoAssetRegistry.Coin("nexo", "NEXO"));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void learn_aRolledBackWrite_leavesTheTickerUnknown_soTheRetryWritesIt() {
+        when(repository.findAll()).thenReturn(List.of());
+        when(repository.insertAutoIfAbsent("NEXO", "nexo", "NEXO")).thenReturn(1);
+        var registry = new CryptoAssetRegistry(repository);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            registry.learn("NEXO", "nexo", "NEXO");
+            TransactionSynchronizationManager.getSynchronizations()
+                .forEach(s -> s.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        assertThat(registry.find("NEXO")).isEmpty();
+
+        registry.learn("NEXO", "nexo", "NEXO");
+
+        verify(repository, times(2)).insertAutoIfAbsent("NEXO", "nexo", "NEXO");
+        assertThat(registry.find("NEXO")).isPresent();
     }
 
     @Test

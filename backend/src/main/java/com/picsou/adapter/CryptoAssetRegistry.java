@@ -6,6 +6,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Locale;
 import java.util.Map;
@@ -66,6 +68,9 @@ public class CryptoAssetRegistry {
      * {@code readOnly = true}, and PostgreSQL rejects an INSERT in a read-only transaction
      * (SQLSTATE 25006). A separate transaction also keeps a failed write from marking the
      * caller's transaction rollback-only.
+     *
+     * <p>The coin reaches the in-memory map only once that transaction commits: the map is the
+     * router, and a row that failed to commit must stay unknown so the caller's retry runs.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void learn(String ticker, String id, String name) {
@@ -75,10 +80,23 @@ public class CryptoAssetRegistry {
         if (repository != null && repository.insertAutoIfAbsent(key, id, name) == 0) {
             // Another instance or thread inserted the same ticker first; its row stands.
             repository.findById(key).ifPresent(row ->
-                coins.putIfAbsent(key, new Coin(row.getCoingeckoId(), row.getName())));
+                publishAfterCommit(key, new Coin(row.getCoingeckoId(), row.getName())));
             return;
         }
-        coins.putIfAbsent(key, new Coin(id, name));
+        publishAfterCommit(key, new Coin(id, name));
+    }
+
+    private void publishAfterCommit(String key, Coin coin) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            coins.putIfAbsent(key, coin);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                coins.putIfAbsent(key, coin);
+            }
+        });
     }
 
     private void ensureLoaded() {

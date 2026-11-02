@@ -448,6 +448,15 @@ class YahooFinancePriceProviderTest {
     }
 
     @Test
+    void probeQuote_isUnavailable_whenTheChartHasAResultWithoutMeta() {
+        // Yahoo answered with a series for the symbol: unreadable, but not "no such symbol".
+        var provider = providerAnswering(HttpStatus.OK, "{\"chart\":{\"result\":[{}],\"error\":null}}",
+            cooldown(), new AtomicInteger());
+
+        assertThat(provider.probeQuote("NEXO")).isEqualTo(YahooFinancePriceProvider.QuoteProbe.UNAVAILABLE);
+    }
+
+    @Test
     void probeQuote_isUnavailable_onA5xx() {
         var provider = providerAnswering(HttpStatus.BAD_GATEWAY, "{}", cooldown(), new AtomicInteger());
 

@@ -315,6 +315,13 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
                 log.warn("CoinGecko returned an empty body for symbol lookup {} -- learning nothing", LogSanitizer.safe(wanted));
                 return new Resolution(Map.of(), false);
             }
+            if (markets.size() >= SYMBOL_LOOKUP_PAGE) {
+                // Only one page is read: a full one may have dropped a ticker's runner-up (which
+                // would skip the dominance check) or all of its entries (a false refusal).
+                log.warn("CoinGecko symbol lookup {} filled a whole page of {} -- results may be truncated, learning nothing",
+                    LogSanitizer.safe(wanted), SYMBOL_LOOKUP_PAGE);
+                return new Resolution(Map.of(), false);
+            }
 
             Map<String, CryptoAssetRegistry.Coin> accepted = new TreeMap<>();
             for (String ticker : wanted) {

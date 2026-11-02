@@ -121,6 +121,10 @@ public class PriceService {
      * Offers the tickers of a crypto-only path to the provider's registry before the
      * {@code supportsCrypto} filter runs, so a coin it has not met yet is learned instead of
      * left unpriced. Crypto paths only: a stock ticker must never reach it.
+     *
+     * <p>A ticker that becomes crypto here changes provider, and {@link #priceCache} is keyed by
+     * ticker alone: its entry (a Yahoo miss, at worst a Yahoo price) is dropped so the next read
+     * asks CoinGecko.
      */
     private void learnCryptoTickers(Collection<String> tickers) {
         Set<String> candidates = new TreeSet<>();
@@ -129,7 +133,14 @@ public class PriceService {
             String upper = ticker.trim().toUpperCase(Locale.ROOT);
             if (!"EUR".equals(upper)) candidates.add(upper);
         }
-        if (!candidates.isEmpty()) priceProvider.learnCryptoTickers(candidates);
+        if (candidates.isEmpty()) return;
+        Set<String> unknown = candidates.stream()
+            .filter(t -> !priceProvider.supportsCrypto(t))
+            .collect(Collectors.toCollection(TreeSet::new));
+        priceProvider.learnCryptoTickers(candidates);
+        for (String ticker : unknown) {
+            if (priceProvider.supportsCrypto(ticker)) priceCache.remove(ticker);
+        }
     }
 
     private Quote singleQuote(String ticker, boolean cryptoOnly) {

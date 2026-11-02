@@ -591,6 +591,22 @@ class CoinGeckoPriceProviderTest {
     }
 
     @Test
+    void resolveBySymbol_aFullPageIsUndecided_becauseTheBatchMayHaveBeenTruncated() {
+        // 250 entries is the page size: a requested ticker may have lost its runner-up or all of
+        // its entries, so nothing is accepted and the caller retries soon instead of refusing.
+        String page = java.util.stream.IntStream.range(0, 250)
+            .mapToObj(i -> market("coin-" + i, i == 0 ? "nexo" : "other", "Coin " + i, i + 1, 1000000000L - i))
+            .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+
+        var resolution = providerWithJson(page).resolveBySymbol(Set.of("NEXO", "OTHER"));
+
+        assertThat(resolution.accepted()).isEmpty();
+        assertThat(resolution.answered()).isFalse();
+        assertThat(eventsAt(Level.WARN)).singleElement()
+            .satisfies(e -> assertThat(e.getFormattedMessage()).contains("whole page"));
+    }
+
+    @Test
     void resolveBySymbol_propagatesAGenuineBug() {
         var provider = providerFailingWith(new IllegalStateException("a real bug"));
 
