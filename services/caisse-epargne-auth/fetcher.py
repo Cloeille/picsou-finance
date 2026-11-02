@@ -57,13 +57,21 @@ TRANSACTIONS_PARSED_DATA = [
     {"key": "status", "value": "AC"},
 ]
 PAGE_SIZE = 50
-# Accounts and savings are read newest first (`accountingDate`) back to this many
-# days before today, then paging stops: a long-held current account has far more
-# history than one import can page through before the deadline (issue #397).
+# Accounts and savings are queried in `accountingDate` order and read back to this
+# many days before today, then paging stops: a long-held current account has far
+# more history than one import can page through before the deadline (issue #397).
+# The direction is not confirmed live: the early stop only applies once rows are
+# observed newest first (see `_paginate`).
 HISTORY_DAYS = 365
 # More pages than this for one account, before the history window is reached,
-# fails the import: never a silent truncation. 60 pages of 50 stay well inside
-# the 100 s `/accounts` deadline at the ~0.9 s per call observed live.
+# fails the import: never a silent truncation. 60 pages of 50 for one account take
+# ~54 s at the ~0.9 s per call observed live, but all accounts and cards are read in
+# sequence under ONE shared 100 s `/accounts` deadline (main.py
+# ACCOUNTS_DEADLINE_SECONDS). Two accounts near the cap (e.g. a dense card, which has
+# no history window, plus a current account paged to the end because its order was
+# not newest first) can exceed it first: the import then fails with
+# UPSTREAM_UNAVAILABLE and the log says `accounts deadline exceeded` instead of
+# `page-cap`. Nothing partial is returned either way.
 MAX_PAGES_PER_ACCOUNT = 60
 
 
@@ -172,12 +180,14 @@ async def _paginate(client: httpx.AsyncClient, url: str, query: dict, *, since: 
     """Every page, or with `since` the pages down to the first row booked before it.
 
     The early stop needs newest-first rows. The sort direction was never observed
-    live, so a row newer than one already read turns the stop off for this account:
-    it is then paged to the end as before, never cut short.
+    live, so it applies only once a row booked strictly earlier than the one before
+    it has been read; a row newer than one already read turns it off for good. One
+    old row, or rows all booked on one day, prove no order: the account is paged on.
     """
     pages: list = []
     token: Optional[str] = None
     oldest: Optional[date] = None
+    descending = False
     for _ in range(MAX_PAGES_PER_ACCOUNT):
         params = dict(query) if token is None else {**query, "pageToken": token}
         page = await _get_json(client, url, params)
@@ -185,11 +195,13 @@ async def _paginate(client: httpx.AsyncClient, url: str, query: dict, *, since: 
         token = _next_page_token(page)
         if since is not None:
             for booked in _accounting_dates(page):
-                if oldest is not None and booked > oldest:
-                    since = None
-                    break
+                if oldest is not None:
+                    if booked > oldest:
+                        since = None
+                        break
+                    descending = descending or booked < oldest
                 oldest = booked
-            if since is not None and oldest is not None and oldest < since:
+            if since is not None and descending and oldest is not None and oldest < since:
                 return pages
         if token is None:
             return pages

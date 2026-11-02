@@ -368,7 +368,6 @@ def _dated_history(rows_per_day: int, *, swap_at: int | None = None) -> Callable
     with a `nextPageToken` on every page: the history never ends. `swap_at` puts one row of
     that global index a day newer than the row before it."""
     template = default_pages()["1001"][0]
-    row_template = template["data"][0]
 
     def handler(request: httpx.Request):
         if request.url.params["accountIds"] != "1001":
@@ -379,14 +378,35 @@ def _dated_history(rows_per_day: int, *, swap_at: int | None = None) -> Callable
             booked = TODAY - timedelta(days=i // rows_per_day)
             if swap_at is not None and i == swap_at:
                 booked += timedelta(days=2)
-            row = copy.deepcopy(row_template)
-            row["id"] = 100000 + i
-            row["date"] = row["dueDate"] = booked.isoformat()
-            row["parsedData"]["accountingDate"] = booked.isoformat()
-            rows.append(row)
+            rows.append(_dated_row(i, booked))
         page = copy.deepcopy(template)
         page["data"] = rows
         page["meta"] = {"nextPageToken": f"T{n + 1}"}
+        return httpx.Response(200, json=page)
+
+    return handler
+
+
+def _dated_row(index: int, booked: date) -> dict:
+    row = copy.deepcopy(default_pages()["1001"][0]["data"][0])
+    row["id"] = 100000 + index
+    row["date"] = row["dueDate"] = booked.isoformat()
+    row["parsedData"]["accountingDate"] = booked.isoformat()
+    return row
+
+
+def _listed_history(*pages: list[date]) -> Callable:
+    """Current-account pages holding one row per given booking date, chained by tokens;
+    the last page has none."""
+    template = default_pages()["1001"][0]
+
+    def handler(request: httpx.Request):
+        if request.url.params["accountIds"] != "1001":
+            return None
+        n = int(request.url.params.get("pageToken", "T0")[1:])
+        page = copy.deepcopy(template)
+        page["data"] = [_dated_row(n * 1000 + i, booked) for i, booked in enumerate(pages[n])]
+        page["meta"] = {"nextPageToken": f"T{n + 1}"} if n + 1 < len(pages) else {}
         return httpx.Response(200, json=page)
 
     return handler
@@ -431,6 +451,44 @@ class HistoryWindowTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(calls), 30)  # no early stop: every page down to the last one
         current = next(a for a in result["accounts"] if a["externalId"] == "1001")
         self.assertEqual(len(current["transactions"]), 30 * fetcher.PAGE_SIZE)
+
+    async def test_a_first_page_with_one_old_row_proves_no_order_and_is_not_a_stop(self):
+        old = TODAY - timedelta(days=400)
+        in_window = [TODAY - timedelta(days=10 - i) for i in range(5)]  # the bank answers oldest first
+        ce = FakeCE(tx_override=_listed_history([old], in_window))
+
+        result = await run_fetch(ce)
+
+        calls = [r for r in ce.tx_requests() if r.url.params["accountIds"] == "1001"]
+        self.assertEqual(len(calls), 2)
+        current = next(a for a in result["accounts"] if a["externalId"] == "1001")
+        self.assertTrue({d.isoformat() for d in in_window} <= {t["date"] for t in current["transactions"]})
+
+    async def test_a_first_page_booked_on_one_old_day_proves_no_order_and_is_not_a_stop(self):
+        old = TODAY - timedelta(days=400)
+        in_window = [TODAY - timedelta(days=10 - i) for i in range(5)]
+        ce = FakeCE(tx_override=_listed_history([old] * fetcher.PAGE_SIZE, in_window))
+
+        result = await run_fetch(ce)
+
+        calls = [r for r in ce.tx_requests() if r.url.params["accountIds"] == "1001"]
+        self.assertEqual(len(calls), 2)
+        current = next(a for a in result["accounts"] if a["externalId"] == "1001")
+        self.assertTrue({d.isoformat() for d in in_window} <= {t["date"] for t in current["transactions"]})
+
+    async def test_the_early_stop_holds_once_a_decrease_was_seen_across_a_page_boundary(self):
+        ce = FakeCE(
+            tx_override=_listed_history(
+                [TODAY - timedelta(days=1)],
+                [TODAY - timedelta(days=400)],  # older than the previous page's row, and past the window
+                [TODAY - timedelta(days=500)],  # never requested
+            )
+        )
+
+        await run_fetch(ce)
+
+        calls = [r for r in ce.tx_requests() if r.url.params["accountIds"] == "1001"]
+        self.assertEqual(len(calls), 2)
 
     async def test_one_row_out_of_order_turns_the_early_stop_off(self):
         ce = FakeCE(tx_override=_dated_history(rows_per_day=3, swap_at=75))
