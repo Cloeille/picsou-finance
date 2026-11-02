@@ -1,6 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
@@ -107,7 +108,7 @@ public class AmundiSession extends AuditableEntity {
             && syncStatus != AmundiSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an in-flight Amundi synchronization can fail");
         }
-        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = SidecarBank.AMUNDI.requireDeclared(Objects.requireNonNull(errorCode, "errorCode"));
         syncStatus = AmundiSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;

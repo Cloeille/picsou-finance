@@ -212,6 +212,17 @@ public enum SidecarBank {
         return code != null && codes.contains(code);
     }
 
+    /**
+     * Guards a write to this bank's {@code last_sync_error}: its CHECK constraint accepts only
+     * {@link #codes()}, so an undeclared code fails here instead of at flush time.
+     */
+    public SidecarErrorCode requireDeclared(SidecarErrorCode code) {
+        if (!declares(code)) {
+            throw new IllegalArgumentException(this + " does not declare " + code);
+        }
+        return code;
+    }
+
     /** The code named by {@code detail}, or empty when it is unknown or this bank does not declare it. */
     public Optional<SidecarErrorCode> parse(String detail) {
         return codes.stream().filter(code -> code.name().equals(detail)).findFirst();

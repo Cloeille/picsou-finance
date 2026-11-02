@@ -66,6 +66,19 @@ class FortuneoSessionTest {
         assertThat(session.isActive()).isTrue();
     }
 
+
+    @Test
+    void aCodeFortuneoNeverDeclaredIsRejectedBeforeItReachesTheCheckConstraint() {
+        FortuneoSession session = newSession();
+        session.markQueued();
+        session.markRunning(STARTED_AT);
+
+        assertThatThrownBy(() -> session.markFailed(SidecarErrorCode.CAPTCHA_BLOCKED, COMPLETED_AT))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("CAPTCHA_BLOCKED");
+        assertThat(session.getSyncStatus()).isEqualTo(FortuneoSyncStatus.RUNNING);
+        assertThat(session.getLastSyncError()).isNull();
+    }
     private FortuneoSession newSession() {
         return FortuneoSession.create(TestEntities.owner(), "encrypted", VALIDATED_AT);
     }

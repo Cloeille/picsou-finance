@@ -1,6 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
@@ -116,7 +117,7 @@ public class CicSession extends AuditableEntity {
         if (syncStatus != CicSyncStatus.QUEUED && syncStatus != CicSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an in-flight CIC synchronization can fail");
         }
-        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = SidecarBank.CIC.requireDeclared(Objects.requireNonNull(errorCode, "errorCode"));
         syncStatus = CicSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;

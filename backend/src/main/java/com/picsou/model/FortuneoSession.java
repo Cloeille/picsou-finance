@@ -1,6 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
@@ -104,7 +105,7 @@ public class FortuneoSession extends AuditableEntity {
             && syncStatus != FortuneoSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an in-flight Fortuneo synchronization can fail");
         }
-        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = SidecarBank.FORTUNEO.requireDeclared(Objects.requireNonNull(errorCode, "errorCode"));
         syncStatus = FortuneoSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;

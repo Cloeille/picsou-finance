@@ -1,6 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
@@ -102,7 +103,7 @@ public class AmexSession extends AuditableEntity {
         if (syncStatus != AmexSyncStatus.QUEUED && syncStatus != AmexSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an in-flight Amex synchronization can fail");
         }
-        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = SidecarBank.AMEX.requireDeclared(Objects.requireNonNull(errorCode, "errorCode"));
         syncStatus = AmexSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
