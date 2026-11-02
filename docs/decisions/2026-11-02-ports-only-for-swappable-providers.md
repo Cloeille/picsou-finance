@@ -9,7 +9,7 @@ The [ports and adapters ADR](./2026-01-01-ports-and-adapters.md) put external in
 
 ## Decision
 
-A port exists only when there are at least two implementations, or a real swap seam (for example `BankConnectorPort`, `CryptoExchangePort`, `WalletPort`, `PriceProviderPort`). A single-implementation connector client is a concrete `@Component` in `adapter/` (or its feature package), injected directly into the service. Its request and response records are nested public types of that class. Tests mock the class (Mockito's default inline mock maker mocks concrete classes).
+A port exists only when there are at least two implementations, or a real swap seam (for example `BankConnectorPort`, `CryptoExchangePort`, `WalletPort`, `PriceProviderPort`). A single-implementation connector client is a concrete `@Component` in `adapter/` (or its feature package), injected directly into the service. Its request and response records are nested public types of that class. `CaisseEpargnePort` and `RevolutPort` keep their port although each has one implementation: several services share them (`CaisseEpargnePerService`, `SyncProgressService`), and #336 only removed the single-caller ones. Tests mock the class (Mockito's default inline mock maker mocks concrete classes).
 
 The 16 listed interfaces are deleted. `PropertyValuationService` takes the single `CeremaDv3fValuationProvider`; it still asks `supports(...)` and reports `UNSUPPORTED_AREA` when the area is not covered.
 
