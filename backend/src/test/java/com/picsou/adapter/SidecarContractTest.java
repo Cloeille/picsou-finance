@@ -1,5 +1,10 @@
 package com.picsou.adapter;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
+import java.net.ConnectException;
+import java.net.URI;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.exception.SyncException;
@@ -337,6 +342,16 @@ class SidecarContractTest {
         Calls calls = rig.on(WebClientStubs.neverResponding(), SHORT);
 
         assertFailsWith(calls.of(call), UPSTREAM_UNAVAILABLE, bank.label() + " took too long to respond. Please try again.");
+    }
+
+    @ParameterizedTest(name = "{0} {1}")
+    @MethodSource("everyCall")
+    @DisplayName("a sidecar that is not running is unavailable, not a wrong password")
+    void unreachableSidecarIsUnavailable(SidecarBank bank, Call call, Rig rig) {
+        Calls calls = rig.on(WebClientStubs.failing(new WebClientRequestException(
+            new ConnectException("Connection refused"), HttpMethod.POST, URI.create("http://sidecar/"), new HttpHeaders())), SHORT);
+
+        assertFailsWith(calls.of(call), UPSTREAM_UNAVAILABLE, null);
     }
 
     @ParameterizedTest
