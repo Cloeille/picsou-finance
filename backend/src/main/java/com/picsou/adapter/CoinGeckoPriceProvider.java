@@ -297,6 +297,13 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
      * order until one comes back short, or until a page ends on an entry with no market cap
      * (everything after it is uncapped, so unranked). A batch still crowded after
      * {@link #SYMBOL_LOOKUP_MAX_PAGES} pages is undecided.
+     *
+     * <p>The whole lookup shares one {@link #TIMEOUT} budget rather than getting one per page,
+     * so four slow pages cannot stack up to forty seconds inside a refresh or a sync. A page
+     * that times out, or a budget spent before the next page starts, leaves the batch
+     * undecided; the caller asks again in 15 minutes. The 429 cooldown is checked before
+     * <em>every</em> page, because a price call on another thread can arm it between two pages
+     * and the free tier counts the requests it rejects.
      */
     public Resolution resolveBySymbol(Set<String> tickers) {
         Set<String> wanted = tickers == null ? Set.of() : tickers.stream()
@@ -304,16 +311,23 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
             .map(t -> t.trim().toUpperCase(Locale.ROOT))
             .collect(java.util.stream.Collectors.toCollection(TreeSet::new));
         if (wanted.isEmpty()) return new Resolution(Map.of(), true);
-        if (coolingDown("symbol lookup", wanted)) return new Resolution(Map.of(), false);
 
         String symbols = wanted.stream()
             .map(t -> t.toLowerCase(Locale.ROOT))
             .collect(java.util.stream.Collectors.joining(","));
 
+        Instant deadline = Instant.now().plus(TIMEOUT);
         try {
             List<MarketEntry> markets = new ArrayList<>();
             for (int page = 1; ; page++) {
-                List<MarketEntry> batch = symbolLookupPage(symbols, page);
+                if (coolingDown("symbol lookup", wanted)) return new Resolution(Map.of(), false);
+                Duration remaining = Duration.between(Instant.now(), deadline);
+                if (remaining.isZero() || remaining.isNegative()) {
+                    log.warn("CoinGecko symbol lookup {} ran out of its {} budget after {} pages -- learning nothing",
+                        LogSanitizer.safe(wanted), TIMEOUT, page - 1);
+                    return new Resolution(Map.of(), false);
+                }
+                List<MarketEntry> batch = symbolLookupPage(symbols, page, remaining);
                 if (batch == null) {
                     log.warn("CoinGecko returned an empty body for symbol lookup {} -- learning nothing", LogSanitizer.safe(wanted));
                     return new Resolution(Map.of(), false);
@@ -343,7 +357,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
         }
     }
 
-    private List<MarketEntry> symbolLookupPage(String symbols, int page) {
+    private List<MarketEntry> symbolLookupPage(String symbols, int page, Duration timeout) {
         return webClient.get()
             .uri(uriBuilder -> uriBuilder
                 .path("/coins/markets")
@@ -356,7 +370,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
                 .build())
             .retrieve()
             .bodyToMono(new org.springframework.core.ParameterizedTypeReference<List<MarketEntry>>() {})
-            .timeout(TIMEOUT)
+            .timeout(timeout)
             .block();
     }
 

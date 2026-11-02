@@ -33,7 +33,9 @@ public interface PriceProviderPort {
     /**
      * Gives the provider a chance to recognise tickers it does not know yet as crypto, before the
      * caller filters on {@link #supportsCrypto}. May do network and database work, so callers pass
-     * only tickers held in a crypto context (a crypto account or wallet), never a stock ticker.
+     * only tickers held in a crypto context (a crypto account or wallet), never a stock ticker,
+     * and only from a path that may write: a scheduled refresh, a startup backfill or a sync,
+     * never a GET.
      * Never throws for an expected upstream failure; a ticker that cannot be decided now is simply
      * left unsupported until a later call.
      */

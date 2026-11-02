@@ -19,7 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#419](https://github.com/Cloeille/picsou-finance/issues/419)). Beyond them, a coin held in a
   crypto account that Picsou does not know yet is looked up on CoinGecko and remembered once it is
   identified, provided Yahoo Finance does not quote the same symbol as a stock and one coin clearly
-  dominates that symbol. An ambiguous symbol such as ONE stays unpriced and is logged. A refused
+  dominates that symbol. The lookup runs with the hourly price refresh, the startup backfill or an
+  exchange sync, never while a page loads, so a newly held coin is priced from the next one of
+  those. An ambiguous symbol such as ONE stays unpriced and is logged. A refused
   symbol is asked again after 24 hours, an undecided one (provider down or rate-limited) after
   15 minutes; these windows are kept in memory, so a restart asks again. Past daily snapshots
   keep their recorded values.

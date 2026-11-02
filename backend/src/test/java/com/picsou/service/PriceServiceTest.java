@@ -217,15 +217,17 @@ class PriceServiceTest {
     }
 
     @Test
-    void cryptoQuotes_offerTheTickerToTheRegistryBeforeFilteringOnSupportsCrypto() {
+    void getReads_neverOfferTickersToTheRegistry_soAGetStaysReadOnly() {
         when(priceProvider.supportsCrypto("NEXO")).thenReturn(true);
         when(priceProvider.getPricesEur(any())).thenReturn(Map.of("NEXO", new BigDecimal("1.20")));
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
 
         assertThat(priceService.getCryptoQuotes(Set.of("nexo"))).containsOnlyKeys("NEXO");
+        assertThat(priceService.getCryptoQuote("nexo")).isNotNull();
+        priceService.getCryptoIntradayPricesEur("nexo", now.minusDays(1), now);
 
-        InOrder order = inOrder(priceProvider);
-        order.verify(priceProvider).learnCryptoTickers(Set.of("NEXO"));
-        order.verify(priceProvider).supportsCrypto("NEXO");
+        // Learning inserts a crypto_asset row and calls Yahoo and CoinGecko: never on a GET.
+        verify(priceProvider, never()).learnCryptoTickers(any());
     }
 
     @Test
@@ -243,13 +245,12 @@ class PriceServiceTest {
     }
 
     @Test
-    void cryptoBackfill_andCryptoIntraday_offerTheTickerToTheRegistryFirst() {
+    void cryptoBackfill_offersTheTickerToTheRegistryFirst() {
         when(priceProvider.supportsCrypto("NEXO")).thenReturn(false);
 
         priceService.backfillHistoricalPrices(Set.of("NEXO"), LocalDate.now().minusDays(30), true);
-        priceService.getCryptoIntradayPricesEur("NEXO", java.time.LocalDateTime.now().minusDays(1), java.time.LocalDateTime.now());
 
-        verify(priceProvider, times(2)).learnCryptoTickers(Set.of("NEXO"));
+        verify(priceProvider, times(1)).learnCryptoTickers(Set.of("NEXO"));
     }
 
     @Test
@@ -262,7 +263,7 @@ class PriceServiceTest {
         // Unknown before learning, crypto after it.
         when(priceProvider.supportsCrypto("NEXO")).thenReturn(false, true);
 
-        assertThat(priceService.getCryptoQuotes(Set.of("NEXO")).get("NEXO").price())
+        assertThat(priceService.refreshCryptoPrices(Set.of("NEXO")).get("NEXO"))
             .isEqualByComparingTo("1.20");
         verify(priceProvider, times(2)).getPricesEur(Set.of("NEXO"));
     }
@@ -292,7 +293,7 @@ class PriceServiceTest {
     void aTickerStillUnsupportedAfterLearning_staysUnpriced() {
         when(priceProvider.supportsCrypto("STX")).thenReturn(false);
 
-        assertThat(priceService.getCryptoQuotes(Set.of("STX"))).isEmpty();
+        assertThat(priceService.refreshCryptoPrices(Set.of("STX"))).isEmpty();
 
         verify(priceProvider).learnCryptoTickers(Set.of("STX"));
         verify(priceProvider, never()).getPricesEur(any());

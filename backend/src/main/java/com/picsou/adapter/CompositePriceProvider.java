@@ -45,7 +45,8 @@ public class CompositePriceProvider implements PriceProviderPort {
     private static final Duration UNDECIDED_RETRY = Duration.ofMinutes(15);
     /**
      * Wall-clock budget for the serial Yahoo probes of one call (each may take 3 s). This runs
-     * inside page renders and syncs; tickers past it get no retry entry and are asked next call.
+     * inside the hourly refresh, the startup backfill and exchange syncs, never a page load;
+     * tickers past it get no retry entry and are asked next call.
      */
     private static final Duration PROBE_BUDGET = Duration.ofSeconds(5);
 
@@ -133,8 +134,9 @@ public class CompositePriceProvider implements PriceProviderPort {
         try {
             resolution = coinGecko.resolveBySymbol(candidates);
         } catch (RuntimeException ex) {
-            // The port promises never to throw: this runs inside page renders and syncs, and a
-            // learning bug must cost an unpriced coin, not the whole valuation.
+            // The port promises never to throw: this runs inside the hourly refresh, the startup
+            // backfill and exchange syncs, and a learning bug must cost an unpriced coin, not the
+            // whole valuation.
             log.warn("Crypto symbol lookup failed for {} -- retrying in {}", LogSanitizer.safe(candidates), UNDECIDED_RETRY, ex);
             candidates.forEach(t -> retryAfter.put(t, now.plus(UNDECIDED_RETRY)));
             return;

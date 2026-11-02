@@ -64,10 +64,11 @@ public class CryptoAssetRegistry {
      * Records a learned coin. An existing row wins: a curated entry must never be overwritten by
      * a runtime guess, and two threads learning the same ticker must not fail on the second.
      *
-     * <p>{@code REQUIRES_NEW}: callers such as AccountService and HistoryService are
-     * {@code readOnly = true}, and PostgreSQL rejects an INSERT in a read-only transaction
-     * (SQLSTATE 25006). A separate transaction also keeps a failed write from marking the
-     * caller's transaction rollback-only.
+     * <p>{@code REQUIRES_NEW}: the insert commits on its own, whatever transaction the caller
+     * holds. {@code CryptoExchangeSyncService.sync} runs inside a transaction that also writes
+     * the account's balance, so a failed learn must not mark it rollback-only, and a learned row
+     * must not be lost if that sync later rolls back (the in-memory map is updated at this
+     * commit, so the row must not depend on the caller's outcome).
      *
      * <p>The coin reaches the in-memory map only once that transaction commits: the map is the
      * router, and a row that failed to commit must stay unknown so the caller's retry runs.

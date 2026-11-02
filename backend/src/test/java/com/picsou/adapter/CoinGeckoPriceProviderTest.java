@@ -674,6 +674,60 @@ class CoinGeckoPriceProviderTest {
     }
 
     @Test
+    void resolveBySymbol_stopsPaging_whenAnotherCallArmsTheCooldownBetweenTwoPages() {
+        // A price call on another thread hits a 429 while page 1 is in flight. The free tier counts
+        // the requests it rejects, so page 2 must not be sent: the cooldown is read before every
+        // page, not once before the first one.
+        var urls = new java.util.ArrayList<String>();
+        var providerRef = new java.util.concurrent.atomic.AtomicReference<CoinGeckoPriceProvider>();
+        ExchangeFunction exchange = request -> {
+            String url = request.url().toString();
+            urls.add(url);
+            if (url.contains("/simple/price")) {
+                return Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE).body("{}").build());
+            }
+            providerRef.get().getPricesEur(Set.of("BTC"));
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(fullPageOfOther(1, null)).build());
+        };
+        providerRef.set(new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY));
+
+        var resolution = providerRef.get().resolveBySymbol(Set.of("OTHER"));
+
+        assertThat(urls).hasSize(2);
+        assertThat(urls.get(0)).contains("/coins/markets").contains("page=1");
+        assertThat(urls.get(1)).contains("/simple/price");
+        assertThat(resolution.answered()).isFalse();
+        assertThat(resolution.accepted()).isEmpty();
+    }
+
+    @Test
+    void resolveBySymbol_sharesOneTimeoutAcrossPages_soSlowPagesCannotStackUp() {
+        // Two pages of 6 s each: either fits the 10 s budget alone, both together do not. Page 2
+        // therefore times out on what is left of the shared deadline and the batch is undecided.
+        var urls = new java.util.ArrayList<String>();
+        ExchangeFunction exchange = request -> {
+            String url = request.url().toString();
+            urls.add(url);
+            String body = url.contains("page=1") ? fullPageOfOther(1, null) : "[]";
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE).body(body).build())
+                .delayElement(java.time.Duration.ofSeconds(6));
+        };
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
+
+        var resolution = provider.resolveBySymbol(Set.of("OTHER"));
+
+        assertThat(urls).hasSize(2);
+        assertThat(resolution.answered()).isFalse();
+        assertThat(resolution.accepted()).isEmpty();
+        assertThat(eventsAt(Level.WARN)).singleElement()
+            .satisfies(e -> assertThat(e.getFormattedMessage()).contains("timed out after PT10S"));
+    }
+
+    @Test
     void resolveBySymbol_propagatesAGenuineBug() {
         var provider = providerFailingWith(new IllegalStateException("a real bug"));
 

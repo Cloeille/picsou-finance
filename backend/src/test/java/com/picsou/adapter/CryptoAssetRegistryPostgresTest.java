@@ -21,9 +21,9 @@ import java.util.Base64;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * {@link CryptoAssetRegistry#learn} is reached from {@code @Transactional(readOnly = true)}
- * services (AccountService, HistoryService) through PriceService, yet it writes. It must escape
- * the caller's read-only transaction with {@code REQUIRES_NEW}; joined, PostgreSQL rejects the
+ * {@link CryptoAssetRegistry#learn} is reached from the exchange sync's transaction through
+ * PriceService and must commit on its own ({@code REQUIRES_NEW}), whatever the caller holds. A
+ * read-only caller transaction is the sharpest probe of that: joined, PostgreSQL rejects the
  * INSERT with SQLSTATE 25006. H2 tolerates writes in read-only transactions, so only a real
  * PostgreSQL shows it. As in {@code BudgetSeedWriteOnReadPostgresTest}, there is deliberately no
  * class-level {@code @Transactional}: it would collapse the boundary under test.
