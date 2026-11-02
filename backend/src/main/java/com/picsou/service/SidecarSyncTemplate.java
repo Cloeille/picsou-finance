@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import static com.picsou.service.SyncValues.requireTransactionResult;
 
@@ -129,7 +130,7 @@ public final class SidecarSyncTemplate<T> {
      * Replaces the member's session with a freshly authenticated one and queues its first
      * import. {@code prepare} sets bank-specific columns before the row is saved.
      */
-    public SidecarSession replaceAndQueue(
+    public void replaceAndQueue(
         Long memberId,
         String plainState,
         boolean history,
@@ -138,7 +139,6 @@ public final class SidecarSyncTemplate<T> {
         SidecarSyncJob job = requireTransactionResult(tx.execute(status ->
             insertQueued(memberId, plainState, history, prepare)));
         submit(job);
-        return find(memberId).orElseThrow();
     }
 
     /**
@@ -185,34 +185,45 @@ public final class SidecarSyncTemplate<T> {
         return recovered;
     }
 
-    /** The daily scheduler's entry: queues an import when the session can run, and says why not. */
-    public SourceSyncResult resyncReporting(Long memberId, String source) {
+    /**
+     * The daily scheduler's entry: queues an import when the session can run, and says why not.
+     * Reads and queues through the bank service's own methods and logs on its logger, so the
+     * service stays the one seam its callers and tests see.
+     */
+    public SourceSyncResult resyncReporting(
+        Long memberId,
+        String source,
+        Logger serviceLog,
+        Function<Long, ? extends SidecarSessionView> status,
+        Consumer<Long> queue
+    ) {
         try {
-            Optional<SidecarSession> session = find(memberId);
-            if (session.isEmpty() || !session.get().isActive()) {
-                SidecarErrorCode error = session.map(SidecarSession::getLastSyncError).orElse(null);
+            SidecarSessionView current = status.apply(memberId);
+            if (!current.isActive()) {
+                SidecarErrorCode error = current.lastSyncError();
                 if (error != null) {
-                    SourceSyncResult.Status status = needsReauth(source, error)
+                    SourceSyncResult.Status outcome = needsReauth(source, error)
                         ? SourceSyncResult.Status.NEEDS_REAUTH
                         : SourceSyncResult.Status.FAILED;
-                    return new SourceSyncResult(source, status, error.name());
+                    return new SourceSyncResult(source, outcome, error.name());
                 }
                 return new SourceSyncResult(source, SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
             }
-            queue(memberId, false);
+            queue.accept(memberId);
             return new SourceSyncResult(source, SourceSyncResult.Status.QUEUED, "");
         } catch (ResourceNotFoundException ex) {
             return new SourceSyncResult(source, SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
         } catch (DataAccessException ex) {
-            log.error("Database error during scheduled {} sync (member={})", bank.label(), memberId, ex);
+            serviceLog.error("Database error during scheduled {} sync (member={})", bank.label(), memberId, ex);
             return new SourceSyncResult(source, SourceSyncResult.Status.FAILED, "Database error");
         } catch (SyncException ex) {
-            log.warn("Could not queue scheduled {} sync (member={}; code={})", bank.label(), memberId, ex.getCode(), ex);
+            serviceLog.warn("Could not queue scheduled {} sync (member={}; code={})",
+                bank.label(), memberId, ex.getCode(), ex);
             SourceSyncResult classified = SourceSyncResult.fromSyncException(source, ex);
             return new SourceSyncResult(source, classified.status(),
                 classified.status() == SourceSyncResult.Status.NEEDS_REAUTH ? ex.getCode() : "Sync failed");
         } catch (Exception ex) {
-            log.error("{} scheduled sync failed unexpectedly for member {}", bank.label(), memberId, ex);
+            serviceLog.error("{} scheduled sync failed unexpectedly for member {}", bank.label(), memberId, ex);
             return new SourceSyncResult(source, SourceSyncResult.Status.FAILED, "Unexpected sync error");
         }
     }

@@ -92,7 +92,8 @@ public class CorumSyncService {
         if (plainState == null || plainState.isBlank()) {
             throw error(SidecarErrorCode.INVALID_DATA, "CORUM did not return a session", null);
         }
-        return toStatus(sync.replaceAndQueue(memberId, plainState, false, session -> {}));
+        sync.replaceAndQueue(memberId, plainState, false, session -> {});
+        return getStatus(memberId);
     }
 
     public SessionStatusResponse queueSync(Long memberId) {
@@ -228,7 +229,7 @@ public class CorumSyncService {
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError
-    ) {
+    ) implements SidecarSessionView {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null);
         }

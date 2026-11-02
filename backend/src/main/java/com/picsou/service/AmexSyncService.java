@@ -175,7 +175,8 @@ public class AmexSyncService {
         // explicit recovery action runs): the connect flow is already the heavy operation
         // (browser login + OTP), and every other sidecar imports deeply at connect. Routine
         // syncs (manual button, daily scheduler) keep the cheap 90-day window.
-        return toStatus(sync.replaceAndQueue(memberId, plainState, true, session -> {}));
+        sync.replaceAndQueue(memberId, plainState, true, session -> {});
+        return getStatus(memberId);
     }
 
     private List<PreparedAccount> prepareAccounts(List<AmexAdapter.AccountData> fetched) {
@@ -779,7 +780,7 @@ public class AmexSyncService {
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError
-    ) {
+    ) implements SidecarSessionView {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null);
         }

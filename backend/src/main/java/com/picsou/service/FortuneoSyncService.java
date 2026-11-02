@@ -155,7 +155,8 @@ public class FortuneoSyncService {
     }
 
     private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId) {
-        return toStatus(sync.replaceAndQueue(memberId, plainState, false, session -> {}));
+        sync.replaceAndQueue(memberId, plainState, false, session -> {});
+        return getStatus(memberId);
     }
 
     private List<PreparedAccount> prepareAccounts(List<FortuneoAdapter.AccountData> fetched) {
@@ -790,7 +791,7 @@ public class FortuneoSyncService {
     }
 
     public SourceSyncResult resyncReporting(Long memberId) {
-        return sync.resyncReporting(memberId, "fortuneo");
+        return sync.resyncReporting(memberId, "fortuneo", log, this::getStatus, this::queueSync);
     }
 
     public void resyncIfSessionActive(Long memberId) {
@@ -875,7 +876,7 @@ public class FortuneoSyncService {
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError
-    ) {
+    ) implements SidecarSessionView {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, null, SidecarSyncStatus.IDLE, null, null, null);
         }

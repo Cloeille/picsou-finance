@@ -139,7 +139,8 @@ public class AmundiSyncService {
     }
 
     private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId) {
-        return toStatus(sync.replaceAndQueue(memberId, plainState, false, session -> {}));
+        sync.replaceAndQueue(memberId, plainState, false, session -> {});
+        return getStatus(memberId);
     }
 
     private List<PreparedPlan> preparePlans(List<AmundiAdapter.PlanData> fetched) {
@@ -348,7 +349,7 @@ public class AmundiSyncService {
     }
 
     public SourceSyncResult resyncReporting(Long memberId) {
-        return sync.resyncReporting(memberId, "amundi");
+        return sync.resyncReporting(memberId, "amundi", log, this::getStatus, this::queueSync);
     }
 
     public void resyncIfSessionActive(Long memberId) {
@@ -458,7 +459,7 @@ public class AmundiSyncService {
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError
-    ) {
+    ) implements SidecarSessionView {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null);
         }

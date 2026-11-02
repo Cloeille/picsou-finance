@@ -132,7 +132,8 @@ public class BourseDirectSyncService {
     }
 
     private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId) {
-        return toStatus(sync.replaceAndQueue(memberId, plainState, false, session -> {}));
+        sync.replaceAndQueue(memberId, plainState, false, session -> {});
+        return getStatus(memberId);
     }
 
     private List<PreparedAccount> prepareAccounts(List<BourseDirectAdapter.AccountData> fetched) {
@@ -376,7 +377,7 @@ public class BourseDirectSyncService {
     }
 
     public SourceSyncResult resyncReporting(Long memberId) {
-        return sync.resyncReporting(memberId, "bourse-direct");
+        return sync.resyncReporting(memberId, "bourse-direct", log, this::getStatus, this::queueSync);
     }
 
     public void resyncIfSessionActive(Long memberId) {
@@ -435,7 +436,7 @@ public class BourseDirectSyncService {
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError
-    ) {
+    ) implements SidecarSessionView {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, null, SidecarSyncStatus.IDLE, null, null, null);
         }
