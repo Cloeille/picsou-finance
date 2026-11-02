@@ -23,7 +23,7 @@ import copy
 import json
 import logging
 import urllib.parse
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Awaitable, Callable, Optional
 
@@ -57,9 +57,14 @@ TRANSACTIONS_PARSED_DATA = [
     {"key": "status", "value": "AC"},
 ]
 PAGE_SIZE = 50
-# More than this many pages for one account is treated as a format change:
-# never a silent truncation.
-MAX_PAGES_PER_ACCOUNT = 20
+# Accounts and savings are read newest first (`accountingDate`) back to this many
+# days before today, then paging stops: a long-held current account has far more
+# history than one import can page through before the deadline (issue #397).
+HISTORY_DAYS = 365
+# More pages than this for one account, before the history window is reached,
+# fails the import: never a silent truncation. 60 pages of 50 stay well inside
+# the 100 s `/accounts` deadline at the ~0.9 s per call observed live.
+MAX_PAGES_PER_ACCOUNT = 60
 
 
 class FetchError(Exception):
@@ -148,20 +153,50 @@ CARD_QUERY = {
 }
 
 
-async def _paginate(client: httpx.AsyncClient, url: str, query: dict) -> list:
+def _accounting_dates(page: dict) -> list:
+    """The page's `parsedData.accountingDate` values, in row order; rows without one are skipped."""
+    found: list = []
+    for row in page["data"]:
+        parsed = row.get("parsedData") if isinstance(row, dict) else None
+        value = parsed.get("accountingDate") if isinstance(parsed, dict) else None
+        if value is None:
+            continue
+        try:
+            found.append(accounts_parser._iso_date(value, accounts_parser.INVALID_TRANSACTIONS, "accountingDate"))
+        except accounts_parser.ParseError:
+            raise UpstreamFormatChanged("Transactions carry an unreadable accounting date") from None
+    return found
+
+
+async def _paginate(client: httpx.AsyncClient, url: str, query: dict, *, since: Optional[date] = None) -> list:
+    """Every page, or with `since` the pages down to the first row booked before it.
+
+    The early stop needs newest-first rows. The sort direction was never observed
+    live, so a row newer than one already read turns the stop off for this account:
+    it is then paged to the end as before, never cut short.
+    """
     pages: list = []
     token: Optional[str] = None
+    oldest: Optional[date] = None
     for _ in range(MAX_PAGES_PER_ACCOUNT):
         params = dict(query) if token is None else {**query, "pageToken": token}
         page = await _get_json(client, url, params)
         pages.append(page)
         token = _next_page_token(page)
+        if since is not None:
+            for booked in _accounting_dates(page):
+                if oldest is not None and booked > oldest:
+                    since = None
+                    break
+                oldest = booked
+            if since is not None and oldest is not None and oldest < since:
+                return pages
         if token is None:
             return pages
-    raise UpstreamFormatChanged("Too many transaction pages for one account")
+    raise UpstreamFormatChanged("Too many transaction pages for one account", cause="page-cap")
 
 
-async def _fetch_pages(client: httpx.AsyncClient, base_url: str, account_id: str) -> list:
+async def _fetch_pages(client: httpx.AsyncClient, base_url: str, account_id: str, *, since: date) -> list:
     query = {
         "businessType": "UserProfile",
         "include": "Merchant",
@@ -174,7 +209,7 @@ async def _fetch_pages(client: httpx.AsyncClient, base_url: str, account_id: str
         "useAndSearchForParsedData": "false",
         "parsedData": json.dumps(TRANSACTIONS_PARSED_DATA, separators=(",", ":")),
     }
-    return await _paginate(client, base_url + TRANSACTIONS_PATH, query)
+    return await _paginate(client, base_url + TRANSACTIONS_PATH, query, since=since)
 
 
 async def _fetch_card_pages(client: httpx.AsyncClient, base_url: str, card_id: str) -> list:
@@ -441,6 +476,7 @@ async def fetch_import(
         except accounts_parser.ParseError:
             raise UpstreamFormatChanged("Synthesis does not match the observed format") from None
 
+        since = accounts_parser._today(today) - timedelta(days=HISTORY_DAYS)
         transactions: dict = {}
         unavailable: dict = {}  # externalId -> code
         stage = "transactions"  # only the current account's failure gets past the loop
@@ -451,7 +487,7 @@ async def fetch_import(
                 if kind == "CARD":
                     pages = await _fetch_card_pages(client, base_url, external_id)
                 elif kind in accounts_parser.PFM_KINDS:
-                    pages = await _fetch_pages(client, base_url, external_id)
+                    pages = await _fetch_pages(client, base_url, external_id, since=since)
                 else:
                     # PER and loan: no PFM transactions, so no call and no IBAN.
                     pages = []

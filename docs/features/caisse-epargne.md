@@ -59,7 +59,7 @@ On the current account the loan is debited from, two kinds of rows are categoriz
 - **Installment:** for each due date `firstDueDate + k months` up to the last due date, a debit equal to the monthly payment (±0.01), dated within ±5 days → `credit` (expense, named *Crédit*). That default category is created for the member on first need; an archived one is never revived, and the rows then stay untagged.
 - Exactly one candidate per expected event, else nothing is tagged. A row that already has a category is never overwritten. Re-running the sync changes nothing. Only counts are logged.
 
-- External account ids and transaction ids are prefixed `ce_`. Transactions are upserted by `(account, externalId)`; rows are never deleted, manual rows are never touched.
+- External account ids and transaction ids are prefixed `ce_`. Transactions are upserted by `(account, externalId)`; rows are never deleted, manual rows are never touched. Each sync reads the last 365 days of current-account, Livret A and LDDS transactions (whole pages, newest first), so a long-held account imports its last year on the first sync and older stored rows stay untouched.
 - Anything unexpected refuses the whole snapshot with `UPSTREAM_FORMAT_CHANGED`: unknown `kind`, non-EUR, missing balance, duplicate account, `snapshotComplete=false`, empty list, id over 100 characters.
 - A positive computed card outstanding refuses the whole sync (`UPSTREAM_FORMAT_CHANGED`) on purpose: the sign of the amount is unconfirmed, and it stays refused until a live run confirms it.
 - `unsupported` contracts are only counted in the status. They never become accounts.
