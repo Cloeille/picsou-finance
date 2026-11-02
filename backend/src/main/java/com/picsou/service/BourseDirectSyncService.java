@@ -8,15 +8,15 @@ import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
-import com.picsou.model.BourseDirectSession;
-import com.picsou.model.BourseDirectSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.adapter.BourseDirectAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.BourseDirectSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
@@ -54,7 +54,7 @@ public class BourseDirectSyncService {
     static final String PROVIDER = "Bourse Direct";
 
     private final BourseDirectAdapter port;
-    private final BourseDirectSessionRepository sessionRepository;
+    private final SidecarSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
     private final FamilyMemberRepository memberRepository;
@@ -67,7 +67,7 @@ public class BourseDirectSyncService {
 
     public BourseDirectSyncService(
         BourseDirectAdapter port,
-        BourseDirectSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,
         FamilyMemberRepository memberRepository,
@@ -112,7 +112,7 @@ public class BourseDirectSyncService {
 
     public SessionStatusResponse queueSync(Long memberId) {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
-            BourseDirectSession session = sessionRepository.findByMemberIdForUpdate(memberId)
+            SidecarSession session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSE_DIRECT, memberId)
                 .orElseThrow(() -> error(
                     SidecarErrorCode.SESSION_EXPIRED,
                     "No active Bourse Direct session. Please reconnect.",
@@ -125,8 +125,8 @@ public class BourseDirectSyncService {
                     null
                 );
             }
-            if (session.getSyncStatus() == BourseDirectSyncStatus.QUEUED
-                || session.getSyncStatus() == BourseDirectSyncStatus.RUNNING) {
+            if (session.getSyncStatus() == SidecarSyncStatus.QUEUED
+                || session.getSyncStatus() == SidecarSyncStatus.RUNNING) {
                 return new QueueDecision(null, toStatus(session));
             }
 
@@ -150,16 +150,15 @@ public class BourseDirectSyncService {
         SyncJob job = requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+            sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSE_DIRECT, memberId).ifPresent(sessionRepository::delete);
             sessionRepository.flush();
 
-            BourseDirectSession newSession = BourseDirectSession.create(
-                member,
+            SidecarSession newSession = SidecarSession.create(SidecarBank.BOURSE_DIRECT, member,
                 encryption.encrypt(plainState),
                 Instant.now()
             );
             newSession.markQueued();
-            BourseDirectSession stored = sessionRepository.saveAndFlush(newSession);
+            SidecarSession stored = sessionRepository.saveAndFlush(newSession);
             return new SyncJob(stored.getId(), memberId, plainState);
         }));
 
@@ -204,7 +203,7 @@ public class BourseDirectSyncService {
 
     private boolean markRunning(SyncJob job) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<BourseDirectSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+            Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(),
                 job.memberId()
             );
@@ -212,8 +211,8 @@ public class BourseDirectSyncService {
                 log.info("Bourse Direct sync session disappeared before execution (member={})", job.memberId());
                 return false;
             }
-            BourseDirectSession session = current.get();
-            if (!session.isActive() || session.getSyncStatus() != BourseDirectSyncStatus.QUEUED) {
+            SidecarSession session = current.get();
+            if (!session.isActive() || session.getSyncStatus() != SidecarSyncStatus.QUEUED) {
                 log.warn(
                     "Bourse Direct sync cannot start from state {} (member={}; active={})",
                     session.getSyncStatus(),
@@ -396,7 +395,7 @@ public class BourseDirectSyncService {
 
     private boolean commitPortfolio(SyncJob job, List<PreparedAccount> prepared) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<BourseDirectSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+            Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(),
                 job.memberId()
             );
@@ -404,12 +403,12 @@ public class BourseDirectSyncService {
                 log.info("Bourse Direct sync session disappeared before commit (member={})", job.memberId());
                 return false;
             }
-            BourseDirectSession session = current.get();
+            SidecarSession session = current.get();
             if (!session.isActive()) {
                 log.warn("Bourse Direct sync session became inactive before commit (member={})", job.memberId());
                 return false;
             }
-            if (session.getSyncStatus() != BourseDirectSyncStatus.RUNNING) {
+            if (session.getSyncStatus() != SidecarSyncStatus.RUNNING) {
                 log.warn(
                     "Bourse Direct sync cannot commit from state {} (member={})",
                     session.getSyncStatus(),
@@ -488,7 +487,7 @@ public class BourseDirectSyncService {
     private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
-                Optional<BourseDirectSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+                Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                     job.sessionId(),
                     job.memberId()
                 );
@@ -496,7 +495,7 @@ public class BourseDirectSyncService {
                     log.info("Bourse Direct sync session disappeared before failure was recorded (member={})", job.memberId());
                     return;
                 }
-                BourseDirectSession session = current.get();
+                SidecarSession session = current.get();
                 if (!session.isSyncInFlight()) {
                     log.warn(
                         "Bourse Direct sync failure ignored from state {} (member={}; code={})",
@@ -526,9 +525,9 @@ public class BourseDirectSyncService {
      */
     @Transactional
     public void recoverInterruptedSyncs() {
-        int recovered = sessionRepository.markInterruptedSyncsFailed(
-            List.of(BourseDirectSyncStatus.QUEUED, BourseDirectSyncStatus.RUNNING),
-            BourseDirectSyncStatus.FAILED,
+        int recovered = sessionRepository.markInterruptedSyncsFailed(SidecarBank.BOURSE_DIRECT,
+            List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING),
+            SidecarSyncStatus.FAILED,
             Instant.now(),
             SidecarErrorCode.INTERNAL_ERROR
         );
@@ -539,7 +538,7 @@ public class BourseDirectSyncService {
 
     @Transactional(readOnly = true)
     public SessionStatusResponse getStatus(Long memberId) {
-        return sessionRepository.findByMemberId(memberId)
+        return sessionRepository.findByBankAndMemberId(SidecarBank.BOURSE_DIRECT, memberId)
             .map(this::toStatus)
             .orElseGet(SessionStatusResponse::inactive);
     }
@@ -547,7 +546,7 @@ public class BourseDirectSyncService {
     /** Returns whether a stored session was there to delete. */
     public boolean clearSession(Long memberId) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            var session = sessionRepository.findByMemberIdForUpdate(memberId);
+            var session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSE_DIRECT, memberId);
             session.ifPresent(sessionRepository::delete);
             return session.isPresent();
         }));
@@ -590,7 +589,7 @@ public class BourseDirectSyncService {
     }
 
 
-    private SessionStatusResponse toStatus(BourseDirectSession session) {
+    private SessionStatusResponse toStatus(SidecarSession session) {
         return new SessionStatusResponse(
             session.isActive(),
             null,
@@ -638,13 +637,13 @@ public class BourseDirectSyncService {
     public record SessionStatusResponse(
         boolean isActive,
         Instant expiresAt,
-        BourseDirectSyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError
     ) {
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, null, BourseDirectSyncStatus.IDLE, null, null, null);
+            return new SessionStatusResponse(false, null, SidecarSyncStatus.IDLE, null, null, null);
         }
     }
 

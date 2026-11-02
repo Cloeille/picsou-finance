@@ -7,18 +7,10 @@ import com.picsou.dto.InstanceStatusResponse;
 import com.picsou.dto.ReleaseUpdate;
 import com.picsou.dto.SidecarIssue;
 import com.picsou.dto.SidecarIssueCode;
-import com.picsou.repository.AmexSessionRepository;
-import com.picsou.repository.AmundiSessionRepository;
-import com.picsou.repository.BoursoSessionRepository;
-import com.picsou.repository.BourseDirectSessionRepository;
-import com.picsou.repository.CaisseEpargneSessionRepository;
-import com.picsou.repository.CicSessionRepository;
-import com.picsou.repository.CmesSessionRepository;
-import com.picsou.repository.CorumSessionRepository;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
-import com.picsou.repository.FortuneoSessionRepository;
 import com.picsou.repository.RevolutSessionRepository;
-import com.picsou.repository.SofidySessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import io.netty.channel.ChannelOption;
 import org.slf4j.Logger;
@@ -74,25 +66,14 @@ public class InstanceStatusService {
         SetupService setupService,
         SidecarProperties sidecars,
         TradeRepublicSessionRepository trSessions,
-        BoursoSessionRepository boursoSessions,
-        CaisseEpargneSessionRepository caisseEpargneSessions,
+        SidecarSessionRepository sidecarSessions,
         RevolutSessionRepository revolutSessions,
-        BourseDirectSessionRepository bourseDirectSessions,
         DegiroSessionRepository degiroSessions,
-        AmundiSessionRepository amundiSessions,
-        AmexSessionRepository amexSessions,
-        FortuneoSessionRepository fortuneoSessions,
-        CorumSessionRepository corumSessions,
-        SofidySessionRepository sofidySessions,
-        CmesSessionRepository cmesSessions,
-        CicSessionRepository cicSessions,
         @Value("${info.app.version:dev}") String currentVersion
     ) {
         this(releaseCheck, currentVersion, registry(
             setupService, sidecars,
-            trSessions, boursoSessions, caisseEpargneSessions, revolutSessions, bourseDirectSessions,
-            degiroSessions, amundiSessions, amexSessions, fortuneoSessions, corumSessions, sofidySessions,
-            cmesSessions, cicSessions
+            trSessions, sidecarSessions, revolutSessions, degiroSessions
         ), defaultWebClient(PROBE_TIMEOUT), PROBE_TIMEOUT, OVERALL_DEADLINE);
     }
 
@@ -337,44 +318,35 @@ public class InstanceStatusService {
         SetupService setupService,
         SidecarProperties sidecars,
         TradeRepublicSessionRepository trSessions,
-        BoursoSessionRepository boursoSessions,
-        CaisseEpargneSessionRepository caisseEpargneSessions,
+        SidecarSessionRepository sidecarSessions,
         RevolutSessionRepository revolutSessions,
-        BourseDirectSessionRepository bourseDirectSessions,
-        DegiroSessionRepository degiroSessions,
-        AmundiSessionRepository amundiSessions,
-        AmexSessionRepository amexSessions,
-        FortuneoSessionRepository fortuneoSessions,
-        CorumSessionRepository corumSessions,
-        SofidySessionRepository sofidySessions,
-        CmesSessionRepository cmesSessions,
-        CicSessionRepository cicSessions
+        DegiroSessionRepository degiroSessions
     ) {
         return List.of(
             new SidecarTarget("bourso-auth", BASE_PYTHON,
-                () -> setupService.boursoAuthUrl(sidecarUrl(sidecars, "bourso-auth")), boursoSessions::count),
+                () -> setupService.boursoAuthUrl(sidecarUrl(sidecars, "bourso-auth")), () -> sidecarSessions.countByBank(SidecarBank.BOURSO)),
             new SidecarTarget("sofidy-auth", BASE_PYTHON,
-                () -> sidecarUrl(sidecars, "sofidy-auth"), sofidySessions::count),
+                () -> sidecarUrl(sidecars, "sofidy-auth"), () -> sidecarSessions.countByBank(SidecarBank.SOFIDY)),
             new SidecarTarget("cmes-auth", BASE_PYTHON,
-                () -> sidecarUrl(sidecars, "cmes-auth"), cmesSessions::count),
+                () -> sidecarUrl(sidecars, "cmes-auth"), () -> sidecarSessions.countByBank(SidecarBank.CMES)),
             new SidecarTarget("cic-auth", BASE_PYTHON,
-                () -> sidecarUrl(sidecars, "cic-auth"), cicSessions::count),
+                () -> sidecarUrl(sidecars, "cic-auth"), () -> sidecarSessions.countByBank(SidecarBank.CIC)),
             new SidecarTarget("degiro-auth", BASE_PYTHON,
                 () -> sidecarUrl(sidecars, "degiro-auth"), degiroSessions::count),
             new SidecarTarget("tr-auth", BASE_CHROMIUM,
                 () -> sidecarUrl(sidecars, "tr-auth"), trSessions::count),
             new SidecarTarget("caisse-epargne-auth", BASE_CHROMIUM,
-                () -> sidecarUrl(sidecars, "caisse-epargne-auth"), caisseEpargneSessions::count),
+                () -> sidecarUrl(sidecars, "caisse-epargne-auth"), () -> sidecarSessions.countByBank(SidecarBank.CAISSE_EPARGNE)),
             new SidecarTarget("bourse-direct-auth", BASE_CHROMIUM,
-                () -> sidecarUrl(sidecars, "bourse-direct-auth"), bourseDirectSessions::count),
+                () -> sidecarUrl(sidecars, "bourse-direct-auth"), () -> sidecarSessions.countByBank(SidecarBank.BOURSE_DIRECT)),
             new SidecarTarget("amundi-auth", BASE_CHROMIUM,
-                () -> sidecarUrl(sidecars, "amundi-auth"), amundiSessions::count),
+                () -> sidecarUrl(sidecars, "amundi-auth"), () -> sidecarSessions.countByBank(SidecarBank.AMUNDI)),
             new SidecarTarget("fortuneo-auth", BASE_CHROMIUM,
-                () -> sidecarUrl(sidecars, "fortuneo-auth"), fortuneoSessions::count),
+                () -> sidecarUrl(sidecars, "fortuneo-auth"), () -> sidecarSessions.countByBank(SidecarBank.FORTUNEO)),
             new SidecarTarget("corum-auth", BASE_CHROMIUM,
-                () -> sidecarUrl(sidecars, "corum-auth"), corumSessions::count),
+                () -> sidecarUrl(sidecars, "corum-auth"), () -> sidecarSessions.countByBank(SidecarBank.CORUM)),
             new SidecarTarget("amex-auth", BASE_CAMOUFOX,
-                () -> sidecarUrl(sidecars, "amex-auth"), amexSessions::count),
+                () -> sidecarUrl(sidecars, "amex-auth"), () -> sidecarSessions.countByBank(SidecarBank.AMEX)),
             new SidecarTarget("revolut-auth", BASE_CAMOUFOX,
                 () -> sidecarUrl(sidecars, "revolut-auth"), revolutSessions::count)
         );

@@ -1,5 +1,9 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.model.SidecarSession;
+import com.picsou.repository.SidecarSessionRepository;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.model.*;
 import com.picsou.adapter.CorumAdapter;
@@ -71,8 +75,7 @@ class ScpiSyncSessionPostgresTest {
     @Autowired FamilyMemberRepository members;
     @Autowired AccountRepository accounts;
     @Autowired ScpiPositionRepository positions;
-    @Autowired CorumSessionRepository corumSessions;
-    @Autowired SofidySessionRepository sofidySessions;
+    @Autowired SidecarSessionRepository sessions;
     @Autowired ScpiProviderFundRepository funds;
     @Autowired ScpiFundService fundService;
     @MockitoBean CorumAdapter corumPort;
@@ -111,9 +114,9 @@ class ScpiSyncSessionPostgresTest {
         boolean isCorum = scenario.startsWith("CORUM");
         boolean replace = scenario.endsWith("REPLACE");
         if (isCorum) {
-            corumSessions.saveAndFlush(CorumSession.create(member, "old-state", Instant.now()));
+            sessions.saveAndFlush(SidecarSession.create(SidecarBank.CORUM, member, "old-state", Instant.now()));
         } else {
-            sofidySessions.saveAndFlush(SofidySession.create(member, "old-state", Instant.now()));
+            sessions.saveAndFlush(SidecarSession.create(SidecarBank.SOFIDY, member, "old-state", Instant.now()));
         }
         CountDownLatch fetching = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
@@ -145,12 +148,12 @@ class ScpiSyncSessionPostgresTest {
             if (isCorum) {
                 corum.clearSession(member.getId());
                 if (replace) {
-                    corumSessions.saveAndFlush(CorumSession.create(member, "new-state", Instant.now()));
+                    sessions.saveAndFlush(SidecarSession.create(SidecarBank.CORUM, member, "new-state", Instant.now()));
                 }
             } else {
                 sofidy.clearSession(member.getId());
                 if (replace) {
-                    sofidySessions.saveAndFlush(SofidySession.create(member, "new-state", Instant.now()));
+                    sessions.saveAndFlush(SidecarSession.create(SidecarBank.SOFIDY, member, "new-state", Instant.now()));
                 }
             }
         } finally {
@@ -164,12 +167,12 @@ class ScpiSyncSessionPostgresTest {
         assertThat(positions.findById(position.getId()).orElseThrow().getShareCount())
             .isEqualByComparingTo("3");
         if (isCorum) {
-            var current = corumSessions.findByMemberId(member.getId());
-            if (replace) { assertThat(current.orElseThrow().getSyncStatus()).isEqualTo(CorumSyncStatus.IDLE); }
+            var current = sessions.findByBankAndMemberId(SidecarBank.CORUM, member.getId());
+            if (replace) { assertThat(current.orElseThrow().getSyncStatus()).isEqualTo(SidecarSyncStatus.IDLE); }
             else { assertThat(current).isEmpty(); }
         } else {
-            var current = sofidySessions.findByMemberId(member.getId());
-            if (replace) { assertThat(current.orElseThrow().getSyncStatus()).isEqualTo(SofidySyncStatus.IDLE); }
+            var current = sessions.findByBankAndMemberId(SidecarBank.SOFIDY, member.getId());
+            if (replace) { assertThat(current.orElseThrow().getSyncStatus()).isEqualTo(SidecarSyncStatus.IDLE); }
             else { assertThat(current).isEmpty(); }
         }
     }
@@ -177,13 +180,13 @@ class ScpiSyncSessionPostgresTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void sofidyRejectsMissingTotalOrQuantityWithoutChangingPersistedAccount(boolean missingQuantity) {
-        sofidySessions.saveAndFlush(SofidySession.create(member, "old-state", Instant.now()));
+        sessions.saveAndFlush(SidecarSession.create(SidecarBank.SOFIDY, member, "old-state", Instant.now()));
         when(sofidyPort.fetchSnapshot("old-state")).thenReturn(new SofidyAdapter.Snapshot("EUR",
             missingQuantity ? BigDecimal.ZERO : null, null, true,
             missingQuantity ? List.of(new SofidyAdapter.Holding("FUND", "Fund", null,
                 new BigDecimal("300"), null)) : List.of()));
 
-        assertThat(sofidy.queueSync(member.getId()).syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
+        assertThat(sofidy.queueSync(member.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(accounts.findById(account.getId()).orElseThrow().getCurrentBalance())
             .isEqualByComparingTo("900");
         assertThat(positions.findById(position.getId()).orElseThrow().getShareCount())
@@ -197,9 +200,9 @@ class ScpiSyncSessionPostgresTest {
         when(corumPort.fetchPortfolio("auto-state")).thenReturn(new CorumAdapter.Portfolio(
             corumUsa(), List.of()));
 
-        corumSessions.saveAndFlush(CorumSession.create(fresh, "auto-state", Instant.now()));
-        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
-        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        sessions.saveAndFlush(SidecarSession.create(SidecarBank.CORUM, fresh, "auto-state", Instant.now()));
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
 
         List<Account> created = accounts.findAllByMemberIdOrderByCreatedAtAsc(fresh.getId());
         assertThat(created).singleElement().satisfies(a -> {
@@ -219,7 +222,7 @@ class ScpiSyncSessionPostgresTest {
         positions.saveAndFlush(linked);
         doomed.setDeletedAt(Instant.now());
         accounts.saveAndFlush(doomed);
-        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
 
         assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(fresh.getId())).isEmpty();
         assertThat(funds.findByMemberIdAndProviderAndFundCode(fresh.getId(), ScpiProvider.CORUM, "US"))

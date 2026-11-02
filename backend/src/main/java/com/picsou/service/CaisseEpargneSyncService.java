@@ -10,8 +10,8 @@ import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
-import com.picsou.model.CaisseEpargneSession;
-import com.picsou.model.CaisseEpargneSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.CardNature;
 import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
@@ -21,7 +21,7 @@ import com.picsou.model.Transaction;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
@@ -96,7 +96,7 @@ public class CaisseEpargneSyncService {
     private static final java.util.regex.Pattern BASE64 = java.util.regex.Pattern.compile("[A-Za-z0-9+/]+={0,2}");
 
     private final CaisseEpargnePort port;
-    private final CaisseEpargneSessionRepository sessionRepository;
+    private final SidecarSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final FamilyMemberRepository memberRepository;
@@ -119,7 +119,7 @@ public class CaisseEpargneSyncService {
     @org.springframework.beans.factory.annotation.Autowired
     public CaisseEpargneSyncService(
         CaisseEpargnePort port,
-        CaisseEpargneSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
@@ -139,7 +139,7 @@ public class CaisseEpargneSyncService {
 
     CaisseEpargneSyncService(
         CaisseEpargnePort port,
-        CaisseEpargneSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
@@ -301,17 +301,17 @@ public class CaisseEpargneSyncService {
         requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+            sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, memberId).ifPresent(sessionRepository::delete);
             sessionRepository.flush();
             return sessionRepository.saveAndFlush(
-                CaisseEpargneSession.create(member, encryption.encrypt(plainState), Instant.now()));
+                SidecarSession.create(SidecarBank.CAISSE_EPARGNE, member, encryption.encrypt(plainState), Instant.now()));
         }));
         return getStatus(memberId);
     }
 
     public SessionStatusResponse queueSync(Long memberId) {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
-            CaisseEpargneSession session = sessionRepository.findByMemberIdForUpdate(memberId)
+            SidecarSession session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, memberId)
                 .orElseThrow(() -> error(
                     SidecarErrorCode.SESSION_EXPIRED,
                     "No active Caisse d'Epargne session. Please reconnect.",
@@ -413,14 +413,14 @@ public class CaisseEpargneSyncService {
 
     private boolean markRunning(SyncJob job) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<CaisseEpargneSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+            Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(), job.memberId());
             if (current.isEmpty()) {
                 log.info("Caisse d'Epargne sync session disappeared before execution (member={})", job.memberId());
                 return false;
             }
-            CaisseEpargneSession session = current.get();
-            if (!session.isActive() || session.getSyncStatus() != CaisseEpargneSyncStatus.QUEUED) {
+            SidecarSession session = current.get();
+            if (!session.isActive() || session.getSyncStatus() != SidecarSyncStatus.QUEUED) {
                 log.warn("Caisse d'Epargne sync cannot start from state {} (member={}; active={})",
                     session.getSyncStatus(), job.memberId(), session.isActive());
                 return false;
@@ -531,18 +531,18 @@ public class CaisseEpargneSyncService {
 
     private boolean commit(SyncJob job, PreparedSnapshot prepared) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<CaisseEpargneSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+            Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(), job.memberId());
             if (current.isEmpty()) {
                 log.info("Caisse d'Epargne sync session disappeared before commit (member={})", job.memberId());
                 return false;
             }
-            CaisseEpargneSession session = current.get();
+            SidecarSession session = current.get();
             if (!session.isActive()) {
                 log.warn("Caisse d'Epargne sync session became inactive before commit (member={})", job.memberId());
                 return false;
             }
-            if (session.getSyncStatus() != CaisseEpargneSyncStatus.RUNNING) {
+            if (session.getSyncStatus() != SidecarSyncStatus.RUNNING) {
                 log.warn("Caisse d'Epargne sync cannot commit from state {} (member={})",
                     session.getSyncStatus(), job.memberId());
                 return false;
@@ -965,14 +965,14 @@ public class CaisseEpargneSyncService {
     private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
-                Optional<CaisseEpargneSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+                Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                     job.sessionId(), job.memberId());
                 if (current.isEmpty()) {
                     log.info("Caisse d'Epargne sync session disappeared before failure was recorded (member={})",
                         job.memberId());
                     return;
                 }
-                CaisseEpargneSession session = current.get();
+                SidecarSession session = current.get();
                 if (!session.isSyncInFlight()) {
                     log.warn("Caisse d'Epargne sync failure ignored from state {} (member={}; code={})",
                         session.getSyncStatus(), job.memberId(), code);
@@ -992,9 +992,9 @@ public class CaisseEpargneSyncService {
      */
     @Transactional
     public void recoverInterruptedSyncs() {
-        int recovered = sessionRepository.markInterruptedSyncsFailed(
-            List.of(CaisseEpargneSyncStatus.QUEUED, CaisseEpargneSyncStatus.RUNNING),
-            CaisseEpargneSyncStatus.FAILED,
+        int recovered = sessionRepository.markInterruptedSyncsFailed(SidecarBank.CAISSE_EPARGNE,
+            List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING),
+            SidecarSyncStatus.FAILED,
             Instant.now(),
             SidecarErrorCode.INTERNAL_ERROR
         );
@@ -1005,7 +1005,7 @@ public class CaisseEpargneSyncService {
 
     @Transactional(readOnly = true)
     public SessionStatusResponse getStatus(Long memberId) {
-        return sessionRepository.findByMemberId(memberId)
+        return sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, memberId)
             .map(this::toStatus)
             .orElseGet(SessionStatusResponse::inactive);
     }
@@ -1017,13 +1017,13 @@ public class CaisseEpargneSyncService {
      */
     public boolean clearSession(Long memberId) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            var session = sessionRepository.findByMemberIdForUpdate(memberId);
+            var session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, memberId);
             session.ifPresent(sessionRepository::delete);
             return session.isPresent();
         }));
     }
 
-    private SessionStatusResponse toStatus(CaisseEpargneSession session) {
+    private SessionStatusResponse toStatus(SidecarSession session) {
         return new SessionStatusResponse(
             session.isActive(),
             session.getSyncStatus(),
@@ -1165,7 +1165,7 @@ public class CaisseEpargneSyncService {
 
     public record SessionStatusResponse(
         boolean isActive,
-        CaisseEpargneSyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError,
@@ -1176,7 +1176,7 @@ public class CaisseEpargneSyncService {
         }
 
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, CaisseEpargneSyncStatus.IDLE, null, null, null, List.of());
+            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null, List.of());
         }
 
         @JsonProperty("unsupportedCount")

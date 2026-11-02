@@ -9,14 +9,14 @@ import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
-import com.picsou.model.CicSession;
-import com.picsou.model.CicSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.adapter.CicAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.CicSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
@@ -73,7 +73,7 @@ public class CicSyncService {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final CicAdapter port;
-    private final CicSessionRepository sessionRepository;
+    private final SidecarSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final FamilyMemberRepository memberRepository;
     private final AccountService accountService;
@@ -88,7 +88,7 @@ public class CicSyncService {
 
     public CicSyncService(
         CicAdapter port,
-        CicSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         FamilyMemberRepository memberRepository,
         AccountService accountService,
@@ -141,8 +141,8 @@ public class CicSyncService {
      */
     public AuthInitResponse reconnect(Long memberId) {
         long generation = authGenerations.getOrDefault(memberId, 0L);
-        String encrypted = sessionRepository.findByMemberId(memberId)
-            .map(CicSession::getEncryptedCredentials)
+        String encrypted = sessionRepository.findByBankAndMemberId(SidecarBank.CIC, memberId)
+            .map(SidecarSession::getEncryptedCredentials)
             .orElse(null);
         if (encrypted == null) {
             throw error(SidecarErrorCode.SESSION_EXPIRED, "No stored CIC credentials", null);
@@ -159,7 +159,7 @@ public class CicSyncService {
             if (codeOf(ex) == SidecarErrorCode.INVALID_CREDENTIALS) {
                 synchronized (sessionWriteLock) {
                     if (authGenerations.getOrDefault(memberId, 0L) == generation) {
-                        txTemplate.executeWithoutResult(status -> sessionRepository.findByMemberIdForUpdate(memberId)
+                        txTemplate.executeWithoutResult(status -> sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CIC, memberId)
                             // A newer login's password must survive an older rejection.
                             .filter(session -> encrypted.equals(session.getEncryptedCredentials()))
                             .ifPresent(session -> {
@@ -214,7 +214,7 @@ public class CicSyncService {
 
     public SessionStatusResponse queueSync(Long memberId) {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
-            CicSession session = sessionRepository.findByMemberIdForUpdate(memberId)
+            SidecarSession session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CIC, memberId)
                 .orElseThrow(() -> error(
                     SidecarErrorCode.SESSION_EXPIRED,
                     "No active CIC session. Please reconnect.",
@@ -227,8 +227,8 @@ public class CicSyncService {
                     null
                 );
             }
-            if (session.getSyncStatus() == CicSyncStatus.QUEUED
-                || session.getSyncStatus() == CicSyncStatus.RUNNING) {
+            if (session.getSyncStatus() == SidecarSyncStatus.QUEUED
+                || session.getSyncStatus() == SidecarSyncStatus.RUNNING) {
                 return new QueueDecision(null, toStatus(session));
             }
 
@@ -251,7 +251,7 @@ public class CicSyncService {
     /** The stored session, even an expired one: only its remembered-device cookie is reused. */
     private String previousPlainState(Long memberId) {
         try {
-            return sessionRepository.findByMemberId(memberId)
+            return sessionRepository.findByBankAndMemberId(SidecarBank.CIC, memberId)
                 .map(session -> encryption.decrypt(session.getSessionState()))
                 .orElse(null);
         } catch (RuntimeException ex) {
@@ -281,11 +281,10 @@ public class CicSyncService {
         return requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+            sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CIC, memberId).ifPresent(sessionRepository::delete);
             sessionRepository.flush();
 
-            CicSession newSession = CicSession.create(
-                member,
+            SidecarSession newSession = SidecarSession.create(SidecarBank.CIC, member,
                 encryption.encrypt(plainState),
                 Instant.now()
             );
@@ -293,7 +292,7 @@ public class CicSyncService {
                 newSession.setEncryptedCredentials(encryption.encrypt(serializeCredentials(login, password)));
             }
             newSession.markQueued();
-            CicSession stored = sessionRepository.saveAndFlush(newSession);
+            SidecarSession stored = sessionRepository.saveAndFlush(newSession);
             return new SyncJob(stored.getId(), memberId, plainState);
         }));
     }
@@ -346,11 +345,11 @@ public class CicSyncService {
      * factor cannot be finished unattended and reads as an expired session.
      */
     private CicAdapter.AccountListing reauthenticateAndFetch(SyncJob job) {
-        CicSession session = requireTransactionResult(txTemplate.execute(
+        SidecarSession session = requireTransactionResult(txTemplate.execute(
             status -> sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
         )).orElse(null);
         if (session == null || !session.isActive()
-            || session.getSyncStatus() != CicSyncStatus.RUNNING
+            || session.getSyncStatus() != SidecarSyncStatus.RUNNING
             || session.getEncryptedCredentials() == null) {
             throw error(SidecarErrorCode.SESSION_EXPIRED, "CIC session expired", null);
         }
@@ -371,7 +370,7 @@ public class CicSyncService {
         String newState = result.sessionState();
         Boolean updated = txTemplate.execute(status -> sessionRepository
             .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
-            .filter(current -> current.isActive() && current.getSyncStatus() == CicSyncStatus.RUNNING)
+            .filter(current -> current.isActive() && current.getSyncStatus() == SidecarSyncStatus.RUNNING)
             .map(current -> {
                 current.updateSessionState(encryption.encrypt(newState), Instant.now());
                 sessionRepository.save(current);
@@ -407,7 +406,7 @@ public class CicSyncService {
 
     private boolean markRunning(SyncJob job) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<CicSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+            Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(),
                 job.memberId()
             );
@@ -415,8 +414,8 @@ public class CicSyncService {
                 log.info("CIC sync session disappeared before execution (member={})", job.memberId());
                 return false;
             }
-            CicSession session = current.get();
-            if (!session.isActive() || session.getSyncStatus() != CicSyncStatus.QUEUED) {
+            SidecarSession session = current.get();
+            if (!session.isActive() || session.getSyncStatus() != SidecarSyncStatus.QUEUED) {
                 log.warn(
                     "CIC sync cannot start from state {} (member={}; active={})",
                     session.getSyncStatus(),
@@ -459,7 +458,7 @@ public class CicSyncService {
 
     private boolean commitAccounts(SyncJob job, List<PreparedAccount> prepared, Set<String> categoriesRead) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<CicSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+            Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(),
                 job.memberId()
             );
@@ -467,12 +466,12 @@ public class CicSyncService {
                 log.info("CIC sync session disappeared before commit (member={})", job.memberId());
                 return false;
             }
-            CicSession session = current.get();
+            SidecarSession session = current.get();
             if (!session.isActive()) {
                 log.warn("CIC sync session became inactive before commit (member={})", job.memberId());
                 return false;
             }
-            if (session.getSyncStatus() != CicSyncStatus.RUNNING) {
+            if (session.getSyncStatus() != SidecarSyncStatus.RUNNING) {
                 log.warn(
                     "CIC sync cannot commit from state {} (member={})",
                     session.getSyncStatus(),
@@ -585,7 +584,7 @@ public class CicSyncService {
     private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
-                Optional<CicSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+                Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                     job.sessionId(),
                     job.memberId()
                 );
@@ -593,7 +592,7 @@ public class CicSyncService {
                     log.info("CIC sync session disappeared before failure was recorded (member={})", job.memberId());
                     return;
                 }
-                CicSession session = current.get();
+                SidecarSession session = current.get();
                 if (!session.isSyncInFlight()) {
                     log.warn(
                         "CIC sync failure ignored from state {} (member={}; code={})",
@@ -626,9 +625,9 @@ public class CicSyncService {
      */
     @Transactional
     public void recoverInterruptedSyncs() {
-        int recovered = sessionRepository.markInterruptedSyncsFailed(
-            List.of(CicSyncStatus.QUEUED, CicSyncStatus.RUNNING),
-            CicSyncStatus.FAILED,
+        int recovered = sessionRepository.markInterruptedSyncsFailed(SidecarBank.CIC,
+            List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING),
+            SidecarSyncStatus.FAILED,
             Instant.now(),
             SidecarErrorCode.INTERNAL_ERROR
         );
@@ -639,7 +638,7 @@ public class CicSyncService {
 
     @Transactional(readOnly = true)
     public SessionStatusResponse getStatus(Long memberId) {
-        return sessionRepository.findByMemberId(memberId)
+        return sessionRepository.findByBankAndMemberId(SidecarBank.CIC, memberId)
             .map(this::toStatus)
             .orElseGet(SessionStatusResponse::inactive);
     }
@@ -653,7 +652,7 @@ public class CicSyncService {
             authGenerations.merge(memberId, 1L, Long::sum);
             pendingCredentials.entrySet().removeIf(entry -> entry.getValue().memberId().equals(memberId));
             return Boolean.TRUE.equals(txTemplate.execute(status -> {
-                var session = sessionRepository.findByMemberIdForUpdate(memberId);
+                var session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CIC, memberId);
                 session.ifPresent(sessionRepository::delete);
                 return session.isPresent();
             }));
@@ -697,7 +696,7 @@ public class CicSyncService {
         resyncReporting(memberId); // ignore return
     }
 
-    private SessionStatusResponse toStatus(CicSession session) {
+    private SessionStatusResponse toStatus(SidecarSession session) {
         return new SessionStatusResponse(
             session.isActive(),
             session.getSyncStatus(),
@@ -732,7 +731,7 @@ public class CicSyncService {
 
     public record SessionStatusResponse(
         boolean isActive,
-        CicSyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError,
@@ -740,7 +739,7 @@ public class CicSyncService {
         boolean canReconnect
     ) {
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, CicSyncStatus.IDLE, null, null, null, false);
+            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null, false);
         }
     }
 

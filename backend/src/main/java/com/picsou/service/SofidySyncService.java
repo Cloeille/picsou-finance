@@ -8,14 +8,14 @@ import com.picsou.model.FamilyMember;
 import com.picsou.model.ScpiFundOutcome;
 import com.picsou.model.ScpiPosition;
 import com.picsou.model.ScpiProvider;
-import com.picsou.model.SofidySession;
-import com.picsou.model.SofidySyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.adapter.SofidyAdapter;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.ScpiPositionRepository;
-import com.picsou.repository.SofidySessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -74,7 +74,7 @@ public class SofidySyncService {
     private static final Duration AUTH_TTL = Duration.ofMinutes(5);
 
     private final SofidyAdapter port;
-    private final SofidySessionRepository sessionRepository;
+    private final SidecarSessionRepository sessionRepository;
     private final ScpiPositionRepository positionRepository;
     private final ScpiPositionService positionService;
     private final FamilyMemberRepository memberRepository;
@@ -85,7 +85,7 @@ public class SofidySyncService {
 
     public SofidySyncService(
         SofidyAdapter port,
-        SofidySessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         ScpiPositionRepository positionRepository,
         ScpiPositionService positionService,
         FamilyMemberRepository memberRepository,
@@ -144,7 +144,7 @@ public class SofidySyncService {
         }
         txTemplate.executeWithoutResult(status -> {
             FamilyMember member = lockMember(memberId);
-            SofidySession current = currentAttempt(memberId, attempt);
+            SidecarSession current = currentAttempt(memberId, attempt);
             sessionRepository.delete(current);
             sessionRepository.flush();
             sessionRepository.saveAndFlush(pendingSession(member,
@@ -157,7 +157,7 @@ public class SofidySyncService {
     public SessionStatusResponse completeAuth(String processId, String code, Long memberId) {
         AuthAttempt attempt = requireTransactionResult(txTemplate.execute(status -> {
             lockMember(memberId);
-            SofidySession pending = sessionRepository.findByMemberIdForUpdate(memberId)
+            SidecarSession pending = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.SOFIDY, memberId)
                 .filter(session -> !session.isActive() && !session.isSyncInFlight())
                 .filter(session -> isCurrentAttempt(session))
                 .filter(session -> processId != null && !processId.isBlank()
@@ -175,30 +175,30 @@ public class SofidySyncService {
     private AuthAttempt reserveAuthAttempt(Long memberId) {
         return requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = lockMember(memberId);
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+            sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.SOFIDY, memberId).ifPresent(sessionRepository::delete);
             sessionRepository.flush();
-            SofidySession pending = sessionRepository.saveAndFlush(pendingSession(member,
+            SidecarSession pending = sessionRepository.saveAndFlush(pendingSession(member,
                 AUTH_START_PREFIX + UUID.randomUUID()));
             return new AuthAttempt(pending.getId(), pending.getSessionState());
         }));
     }
 
-    private SofidySession pendingSession(FamilyMember member, String marker) {
-        return SofidySession.builder().member(member).active(false)
+    private SidecarSession pendingSession(FamilyMember member, String marker) {
+        return SidecarSession.builder().bank(SidecarBank.SOFIDY).member(member).active(false)
             .sessionState(encryption.encrypt(marker)).lastValidatedAt(Instant.now()).build();
     }
 
     private FamilyMember lockMember(Long memberId) {
-        return sessionRepository.findMemberByIdForUpdate(memberId)
+        return memberRepository.findByIdForUpdate(memberId)
             .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
     }
 
-    private boolean isCurrentAttempt(SofidySession session) {
+    private boolean isCurrentAttempt(SidecarSession session) {
         return session.getLastValidatedAt() != null
             && session.getLastValidatedAt().plus(AUTH_TTL).isAfter(Instant.now());
     }
 
-    private SofidySession currentAttempt(Long memberId, AuthAttempt attempt) {
+    private SidecarSession currentAttempt(Long memberId, AuthAttempt attempt) {
         return sessionRepository.findByIdAndMemberIdForUpdate(attempt.sessionId(), memberId)
             .filter(session -> !session.isActive() && !session.isSyncInFlight())
             .filter(this::isCurrentAttempt)
@@ -217,13 +217,12 @@ public class SofidySyncService {
             sessionRepository.delete(currentAttempt(memberId, attempt));
             sessionRepository.flush();
 
-            SofidySession newSession = SofidySession.create(
-                member,
+            SidecarSession newSession = SidecarSession.create(SidecarBank.SOFIDY, member,
                 encryption.encrypt(plainState),
                 Instant.now()
             );
             newSession.markQueued();
-            SofidySession stored = sessionRepository.saveAndFlush(newSession);
+            SidecarSession stored = sessionRepository.saveAndFlush(newSession);
             return new SyncJob(stored.getId(), memberId, plainState);
         }));
 
@@ -234,7 +233,7 @@ public class SofidySyncService {
     public SessionStatusResponse queueSync(Long memberId) {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
             lockMember(memberId);
-            SofidySession session = sessionRepository.findByMemberIdForUpdate(memberId)
+            SidecarSession session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.SOFIDY, memberId)
                 .orElseThrow(() -> error(
                     SidecarErrorCode.SESSION_EXPIRED,
                     "No active Sofidy session. Please reconnect.",
@@ -269,7 +268,7 @@ public class SofidySyncService {
 
     @Transactional(readOnly = true)
     public SessionStatusResponse getStatus(Long memberId) {
-        return sessionRepository.findByMemberId(memberId)
+        return sessionRepository.findByBankAndMemberId(SidecarBank.SOFIDY, memberId)
             .map(this::toStatus)
             .orElseGet(SessionStatusResponse::inactive);
     }
@@ -277,7 +276,7 @@ public class SofidySyncService {
     @Transactional
     public void clearSession(Long memberId) {
         lockMember(memberId);
-        sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+        sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.SOFIDY, memberId).ifPresent(sessionRepository::delete);
     }
 
     private void submit(SyncJob job) {
@@ -451,7 +450,7 @@ public class SofidySyncService {
 
     private boolean markRunning(SyncJob job) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<SofidySession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+            Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(),
                 job.memberId()
             );
@@ -459,8 +458,8 @@ public class SofidySyncService {
                 log.info("Sofidy sync session disappeared before execution (member={})", job.memberId());
                 return false;
             }
-            SofidySession session = current.get();
-            if (!session.isActive() || session.getSyncStatus() != SofidySyncStatus.QUEUED) {
+            SidecarSession session = current.get();
+            if (!session.isActive() || session.getSyncStatus() != SidecarSyncStatus.QUEUED) {
                 log.warn(
                     "Sofidy sync cannot start from state {} (member={}; active={})",
                     session.getSyncStatus(), job.memberId(), session.isActive()
@@ -476,10 +475,10 @@ public class SofidySyncService {
     private void commitSnapshot(SyncJob job, SofidyAdapter.Snapshot snapshot) {
         txTemplate.executeWithoutResult(status -> {
             lockMember(job.memberId());
-            Optional<SofidySession> current = sessionRepository
+            Optional<SidecarSession> current = sessionRepository
                 .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId());
             if (current.isEmpty() || !current.get().isActive()
-                    || current.get().getSyncStatus() != SofidySyncStatus.RUNNING) {
+                    || current.get().getSyncStatus() != SidecarSyncStatus.RUNNING) {
                 return;
             }
             Instant now = Instant.now();
@@ -502,7 +501,7 @@ public class SofidySyncService {
         });
     }
 
-    private SessionStatusResponse toStatus(SofidySession session) {
+    private SessionStatusResponse toStatus(SidecarSession session) {
         return new SessionStatusResponse(
             session.isActive(),
             session.getSyncStatus(),
@@ -533,7 +532,7 @@ public class SofidySyncService {
         boolean mfaRequired,
         String mfaType,
         boolean isActive,
-        SofidySyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         SidecarErrorCode lastSyncError,
         java.time.Instant lastSyncStartedAt,
         java.time.Instant lastSyncCompletedAt
@@ -542,20 +541,20 @@ public class SofidySyncService {
         public static InitiateResponse pending(String processId, String mfaType) {
             return new InitiateResponse(
                 processId, true, mfaType, false,
-                SofidySyncStatus.IDLE, null, null, null
+                SidecarSyncStatus.IDLE, null, null, null
             );
         }
     }
 
     public record SessionStatusResponse(
         boolean isActive,
-        SofidySyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError
     ) {
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, SofidySyncStatus.IDLE, null, null, null);
+            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null);
         }
     }
 

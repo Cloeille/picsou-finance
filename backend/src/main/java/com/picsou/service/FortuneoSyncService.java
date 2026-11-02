@@ -9,8 +9,8 @@ import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
-import com.picsou.model.FortuneoSession;
-import com.picsou.model.FortuneoSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.port.SidecarErrorCode;
@@ -19,7 +19,7 @@ import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
-import com.picsou.repository.FortuneoSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
@@ -56,7 +56,7 @@ public class FortuneoSyncService {
     private static final int TRANSACTION_WINDOW_DAYS = 90;
 
     private final FortuneoAdapter port;
-    private final FortuneoSessionRepository sessionRepository;
+    private final SidecarSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
     private final FortuneoTransactionWriter transactionWriter;
@@ -73,7 +73,7 @@ public class FortuneoSyncService {
 
     public FortuneoSyncService(
         FortuneoAdapter port,
-        FortuneoSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,
         FortuneoTransactionWriter transactionWriter,
@@ -126,7 +126,7 @@ public class FortuneoSyncService {
 
     public SessionStatusResponse queueSync(Long memberId) {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
-            FortuneoSession session = sessionRepository.findByMemberIdForUpdate(memberId)
+            SidecarSession session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.FORTUNEO, memberId)
                 .orElseThrow(() -> error(
                     SidecarErrorCode.SESSION_EXPIRED,
                     "No active Fortuneo session. Please reconnect.",
@@ -139,8 +139,8 @@ public class FortuneoSyncService {
                     null
                 );
             }
-            if (session.getSyncStatus() == FortuneoSyncStatus.QUEUED
-                || session.getSyncStatus() == FortuneoSyncStatus.RUNNING) {
+            if (session.getSyncStatus() == SidecarSyncStatus.QUEUED
+                || session.getSyncStatus() == SidecarSyncStatus.RUNNING) {
                 return new QueueDecision(null, toStatus(session));
             }
 
@@ -164,16 +164,15 @@ public class FortuneoSyncService {
         SyncJob job = requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+            sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.FORTUNEO, memberId).ifPresent(sessionRepository::delete);
             sessionRepository.flush();
 
-            FortuneoSession newSession = FortuneoSession.create(
-                member,
+            SidecarSession newSession = SidecarSession.create(SidecarBank.FORTUNEO, member,
                 encryption.encrypt(plainState),
                 Instant.now()
             );
             newSession.markQueued();
-            FortuneoSession stored = sessionRepository.saveAndFlush(newSession);
+            SidecarSession stored = sessionRepository.saveAndFlush(newSession);
             return new SyncJob(stored.getId(), memberId, plainState);
         }));
 
@@ -232,7 +231,7 @@ public class FortuneoSyncService {
 
     private boolean markRunning(SyncJob job) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<FortuneoSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+            Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(),
                 job.memberId()
             );
@@ -240,8 +239,8 @@ public class FortuneoSyncService {
                 log.info("Fortuneo sync session disappeared before execution (member={})", job.memberId());
                 return false;
             }
-            FortuneoSession session = current.get();
-            if (!session.isActive() || session.getSyncStatus() != FortuneoSyncStatus.QUEUED) {
+            SidecarSession session = current.get();
+            if (!session.isActive() || session.getSyncStatus() != SidecarSyncStatus.QUEUED) {
                 log.warn(
                     "Fortuneo sync cannot start from state {} (member={}; active={})",
                     session.getSyncStatus(),
@@ -534,7 +533,7 @@ public class FortuneoSyncService {
 
     private boolean commitPortfolio(SyncJob job, List<PreparedAccount> prepared) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<FortuneoSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+            Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(),
                 job.memberId()
             );
@@ -542,12 +541,12 @@ public class FortuneoSyncService {
                 log.info("Fortuneo sync session disappeared before commit (member={})", job.memberId());
                 return false;
             }
-            FortuneoSession session = current.get();
+            SidecarSession session = current.get();
             if (!session.isActive()) {
                 log.warn("Fortuneo sync session became inactive before commit (member={})", job.memberId());
                 return false;
             }
-            if (session.getSyncStatus() != FortuneoSyncStatus.RUNNING) {
+            if (session.getSyncStatus() != SidecarSyncStatus.RUNNING) {
                 log.warn(
                     "Fortuneo sync cannot commit from state {} (member={})",
                     session.getSyncStatus(),
@@ -894,7 +893,7 @@ public class FortuneoSyncService {
     private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
-                Optional<FortuneoSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+                Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                     job.sessionId(),
                     job.memberId()
                 );
@@ -902,7 +901,7 @@ public class FortuneoSyncService {
                     log.info("Fortuneo sync session disappeared before failure was recorded (member={})", job.memberId());
                     return;
                 }
-                FortuneoSession session = current.get();
+                SidecarSession session = current.get();
                 if (!session.isSyncInFlight()) {
                     log.warn(
                         "Fortuneo sync failure ignored from state {} (member={}; code={})",
@@ -935,10 +934,10 @@ public class FortuneoSyncService {
         Instant completedAt = Instant.now();
         int recovered = 0;
         for (FamilyMember member : memberRepository.findAllByOrderByCreatedAtAsc()) {
-            recovered += sessionRepository.markInterruptedSyncsFailed(
+            recovered += sessionRepository.markInterruptedSyncsFailed(SidecarBank.FORTUNEO,
                 member.getId(),
-                List.of(FortuneoSyncStatus.QUEUED, FortuneoSyncStatus.RUNNING),
-                FortuneoSyncStatus.FAILED,
+                List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING),
+                SidecarSyncStatus.FAILED,
                 completedAt,
                 SidecarErrorCode.INTERNAL_ERROR
             );
@@ -950,7 +949,7 @@ public class FortuneoSyncService {
 
     @Transactional(readOnly = true)
     public SessionStatusResponse getStatus(Long memberId) {
-        return sessionRepository.findByMemberId(memberId)
+        return sessionRepository.findByBankAndMemberId(SidecarBank.FORTUNEO, memberId)
             .map(this::toStatus)
             .orElseGet(SessionStatusResponse::inactive);
     }
@@ -958,7 +957,7 @@ public class FortuneoSyncService {
     /** Returns whether a stored session was there to delete. */
     public boolean clearSession(Long memberId) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            var session = sessionRepository.findByMemberIdForUpdate(memberId);
+            var session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.FORTUNEO, memberId);
             session.ifPresent(sessionRepository::delete);
             return session.isPresent();
         }));
@@ -1001,7 +1000,7 @@ public class FortuneoSyncService {
     }
 
 
-    private SessionStatusResponse toStatus(FortuneoSession session) {
+    private SessionStatusResponse toStatus(SidecarSession session) {
         return new SessionStatusResponse(
             session.isActive(),
             null,
@@ -1075,13 +1074,13 @@ public class FortuneoSyncService {
     public record SessionStatusResponse(
         boolean isActive,
         Instant expiresAt,
-        FortuneoSyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError
     ) {
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, null, FortuneoSyncStatus.IDLE, null, null, null);
+            return new SessionStatusResponse(false, null, SidecarSyncStatus.IDLE, null, null, null);
         }
     }
 

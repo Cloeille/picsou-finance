@@ -2,7 +2,7 @@ package com.picsou.controller;
 
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
-import com.picsou.model.BoursoSyncStatus;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.BoursoSyncService;
 import com.picsou.service.UserContext;
@@ -91,7 +91,7 @@ class BoursoControllerTest {
     @Test
     void completeAuthEndpointTakesOnlyTheProcessId() throws Exception {
         when(service.completeAuth("process-123", MEMBER_ID))
-            .thenReturn(sessionStatus(BoursoSyncStatus.QUEUED));
+            .thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
 
         mockMvc.perform(post("/api/bourso/auth/complete")
                 .with(request -> {
@@ -190,7 +190,7 @@ class BoursoControllerTest {
     @Test
     void syncReturnsAcceptedAndTheObservableQueueStatus() {
         when(request.getRemoteAddr()).thenReturn("127.0.0.1");
-        var queued = sessionStatus(BoursoSyncStatus.QUEUED);
+        var queued = sessionStatus(SidecarSyncStatus.QUEUED);
         when(service.queueSync(MEMBER_ID)).thenReturn(queued);
 
         var response = controller.sync(request);
@@ -203,7 +203,7 @@ class BoursoControllerTest {
     @Test
     void eleventhSyncFromTheSameIpIsRateLimited() {
         when(request.getRemoteAddr()).thenReturn("127.0.0.1");
-        when(service.queueSync(MEMBER_ID)).thenReturn(sessionStatus(BoursoSyncStatus.QUEUED));
+        when(service.queueSync(MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
 
         for (int attempt = 0; attempt < 10; attempt++) {
             assertThat(controller.sync(request).getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
@@ -216,7 +216,7 @@ class BoursoControllerTest {
     @Test
     void syncAndAuthenticationDrawOnSeparateBudgets() {
         when(request.getRemoteAddr()).thenReturn("127.0.0.1");
-        when(service.queueSync(MEMBER_ID)).thenReturn(sessionStatus(BoursoSyncStatus.QUEUED));
+        when(service.queueSync(MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
         when(service.initiateAuth("12345678", "123456", MEMBER_ID))
             .thenReturn(new BoursoSyncService.AuthInitResponse("process", true, "APP_PUSH"));
 
@@ -229,7 +229,7 @@ class BoursoControllerTest {
 
     @Test
     void statusAndClearUseOnlyTheCurrentMember() {
-        var success = sessionStatus(BoursoSyncStatus.SUCCESS);
+        var success = sessionStatus(SidecarSyncStatus.SUCCESS);
         when(service.getStatus(MEMBER_ID)).thenReturn(success);
 
         assertThat(controller.status()).isSameAs(success);
@@ -238,7 +238,7 @@ class BoursoControllerTest {
         verify(service).clearSession(MEMBER_ID);
     }
 
-    private BoursoSyncService.SessionStatusResponse sessionStatus(BoursoSyncStatus syncStatus) {
+    private BoursoSyncService.SessionStatusResponse sessionStatus(SidecarSyncStatus syncStatus) {
         return new BoursoSyncService.SessionStatusResponse(true, syncStatus, null, null, null);
     }
 }

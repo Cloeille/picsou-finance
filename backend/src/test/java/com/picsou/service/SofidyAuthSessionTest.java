@@ -1,14 +1,15 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
 import com.picsou.model.FamilyMember;
-import com.picsou.model.SofidySession;
+import com.picsou.model.SidecarSession;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.adapter.SofidyAdapter;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.ScpiPositionRepository;
-import com.picsou.repository.SofidySessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,7 +37,7 @@ import static org.mockito.Mockito.*;
 @SuppressWarnings("unchecked")
 class SofidyAuthSessionTest {
     @Mock SofidyAdapter port;
-    @Mock SofidySessionRepository sessions;
+    @Mock SidecarSessionRepository sessions;
     @Mock ScpiPositionRepository positions;
     @Mock ScpiPositionService positionService;
     @Mock FamilyMemberRepository members;
@@ -44,7 +45,7 @@ class SofidyAuthSessionTest {
     @Mock TransactionTemplate tx;
     @Mock TransactionStatus transaction;
     SofidySyncService service;
-    final Map<Long, SofidySession> stored = new HashMap<>();
+    final Map<Long, SidecarSession> stored = new HashMap<>();
     final AtomicLong sequence = new AtomicLong();
 
     @BeforeEach
@@ -57,20 +58,20 @@ class SofidyAuthSessionTest {
         }).when(tx).executeWithoutResult(any());
         lenient().when(members.findById(anyLong())).thenAnswer(inv -> Optional.of(
             FamilyMember.builder().id(inv.getArgument(0)).build()));
-        lenient().when(sessions.findMemberByIdForUpdate(anyLong())).thenAnswer(inv -> Optional.of(
+        lenient().when(members.findByIdForUpdate(anyLong())).thenAnswer(inv -> Optional.of(
             FamilyMember.builder().id(inv.getArgument(0)).build()));
         lenient().when(encryption.encrypt(anyString())).thenAnswer(inv -> "encrypted:" + inv.getArgument(0));
         lenient().when(encryption.decrypt(anyString())).thenAnswer(inv ->
             ((String) inv.getArgument(0)).substring("encrypted:".length()));
-        lenient().when(sessions.findByMemberIdForUpdate(anyLong())).thenAnswer(inv ->
-            Optional.ofNullable(stored.get(inv.getArgument(0))));
-        lenient().when(sessions.findByMemberId(anyLong())).thenAnswer(inv ->
-            Optional.ofNullable(stored.get(inv.getArgument(0))));
+        lenient().when(sessions.findByBankAndMemberIdForUpdate(eq(SidecarBank.SOFIDY), anyLong())).thenAnswer(inv ->
+            Optional.ofNullable(stored.get(inv.getArgument(1))));
+        lenient().when(sessions.findByBankAndMemberId(eq(SidecarBank.SOFIDY), anyLong())).thenAnswer(inv ->
+            Optional.ofNullable(stored.get(inv.getArgument(1))));
         lenient().when(sessions.findByIdAndMemberIdForUpdate(anyLong(), anyLong())).thenAnswer(inv ->
             Optional.ofNullable(stored.get(inv.getArgument(1)))
                 .filter(s -> s.getId().equals(inv.getArgument(0))));
         lenient().when(sessions.saveAndFlush(any())).thenAnswer(inv -> {
-            SofidySession session = inv.getArgument(0);
+            SidecarSession session = inv.getArgument(0);
             if (session.getId() == null) {
                 ReflectionTestUtils.setField(session, "id", sequence.incrementAndGet());
             }
@@ -78,7 +79,7 @@ class SofidyAuthSessionTest {
             return session;
         });
         lenient().doAnswer(inv -> {
-            SofidySession session = inv.getArgument(0);
+            SidecarSession session = inv.getArgument(0);
             stored.remove(session.getMember().getId(), session);
             return null;
         }).when(sessions).delete(any());

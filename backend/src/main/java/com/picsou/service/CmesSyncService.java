@@ -10,15 +10,15 @@ import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
-import com.picsou.model.CmesSession;
-import com.picsou.model.CmesSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.adapter.CmesAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.CmesSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
@@ -79,7 +79,7 @@ public class CmesSyncService {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final CmesAdapter port;
-    private final CmesSessionRepository sessionRepository;
+    private final SidecarSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
     private final FamilyMemberRepository memberRepository;
@@ -98,7 +98,7 @@ public class CmesSyncService {
 
     public CmesSyncService(
         CmesAdapter port,
-        CmesSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,
         FamilyMemberRepository memberRepository,
@@ -177,7 +177,7 @@ public class CmesSyncService {
 
     public SessionStatusResponse queueSync(Long memberId) {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
-            CmesSession session = sessionRepository.findByMemberIdForUpdate(memberId)
+            SidecarSession session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CMES, memberId)
                 .orElseThrow(() -> error(
                     SidecarErrorCode.SESSION_EXPIRED,
                     "No active CMES session. Please reconnect.",
@@ -190,8 +190,8 @@ public class CmesSyncService {
                     null
                 );
             }
-            if (session.getSyncStatus() == CmesSyncStatus.QUEUED
-                || session.getSyncStatus() == CmesSyncStatus.RUNNING) {
+            if (session.getSyncStatus() == SidecarSyncStatus.QUEUED
+                || session.getSyncStatus() == SidecarSyncStatus.RUNNING) {
                 return new QueueDecision(null, toStatus(session));
             }
 
@@ -214,7 +214,7 @@ public class CmesSyncService {
     /** The stored session, even an expired one: only its remembered-device cookie is reused. */
     private String previousPlainState(Long memberId) {
         try {
-            return sessionRepository.findByMemberId(memberId)
+            return sessionRepository.findByBankAndMemberId(SidecarBank.CMES, memberId)
                 .map(session -> encryption.decrypt(session.getSessionState()))
                 .orElse(null);
         } catch (RuntimeException ex) {
@@ -249,11 +249,10 @@ public class CmesSyncService {
         return requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+            sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CMES, memberId).ifPresent(sessionRepository::delete);
             sessionRepository.flush();
 
-            CmesSession newSession = CmesSession.create(
-                member,
+            SidecarSession newSession = SidecarSession.create(SidecarBank.CMES, member,
                 encryption.encrypt(plainState),
                 Instant.now()
             );
@@ -261,7 +260,7 @@ public class CmesSyncService {
                 newSession.setEncryptedCredentials(encryption.encrypt(serializeCredentials(login, password)));
             }
             newSession.markQueued();
-            CmesSession stored = sessionRepository.saveAndFlush(newSession);
+            SidecarSession stored = sessionRepository.saveAndFlush(newSession);
             return new SyncJob(stored.getId(), memberId, plainState);
         }));
     }
@@ -314,11 +313,11 @@ public class CmesSyncService {
      * factor cannot be finished unattended and reads as an expired session.
      */
     private List<CmesAdapter.PlanData> reauthenticateAndFetch(SyncJob job) {
-        CmesSession session = requireTransactionResult(txTemplate.execute(
+        SidecarSession session = requireTransactionResult(txTemplate.execute(
             status -> sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
         )).orElse(null);
         if (session == null || !session.isActive()
-            || session.getSyncStatus() != CmesSyncStatus.RUNNING
+            || session.getSyncStatus() != SidecarSyncStatus.RUNNING
             || session.getEncryptedCredentials() == null) {
             throw error(SidecarErrorCode.SESSION_EXPIRED, "CMES session expired", null);
         }
@@ -339,7 +338,7 @@ public class CmesSyncService {
         String newState = result.sessionState();
         Boolean updated = txTemplate.execute(status -> sessionRepository
             .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
-            .filter(current -> current.isActive() && current.getSyncStatus() == CmesSyncStatus.RUNNING)
+            .filter(current -> current.isActive() && current.getSyncStatus() == SidecarSyncStatus.RUNNING)
             .map(current -> {
                 current.updateSessionState(encryption.encrypt(newState), Instant.now());
                 sessionRepository.save(current);
@@ -375,7 +374,7 @@ public class CmesSyncService {
 
     private boolean markRunning(SyncJob job) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<CmesSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+            Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(),
                 job.memberId()
             );
@@ -383,8 +382,8 @@ public class CmesSyncService {
                 log.info("CMES sync session disappeared before execution (member={})", job.memberId());
                 return false;
             }
-            CmesSession session = current.get();
-            if (!session.isActive() || session.getSyncStatus() != CmesSyncStatus.QUEUED) {
+            SidecarSession session = current.get();
+            if (!session.isActive() || session.getSyncStatus() != SidecarSyncStatus.QUEUED) {
                 log.warn(
                     "CMES sync cannot start from state {} (member={}; active={})",
                     session.getSyncStatus(),
@@ -513,7 +512,7 @@ public class CmesSyncService {
 
     private boolean commitPlans(SyncJob job, List<PreparedPlan> prepared) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<CmesSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+            Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(),
                 job.memberId()
             );
@@ -521,12 +520,12 @@ public class CmesSyncService {
                 log.info("CMES sync session disappeared before commit (member={})", job.memberId());
                 return false;
             }
-            CmesSession session = current.get();
+            SidecarSession session = current.get();
             if (!session.isActive()) {
                 log.warn("CMES sync session became inactive before commit (member={})", job.memberId());
                 return false;
             }
-            if (session.getSyncStatus() != CmesSyncStatus.RUNNING) {
+            if (session.getSyncStatus() != SidecarSyncStatus.RUNNING) {
                 log.warn(
                     "CMES sync cannot commit from state {} (member={})",
                     session.getSyncStatus(),
@@ -699,7 +698,7 @@ public class CmesSyncService {
     private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
-                Optional<CmesSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+                Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                     job.sessionId(),
                     job.memberId()
                 );
@@ -707,7 +706,7 @@ public class CmesSyncService {
                     log.info("CMES sync session disappeared before failure was recorded (member={})", job.memberId());
                     return;
                 }
-                CmesSession session = current.get();
+                SidecarSession session = current.get();
                 if (!session.isSyncInFlight()) {
                     log.warn(
                         "CMES sync failure ignored from state {} (member={}; code={})",
@@ -740,9 +739,9 @@ public class CmesSyncService {
      */
     @Transactional
     public void recoverInterruptedSyncs() {
-        int recovered = sessionRepository.markInterruptedSyncsFailed(
-            List.of(CmesSyncStatus.QUEUED, CmesSyncStatus.RUNNING),
-            CmesSyncStatus.FAILED,
+        int recovered = sessionRepository.markInterruptedSyncsFailed(SidecarBank.CMES,
+            List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING),
+            SidecarSyncStatus.FAILED,
             Instant.now(),
             SidecarErrorCode.INTERNAL_ERROR
         );
@@ -753,7 +752,7 @@ public class CmesSyncService {
 
     @Transactional(readOnly = true)
     public SessionStatusResponse getStatus(Long memberId) {
-        return sessionRepository.findByMemberId(memberId)
+        return sessionRepository.findByBankAndMemberId(SidecarBank.CMES, memberId)
             .map(this::toStatus)
             .orElseGet(SessionStatusResponse::inactive);
     }
@@ -768,7 +767,7 @@ public class CmesSyncService {
         synchronized (sessionWriteLock) {
             authGenerations.merge(memberId, 1L, Long::sum);
             boolean removed = Boolean.TRUE.equals(txTemplate.execute(status -> {
-                var session = sessionRepository.findByMemberIdForUpdate(memberId);
+                var session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CMES, memberId);
                 session.ifPresent(sessionRepository::delete);
                 return session.isPresent();
             }));
@@ -810,7 +809,7 @@ public class CmesSyncService {
         }
     }
 
-    private SessionStatusResponse toStatus(CmesSession session) {
+    private SessionStatusResponse toStatus(SidecarSession session) {
         return new SessionStatusResponse(
             session.isActive(),
             session.getSyncStatus(),
@@ -899,13 +898,13 @@ public class CmesSyncService {
 
     public record SessionStatusResponse(
         boolean isActive,
-        CmesSyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError
     ) {
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, CmesSyncStatus.IDLE, null, null, null);
+            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null);
         }
     }
 

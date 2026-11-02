@@ -1,0 +1,210 @@
+package com.picsou.migration;
+
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/**
+ * Proves a database at V121 keeps every sidecar session through V122: same member, cookies,
+ * stored login, unsupported contracts, sync state and timestamps, so nobody has to reconnect.
+ */
+@RequiresPostgres
+class V122SidecarSessionMigrationTest {
+
+    private static final String[] TABLES = {
+        "amex", "amundi", "bourse_direct", "bourso", "caisse_epargne",
+        "cic", "cmes", "corum", "fortuneo", "sofidy"
+    };
+
+    private static final String ROW = """
+        SELECT bank, member_id, session_state, encrypted_credentials, unsupported_contracts,
+               last_validated_at, is_active, sync_status, last_sync_started_at,
+               last_sync_completed_at, last_sync_error, created_at, updated_at
+          FROM sidecar_session WHERE bank = ? AND member_id = ?
+        """;
+
+    @Container
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
+
+    static long alice;
+    static long bob;
+
+    @BeforeAll
+    static void seedV121AndMigrate() throws SQLException {
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "121");
+        try (Connection c = PostgresContainers.connection(POSTGRES)) {
+            alice = newMember(c, "alice");
+            bob = newMember(c, "bob");
+            for (String table : TABLES) {
+                execute(c, "INSERT INTO " + table + "_session (member_id, session_state, last_validated_at, "
+                    + "is_active, sync_status, last_sync_started_at, last_sync_completed_at, last_sync_error, "
+                    + "created_at, updated_at) VALUES (" + alice + ", 'state-" + table + "', "
+                    + "'2026-10-01T08:00:00Z', false, 'FAILED', '2026-10-02T08:00:00Z', "
+                    + "'2026-10-02T08:05:00Z', 'SESSION_EXPIRED', '2026-09-01T08:00:00Z', '2026-10-02T08:05:00Z')");
+                execute(c, "INSERT INTO " + table + "_session (member_id, session_state, sync_status) "
+                    + "VALUES (" + bob + ", 'bob-" + table + "', 'SUCCESS')");
+            }
+            execute(c, "UPDATE bourso_session SET encrypted_credentials = 'bourso-login'");
+            execute(c, "UPDATE cic_session SET encrypted_credentials = 'cic-login'");
+            execute(c, "UPDATE cmes_session SET encrypted_credentials = 'cmes-login'");
+            execute(c, "UPDATE caisse_epargne_session SET unsupported_contracts = '[{\"externalId\":\"x\"}]'");
+        }
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "122");
+    }
+
+    @Test
+    void everyRowOfEveryBankIsCopiedByteForByte() throws SQLException {
+        for (SidecarBank bank : SidecarBank.values()) {
+            String table = bank.name().toLowerCase();
+            List<Object> row = row(bank, alice);
+            assertThat(row).as(bank.name()).containsExactly(
+                bank.name(), alice, "state-" + table,
+                switch (bank) {
+                    case BOURSO -> "bourso-login";
+                    case CIC -> "cic-login";
+                    case CMES -> "cmes-login";
+                    default -> null;
+                },
+                bank == SidecarBank.CAISSE_EPARGNE ? "[{\"externalId\":\"x\"}]" : null,
+                "2026-10-01 08:00:00+00", false, "FAILED", "2026-10-02 08:00:00+00",
+                "2026-10-02 08:05:00+00", "SESSION_EXPIRED", "2026-09-01 08:00:00+00", "2026-10-02 08:05:00+00");
+            assertThat(row(bank, bob).subList(0, 3)).containsExactly(bank.name(), bob, "bob-" + table);
+        }
+        assertThat(count("SELECT count(*) FROM sidecar_session WHERE member_id IN (" + alice + ", " + bob + ")"))
+            .isEqualTo(2L * TABLES.length);
+    }
+
+    @Test
+    void thePerBankTablesAreGone() throws SQLException {
+        assertThat(count("SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN ("
+            + String.join(", ", java.util.Arrays.stream(TABLES).map(t -> "'" + t + "_session'").toList()) + ")"))
+            .isZero();
+    }
+
+    @Test
+    void oneSessionPerBankAndMember() throws SQLException {
+        try (Connection c = PostgresContainers.connection(POSTGRES)) {
+            assertThatThrownBy(() -> execute(c, "INSERT INTO sidecar_session (bank, member_id, session_state) "
+                + "VALUES ('AMEX', " + alice + ", 'twice')"))
+                .hasMessageContaining("uq_sidecar_session_bank_member");
+        }
+    }
+
+    @Test
+    void aBankCanOnlyStoreTheErrorCodesItDeclares() throws SQLException {
+        try (Connection c = PostgresContainers.connection(POSTGRES)) {
+            long member = newMember(c, "codes");
+            // CAPTCHA_BLOCKED belongs to Amundi only.
+            execute(c, "INSERT INTO sidecar_session (bank, member_id, session_state, sync_status, last_sync_error) "
+                + "VALUES ('AMUNDI', " + member + ", 's', 'FAILED', 'CAPTCHA_BLOCKED')");
+            assertThatThrownBy(() -> execute(c, "INSERT INTO sidecar_session "
+                + "(bank, member_id, session_state, sync_status, last_sync_error) "
+                + "VALUES ('AMEX', " + member + ", 's', 'FAILED', 'CAPTCHA_BLOCKED')"))
+                .hasMessageContaining("ck_sidecar_session_last_sync_error");
+        }
+    }
+
+    @Test
+    void aFailureAlwaysSaysWhyAndNothingElseCarriesAnError() throws SQLException {
+        try (Connection c = PostgresContainers.connection(POSTGRES)) {
+            long member = newMember(c, "failed");
+            assertThatThrownBy(() -> execute(c, "INSERT INTO sidecar_session (bank, member_id, session_state, "
+                + "sync_status) VALUES ('CORUM', " + member + ", 's', 'FAILED')"))
+                .hasMessageContaining("ck_sidecar_session_failed_error");
+            assertThatThrownBy(() -> execute(c, "INSERT INTO sidecar_session (bank, member_id, session_state, "
+                + "sync_status, last_sync_error) VALUES ('CORUM', " + member + ", 's', 'SUCCESS', 'INTERNAL_ERROR')"))
+                .hasMessageContaining("ck_sidecar_session_failed_error");
+        }
+    }
+
+    /** Decision D5 for Caisse d'Epargne, and every bank that never asks to remember a login. */
+    @Test
+    void onlyTheBanksThatKeepALoginCanStoreOne() throws SQLException {
+        try (Connection c = PostgresContainers.connection(POSTGRES)) {
+            long member = newMember(c, "login");
+            for (SidecarBank bank : SidecarBank.values()) {
+                String insert = "INSERT INTO sidecar_session (bank, member_id, session_state, encrypted_credentials) "
+                    + "VALUES ('" + bank.name() + "', " + member + ", 's', 'login')";
+                switch (bank) {
+                    case BOURSO, CIC, CMES -> execute(c, insert);
+                    default -> assertThatThrownBy(() -> execute(c, insert)).as(bank.name())
+                        .hasMessageContaining("ck_sidecar_session_credentials");
+                }
+            }
+        }
+    }
+
+    @Test
+    void deletingAMemberDeletesItsSessions() throws SQLException {
+        try (Connection c = PostgresContainers.connection(POSTGRES)) {
+            long member = newMember(c, "leaves");
+            execute(c, "INSERT INTO sidecar_session (bank, member_id, session_state) VALUES ('SOFIDY', "
+                + member + ", 's')");
+            execute(c, "DELETE FROM family_member WHERE id = " + member);
+        }
+        assertThat(count("SELECT count(*) FROM sidecar_session WHERE bank = 'SOFIDY' AND session_state = 's'"))
+            .isZero();
+    }
+
+    private static List<Object> row(SidecarBank bank, long member) throws SQLException {
+        try (Connection c = PostgresContainers.connection(POSTGRES); PreparedStatement st = c.prepareStatement(ROW)) {
+            st.setString(1, bank.name());
+            st.setLong(2, member);
+            try (ResultSet rs = st.executeQuery()) {
+                assertThat(rs.next()).as("%s row of member %d", bank, member).isTrue();
+                List<Object> values = new ArrayList<>();
+                values.add(rs.getString("bank"));
+                values.add(rs.getLong("member_id"));
+                values.add(rs.getString("session_state"));
+                values.add(rs.getString("encrypted_credentials"));
+                values.add(rs.getString("unsupported_contracts"));
+                values.add(rs.getString("last_validated_at"));
+                values.add(rs.getBoolean("is_active"));
+                values.add(rs.getString("sync_status"));
+                values.add(rs.getString("last_sync_started_at"));
+                values.add(rs.getString("last_sync_completed_at"));
+                values.add(rs.getString("last_sync_error"));
+                values.add(rs.getString("created_at"));
+                values.add(rs.getString("updated_at"));
+                return values;
+            }
+        }
+    }
+
+    private static long newMember(Connection c, String name) throws SQLException {
+        try (PreparedStatement st = c.prepareStatement(
+            "INSERT INTO family_member (display_name) VALUES (?) RETURNING id")) {
+            st.setString(1, name);
+            try (ResultSet rs = st.executeQuery()) {
+                rs.next();
+                return rs.getLong(1);
+            }
+        }
+    }
+
+    private static long count(String sql) throws SQLException {
+        try (Connection c = PostgresContainers.connection(POSTGRES);
+             ResultSet rs = c.createStatement().executeQuery(sql)) {
+            rs.next();
+            return rs.getLong(1);
+        }
+    }
+
+    private static void execute(Connection c, String sql) throws SQLException {
+        c.createStatement().execute(sql);
+    }
+}
