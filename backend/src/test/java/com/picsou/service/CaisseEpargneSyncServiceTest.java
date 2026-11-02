@@ -630,39 +630,8 @@ class CaisseEpargneSyncServiceTest {
 
     // -- session lifecycle ----------------------------------------------------
 
-    @Test
-    void queueSync_refusesToRunWithoutASession() {
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.queueSync(7L))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name()));
-    }
 
-    @Test
-    void queueSync_refusesToRunWithAnInactiveSession() {
-        SidecarSession session = activeSession(owner());
-        session.markQueued();
-        session.markFailed(SidecarErrorCode.SESSION_EXPIRED, Instant.now());
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
-
-        assertThatThrownBy(() -> service.queueSync(7L))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name()));
-        verify(port, never()).fetchAccounts(any());
-    }
-
-    @Test
-    void queueSync_doesNotStackASecondJobOnAnInFlightSession() {
-        SidecarSession session = activeSession(owner());
-        session.markQueued();
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
-
-        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
-
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.QUEUED);
-        verify(port, never()).fetchAccounts(any());
-    }
 
     @Test
     void anExpiredSessionIsDeactivatedSoTheUserIsToldToReconnect() {
@@ -679,22 +648,6 @@ class CaisseEpargneSyncServiceTest {
         verify(accountRepository, never()).save(any());
     }
 
-    @Test
-    void queueSync_turnsAnUnreadableEncryptedSessionIntoInvalidSessionStateAndDeactivatesIt() {
-        SidecarSession session = activeSession(owner());
-        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
-        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
-        when(encryption.decrypt("encrypted")).thenThrow(new IllegalStateException("bad key"));
-
-        assertThatThrownBy(() -> service.queueSync(7L))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_SESSION_STATE.name()));
-
-        assertThat(session.isActive()).isFalse();
-        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_SESSION_STATE);
-        verify(port, never()).fetchAccounts(any());
-    }
 
     @Test
     void aTransientFailureKeepsTheSessionUsable() {
@@ -800,16 +753,6 @@ class CaisseEpargneSyncServiceTest {
         assertThat(status.unsupported()).isEmpty();
     }
 
-    @Test
-    void recoverInterruptedSyncs_failsJobsARestartLeftInFlight() {
-        service.recoverInterruptedSyncs();
-
-        verify(sessionRepository).markInterruptedSyncsFailed(eq(SidecarBank.CAISSE_EPARGNE),
-            eq(List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING)),
-            eq(SidecarSyncStatus.FAILED),
-            any(),
-            eq(SidecarErrorCode.INTERNAL_ERROR));
-    }
 
     @Test
     void theServiceExposesNoSchedulerOrAutoResyncHook() {

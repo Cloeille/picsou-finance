@@ -435,7 +435,7 @@ public class SofidySyncService {
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError
-    ) {
+    ) implements SidecarSessionView {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null);
         }

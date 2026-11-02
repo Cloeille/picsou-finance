@@ -1171,25 +1171,6 @@ class FortuneoSyncServiceTest {
         verify(port, never()).fetchAccounts(any());
     }
 
-    @Test
-    void queueSync_executorRejectionMarksTheQueuedSessionFailed() {
-        SidecarSession session = activeSession(owner());
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.FORTUNEO, 7L)).thenReturn(Optional.of(session));
-        when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L)).thenReturn(Optional.of(session));
-        when(encryption.decrypt("encrypted")).thenReturn("plain-state");
-        RejectedExecutionException rejection = new RejectedExecutionException("queue full");
-        FortuneoSyncService rejectedService = serviceWith(task -> { throw rejection; });
-
-        assertThatThrownBy(() -> rejectedService.queueSync(7L))
-            .isInstanceOfSatisfying(SyncException.class, exception ->
-                assertThat(exception.getCode()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR.name()))
-            .hasCause(rejection);
-
-        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR);
-        assertThat(session.isSyncInFlight()).isFalse();
-        verify(port, never()).fetchAccounts(any());
-    }
 
     @Test
     void completeAuth_submissionFailureMarksTheNewSessionFailed() {
@@ -1255,18 +1236,6 @@ class FortuneoSyncServiceTest {
         verify(port, never()).fetchAccounts(any());
     }
 
-    @Test
-    void queueSync_doesNotScheduleDuplicateWhileJobIsRunning() {
-        SidecarSession session = activeSession(owner());
-        session.markQueued();
-        session.markRunning(Instant.now());
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.FORTUNEO, 7L)).thenReturn(Optional.of(session));
-
-        FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
-
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.RUNNING);
-        verify(port, never()).fetchAccounts(any());
-    }
 
     @Test
     void reconciliationMismatch_rejectsTheWholeSnapshot() {

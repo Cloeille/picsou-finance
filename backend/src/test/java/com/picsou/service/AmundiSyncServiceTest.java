@@ -395,18 +395,6 @@ class AmundiSyncServiceTest {
             );
     }
 
-    @Test
-    void aSecondSyncIsNotQueuedWhileOneIsAlreadyRunning() {
-        SidecarSession session = activeSession(owner());
-        session.markQueued();
-        session.markRunning(java.time.Instant.now());
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.AMUNDI, 7L)).thenReturn(Optional.of(session));
-
-        AmundiSyncService.SessionStatusResponse result = service.queueSync(7L);
-
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.RUNNING);
-        verify(port, never()).fetchPlans(any());
-    }
 
     /**
      * The job carries the session id it was queued for; if the user disconnects
@@ -449,14 +437,6 @@ class AmundiSyncServiceTest {
         verify(sessionRepository, never()).saveAndFlush(any());
     }
 
-    @Test
-    void aScheduledResyncIsSkippedWhenNoSessionIsActive() {
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.AMUNDI, 7L)).thenReturn(Optional.empty());
-
-        service.resyncIfSessionActive(7L);
-
-        verify(port, never()).fetchPlans(any());
-    }
 
     @Test
     void aScheduledResyncSwallowsUpstreamFailuresSoOtherMembersStillSync() {

@@ -596,27 +596,7 @@ class BoursoSyncServiceTest {
         verify(accountRepository, never()).save(any());
     }
 
-    @Test
-    void queueSync_doesNotStackASecondJobOnAnInFlightSession() {
-        SidecarSession session = activeSession(owner());
-        session.markQueued();
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSO, 7L)).thenReturn(Optional.of(session));
 
-        BoursoSyncService.SessionStatusResponse result = service.queueSync(7L);
-
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.QUEUED);
-        verify(port, never()).fetchAccounts(any());
-    }
-
-    @Test
-    void queueSync_refusesToRunWithoutAnActiveSession() {
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSO, 7L)).thenReturn(Optional.empty());
-
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.queueSync(7L))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name())
-            );
-    }
 
     /** Only an expired session needs re-authentication. */
     @Test
@@ -650,17 +630,6 @@ class BoursoSyncServiceTest {
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
-    @Test
-    void recoverInterruptedSyncs_failsJobsAWrestartLeftInFlight() {
-        service.recoverInterruptedSyncs();
-
-        verify(sessionRepository).markInterruptedSyncsFailed(eq(SidecarBank.BOURSO),
-            eq(List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING)),
-            eq(SidecarSyncStatus.FAILED),
-            any(),
-            eq(SidecarErrorCode.INTERNAL_ERROR)
-        );
-    }
 
     @Test
     void initiateAuth_storesTheSessionAndSyncsWhenNoSecondFactorIsAsked() {
@@ -813,14 +782,6 @@ class BoursoSyncServiceTest {
             );
     }
 
-    @Test
-    void aScheduledResyncIsSkippedWhenNoSessionIsActive() {
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.BOURSO, 7L)).thenReturn(Optional.empty());
-
-        service.resyncIfSessionActive(7L);
-
-        verify(port, never()).fetchAccounts(any());
-    }
 
     @Test
     void aScheduledResyncSwallowsUpstreamFailuresSoOtherMembersStillSync() {

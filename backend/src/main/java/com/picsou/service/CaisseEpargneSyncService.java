@@ -1027,7 +1027,7 @@ public class CaisseEpargneSyncService {
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError,
         List<UnsupportedContract> unsupported
-    ) {
+    ) implements SidecarSessionView {
         public SessionStatusResponse {
             unsupported = unsupported == null ? List.of() : List.copyOf(unsupported);
         }

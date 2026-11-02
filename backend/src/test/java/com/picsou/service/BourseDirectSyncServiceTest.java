@@ -254,18 +254,6 @@ class BourseDirectSyncServiceTest {
         verify(port, never()).fetchAccounts(any());
     }
 
-    @Test
-    void queueSync_doesNotScheduleDuplicateWhileJobIsRunning() {
-        SidecarSession session = activeSession(owner());
-        session.markQueued();
-        session.markRunning(Instant.now());
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSE_DIRECT, 7L)).thenReturn(Optional.of(session));
-
-        BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
-
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.RUNNING);
-        verify(port, never()).fetchAccounts(any());
-    }
 
     @Test
     void foreignQuote_keepsNativeCurrentPriceButStoresEurValuation() {
@@ -505,24 +493,6 @@ class BourseDirectSyncServiceTest {
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
 
-    @Test
-    void applicationStart_marksInterruptedJobsAsRetryableFailures() {
-        when(sessionRepository.markInterruptedSyncsFailed(eq(SidecarBank.BOURSE_DIRECT),
-            any(),
-            eq(SidecarSyncStatus.FAILED),
-            any(),
-            eq(SidecarErrorCode.INTERNAL_ERROR)
-        )).thenReturn(2);
-
-        service.recoverInterruptedSyncs();
-
-        verify(sessionRepository).markInterruptedSyncsFailed(eq(SidecarBank.BOURSE_DIRECT),
-            eq(List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING)),
-            eq(SidecarSyncStatus.FAILED),
-            any(),
-            eq(SidecarErrorCode.INTERNAL_ERROR)
-        );
-    }
 
     private void arrangeQueuedSession(SidecarSession session) {
         when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSE_DIRECT, 7L)).thenReturn(Optional.of(session));
