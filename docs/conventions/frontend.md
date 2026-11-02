@@ -330,7 +330,7 @@ Build tools and compiled CSS inputs (`@tailwindcss/vite`, `tailwindcss`,
 
 Run them through `make dev`, `make test-frontend` and `make test-e2e`
 ([`CONTRIBUTING.md`](../../CONTRIBUTING.md#commands)). Vitest picks up
-`src/**/*.{test,spec}.{ts,tsx}`, Playwright `e2e/*.spec.ts`. `bun run format` runs Prettier.
+`src/**/*.{test,spec}.{ts,tsx}`, Playwright `e2e/*.spec.ts`. `cd frontend && bun run format` runs Prettier.
 
 Vitest and Playwright both claim the `.spec.ts` extension, so `vitest.config.ts`
 scopes `include` to `src/` — otherwise `vitest run` would try to execute the Playwright

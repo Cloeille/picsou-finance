@@ -25,10 +25,19 @@ dev: db
 	$(MAKE) -j2 dev-backend dev-frontend
 
 # Reuses the container across runs; its data stays until `docker rm -f picsou-db`.
+# The probe logs in with the backend's credentials (application.yml) over TCP on the
+# container's address: the socket and localhost trust any user, and pg_isready also
+# answers while the first-boot init still runs on the socket.
 db:
 	docker start picsou-db 2>/dev/null || docker run -d --name picsou-db -p 127.0.0.1:5432:5432 \
 	  -e POSTGRES_DB=picsou -e POSTGRES_USER=picsou -e POSTGRES_PASSWORD=picsou postgres:16-alpine
-	for i in $$(seq 30); do docker exec picsou-db pg_isready -q -U picsou && exit 0; sleep 1; done; echo "picsou-db is not ready"; exit 1
+	@for i in $$(seq 30); do \
+	  err=$$(docker exec -e PGPASSWORD=picsou picsou-db sh -c 'psql -h "$$(hostname -i | cut -d" " -f1)" -U picsou -d picsou -Atqc "select 1"' 2>&1) && exit 0; \
+	  sleep 1; \
+	done; \
+	echo "picsou-db does not accept user picsou, password picsou on database picsou: $$err"; \
+	echo "If it was created with other settings, 'docker rm -f picsou-db' recreates it (its data is lost)."; \
+	exit 1
 
 dev-backend: | backend/.local/dev.env
 	. ./backend/.local/dev.env && cd backend && mvn spring-boot:run -Dspring-boot.run.profiles=dev
@@ -103,7 +112,7 @@ build:
 # Pushing a version tag runs CI, which publishes the images and the chart once green.
 # REMOTE is the repository that publishes (REMOTE=upstream from a fork).
 # Only a commit already on $(REMOTE)/main is tagged, so the tag never publishes
-# unreviewed work.
+# unreviewed work. A rerun after a failed push reuses the local tag if it is on HEAD.
 release:
 	@echo "$(VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$$' \
 	  || { echo "usage: make release VERSION=x.y.z (no leading v)"; exit 1; }
@@ -113,5 +122,8 @@ release:
 	git fetch $(REMOTE) main
 	@git merge-base --is-ancestor HEAD FETCH_HEAD || { echo "HEAD is not on $(REMOTE)/main"; exit 1; }
 	@test -z "$$(git ls-remote --tags $(REMOTE) refs/tags/$(VERSION))" || { echo "$(REMOTE) already has tag $(VERSION)"; exit 1; }
-	git tag $(VERSION)
-	git push $(REMOTE) $(VERSION)
+	@if git rev-parse -q --verify refs/tags/$(VERSION) >/dev/null; then \
+	  test "$$(git rev-parse refs/tags/$(VERSION)^{commit})" = "$$(git rev-parse HEAD)" \
+	    || { echo "local tag $(VERSION) is not on HEAD (git tag -d $(VERSION) removes it)"; exit 1; }; \
+	else git tag $(VERSION); fi
+	git push $(REMOTE) refs/tags/$(VERSION)
