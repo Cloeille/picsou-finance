@@ -2,11 +2,9 @@ package com.picsou.service;
 
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
-import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
 import com.picsou.model.SidecarSession;
 import com.picsou.model.SidecarSyncStatus;
-import com.picsou.model.FamilyMember;
 import com.picsou.model.ScpiFundOutcome;
 import com.picsou.model.ScpiProvider;
 import com.picsou.port.SidecarErrorCode;
@@ -26,12 +24,9 @@ import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
 
-import static com.picsou.service.SyncValues.errorCode;
-import static com.picsou.service.SyncValues.requireTransactionResult;
 
 /**
  * Syncs a CORUM client-space portfolio into the SCPI accounts that are already
@@ -58,8 +53,7 @@ public class CorumSyncService {
     private final SidecarSessionRepository sessionRepository;
     private final FamilyMemberRepository memberRepository;
     private final CryptoEncryption encryption;
-    private final TransactionTemplate txTemplate;
-    private final Executor syncExecutor;
+    private final SidecarSyncTemplate<CorumAdapter.Snapshot> sync;
     private final ScpiFundReconciler fundReconciler;
 
     public CorumSyncService(
@@ -75,9 +69,22 @@ public class CorumSyncService {
         this.sessionRepository = sessionRepository;
         this.memberRepository = memberRepository;
         this.encryption = encryption;
-        this.txTemplate = txTemplate;
-        this.syncExecutor = syncExecutor;
+        this.sync = new SidecarSyncTemplate<>(SidecarBank.CORUM, new Strategy(), sessionRepository,
+            memberRepository, encryption, txTemplate, syncExecutor, true);
         this.fundReconciler = fundReconciler;
+    }
+
+    private final class Strategy implements SidecarSyncStrategy<CorumAdapter.Snapshot> {
+        @Override
+        public CorumAdapter.Snapshot fetch(SidecarSyncJob job) {
+            return port.fetchSnapshot(job.plainState());
+        }
+
+        @Override
+        public void commit(SidecarSyncJob job, CorumAdapter.Snapshot snapshot, Instant syncedAt) {
+            Map<String, ScpiFundOutcome> outcomes = applySnapshot(job.memberId(), snapshot, syncedAt);
+            log.info("CORUM fund outcomes (member={}; funds={})", job.memberId(), outcomes);
+        }
     }
 
     public SessionStatusResponse authenticate(String login, String password, Long memberId) {
@@ -85,103 +92,21 @@ public class CorumSyncService {
         if (plainState == null || plainState.isBlank()) {
             throw error(SidecarErrorCode.INVALID_DATA, "CORUM did not return a session", null);
         }
-        SyncJob job = requireTransactionResult(txTemplate.execute(status -> {
-            lockMember(memberId);
-            FamilyMember member = memberRepository.findById(memberId)
-                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CORUM, memberId).ifPresent(sessionRepository::delete);
-            sessionRepository.flush();
-
-            SidecarSession newSession = SidecarSession.create(SidecarBank.CORUM, member,
-                encryption.encrypt(plainState),
-                Instant.now()
-            );
-            newSession.markQueued();
-            SidecarSession stored = sessionRepository.saveAndFlush(newSession);
-            return new SyncJob(stored.getId(), memberId, plainState);
-        }));
-
-        submit(job);
-        return getStatus(memberId);
+        return toStatus(sync.replaceAndQueue(memberId, plainState, false, session -> {}));
     }
 
     public SessionStatusResponse queueSync(Long memberId) {
-        QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
-            lockMember(memberId);
-            SidecarSession session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CORUM, memberId)
-                .orElseThrow(() -> error(
-                    SidecarErrorCode.SESSION_EXPIRED,
-                    "No active CORUM session. Please reconnect.",
-                    null
-                ));
-            if (!session.isActive()) {
-                throw error(
-                    SidecarErrorCode.SESSION_EXPIRED,
-                    "The CORUM session expired. Please reconnect.",
-                    null
-                );
-            }
-            if (session.isSyncInFlight()) {
-                return new QueueDecision(null, toStatus(session));
-            }
-
-            String plainState = encryption.decrypt(session.getSessionState());
-            session.markQueued();
-            sessionRepository.save(session);
-            return new QueueDecision(
-                new SyncJob(session.getId(), memberId, plainState),
-                toStatus(session)
-            );
-        }));
-
-        if (decision.job() != null) {
-            submit(decision.job());
-            return getStatus(memberId);
-        }
-        return decision.status();
+        return toStatus(sync.queue(memberId, false));
     }
 
     @Transactional(readOnly = true)
     public SessionStatusResponse getStatus(Long memberId) {
-        return sessionRepository.findByBankAndMemberId(SidecarBank.CORUM, memberId)
-            .map(this::toStatus)
-            .orElseGet(SessionStatusResponse::inactive);
+        return sync.find(memberId).map(this::toStatus).orElseGet(SessionStatusResponse::inactive);
     }
 
     @Transactional
     public void clearSession(Long memberId) {
-        lockMember(memberId);
-        sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CORUM, memberId).ifPresent(sessionRepository::delete);
-    }
-
-    private void submit(SyncJob job) {
-        try {
-            syncExecutor.execute(() -> executeJob(job));
-        } catch (RuntimeException ex) {
-            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
-            throw error(
-                SidecarErrorCode.INTERNAL_ERROR,
-                "Could not schedule the CORUM synchronization",
-                ex
-            );
-        }
-    }
-
-    private void executeJob(SyncJob job) {
-        if (!markRunning(job)) {
-            return;
-        }
-        try {
-            CorumAdapter.Snapshot snapshot = port.fetchSnapshot(job.plainState());
-            commitSnapshot(job, snapshot);
-        } catch (SyncException ex) {
-            SidecarErrorCode code = codeOf(ex);
-            markFailed(job, code);
-            log.warn("CORUM sync failed (member={}; code={})", job.memberId(), code);
-        } catch (Exception ex) {
-            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
-            log.error("CORUM sync failed unexpectedly (member={})", job.memberId(), ex);
-        }
+        sync.clear(memberId);
     }
 
     /**
@@ -279,64 +204,6 @@ public class CorumSyncService {
         }
     }
 
-    private boolean markRunning(SyncJob job) {
-        return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
-                job.sessionId(),
-                job.memberId()
-            );
-            if (current.isEmpty()) {
-                log.info("CORUM sync session disappeared before execution (member={})", job.memberId());
-                return false;
-            }
-            SidecarSession session = current.get();
-            if (!session.isActive() || session.getSyncStatus() != SidecarSyncStatus.QUEUED) {
-                log.warn(
-                    "CORUM sync cannot start from state {} (member={}; active={})",
-                    session.getSyncStatus(), job.memberId(), session.isActive()
-                );
-                return false;
-            }
-            session.markRunning(Instant.now());
-            sessionRepository.save(session);
-            return true;
-        }));
-    }
-
-    private void commitSnapshot(SyncJob job, CorumAdapter.Snapshot snapshot) {
-        txTemplate.executeWithoutResult(status -> {
-            lockMember(job.memberId());
-            Optional<SidecarSession> current = sessionRepository
-                .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId());
-            if (current.isEmpty() || !current.get().isActive()
-                    || current.get().getSyncStatus() != SidecarSyncStatus.RUNNING) {
-                return;
-            }
-            Instant now = Instant.now();
-            Map<String, ScpiFundOutcome> outcomes = applySnapshot(job.memberId(), snapshot, now);
-            current.get().markSuccessful(now);
-            sessionRepository.save(current.get());
-            log.info("CORUM sync completed (member={}; funds={})", job.memberId(), outcomes);
-        });
-    }
-
-    private void lockMember(Long memberId) {
-        memberRepository.findByIdForUpdate(memberId)
-            .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-    }
-
-    private void markFailed(SyncJob job, SidecarErrorCode code) {
-        txTemplate.executeWithoutResult(status -> {
-            lockMember(job.memberId());
-            sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
-                .filter(session -> session.isActive() && session.isSyncInFlight())
-                .ifPresent(session -> {
-                    session.markFailed(code, Instant.now());
-                    sessionRepository.save(session);
-                });
-        });
-    }
-
     private SessionStatusResponse toStatus(SidecarSession session) {
         return new SessionStatusResponse(
             session.isActive(),
@@ -348,7 +215,7 @@ public class CorumSyncService {
     }
 
     private SidecarErrorCode codeOf(SyncException exception) {
-        return SyncValues.errorCode(exception, SidecarBank.CORUM, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
+        return sync.codeOf(exception);
     }
 
     private SyncException error(SidecarErrorCode code, String message, Throwable cause) {
@@ -367,7 +234,4 @@ public class CorumSyncService {
         }
     }
 
-    private record QueueDecision(SyncJob job, SessionStatusResponse status) {}
-
-    private record SyncJob(Long sessionId, Long memberId, String plainState) {}
 }
