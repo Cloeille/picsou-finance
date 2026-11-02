@@ -4,7 +4,7 @@ import com.picsou.config.RateLimitConfig;
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
 import com.picsou.model.CaisseEpargneSyncStatus;
-import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.service.CaisseEpargneSyncService;
 import com.picsou.service.UserContext;
@@ -176,7 +176,7 @@ class CaisseEpargneControllerAuthTest {
     void aFailedLoginIsNotRetriedByTheControllerAndKeepsItsCode() throws Exception {
         when(service.initiateAuth("12345678", MEMBER_ID)).thenThrow(new SyncException(
             "Caisse d'Epargne changed its login page", null,
-            CaisseEpargneErrorCode.KEYPAD_CHANGED.name()));
+            SidecarErrorCode.KEYPAD_CHANGED.name()));
 
         initiate(INITIATE_BODY, "127.0.0.1")
             .andExpect(status().isUnprocessableEntity())
@@ -248,10 +248,10 @@ class CaisseEpargneControllerAuthTest {
 
     @Test
     void keypadSurfacesEverySidecarOutcomeAsATranslatableCode() throws Exception {
-        for (CaisseEpargneErrorCode code : List.of(
-            CaisseEpargneErrorCode.KEYPAD_CHANGED, CaisseEpargneErrorCode.KEYPAD_EXPIRED,
-            CaisseEpargneErrorCode.INVALID_POSITIONS, CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
-            CaisseEpargneErrorCode.INVALID_CREDENTIALS, CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE)) {
+        for (SidecarErrorCode code : List.of(
+            SidecarErrorCode.KEYPAD_CHANGED, SidecarErrorCode.KEYPAD_EXPIRED,
+            SidecarErrorCode.INVALID_POSITIONS, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
+            SidecarErrorCode.INVALID_CREDENTIALS, SidecarErrorCode.UPSTREAM_UNAVAILABLE)) {
             org.mockito.Mockito.doThrow(new SyncException("failed", null, code.name()))
                 .when(service).submitKeypad("proc-1", List.of(7, 3, 0, 9, 4, 1), MEMBER_ID);
 
@@ -312,9 +312,9 @@ class CaisseEpargneControllerAuthTest {
 
     @Test
     void completeSurfacesEverySidecarOutcomeAsATranslatableCode() throws Exception {
-        for (CaisseEpargneErrorCode code : List.of(
-            CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT, CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
-            CaisseEpargneErrorCode.INVALID_CREDENTIALS, CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE)) {
+        for (SidecarErrorCode code : List.of(
+            SidecarErrorCode.APP_VALIDATION_TIMEOUT, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
+            SidecarErrorCode.INVALID_CREDENTIALS, SidecarErrorCode.UPSTREAM_UNAVAILABLE)) {
             org.mockito.Mockito.doThrow(new SyncException("failed", null, code.name()))
                 .when(service).completeAuth("proc-1", MEMBER_ID);
 

@@ -1,12 +1,12 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.port.CaisseEpargneErrorCode;
 import com.picsou.port.CaisseEpargnePort;
+import com.picsou.port.SidecarErrorCode;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
@@ -36,9 +36,9 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
     static final Duration KEYPAD_TIMEOUT = Duration.ofSeconds(70);
 
     private final WebClient client;
-    private final SidecarErrorTranslator<CaisseEpargneErrorCode> sidecar;
+    private final SidecarClient sidecar;
     /** Same mapping, except a 410 means the pending login is gone, not that a stored session died. */
-    private final SidecarErrorTranslator<CaisseEpargneErrorCode> authSidecar;
+    private final SidecarClient authSidecar;
     private final Duration checkTimeout;
     private final Duration accountsTimeout;
     private final Duration initiateTimeout;
@@ -48,12 +48,11 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
     @Autowired
     public CaisseEpargneAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.caisse-epargne-auth.url:http://caisse-epargne-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
             // A real account with a long history exceeds Spring's 256 KB default buffer.
-            clients.create("Caisse d'Epargne", url,
+            clients.create(SidecarBank.CAISSE_EPARGNE.label(), SidecarBank.CAISSE_EPARGNE.serviceName(),
                 builder -> builder
                     .clientConnector(new ReactorClientHttpConnector(httpClient()))
                     .codecs(c -> c.defaultCodecs().maxInMemorySize(16 * 1024 * 1024))),
@@ -106,27 +105,13 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
         Duration keypadTimeout
     ) {
         this.client = client;
-        this.sidecar = translator(client, objectMapper, CaisseEpargneErrorCode.SESSION_EXPIRED);
-        this.authSidecar = translator(client, objectMapper, CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED);
+        this.sidecar = new SidecarClient(client, objectMapper, SidecarBank.CAISSE_EPARGNE, SidecarErrorCode.SESSION_EXPIRED);
+        this.authSidecar = new SidecarClient(client, objectMapper, SidecarBank.CAISSE_EPARGNE, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
         this.checkTimeout = checkTimeout;
         this.accountsTimeout = accountsTimeout;
         this.initiateTimeout = initiateTimeout;
         this.completeTimeout = completeTimeout;
         this.keypadTimeout = keypadTimeout;
-    }
-
-    private static SidecarErrorTranslator<CaisseEpargneErrorCode> translator(
-        WebClient client, ObjectMapper objectMapper, CaisseEpargneErrorCode gone
-    ) {
-        return new SidecarErrorTranslator<>(
-            client,
-            objectMapper,
-            CaisseEpargneErrorCode.class,
-            "Caisse d'Epargne",
-            CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE,
-            gone,
-            CaisseEpargneAdapter::friendlyMessage
-        );
     }
 
     @Override
@@ -137,8 +122,8 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
             InitiateResult.class,
             initiateTimeout,
             "Could not start the Caisse d'Epargne login",
-            CaisseEpargneErrorCode.INVALID_CREDENTIALS,
-            CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT,
+            SidecarErrorCode.INVALID_CREDENTIALS,
+            SidecarErrorCode.APP_VALIDATION_TIMEOUT,
             null
         );
     }
@@ -151,13 +136,13 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
             KeypadAck.class,
             keypadTimeout,
             "Could not send the Caisse d'Epargne keypad choice",
-            CaisseEpargneErrorCode.INVALID_CREDENTIALS,
-            CaisseEpargneErrorCode.KEYPAD_EXPIRED,
-            CaisseEpargneErrorCode.INVALID_POSITIONS
+            SidecarErrorCode.INVALID_CREDENTIALS,
+            SidecarErrorCode.KEYPAD_EXPIRED,
+            SidecarErrorCode.INVALID_POSITIONS
         );
         if (!"SECURPASS_PENDING".equals(ack.status())) {
-            throw authSidecar.coded(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED,
-                friendlyMessage(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED), null);
+            throw authSidecar.coded(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
+                SidecarBank.CAISSE_EPARGNE.message(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED), null);
         }
     }
 
@@ -169,8 +154,8 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
             SessionBody.class,
             completeTimeout,
             "Could not finish the Caisse d'Epargne login",
-            CaisseEpargneErrorCode.INVALID_CREDENTIALS,
-            CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT,
+            SidecarErrorCode.INVALID_CREDENTIALS,
+            SidecarErrorCode.APP_VALIDATION_TIMEOUT,
             null
         );
         return body.sessionState();
@@ -178,7 +163,7 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
 
     /**
      * One request, no retry. Statuses that only the login contract defines (408, 409, 422, 429) are
-     * resolved here; everything else goes through the shared translator. No request body, header
+     * resolved here; everything else goes through the shared client. No request body, header
      * or response body is ever logged or put in a message.
      *
      * @param timeoutCode       what a 408 means on this call (Sécur'Pass not approved, keypad expired)
@@ -190,33 +175,33 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
         Class<T> type,
         Duration timeout,
         String message,
-        CaisseEpargneErrorCode authenticationFailure,
-        CaisseEpargneErrorCode timeoutCode,
-        CaisseEpargneErrorCode unprocessableCode
+        SidecarErrorCode authenticationFailure,
+        SidecarErrorCode timeoutCode,
+        SidecarErrorCode unprocessableCode
     ) {
         try {
             T response = client.post().uri(path).contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(body).retrieve().bodyToMono(type)
                 .timeout(timeout).block();
             if (response == null) {
-                throw authSidecar.coded(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE, message, null);
+                throw authSidecar.coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE, message, null);
             }
             return response;
         } catch (RuntimeException ex) {
             if (ex instanceof WebClientResponseException response) {
                 int status = response.getStatusCode().value();
                 if (status == 408) {
-                    throw authSidecar.coded(timeoutCode, friendlyMessage(timeoutCode), null);
+                    throw authSidecar.coded(timeoutCode, SidecarBank.CAISSE_EPARGNE.message(timeoutCode), null);
                 }
                 if (status == 422 && unprocessableCode != null) {
-                    throw authSidecar.coded(unprocessableCode, friendlyMessage(unprocessableCode), null);
+                    throw authSidecar.coded(unprocessableCode, SidecarBank.CAISSE_EPARGNE.message(unprocessableCode), null);
                 }
                 if (status == 409) {
-                    throw authSidecar.coded(CaisseEpargneErrorCode.KEYPAD_CHANGED,
-                        friendlyMessage(CaisseEpargneErrorCode.KEYPAD_CHANGED), null);
+                    throw authSidecar.coded(SidecarErrorCode.KEYPAD_CHANGED,
+                        SidecarBank.CAISSE_EPARGNE.message(SidecarErrorCode.KEYPAD_CHANGED), null);
                 }
                 if (status == 429) {
-                    throw authSidecar.coded(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE,
+                    throw authSidecar.coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE,
                         "Too many Caisse d'Epargne logins are pending. Please wait a few minutes.", null);
                 }
             }
@@ -262,7 +247,7 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
             CheckResult.class,
             checkTimeout,
             "Could not check the Caisse d'Epargne session",
-            CaisseEpargneErrorCode.SESSION_EXPIRED
+            SidecarErrorCode.SESSION_EXPIRED
         );
     }
 
@@ -274,22 +259,7 @@ public class CaisseEpargneAdapter implements CaisseEpargnePort {
             AccountsSnapshot.class,
             accountsTimeout,
             "Could not fetch Caisse d'Epargne accounts",
-            CaisseEpargneErrorCode.SESSION_EXPIRED
+            SidecarErrorCode.SESSION_EXPIRED
         );
-    }
-
-    private static String friendlyMessage(CaisseEpargneErrorCode code) {
-        return switch (code) {
-            case SESSION_EXPIRED -> "The Caisse d'Epargne session expired";
-            case INVALID_SESSION_STATE -> "The stored Caisse d'Epargne session is unusable";
-            case INVALID_CREDENTIALS -> "Caisse d'Epargne refused the identifier or password";
-            case KEYPAD_EXPIRED -> "The Caisse d'Epargne keypad expired. Start again.";
-            case INVALID_POSITIONS -> "The keypad choice is not valid. Start again.";
-            case KEYPAD_CHANGED -> "Caisse d'Epargne changed its login page. Nothing was sent.";
-            case APP_VALIDATION_TIMEOUT -> "The sign-in was not approved in Sécur'Pass in time";
-            case AUTH_ATTEMPT_EXPIRED -> "This Caisse d'Epargne sign-in attempt expired. Start again.";
-            case UPSTREAM_FORMAT_CHANGED -> "The Caisse d'Epargne data format changed";
-            case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Caisse d'Epargne is temporarily unavailable";
-        };
     }
 }

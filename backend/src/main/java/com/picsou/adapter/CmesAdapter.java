@@ -1,22 +1,35 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.port.CmesErrorCode;
-import com.picsou.port.CmesPort;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Read-only access to a Crédit Mutuel Épargne Salariale saver's space, the one
+ * CIC savers use too.
+ *
+ * <p>The login is a plain form; the site then asks for a mobile confirmation or
+ * sends a code by SMS, unless it still remembers the device. {@link #initiateAuth}
+ * takes the previous session so the sidecar can replay that remembered-device
+ * cookie: a re-login with stored credentials then completes without anyone at
+ * the phone.
+ * The session state is opaque to the domain and only ever stored encrypted.
+ */
 @Component
-public class CmesAdapter implements CmesPort {
+public class CmesAdapter {
     private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
     /**
      * A mobile confirmation waits on a human unlocking their phone. The sidecar
@@ -27,7 +40,7 @@ public class CmesAdapter implements CmesPort {
     /** One situation page, then three page loads per fund. */
     private static final Duration DEFAULT_POSITIONS_TIMEOUT = Duration.ofSeconds(120);
 
-    private final SidecarErrorTranslator<CmesErrorCode> sidecar;
+    private final SidecarClient sidecar;
     private final Duration authTimeout;
     private final Duration validationTimeout;
     private final Duration positionsTimeout;
@@ -35,11 +48,10 @@ public class CmesAdapter implements CmesPort {
     @Autowired
     public CmesAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.cmes-auth.url:http://cmes-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Crédit Mutuel Épargne Salariale", url),
+            clients.create(SidecarBank.CMES.label(), SidecarBank.CMES.serviceName()),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,
@@ -58,31 +70,27 @@ public class CmesAdapter implements CmesPort {
         Duration validationTimeout,
         Duration positionsTimeout
     ) {
-        this.sidecar = new SidecarErrorTranslator<>(
-            client,
-            objectMapper,
-            CmesErrorCode.class,
-            "Crédit Mutuel Épargne Salariale",
-            CmesErrorCode.UPSTREAM_UNAVAILABLE,
-            CmesErrorCode.AUTH_ATTEMPT_EXPIRED,
-            CmesAdapter::friendlyMessage
-        );
+        this.sidecar = new SidecarClient(client, objectMapper, SidecarBank.CMES, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
         this.authTimeout = authTimeout;
         this.validationTimeout = validationTimeout;
         this.positionsTimeout = positionsTimeout;
     }
 
-    @Override
-    public InitiateResult initiateAuth(String login, String password, String previousSessionState) {
+    /** {@code previousSessionState} is null on a first login. {@code mfaType} is {@code APP_PUSH} or {@code SMS}. */
+    public SidecarInitiate initiateAuth(String login, String password, String previousSessionState) {
         return initiate(login, password, previousSessionState, false);
     }
 
-    @Override
-    public InitiateResult reauthenticate(String login, String password, String previousSessionState) {
+    /**
+     * The same login for a scheduled re-login with stored credentials: nobody is
+     * there to approve, so the sidecar withdraws a mobile confirmation at once and
+     * reports the session as expired rather than leaving a request on the phone.
+     */
+    public SidecarInitiate reauthenticate(String login, String password, String previousSessionState) {
         return initiate(login, password, previousSessionState, true);
     }
 
-    private InitiateResult initiate(String login, String password, String previousSessionState, boolean unattended) {
+    private SidecarInitiate initiate(String login, String password, String previousSessionState, boolean unattended) {
         Map<String, Object> body = new HashMap<>();
         if (unattended) body.put("unattended", true);
         body.put("login", login);
@@ -90,23 +98,25 @@ public class CmesAdapter implements CmesPort {
         if (previousSessionState != null && !previousSessionState.isBlank()) {
             body.put("sessionState", previousSessionState);
         }
-        return sidecar.post("/initiate", body, InitiateResult.class, authTimeout,
-            "Could not initiate Crédit Mutuel Épargne Salariale authentication", CmesErrorCode.INVALID_CREDENTIALS);
+        return sidecar.post("/initiate", body, SidecarInitiate.class, authTimeout,
+            "Could not initiate Crédit Mutuel Épargne Salariale authentication", SidecarErrorCode.INVALID_CREDENTIALS);
     }
 
-    @Override
+    /**
+     * Finishes the second factor: {@code code} is the SMS code, or null for a
+     * mobile confirmation, which waits for the saver to approve in the app.
+     */
     public String completeAuth(String processId, String code) {
         // A null code is the mobile-confirmation case; the sidecar forbids
         // unknown fields, so the key carries an explicit null rather than be omitted.
         Map<String, Object> body = new HashMap<>();
         body.put("processId", processId);
         body.put("code", code);
-        SessionResponse response = sidecar.post("/complete", body, SessionResponse.class, validationTimeout,
-            "Could not complete Crédit Mutuel Épargne Salariale authentication", CmesErrorCode.APP_VALIDATION_TIMEOUT);
+        SidecarSession response = sidecar.post("/complete", body, SidecarSession.class, validationTimeout,
+            "Could not complete Crédit Mutuel Épargne Salariale authentication", SidecarErrorCode.APP_VALIDATION_TIMEOUT);
         return response.sessionState();
     }
 
-    @Override
     public List<PlanData> fetchPlans(String sessionState) {
         return sidecar.postForList(
             "/positions",
@@ -114,30 +124,24 @@ public class CmesAdapter implements CmesPort {
             PlanData[].class,
             positionsTimeout,
             "Could not fetch Crédit Mutuel Épargne Salariale plans",
-            CmesErrorCode.PORTFOLIO_INCOMPLETE,
+            SidecarErrorCode.PORTFOLIO_INCOMPLETE,
             "Crédit Mutuel Épargne Salariale returned no complete plan"
         );
     }
 
-    private static String friendlyMessage(CmesErrorCode code) {
-        return switch (code) {
-            case INVALID_CREDENTIALS -> "Crédit Mutuel Épargne Salariale rejected the login or password";
-            case ACTION_REQUIRED ->
-                "Crédit Mutuel Épargne Salariale needs you to log in on their website once and complete the pending step, then retry";
-            case MFA_TYPE_UNSUPPORTED ->
-                "Crédit Mutuel Épargne Salariale asked for a Digipass or Safetrans, which Picsou cannot handle. "
-                    + "Switch your security settings to mobile confirmation or SMS.";
-            case INVALID_OTP -> "Crédit Mutuel Épargne Salariale rejected the SMS code";
-            case APP_VALIDATION_TIMEOUT -> "The mobile confirmation was not approved in time";
-            case APP_VALIDATION_CANCELLED -> "The mobile confirmation was refused in the app";
-            case AUTH_ATTEMPT_EXPIRED -> "The Crédit Mutuel Épargne Salariale authentication attempt expired";
-            case SESSION_EXPIRED -> "The Crédit Mutuel Épargne Salariale session expired";
-            case PORTFOLIO_INCOMPLETE -> "Crédit Mutuel Épargne Salariale returned incomplete plans";
-            case UPSTREAM_FORMAT_CHANGED -> "The Crédit Mutuel Épargne Salariale website format changed";
-            case INVALID_DATA -> "Crédit Mutuel Épargne Salariale returned invalid plan data";
-            case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Crédit Mutuel Épargne Salariale is temporarily unavailable";
-        };
-    }
+    /**
+     * One FCPE line inside a plan. Everything is EUR-denominated. Employer funds
+     * usually show only the manager's fund code, no ISIN.
+     */
+    public record Position(String isin, String fundCode, String label, BigDecimal quantity,
+                           BigDecimal unitValue, BigDecimal valueEur, BigDecimal pnlEur) {}
 
-    private record SessionResponse(String sessionState) {}
+    /**
+     * One plan -- PEG, PEE, PERCOL... -- and the funds held inside it.
+     * {@code legacyExternalIds} are the ids earlier builds could have given the
+     * plan; an account carrying one of them and the plan's name moves to
+     * {@code externalId}.
+     */
+    public record PlanData(String externalId, List<String> legacyExternalIds, String name, String planKind, String employer,
+                           BigDecimal balanceEur, List<Position> positions, boolean snapshotComplete) {}
 }

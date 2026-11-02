@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Sidecar URLs live under one `app.sidecars` map.** `app.bourso-auth.url` and its 12
+  siblings are now `app.sidecars.<service>.url`. The environment variables (`BOURSO_AUTH_URL`,
+  `TR_AUTH_URL`, …) and their defaults are unchanged, so a Docker or Helm install needs nothing.
+  Only an install that set the old Spring property itself must rename it: in its own YAML,
+  as `-Dapp.bourso-auth.url`, or through relaxed binding (`APP_BOURSO_AUTH_URL` becomes
+  `APP_SIDECARS_BOURSO_AUTH_URL`). Behind it, the backend talks to the ten `detail`-code connectors through one client and
+  one error-code enum; stored `last_sync_error` values are unchanged (#336).
+
 - **Caisse d'Epargne: a failed account import says where it failed.** The sidecar's
   `accounts fetch failed` line now names the step (synthesis, transactions,
   serialisation) and the cause (the bank's HTTP status, an oversized answer, or the

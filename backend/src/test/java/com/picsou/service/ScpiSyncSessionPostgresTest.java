@@ -2,9 +2,10 @@ package com.picsou.service;
 
 import com.picsou.config.CryptoEncryption;
 import com.picsou.model.*;
-import com.picsou.port.CorumPort;
-import com.picsou.port.SofidyPort;
+import com.picsou.adapter.CorumAdapter;
+import com.picsou.adapter.SofidyAdapter;
 import com.picsou.repository.*;
+import com.picsou.support.PostgresContainers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -48,7 +49,7 @@ import static org.mockito.Mockito.when;
 class ScpiSyncSessionPostgresTest {
     @Container
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @TestConfiguration
     static class Transactions {
@@ -68,8 +69,8 @@ class ScpiSyncSessionPostgresTest {
     @Autowired SofidySessionRepository sofidySessions;
     @Autowired ScpiProviderFundRepository funds;
     @Autowired ScpiFundService fundService;
-    @MockitoBean CorumPort corumPort;
-    @MockitoBean SofidyPort sofidyPort;
+    @MockitoBean CorumAdapter corumPort;
+    @MockitoBean SofidyAdapter sofidyPort;
     @MockitoBean CryptoEncryption encryption;
     FamilyMember member;
     Account account;
@@ -101,15 +102,15 @@ class ScpiSyncSessionPostgresTest {
         if (isCorum) {
             when(corumPort.fetchSnapshot("old-state")).thenAnswer(inv -> {
                 awaitRelease(fetching, release);
-                return new CorumPort.Snapshot("contract", "PP", "EUR", new BigDecimal("600"), null,
-                    true, List.of(new CorumPort.Holding("FUND", "Fund", new BigDecimal("2"),
+                return new CorumAdapter.Snapshot("contract", "PP", "EUR", new BigDecimal("600"), null,
+                    true, List.of(new CorumAdapter.Holding("FUND", "Fund", new BigDecimal("2"),
                         new BigDecimal("300"), null, null, null)));
             });
         } else {
             when(sofidyPort.fetchSnapshot("old-state")).thenAnswer(inv -> {
                 awaitRelease(fetching, release);
-                return new SofidyPort.Snapshot("EUR", new BigDecimal("600"), null, true,
-                    List.of(new SofidyPort.Holding("FUND", "Fund", new BigDecimal("2"),
+                return new SofidyAdapter.Snapshot("EUR", new BigDecimal("600"), null, true,
+                    List.of(new SofidyAdapter.Holding("FUND", "Fund", new BigDecimal("2"),
                         new BigDecimal("300"), new BigDecimal("600"))));
             });
         }
@@ -159,9 +160,9 @@ class ScpiSyncSessionPostgresTest {
     @ValueSource(booleans = {false, true})
     void sofidyRejectsMissingTotalOrQuantityWithoutChangingPersistedAccount(boolean missingQuantity) {
         sofidySessions.saveAndFlush(SofidySession.create(member, "old-state", Instant.now()));
-        when(sofidyPort.fetchSnapshot("old-state")).thenReturn(new SofidyPort.Snapshot("EUR",
+        when(sofidyPort.fetchSnapshot("old-state")).thenReturn(new SofidyAdapter.Snapshot("EUR",
             missingQuantity ? BigDecimal.ZERO : null, null, true,
-            missingQuantity ? List.of(new SofidyPort.Holding("FUND", "Fund", null,
+            missingQuantity ? List.of(new SofidyAdapter.Holding("FUND", "Fund", null,
                 new BigDecimal("300"), null)) : List.of()));
 
         assertThat(sofidy.queueSync(member.getId()).syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
@@ -175,8 +176,8 @@ class ScpiSyncSessionPostgresTest {
     @Test
     void corumSyncCreatesTheAccountOnceAndDoesNotRecreateADeletedOne() {
         FamilyMember fresh = members.saveAndFlush(FamilyMember.builder().displayName("SCPI auto").build());
-        when(corumPort.fetchSnapshot("auto-state")).thenReturn(new CorumPort.Snapshot("contract", "PP", "EUR",
-            new BigDecimal("1800"), null, true, List.of(new CorumPort.Holding("US", "CORUM USA",
+        when(corumPort.fetchSnapshot("auto-state")).thenReturn(new CorumAdapter.Snapshot("contract", "PP", "EUR",
+            new BigDecimal("1800"), null, true, List.of(new CorumAdapter.Holding("US", "CORUM USA",
                 new BigDecimal("10"), new BigDecimal("180"), null, new BigDecimal("1800"), null))));
 
         corumSessions.saveAndFlush(CorumSession.create(fresh, "auto-state", Instant.now()));

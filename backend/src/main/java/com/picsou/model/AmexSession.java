@@ -1,7 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.picsou.port.AmexErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -48,7 +48,7 @@ public class AmexSession extends AuditableEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "last_sync_error", length = 40)
-    private AmexErrorCode lastSyncError;
+    private SidecarErrorCode lastSyncError;
 
     public static AmexSession create(
         FamilyMember member,
@@ -98,17 +98,17 @@ public class AmexSession extends AuditableEntity {
         lastSyncError = null;
     }
 
-    public void markFailed(AmexErrorCode errorCode, Instant completedAt) {
+    public void markFailed(SidecarErrorCode errorCode, Instant completedAt) {
         if (syncStatus != AmexSyncStatus.QUEUED && syncStatus != AmexSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an in-flight Amex synchronization can fail");
         }
-        AmexErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
         syncStatus = AmexSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
         // Only an expired session needs re-authentication; a failed fetch leaves
         // a usable session so the daily scheduler can simply retry.
-        if (error == AmexErrorCode.SESSION_EXPIRED) {
+        if (error == SidecarErrorCode.SESSION_EXPIRED) {
             active = false;
         }
     }

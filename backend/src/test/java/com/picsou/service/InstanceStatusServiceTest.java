@@ -1,5 +1,6 @@
 package com.picsou.service;
 
+import com.picsou.config.SidecarProperties;
 import com.picsou.dto.SidecarIssue;
 import com.picsou.dto.SidecarIssueCode;
 import com.picsou.model.AppSetting;
@@ -24,7 +25,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.net.InetAddress;
@@ -34,6 +34,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -404,27 +405,45 @@ class InstanceStatusServiceTest {
     }
 
     @Test
+    void registry_reportsAnEmptyUrlForASidecarWithNoConfiguredEntry() {
+        InstanceStatusService wired = new InstanceStatusService(
+            disabledReleases(),
+            new SetupService(mock(AppSettingRepository.class), mock(AppUserRepository.class),
+                mock(FamilyMemberRepository.class), mock(PasswordEncoder.class)),
+            SidecarProperties.of(Map.of()),
+            mock(TradeRepublicSessionRepository.class), mock(BoursoSessionRepository.class),
+            mock(CaisseEpargneSessionRepository.class), mock(RevolutSessionRepository.class),
+            mock(BourseDirectSessionRepository.class), mock(DegiroSessionRepository.class),
+            mock(AmundiSessionRepository.class), mock(AmexSessionRepository.class),
+            mock(FortuneoSessionRepository.class), mock(CorumSessionRepository.class),
+            mock(SofidySessionRepository.class), mock(CmesSessionRepository.class),
+            mock(CicSessionRepository.class),
+            "1.1.0");
+
+        assertThat(byName(wired, "tr-auth").url().get()).isEmpty();
+    }
+
+    @Test
     void registry_encodesNameBaseUrlAndSessionCount() {
         AppSettingRepository settings = mock(AppSettingRepository.class);
         when(settings.findByKey(SetupService.KEY_BOURSO_AUTH_URL))
             .thenReturn(Optional.of(setting("http://setup-bourso")));
         SetupService setup = new SetupService(
             settings, mock(AppUserRepository.class), mock(FamilyMemberRepository.class), mock(PasswordEncoder.class));
-        MockEnvironment env = new MockEnvironment()
-            .withProperty("app.bourso-auth.url", "http://property-bourso")
-            .withProperty("app.sofidy-auth.url", "http://sofidy")
-            .withProperty("app.cmes-auth.url", "http://cmes")
-            .withProperty("app.cic-auth.url", "http://cic")
-            .withProperty("app.degiro-auth.url", "http://degiro")
-            .withProperty("app.tr-auth.url", "http://tr")
-            .withProperty("app.caisse-epargne-auth.url", "http://caisse")
-            .withProperty("app.bourse-direct-auth.url", "http://bourse")
-            .withProperty("app.amundi-auth.url", "http://amundi")
-            .withProperty("app.fortuneo-auth.url", "http://fortuneo")
-            .withProperty("app.corum-auth.url", "http://corum")
-            .withProperty("app.amex-auth.url", "http://amex")
-            .withProperty("app.revolut-auth.url", "http://revolut");
-        var tr = mock(TradeRepublicSessionRepository.class);
+        SidecarProperties sidecars = SidecarProperties.of(Map.ofEntries(
+            Map.entry("bourso-auth", "http://property-bourso"),
+            Map.entry("sofidy-auth", "http://sofidy"),
+            Map.entry("cmes-auth", "http://cmes"),
+            Map.entry("cic-auth", "http://cic"),
+            Map.entry("degiro-auth", "http://degiro"),
+            Map.entry("tr-auth", "http://tr"),
+            Map.entry("caisse-epargne-auth", "http://caisse"),
+            Map.entry("bourse-direct-auth", "http://bourse"),
+            Map.entry("amundi-auth", "http://amundi"),
+            Map.entry("fortuneo-auth", "http://fortuneo"),
+            Map.entry("corum-auth", "http://corum"),
+            Map.entry("amex-auth", "http://amex"),
+            Map.entry("revolut-auth", "http://revolut")));        var tr = mock(TradeRepublicSessionRepository.class);
         var bourso = mock(BoursoSessionRepository.class);
         var caisse = mock(CaisseEpargneSessionRepository.class);
         var revolut = mock(RevolutSessionRepository.class);
@@ -454,7 +473,7 @@ class InstanceStatusServiceTest {
         InstanceStatusService wired = new InstanceStatusService(
             disabledReleases(),
             setup,
-            env,
+            sidecars,
             tr, bourso, caisse, revolut, bourse, degiro, amundi, amex, fortuneo, corum, sofidy, cmes, cic,
             "1.1.0");
 

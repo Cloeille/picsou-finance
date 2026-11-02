@@ -25,6 +25,7 @@ import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.BudgetService;
 import com.picsou.service.budget.CashflowService;
 import com.picsou.service.budget.CategorizationService;
+import com.picsou.support.PostgresContainers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -70,7 +71,7 @@ class SidecarBudgetPostgresTest {
 
     @Container
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @DynamicPropertySource
     static void testProperties(DynamicPropertyRegistry registry) {

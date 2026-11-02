@@ -1,7 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.picsou.port.SofidyErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -63,7 +63,7 @@ public class SofidySession extends AuditableEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "last_sync_error", length = 40)
-    private SofidyErrorCode lastSyncError;
+    private SidecarErrorCode lastSyncError;
 
     public static SofidySession create(
         FamilyMember member,
@@ -113,15 +113,15 @@ public class SofidySession extends AuditableEntity {
         lastSyncError = null;
     }
 
-    public void markFailed(SofidyErrorCode errorCode, Instant completedAt) {
+    public void markFailed(SidecarErrorCode errorCode, Instant completedAt) {
         if (syncStatus != SofidySyncStatus.QUEUED && syncStatus != SofidySyncStatus.RUNNING) {
             throw new IllegalStateException("Only an in-flight Sofidy synchronization can fail");
         }
-        SofidyErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
         syncStatus = SofidySyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
-        if (error == SofidyErrorCode.SESSION_EXPIRED) {
+        if (error == SidecarErrorCode.SESSION_EXPIRED) {
             // The cookie died, so the stored session can only be replaced by a
             // fresh login. Leaving it active would make every later sync fail
             // the same way with no path forward.

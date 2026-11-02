@@ -1,22 +1,19 @@
 package com.picsou.migration;
 
 import com.picsou.service.WalletSyncService;
-import org.flywaydb.core.Flyway;
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -43,33 +40,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * PostgreSQL-flavoured ({@code CREATE TYPE ... AS ENUM}, {@code split_part()}), and this
  * migration's own {@code UPDATE ... FROM} join has no H2 equivalent worth trusting.
  */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class AccountLogoKeyMigrationTest {
 
-    static {
-        // Same negotiation problem as WalletEvmMigrationTest: docker-java otherwise drops to
-        // API 1.32, which Engine >= 28 refuses, and the failure is indistinguishable from
-        // "this machine has no Docker" -- so the guard below would skip on a capable host.
-        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
-    }
-
     @Container
-    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    /** @see WalletEvmMigrationTest#dockerAvailable() — CI turns a skip into a hard failure. */
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
-            throw new IllegalStateException(
-                "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
-                    + "The V75 migration test cannot be skipped here. "
-                    + "Needs Docker Engine >= 25.0.");
-        }
-        return available;
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     private static Long btcWalletId;
     private static Long evmWalletId;
@@ -81,9 +57,9 @@ class AccountLogoKeyMigrationTest {
     /** Brings the schema to V74 — the state of a deployed instance — seeds it, then applies V75. */
     @BeforeAll
     static void migrateAndSeed() throws SQLException {
-        migrateTo("74");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "74");
 
-        try (Connection conn = connect()) {
+        try (Connection conn = PostgresContainers.connection(POSTGRES)) {
             long memberId = insertReturningId(conn,
                 "INSERT INTO family_member (display_name) VALUES ('Test') RETURNING id");
 
@@ -106,7 +82,7 @@ class AccountLogoKeyMigrationTest {
             exchangeAccountId = insertAccount(conn, memberId, "Meria", "MERIA", "meria_spot_1");
         }
 
-        migrateTo("75");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "75");
     }
 
     @Test
@@ -141,7 +117,7 @@ class AccountLogoKeyMigrationTest {
     @Test
     @Order(Integer.MAX_VALUE)
     void replayKeepsAChoiceTheUserHasSinceMade() throws Exception {
-        try (Connection conn = connect()) {
+        try (Connection conn = PostgresContainers.connection(POSTGRES)) {
             exec(conn, "UPDATE account SET logo_key = 'ledger' WHERE id = " + btcAccountId);
         }
 
@@ -182,7 +158,7 @@ class AccountLogoKeyMigrationTest {
             .map(line -> line.contains("--") ? line.substring(0, line.indexOf("--")) : line)
             .collect(Collectors.joining("\n"));
 
-        try (Connection conn = connect(); Statement st = conn.createStatement()) {
+        try (Connection conn = PostgresContainers.connection(POSTGRES); Statement st = conn.createStatement()) {
             for (String statement : stripped.split(";")) {
                 if (statement.isBlank()) continue;
                 try {
@@ -194,21 +170,6 @@ class AccountLogoKeyMigrationTest {
                 }
             }
         }
-    }
-
-    private static void migrateTo(String version) {
-        Flyway.configure()
-            .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-            .locations("classpath:db/migration")
-            .target(version)
-            .outOfOrder(true) // mirrors application.yml
-            .load()
-            .migrate();
-    }
-
-    private static Connection connect() throws SQLException {
-        return DriverManager.getConnection(
-            POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static long insertAccount(Connection conn, long memberId, String name, String provider, String externalId)
@@ -234,7 +195,7 @@ class AccountLogoKeyMigrationTest {
 
     private static String queryString(String sql) throws SQLException {
         if (readConn == null || readConn.isClosed()) {
-            readConn = connect();
+            readConn = PostgresContainers.connection(POSTGRES);
         }
         try (PreparedStatement ps = readConn.prepareStatement(sql); ResultSet rs = ps.executeQuery()) {
             assertThat(rs.next()).as("query returned no row: %s", sql).isTrue();

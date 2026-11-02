@@ -1,13 +1,10 @@
 package com.picsou.adapter;
 
 import com.picsou.port.GeocodingPort.GeocodeResult;
+import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFunction;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Optional;
@@ -32,15 +29,12 @@ class GeoplateformeGeocoderTest {
             "street":"Rue de la Paix","_type":"address"}}]}
         """;
 
-    private GeoplateformeGeocoder geocoderReturning(Mono<ClientResponse> response) {
-        ExchangeFunction exchange = request -> response;
-        return new GeoplateformeGeocoder(WebClient.builder().exchangeFunction(exchange).build());
+    private GeoplateformeGeocoder geocoderReturning(WebClient client) {
+        return new GeoplateformeGeocoder(client);
     }
 
     private GeoplateformeGeocoder geocoderWithJson(String json) {
-        return geocoderReturning(Mono.just(ClientResponse.create(HttpStatus.OK)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .body(json).build()));
+        return geocoderReturning(WebClientStubs.returning(json));
     }
 
     @Test
@@ -93,7 +87,7 @@ class GeoplateformeGeocoderTest {
         // A geocoding outage must not take down the page that triggered it; the caller keeps
         // the stored coordinates or asks the user to confirm the address.
         GeoplateformeGeocoder geocoder =
-            geocoderReturning(Mono.error(new TimeoutException("upstream slow")));
+            geocoderReturning(WebClientStubs.failing(new TimeoutException("upstream slow")));
 
         assertThat(geocoder.geocode("1 rue de la Paix")).isEmpty();
         assertThat(geocoder.autocomplete("1 rue de la Paix", 5)).isEmpty();
@@ -101,16 +95,14 @@ class GeoplateformeGeocoderTest {
 
     @Test
     void geocode_serverError_returnsEmpty() {
-        assertThat(geocoderReturning(Mono.just(ClientResponse.create(HttpStatus.SERVICE_UNAVAILABLE)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .body("{}").build())).geocode("q")).isEmpty();
+        assertThat(geocoderReturning(WebClientStubs.returning(HttpStatus.SERVICE_UNAVAILABLE, "{}")).geocode("q")).isEmpty();
     }
 
     @Test
     void autocomplete_blankQuery_makesNoCall() {
         // Guarding here keeps a cleared input from spending the shared rate-limit budget.
         List<GeocodeResult> results = geocoderReturning(
-            Mono.error(new AssertionError("must not call upstream"))).autocomplete("   ", 5);
+            WebClientStubs.failing(new AssertionError("must not call upstream"))).autocomplete("   ", 5);
         assertThat(results).isEmpty();
     }
 }

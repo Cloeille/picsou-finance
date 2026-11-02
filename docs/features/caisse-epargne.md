@@ -25,7 +25,7 @@ before claiming a successful PER import.
 
 ### Storage (decision D5: cookies only)
 
-Table `caisse_epargne_session` (migration `V109`) is `bourso_session` without `encrypted_credentials`. The password and the Secur'Pass are never stored. The session state is encrypted with `CryptoEncryption`. A session the bank rejects (`SESSION_EXPIRED`) or Picsou cannot read (`INVALID_SESSION_STATE`) becomes inactive and the user must reconnect: it cannot be renewed silently. `last_sync_error` is a CHECK listing exactly `CaisseEpargneErrorCode`. `unsupported_contracts` holds the last list of contracts the bank reported but Picsou does not import.
+Table `caisse_epargne_session` (migration `V109`) is `bourso_session` without `encrypted_credentials`. The password and the Secur'Pass are never stored. The session state is encrypted with `CryptoEncryption`. A session the bank rejects (`SESSION_EXPIRED`) or Picsou cannot read (`INVALID_SESSION_STATE`) becomes inactive and the user must reconnect: it cannot be renewed silently. `last_sync_error` is a CHECK listing exactly `SidecarBank.CAISSE_EPARGNE.codes()`. `unsupported_contracts` holds the last list of contracts the bank reported but Picsou does not import.
 
 ### Supported products
 
@@ -72,7 +72,7 @@ On the current account the loan is debited from, two kinds of rows are categoriz
 
 ### Configuration
 
-`app.caisse-epargne-auth.url` (env `CAISSE_EPARGNE_AUTH_URL`, default `http://caisse-epargne-auth:8001`). The shared sidecar key and URL validation come from `SidecarWebClientFactory`.
+`app.sidecars.caisse-epargne-auth.url` (env `CAISSE_EPARGNE_AUTH_URL`, default `http://caisse-epargne-auth:8001`). The shared sidecar key and URL validation come from `SidecarWebClientFactory`.
 
 ## Authentication
 
@@ -130,7 +130,7 @@ completion response is lost, it restarts at 180 seconds to show the recovery win
 | 429 `TOO_MANY_PENDING` | `UPSTREAM_UNAVAILABLE`, "too many pending" message |
 | 502 / 5xx / timeout | `UPSTREAM_UNAVAILABLE` (or `UPSTREAM_FORMAT_CHANGED` when the sidecar says so) |
 
-The login codes are in `CaisseEpargneErrorCode` and in the `last_sync_error` CHECK (`V109`, extended by `V110` for `KEYPAD_EXPIRED` and `INVALID_POSITIONS`).
+The login codes are in `SidecarBank.CAISSE_EPARGNE` and in the `last_sync_error` CHECK (`V109`, extended by `V110` for `KEYPAD_EXPIRED` and `INVALID_POSITIONS`).
 
 ## Not in this slice
 

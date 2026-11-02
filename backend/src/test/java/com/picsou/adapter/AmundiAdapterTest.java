@@ -2,16 +2,9 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.exception.SyncException;
-import com.picsou.port.AmundiErrorCode;
+import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.mock.http.client.reactive.MockClientHttpRequest;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFunction;
-import org.springframework.web.reactive.function.client.ExchangeStrategies;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -62,46 +55,6 @@ class AmundiAdapterTest {
     }
 
     @Test
-    void fetchPlans_preservesAStableSidecarErrorCode() {
-        AmundiAdapter adapter = adapterReturning(
-            HttpStatus.BAD_GATEWAY,
-            "{\"detail\":\"PORTFOLIO_INCOMPLETE\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchPlans("state"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.PORTFOLIO_INCOMPLETE.name());
-                assertThat(error.getMessage()).doesNotContain("state");
-            });
-    }
-
-    @Test
-    void initiateAuth_surfacesACaptchaWallAsItsOwnCode() {
-        AmundiAdapter adapter = adapterReturning(
-            HttpStatus.FORBIDDEN,
-            "{\"detail\":\"CAPTCHA_BLOCKED\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.initiateAuth("login", "password"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.CAPTCHA_BLOCKED.name())
-            );
-    }
-
-    @Test
-    void completeAuth_surfacesAnUnconfirmedAppPushAsItsOwnCode() {
-        AmundiAdapter adapter = adapterReturning(
-            HttpStatus.REQUEST_TIMEOUT,
-            "{\"detail\":\"APP_VALIDATION_TIMEOUT\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.completeAuth("process", null))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.APP_VALIDATION_TIMEOUT.name())
-            );
-    }
-
-    @Test
     void completeAuth_sendsAnExplicitNullCodeForAnAppPush() {
         List<String> bodies = new ArrayList<>();
         AmundiAdapter adapter = adapterRecording(bodies, """
@@ -117,90 +70,6 @@ class AmundiAdapterTest {
         });
     }
 
-    @Test
-    void completeAuth_mapsAnUncoded401ToInvalidOtp() {
-        AmundiAdapter adapter = adapterReturning(
-            HttpStatus.UNAUTHORIZED,
-            "{\"detail\":\"Authentication rejected\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.completeAuth("process", "123456"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.INVALID_OTP.name())
-            );
-    }
-
-    @Test
-    void completeAuth_mapsAnExpiredAttemptFromItsStatusAlone() {
-        AmundiAdapter adapter = adapterReturning(HttpStatus.GONE, "{}");
-
-        assertThatThrownBy(() -> adapter.completeAuth("process", "123456"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.AUTH_ATTEMPT_EXPIRED.name())
-            );
-    }
-
-    @Test
-    void initiateAuth_mapsAnEmptySuccessResponseToUnavailable() {
-        AmundiAdapter adapter = adapterReturning(HttpStatus.OK, "");
-
-        assertThatThrownBy(() -> adapter.initiateAuth("login", "password"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
-    @Test
-    void fetchPlans_treatsAnEmptyArrayAsAnIncompleteRead() {
-        AmundiAdapter adapter = adapterReturning(HttpStatus.OK, "[]");
-
-        assertThatThrownBy(() -> adapter.fetchPlans("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.PORTFOLIO_INCOMPLETE.name())
-            );
-    }
-
-    @Test
-    void fetchPlans_mapsMalformedErrorJsonToUnavailable() {
-        AmundiAdapter adapter = adapterReturning(HttpStatus.BAD_GATEWAY, "not-json");
-
-        assertThatThrownBy(() -> adapter.fetchPlans("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
-    @Test
-    void fetchPlans_mapsUnknownSidecarCodeToUnavailable() {
-        AmundiAdapter adapter = adapterReturning(
-            HttpStatus.BAD_GATEWAY,
-            "{\"detail\":\"NEW_UPSTREAM_FAILURE\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchPlans("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
-    @Test
-    void fetchPlans_mapsNetworkTimeoutToAnExplicitRetryableFailure() {
-        ExchangeFunction neverResponds = request -> Mono.never();
-        AmundiAdapter adapter = new AmundiAdapter(
-            WebClient.builder().exchangeFunction(neverResponds).build(),
-            new ObjectMapper(),
-            Duration.ofMillis(20),
-            Duration.ofMillis(20),
-            Duration.ofMillis(20)
-        );
-
-        assertThatThrownBy(() -> adapter.fetchPlans("state"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.UPSTREAM_UNAVAILABLE.name());
-                assertThat(error.getMessage()).contains("too long");
-            });
-    }
-
     /**
      * An app push waits on a human, so the completion call must outlive the
      * plain auth budget -- otherwise a validation that was about to succeed
@@ -208,9 +77,8 @@ class AmundiAdapterTest {
      */
     @Test
     void completeAuth_waitsLongerThanAPlainAuthenticationCall() {
-        ExchangeFunction neverResponds = request -> Mono.never();
         AmundiAdapter adapter = new AmundiAdapter(
-            WebClient.builder().exchangeFunction(neverResponds).build(),
+            WebClientStubs.neverResponding(),
             new ObjectMapper(),
             Duration.ofMillis(20),
             Duration.ofMillis(600),
@@ -226,29 +94,10 @@ class AmundiAdapterTest {
     }
 
     private AmundiAdapter adapterReturning(HttpStatus status, String body) {
-        ExchangeFunction exchange = request -> Mono.just(ClientResponse.create(status)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .body(body)
-            .build());
-        return new AmundiAdapter(
-            WebClient.builder().exchangeFunction(exchange).build(),
-            new ObjectMapper()
-        );
+        return new AmundiAdapter(WebClientStubs.returning(status, body), new ObjectMapper());
     }
 
     private AmundiAdapter adapterRecording(List<String> bodies, String responseBody) {
-        ExchangeFunction exchange = request -> {
-            MockClientHttpRequest recorder = new MockClientHttpRequest(request.method(), request.url());
-            request.writeTo(recorder, ExchangeStrategies.withDefaults()).block();
-            bodies.add(recorder.getBodyAsString().block());
-            return Mono.just(ClientResponse.create(HttpStatus.OK)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                .body(responseBody)
-                .build());
-        };
-        return new AmundiAdapter(
-            WebClient.builder().exchangeFunction(exchange).build(),
-            new ObjectMapper()
-        );
+        return new AmundiAdapter(WebClientStubs.recordingBodies(bodies, HttpStatus.OK, responseBody), new ObjectMapper());
     }
 }

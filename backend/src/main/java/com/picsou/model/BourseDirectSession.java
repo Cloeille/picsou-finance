@@ -1,7 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.picsou.port.BourseDirectErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -48,7 +48,7 @@ public class BourseDirectSession extends AuditableEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "last_sync_error", length = 40)
-    private BourseDirectErrorCode lastSyncError;
+    private SidecarErrorCode lastSyncError;
 
     public static BourseDirectSession create(
         FamilyMember member,
@@ -99,16 +99,16 @@ public class BourseDirectSession extends AuditableEntity {
         lastSyncError = null;
     }
 
-    public void markFailed(BourseDirectErrorCode errorCode, Instant completedAt) {
+    public void markFailed(SidecarErrorCode errorCode, Instant completedAt) {
         if (syncStatus != BourseDirectSyncStatus.QUEUED
             && syncStatus != BourseDirectSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an in-flight Bourse Direct synchronization can fail");
         }
-        BourseDirectErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
         syncStatus = BourseDirectSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
-        if (error == BourseDirectErrorCode.SESSION_EXPIRED) {
+        if (error == SidecarErrorCode.SESSION_EXPIRED) {
             active = false;
         }
     }

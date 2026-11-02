@@ -4,7 +4,7 @@ import com.picsou.adapter.OpenFigiIsinConverter;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
-import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.port.SymbolCatalogPort;
 import com.picsou.repository.AccountHoldingRepository;
@@ -251,7 +251,7 @@ public class CaisseEpargnePerService {
         return new SyncException(
             "Caisse d'Epargne returned an invalid PER valuation",
             null,
-            CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED.name()
+            SidecarErrorCode.UPSTREAM_FORMAT_CHANGED.name()
         );
     }
 

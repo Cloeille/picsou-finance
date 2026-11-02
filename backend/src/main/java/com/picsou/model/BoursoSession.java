@@ -1,7 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.picsou.port.BoursoErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -52,7 +52,7 @@ public class BoursoSession extends AuditableEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "last_sync_error", length = 40)
-    private BoursoErrorCode lastSyncError;
+    private SidecarErrorCode lastSyncError;
 
     public static BoursoSession create(
         FamilyMember member,
@@ -112,17 +112,17 @@ public class BoursoSession extends AuditableEntity {
         lastSyncError = null;
     }
 
-    public void markFailed(BoursoErrorCode errorCode, Instant completedAt) {
+    public void markFailed(SidecarErrorCode errorCode, Instant completedAt) {
         if (syncStatus != BoursoSyncStatus.QUEUED && syncStatus != BoursoSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an in-flight BoursoBank synchronization can fail");
         }
-        BoursoErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
         syncStatus = BoursoSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
         // Only an expired session needs re-authentication; a failed fetch leaves
         // a usable session so the daily scheduler can simply retry.
-        if (error == BoursoErrorCode.SESSION_EXPIRED) {
+        if (error == SidecarErrorCode.SESSION_EXPIRED) {
             active = false;
         }
     }

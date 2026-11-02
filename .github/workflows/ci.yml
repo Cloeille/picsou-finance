@@ -154,6 +154,7 @@ jobs:
           1 service.HomeBankQifPersistenceTest
           15 migration.LegacyMigrationRenumberingTest
           6 service.SidecarBudgetPostgresTest
+          21 adapter.sidecar.SidecarBankCodesTest
           EOF
 
   frontend:

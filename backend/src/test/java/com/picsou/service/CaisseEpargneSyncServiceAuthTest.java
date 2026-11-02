@@ -5,7 +5,7 @@ import com.picsou.exception.SyncException;
 import com.picsou.model.CaisseEpargneSession;
 import com.picsou.model.CaisseEpargneSyncStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
@@ -133,11 +133,11 @@ class CaisseEpargneSyncServiceAuthTest {
     @Test
     void initiateAuth_propagatesAFailureWithoutRetryAndWithoutTouchingTheStoredSession() {
         when(port.initiateAuth(CUSTOMER_ID)).thenThrow(new SyncException(
-            "The identifier was refused", null, CaisseEpargneErrorCode.INVALID_CREDENTIALS.name()));
+            "The identifier was refused", null, SidecarErrorCode.INVALID_CREDENTIALS.name()));
 
         assertThatThrownBy(() -> service.initiateAuth(CUSTOMER_ID, 7L))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.INVALID_CREDENTIALS.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS.name());
                 assertThat(String.valueOf(error.getMessage())).doesNotContain(CUSTOMER_ID);
             });
 
@@ -158,7 +158,7 @@ class CaisseEpargneSyncServiceAuthTest {
 
             assertThatThrownBy(() -> service.initiateAuth(CUSTOMER_ID, 7L))
                 .isInstanceOfSatisfying(SyncException.class, error ->
-                    assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
+                    assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
         }
     }
 
@@ -190,10 +190,10 @@ class CaisseEpargneSyncServiceAuthTest {
 
             assertThatThrownBy(() -> service.initiateAuth(CUSTOMER_ID, 7L))
                 .isInstanceOfSatisfying(SyncException.class, error ->
-                    assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.KEYPAD_CHANGED.name()));
+                    assertThat(error.getCode()).isEqualTo(SidecarErrorCode.KEYPAD_CHANGED.name()));
             assertThatThrownBy(() -> service.submitKeypad("proc-bad", POSITIONS, 7L))
                 .isInstanceOfSatisfying(SyncException.class, error ->
-                    assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                    assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         }
         when(port.initiateAuth(CUSTOMER_ID)).thenReturn(
             new CaisseEpargnePort.InitiateResult("proc-ok", new CaisseEpargnePort.Keypad(justFits, 5), 90));
@@ -209,7 +209,7 @@ class CaisseEpargneSyncServiceAuthTest {
 
         assertThatThrownBy(() -> service.initiateAuth(CUSTOMER_ID, 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.KEYPAD_CHANGED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.KEYPAD_CHANGED.name()));
     }
 
     // -- keypad -------------------------------------------------------------
@@ -229,12 +229,12 @@ class CaisseEpargneSyncServiceAuthTest {
     void submitKeypad_refusesAnUnknownOrForeignProcessWithoutCallingTheSidecar() {
         assertThatThrownBy(() -> service.submitKeypad("unknown", POSITIONS, 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         challenge("proc-1", 90);
         service.initiateAuth(CUSTOMER_ID, 7L);
         assertThatThrownBy(() -> service.submitKeypad("proc-1", POSITIONS, 8L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
 
         verify(port, never()).submitKeypad(any(), any());
         // the owner can still use it
@@ -250,14 +250,14 @@ class CaisseEpargneSyncServiceAuthTest {
 
         assertThatThrownBy(() -> service.submitKeypad("proc-1", POSITIONS, 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.KEYPAD_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.KEYPAD_EXPIRED.name()));
         verify(port, never()).submitKeypad(any(), any());
     }
 
     @Test
     void submitKeypad_isSingleUseEvenWhenTheSidecarFailsAndKeepsItsCode() {
-        for (CaisseEpargneErrorCode code : List.of(CaisseEpargneErrorCode.KEYPAD_CHANGED,
-            CaisseEpargneErrorCode.INVALID_POSITIONS, CaisseEpargneErrorCode.INVALID_CREDENTIALS)) {
+        for (SidecarErrorCode code : List.of(SidecarErrorCode.KEYPAD_CHANGED,
+            SidecarErrorCode.INVALID_POSITIONS, SidecarErrorCode.INVALID_CREDENTIALS)) {
             challenge("proc-" + code, 90);
             service.initiateAuth(CUSTOMER_ID, 7L);
             org.mockito.Mockito.doThrow(new SyncException("failed", null, code.name()))
@@ -269,11 +269,11 @@ class CaisseEpargneSyncServiceAuthTest {
             // the sidecar released the session: a second try is refused here, not replayed
             assertThatThrownBy(() -> service.submitKeypad("proc-" + code, POSITIONS, 7L))
                 .isInstanceOfSatisfying(SyncException.class, error ->
-                    assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                    assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
             // and the failed login can no longer be completed
             assertThatThrownBy(() -> service.completeAuth("proc-" + code, 7L))
                 .isInstanceOfSatisfying(SyncException.class, error ->
-                    assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                    assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
             verify(port, org.mockito.Mockito.times(1)).submitKeypad("proc-" + code, POSITIONS);
         }
         verify(port, never()).completeAuth(any());
@@ -285,7 +285,7 @@ class CaisseEpargneSyncServiceAuthTest {
 
         assertThatThrownBy(() -> service.submitKeypad("proc-1", POSITIONS, 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         verify(port, org.mockito.Mockito.times(1)).submitKeypad("proc-1", POSITIONS);
     }
 
@@ -296,7 +296,7 @@ class CaisseEpargneSyncServiceAuthTest {
 
         assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         verify(port, never()).completeAuth(any());
     }
 
@@ -319,7 +319,7 @@ class CaisseEpargneSyncServiceAuthTest {
 
         assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         verify(port, never()).completeAuth(any());
     }
 
@@ -359,7 +359,7 @@ class CaisseEpargneSyncServiceAuthTest {
     void completeAuth_refusesAProcessIdItNeverIssuedWithoutCallingTheSidecar() {
         assertThatThrownBy(() -> service.completeAuth("unknown", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
 
         verify(port, never()).completeAuth(any());
         verifyNoInteractions(sessionRepository);
@@ -371,7 +371,7 @@ class CaisseEpargneSyncServiceAuthTest {
 
         assertThatThrownBy(() -> service.completeAuth("proc-1", 8L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         verify(port, never()).completeAuth(any());
 
         when(port.completeAuth("proc-1")).thenReturn("cookies-json");
@@ -387,7 +387,7 @@ class CaisseEpargneSyncServiceAuthTest {
 
         assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
         verify(port, never()).completeAuth(any());
     }
 
@@ -395,15 +395,15 @@ class CaisseEpargneSyncServiceAuthTest {
     void completeAuth_isSingleUseEvenWhenTheSidecarFails() {
         pushPending("proc-1");
         when(port.completeAuth("proc-1")).thenThrow(new SyncException(
-            "App validation timed out", null, CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT.name()));
+            "App validation timed out", null, SidecarErrorCode.APP_VALIDATION_TIMEOUT.name()));
 
         assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.APP_VALIDATION_TIMEOUT.name()));
         // the second call is refused locally: no replay of /complete
         assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
 
         verify(port, org.mockito.Mockito.times(1)).completeAuth("proc-1");
     }
@@ -412,7 +412,7 @@ class CaisseEpargneSyncServiceAuthTest {
     void completeAuth_leavesAnExistingValidSessionUntouchedWhenTheLoginFails() {
         pushPending("proc-1");
         when(port.completeAuth("proc-1")).thenThrow(new SyncException(
-            "Refused", null, CaisseEpargneErrorCode.INVALID_CREDENTIALS.name()));
+            "Refused", null, SidecarErrorCode.INVALID_CREDENTIALS.name()));
 
         assertThatThrownBy(() -> service.completeAuth("proc-1", 7L)).isInstanceOf(SyncException.class);
 
@@ -427,7 +427,7 @@ class CaisseEpargneSyncServiceAuthTest {
 
         assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
 
         verify(sessionRepository, never()).delete(any());
         verify(sessionRepository, never()).saveAndFlush(any());

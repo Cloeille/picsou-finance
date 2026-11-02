@@ -2,7 +2,7 @@ package com.picsou.repository;
 
 import com.picsou.model.CmesSession;
 import com.picsou.model.CmesSyncStatus;
-import com.picsou.port.CmesErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -31,7 +31,7 @@ public interface CmesSessionRepository extends JpaRepository<CmesSession, Long> 
         @Param("interrupted") Collection<CmesSyncStatus> interrupted,
         @Param("failed") CmesSyncStatus failed,
         @Param("completedAt") Instant completedAt,
-        @Param("errorCode") CmesErrorCode errorCode
+        @Param("errorCode") SidecarErrorCode errorCode
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

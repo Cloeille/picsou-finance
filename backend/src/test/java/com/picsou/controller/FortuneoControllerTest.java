@@ -2,7 +2,7 @@ package com.picsou.controller;
 
 import com.picsou.exception.SyncException;
 import com.picsou.model.FortuneoSyncStatus;
-import com.picsou.port.FortuneoErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.FortuneoSyncService;
 import com.picsou.service.UserContext;
 import io.github.bucket4j.Bucket;
@@ -98,7 +98,7 @@ class FortuneoControllerTest {
             new SyncException(
                 "Fortuneo rejected the verification code",
                 null,
-                FortuneoErrorCode.INVALID_OTP.name()
+                SidecarErrorCode.INVALID_OTP.name()
             )
         );
 

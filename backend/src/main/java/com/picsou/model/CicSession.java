@@ -1,7 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.picsou.port.CicErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -52,7 +52,7 @@ public class CicSession extends AuditableEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "last_sync_error", length = 40)
-    private CicErrorCode lastSyncError;
+    private SidecarErrorCode lastSyncError;
 
     public static CicSession create(
         FamilyMember member,
@@ -112,15 +112,15 @@ public class CicSession extends AuditableEntity {
         lastSyncError = null;
     }
 
-    public void markFailed(CicErrorCode errorCode, Instant completedAt) {
+    public void markFailed(SidecarErrorCode errorCode, Instant completedAt) {
         if (syncStatus != CicSyncStatus.QUEUED && syncStatus != CicSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an in-flight CIC synchronization can fail");
         }
-        CicErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
         syncStatus = CicSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
-        if (error == CicErrorCode.SESSION_EXPIRED || error == CicErrorCode.INVALID_CREDENTIALS) {
+        if (error == SidecarErrorCode.SESSION_EXPIRED || error == SidecarErrorCode.INVALID_CREDENTIALS) {
             active = false;
         }
     }
@@ -135,6 +135,6 @@ public class CicSession extends AuditableEntity {
         active = false;
         syncStatus = CicSyncStatus.FAILED;
         lastSyncCompletedAt = completion;
-        lastSyncError = CicErrorCode.INVALID_CREDENTIALS;
+        lastSyncError = SidecarErrorCode.INVALID_CREDENTIALS;
     }
 }

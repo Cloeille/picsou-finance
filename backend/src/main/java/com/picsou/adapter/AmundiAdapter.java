@@ -1,22 +1,33 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.port.AmundiErrorCode;
-import com.picsou.port.AmundiPort;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Read-only access to an Amundi Épargne Salariale account.
+ *
+ * <p>Amundi gates its login behind a captcha and a mandatory second factor, so
+ * authentication is always interactive: {@link #initiateAuth} starts it and
+ * {@link #completeAuth} finishes it once the user has validated on their phone.
+ * The returned session state is opaque to the domain -- it is whatever the
+ * sidecar needs to replay the account, and it is only ever stored encrypted.
+ */
 @Component
-public class AmundiAdapter implements AmundiPort {
+public class AmundiAdapter {
     private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
     /**
      * An app push waits on a human unlocking their phone. The sidecar caps that
@@ -26,7 +37,7 @@ public class AmundiAdapter implements AmundiPort {
     private static final Duration DEFAULT_VALIDATION_TIMEOUT = Duration.ofSeconds(150);
     private static final Duration DEFAULT_POSITIONS_TIMEOUT = Duration.ofSeconds(90);
 
-    private final SidecarErrorTranslator<AmundiErrorCode> sidecar;
+    private final SidecarClient sidecar;
     private final Duration authTimeout;
     private final Duration validationTimeout;
     private final Duration positionsTimeout;
@@ -34,11 +45,10 @@ public class AmundiAdapter implements AmundiPort {
     @Autowired
     public AmundiAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.amundi-auth.url:http://amundi-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Amundi", url),
+            clients.create(SidecarBank.AMUNDI.label(), SidecarBank.AMUNDI.serviceName()),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,
@@ -57,39 +67,29 @@ public class AmundiAdapter implements AmundiPort {
         Duration validationTimeout,
         Duration positionsTimeout
     ) {
-        this.sidecar = new SidecarErrorTranslator<>(
-            client,
-            objectMapper,
-            AmundiErrorCode.class,
-            "Amundi",
-            AmundiErrorCode.UPSTREAM_UNAVAILABLE,
-            AmundiErrorCode.AUTH_ATTEMPT_EXPIRED,
-            AmundiAdapter::friendlyMessage
-        );
+        this.sidecar = new SidecarClient(client, objectMapper, SidecarBank.AMUNDI, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
         this.authTimeout = authTimeout;
         this.validationTimeout = validationTimeout;
         this.positionsTimeout = positionsTimeout;
     }
 
-    @Override
-    public InitiateResult initiateAuth(String login, String password) {
-        return sidecar.post("/initiate", Map.of("login", login, "password", password), InitiateResult.class,
-            authTimeout, "Could not initiate Amundi authentication", AmundiErrorCode.INVALID_CREDENTIALS);
+    public SidecarInitiate initiateAuth(String login, String password) {
+        return sidecar.post("/initiate", Map.of("login", login, "password", password), SidecarInitiate.class,
+            authTimeout, "Could not initiate Amundi authentication", SidecarErrorCode.INVALID_CREDENTIALS);
     }
 
-    @Override
+    /** {@code code} is null for an app push: there is nothing for the user to type. */
     public String completeAuth(String processId, String code) {
         // A null code is the app-push case; the sidecar forbids unknown fields,
         // so the key has to carry an explicit null rather than be omitted.
         Map<String, Object> body = new HashMap<>();
         body.put("processId", processId);
         body.put("code", code);
-        SessionResponse response = sidecar.post("/complete", body, SessionResponse.class, validationTimeout,
-            "Could not complete Amundi authentication", AmundiErrorCode.INVALID_OTP);
+        SidecarSession response = sidecar.post("/complete", body, SidecarSession.class, validationTimeout,
+            "Could not complete Amundi authentication", SidecarErrorCode.INVALID_OTP);
         return response.sessionState();
     }
 
-    @Override
     public List<PlanData> fetchPlans(String sessionState) {
         return sidecar.postForList(
             "/positions",
@@ -97,25 +97,20 @@ public class AmundiAdapter implements AmundiPort {
             PlanData[].class,
             positionsTimeout,
             "Could not fetch Amundi savings plans",
-            AmundiErrorCode.PORTFOLIO_INCOMPLETE,
+            SidecarErrorCode.PORTFOLIO_INCOMPLETE,
             "Amundi returned no complete savings plan"
         );
     }
 
-    private static String friendlyMessage(AmundiErrorCode code) {
-        return switch (code) {
-            case INVALID_CREDENTIALS -> "Amundi rejected the credentials";
-            case CAPTCHA_BLOCKED -> "Amundi asked for a captcha Picsou cannot solve";
-            case INVALID_OTP -> "Amundi rejected the verification code";
-            case APP_VALIDATION_TIMEOUT -> "The Amundi app validation was not confirmed in time";
-            case AUTH_ATTEMPT_EXPIRED -> "The Amundi authentication attempt expired";
-            case SESSION_EXPIRED -> "The Amundi session expired";
-            case PORTFOLIO_INCOMPLETE -> "Amundi returned incomplete savings plans";
-            case UPSTREAM_FORMAT_CHANGED -> "The Amundi website format changed";
-            case INVALID_DATA -> "Amundi returned invalid savings plan data";
-            case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Amundi is temporarily unavailable";
-        };
-    }
+    /**
+     * One FCPE line inside a plan. Everything is EUR-denominated: épargne
+     * salariale funds are French-domiciled and quoted in euros, and Amundi
+     * reports the valuation itself rather than leaving it to be recomputed.
+     */
+    public record Position(String isin, String fundCode, String label, BigDecimal quantity,
+                           BigDecimal unitValue, BigDecimal valueEur, BigDecimal pnlEur) {}
 
-    private record SessionResponse(String sessionState) {}
+    /** One dispositif -- a PEG, PERCO, PER... -- and the lines held inside it. */
+    public record PlanData(String externalId, String name, String planKind, String employer,
+                           BigDecimal balanceEur, List<Position> positions, boolean snapshotComplete) {}
 }

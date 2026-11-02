@@ -47,10 +47,11 @@ com.picsou/
 │                   sync, tr, bourso, bourse-direct, degiro, amundi, crypto-exchange, wallet,
 │                   finary-import, finary-api-sync, setup, admin, admin-mfa, me-export, price
 ├── dto/            Request/response records (records are the convention)
-├── port/           Port interfaces (BankConnectorPort, PriceProviderPort,
-│                   TradeRepublicPort, CryptoExchangePort, WalletPort, BoursoPort,
-│                   BourseDirectPort, DegiroPort, AmundiPort)
-├── adapter/        Port implementations + util/BitcoinKeyUtils
+├── port/           Port interfaces for swappable providers (BankConnectorPort,
+│                   PriceProviderPort, CryptoExchangePort, WalletPort, ...) and the
+│                   shared sidecar types (SidecarErrorCode, SidecarInitiate)
+├── adapter/        Port implementations, single-provider connector clients
+│                   (TradeRepublicAdapter, BoursoAdapter, ...) + util/BitcoinKeyUtils
 │   ├── EnableBankingBankConnector (bank sync)
 │   ├── PowensBankConnector (Powens / Budget Insight — experimental, disabled in 1.0.0)
 │   ├── BoursoAdapter (BoursoBank — current accounts, livrets and PEA/CTO sidecar)
@@ -130,7 +131,7 @@ Broker sync via Python microservice (Playwright automation). Two modes: automati
 ### 4. Bourse Direct
 
 ```text
-Client -> BourseDirectController -> BourseDirectSyncService -> BourseDirectPort
+Client -> BourseDirectController -> BourseDirectSyncService
        -> BourseDirectAdapter -> internal FastAPI/Playwright sidecar -> Bourse Direct
 ```
 
@@ -144,7 +145,7 @@ snapshot. The encrypted browser state and observable job status live in
 ### 5. Amundi Épargne Salariale
 
 ```text
-Client -> AmundiController -> AmundiSyncService -> AmundiPort
+Client -> AmundiController -> AmundiSyncService
        -> AmundiAdapter -> internal FastAPI/Playwright sidecar -> Amundi espace épargnant
 ```
 
@@ -164,7 +165,7 @@ the withdrawal price times the share count. See
 ### 6. Fortuneo
 
 ```text
-Client -> FortuneoController -> FortuneoSyncService -> FortuneoPort
+Client -> FortuneoController -> FortuneoSyncService
        -> FortuneoAdapter -> internal FastAPI/Playwright sidecar -> Fortuneo
 ```
 
@@ -297,7 +298,7 @@ Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month r
 
 ## Key constraints
 
-- **Ports & adapters:** controllers/services never import adapters directly. All external integrations go through port interfaces.
+- **Ports & adapters:** a port exists only where providers are swappable (two implementations or a real swap seam); services depend on the port there. A single-provider connector client is injected as its concrete class. See [the ADR](./decisions/2026-11-02-ports-only-for-swappable-providers.md).
 - **Flyway owns schema:** never use `ddl-auto: create/update`. Every schema change is a new migration file (latest: V81).
 - **Multi-member families:** each authenticated user is an `AppUser` linked to a `FamilyMember`. All financial rows are scoped by `member_id`; cross-member visibility is gated by `SharingSettings` + `SharedResource`. Admin role can impersonate any member.
 - **Auth:** JWT (`access_token` + `refresh_token`) in HttpOnly `SameSite=Lax` cookies. Optional TOTP 2FA, rotating persistent sessions ("Remember Me"), stateless invalidation via `tokenVersion` claim on password change.

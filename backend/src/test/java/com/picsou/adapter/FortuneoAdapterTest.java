@@ -2,21 +2,15 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarAuthenticationException;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
-import com.picsou.port.FortuneoErrorCode;
 import com.sun.net.httpserver.HttpServer;
+import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFunction;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import java.net.InetSocketAddress;
-import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -29,7 +23,7 @@ class FortuneoAdapterTest {
     @Test
     void constructor_acceptsBracketedIpv6LoopbackOverHttp() {
         assertThatCode(() -> new FortuneoAdapter(
-            new SidecarWebClientFactory("test-key"), "http://[::1]:8001", new ObjectMapper()))
+            SidecarTestSupport.factory("fortuneo-auth", "http://[::1]:8001"), new ObjectMapper()))
             .doesNotThrowAnyException();
     }
 
@@ -46,8 +40,7 @@ class FortuneoAdapterTest {
         server.start();
         try {
             FortuneoAdapter adapter = new FortuneoAdapter(
-                new SidecarWebClientFactory("test-key"),
-                "http://127.0.0.1:" + server.getAddress().getPort(),
+                SidecarTestSupport.factory("fortuneo-auth", "http://127.0.0.1:" + server.getAddress().getPort()),
                 new ObjectMapper()
             );
 
@@ -130,118 +123,7 @@ class FortuneoAdapterTest {
         });
     }
 
-    @Test
-    void fetchAccounts_preservesAStableSidecarErrorCode() {
-        FortuneoAdapter adapter = adapterReturning(
-            HttpStatus.BAD_GATEWAY,
-            "{\"detail\":\"PORTFOLIO_INCOMPLETE\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("state"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(FortuneoErrorCode.PORTFOLIO_INCOMPLETE.name());
-                assertThat(error.getMessage()).doesNotContain("state");
-            });
-    }
-
-    @Test
-    void fetchAccounts_preservesInvestorProfileRequired() {
-        FortuneoAdapter adapter = adapterReturning(
-            HttpStatus.CONFLICT,
-            "{\"detail\":\"INVESTOR_PROFILE_REQUIRED\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode())
-                    .isEqualTo(FortuneoErrorCode.INVESTOR_PROFILE_REQUIRED.name())
-            );
-    }
-
-    @Test
-    void completeAuth_mapsAnUncoded401ToInvalidOtp() {
-        FortuneoAdapter adapter = adapterReturning(
-            HttpStatus.UNAUTHORIZED,
-            "{\"detail\":\"Authentication rejected\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.completeAuth("process", "123456"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(FortuneoErrorCode.INVALID_OTP.name())
-            );
-    }
-
-    @Test
-    void initiateAuth_mapsAnEmptySuccessResponseToUnavailable() {
-        FortuneoAdapter adapter = adapterReturning(HttpStatus.OK, "");
-
-        assertThatThrownBy(() -> adapter.initiateAuth("login", "password"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(FortuneoErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
-    @Test
-    void completeAuth_preservesValidationErrorCodeFromTheSidecar() {
-        FortuneoAdapter adapter = adapterReturning(
-            HttpStatus.BAD_REQUEST,
-            "{\"detail\":\"INVALID_OTP\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.completeAuth("process", "123456"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(FortuneoErrorCode.INVALID_OTP.name())
-            );
-    }
-
-    @Test
-    void fetchAccounts_mapsMalformedErrorJsonToUnavailable() {
-        FortuneoAdapter adapter = adapterReturning(HttpStatus.BAD_GATEWAY, "not-json");
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(FortuneoErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
-    @Test
-    void fetchAccounts_mapsUnknownSidecarCodeToUnavailable() {
-        FortuneoAdapter adapter = adapterReturning(
-            HttpStatus.BAD_GATEWAY,
-            "{\"detail\":\"NEW_UPSTREAM_FAILURE\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(FortuneoErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
-    @Test
-    void fetchAccounts_mapsNetworkTimeoutToAnExplicitRetryableFailure() {
-        ExchangeFunction neverResponds = request -> Mono.never();
-        FortuneoAdapter adapter = new FortuneoAdapter(
-            WebClient.builder().exchangeFunction(neverResponds).build(),
-            new ObjectMapper(),
-            Duration.ofMillis(20),
-            Duration.ofMillis(20)
-        );
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("state"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(FortuneoErrorCode.UPSTREAM_UNAVAILABLE.name());
-                assertThat(error.getMessage()).contains("too long");
-            });
-    }
-
     private FortuneoAdapter adapterReturning(HttpStatus status, String body) {
-        ExchangeFunction exchange = request -> Mono.just(ClientResponse.create(status)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .body(body)
-            .build());
-        return new FortuneoAdapter(
-            WebClient.builder().exchangeFunction(exchange).build(),
-            new ObjectMapper()
-        );
+        return new FortuneoAdapter(WebClientStubs.returning(status, body), new ObjectMapper());
     }
 }

@@ -1,5 +1,6 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
@@ -9,8 +10,9 @@ import com.picsou.model.AccountType;
 import com.picsou.model.AmundiSession;
 import com.picsou.model.AmundiSyncStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.AmundiErrorCode;
-import com.picsou.port.AmundiPort;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.adapter.AmundiAdapter;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.AmundiSessionRepository;
@@ -64,7 +66,7 @@ public class AmundiSyncService {
     private static final String ACCOUNT_COLOR = "#8b5cf6";
     private static final int MAX_TICKER_LENGTH = 30;
 
-    private final AmundiPort port;
+    private final AmundiAdapter port;
     private final AmundiSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
@@ -75,7 +77,7 @@ public class AmundiSyncService {
     private final Executor syncExecutor;
 
     public AmundiSyncService(
-        AmundiPort port,
+        AmundiAdapter port,
         AmundiSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,
@@ -97,10 +99,10 @@ public class AmundiSyncService {
     }
 
     public AuthInitResponse initiateAuth(String login, String password, Long memberId) {
-        AmundiPort.InitiateResult result = port.initiateAuth(login, password);
+        SidecarInitiate result = port.initiateAuth(login, password);
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
-                throw error(AmundiErrorCode.INVALID_DATA, "Amundi did not return a session", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "Amundi did not return a session", null);
             }
             storeSessionAndQueue(result.sessionState(), memberId);
         }
@@ -110,7 +112,7 @@ public class AmundiSyncService {
     public SessionStatusResponse completeAuth(String processId, String code, Long memberId) {
         String plainState = port.completeAuth(processId, code);
         if (plainState == null || plainState.isBlank()) {
-            throw error(AmundiErrorCode.INVALID_DATA, "Amundi did not return a session", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Amundi did not return a session", null);
         }
         return storeSessionAndQueue(plainState, memberId);
     }
@@ -119,13 +121,13 @@ public class AmundiSyncService {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
             AmundiSession session = sessionRepository.findByMemberIdForUpdate(memberId)
                 .orElseThrow(() -> error(
-                    AmundiErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "No active Amundi session. Please reconnect.",
                     null
                 ));
             if (!session.isActive()) {
                 throw error(
-                    AmundiErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "The Amundi session expired. Please reconnect.",
                     null
                 );
@@ -176,9 +178,9 @@ public class AmundiSyncService {
         try {
             syncExecutor.execute(() -> executeJob(job));
         } catch (RuntimeException ex) {
-            markFailed(job, AmundiErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             throw error(
-                AmundiErrorCode.INTERNAL_ERROR,
+                SidecarErrorCode.INTERNAL_ERROR,
                 "Could not schedule the Amundi synchronization",
                 ex
             );
@@ -190,7 +192,7 @@ public class AmundiSyncService {
             return;
         }
         try {
-            List<AmundiPort.PlanData> fetched = port.fetchPlans(job.plainState());
+            List<AmundiAdapter.PlanData> fetched = port.fetchPlans(job.plainState());
             List<PreparedPlan> prepared = preparePlans(fetched);
             if (commitPlans(job, prepared)) {
                 log.info("Amundi sync completed (member={}; plans={})", job.memberId(), prepared.size());
@@ -198,11 +200,11 @@ public class AmundiSyncService {
                 log.info("Discarded stale Amundi sync result (member={})", job.memberId());
             }
         } catch (SyncException ex) {
-            AmundiErrorCode code = codeOf(ex);
+            SidecarErrorCode code = codeOf(ex);
             markFailed(job, code);
             log.warn("Amundi sync failed (member={}; code={})", job.memberId(), code);
         } catch (Exception ex) {
-            markFailed(job, AmundiErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             log.error("Amundi sync failed unexpectedly (member={})", job.memberId(), ex);
         }
     }
@@ -233,10 +235,10 @@ public class AmundiSyncService {
         }));
     }
 
-    private List<PreparedPlan> preparePlans(List<AmundiPort.PlanData> fetched) {
+    private List<PreparedPlan> preparePlans(List<AmundiAdapter.PlanData> fetched) {
         if (fetched == null || fetched.isEmpty()) {
             throw error(
-                AmundiErrorCode.PORTFOLIO_INCOMPLETE,
+                SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "Amundi returned no complete savings plan",
                 null
             );
@@ -244,20 +246,20 @@ public class AmundiSyncService {
 
         Set<String> externalIds = new HashSet<>();
         List<PreparedPlan> prepared = new ArrayList<>();
-        for (AmundiPort.PlanData plan : fetched) {
+        for (AmundiAdapter.PlanData plan : fetched) {
             if (plan == null || !plan.snapshotComplete()) {
                 throw error(
-                    AmundiErrorCode.PORTFOLIO_INCOMPLETE,
+                    SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                     "Amundi returned an incomplete savings plan",
                     null
                 );
             }
             String externalId = stableExternalId(plan.externalId());
             if (!externalIds.add(externalId)) {
-                throw error(AmundiErrorCode.INVALID_DATA, "Amundi returned duplicate plans", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "Amundi returned duplicate plans", null);
             }
             if (plan.balanceEur() == null || plan.positions() == null) {
-                throw error(AmundiErrorCode.INVALID_DATA, "Amundi returned incomplete plan values", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "Amundi returned incomplete plan values", null);
             }
 
             List<PreparedPosition> positions = preparePositions(plan.positions());
@@ -269,7 +271,7 @@ public class AmundiSyncService {
             // and overwriting a good snapshot with it would erase real money.
             if (!moneyClose(positionValue, plan.balanceEur())) {
                 throw error(
-                    AmundiErrorCode.PORTFOLIO_INCOMPLETE,
+                    SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                     "Amundi returned an incomplete savings plan",
                     null
                 );
@@ -286,11 +288,11 @@ public class AmundiSyncService {
         return List.copyOf(prepared);
     }
 
-    private List<PreparedPosition> preparePositions(List<AmundiPort.Position> rawPositions) {
+    private List<PreparedPosition> preparePositions(List<AmundiAdapter.Position> rawPositions) {
         Map<String, PreparedPosition> positions = new LinkedHashMap<>();
-        for (AmundiPort.Position position : rawPositions) {
+        for (AmundiAdapter.Position position : rawPositions) {
             if (position == null || position.quantity() == null || position.valueEur() == null) {
-                throw error(AmundiErrorCode.INVALID_DATA, "Amundi returned an incomplete position", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "Amundi returned an incomplete position", null);
             }
             // The sidecar keeps a line whose units are zero but which still carries a
             // valuation -- a contribution credited before it was converted into units.
@@ -323,7 +325,7 @@ public class AmundiSyncService {
      * out. Without a gain there is nothing to derive it from -- leaving it null
      * is correct, and {@link #investedAmount} then falls back to the plan total.
      */
-    private BigDecimal averageBuyIn(AmundiPort.Position position) {
+    private BigDecimal averageBuyIn(AmundiAdapter.Position position) {
         if (position.pnlEur() == null || position.quantity().signum() == 0) {
             return null;
         }
@@ -337,7 +339,7 @@ public class AmundiSyncService {
         // disagree, the ISIN-less fallback collided and merging would fuse two
         // different funds into one -- refuse rather than silently corrupt.
         if (!Objects.equals(left.name(), right.name())) {
-            throw error(AmundiErrorCode.INVALID_DATA, "Amundi returned colliding fund identifiers", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Amundi returned colliding fund identifiers", null);
         }
         BigDecimal quantity = left.quantity().add(right.quantity());
         return new PreparedPosition(
@@ -351,7 +353,7 @@ public class AmundiSyncService {
         );
     }
 
-    private BigDecimal investedAmount(AmundiPort.PlanData plan, List<PreparedPosition> positions) {
+    private BigDecimal investedAmount(AmundiAdapter.PlanData plan, List<PreparedPosition> positions) {
         BigDecimal invested = BigDecimal.ZERO;
         for (PreparedPosition position : positions) {
             if (position.pnlEur() == null) {
@@ -455,7 +457,7 @@ public class AmundiSyncService {
         );
     }
 
-    private void markFailed(SyncJob job, AmundiErrorCode code) {
+    private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
                 Optional<AmundiSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
@@ -500,7 +502,7 @@ public class AmundiSyncService {
             List.of(AmundiSyncStatus.QUEUED, AmundiSyncStatus.RUNNING),
             AmundiSyncStatus.FAILED,
             Instant.now(),
-            AmundiErrorCode.INTERNAL_ERROR
+            SidecarErrorCode.INTERNAL_ERROR
         );
         if (recovered > 0) {
             log.warn("Recovered {} interrupted Amundi sync job(s)", recovered);
@@ -527,7 +529,7 @@ public class AmundiSyncService {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
-                if (status.lastSyncError() == AmundiErrorCode.SESSION_EXPIRED) {
+                if (status.lastSyncError() == SidecarErrorCode.SESSION_EXPIRED) {
                     return new SourceSyncResult("amundi", SourceSyncResult.Status.NEEDS_REAUTH,
                         status.lastSyncError().name());
                 }
@@ -570,11 +572,11 @@ public class AmundiSyncService {
         );
     }
 
-    private AmundiErrorCode codeOf(SyncException exception) {
-        return errorCode(exception, AmundiErrorCode.class, AmundiErrorCode.UPSTREAM_UNAVAILABLE);
+    private SidecarErrorCode codeOf(SyncException exception) {
+        return SyncValues.errorCode(exception, SidecarBank.AMUNDI, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
-    private SyncException error(AmundiErrorCode code, String message, Throwable cause) {
+    private SyncException error(SidecarErrorCode code, String message, Throwable cause) {
         return new SyncException(message, cause, code.name());
     }
 
@@ -582,7 +584,7 @@ public class AmundiSyncService {
      * "PEG Groupe ACME" reads better than "PEG", and a member can hold several
      * plans of the same kind at different employers.
      */
-    private String accountName(AmundiPort.PlanData plan) {
+    private String accountName(AmundiAdapter.PlanData plan) {
         String label = clean(plan.name());
         String kind = clean(plan.planKind());
         String base = label != null ? label : kind;
@@ -599,11 +601,11 @@ public class AmundiSyncService {
     private String stableExternalId(String raw) {
         String cleaned = clean(raw);
         if (cleaned == null) {
-            throw error(AmundiErrorCode.INVALID_DATA, "Amundi returned an invalid plan identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Amundi returned an invalid plan identifier", null);
         }
         String externalId = cleaned.startsWith(EXTERNAL_ID_PREFIX) ? cleaned : EXTERNAL_ID_PREFIX + cleaned;
         if (externalId.length() > 100) {
-            throw error(AmundiErrorCode.INVALID_DATA, "Amundi returned an invalid plan identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Amundi returned an invalid plan identifier", null);
         }
         return externalId;
     }
@@ -625,7 +627,7 @@ public class AmundiSyncService {
      * per fund. The label stays as the last resort, and the collision guard in
      * {@link #mergePositions} stays behind it.
      */
-    private String resolveTicker(AmundiPort.Position position) {
+    private String resolveTicker(AmundiAdapter.Position position) {
         String isin = clean(position.isin());
         if (isin != null) {
             isin = isin.toUpperCase(Locale.ROOT);
@@ -639,7 +641,7 @@ public class AmundiSyncService {
         }
         String label = slug(position.label());
         if (label == null) {
-            throw error(AmundiErrorCode.INVALID_DATA, "Amundi returned a fund without any identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "Amundi returned a fund without any identifier", null);
         }
         return label;
     }
@@ -666,7 +668,7 @@ public class AmundiSyncService {
         AmundiSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        AmundiErrorCode lastSyncError
+        SidecarErrorCode lastSyncError
     ) {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, AmundiSyncStatus.IDLE, null, null, null);

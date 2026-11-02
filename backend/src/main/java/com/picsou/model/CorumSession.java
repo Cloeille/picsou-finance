@@ -1,7 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.picsou.port.CorumErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -59,7 +59,7 @@ public class CorumSession extends AuditableEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "last_sync_error", length = 40)
-    private CorumErrorCode lastSyncError;
+    private SidecarErrorCode lastSyncError;
 
     public static CorumSession create(
         FamilyMember member,
@@ -109,15 +109,15 @@ public class CorumSession extends AuditableEntity {
         lastSyncError = null;
     }
 
-    public void markFailed(CorumErrorCode errorCode, Instant completedAt) {
+    public void markFailed(SidecarErrorCode errorCode, Instant completedAt) {
         if (syncStatus != CorumSyncStatus.QUEUED && syncStatus != CorumSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an in-flight CORUM synchronization can fail");
         }
-        CorumErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
         syncStatus = CorumSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
-        if (error == CorumErrorCode.SESSION_EXPIRED) {
+        if (error == SidecarErrorCode.SESSION_EXPIRED) {
             // The cookie died, so the stored session can only be replaced by a
             // fresh login. Leaving it active would make every later sync fail
             // the same way with no path forward.

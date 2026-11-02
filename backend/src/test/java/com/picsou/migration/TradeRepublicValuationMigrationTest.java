@@ -1,18 +1,16 @@
 package com.picsou.migration;
 
-import org.flywaydb.core.Flyway;
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -20,27 +18,11 @@ import java.sql.SQLException;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Verifies the V96 Trade Republic valuation backfill against real PostgreSQL. */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 class TradeRepublicValuationMigrationTest {
 
-    static {
-        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
-    }
-
     @Container
-    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
-            throw new IllegalStateException(
-                "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
-                    + "The V96 migration test cannot be skipped. Needs Docker Engine >= 25.0.");
-        }
-        return available;
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     private static long reconciledAccountId;
     private static long roundedAccountId;
@@ -51,9 +33,9 @@ class TradeRepublicValuationMigrationTest {
 
     @BeforeAll
     static void migrateAndSeed() throws SQLException {
-        migrateTo("95");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "95");
 
-        try (Connection conn = connect()) {
+        try (Connection conn = PostgresContainers.connection(POSTGRES)) {
             long memberId = insertReturningId(conn,
                 "INSERT INTO family_member (display_name) VALUES ('Trade Republic') RETURNING id");
 
@@ -90,7 +72,7 @@ class TradeRepublicValuationMigrationTest {
             insertHolding(conn, otherProviderAccountId, "BD-B", "3", "90", "110", null, null);
         }
 
-        migrateTo("96");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "96");
     }
 
     @Test
@@ -155,21 +137,6 @@ class TradeRepublicValuationMigrationTest {
                 + currencySql + ")");
     }
 
-    private static void migrateTo(String version) {
-        Flyway.configure()
-            .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-            .locations("classpath:db/migration")
-            .target(version)
-            .outOfOrder(true)
-            .load()
-            .migrate();
-    }
-
-    private static Connection connect() throws SQLException {
-        return DriverManager.getConnection(
-            POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-    }
-
     private static long insertReturningId(Connection conn, String sql) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(sql); ResultSet rs = ps.executeQuery()) {
             assertThat(rs.next()).as("insert returned no id: %s", sql).isTrue();
@@ -195,7 +162,7 @@ class TradeRepublicValuationMigrationTest {
     private static <T> T queryHolding(long accountId, String ticker, String column, SqlFunction<T> extractor)
         throws SQLException {
         if (readConn == null || readConn.isClosed()) {
-            readConn = connect();
+            readConn = PostgresContainers.connection(POSTGRES);
         }
         String sql = "SELECT " + column + " FROM account_holding WHERE account_id = ? AND ticker = ?";
         try (PreparedStatement ps = readConn.prepareStatement(sql)) {

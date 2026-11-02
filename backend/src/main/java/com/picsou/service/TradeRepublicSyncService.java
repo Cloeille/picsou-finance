@@ -14,10 +14,10 @@ import com.picsou.model.FamilyMember;
 import com.picsou.model.TradeRepublicSession;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
-import com.picsou.port.TradeRepublicPort;
-import com.picsou.port.TradeRepublicPort.TrAccountData;
-import com.picsou.port.TradeRepublicPort.TrPosition;
-import com.picsou.port.TradeRepublicPort.TrTokens;
+import com.picsou.adapter.TradeRepublicAdapter;
+import com.picsou.adapter.TradeRepublicAdapter.TrAccountData;
+import com.picsou.adapter.TradeRepublicAdapter.TrPosition;
+import com.picsou.adapter.TradeRepublicAdapter.TrTokens;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CategoryRepository;
@@ -66,7 +66,7 @@ public class TradeRepublicSyncService {
         return t;
     });
 
-    private final TradeRepublicPort             trPort;
+    private final TradeRepublicAdapter             trPort;
     private final TradeRepublicSessionRepository sessionRepository;
     private final AccountRepository             accountRepository;
     private final AccountHoldingRepository      holdingRepository;
@@ -81,7 +81,7 @@ public class TradeRepublicSyncService {
     private final CategoryRepository            categoryRepository;
 
     public TradeRepublicSyncService(
-        TradeRepublicPort trPort,
+        TradeRepublicAdapter trPort,
         TradeRepublicSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,

@@ -1,7 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.picsou.port.AmundiErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -51,7 +51,7 @@ public class AmundiSession extends AuditableEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "last_sync_error", length = 40)
-    private AmundiErrorCode lastSyncError;
+    private SidecarErrorCode lastSyncError;
 
     public static AmundiSession create(
         FamilyMember member,
@@ -102,16 +102,16 @@ public class AmundiSession extends AuditableEntity {
         lastSyncError = null;
     }
 
-    public void markFailed(AmundiErrorCode errorCode, Instant completedAt) {
+    public void markFailed(SidecarErrorCode errorCode, Instant completedAt) {
         if (syncStatus != AmundiSyncStatus.QUEUED
             && syncStatus != AmundiSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an in-flight Amundi synchronization can fail");
         }
-        AmundiErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
         syncStatus = AmundiSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
-        if (error == AmundiErrorCode.SESSION_EXPIRED) {
+        if (error == SidecarErrorCode.SESSION_EXPIRED) {
             active = false;
         }
     }

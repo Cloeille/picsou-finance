@@ -1,7 +1,7 @@
 #!/bin/sh
 # Compares the *-auth sidecars of docker/docker-compose.yml with the `sidecars`
 # map of charts/picsou/values.yaml. The URL variable and port of each sidecar come
-# from the `app.*.url` entries of backend/src/main/resources/application.yml
+# from the `app.sidecars.*.url` entries of backend/src/main/resources/application.yml
 # (`${VAR:http://host:port}`), the single place where sidecar URLs are set.
 #
 # A sidecar is "standard" when its Compose service has nothing but an image, a
@@ -103,9 +103,9 @@ findings=""   # one "sidecar|kind|detail" line per finding
 add_finding() { findings="${findings}$1|$2|$3
 "; }
 
-# "<VAR> <host> <port>" for every `app.<key>.url: ${VAR:http(s)://host:port}`
+# "<VAR> <host> <port>" for every `app.sidecars.<key>.url: ${VAR:http(s)://host:port}`
 # of application.yml.
-urls=$(yq -r '.app | to_entries | .[]
+urls=$(yq -r '.app.sidecars // {} | to_entries | .[]
   | select((.value | tag) == "!!map") | select(.value.url | tag == "!!str")
   | .value.url' "$app_config" \
   | sed -n 's|^\${\([A-Z0-9_]*\):https\{0,1\}://\([a-z0-9.-]*\):\([0-9]*\)}$|\1 \2 \3|p')
@@ -130,7 +130,7 @@ for name in $compose_sidecars; do
     chart_env=$(yq -r ".sidecars[\"$name\"].urlEnv" "$values")
     if [ -z "$wiring" ]; then
       wiring_error=true
-      add_finding "$name" unwired "no app.*.url in application.yml points at it"
+      add_finding "$name" unwired "no app.sidecars.*.url in application.yml points at it"
     elif [ "$chart_port" != "$port" ] || [ "$chart_env" != "$url_env" ]; then
       wiring_error=true
       add_finding "$name" mismatch "application.yml: $url_env on port $port, chart: $chart_env on port $chart_port"
@@ -176,7 +176,7 @@ for name in $compose_sidecars; do
   fi
 
   if [ -z "$wiring" ]; then
-    add_finding "$name" unwired "no app.*.url in application.yml points at it"
+    add_finding "$name" unwired "no app.sidecars.*.url in application.yml points at it"
   elif [ -n "$extra_keys$extra_env" ]; then
     detail="needs a chart change by hand:"
     [ -n "$extra_keys" ] && detail="$detail keys ${extra_keys% }"

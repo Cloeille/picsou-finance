@@ -4,71 +4,63 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.exception.SyncException;
+import com.picsou.port.SidecarErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeoutException;
-import java.util.function.Function;
 
 /**
  * The request/error half of a sidecar call, shared by the connectors whose
  * sidecar speaks the strict {@code {"detail": "<CODE>"}} contract.
  *
- * <p>Amundi, BoursoBank and Bourse Direct had three byte-identical copies of
- * {@code post} / {@code mapError} / {@code responseCode} / {@code causedByTimeout},
- * differing only in which error enum they named and how they spelled the bank.
- * Issue #119 calls that duplication out as the reason only one connector ever got
- * URL validation, so the behaviour lives here once, parameterized by the enum.
+ * <p>One client replaces what were ten per-bank copies of {@code post} / {@code mapError} /
+ * {@code responseCode} / {@code causedByTimeout}, differing only in which error enum they named
+ * and how they spelled the bank. Issue #119 calls that duplication out as the reason only one
+ * connector ever got URL validation, so the behaviour lives here once and the per-bank part is
+ * the {@link SidecarBank} descriptor.
  *
- * <p>Trade Republic and DEGIRO deliberately stay out: their sidecars do not use
- * the {@code detail}-code contract (DEGIRO relays a bare 401 for an expired
- * session, Trade Republic relays the broker's own status), so they take the
- * shared {@link SidecarWebClientFactory} client and keep their own mapping.
+ * <p>A {@code detail} the bank does not declare is treated exactly like an unknown one: logged,
+ * then the status decides. Each session table's CHECK constraint lists only its own bank's codes,
+ * so an undeclared code must never be turned into a {@link SyncException} code.
  *
- * @param <E> the connector's error-code enum, whose constant names are the
- *            {@code detail} values its sidecar emits
+ * <p>Trade Republic, DEGIRO and Revolut deliberately stay out: their sidecars do not use the
+ * {@code detail}-code contract (DEGIRO relays a bare 401 for an expired session, Trade Republic
+ * relays the broker's own status), so they take the shared {@link SidecarWebClientFactory} client
+ * and keep their own mapping.
  */
-public final class SidecarErrorTranslator<E extends Enum<E>> {
+public final class SidecarClient {
 
-    private static final Logger log = LoggerFactory.getLogger(SidecarErrorTranslator.class);
+    private static final Logger log = LoggerFactory.getLogger(SidecarClient.class);
 
     private final WebClient client;
     private final ObjectMapper objectMapper;
-    private final Class<E> codeType;
-    private final String label;
-    private final E unavailable;
-    private final E attemptExpired;
-    private final Function<E, String> friendlyMessage;
+    private final SidecarBank bank;
+    private final SidecarErrorCode attemptExpired;
 
     /**
-     * @param client          the sidecar client from {@link SidecarWebClientFactory}
-     * @param label           how the bank is named to the user ("BoursoBank", "Bourse Direct")
-     * @param unavailable     the enum's "upstream is down" constant
-     * @param attemptExpired  the enum's "this auth attempt is gone" constant, mapped from HTTP 410
-     * @param friendlyMessage the connector's own user-facing wording per code
+     * @param client         the sidecar client from {@link SidecarWebClientFactory}
+     * @param bank           the connector this client talks to
+     * @param attemptExpired what HTTP 410 means for this client: {@code AUTH_ATTEMPT_EXPIRED} when the
+     *                       pending login is gone, {@code SESSION_EXPIRED} when a stored session died
      */
-    public SidecarErrorTranslator(
+    public SidecarClient(
         WebClient client,
         ObjectMapper objectMapper,
-        Class<E> codeType,
-        String label,
-        E unavailable,
-        E attemptExpired,
-        Function<E, String> friendlyMessage
+        SidecarBank bank,
+        SidecarErrorCode attemptExpired
     ) {
         this.client = client;
         this.objectMapper = objectMapper;
-        this.codeType = codeType;
-        this.label = label;
-        this.unavailable = unavailable;
+        this.bank = bank;
         this.attemptExpired = attemptExpired;
-        this.friendlyMessage = friendlyMessage;
     }
 
     /**
@@ -83,14 +75,14 @@ public final class SidecarErrorTranslator<E extends Enum<E>> {
         Class<T> type,
         Duration timeout,
         String message,
-        E authenticationFailure
+        SidecarErrorCode authenticationFailure
     ) {
         try {
             T response = client.post().uri(path).contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(body).retrieve().bodyToMono(type)
                 .timeout(timeout).block();
             if (response == null) {
-                throw coded(unavailable, message, null);
+                throw coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE, message, null);
             }
             return response;
         } catch (RuntimeException ex) {
@@ -111,7 +103,7 @@ public final class SidecarErrorTranslator<E extends Enum<E>> {
         Class<T[]> arrayType,
         Duration timeout,
         String message,
-        E emptyCode,
+        SidecarErrorCode emptyCode,
         String emptyMessage
     ) {
         try {
@@ -127,65 +119,64 @@ public final class SidecarErrorTranslator<E extends Enum<E>> {
         }
     }
 
-    public SyncException mapError(String message, RuntimeException ex, E authenticationFailure) {
+    public SyncException mapError(String message, RuntimeException ex, SidecarErrorCode authenticationFailure) {
         // Covers SidecarAuthenticationException too: a rejected shared secret keeps
         // its own code instead of being relabelled as a bad password or an outage.
         if (ex instanceof SyncException sync) return sync;
         if (causedByTimeout(ex)) {
             log.warn("{}: sidecar request timed out", message);
-            return coded(unavailable, label + " took too long to respond. Please try again.", ex);
+            return coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE, bank.label() + " took too long to respond. Please try again.", ex);
         }
         if (ex instanceof WebClientRequestException) {
             log.warn("{}: sidecar is unreachable", message);
-            return coded(unavailable, message, ex);
+            return coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE, message, ex);
         }
         if (ex instanceof WebClientResponseException response) {
-            E upstreamCode = responseCode(response);
+            SidecarErrorCode upstreamCode = responseCode(response);
             if (upstreamCode != null) {
-                return coded(upstreamCode, friendlyMessage.apply(upstreamCode), ex);
+                return coded(upstreamCode, bank.message(upstreamCode), ex);
             }
             if (response.getStatusCode().value() == 401 && authenticationFailure != null) {
-                return coded(authenticationFailure, friendlyMessage.apply(authenticationFailure), ex);
+                return coded(authenticationFailure, bank.message(authenticationFailure), ex);
             }
             if (response.getStatusCode().value() == 410) {
-                return coded(attemptExpired, friendlyMessage.apply(attemptExpired), ex);
+                return coded(attemptExpired, bank.message(attemptExpired), ex);
             }
             if (response.getStatusCode().is5xxServerError()) {
-                log.warn("{} sidecar returned status {}", label, response.getStatusCode().value());
-                return coded(unavailable, friendlyMessage.apply(unavailable), ex);
+                log.warn("{} sidecar returned status {}", bank.label(), response.getStatusCode().value());
+                return coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE, bank.message(SidecarErrorCode.UPSTREAM_UNAVAILABLE), ex);
             }
         }
         log.error(message, ex);
-        return coded(unavailable, message, ex);
+        return coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE, message, ex);
     }
 
-    public SyncException coded(E code, String message, Throwable cause) {
+    public SyncException coded(SidecarErrorCode code, String message, Throwable cause) {
         return new SyncException(message, cause, code.name());
     }
 
-    private E responseCode(WebClientResponseException response) {
+    private SidecarErrorCode responseCode(WebClientResponseException response) {
         try {
             JsonNode body = objectMapper.readTree(response.getResponseBodyAsString());
             JsonNode detailNode = body.path("detail");
             if (!detailNode.isTextual() || detailNode.asText().isBlank()) {
                 log.debug(
                     "{} error response has no textual detail code (status={})",
-                    label,
+                    bank.label(),
                     response.getStatusCode().value()
                 );
                 return null;
             }
             String detail = detailNode.asText();
-            try {
-                return Enum.valueOf(codeType, detail);
-            } catch (IllegalArgumentException ex) {
-                log.warn("{} sidecar returned unknown error code '{}'", label, detail);
-                return null;
+            Optional<SidecarErrorCode> declared = bank.parse(detail);
+            if (declared.isEmpty()) {
+                log.warn("{} sidecar returned unknown error code '{}'", bank.label(), detail);
             }
+            return declared.orElse(null);
         } catch (JsonProcessingException ex) {
             log.warn(
                 "Could not parse {} sidecar error response (status={})",
-                label,
+                bank.label(),
                 response.getStatusCode().value(),
                 ex
             );

@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.picsou.model.PropertyKind;
 import com.picsou.model.ValuationConfidence;
 import com.picsou.exception.ValuationProviderException;
-import com.picsou.port.PropertyValuationPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,7 +37,7 @@ import java.util.Set;
  * </ul>
  */
 @Component
-public class CeremaDv3fValuationProvider implements PropertyValuationPort {
+public class CeremaDv3fValuationProvider {
 
     private static final Logger log = LoggerFactory.getLogger(CeremaDv3fValuationProvider.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
@@ -86,12 +85,18 @@ public class CeremaDv3fValuationProvider implements PropertyValuationPort {
         this.webClient = webClient;
     }
 
-    @Override
+    /** Stable identifier recorded on every estimate, e.g. {@code CEREMA_DV3F}. */
     public String providerName() {
         return PROVIDER_NAME;
     }
 
-    @Override
+    /**
+     * Whether this provider can value the property at all.
+     *
+     * <p>Returning {@code false} is the right answer for an uncovered area — French DVF has
+     * no data for Alsace-Moselle or Mayotte, and a plausible-looking number there would be
+     * worse than none.
+     */
     public boolean supports(ValuationInput input) {
         if (input == null || input.kind() == null || !input.kind().isEstimable()) {
             return false;
@@ -108,7 +113,7 @@ public class CeremaDv3fValuationProvider implements PropertyValuationPort {
         return !UNCOVERED_DEPARTMENTS.contains(input.departmentCode());
     }
 
-    @Override
+    /** The estimate, or empty when the source had no usable sample. */
     public Optional<ValuationResult> estimate(ValuationInput input) {
         if (!supports(input)) {
             return Optional.empty();
@@ -278,4 +283,47 @@ public class CeremaDv3fValuationProvider implements PropertyValuationPort {
             return null;
         }
     }
+
+    /**
+     * Everything a provider may need. Fields beyond kind/area/INSEE are optional and only
+     * some providers use them.
+     *
+     * @param inseeCode    INSEE commune code, the join key for French price data
+     * @param departmentCode derived department, for coverage checks
+     * @param countryCode  ISO-3166 alpha-2
+     * @param kind         house, apartment, ...
+     * @param livingArea   m² of living space — without it there is nothing to scale
+     * @param rooms        principal rooms, used to pick a room-count-specific price series
+     */
+    public record ValuationInput(
+        String inseeCode,
+        String departmentCode,
+        String countryCode,
+        PropertyKind kind,
+        BigDecimal livingArea,
+        BigDecimal landArea,
+        Short rooms,
+        Short constructionYear,
+        BigDecimal latitude,
+        BigDecimal longitude
+    ) {}
+
+    /**
+     * @param estimatedValue the headline figure, before any caller-side adjustments
+     * @param lowValue       25th-percentile bound
+     * @param highValue      75th-percentile bound
+     * @param pricePerSqm    median €/m² the value was derived from
+     * @param sampleSize     comparable transactions behind the median
+     * @param sourceYear     vintage of the underlying data — it is not "today"
+     */
+    public record ValuationResult(
+        BigDecimal estimatedValue,
+        BigDecimal lowValue,
+        BigDecimal highValue,
+        BigDecimal pricePerSqm,
+        Integer sampleSize,
+        ValuationConfidence confidence,
+        Short sourceYear,
+        String scale
+    ) {}
 }

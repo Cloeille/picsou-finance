@@ -45,7 +45,7 @@ com.picsou/
 
 ## Key patterns
 
-**Ports & adapters:** External integrations hide behind `BankConnectorPort` and `PriceProviderPort`. To swap a provider, implement the port and swap the `@Primary` bean — controllers/services never import adapters directly.
+**Ports & adapters:** Integrations with several providers hide behind a port (`BankConnectorPort`, `PriceProviderPort`, `CryptoExchangePort`, `WalletPort`). To swap a provider, implement the port and swap the `@Primary` bean. A connector with a single implementation (a sidecar adapter, `IbkrFlexClient`) is a concrete class injected directly and mocked as a class in tests; its records are nested in it. See `docs/decisions/2026-11-02-ports-only-for-swappable-providers.md`.
 
 **Auth flow:** `JwtAuthenticationFilter` reads the `access_token` HttpOnly cookie, validates the `tv` (token-version) claim against `AppUser.tokenVersion`, and sets the `SecurityContext`. `AuthController` issues and rotates access/refresh tokens; `MfaController` issues `mfa_challenge` JWTs and verifies TOTP; `PersistentTokenAuthFilter` re-issues access tokens from rotating "Remember Me" tokens. Cookies are `SameSite=Lax` (Safari iOS). CSRF uses no token: `CrossSiteCookieRequestMatcher` makes Spring's `CsrfFilter` reject cookie-authenticated state-changing requests from another origin (`Sec-Fetch-Site`, else `Origin`/`Referer`); see `docs/features/security-cors-cookies.md`. Never change state on a GET.
 

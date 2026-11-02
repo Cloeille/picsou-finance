@@ -2,10 +2,8 @@ package com.picsou.adapter;
 
 import com.picsou.model.PropertyKind;
 import com.picsou.port.GeocodingPort;
-import com.picsou.port.HousingPriceIndexPort;
-import com.picsou.port.PropertyValuationPort;
-import com.picsou.port.PropertyValuationPort.ValuationInput;
-import com.picsou.port.PropertyValuationPort.ValuationResult;
+import com.picsou.adapter.CeremaDv3fValuationProvider.ValuationInput;
+import com.picsou.adapter.CeremaDv3fValuationProvider.ValuationResult;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -88,15 +86,15 @@ class ValuationAdapterWiringTest {
     }
 
     @Test
-    void portsResolveThroughTheirInterfaces() {
+    void adaptersResolveAsBeans() {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
             context.register(
                 CeremaDv3fValuationProvider.class, GeoplateformeGeocoder.class, InseeBdmIndexProvider.class);
             context.refresh();
 
-            assertThat(context.getBean(PropertyValuationPort.class)).isNotNull();
+            assertThat(context.getBean(CeremaDv3fValuationProvider.class)).isNotNull();
             assertThat(context.getBean(GeocodingPort.class)).isNotNull();
-            assertThat(context.getBean(HousingPriceIndexPort.class)).isNotNull();
+            assertThat(context.getBean(InseeBdmIndexProvider.class)).isNotNull();
         }
     }
 

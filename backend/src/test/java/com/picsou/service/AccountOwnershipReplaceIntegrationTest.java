@@ -5,8 +5,9 @@ import com.picsou.dto.OwnershipResponse;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -14,10 +15,8 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -41,40 +40,16 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 @Import({AccountOwnershipService.class, AccountAccessResolver.class})
 class AccountOwnershipReplaceIntegrationTest {
 
-    static {
-        // Same reason as SchemaMappingValidationTest: docker-java negotiates down to an API
-        // version modern engines refuse, which is indistinguishable from "no Docker".
-        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
-    }
-
     @Container
-    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
-            throw new IllegalStateException(
-                "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found.");
-        }
-        return available;
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
-        registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
-        registry.add("spring.flyway.enabled", () -> "true");
-        registry.add("spring.flyway.locations", () -> "classpath:db/migration");
-        registry.add("spring.flyway.out-of-order", () -> "true");
-        registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
+        PostgresContainers.registerValidatedDatasource(registry, POSTGRES);
     }
 
     @Autowired AccountOwnershipService service;

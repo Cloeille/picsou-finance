@@ -14,9 +14,9 @@ import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
-import com.picsou.port.TradeRepublicPort;
-import com.picsou.port.TradeRepublicPort.TrAccountData;
-import com.picsou.port.TradeRepublicPort.TrPosition;
+import com.picsou.adapter.TradeRepublicAdapter;
+import com.picsou.adapter.TradeRepublicAdapter.TrAccountData;
+import com.picsou.adapter.TradeRepublicAdapter.TrPosition;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CategoryRepository;
@@ -61,7 +61,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class TradeRepublicSyncServiceTest {
 
-    @Mock TradeRepublicPort trPort;
+    @Mock TradeRepublicAdapter trPort;
     @Mock TradeRepublicSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
@@ -697,7 +697,7 @@ class TradeRepublicSyncServiceTest {
         when(trPort.fetchAccounts("plain-session"))
             .thenThrow(new com.picsou.exception.SyncException("SESSION_EXPIRED"));
         when(trPort.refreshSession("plain-refresh"))
-            .thenReturn(new TradeRepublicPort.TrTokens("new-session", "new-refresh"));
+            .thenReturn(new TradeRepublicAdapter.TrTokens("new-session", "new-refresh"));
         when(trPort.fetchAccounts("new-session")).thenReturn(List.of());
 
         service.resyncIfSessionActive(memberId);

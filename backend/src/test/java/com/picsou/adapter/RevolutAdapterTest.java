@@ -1,6 +1,7 @@
 package com.picsou.adapter;
 
 import com.picsou.adapter.sidecar.SidecarAuthenticationException;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.CategoryKind;
@@ -142,7 +143,7 @@ class RevolutAdapterTest {
 
     private static RevolutAdapter adapter(TestServer server) {
         return new RevolutAdapter(
-            new SidecarWebClientFactory("test-key"), server.baseUrl(), mock(SyncProgressService.class));
+            SidecarTestSupport.factory("revolut-auth", server.baseUrl()), mock(SyncProgressService.class));
     }
 
     private static String readBody(HttpExchange exchange) {

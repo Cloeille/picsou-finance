@@ -1,24 +1,14 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.exception.SyncException;
-import com.picsou.port.AmexErrorCode;
+import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.mock.http.client.reactive.MockClientHttpRequest;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFunction;
-import org.springframework.web.reactive.function.client.ExchangeStrategies;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AmexAdapterTest {
 
@@ -39,19 +29,6 @@ class AmexAdapterTest {
     }
 
     @Test
-    void initiateAuth_mapsAnUncoded401ToInvalidCredentials() {
-        AmexAdapter adapter = adapterReturning(
-            HttpStatus.UNAUTHORIZED,
-            "{\"detail\":\"Authentication rejected\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.initiateAuth("user", "secret", "sms"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmexErrorCode.INVALID_CREDENTIALS.name())
-            );
-    }
-
-    @Test
     void completeAuth_sendsTheOtpField() {
         List<String> bodies = new ArrayList<>();
         AmexAdapter adapter = adapterRecording(bodies, """
@@ -63,29 +40,6 @@ class AmexAdapterTest {
             assertThat(body).contains("\"processId\":\"process-1\"");
             assertThat(body).contains("\"otp\":\"123456\"");
         });
-    }
-
-    @Test
-    void completeAuth_mapsA401ToInvalidOtp() {
-        AmexAdapter adapter = adapterReturning(
-            HttpStatus.UNAUTHORIZED,
-            "{\"detail\":\"INVALID_OTP\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.completeAuth("process", "000000"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmexErrorCode.INVALID_OTP.name())
-            );
-    }
-
-    @Test
-    void completeAuth_mapsAnExpiredAttemptFromItsStatusAlone() {
-        AmexAdapter adapter = adapterReturning(HttpStatus.GONE, "{}");
-
-        assertThatThrownBy(() -> adapter.completeAuth("process", "123456"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmexErrorCode.AUTH_ATTEMPT_EXPIRED.name())
-            );
     }
 
     @Test
@@ -123,58 +77,11 @@ class AmexAdapterTest {
         });
     }
 
-    @Test
-    void fetchAccounts_treatsAnEmptyArrayAsAnIncompleteRead() {
-        AmexAdapter adapter = adapterReturning(HttpStatus.OK, "[]");
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmexErrorCode.INVALID_DATA.name())
-            );
-    }
-
-    @Test
-    void fetchAccounts_mapsNetworkTimeoutToAnExplicitRetryableFailure() {
-        ExchangeFunction neverResponds = request -> Mono.never();
-        AmexAdapter adapter = new AmexAdapter(
-            WebClient.builder().exchangeFunction(neverResponds).build(),
-            new ObjectMapper(),
-            Duration.ofMillis(20),
-            Duration.ofMillis(20),
-            Duration.ofMillis(20)
-        );
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(AmexErrorCode.UPSTREAM_UNAVAILABLE.name());
-                assertThat(error.getMessage()).contains("too long");
-            });
-    }
-
     private AmexAdapter adapterReturning(HttpStatus status, String body) {
-        ExchangeFunction exchange = request -> Mono.just(ClientResponse.create(status)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .body(body)
-            .build());
-        return new AmexAdapter(
-            WebClient.builder().exchangeFunction(exchange).build(),
-            new ObjectMapper()
-        );
+        return new AmexAdapter(WebClientStubs.returning(status, body), new ObjectMapper());
     }
 
     private AmexAdapter adapterRecording(List<String> bodies, String responseBody) {
-        ExchangeFunction exchange = request -> {
-            MockClientHttpRequest recorder = new MockClientHttpRequest(request.method(), request.url());
-            request.writeTo(recorder, ExchangeStrategies.withDefaults()).block();
-            bodies.add(recorder.getBodyAsString().block());
-            return Mono.just(ClientResponse.create(HttpStatus.OK)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                .body(responseBody)
-                .build());
-        };
-        return new AmexAdapter(
-            WebClient.builder().exchangeFunction(exchange).build(),
-            new ObjectMapper()
-        );
+        return new AmexAdapter(WebClientStubs.recordingBodies(bodies, HttpStatus.OK, responseBody), new ObjectMapper());
     }
 }

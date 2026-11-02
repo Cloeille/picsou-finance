@@ -5,8 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import org.springframework.web.reactive.function.client.WebClient;
-import com.picsou.port.TradeRepublicPort.TrAccountData;
-import com.picsou.port.TradeRepublicPort.TrTokens;
+import com.picsou.adapter.TradeRepublicAdapter.TrAccountData;
+import com.picsou.adapter.TradeRepublicAdapter.TrTokens;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -40,7 +40,7 @@ class TradeRepublicAdapterTest {
     @Test
     void productionConstructorIsExplicitSpringInjectionPoint() throws NoSuchMethodException {
         assertThat(TradeRepublicAdapter.class
-            .getConstructor(SidecarWebClientFactory.class, ObjectMapper.class, String.class)
+            .getConstructor(SidecarWebClientFactory.class, ObjectMapper.class)
             .isAnnotationPresent(Autowired.class))
             .isTrue();
     }

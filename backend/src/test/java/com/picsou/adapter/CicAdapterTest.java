@@ -2,9 +2,11 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
-import com.picsou.port.CicErrorCode;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.http.HttpStatus;
@@ -79,21 +81,12 @@ class CicAdapterTest {
     }
 
     @Test
-    void fetchAccounts_keepsAnErrorOfTheListingItself() {
-        CicAdapter adapter = adapter(new ArrayList<>(), HttpStatus.UNAUTHORIZED, "{\"detail\":\"SESSION_EXPIRED\"}");
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.SESSION_EXPIRED.name()));
-    }
-
-    @Test
     void fetchAccounts_refusesAnEmptyListing() {
         CicAdapter adapter = adapter(new ArrayList<>(), HttpStatus.OK, "{\"accounts\":[],\"categoriesRead\":[\"SAVINGS\"]}");
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.PORTFOLIO_INCOMPLETE.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE.name()));
     }
 
     @Test
@@ -127,38 +120,10 @@ class CicAdapterTest {
     }
 
     @Test
-    void aWrongSmsCodeKeepsItsOwnCode() {
-        CicAdapter adapter = adapter(new ArrayList<>(), HttpStatus.BAD_REQUEST, "{\"detail\":\"INVALID_OTP\"}");
-
-        assertThatThrownBy(() -> adapter.completeAuth("p1", "000000"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.INVALID_OTP.name()));
-    }
-
-    @Test
-    void aRefusedConfirmationKeepsItsOwnCode() {
-        CicAdapter adapter = adapter(new ArrayList<>(), HttpStatus.UNAUTHORIZED,
-            "{\"detail\":\"APP_VALIDATION_CANCELLED\"}");
-
-        assertThatThrownBy(() -> adapter.completeAuth("p1", null))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.APP_VALIDATION_CANCELLED.name()));
-    }
-
-    @Test
-    void anUnparsedAccountsPageFailsTheFetch() {
-        CicAdapter adapter = adapter(new ArrayList<>(), HttpStatus.BAD_GATEWAY,
-            "{\"detail\":\"UPSTREAM_FORMAT_CHANGED\"}");
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CicErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
-    }
-
-    @Test
     void springSelectsTheProductionConstructor() {
         new ApplicationContextRunner()
-            .withPropertyValues("app.cic-auth.url=http://cic-auth:8001", "app.sidecar.api-key=test-key")
+            .withPropertyValues("app.sidecars.cic-auth.url=http://cic-auth:8001", "app.sidecar.api-key=test-key")
+            .withUserConfiguration(SidecarTestSupport.BindSidecarProperties.class)
             .withBean(ObjectMapper.class)
             .withBean(SidecarWebClientFactory.class)
             .withBean(CicAdapter.class)
@@ -166,15 +131,6 @@ class CicAdapterTest {
     }
 
     private CicAdapter adapter(List<String> bodies, HttpStatus status, String responseBody) {
-        ExchangeFunction exchange = request -> {
-            MockClientHttpRequest recorder = new MockClientHttpRequest(request.method(), request.url());
-            request.writeTo(recorder, ExchangeStrategies.withDefaults()).block();
-            bodies.add(recorder.getBodyAsString().block());
-            return Mono.just(ClientResponse.create(status)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                .body(responseBody)
-                .build());
-        };
-        return new CicAdapter(WebClient.builder().exchangeFunction(exchange).build(), JSON);
+        return new CicAdapter(WebClientStubs.recordingBodies(bodies, status, responseBody), JSON);
     }
 }

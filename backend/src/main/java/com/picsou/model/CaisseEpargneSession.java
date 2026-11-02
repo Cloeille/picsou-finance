@@ -1,7 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -54,7 +54,7 @@ public class CaisseEpargneSession extends AuditableEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "last_sync_error", length = 40)
-    private CaisseEpargneErrorCode lastSyncError;
+    private SidecarErrorCode lastSyncError;
 
     /** JSON array of {externalId, familyCode}: contracts seen but not imported. */
     @Column(name = "unsupported_contracts", columnDefinition = "TEXT")
@@ -118,18 +118,18 @@ public class CaisseEpargneSession extends AuditableEntity {
         lastSyncError = null;
     }
 
-    public void markFailed(CaisseEpargneErrorCode errorCode, Instant completedAt) {
+    public void markFailed(SidecarErrorCode errorCode, Instant completedAt) {
         if (!isSyncInFlight()) {
             throw new IllegalStateException("Only an in-flight Caisse d'Epargne synchronization can fail");
         }
-        CaisseEpargneErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
         syncStatus = CaisseEpargneSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
         // The stored cookies cannot be silently renewed (no password is kept), so a session the
         // bank rejected or Picsou cannot read is dead; a transient failure leaves it usable.
-        if (error == CaisseEpargneErrorCode.SESSION_EXPIRED
-            || error == CaisseEpargneErrorCode.INVALID_SESSION_STATE) {
+        if (error == SidecarErrorCode.SESSION_EXPIRED
+            || error == SidecarErrorCode.INVALID_SESSION_STATE) {
             active = false;
         }
     }

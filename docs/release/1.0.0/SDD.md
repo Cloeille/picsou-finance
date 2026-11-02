@@ -33,10 +33,8 @@ External integrations are abstracted behind **ports** in
 
 - `BankConnectorPort`
 - `PriceProviderPort`
-- `TradeRepublicPort`
 - `CryptoExchangePort`
 - `WalletPort`
-- `BoursoPort` *(disabled in 1.0.0)*
 
 Implementations (`com.picsou.adapter`) are wired via Spring
 `@Primary` + `@ConditionalOnExpression` so an unconfigured adapter

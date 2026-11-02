@@ -12,9 +12,9 @@ import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.IbkrConnection;
-import com.picsou.port.IbkrFlexPort;
-import com.picsou.port.IbkrFlexPort.IbkrAccountData;
-import com.picsou.port.IbkrFlexPort.IbkrPosition;
+import com.picsou.ibkr.client.IbkrFlexClient;
+import com.picsou.ibkr.client.IbkrFlexClient.IbkrAccountData;
+import com.picsou.ibkr.client.IbkrFlexClient.IbkrPosition;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -46,7 +46,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class IbkrSyncServiceTest {
 
-    @Mock IbkrFlexPort ibkrFlexPort;
+    @Mock IbkrFlexClient ibkrFlexClient;
     @Mock IbkrConnectionRepository connectionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
@@ -107,7 +107,7 @@ class IbkrSyncServiceTest {
             "U123", "US0378331005", "AAPL", "APPLE INC", "USD", "STK", "LOT",
             bd("10"), bd("200"), bd("150"), bd("0.92"));
         IbkrAccountData accountData = new IbkrAccountData("U123", List.of(summary, lotDuplicate));
-        when(ibkrFlexPort.fetchOpenPositions("plain-token", "plain-query"))
+        when(ibkrFlexClient.fetchOpenPositions("plain-token", "plain-query"))
             .thenReturn(List.of(accountData));
 
         when(isinConverter.resolve("US0378331005")).thenReturn(new TickerResult("AAPL", "Apple"));
@@ -228,7 +228,7 @@ class IbkrSyncServiceTest {
         when(encryption.decrypt("enc-query")).thenReturn("plain-query");
 
         RuntimeException boom = new RuntimeException("IBKR: token expired");
-        when(ibkrFlexPort.fetchOpenPositions("plain-token", "plain-query")).thenThrow(boom);
+        when(ibkrFlexClient.fetchOpenPositions("plain-token", "plain-query")).thenThrow(boom);
 
         assertThatThrownBy(() -> service.sync(memberId)).isSameAs(boom);
 
@@ -260,7 +260,7 @@ class IbkrSyncServiceTest {
             .hasMessageContaining("reconnect");
 
         verify(statusWriter, times(1)).markError(42L);
-        verifyNoInteractions(ibkrFlexPort);
+        verifyNoInteractions(ibkrFlexClient);
     }
 
     /**
@@ -310,7 +310,7 @@ class IbkrSyncServiceTest {
         IbkrPosition cash    = pos(null,           "USD.CASH", "CASH", bd("500"), bd("1"), bd("1"));
         IbkrPosition zeroQty = pos("US0000000000", "ZRO", "STK", bd("0"),  bd("5"),   bd("1"));
         IbkrPosition longSym = pos(null,           longSymbol, "OPT", bd("1"), bd("2"), bd("1"));
-        when(ibkrFlexPort.fetchOpenPositions("plain-token", "plain-query"))
+        when(ibkrFlexClient.fetchOpenPositions("plain-token", "plain-query"))
             .thenReturn(List.of(new IbkrAccountData("U1", List.of(hit, miss, noIsin, cash, zeroQty, longSym))));
 
         when(isinConverter.resolve("US0378331005")).thenReturn(new TickerResult("AAPL", "Apple"));
@@ -360,7 +360,7 @@ class IbkrSyncServiceTest {
         IbkrPosition option = pos(null, "SPY 240119C00470000", "OPT", bd("1"), bd("5"), bd("1"));
         IbkrPosition future = pos(null, "ES FUT", "FUT", bd("1"), bd("100"), bd("1"));
         IbkrPosition absentCategory = pos(null, "PLTR", null, bd("8"), bd("40"), bd("1"));
-        when(ibkrFlexPort.fetchOpenPositions("plain-token", "plain-query"))
+        when(ibkrFlexClient.fetchOpenPositions("plain-token", "plain-query"))
             .thenReturn(List.of(new IbkrAccountData("U1", List.of(option, future, absentCategory))));
 
         when(accountRepository.findByExternalAccountIdAndMemberId("ibkr_U1", memberId)).thenReturn(Optional.empty());
@@ -399,7 +399,7 @@ class IbkrSyncServiceTest {
 
         IbkrPosition longLeg = pos("US0378331005", "AAPL", "STK", bd("40"), bd("100"), bd("1"));
         IbkrPosition shortLeg = pos("US0378331005", "AAPL", "STK", bd("-40"), bd("120"), bd("1"));
-        when(ibkrFlexPort.fetchOpenPositions("plain-token", "plain-query"))
+        when(ibkrFlexClient.fetchOpenPositions("plain-token", "plain-query"))
             .thenReturn(List.of(new IbkrAccountData("U1", List.of(longLeg, shortLeg))));
 
         when(isinConverter.resolve("US0378331005")).thenReturn(new TickerResult("AAPL", "Apple"));
@@ -438,7 +438,7 @@ class IbkrSyncServiceTest {
 
         IbkrPosition aapl = pos("US0378331005", "AAPL", "STK", bd("10"), bd("150"), bd("1"));
         IbkrAccountData accountData = new IbkrAccountData("U1", List.of(aapl), "USD");
-        when(ibkrFlexPort.fetchOpenPositions("plain-token", "plain-query")).thenReturn(List.of(accountData));
+        when(ibkrFlexClient.fetchOpenPositions("plain-token", "plain-query")).thenReturn(List.of(accountData));
 
         assertThatThrownBy(() -> service.sync(memberId))
             .isInstanceOf(com.picsou.exception.SyncException.class)
@@ -470,7 +470,7 @@ class IbkrSyncServiceTest {
         when(encryption.decrypt("enc-query")).thenReturn("plain-query");
 
         IbkrAccountData emptied = new IbkrAccountData("U1", List.of(), "EUR");
-        when(ibkrFlexPort.fetchOpenPositions("plain-token", "plain-query"))
+        when(ibkrFlexClient.fetchOpenPositions("plain-token", "plain-query"))
             .thenReturn(List.of(emptied));
 
         Account existing = Account.builder()
@@ -507,7 +507,7 @@ class IbkrSyncServiceTest {
 
         IbkrPosition aapl = pos("US0378331005", "AAPL", "STK", bd("10"), bd("150"), bd("1"));
         IbkrAccountData accountData = new IbkrAccountData("U1", List.of(aapl), "EUR");
-        when(ibkrFlexPort.fetchOpenPositions("plain-token", "plain-query")).thenReturn(List.of(accountData));
+        when(ibkrFlexClient.fetchOpenPositions("plain-token", "plain-query")).thenReturn(List.of(accountData));
 
         when(isinConverter.resolve("US0378331005")).thenReturn(new TickerResult("AAPL", "Apple"));
         when(accountRepository.findByExternalAccountIdAndMemberId("ibkr_U1", memberId)).thenReturn(Optional.empty());
@@ -542,7 +542,7 @@ class IbkrSyncServiceTest {
         when(encryption.decrypt("enc-query")).thenReturn("plain-query");
 
         IbkrPosition aapl = pos("US0378331005", "AAPL", "STK", bd("10"), bd("150"), bd("1"));
-        when(ibkrFlexPort.fetchOpenPositions("plain-token", "plain-query"))
+        when(ibkrFlexClient.fetchOpenPositions("plain-token", "plain-query"))
             .thenReturn(List.of(new IbkrAccountData("U1", List.of(aapl))));
 
         when(accountRepository.findByExternalAccountIdAndMemberId("ibkr_U1", memberId))
@@ -573,7 +573,7 @@ class IbkrSyncServiceTest {
 
         service.resyncIfConnected(7L);
 
-        verifyNoInteractions(ibkrFlexPort);
+        verifyNoInteractions(ibkrFlexClient);
         verifyNoInteractions(statusWriter);
     }
 
@@ -598,7 +598,7 @@ class IbkrSyncServiceTest {
         when(connectionRepository.findByMemberId(7L)).thenReturn(Optional.of(connection));
         when(encryption.decrypt("enc-token")).thenReturn("plain-token");
         when(encryption.decrypt("enc-query")).thenReturn("plain-query");
-        when(ibkrFlexPort.fetchOpenPositions("plain-token", "plain-query"))
+        when(ibkrFlexClient.fetchOpenPositions("plain-token", "plain-query"))
             .thenThrow(new NullPointerException("bug"));
 
         service.resyncIfConnected(7L);  // must not throw

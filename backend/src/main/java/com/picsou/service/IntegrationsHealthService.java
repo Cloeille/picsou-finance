@@ -1,6 +1,7 @@
 package com.picsou.service;
 
 import com.picsou.config.EnableBankingConfigProvider;
+import com.picsou.config.SidecarProperties;
 import com.picsou.dto.BoursoBankHealthResponse;
 import com.picsou.dto.EnableBankingTestResponse;
 import io.jsonwebtoken.Jwts;
@@ -45,12 +46,12 @@ public class IntegrationsHealthService {
         EnableBankingConfigProvider configProvider,
         SetupService setupService,
         @Value("${app.enablebanking.base-url:https://api.enablebanking.com}") String ebBaseUrl,
-        @Value("${app.bourso-auth.url:http://bourso-auth:8001}") String envBoursoUrl
+        SidecarProperties sidecars
     ) {
         this.configProvider = configProvider;
         this.setupService = setupService;
         this.ebClient = WebClient.builder().baseUrl(ebBaseUrl).build();
-        this.envBoursoUrl = envBoursoUrl;
+        this.envBoursoUrl = sidecars.url("bourso-auth");
     }
 
     public EnableBankingTestResponse testEnableBanking() {
