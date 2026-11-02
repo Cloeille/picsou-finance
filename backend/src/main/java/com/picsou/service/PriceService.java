@@ -117,6 +117,21 @@ public class PriceService {
         return resolve(tickers, true);
     }
 
+    /**
+     * Offers the tickers of a crypto-only path to the provider's registry before the
+     * {@code supportsCrypto} filter runs, so a coin it has not met yet is learned instead of
+     * left unpriced. Crypto paths only: a stock ticker must never reach it.
+     */
+    private void learnCryptoTickers(Collection<String> tickers) {
+        Set<String> candidates = new TreeSet<>();
+        for (String ticker : tickers) {
+            if (ticker == null || ticker.isBlank()) continue;
+            String upper = ticker.trim().toUpperCase(Locale.ROOT);
+            if (!"EUR".equals(upper)) candidates.add(upper);
+        }
+        if (!candidates.isEmpty()) priceProvider.learnCryptoTickers(candidates);
+    }
+
     private Quote singleQuote(String ticker, boolean cryptoOnly) {
         if (ticker == null || ticker.isBlank() || "EUR".equalsIgnoreCase(ticker)) {
             return new Quote(BigDecimal.ONE, LocalDate.now(), true);
@@ -141,6 +156,7 @@ public class PriceService {
      */
     private Map<String, Quote> resolve(Set<String> tickers, boolean cryptoOnly) {
         if (tickers.isEmpty()) return Map.of();
+        if (cryptoOnly) learnCryptoTickers(tickers);
 
         LocalDate today = LocalDate.now();
         Map<String, Quote> resolved = new HashMap<>();
@@ -308,6 +324,7 @@ public class PriceService {
 
     private Map<String, BigDecimal> refreshPrices(Set<String> tickers, boolean cryptoOnly) {
         if (tickers.isEmpty()) return Map.of();
+        if (cryptoOnly) learnCryptoTickers(tickers);
 
         Map<String, BigDecimal> result = new HashMap<>();
 
@@ -434,6 +451,7 @@ public class PriceService {
      * last-known-price fallback for as long as the rows exist.
      */
     public int backfillHistoricalPrices(Set<String> tickers, LocalDate from, boolean cryptoOnly) {
+        if (cryptoOnly) learnCryptoTickers(tickers);
         LocalDate to = LocalDate.now();
         int saved = 0;
         int failed = 0;
@@ -559,7 +577,9 @@ public class PriceService {
      * gets no series rather than the hourly closes of the stock sharing its symbol.
      */
     public Map<LocalDateTime, BigDecimal> getCryptoIntradayPricesEur(String ticker, LocalDateTime from, LocalDateTime to) {
-        if (ticker == null || !priceProvider.supportsCrypto(ticker.toUpperCase(Locale.ROOT))) {
+        if (ticker == null) return Map.of();
+        learnCryptoTickers(List.of(ticker));
+        if (!priceProvider.supportsCrypto(ticker.toUpperCase(Locale.ROOT))) {
             return Map.of();
         }
         return getIntradayPricesEur(ticker, from, to);

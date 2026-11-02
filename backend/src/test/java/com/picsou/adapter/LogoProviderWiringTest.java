@@ -29,6 +29,10 @@ class LogoProviderWiringTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
         .withBean(WebClient.class, () -> WebClient.builder().build())
         .withBean(Clock.class, Clock::systemUTC)
+        // Registered by class, not by supplier: Spring must pick the repository constructor itself.
+        .withBean(com.picsou.repository.CryptoAssetRepository.class,
+            () -> org.mockito.Mockito.mock(com.picsou.repository.CryptoAssetRepository.class))
+        .withBean(CryptoAssetRegistry.class)
         .withBean(CoinGeckoPriceProvider.class)
         .withBean(CryptoLogoService.class);
 

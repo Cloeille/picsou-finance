@@ -31,6 +31,15 @@ public interface PriceProviderPort {
     boolean supportsCrypto(String ticker);
 
     /**
+     * Gives the provider a chance to recognise tickers it does not know yet as crypto, before the
+     * caller filters on {@link #supportsCrypto}. May do network and database work, so callers pass
+     * only tickers held in a crypto context (a crypto account or wallet), never a stock ticker.
+     * Never throws for an expected upstream failure; a ticker that cannot be decided now is simply
+     * left unsupported until a later call.
+     */
+    default void learnCryptoTickers(Set<String> tickers) {}
+
+    /**
      * Daily historical prices in EUR for a ticker over {@code [from, to]}.
      * Returns an empty map for an expected upstream failure (the caller treats
      * anything thrown as a genuine bug).

@@ -14,12 +14,12 @@ Because those providers can and do refuse to answer, the service is built so tha
 
 `PriceService` depends only on the `PriceProviderPort` abstraction; the crypto-vs-stock routing lives in `CompositePriceProvider` (the `@Primary` port bean), which picks a provider per ticker:
 
-- **CoinGecko** (`CoinGeckoPriceProvider`): Handles crypto tickers (BTC, ETH, SOL, BNB, ADA, XRP, DOGE, DOT, MATIC, AVAX, LINK, UNI, ATOM, LTC, NEAR, ARB, OP, SHIB, PEPE, SUI). Uses the `/simple/price` endpoint with `vs_currencies=eur`. Supports batch queries (all tickers in one request).
+- **CoinGecko** (`CoinGeckoPriceProvider`): Handles the tickers the `crypto_asset` registry knows (see *Crypto registry* below). Uses the `/simple/price` endpoint with `vs_currencies=eur`. Supports batch queries (all tickers in one request).
 - **Yahoo Finance** (`YahooFinancePriceProvider`): Handles everything CoinGecko does not -- stocks, ETFs, indices. Uses the unofficial `/v8/finance/chart/{ticker}` endpoint. Fetched per-ticker (no batch). Tickers like `IWDA.AS`, `MC.PA` are already EUR-denominated; foreign-currency tickers (USD/JPY/GBp/...) are converted to EUR inside the adapter via Yahoo's own `{CURRENCY}EUR=X` chart endpoint, with a 15-minute FX cache mirroring the price cache TTL. See [ADR 2026-05-19](../decisions/2026-05-19-yahoo-fx-conversion.md).
 
 Routing is a deliberate `coinGecko.supports(ticker) ? coinGecko : yahoo` fallback (not a "first provider whose `supports()` is true" scan), so a ticker CoinGecko does not recognise — including a plain ISIN that Yahoo itself reports as unsupported — still falls through to Yahoo.
 
-All three providers (`CoinGeckoPriceProvider`, `YahooFinancePriceProvider`, `CompositePriceProvider`) implement `PriceProviderPort`, which exposes `supports(ticker)`, `getPricesEur(tickers)`, `getHistoricalPricesEur(...)` and `getIntradayPricesEur(...)`.
+All three providers (`CoinGeckoPriceProvider`, `YahooFinancePriceProvider`, `CompositePriceProvider`) implement `PriceProviderPort`, which exposes `supports(ticker)`, `getPricesEur(tickers)`, `getHistoricalPricesEur(...)`, `getIntradayPricesEur(...)` and `learnCryptoTickers(tickers)` (a no-op except on the composite).
 
 ### Resolution chain
 
@@ -59,7 +59,8 @@ Both halves are split by account type before the call: `AccountRepository.findDi
 
 - `backend/src/main/java/com/picsou/service/PriceService.java` -- Caching, EUR conversion, snapshot persistence (routing delegated to the port)
 - `backend/src/main/java/com/picsou/service/SchedulerService.java` -- Hourly price refresh cron
-- `backend/src/main/java/com/picsou/adapter/CoinGeckoPriceProvider.java` -- CoinGecko `/simple/price` with ticker-to-ID mapping
+- `backend/src/main/java/com/picsou/adapter/CoinGeckoPriceProvider.java` -- CoinGecko `/simple/price`, plus `resolveBySymbol` (`/coins/markets?symbols=`) for learning a coin
+- `backend/src/main/java/com/picsou/adapter/CryptoAssetRegistry.java` -- the `crypto_asset` table, cached in memory; `supports()` reads it
 - `backend/src/main/java/com/picsou/adapter/YahooFinancePriceProvider.java` -- Yahoo Finance `/v8/finance/chart/{ticker}`
 - `backend/src/main/java/com/picsou/adapter/CompositePriceProvider.java` -- `@Primary` port bean; routes crypto to CoinGecko and everything else to Yahoo
 - `backend/src/main/java/com/picsou/port/PriceProviderPort.java` -- Port interface: `supports()`, `getPricesEur()`, `getHistoricalPricesEur()`, `getIntradayPricesEur()`
@@ -140,7 +141,11 @@ Update cache + upsert today's price_snapshot rows
 - **`backfillHistoricalPrices` skips tickers whose history is already there — but it scans, it does not probe**: it runs at every boot, once per held ticker, and used to re-request twelve months only to discard every row as a duplicate, exhausting the rate limit seconds after startup. Coverage is now decided by walking the whole range and rejecting any hole longer than 7 days (a weekend is 2, an Easter or Christmas week reaches 5). Checking only the two ends is the tempting simplification and it is wrong: an instance offline for three months has history on *both* sides of the hole, so every boot would declare it covered and `HistoryService` would flat-line the chart across those months forever. A ticker whose history simply starts late (an asset younger than the range) reads as uncovered and is re-requested each boot — we cannot tell "the provider has nothing earlier" from "we never asked" without asking.
 - **The hourly refresh keeps crypto and everything else apart**: `refreshPrices` routes whatever CoinGecko cannot map to Yahoo Finance **and records what it fetches** in `price_snapshot`, so feeding it a coin whose symbol is a listed equity would write that company's share price into the very table the fallback reads from — poisoning it for every account, not just the crypto one. `SchedulerService.refreshPrices` therefore resolves `AccountType.CRYPTO` holding tickers through `refreshCryptoPrices` and the rest through `refreshPrices`. Before holding tickers were warmed at all, no crypto symbol ever reached this method; adding them without splitting would have introduced the hazard.
 - **Ticker collection must exclude soft-deleted accounts**: `AccountService.delete` only stamps `deleted_at`, and holdings stay behind, so a query over `AccountHolding` alone keeps returning a deleted account's tickers forever — refreshed hourly, against a rate-limited free tier. `AccountHoldingRepository.findDistinctTickers` joins `Account` and filters on `deletedAt`.
-- **Provider priority is `supports()`-based**: CoinGecko checks a hardcoded ticker-to-ID map. If a new crypto asset is added (e.g. a new token), it must be added to `TICKER_TO_ID` in `CoinGeckoPriceProvider`.
+- **Provider priority is `supports()`-based, and the registry is learned**: CoinGecko supports a ticker exactly when the `crypto_asset` table has a row for it. Curated rows are seeded by `V122__crypto_asset.sql`. A ticker held in a CRYPTO account that the table lacks is offered to `CompositePriceProvider.learnCryptoTickers` by every crypto-only path of `PriceService` (quotes, refresh, backfill, intraday) before the `supportsCrypto` filter. It is learned (row `source = AUTO`) only if:
+  1. Yahoo answers a definitive "no such symbol" (404 or empty chart). A chart with no positive price counts as undecided, not free. A symbol Yahoo quotes belongs to a listed equity (STX, FET, CAKE) and is refused for 24 h. A Yahoo that cannot be asked (cooldown, 5xx, timeout) leaves the ticker undecided for 15 min.
+  2. CoinGecko `/coins/markets?symbols=` has one dominant ranked coin under that symbol: candidates without a `market_cap_rank` are ignored (bridged and fake-cap homonyms, e.g. ETC's `ethercoin`), and the best-ranked one must be alone or worth at least 10x the runner-up. ONE (3.6x) is refused for 24 h with a WARN; a CoinGecko cooldown leaves it undecided for 15 min.
+  
+  The Yahoo guard is what keeps the ticker-keyed cache and `price_snapshot` safe: when a ticker is learned, no stock prices under that symbol on Yahoo. A listing created later under the same symbol is not re-checked. A learned row is crypto everywhere (prices, history, intraday, logos, Trade Republic crypto names), like a curated one. The write runs in its own transaction (`REQUIRES_NEW`, `INSERT … ON CONFLICT DO NOTHING`), because the valuation paths that trigger it are read-only. The retry windows live in memory, so a restart re-asks once.
 - **The startup backfill is split by account type**, like the hourly refresh: `PriceBackfillRunner` sends the tickers held in CRYPTO accounts to `backfillHistoricalPrices(tickers, from, true)`, where a coin CoinGecko cannot map is left without history rather than fetched from Yahoo under a symbol that may be a listed company's (STX: Stacks in the wallet, Seagate on Nasdaq). Twelve months of the wrong instrument's closes under a coin's symbol would feed the range P&L and the fallback until deleted by hand.
 - **`toEur()` returns raw balance on failure**: If no price is available for a symbol, `toEur()` logs a warning and returns the unconverted balance. This can lead to incorrect dashboard values if a price provider is down.
 - **Historical/intraday series use today's FX**: `getHistoricalPricesEur` and `getIntradayPricesEur` fetch the FX rate once per call and apply it to every candle in the series. Per-day FX would multiply API calls ~250× for a one-year backfill with marginal accuracy gain — see [ADR 2026-05-19](../decisions/2026-05-19-yahoo-fx-conversion.md) for the trade-off.
@@ -150,7 +155,9 @@ Update cache + upsert today's price_snapshot rows
 
 - `PriceServiceTest` -- unit tests for caching, conversion, backfill guard
 - `CompositePriceProviderTest` -- unit tests for crypto/stock routing and batching
-- `CoinGeckoPriceProviderTest` -- unit tests for ticker mapping
+- `CoinGeckoPriceProviderTest` -- unit tests for the price calls and the symbol-resolution accept rule (NEXO, CRO, ONE, ETC)
+- `CompositePriceProviderTest` -- learning guard: Yahoo-quoted, Yahoo unavailable, learned then routed to CoinGecko, registry failure
+- `CryptoAssetRegistryPostgresTest` -- learning from inside a read-only transaction on real PostgreSQL; a seeded row is never overwritten
 - `YahooFinancePriceProviderTest` -- unit tests for response parsing
 
 ## Links

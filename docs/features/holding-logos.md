@@ -35,7 +35,7 @@ one (Apple's is black on the light variant, white on the dark one). `HoldingLogo
 
 `CryptoLogoService.getLogoUrls` resolves a whole page's tickers in a single
 `LogoProviderPort.getLogoUrls` call, which reads `image` off `/coins/markets?ids=…`. The lookup is
-gated on the same `TICKER_TO_ID` registry the crypto *prices* come from, so an equity ticker
+gated on the same `crypto_asset` registry the crypto *prices* come from, so an equity ticker
 resolves to nothing rather than to an unrelated coin that happens to share its symbol. The same
 reason `quotesFor` resolves a `CRYPTO` account crypto-only, and why `AccountService.logosFor`
 never reads the share store for a `CRYPTO` account.

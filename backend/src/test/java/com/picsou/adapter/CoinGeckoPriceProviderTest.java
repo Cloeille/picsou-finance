@@ -44,6 +44,21 @@ import static org.assertj.core.api.Assertions.entry;
  */
 class CoinGeckoPriceProviderTest {
 
+    /** Only the coins these tests price; the seeded table itself is pinned by the migration test. */
+    private static final CryptoAssetRegistry REGISTRY = CryptoAssetRegistry.of(Map.ofEntries(
+        coin("BTC", "bitcoin", "Bitcoin"),
+        coin("ETH", "ethereum", "Ethereum"),
+        coin("SOL", "solana", "Solana"),
+        coin("POL", "polygon-ecosystem-token", "POL (ex-MATIC)"),
+        coin("USDT", "tether", "Tether"),
+        coin("USDC", "usd-coin", "USDC"),
+        coin("DAI", "dai", "Dai"),
+        coin("EURC", "euro-coin", "EURC")));
+
+    private static Map.Entry<String, CryptoAssetRegistry.Coin> coin(String ticker, String id, String name) {
+        return Map.entry(ticker, new CryptoAssetRegistry.Coin(id, name));
+    }
+
     private ListAppender<ILoggingEvent> logs;
     private ch.qos.logback.classic.Logger logger;
 
@@ -62,7 +77,7 @@ class CoinGeckoPriceProviderTest {
 
     private CoinGeckoPriceProvider providerReturning(Mono<ClientResponse> response) {
         ExchangeFunction exchange = request -> response;
-        return new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build());
+        return new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
     }
 
     private CoinGeckoPriceProvider providerWithJson(String json) {
@@ -85,29 +100,58 @@ class CoinGeckoPriceProviderTest {
         return logs.list.stream().filter(e -> e.getLevel() == level).toList();
     }
 
-    // ── Ticker coverage ───────────────────────────────────────────────────────
+    // ── Seeded registry ───────────────────────────────────────────────────────
 
-    @Test
-    void supports_coversTheCoinsReachableThroughMeria() {
-        // An unmapped ticker is left unpriced by refreshCryptoPrices, so dropping an entry here
-        // shrinks a balance without failing anything.
-        var provider = providerWithJson("{}");
+    private static String seedMigration() throws IOException {
+        try (var in = CoinGeckoPriceProviderTest.class.getResourceAsStream("/db/migration/V122__crypto_asset.sql")) {
+            assertThat(in).as("V122__crypto_asset.sql on the classpath").isNotNull();
+            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
 
-        assertThat(List.of("EGLD", "XTZ", "ALGO", "KSM", "TIA", "INJ", "ROSE", "KAVA",
-                "ZEC", "ETC", "XLM", "TRX", "BCH", "MINA", "OSMO", "AKT", "DYDX", "CELO",
-                "BAND", "XMR", "VET", "HBAR", "GRT"))
-            .allSatisfy(ticker -> assertThat(provider.supports(ticker)).as(ticker).isTrue());
+    private static boolean seeds(String migration, String ticker) {
+        return migration.contains("('" + ticker + "', '");
     }
 
     @Test
-    void supports_rejectsSymbolsSharedWithListedEquities() {
-        // This map routes PriceService: claiming a symbol here sends the *stock* of the same name
+    void seed_coversTheCoinsReachableThroughMeria_andTheTwoLearnedFromIssue419() throws IOException {
+        // An unseeded ticker is left unpriced by refreshCryptoPrices (until it is learned), so
+        // dropping a row here shrinks a balance without failing anything.
+        String migration = seedMigration();
+
+        assertThat(List.of("EGLD", "XTZ", "ALGO", "KSM", "TIA", "INJ", "ROSE", "KAVA",
+                "ZEC", "ETC", "XLM", "TRX", "BCH", "MINA", "OSMO", "AKT", "DYDX", "CELO",
+                "BAND", "XMR", "VET", "HBAR", "GRT", "NEXO", "CRO"))
+            .allSatisfy(ticker -> assertThat(seeds(migration, ticker)).as(ticker).isTrue());
+    }
+
+    @Test
+    void seed_rejectsSymbolsSharedWithListedEquities_andTheAmbiguousONE() throws IOException {
+        // The registry routes PriceService: seeding a symbol sends the *stock* of the same name
         // to CoinGecko too. Seagate (STX), TD SYNNEX (SNX), Solaris Energy (SEI) and Alpha Pro
-        // Tech (APT) must keep going to Yahoo, even though Meria offers coins with those symbols.
+        // Tech (APT) must keep going to Yahoo; six coins share ONE and none dominates.
+        String migration = seedMigration();
+
+        assertThat(List.of("STX", "SNX", "SEI", "APT", "ONE"))
+            .allSatisfy(ticker -> assertThat(seeds(migration, ticker)).as(ticker).isFalse());
+    }
+
+    @Test
+    void supports_isDrivenByTheRegistry_caseInsensitively() {
         var provider = providerWithJson("{}");
 
-        assertThat(List.of("STX", "SNX", "SEI", "APT"))
-            .allSatisfy(ticker -> assertThat(provider.supports(ticker)).as(ticker).isFalse());
+        assertThat(provider.supports("btc")).isTrue();
+        assertThat(provider.supportsCrypto("ETH")).isTrue();
+        assertThat(provider.supports("STX")).isFalse();
+        assertThat(provider.supports(null)).isFalse();
+    }
+
+    @Test
+    void displayName_isTheStoredName() {
+        var provider = providerWithJson("{}");
+
+        assertThat(provider.displayName("pol")).isEqualTo("POL (ex-MATIC)");
+        assertThat(provider.displayName("STX")).isNull();
     }
 
     // ── Happy path ────────────────────────────────────────────────────────────
@@ -170,7 +214,7 @@ class CoinGeckoPriceProviderTest {
                     .body("{\"" + coinId + "\":{\"eur\":1.0}}").build());
             };
             var provider = new CoinGeckoPriceProvider(
-                WebClient.builder().exchangeFunction(exchange).build());
+                WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
 
             Map<String, BigDecimal> prices = provider.getPricesEur(Set.of(ticker));
 
@@ -204,7 +248,7 @@ class CoinGeckoPriceProviderTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body("{\"status\":\"rate limited\"}").build());
         };
-        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build());
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
 
         provider.getPricesEur(Set.of("BTC"));
         provider.getPricesEur(Set.of("ETH"));
@@ -259,7 +303,7 @@ class CoinGeckoPriceProviderTest {
 
     @Test
     void notFound_returnsNoPrices_andErrors() {
-        // A 404 points at a bad TICKER_TO_ID coin id -- something we can actually fix.
+        // A 404 points at a bad crypto_asset coin id -- something we can actually fix.
         var provider = providerWithStatus(HttpStatus.NOT_FOUND, "{\"error\":\"unknown coin\"}");
 
         assertThat(provider.getPricesEur(Set.of("BTC"))).isEmpty();
@@ -357,7 +401,7 @@ class CoinGeckoPriceProviderTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body("[]").build());
         };
-        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build());
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
 
         assertThat(provider.getLogoUrls(Set.of("AAPL"))).isEmpty();
         assertThat(requests.get()).isZero();
@@ -387,7 +431,7 @@ class CoinGeckoPriceProviderTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body("{\"status\":\"rate limited\"}").build());
         };
-        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build());
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
 
         assertThat(provider.getLogoUrls(Set.of("BTC"))).isEmpty();
         assertThat(provider.getPricesEur(Set.of("ETH"))).isEmpty();
@@ -409,6 +453,149 @@ class CoinGeckoPriceProviderTest {
         assertThatThrownBy(() -> provider.getLogoUrls(Set.of("BTC")))
             .isInstanceOf(IllegalStateException.class)
             .hasMessage("a real bug");
+    }
+
+    // ── resolveBySymbol: learning a coin from its symbol ──────────────────────
+
+    private static String market(String id, String symbol, String name, Integer rank, Long cap) {
+        return "{\"id\":\"" + id + "\",\"symbol\":\"" + symbol + "\",\"name\":\"" + name
+            + "\",\"market_cap_rank\":" + rank + ",\"market_cap\":" + cap + "}";
+    }
+
+    @Test
+    void resolveBySymbol_acceptsTheOnlyRankedCoin() {
+        var provider = providerWithJson("[" + market("nexo", "nexo", "NEXO", 105, 600000000L) + "]");
+
+        Map<String, CryptoAssetRegistry.Coin> coins = provider.resolveBySymbol(Set.of("NEXO")).accepted();
+
+        assertThat(coins).containsOnly(entry("NEXO", new CryptoAssetRegistry.Coin("nexo", "NEXO")));
+    }
+
+    @Test
+    void resolveBySymbol_acceptsCro_whenTheBridgedHomonymHasNoRank() {
+        var provider = providerWithJson("[" + market("crypto-com-chain", "cro", "Cronos", 33, 5000000000L) + ","
+            + market("bridged-cro", "cro", "Bridged CRO", null, null) + "]");
+
+        assertThat(provider.resolveBySymbol(Set.of("CRO")).accepted())
+            .containsOnly(entry("CRO", new CryptoAssetRegistry.Coin("crypto-com-chain", "Cronos")));
+    }
+
+    @Test
+    void resolveBySymbol_ignoresUnrankedHomonyms_soTheRealCoinWins() {
+        var provider = providerWithJson("[" + market("ethereum-classic", "etc", "Ethereum Classic", 60, 2000000000L) + ","
+            + market("etc-fake", "etc", "ETC Fake", null, 1000000L) + "]");
+
+        assertThat(provider.resolveBySymbol(Set.of("ETC")).accepted())
+            .containsOnly(entry("ETC", new CryptoAssetRegistry.Coin("ethereum-classic", "Ethereum Classic")));
+    }
+
+    @Test
+    void resolveBySymbol_acceptsTheLeaderAtExactlyTenTimesTheRunnerUp() {
+        var provider = providerWithJson("[" + market("small", "xyz", "Small", 900, 10000000L) + ","
+            + market("big", "xyz", "Big", 100, 100000000L) + "]");
+
+        assertThat(provider.resolveBySymbol(Set.of("XYZ")).accepted()).containsOnlyKeys("XYZ");
+        assertThat(provider.resolveBySymbol(Set.of("XYZ")).accepted().get("XYZ").id()).isEqualTo("big");
+    }
+
+    @Test
+    void resolveBySymbol_rejectsONE_whenSixCoinsShareTheSymbolAndNoneDominates_andWarnsWithTheRatio() {
+        var provider = providerWithJson("[" + market("harmony", "one", "Harmony", 387, 52700000L) + ","
+            + market("bigone-token", "one", "BigONE Token", 947, 14500000L) + "]");
+
+        assertThat(provider.resolveBySymbol(Set.of("ONE")).accepted()).isEmpty();
+        assertThat(eventsAt(Level.WARN)).singleElement().satisfies(e ->
+            assertThat(e.getFormattedMessage()).contains("ONE").contains("ambiguous").contains("2 coins").contains("3.6"));
+    }
+
+    @Test
+    void resolveBySymbol_rejectsASymbolWithNoRankedCoin_andWarns() {
+        var provider = providerWithJson("[" + market("matic-bridged", "matic", "MATIC bridged", null, null) + "]");
+
+        assertThat(provider.resolveBySymbol(Set.of("MATIC")).accepted()).isEmpty();
+        assertThat(eventsAt(Level.WARN)).singleElement().satisfies(e ->
+            assertThat(e.getFormattedMessage()).contains("MATIC").contains("no ranked coin"));
+    }
+
+    @Test
+    void resolveBySymbol_ignoresCandidatesWhoseSymbolIsAnotherTicker() {
+        // The symbols filter is a batch: the API may return neighbours of the requested symbol.
+        var provider = providerWithJson("[" + market("nexo", "nexo", "NEXO", 105, 600000000L) + ","
+            + market("cardano", "ada", "Cardano", 10, 20000000000L) + "]");
+
+        assertThat(provider.resolveBySymbol(Set.of("NEXO")).accepted()).containsOnlyKeys("NEXO");
+    }
+
+    @Test
+    void resolveBySymbol_sendsOneBatchedRequest_withLowerCaseSymbolsAndAllTokens() {
+        var captured = new java.util.concurrent.atomic.AtomicReference<String>();
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        ExchangeFunction exchange = request -> {
+            requests.incrementAndGet();
+            captured.set(request.url().toString());
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE).body("[]").build());
+        };
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
+
+        provider.resolveBySymbol(Set.of("NEXO", "CRO"));
+
+        assertThat(requests.get()).isEqualTo(1);
+        assertThat(captured.get())
+            .contains("/coins/markets").contains("vs_currency=eur").contains("symbols=cro,nexo")
+            .contains("include_tokens=all").contains("per_page=250");
+    }
+
+    @Test
+    void resolveBySymbol_sendsNothing_whileCoolingDown() {
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        ExchangeFunction exchange = request -> {
+            requests.incrementAndGet();
+            return Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE).body("{}").build());
+        };
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
+        provider.getPricesEur(Set.of("BTC"));
+
+        assertThat(provider.resolveBySymbol(Set.of("NEXO")).accepted()).isEmpty();
+
+        assertThat(requests.get()).isEqualTo(1);
+    }
+
+    @Test
+    void resolveBySymbol_rateLimit_armsTheCooldownThePricePathReads() {
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        ExchangeFunction exchange = request -> {
+            requests.incrementAndGet();
+            return Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE).body("{}").build());
+        };
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
+
+        assertThat(provider.resolveBySymbol(Set.of("NEXO")).accepted()).isEmpty();
+        assertThat(provider.getPricesEur(Set.of("BTC"))).isEmpty();
+
+        assertThat(requests.get()).isEqualTo(1);
+        assertThat(eventsAt(Level.WARN)).singleElement()
+            .satisfies(e -> assertThat(e.getFormattedMessage()).contains("429"));
+    }
+
+    @Test
+    void resolveBySymbol_reportsWhetherCoinGeckoAnswered_soAMissIsNotMistakenForARefusal() {
+        var rejected = providerWithJson("[]").resolveBySymbol(Set.of("NEXO"));
+        var failed = providerWithStatus(HttpStatus.BAD_GATEWAY, "<html>bad gateway</html>").resolveBySymbol(Set.of("NEXO"));
+
+        assertThat(rejected.answered()).isTrue();
+        assertThat(failed.answered()).isFalse();
+        assertThat(failed.accepted()).isEmpty();
+    }
+
+    @Test
+    void resolveBySymbol_propagatesAGenuineBug() {
+        var provider = providerFailingWith(new IllegalStateException("a real bug"));
+
+        assertThatThrownBy(() -> provider.resolveBySymbol(Set.of("NEXO")).accepted())
+            .isInstanceOf(IllegalStateException.class).hasMessage("a real bug");
     }
 
     // ── Defensive parsing of the history payload ──────────────────────────────

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
@@ -28,7 +29,9 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -211,6 +214,62 @@ class PriceServiceTest {
         // hand back the share price of the equity trading under the same symbol.
         verifyNoInteractions(priceSnapshotRepository);
         verify(priceProvider, org.mockito.Mockito.never()).getPricesEur(any());
+    }
+
+    @Test
+    void cryptoQuotes_offerTheTickerToTheRegistryBeforeFilteringOnSupportsCrypto() {
+        when(priceProvider.supportsCrypto("NEXO")).thenReturn(true);
+        when(priceProvider.getPricesEur(any())).thenReturn(Map.of("NEXO", new BigDecimal("1.20")));
+
+        assertThat(priceService.getCryptoQuotes(Set.of("nexo"))).containsOnlyKeys("NEXO");
+
+        InOrder order = inOrder(priceProvider);
+        order.verify(priceProvider).learnCryptoTickers(Set.of("NEXO"));
+        order.verify(priceProvider).supportsCrypto("NEXO");
+    }
+
+    @Test
+    void cryptoRefresh_offersTheTickersToTheRegistryFirst_butNeverEurOrBlank() {
+        when(priceProvider.supportsCrypto("NEXO")).thenReturn(true);
+        // refreshPrices has never skipped a blank ticker itself; it is only kept out of learning.
+        when(priceProvider.supportsCrypto(" ")).thenReturn(false);
+        when(priceProvider.getPricesEur(any())).thenReturn(Map.of("NEXO", new BigDecimal("1.20")));
+
+        priceService.refreshCryptoPrices(Set.of("NEXO", "EUR", " "));
+
+        InOrder order = inOrder(priceProvider);
+        order.verify(priceProvider).learnCryptoTickers(Set.of("NEXO"));
+        order.verify(priceProvider).supportsCrypto("NEXO");
+    }
+
+    @Test
+    void cryptoBackfill_andCryptoIntraday_offerTheTickerToTheRegistryFirst() {
+        when(priceProvider.supportsCrypto("NEXO")).thenReturn(false);
+
+        priceService.backfillHistoricalPrices(Set.of("NEXO"), LocalDate.now().minusDays(30), true);
+        priceService.getCryptoIntradayPricesEur("NEXO", java.time.LocalDateTime.now().minusDays(1), java.time.LocalDateTime.now());
+
+        verify(priceProvider, times(2)).learnCryptoTickers(Set.of("NEXO"));
+    }
+
+    @Test
+    void aStockPath_neverOffersTickersToTheRegistry() {
+        when(priceProvider.getPricesEur(any())).thenReturn(Map.of("AAPL", new BigDecimal("200")));
+
+        priceService.getQuotes(Set.of("AAPL"));
+        priceService.refreshPrices(Set.of("AAPL"));
+
+        verify(priceProvider, never()).learnCryptoTickers(any());
+    }
+
+    @Test
+    void aTickerStillUnsupportedAfterLearning_staysUnpriced() {
+        when(priceProvider.supportsCrypto("STX")).thenReturn(false);
+
+        assertThat(priceService.getCryptoQuotes(Set.of("STX"))).isEmpty();
+
+        verify(priceProvider).learnCryptoTickers(Set.of("STX"));
+        verify(priceProvider, never()).getPricesEur(any());
     }
 
     @Test
