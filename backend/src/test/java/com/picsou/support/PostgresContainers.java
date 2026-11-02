@@ -1,7 +1,5 @@
 package com.picsou.support;
 
-import com.picsou.support.PostgresContainers;
-
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -23,6 +21,13 @@ import java.sql.SQLException;
 public final class PostgresContainers {
 
     static final String IMAGE = "postgres:16-alpine";
+
+    static {
+        // docker-java otherwise negotiates down to API 1.32, which Engine >= 28 refuses, and that
+        // reads as "no Docker": the guard below would then skip on a capable host. Surefire sets the
+        // same value; this covers IDE and failsafe runs, which never read the surefire config.
+        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
+    }
 
     private PostgresContainers() {}
 
