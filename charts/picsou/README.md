@@ -468,10 +468,11 @@ The test pod uses `global.imagePullSecrets` and the app's `nodeSelector`,
   its URL in Admin → Settings.
 
 The app has a startup probe on `/actuator/health/liveness` (every 10 s, 30 failures:
-five minutes for the JVM and Flyway). Liveness uses the same endpoint, which ignores
-the database, so an outage never restarts the app. HTTP readiness on
-`/actuator/health` holds traffic during long migrations or database outages.
-The JVM is the container's only process, so the kubelet restarts it when it exits. PostgreSQL
+five minutes for the JVM and Flyway). Flyway runs during startup, so a database that is
+unreachable then fails startup: the JVM exits and the kubelet restarts the container, with
+back-off, until the database answers. Once the app has started, liveness uses the same
+endpoint, which ignores the database, so a later outage does not restart it, and HTTP
+readiness on `/actuator/health` holds traffic until the database is back. PostgreSQL
 has a `pg_isready` startup probe with a ten-minute recovery budget before liveness
 starts. Custom `app.podLabels` cannot override the reserved `app.kubernetes.io/name`,
 `app.kubernetes.io/instance` and `app.kubernetes.io/component` labels on the app or

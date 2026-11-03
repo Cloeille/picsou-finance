@@ -129,11 +129,13 @@ app:
   securityContext:
     allowPrivilegeEscalation: false
 
-  # Liveness and startup use /actuator/health/liveness, which ignores the database: an outage
-  # must not restart the app in a loop. Readiness uses /actuator/health, which covers the
-  # database and holds traffic back until it is up. The startup probe gives the JVM and Flyway
-  # five minutes (30 x 10 s) before liveness starts; the kubelet restarts a container that is
-  # still not live after that, as it restarts one that exits.
+  # Liveness and startup use /actuator/health/liveness, which ignores the database: once the app
+  # has started, an outage must not restart it in a loop. Flyway runs during startup, so a
+  # database that is unreachable then fails startup, the JVM exits and the kubelet restarts the
+  # container (with back-off). Readiness uses /actuator/health, which covers the database and
+  # holds traffic back until it is up. The startup probe gives the JVM and Flyway five minutes
+  # (30 x 10 s) before liveness starts; the kubelet restarts a container that is still not live
+  # after that, as it restarts one that exits.
   startupProbe:
     httpGet:
       path: /actuator/health/liveness

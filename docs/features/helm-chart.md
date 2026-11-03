@@ -136,7 +136,7 @@ helm upgrade
 | Standard sidecars added at publish time, never committed | New sidecars reach the main channel without a chart PR, and CI never writes to the repository | Failing pull requests that add a sidecar; a bot committing to main |
 | Pre-upgrade migration Job with the release CLI | Applies the [migration ADR](../decisions/2026-10-08-rehearse-release-migrations.md): migrate and verify before replacing the API | Relying on startup Flyway only, which fails after the old pod is gone |
 | Bundled `postgres:16-alpine` StatefulSet | Same image as Compose, no dependency on a third-party chart | Bitnami PostgreSQL subchart |
-| Startup and liveness on `/actuator/health/liveness`, readiness on `/actuator/health` | Health includes the database; a database outage must not restart the app in a loop. The liveness group ignores the database, and `SecurityConfig`/`SetupFilter` permit it. The JVM is the only process, so a hung one is now detected (the old TCP check on nginx answered while Java was dead). Startup allows five minutes before liveness starts | Liveness on `/actuator/health`; TCP liveness; no startup probe |
+| Startup and liveness on `/actuator/health/liveness`, readiness on `/actuator/health` | Health includes the database; once the app has started, a database outage must not restart it in a loop. The liveness group ignores the database, and `SecurityConfig`/`SetupFilter` permit it. The JVM is the only process, so a hung one is now detected (the old TCP check on nginx answered while Java was dead). Startup allows five minutes before liveness starts | Liveness on `/actuator/health`; TCP liveness; no startup probe |
 | Startup probe on the bundled PostgreSQL | Crash recovery after an unclean stop can outlast the liveness window; liveness starts once it succeeds | Longer `initialDelaySeconds` on liveness, which would also delay detecting a hung database |
 | `shareProcessNamespace` for `amex-auth` | Equivalent of Compose `init: true`: the pause container reaps orphaned browser processes | Patching the image with an init |
 
@@ -184,10 +184,12 @@ helm upgrade
   is visible through `lookup`, so `helm template --is-upgrade`, client dry-runs and
   `helm diff` remain usable. Use a server dry-run to validate live credentials.
 - **App startup has a five-minute budget.** The default `app.startupProbe` checks
-  `/actuator/health/liveness` every 10 s and allows 30 failures. That endpoint ignores
-  the database, so a database outage at startup does not restart the app; readiness
-  on `/actuator/health` holds traffic instead. Liveness uses the liveness endpoint
-  too. PostgreSQL uses `pg_isready` startup checks every
+  `/actuator/health/liveness` every 10 s and allows 30 failures. Flyway runs during
+  startup: if PostgreSQL is unreachable then, startup fails, the JVM exits and the kubelet
+  restarts the container, with back-off, until the database answers. Once the app has
+  started, the liveness endpoint ignores the database, so an outage does not restart it,
+  and readiness on `/actuator/health` holds traffic instead. Liveness uses the liveness
+  endpoint too. PostgreSQL uses `pg_isready` startup checks every
   ten seconds, with 60 failures allowed before liveness takes over during recovery.
 - **Fullnames must start with a lowercase letter.** Java cannot parse a single-label
   sidecar URL host starting with a digit; rendering fails with a clear error. Set a

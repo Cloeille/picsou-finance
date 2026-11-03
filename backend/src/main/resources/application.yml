@@ -123,8 +123,8 @@ management:
   endpoint:
     health:
       show-details: never
-      # /actuator/health/liveness and /readiness for the Helm probes. Liveness ignores the
-      # database, so an outage does not restart the pod.
+      # /actuator/health/liveness and /readiness for the Helm probes. Once started, liveness
+      # ignores the database, so an outage does not restart the pod.
       probes:
         enabled: true
   info:
