@@ -1,44 +1,127 @@
 package com.picsou.config;
 
+import com.picsou.model.AppUser;
+import com.picsou.model.UserRole;
+import com.picsou.service.SessionIssuer;
+import com.picsou.service.sso.SsoAccountService;
+import com.picsou.service.sso.SsoFlowException;
+import com.picsou.service.sso.SsoIdentity;
 import com.picsou.service.sso.SsoIntent;
+import com.picsou.service.sso.SsoRoleSyncService;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
+import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
+@ExtendWith(MockitoExtension.class)
 class SsoAuthenticationSuccessHandlerTest {
-    @ParameterizedTest
-    @EnumSource(SsoIntent.Kind.class)
-    void everyIntentFailsClosedAndDiscardsHandshake(SsoIntent.Kind kind) throws Exception {
+
+    private static final Instant NOW = Instant.parse("2026-11-03T10:00:00Z");
+
+    @Mock private SsoAccountService ssoAccountService;
+    @Mock private SsoRoleSyncService ssoRoleSyncService;
+    @Mock private SessionIssuer sessionIssuer;
+    @Mock private SsoProperties ssoProperties;
+
+    @BeforeEach
+    void stubGroupsClaim() {
+        SecurityContextHolder.clearContext();
+        lenient().when(ssoProperties.groupsClaim()).thenReturn("groups");
+    }
+
+    private SsoAuthenticationSuccessHandler handler(boolean adminRecoveryEnabled) {
+        return new SsoAuthenticationSuccessHandler(ssoAccountService, ssoRoleSyncService, sessionIssuer,
+            ssoProperties, Clock.fixed(NOW, ZoneOffset.UTC), adminRecoveryEnabled);
+    }
+
+    private static MockHttpServletRequest requestWith(SsoIntent intent) {
         var request = new MockHttpServletRequest();
-        var session = new MockHttpSession();
-        request.setSession(session);
-        var intent = new SsoIntent(kind, "/settings?tab=security", false, null, "token", Instant.EPOCH);
-        var authorization = OAuth2AuthorizationRequest.authorizationCode().authorizationUri("https://idp.test/authorize")
-            .clientId("picsou").attributes(a -> a.put(SsoIntent.ATTRIBUTE, intent)).build();
-        request.setAttribute(SsoAuthorizationRequestRepository.REMOVED_REQUEST_ATTRIBUTE, authorization);
+        request.setSession(new MockHttpSession());
+        if (intent != null) {
+            var authorization = OAuth2AuthorizationRequest.authorizationCode()
+                .authorizationUri("https://idp.test/authorize").clientId("picsou")
+                .attributes(a -> a.put(SsoIntent.ATTRIBUTE, intent)).build();
+            request.setAttribute(SsoAuthorizationRequestRepository.REMOVED_REQUEST_ATTRIBUTE, authorization);
+        }
+        return request;
+    }
+
+    private static SsoIntent loginIntent(String redirect, boolean rememberMe) {
+        return new SsoIntent(SsoIntent.Kind.LOGIN, redirect, rememberMe, null, null, Instant.EPOCH);
+    }
+
+    private static Authentication aliceAuthentication() {
+        Map<String, Object> claims = Map.of(
+            "sub", "alice",
+            "iss", "https://idp.test",
+            "email", "alice@idp.test",
+            "name", "Alice",
+            "preferred_username", "alice@idp.test",
+            "groups", List.of("picsou-admin"));
+        OidcIdToken idToken = new OidcIdToken("id-token", Instant.EPOCH, Instant.EPOCH.plusSeconds(300), claims);
+        OidcUser principal = new DefaultOidcUser(List.of(), idToken, "sub");
+        return new UsernamePasswordAuthenticationToken(principal, null, List.of());
+    }
+
+    private static AppUser user(long id, String username, UserRole role, boolean activated) {
+        return AppUser.builder().id(id).username(username).passwordHash("x").role(role).activated(activated).build();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SsoIntent.Kind.class, names = {"LINK", "REAUTH", "ACTIVATE", "SETUP"})
+    void nonLoginIntentsFailClosedAndDiscardHandshake(SsoIntent.Kind kind) throws Exception {
+        SsoIntent intent = new SsoIntent(kind, "/settings?tab=security", false, null, "token", Instant.EPOCH);
+        var request = requestWith(intent);
+        var session = (MockHttpSession) request.getSession(false);
         var response = new MockHttpServletResponse();
-        new SsoAuthenticationSuccessHandler().onAuthenticationSuccess(request, response, null);
+        handler(false).onAuthenticationSuccess(request, response, null);
         assertThat(response.getRedirectedUrl()).isEqualTo(intent.errorRedirect("IDP_ERROR"));
         assertThat(session.isInvalid()).isTrue();
         assertThat(response.getHeaders("Set-Cookie")).isEmpty();
+        verifyNoInteractions(ssoAccountService, sessionIssuer);
     }
 
     @Test
     void missingIntentExpiresAndInvalidatesSession() throws Exception {
-        var request = new MockHttpServletRequest();
-        var session = new MockHttpSession();
-        request.setSession(session);
+        var request = requestWith(null);
+        var session = (MockHttpSession) request.getSession(false);
         var response = new MockHttpServletResponse();
-        new SsoAuthenticationSuccessHandler().onAuthenticationSuccess(request, response, null);
+        handler(false).onAuthenticationSuccess(request, response, null);
         assertThat(response.getRedirectedUrl()).isEqualTo("/login?ssoError=SESSION_EXPIRED");
         assertThat(session.isInvalid()).isTrue();
     }
@@ -46,7 +129,7 @@ class SsoAuthenticationSuccessHandlerTest {
     @Test
     void missingSessionIsNotCreated() throws Exception {
         var request = new MockHttpServletRequest();
-        new SsoAuthenticationSuccessHandler().onAuthenticationSuccess(request, new MockHttpServletResponse(), null);
+        handler(false).onAuthenticationSuccess(request, new MockHttpServletResponse(), null);
         assertThat(request.getSession(false)).isNull();
     }
 
@@ -60,6 +143,113 @@ class SsoAuthenticationSuccessHandlerTest {
         new SsoAuthenticationFailureHandler().onAuthenticationFailure(request, response,
             new OAuth2AuthenticationException(new OAuth2Error(error, "untrusted\r\ndescription", null)));
         assertThat(response.getRedirectedUrl()).isEqualTo("/login?ssoError=" + expected);
+        assertThat(session.isInvalid()).isTrue();
+    }
+
+    @Test
+    void resolvedLoginSyncsRoleThenIssuesSessionWithSsoClockAndRedirectsToSsoComplete() throws Exception {
+        SsoIntent intent = loginIntent("/accounts", true);
+        var request = requestWith(intent);
+        var session = (MockHttpSession) request.getSession(false);
+        var response = new MockHttpServletResponse();
+        AppUser alice = user(1, "alice", UserRole.ADMIN, true);
+        when(ssoAccountService.resolveLogin(any(), eq(request)))
+            .thenReturn(new SsoAccountService.LoginOutcome.Resolved(alice, false));
+
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+
+        ArgumentCaptor<SsoIdentity> identity = ArgumentCaptor.forClass(SsoIdentity.class);
+        verify(ssoAccountService).resolveLogin(identity.capture(), eq(request));
+        assertThat(identity.getValue().subject()).isEqualTo("alice");
+        assertThat(identity.getValue().groups()).contains(Set.of("picsou-admin"));
+        InOrder order = inOrder(ssoRoleSyncService, sessionIssuer);
+        order.verify(ssoRoleSyncService).sync(alice, Optional.of(Set.of("picsou-admin")), request);
+        order.verify(sessionIssuer).issue(alice, true, false, NOW, request, response);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/login/sso-complete?redirect=%2Faccounts");
+        assertThat(session.isInvalid()).isTrue();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true", "false"})
+    void rememberMeIsPassedThroughAndSeriesIsNeverTrustedFor2fa(boolean rememberMe) throws Exception {
+        var request = requestWith(loginIntent("/accounts", rememberMe));
+        var response = new MockHttpServletResponse();
+        AppUser alice = user(1, "alice", UserRole.ADMIN, true);
+        when(ssoAccountService.resolveLogin(any(), eq(request)))
+            .thenReturn(new SsoAccountService.LoginOutcome.Resolved(alice, true));
+
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+
+        verify(sessionIssuer).issue(alice, rememberMe, false, NOW, request, response);
+    }
+
+    @Test
+    void oauth2TargetRedirectsStraightToTheAuthorizationServer() throws Exception {
+        SsoIntent intent = loginIntent("/oauth2/authorize?client_id=x", false);
+        var request = requestWith(intent);
+        var response = new MockHttpServletResponse();
+        AppUser alice = user(1, "alice", UserRole.ADMIN, true);
+        when(ssoAccountService.resolveLogin(any(), eq(request)))
+            .thenReturn(new SsoAccountService.LoginOutcome.Resolved(alice, false));
+
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+
+        assertThat(response.getRedirectedUrl()).isEqualTo("/oauth2/authorize?client_id=x");
+    }
+
+    @Test
+    void refusedRedirectsWithTheRefusalCodeAndIssuesNoSession() throws Exception {
+        SsoIntent intent = loginIntent("/settings", false);
+        var request = requestWith(intent);
+        var session = (MockHttpSession) request.getSession(false);
+        var response = new MockHttpServletResponse();
+        when(ssoAccountService.resolveLogin(any(), eq(request)))
+            .thenReturn(new SsoAccountService.LoginOutcome.Refused("NOT_LINKED"));
+
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+
+        assertThat(response.getRedirectedUrl()).isEqualTo(intent.errorRedirect("NOT_LINKED"));
+        verify(ssoRoleSyncService, never()).sync(any(), any(), any());
+        verifyNoInteractions(sessionIssuer);
+        assertThat(session.isInvalid()).isTrue();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "MEMBER,false,ACCOUNT_INACTIVE",
+        "ADMIN,false,ACCOUNT_INACTIVE",
+        "MEMBER,true,ACCOUNT_INACTIVE",
+        "ADMIN,true,ADMIN_RECOVERY_ACTIVE"})
+    void inactiveAccountFollowsTheAuthControllerRecoveryRule(UserRole role, boolean recovery, String code)
+            throws Exception {
+        SsoIntent intent = loginIntent("/settings", false);
+        var request = requestWith(intent);
+        var response = new MockHttpServletResponse();
+        when(ssoAccountService.resolveLogin(any(), eq(request)))
+            .thenReturn(new SsoAccountService.LoginOutcome.Resolved(user(2, "bob", role, false), false));
+
+        handler(recovery).onAuthenticationSuccess(request, response, aliceAuthentication());
+
+        assertThat(response.getRedirectedUrl()).isEqualTo(intent.errorRedirect(code));
+        verify(ssoRoleSyncService, never()).sync(any(), any(), any());
+        verifyNoInteractions(sessionIssuer);
+    }
+
+    @Test
+    void flowExceptionMapsToItsCodeAndStillDiscardsHandshake() throws Exception {
+        SsoIntent intent = loginIntent("/accounts", false);
+        var request = requestWith(intent);
+        var session = (MockHttpSession) request.getSession(false);
+        var response = new MockHttpServletResponse();
+        when(ssoAccountService.resolveLogin(any(), eq(request)))
+            .thenReturn(new SsoAccountService.LoginOutcome.Resolved(user(1, "alice", UserRole.ADMIN, true), false));
+        when(ssoRoleSyncService.sync(any(), any(), any())).thenThrow(new SsoFlowException("REAUTH_REQUIRED"));
+
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+
+        assertThat(response.getRedirectedUrl()).isEqualTo(intent.errorRedirect("REAUTH_REQUIRED"));
+        verifyNoInteractions(sessionIssuer);
         assertThat(session.isInvalid()).isTrue();
     }
 }

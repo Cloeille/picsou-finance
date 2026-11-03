@@ -98,6 +98,10 @@ class SsoSecurityConfigTest {
     abstract static class SsoFixture extends ApiFixture {
         @MockitoBean SsoClientRegistrationRepository repository;
         @MockitoBean SetupService setupService;
+        @MockitoBean com.picsou.service.sso.SsoAccountService ssoAccountService;
+        @MockitoBean com.picsou.service.sso.SsoRoleSyncService ssoRoleSyncService;
+        @MockitoBean com.picsou.service.SessionIssuer sessionIssuer;
+        @MockitoBean SsoProperties ssoProperties;
 
         @BeforeEach
         void provider() {
