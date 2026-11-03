@@ -3,6 +3,7 @@ package com.picsou.config;
 import com.picsou.service.SetupService;
 import com.picsou.service.ReAuthService;
 import com.picsou.model.AppUser;
+import com.picsou.repository.AppUserRepository;
 import jakarta.servlet.http.Cookie;
 import java.util.Optional;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -34,6 +35,7 @@ class SsoStartGuardFilterTest {
     @Mock SetupService setup;
     @Mock JwtTokenAuthenticator authenticator;
     @Mock ReAuthService reAuthService;
+    @Mock AppUserRepository userRepository;
     private final Map<String, Bucket> buckets = new HashMap<>();
     private SsoStartGuardFilter guard;
     private final MockHttpServletResponse response = new MockHttpServletResponse();
@@ -43,7 +45,7 @@ class SsoStartGuardFilterTest {
     @BeforeEach
     void createGuard() {
         guard = new SsoStartGuardFilter(repository, setup, buckets, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC),
-            authenticator, reAuthService);
+            authenticator, reAuthService, userRepository);
         request.setRemoteAddr("192.0.2.1");
     }
 
@@ -100,7 +102,7 @@ class SsoStartGuardFilterTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"unknown", "activate", "setup"})
+    @ValueSource(strings = {"unknown", "setup"})
     void unsupportedIntentFailsClosed(String intent) throws Exception {
         request.addParameter("intent", intent);
         if (!intent.equals("unknown")) {
@@ -163,6 +165,72 @@ class SsoStartGuardFilterTest {
         request.addParameter("redirect", "/settings?resume=link");
         guard.doFilter(request, response, chain);
         assertThat(response.getRedirectedUrl()).isEqualTo("/settings?resume=link&ssoError=REAUTH_REQUIRED");
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    private static AppUser invited(Instant expires) {
+        return AppUser.builder().id(9L).activationToken("tok").activationTokenExpires(expires).build();
+    }
+
+    @Test
+    void activateStoresTheTokenWithoutASignedInUser() throws Exception {
+        when(repository.isAvailable()).thenReturn(true);
+        when(userRepository.findByActivationToken("tok")).thenReturn(Optional.of(invited(Instant.EPOCH.plusSeconds(60))));
+        request.addParameter("intent", "activate");
+        request.addParameter("token", "tok");
+        request.addParameter("ack", "1");
+        request.addParameter("rememberMe", "1");
+        guard.doFilter(request, response, chain);
+        assertThat(chain.getRequest()).isSameAs(request);
+        assertThat(request.getAttribute(SsoIntent.ATTRIBUTE)).isEqualTo(new SsoIntent(
+            SsoIntent.Kind.ACTIVATE, "/", true, null, "tok", Instant.EPOCH));
+        verifyNoInteractions(authenticator);
+    }
+
+    @Test
+    void activateWithNoExpiryIsAccepted() throws Exception {
+        when(repository.isAvailable()).thenReturn(true);
+        when(userRepository.findByActivationToken("tok")).thenReturn(Optional.of(invited(null)));
+        request.addParameter("intent", "activate");
+        request.addParameter("token", "tok");
+        request.addParameter("ack", "1");
+        guard.doFilter(request, response, chain);
+        assertThat(chain.getRequest()).isSameAs(request);
+    }
+
+    @Test
+    void activateRefusesAnUnknownToken() throws Exception {
+        when(repository.isAvailable()).thenReturn(true);
+        when(userRepository.findByActivationToken("tok")).thenReturn(Optional.empty());
+        request.addParameter("intent", "activate");
+        request.addParameter("token", "tok");
+        request.addParameter("ack", "1");
+        guard.doFilter(request, response, chain);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/activate/tok?ssoError=ACTIVATION_INVALID");
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
+    void activateRefusesAnExpiredToken() throws Exception {
+        when(repository.isAvailable()).thenReturn(true);
+        when(userRepository.findByActivationToken("tok")).thenReturn(Optional.of(invited(Instant.EPOCH.minusSeconds(1))));
+        request.addParameter("intent", "activate");
+        request.addParameter("token", "tok");
+        request.addParameter("ack", "1");
+        guard.doFilter(request, response, chain);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/activate/tok?ssoError=ACTIVATION_INVALID");
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "0", "true"})
+    void activateRefusesWhenTheWarningIsNotAcknowledged(String ack) throws Exception {
+        when(repository.isAvailable()).thenReturn(true);
+        request.addParameter("intent", "activate");
+        request.addParameter("token", "tok");
+        if (!ack.isEmpty()) request.addParameter("ack", ack);
+        guard.doFilter(request, response, chain);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/activate/tok?ssoError=ACTIVATION_INVALID");
         assertThat(chain.getRequest()).isNull();
     }
 }

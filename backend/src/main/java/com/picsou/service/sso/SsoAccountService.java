@@ -8,6 +8,8 @@ import com.picsou.model.UserRole;
 import com.picsou.repository.AppUserRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.UserIdentityRepository;
+import com.picsou.service.ActivationService;
+import com.picsou.service.MfaService;
 import com.picsou.service.SetupAuditService;
 import com.picsou.service.SetupService;
 import com.picsou.service.UsernameDeriver;
@@ -48,6 +50,8 @@ public class SsoAccountService {
     private final UsernameDeriver usernameDeriver;
     private final SsoProperties ssoProperties;
     private final Clock clock;
+    private final ActivationService activationService;
+    private final MfaService mfaService;
 
     public SsoAccountService(UserIdentityRepository identityRepository,
                              AppUserRepository userRepository,
@@ -56,7 +60,9 @@ public class SsoAccountService {
                              SetupAuditService auditService,
                              UsernameDeriver usernameDeriver,
                              SsoProperties ssoProperties,
-                             Clock clock) {
+                             Clock clock,
+                             ActivationService activationService,
+                             MfaService mfaService) {
         this.identityRepository = identityRepository;
         this.userRepository = userRepository;
         this.memberRepository = memberRepository;
@@ -65,6 +71,8 @@ public class SsoAccountService {
         this.usernameDeriver = usernameDeriver;
         this.ssoProperties = ssoProperties;
         this.clock = clock;
+        this.activationService = activationService;
+        this.mfaService = mfaService;
     }
 
     @Transactional
@@ -145,6 +153,32 @@ public class SsoAccountService {
             .email(truncate(identity.email(), MAX_EMAIL))
             .displayName(truncate(identity.displayName(), MAX_IDENTITY_NAME))
             .build());
+        return user;
+    }
+
+    /**
+     * Activates an invited account and binds the IdP identity to it in one transaction, so a failure
+     * never leaves an activated account without a sign-in method. The account is found by its
+     * invitation token only, never by the identity's email or username.
+     */
+    @Transactional
+    public AppUser activateWithIdentity(String token, SsoIdentity identity, HttpServletRequest request) {
+        AppUser user = userRepository.findByActivationToken(token == null ? "" : token)
+            .filter(invited -> invited.getActivationTokenExpires() == null
+                || !invited.getActivationTokenExpires().isBefore(clock.instant()))
+            .orElseThrow(() -> new SsoFlowException("ACTIVATION_INVALID"));
+        identityRepository.findByIssuerAndSubject(identity.issuer(), identity.subject())
+            .filter(row -> !row.getUser().getId().equals(user.getId()))
+            .ifPresent(row -> {
+                throw new SsoFlowException("IDENTITY_IN_USE");
+            });
+        activationService.complete(user, "", request);
+        if (mfaService.isEnabled(user)) {
+            // Picsou's TOTP only protects a password, and an SSO-activated account has none.
+            mfaService.disable(user);
+        }
+        link(user.getId(), identity);
+        touchLogin(identity);
         return user;
     }
 

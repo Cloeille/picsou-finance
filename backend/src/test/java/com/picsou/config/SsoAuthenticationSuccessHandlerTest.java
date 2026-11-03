@@ -115,8 +115,8 @@ class SsoAuthenticationSuccessHandlerTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SsoIntent.Kind.class, names = {"ACTIVATE", "SETUP"})
-    void nonLoginIntentsFailClosedAndDiscardHandshake(SsoIntent.Kind kind) throws Exception {
+    @EnumSource(value = SsoIntent.Kind.class, names = {"SETUP"})
+    void setupIntentFailsClosedAndDiscardsHandshake(SsoIntent.Kind kind) throws Exception {
         SsoIntent intent = new SsoIntent(kind, "/settings?tab=security", false, null, "token", Instant.EPOCH);
         var request = requestWith(intent);
         var session = (MockHttpSession) request.getSession(false);
@@ -366,7 +366,8 @@ class SsoAuthenticationSuccessHandlerTest {
         when(repository.isAvailable()).thenReturn(true);
         request.addParameter("intent", "link");
         var guard = new SsoStartGuardFilter(repository, org.mockito.Mockito.mock(com.picsou.service.SetupService.class),
-            new HashMap<>(), Clock.fixed(NOW, ZoneOffset.UTC), authenticator, reAuthService);
+            new HashMap<>(), Clock.fixed(NOW, ZoneOffset.UTC), authenticator, reAuthService,
+            org.mockito.Mockito.mock(com.picsou.repository.AppUserRepository.class));
         guard.doFilter(request, new MockHttpServletResponse(), new org.springframework.mock.web.MockFilterChain());
         var intent = (SsoIntent) request.getAttribute(SsoIntent.ATTRIBUTE);
         assertThat(intent).isNotNull();
@@ -395,5 +396,43 @@ class SsoAuthenticationSuccessHandlerTest {
         if (age >= 0) claims.put("auth_time", NOW.minusSeconds(age));
         var token = new OidcIdToken("id-token", NOW.minusSeconds(900), NOW.plusSeconds(300), claims);
         return new UsernamePasswordAuthenticationToken(new DefaultOidcUser(List.of(), token, "sub"), null);
+    }
+
+    private static SsoIntent activateIntent(boolean rememberMe) {
+        return new SsoIntent(SsoIntent.Kind.ACTIVATE, "/", rememberMe, null, "tok", Instant.EPOCH);
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void activateIssuesTheSessionAndClearsTheStalePersistentCookieUnlessRemembered(boolean rememberMe) throws Exception {
+        var request = requestWith(activateIntent(rememberMe));
+        var response = new MockHttpServletResponse();
+        AppUser dora = user(9L, "dora", UserRole.MEMBER, true);
+        when(ssoAccountService.activateWithIdentity(eq("tok"), any(SsoIdentity.class), eq(request))).thenReturn(dora);
+
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+
+        assertThat(response.getRedirectedUrl()).isEqualTo("/login/sso-complete?redirect=%2F");
+        InOrder order = inOrder(ssoAccountService, ssoRoleSyncService, sessionIssuer);
+        order.verify(ssoAccountService).activateWithIdentity(eq("tok"), any(SsoIdentity.class), eq(request));
+        order.verify(ssoRoleSyncService).sync(eq(dora), any(), eq(request));
+        order.verify(sessionIssuer).issue(dora, rememberMe, false, NOW, request, response);
+        verify(cookieWriter, rememberMe ? never() : org.mockito.Mockito.times(1)).clearPersistent(response);
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"ACTIVATION_INVALID", "IDENTITY_IN_USE"})
+    void activateRefusalRedirectsToTheActivationPageWithoutASession(String code) throws Exception {
+        var request = requestWith(activateIntent(true));
+        var session = (MockHttpSession) request.getSession(false);
+        var response = new MockHttpServletResponse();
+        when(ssoAccountService.activateWithIdentity(eq("tok"), any(SsoIdentity.class), eq(request)))
+            .thenThrow(new SsoFlowException(code));
+
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+
+        assertThat(response.getRedirectedUrl()).isEqualTo("/activate/tok?ssoError=" + code);
+        assertThat(session.isInvalid()).isTrue();
+        verifyNoInteractions(sessionIssuer, ssoRoleSyncService);
     }
 }

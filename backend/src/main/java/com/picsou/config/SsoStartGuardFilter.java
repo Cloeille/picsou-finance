@@ -3,6 +3,7 @@ package com.picsou.config;
 import com.picsou.service.SetupService;
 import com.picsou.service.ReAuthService;
 import com.picsou.model.AppUser;
+import com.picsou.repository.AppUserRepository;
 import jakarta.servlet.http.Cookie;
 import org.springframework.web.util.WebUtils;
 import com.picsou.service.sso.SsoIntent;
@@ -23,16 +24,19 @@ public class SsoStartGuardFilter extends OncePerRequestFilter {
     private final Clock clock;
     private final JwtTokenAuthenticator authenticator;
     private final ReAuthService reAuthService;
+    private final AppUserRepository userRepository;
 
     public SsoStartGuardFilter(SsoClientRegistrationRepository repository, SetupService setupService,
                                Map<String, Bucket> buckets, Clock clock,
-                               JwtTokenAuthenticator authenticator, ReAuthService reAuthService) {
+                               JwtTokenAuthenticator authenticator, ReAuthService reAuthService,
+                               AppUserRepository userRepository) {
         this.repository = repository;
         this.setupService = setupService;
         this.buckets = buckets;
         this.clock = clock;
         this.authenticator = authenticator;
         this.reAuthService = reAuthService;
+        this.userRepository = userRepository;
     }
 
     @Override
@@ -74,7 +78,7 @@ public class SsoStartGuardFilter extends OncePerRequestFilter {
             case SETUP -> "/setup/admin";
         };
         String activationToken = switch (kind) {
-            case ACTIVATE -> request.getParameter("activationToken") == null ? "" : request.getParameter("activationToken");
+            case ACTIVATE -> request.getParameter("token") == null ? "" : request.getParameter("token");
             case LOGIN, LINK, REAUTH, SETUP -> null;
         };
         SsoIntent intent = new SsoIntent(kind, SafeRedirect.sanitize(request.getParameter("redirect"), fallback),
@@ -109,7 +113,18 @@ public class SsoStartGuardFilter extends OncePerRequestFilter {
                     return;
                 }
             }
-            case ACTIVATE, SETUP -> {
+            case ACTIVATE -> {
+                boolean valid = "1".equals(request.getParameter("ack"))
+                    && userRepository.findByActivationToken(intent.activationToken())
+                        .filter(invited -> invited.getActivationTokenExpires() == null
+                            || !invited.getActivationTokenExpires().isBefore(clock.instant()))
+                        .isPresent();
+                if (!valid) {
+                    response.sendRedirect(intent.errorRedirect("ACTIVATION_INVALID"));
+                    return;
+                }
+            }
+            case SETUP -> {
                 response.sendRedirect(intent.errorRedirect("IDP_ERROR"));
                 return;
             }

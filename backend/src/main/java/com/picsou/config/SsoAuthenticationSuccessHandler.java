@@ -87,7 +87,8 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
             target = switch (intent == null ? null : intent.kind()) {
                 case LOGIN -> login(request, response, authentication, intent);
                 case REAUTH, LINK -> signedInIntent(request, response, authentication, intent);
-                case ACTIVATE, SETUP -> intent.errorRedirect("IDP_ERROR");
+                case ACTIVATE -> activate(request, response, authentication, intent);
+                case SETUP -> intent.errorRedirect("IDP_ERROR");
                 case null -> SsoIntent.loginError("SESSION_EXPIRED");
             };
         } catch (SsoFlowException e) {
@@ -121,6 +122,20 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
                     : COMPLETE_TARGET + URLEncoder.encode(redirect, StandardCharsets.UTF_8);
             }
         };
+    }
+
+    private String activate(HttpServletRequest request, HttpServletResponse response,
+                            Authentication authentication, SsoIntent intent) {
+        SsoIdentity identity = SsoIdentity.from((OidcUser) authentication.getPrincipal(), ssoProperties.groupsClaim());
+        AppUser user = ssoAccountService.activateWithIdentity(intent.activationToken(), identity, request);
+        ssoRoleSyncService.sync(user, identity.groups(), request);
+        sessionIssuer.issue(user, intent.rememberMe(), false, clock.instant(), request, response);
+        if (!intent.rememberMe()) {
+            // Activation revoked every persistent series of the account, so drop this browser's stale cookie.
+            cookieWriter.clearPersistent(response);
+        }
+        log.info("SSO activation user={}", LogSanitizer.safe(user.getUsername()));
+        return COMPLETE_TARGET + URLEncoder.encode(intent.redirect(), StandardCharsets.UTF_8);
     }
 
     private String signedInIntent(HttpServletRequest request, HttpServletResponse response,

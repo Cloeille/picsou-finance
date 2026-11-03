@@ -15,9 +15,9 @@ import com.picsou.model.AppUser;
 import com.picsou.repository.AppUserRepository;
 import com.picsou.model.UserRole;
 import com.picsou.service.MfaService;
+import com.picsou.service.ActivationService;
 import com.picsou.service.PersistentSessionService;
 import com.picsou.service.SessionIssuer;
-import com.picsou.service.SetupAuditService;
 import io.github.bucket4j.Bucket;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
@@ -61,7 +61,7 @@ public class AuthController {
     private final PersistentSessionService persistentSessionService;
     private final SessionIssuer sessionIssuer;
     private final SsoProperties ssoProperties;
-    private final SetupAuditService auditService;
+    private final ActivationService activationService;
     private final Clock clock;
     private final ObjectProvider<SsoClientRegistrationRepository> registrations;
     private final boolean adminRecoveryEnabled;
@@ -86,7 +86,7 @@ public class AuthController {
         PersistentSessionService persistentSessionService,
         SessionIssuer sessionIssuer,
         SsoProperties ssoProperties,
-        SetupAuditService auditService,
+        ActivationService activationService,
         Clock clock,
         ObjectProvider<SsoClientRegistrationRepository> registrations,
         @org.springframework.beans.factory.annotation.Value("${app.admin-recovery.enabled:false}") boolean adminRecoveryEnabled,
@@ -102,7 +102,7 @@ public class AuthController {
         this.persistentSessionService = persistentSessionService;
         this.sessionIssuer = sessionIssuer;
         this.ssoProperties = ssoProperties;
-        this.auditService = auditService;
+        this.activationService = activationService;
         this.clock = clock;
         this.registrations = registrations;
         this.adminRecoveryEnabled = adminRecoveryEnabled;
@@ -476,27 +476,7 @@ public class AuthController {
                 .body(Map.of("error", "You must acknowledge the data access warning"));
         }
 
-        user.setPasswordHash(passwordEncoder.encode(req.password()));
-        user.setActivationToken(null);
-        user.setActivationTokenExpires(null);
-        user.setActivated(true);
-        user.setAcknowledgedWarning(true);
-        // This endpoint is the shared sink for new-member activation AND
-        // admin-initiated password resets (FamilyService.resetPasswordToken issues
-        // the token; the member then activates here) AND admin-recovery completion.
-        // A reset may be a response to a compromise, so — exactly like the
-        // self-service change-password flow — invalidate every outstanding session:
-        // bump tokenVersion to revoke all access/refresh JWTs, and wipe the user's
-        // Remember-Me persistent sessions. Without this, an attacker's pre-existing
-        // tokens/cookies would survive an admin password reset (CWE-613/640).
-        user.setTokenVersion(user.getTokenVersion() + 1);
-        userRepository.save(user);
-
-        persistentSessionService.revokeAllForUser(user.getId());
-
-        if (user.getRole() == UserRole.ADMIN) {
-            auditService.record("admin.recovery.completed", user.getUsername(), httpReq, null);
-        }
+        activationService.complete(user, passwordEncoder.encode(req.password()), httpReq);
 
         return ResponseEntity.ok(Map.of("message", "Account activated successfully"));
     }

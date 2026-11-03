@@ -16,6 +16,7 @@ import com.picsou.model.FamilyMember;
 import com.picsou.model.UserRole;
 import com.picsou.repository.AppUserRepository;
 import com.picsou.service.MfaService;
+import com.picsou.service.ActivationService;
 import com.picsou.service.PersistentSessionService;
 import com.picsou.service.SessionIssuer;
 import com.picsou.service.SetupAuditService;
@@ -99,7 +100,7 @@ class AuthControllerTest {
         return new AuthController(
             userRepository, passwordEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService), new SsoProperties(), auditService,
+            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService),
             Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, adminRecoveryEnabled,
             loginRateLimitEnabled
         );
@@ -285,7 +286,7 @@ class AuthControllerTest {
         AuthController timingController = new AuthController(
             userRepository, realEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService), new SsoProperties(), auditService,
+            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService),
             Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, false, true);
 
         // Path A — the username does not exist: there is no stored hash to compare,
@@ -337,7 +338,7 @@ class AuthControllerTest {
         AuthController timingController = new AuthController(
             userRepository, realEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService), new SsoProperties(), auditService,
+            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService),
             Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, false, true);
 
         AppUser pending = AppUser.builder()
@@ -380,7 +381,7 @@ class AuthControllerTest {
         AuthController spoofTestController = new AuthController(
             userRepository, passwordEncoder, jwtUtil,
             mockedLoginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService), new SsoProperties(), auditService,
+            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService),
             Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, false, true);
 
         MockHttpServletRequest firstCall = new MockHttpServletRequest();
@@ -484,7 +485,7 @@ class AuthControllerTest {
         AuthCookieWriter writer = new AuthCookieWriter(mock(SecureCookieProvider.class), jwt);
         return new AuthController(userRepository, passwordEncoder, jwt, loginBuckets, mfaVerifyBuckets,
             writer, mfaService, persistentSessionService, new SessionIssuer(jwt, writer, persistentSessionService),
-            properties, auditService, Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, false, true);
+            properties, new ActivationService(userRepository, persistentSessionService, auditService), Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, false, true);
     }
 
     private String authorizationServerToken() {
@@ -586,7 +587,7 @@ class AuthControllerTest {
         AuthCookieWriter writer = new AuthCookieWriter(mock(SecureCookieProvider.class), jwt);
         AuthController real = new AuthController(userRepository, passwordEncoder, jwt, loginBuckets, mfaVerifyBuckets,
             writer, mfaService, persistentSessionService, new SessionIssuer(jwt, writer, persistentSessionService),
-            properties, auditService, Clock.fixed(SSO_AT, ZoneOffset.UTC), registrations, false, true);
+            properties, new ActivationService(userRepository, persistentSessionService, auditService), Clock.fixed(SSO_AT, ZoneOffset.UTC), registrations, false, true);
         httpReq.setScheme("https");
         httpReq.setServerName("picsou.example");
         httpReq.setServerPort(443);
@@ -671,7 +672,7 @@ class AuthControllerTest {
             AuthCookieWriter writer = new AuthCookieWriter(mock(SecureCookieProvider.class), jwt);
             AuthController real = new AuthController(userRepository, passwordEncoder, jwt, loginBuckets, mfaVerifyBuckets,
                 writer, mfaService, persistentSessionService, new SessionIssuer(jwt, writer, persistentSessionService),
-                properties, auditService, clock, registrations, false, true);
+                properties, new ActivationService(userRepository, persistentSessionService, auditService), clock, registrations, false, true);
             httpReq.setCookies(new Cookie("refresh_token", jwt.generateRefreshToken(user(true), null, SSO_AT)));
 
             ResponseEntity<?> result = real.logout(httpReq, httpRes);

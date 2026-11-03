@@ -8,6 +8,8 @@ import com.picsou.model.UserRole;
 import com.picsou.repository.AppUserRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.UserIdentityRepository;
+import com.picsou.service.ActivationService;
+import com.picsou.service.MfaService;
 import com.picsou.service.SetupAuditService;
 import com.picsou.service.SetupService;
 import com.picsou.service.UsernameDeriver;
@@ -49,13 +51,16 @@ class SsoAccountServiceTest {
     @Mock SetupAuditService auditService;
     @Mock UsernameDeriver usernameDeriver;
     @Mock SsoProperties ssoProperties;
+    @Mock ActivationService activationService;
+    @Mock MfaService mfaService;
 
     private SsoAccountService service;
 
     @BeforeEach
     void setUp() {
         service = new SsoAccountService(userIdentityRepository, appUserRepository, familyMemberRepository,
-            setupService, auditService, usernameDeriver, ssoProperties, Clock.fixed(NOW, ZoneOffset.UTC));
+            setupService, auditService, usernameDeriver, ssoProperties, Clock.fixed(NOW, ZoneOffset.UTC),
+            activationService, mfaService);
         lenient().when(ssoProperties.adminGroupManaged()).thenReturn(true);
         lenient().when(ssoProperties.adminGroup()).thenReturn("picsou-admins");
         lenient().when(setupService.isComplete()).thenReturn(true);
@@ -239,5 +244,67 @@ class SsoAccountServiceTest {
     @Test
     void unlinkedIdentityDoesNotBelongToUser() {
         assertThat(service.isLinkedTo(identity("alice", "alice@home.example", null), 1L)).isFalse();
+    }
+
+    private AppUser invited(Instant expires) {
+        AppUser dora = user(9L, "dora");
+        dora.setActivationToken("tok");
+        dora.setActivationTokenExpires(expires);
+        return dora;
+    }
+
+    @Test
+    void activateWithIdentityActivatesPasswordlessAndLinksTheIdentity() {
+        AppUser dora = invited(NOW.plusSeconds(60));
+        when(appUserRepository.findByActivationToken("tok")).thenReturn(Optional.of(dora));
+        when(userIdentityRepository.findByIssuerAndSubject(ISSUER, "sub-1")).thenReturn(Optional.empty());
+        when(appUserRepository.findByIdWithMember(9L)).thenReturn(Optional.of(dora));
+
+        AppUser result = service.activateWithIdentity("tok", identity("a", "a@x.io", Set.of()), null);
+
+        assertThat(result).isSameAs(dora);
+        var order = org.mockito.Mockito.inOrder(activationService, userIdentityRepository);
+        order.verify(activationService).complete(dora, "", null);
+        order.verify(userIdentityRepository).save(any(UserIdentity.class));
+        verify(mfaService, never()).disable(any());
+    }
+
+    @Test
+    void activateWithIdentityDisablesTwoFactor() {
+        AppUser dora = invited(null);
+        when(appUserRepository.findByActivationToken("tok")).thenReturn(Optional.of(dora));
+        when(userIdentityRepository.findByIssuerAndSubject(ISSUER, "sub-1")).thenReturn(Optional.empty());
+        when(appUserRepository.findByIdWithMember(9L)).thenReturn(Optional.of(dora));
+        when(mfaService.isEnabled(dora)).thenReturn(true);
+
+        service.activateWithIdentity("tok", identity("a", "a@x.io", Set.of()), null);
+
+        verify(mfaService).disable(dora);
+    }
+
+    @Test
+    void activateWithIdentityRefusesAnIdentityLinkedElsewhereAndLeavesTheAccountUntouched() {
+        AppUser dora = invited(NOW.plusSeconds(60));
+        UserIdentity alice = UserIdentity.builder().user(user(1L, "alice")).issuer(ISSUER).subject("sub-1").build();
+        when(appUserRepository.findByActivationToken("tok")).thenReturn(Optional.of(dora));
+        when(userIdentityRepository.findByIssuerAndSubject(ISSUER, "sub-1")).thenReturn(Optional.of(alice));
+
+        assertThatThrownBy(() -> service.activateWithIdentity("tok", identity("a", "a@x.io", Set.of()), null))
+            .isInstanceOfSatisfying(SsoFlowException.class, e -> assertThat(e.code()).isEqualTo("IDENTITY_IN_USE"));
+
+        verify(activationService, never()).complete(any(), any(), any());
+        verify(mfaService, never()).disable(any());
+    }
+
+    @Test
+    void activateWithIdentityRefusesUnknownOrExpiredTokens() {
+        when(appUserRepository.findByActivationToken("gone")).thenReturn(Optional.empty());
+        when(appUserRepository.findByActivationToken("old")).thenReturn(Optional.of(invited(NOW.minusSeconds(1))));
+
+        for (String token : new String[] {"gone", "old"}) {
+            assertThatThrownBy(() -> service.activateWithIdentity(token, identity("a", "a@x.io", Set.of()), null))
+                .isInstanceOfSatisfying(SsoFlowException.class, e -> assertThat(e.code()).isEqualTo("ACTIVATION_INVALID"));
+        }
+        verify(activationService, never()).complete(any(), any(), any());
     }
 }
