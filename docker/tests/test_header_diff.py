@@ -84,6 +84,26 @@ def test_year_long_caching_differences_are_accepted_only_for_unhashed_public_fil
     assert is_accepted("/favicon.svg", "expires: ['<present>'] != absent")
 
 
+def test_content_type_is_accepted_only_for_the_javascript_spelling_change():
+    js = "/assets/index-abc.js"
+    assert is_accepted(js, "content-type: ['application/javascript'] != ['text/javascript']")
+    assert is_accepted(js, "content-type: ['application/javascript;charset=utf-8'] != ['text/javascript;charset=utf-8']")
+    # Any other type on a script path is a regression, not the reviewed change.
+    assert not is_accepted(js, "content-type: ['text/javascript'] != ['text/html']")
+    assert not is_accepted(js, "content-type: ['application/javascript'] != ['text/html']")
+    assert not is_accepted(js, "content-type: ['application/javascript'] != ['text/html;charset=utf-8']")
+    assert not is_accepted(js, "content-type: ['application/javascript'] != absent")
+    assert not is_accepted(js, "content-type: absent != ['text/javascript']")
+    # A charset appearing, vanishing or changing is a different response.
+    assert not is_accepted(js, "content-type: ['application/javascript'] != ['text/javascript;charset=utf-8']")
+    assert not is_accepted(js, "content-type: ['application/javascript;charset=utf-8'] != ['text/javascript']")
+    assert not is_accepted(js, "content-type: ['application/javascript;charset=utf-8'] != ['text/javascript;charset=iso-8859-1']")
+    # Reversed direction: the candidate going back to the old type is not the reviewed change.
+    assert not is_accepted(js, "content-type: ['text/javascript'] != ['application/javascript']")
+    # And only on script paths.
+    assert not is_accepted("/accounts/12", "content-type: ['application/javascript'] != ['text/javascript']")
+
+
 def test_each_deployment_is_asked_for_its_own_bundle(monkeypatch):
     import header_diff
     names = {("http://base", "js"): "/assets/index-AAA.js", ("http://cand", "js"): "/assets/index-BBB.js",

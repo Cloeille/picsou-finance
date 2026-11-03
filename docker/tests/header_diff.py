@@ -26,7 +26,8 @@ ACCEPTED = {
     "accept-ranges": lambda path: not path.startswith(("/api", "/actuator", "/oauth2", "/.well-known", "/mcp")),
     # Spring Security's default value, already sent on every backend response before #342.
     "x-xss-protection": lambda path: not path.startswith(("/api", "/actuator", "/oauth2", "/.well-known", "/mcp")),
-    # RFC 9239 makes text/javascript the registered type; browsers treat both alike.
+    # RFC 9239 makes text/javascript the registered type; browsers treat both alike. Only that
+    # spelling change is accepted, not any other type on a .js path (see is_javascript_type_change).
     "content-type": lambda path: path.endswith(".js"),
     # A missing hashed bundle stays a 404, with Spring's problem body instead of nginx's HTML page.
     "content-encoding": lambda path: path == "/assets/does-not-exist.js",
@@ -99,8 +100,19 @@ def is_accepted(path, line, candidate_hsts_disabled=False):
         return False
     if name == "cache-control" and not line.endswith("!= ['no-cache']"):
         return False
+    if name == "content-type" and not is_javascript_type_change(line):
+        return False
     predicate = ACCEPTED.get(name)
     return predicate is not None and predicate(path)
+
+
+def is_javascript_type_change(line):
+    """True for exactly the reviewed change: application/javascript on the base became
+    text/javascript on the candidate, with the same charset parameter or none. The values are the
+    ones `normalise` produces (lower case, no spaces)."""
+    match = re.fullmatch(
+        r"content-type: \['application/javascript(;charset=[^';]+)?'\] != \['text/javascript(;charset=[^';]+)?'\]", line)
+    return match is not None and match.group(1) == match.group(2)
 
 
 def fetch(base_url, path, headers, read_body=True):
