@@ -33,10 +33,12 @@ dev: db
 # every checkout that uses this database gets the CRYPTO_ENCRYPTION_KEY its data was
 # encrypted with, and recreating the container renews the key with the data.
 db:
-	docker start picsou-db 2>/dev/null || docker run -d --name picsou-db -p 127.0.0.1:5432:5432 \
-	  -e POSTGRES_DB=picsou -e POSTGRES_USER=picsou -e POSTGRES_PASSWORD=picsou \
-	  -e PICSOU_DEV_JWT_SECRET="$$(openssl rand -base64 48)" \
-	  -e PICSOU_DEV_CRYPTO_ENCRYPTION_KEY="$$(openssl rand -base64 32)" postgres:16-alpine
+	@docker start picsou-db 2>/dev/null || { \
+	  jwt=$$(openssl rand -base64 48) && key=$$(openssl rand -base64 32) || exit 1; \
+	  docker run -d --name picsou-db -p 127.0.0.1:5432:5432 \
+	    -e POSTGRES_DB=picsou -e POSTGRES_USER=picsou -e POSTGRES_PASSWORD=picsou \
+	    -e PICSOU_DEV_JWT_SECRET="$$jwt" -e PICSOU_DEV_CRYPTO_ENCRYPTION_KEY="$$key" postgres:16-alpine; \
+	}
 	@for i in $$(seq 30); do \
 	  err=$$(docker exec -e PGPASSWORD=picsou picsou-db sh -c 'psql -h "$$(hostname -i | cut -d" " -f1)" -U picsou -d picsou -Atqc "select 1"' 2>&1) && exit 0; \
 	  sleep 1; \
@@ -50,8 +52,10 @@ dev-backend:
 	@JWT_SECRET="$${JWT_SECRET:-$$(docker exec picsou-db printenv PICSOU_DEV_JWT_SECRET 2>/dev/null)}"; \
 	CRYPTO_ENCRYPTION_KEY="$${CRYPTO_ENCRYPTION_KEY:-$$(docker exec picsou-db printenv PICSOU_DEV_CRYPTO_ENCRYPTION_KEY 2>/dev/null)}"; \
 	if [ -z "$$JWT_SECRET" ] || [ -z "$$CRYPTO_ENCRYPTION_KEY" ]; then \
-	  echo "No dev secrets in picsou-db: run 'make db' first. If it was not created by 'make db', export"; \
-	  echo "JWT_SECRET and CRYPTO_ENCRYPTION_KEY, or 'docker rm -f picsou-db' recreates it (its data is lost)."; \
+	  if ! docker container inspect picsou-db >/dev/null 2>&1; then echo "picsou-db does not exist: run 'make db' first."; exit 1; fi; \
+	  echo "picsou-db holds no dev secrets: 'make db' adds them only when it creates the container."; \
+	  echo "Export the JWT_SECRET and CRYPTO_ENCRYPTION_KEY its data was encrypted with, or"; \
+	  echo "'docker rm -f picsou-db' and 'make db' to start over (its data is lost)."; \
 	  exit 1; \
 	fi; \
 	export JWT_SECRET CRYPTO_ENCRYPTION_KEY; \

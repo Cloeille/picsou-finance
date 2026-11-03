@@ -326,9 +326,10 @@ A new native `<select>` goes through `NativeSelect` (`components/shared/NativeSe
 ## Scripts
 
 Build tools and compiled CSS inputs (`@tailwindcss/vite`, `tailwindcss`,
-`tw-animate-css`, and the `shadcn` CLI) live in `devDependencies`.
+`tw-animate-css`, and the `shadcn` CLI) live in `devDependencies`. The `shadcn` CLI
+has no make target: run it with `bunx shadcn` from `frontend/`.
 
-Run them through `make dev`, `make test-frontend`, `make test-e2e` and `make format`
+Develop, test and format through `make dev`, `make test-frontend`, `make test-e2e` and `make format`
 (Prettier), listed in [`CONTRIBUTING.md`](../../CONTRIBUTING.md#commands). Vitest picks up
 `src/**/*.{test,spec}.{ts,tsx}`, Playwright `e2e/*.spec.ts`.
 
