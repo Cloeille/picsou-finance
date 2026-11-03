@@ -91,9 +91,11 @@ spring:
 
 server:
   port: 8080
-  # Tomcat is the edge of the container. It takes forwarded addresses and the public origin only
-  # from PICSOU_PROXY_IP (TrustedProxyBootstrap sets internal-proxies from it, and to match
-  # nothing when it is unset). Do not use Tomcat's broad private-network proxy defaults.
+  # Tomcat is the edge of the container. It takes the client address (X-Forwarded-For) only from
+  # PICSOU_PROXY_IP, or from an explicit server.tomcat.remoteip.internal-proxies (see
+  # TrustedProxyBootstrap); with neither it trusts nobody, not Tomcat's private-network default.
+  # The public origin (X-Forwarded-Proto/Host/Port) is applied from any peer by
+  # ForwardedOriginCustomizer, as the bundled nginx did.
   # All rate limiters and audit readers share this container-resolved remote address.
   forward-headers-strategy: native
   tomcat:

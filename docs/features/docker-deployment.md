@@ -270,7 +270,7 @@ publishes nothing and `application.yml`'s default `picsou` applies.
 
 On subsequent boots, re-reads from the files. If the env var is already set by the operator, it is respected and written to the file for consistency (an existing file is never overwritten). Secrets are **never** regenerated once created: doing so would invalidate JWTs and corrupt all encrypted data in the DB. An empty secret file stops the app, naming the file and the variable. Files are written through a temp file and a hard link, mode `0600` in a `0700` directory, so the final name never shows a partial value and an existing file is never replaced. A filesystem without hard links (some NAS mounts) falls back to creating the final file exclusively (`CREATE_NEW`): it still never replaces a file another process created first, but a reader that opens it before the bytes land finds it empty, and an empty file stops the app instead of being used. A filesystem that cannot apply the modes only logs a warning. Without `PICSOU_SECRETS_DIR`, nothing is generated.
 
-`TrustedProxyBootstrap`, a second `EnvironmentPostProcessor` registered next to it, turns `PICSOU_PROXY_IP` into `server.tomcat.remoteip.internal-proxies`. Unset or empty, the expression matches nothing. Anything but one plain IPv4 address (no leading zeros, octets up to 255) stops startup with `PICSOU_PROXY_IP must be one plain IPv4 address.`, without echoing the value.
+`TrustedProxyBootstrap`, a second `EnvironmentPostProcessor` registered next to it, turns `PICSOU_PROXY_IP` into `server.tomcat.remoteip.internal-proxies`, the only peer Tomcat takes the client address from. Unset or empty, the expression matches nothing. Anything but one plain IPv4 address (no leading zeros, octets up to 255) stops startup with `PICSOU_PROXY_IP must be one plain IPv4 address.`, without echoing the value; this check runs whenever the variable is set. **An explicitly configured `server.tomcat.remoteip.internal-proxies` wins** (`SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES`, `-D`, the command line, `SPRING_APPLICATION_JSON`): `PICSOU_PROXY_IP` is then ignored for the expression. Compose always sets `PICSOU_PROXY_IP` (default `172.30.253.2`), which is why the explicit property has to outrank it.
 
 The datasource password follows Spring's ordinary precedence, through `application.yml`:
 `password: ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:picsou}}`. `SecretBootstrap`
@@ -422,11 +422,14 @@ the `tls` profile is enabled. Migration or app cutover failures leave the proxy 
 
 Backend deployments outside the image set `PICSOU_PROXY_IP` the same way, or
 `SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES` to an exact peer expression when more than one
-address is needed.
+address is needed. When both are set, `SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES` wins and
+`PICSOU_PROXY_IP` is only validated; Compose always passes `PICSOU_PROXY_IP`, so it can stay
+in the file.
 
 The Java tests (`TrustedProxyClientIpTest`, `ForwardedHeadersCorsTest`) build the Tomcat
 valves from the production properties and cover trusted and untrusted peers, IPv4 and IPv6,
-the public port cases and the `PICSOU_PROXY_IP` validation. See [CORS & cookie security](./security-cors-cookies.md) and the
+the public port cases, the precedence of an explicit `internal-proxies` and the
+`PICSOU_PROXY_IP` validation. See [CORS & cookie security](./security-cors-cookies.md) and the
 [proxy address ADR](../decisions/2026-10-31-trusted-proxy-client-address.md).
 
 `docker/tests/test_proxy_client_ip.py` starts fresh isolated Compose projects with real Caddy

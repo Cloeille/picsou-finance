@@ -16,7 +16,9 @@ snippet. Issue #342 aims at one process with no root.
   `java -jar` as PID 1 in exec form under `USER 1000:1000`. Spring Boot listens on 8080.
 - `TrustedProxyBootstrap` (an `EnvironmentPostProcessor`) sets
   `server.tomcat.remoteip.internal-proxies` from `PICSOU_PROXY_IP`: one exact IPv4 address, or an
-  expression that matches nothing. Tomcat is the edge, so loopback is no longer trusted.
+  expression that matches nothing. Tomcat is the edge, so loopback is no longer trusted. An
+  explicitly configured `internal-proxies` wins over `PICSOU_PROXY_IP` (Compose always sets the
+  latter, so it could not be used otherwise); `PICSOU_PROXY_IP` is validated either way.
   This supersedes the nginx half of the [trusted proxy ADR](./2026-10-31-trusted-proxy-client-address.md).
 - `ForwardedOriginCustomizer` adds one Tomcat valve that restores what nginx did with the public
   origin: `X-Forwarded-Proto` and `X-Forwarded-Host` apply from any peer, and the port comes from

@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`data-permissions` service, `fsGroup`). Tomcat trusts forwarded headers only from
   `PICSOU_PROXY_IP` for the client address, and no longer trusts loopback; the public scheme,
   host and port are applied from any peer as nginx did, so an undeclared HTTPS proxy keeps
-  working. Helm probes use `/actuator/health/liveness`.
+  working. Helm probes use `/actuator/health/liveness`. An explicit
+  `SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES` takes precedence over `PICSOU_PROXY_IP`.
   **Upgrade:** `data-permissions` runs `chown -R 1000:1000 /data` before each app start
   (`deploy.sh` runs it too). A bind mount where `chown` is ignored (SMB/CIFS) needs the mount
   options `uid=1000,gid=1000`. Behaviour changes: uploads follow Spring's 10 MB multipart limit

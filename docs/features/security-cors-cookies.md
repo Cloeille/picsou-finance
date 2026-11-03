@@ -43,9 +43,11 @@ cross-origin, and the fail-closed allow-list rejects it with **403**.
 Two trust levels, the same as the bundled nginx had:
 
 - **Client address.** `server.forward-headers-strategy: native` enables Tomcat's `RemoteIpValve`,
-  which accepts `X-Forwarded-For` only from the one address in `PICSOU_PROXY_IP`
-  (`TrustedProxyBootstrap` copies it into `server.tomcat.remoteip.internal-proxies`). Unset, it
-  matches nothing: not loopback, not Tomcat's private-network defaults.
+  which accepts `X-Forwarded-For` only from `server.tomcat.remoteip.internal-proxies`.
+  `TrustedProxyBootstrap` fills it from the one address in `PICSOU_PROXY_IP`. An explicitly
+  configured `internal-proxies` (`SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES`, `-D`, the command
+  line) takes precedence over `PICSOU_PROXY_IP`, which is then only validated. With neither, the
+  expression matches nothing: not loopback, not Tomcat's private-network defaults.
 - **Public origin.** `ForwardedOriginCustomizer` applies `X-Forwarded-Proto` and
   `X-Forwarded-Host` from any peer, as nginx relayed them whoever sent them. An existing install
   behind an HTTPS proxy that is not declared in `PICSOU_PROXY_IP` (a Caddy outside the bundled

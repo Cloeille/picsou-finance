@@ -11,11 +11,19 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * Makes {@code PICSOU_PROXY_IP} the only peer Tomcat takes forwarded headers from. Tomcat is the
+ * Makes {@code PICSOU_PROXY_IP} the only peer Tomcat takes the client address from. Tomcat is the
  * edge of the container: without a configured proxy it trusts nobody (an empty expression
  * matches no address), not its private-network default and not loopback.
  *
- * <p>The value must be one plain IPv4 address, without leading zeros. It is never echoed.
+ * <p>An explicitly configured {@code server.tomcat.remoteip.internal-proxies} (the environment
+ * variable {@code SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES}, {@code -D}, the command line,
+ * {@code SPRING_APPLICATION_JSON} or a config file) wins and is left alone: the Compose file
+ * always sets {@code PICSOU_PROXY_IP}, so letting it shadow the explicit property would make that
+ * property unusable there. Otherwise this adds the lowest-precedence source holding the exact
+ * {@code PICSOU_PROXY_IP} address, or the empty expression.
+ *
+ * <p>{@code PICSOU_PROXY_IP} is validated whenever it is set, even when it is not used: it must
+ * be one plain IPv4 address, without leading zeros. It is never echoed.
  */
 public class TrustedProxyBootstrap implements EnvironmentPostProcessor, Ordered {
 
@@ -41,7 +49,10 @@ public class TrustedProxyBootstrap implements EnvironmentPostProcessor, Ordered 
             }
             expression = proxyIp.replace(".", "\\.");
         }
-        environment.getPropertySources().addFirst(
+        if (environment.containsProperty(INTERNAL_PROXIES_PROPERTY)) {
+            return;
+        }
+        environment.getPropertySources().addLast(
             new MapPropertySource(SOURCE_NAME, Map.of(INTERNAL_PROXIES_PROPERTY, expression)));
     }
 

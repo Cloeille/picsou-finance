@@ -38,6 +38,11 @@ final class ProductionTomcatEdge {
     private final List<Valve> valves;
 
     ProductionTomcatEdge(String proxyIp) throws IOException {
+        this(proxyIp, null);
+    }
+
+    /** {@code internalProxies}, when not null, is an operator-set {@code server.tomcat.remoteip.internal-proxies}. */
+    ProductionTomcatEdge(String proxyIp, String internalProxies) throws IOException {
         MockEnvironment environment = new MockEnvironment();
         for (var source : new YamlPropertySourceLoader().load("application",
             new ClassPathResource("application.yml"))) {
@@ -45,6 +50,9 @@ final class ProductionTomcatEdge {
         }
         if (proxyIp != null) {
             environment.setProperty(TrustedProxyBootstrap.PROXY_IP_ENV, proxyIp);
+        }
+        if (internalProxies != null) {
+            environment.setProperty(TrustedProxyBootstrap.INTERNAL_PROXIES_PROPERTY, internalProxies);
         }
         new TrustedProxyBootstrap().postProcessEnvironment(environment, new SpringApplication());
         ServerProperties properties = Binder.get(environment)

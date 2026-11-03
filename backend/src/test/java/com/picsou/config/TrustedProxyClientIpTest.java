@@ -16,6 +16,8 @@ import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.boot.SpringApplication;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -155,6 +157,8 @@ class TrustedProxyClientIpTest {
     void trustedProxy_derivesThePublicPortFromTheForwardedHost() throws Exception {
         assertPublicPort(Map.of("X-Forwarded-Host", "nas.test:8080"), 8080);
         assertPublicPort(Map.of("X-Forwarded-Host", "[2001:db8::1]:8443"), 8443);
+        // No port and no scheme header: Tomcat's own scheme default for a plain-HTTP hop.
+        assertPublicPort(Map.of("X-Forwarded-Host", "picsou.example"), 80);
         assertPublicPort(Map.of("X-Forwarded-Host", "picsou.example", "X-Forwarded-Port", "9443"), 9443);
         // The port in the host wins over the port header, as it did in nginx.
         assertPublicPort(Map.of("X-Forwarded-Host", "picsou.example:8443", "X-Forwarded-Port", "443"), 8443);
@@ -245,6 +249,65 @@ class TrustedProxyClientIpTest {
         assertThat(expression).isEqualTo("172\\.30\\.253\\.2");
         assertThat(Pattern.matches(expression, PROXY)).isTrue();
         assertThat(Pattern.matches(expression, "172x30x253x2")).isFalse();
+    }
+
+    @Test
+    void withoutAnyProxySetting_theExpressionIsEmptyAndMatchesNothing() {
+        MockEnvironment environment = new MockEnvironment();
+
+        new TrustedProxyBootstrap().postProcessEnvironment(environment, new SpringApplication());
+
+        assertThat(environment.getProperty(TrustedProxyBootstrap.INTERNAL_PROXIES_PROPERTY)).isEmpty();
+    }
+
+    /** Compose always passes PICSOU_PROXY_IP, so an explicit expression must outrank it. */
+    @Test
+    void explicitInternalProxies_winOverPicsouProxyIp() throws Exception {
+        String operatorPeer = "198.51.100.7";
+        ProductionTomcatEdge edge = new ProductionTomcatEdge(PROXY, "198\\.51\\.100\\.7");
+        Map<String, String> headers = Map.of("X-Forwarded-For", "203.0.113.9");
+
+        edge.handle(operatorPeer, headers, request ->
+            assertThat(request.getRequest().getRemoteAddr()).isEqualTo("203.0.113.9"));
+        edge.handle(PROXY, headers, request ->
+            assertThat(request.getRequest().getRemoteAddr()).isEqualTo(PROXY));
+    }
+
+    @Test
+    void explicitInternalProxies_areLeftAlone() {
+        MockEnvironment environment = new MockEnvironment()
+            .withProperty(TrustedProxyBootstrap.PROXY_IP_ENV, PROXY)
+            .withProperty(TrustedProxyBootstrap.INTERNAL_PROXIES_PROPERTY, "operator");
+
+        new TrustedProxyBootstrap().postProcessEnvironment(environment, new SpringApplication());
+
+        assertThat(environment.getProperty(TrustedProxyBootstrap.INTERNAL_PROXIES_PROPERTY)).isEqualTo("operator");
+        assertThat(environment.getPropertySources().contains(TrustedProxyBootstrap.SOURCE_NAME)).isFalse();
+    }
+
+    /** The shape the operator uses in Compose or Kubernetes. */
+    @Test
+    void explicitInternalProxies_fromTheEnvironmentVariable_areLeftAlone() {
+        MockEnvironment environment = new MockEnvironment().withProperty(TrustedProxyBootstrap.PROXY_IP_ENV, PROXY);
+        environment.getPropertySources().addLast(new SystemEnvironmentPropertySource(
+            StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+            Map.of("SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES", "operator")));
+
+        new TrustedProxyBootstrap().postProcessEnvironment(environment, new SpringApplication());
+
+        assertThat(environment.getProperty(TrustedProxyBootstrap.INTERNAL_PROXIES_PROPERTY)).isEqualTo("operator");
+        assertThat(environment.getPropertySources().contains(TrustedProxyBootstrap.SOURCE_NAME)).isFalse();
+    }
+
+    @Test
+    void invalidProxyAddress_refusesToStartEvenWhenInternalProxiesAreExplicit() {
+        MockEnvironment environment = new MockEnvironment()
+            .withProperty(TrustedProxyBootstrap.PROXY_IP_ENV, "proxy")
+            .withProperty(TrustedProxyBootstrap.INTERNAL_PROXIES_PROPERTY, "operator");
+
+        assertThatThrownBy(() -> new TrustedProxyBootstrap().postProcessEnvironment(environment, new SpringApplication()))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage("PICSOU_PROXY_IP must be one plain IPv4 address.");
     }
 
     private void assertSameOrigin(String scheme, String host, String port) throws Exception {
