@@ -179,6 +179,21 @@ describe('BankSyncTab Wise connection', () => {
     expect(onOpenWiseJars).toHaveBeenCalledTimes(1)
   })
 
+  it('says the Jars status is unavailable, without a way to connect, when the status request fails', async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/sync/status') return Promise.resolve({ data: [WISE_CONNECTION] })
+      if (url === '/wise/status') return Promise.reject(new Error('Network Error'))
+      return Promise.reject(new Error(`Unexpected GET ${url}`))
+    })
+
+    renderTab({ onOpenWiseJars: vi.fn() })
+
+    expect(await screen.findByText('sync.banks.wiseJarsStatusError')).toBeInTheDocument()
+    expect(screen.queryByText('sync.banks.wiseJarsMissing')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'sync.banks.wiseJarsConnect' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'sync.banks.wiseJarsOpen' })).not.toBeInTheDocument()
+  })
+
   it('stays silent under other banks and never asks for the Wise status', async () => {
     givenStatuses(FAILED_CONNECTIONS, WISE_DISCONNECTED)
 

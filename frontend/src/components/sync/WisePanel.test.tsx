@@ -159,6 +159,25 @@ describe('WisePanel', () => {
       expect(screen.queryByText('sync.wise.connected')).not.toBeInTheDocument()
     })
 
+    it('translates a sync Wise refused access to without asking for a new token', async () => {
+      apiGet.mockResolvedValue(connected())
+      apiPost.mockImplementation(() => {
+        apiGet.mockResolvedValue(connected({ status: 'ERROR' }))
+        return Promise.reject({
+          response: { status: 422, data: { detail: 'Wise refused access to this data.', code: 'ACCESS_DENIED' } },
+        })
+      })
+
+      renderPanel()
+      fireEvent.click(await screen.findByRole('button', { name: 'sync.wise.sync' }))
+
+      expect(await screen.findByText('sync.wise.errors.accessDenied')).toBeInTheDocument()
+      expect(screen.queryByText('Wise refused access to this data.')).not.toBeInTheDocument()
+      expect(await screen.findByText('sync.wise.statusError')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'sync.wise.sync' })).toBeEnabled()
+      expect(screen.queryByLabelText('sync.wise.token')).not.toBeInTheDocument()
+    })
+
     it('syncs and toasts the jar count', async () => {
       apiGet.mockResolvedValue(connected())
       apiPost.mockResolvedValue({ data: [{ id: 1 }, { id: 2 }, { id: 3 }] })
@@ -235,6 +254,24 @@ describe('WisePanel', () => {
       expect(await screen.findByText('sync.wise.errors.tokenRefused')).toBeInTheDocument()
       expect(screen.queryByText('Wise refused the API token.')).not.toBeInTheDocument()
       expect(await screen.findByRole('button', { name: 'sync.wise.replaceToken' })).toBeInTheDocument()
+    })
+  })
+
+  describe('status request failed', () => {
+    it('shows an error card with Retry instead of the connect form, then recovers', async () => {
+      apiGet.mockRejectedValueOnce(new Error('Network Error')).mockResolvedValue(connected())
+
+      renderPanel()
+
+      expect(await screen.findByText('sync.wise.errors.statusFailed')).toBeInTheDocument()
+      expect(screen.queryByLabelText('sync.wise.token')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'sync.wise.connect' })).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'common.retry' }))
+
+      expect(await screen.findByText('sync.wise.connected')).toBeInTheDocument()
+      expect(apiGet).toHaveBeenCalledTimes(2)
+      expect(screen.queryByText('sync.wise.errors.statusFailed')).not.toBeInTheDocument()
     })
   })
 

@@ -57,8 +57,16 @@ const WISE_INSTITUTION = /\bwise\b/i
  */
 function WiseJarsHint({ onOpenWiseJars }: { onOpenWiseJars?: () => void }) {
   const { t } = useTranslation()
-  const { data: wiseStatus } = useWiseStatus()
+  const { data: wiseStatus, isError } = useWiseStatus()
 
+  if (isError && !wiseStatus) {
+    return (
+      <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+        <PiggyBank className="size-4 shrink-0" />
+        {t('sync.banks.wiseJarsStatusError')}
+      </p>
+    )
+  }
   if (wiseStatus?.connected && wiseStatus.status === 'CONNECTED') {
     return (
       <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">

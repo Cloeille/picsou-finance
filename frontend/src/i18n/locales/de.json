@@ -817,6 +817,7 @@
       "wiseJarsConnected": "Ihre Wise Jars werden über den Connector Wise Jars synchronisiert.",
       "wiseJarsFailed": "Die letzte Synchronisierung Ihrer Wise Jars ist fehlgeschlagen.",
       "wiseJarsOpen": "Wise Jars öffnen",
+      "wiseJarsStatusError": "Der Status Ihrer Wise Jars ist nicht verfügbar. Versuchen Sie es später erneut.",
       "proBadge": "Pro",
       "proBadgeTitle": "Geschäftskonto — diese Bank richtet sich nur an Geschäftskunden"
     },
@@ -918,9 +919,11 @@
         "tokenRefused": "Wise hat dieses Token abgelehnt. Es wurde möglicherweise widerrufen: Erstellen Sie auf wise.com ein neues mit Lesezugriff.",
         "invalidToken": "Das ist kein Wise-API-Token. Kopieren Sie es erneut von wise.com.",
         "rateLimited": "Wise begrenzt gerade die Anfragen. Versuchen Sie es in ein paar Minuten erneut.",
+        "accessDenied": "Wise hat den Zugriff auf diese Daten verweigert. Prüfen Sie die Berechtigungen des Tokens in Wise oder versuchen Sie es später erneut.",
         "connectFailed": "Verbindung zu Wise fehlgeschlagen. Prüfen Sie das Token und versuchen Sie es erneut.",
         "syncFailed": "Wise-Synchronisierung fehlgeschlagen. Versuchen Sie es erneut oder erstellen Sie ein neues Token, falls es widerrufen wurde.",
-        "disconnectFailed": "Verbindung konnte nicht entfernt werden. Versuchen Sie es erneut."
+        "disconnectFailed": "Verbindung konnte nicht entfernt werden. Versuchen Sie es erneut.",
+        "statusFailed": "Der Status Ihrer Wise Jars konnte nicht geladen werden."
       }
     },
     "exchanges": {

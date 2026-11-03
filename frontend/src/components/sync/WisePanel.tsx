@@ -26,6 +26,7 @@ const ERROR_KEYS: Record<string, string> = {
   SESSION_EXPIRED: 'sync.wise.errors.tokenRefused',
   INVALID_TOKEN: 'sync.wise.errors.invalidToken',
   RATE_LIMITED: 'sync.wise.errors.rateLimited',
+  ACCESS_DENIED: 'sync.wise.errors.accessDenied',
 }
 
 interface WisePanelProps {
@@ -39,7 +40,7 @@ export function WisePanel({ onConnected }: WisePanelProps = {}) {
   const [error, setError] = useState<string | null>(null)
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false)
 
-  const { data: status, isLoading: statusLoading } = useWiseStatus()
+  const { data: status, isLoading: statusLoading, isError: statusFailed, refetch: refetchStatus } = useWiseStatus()
 
   const isConnected = status?.connected ?? false
   const tokenRefused = status?.status === STATUS_REAUTH_REQUIRED
@@ -70,6 +71,25 @@ export function WisePanel({ onConnected }: WisePanelProps = {}) {
 
   if (statusLoading) {
     return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+  }
+
+  // Without a status the panel cannot tell a first connect from a stored token, and offering the
+  // connect form would let a member replace a working token because a request failed.
+  if (statusFailed && !status) {
+    return (
+      <div className="space-y-6">
+        <p className="mx-auto max-w-lg text-sm text-muted-foreground">{t('sync.wise.intro')}</p>
+        <Card size="sm" className="border-destructive/30">
+          <CardContent className="flex items-center gap-3 py-4">
+            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+            <p className="flex-1 text-sm text-destructive">{t('sync.wise.errors.statusFailed')}</p>
+            <Button variant="outline" size="sm" onClick={() => void refetchStatus()}>
+              {t('common.retry')}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   const tokenForm = (
