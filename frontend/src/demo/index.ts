@@ -1022,7 +1022,6 @@ const demoIdleSyncProgress = {
 }
 handlers.set(key('GET', '/revolut/status'), () => ({ connected: false, remembered: false, lastSyncedAt: null }))
 handlers.set(key('GET', '/revolut/sync/progress'), () => demoIdleSyncProgress)
-handlers.set(key('GET', '/tr/sync/progress'), () => demoIdleSyncProgress)
 
 // Trade Republic - session status
 handlers.set(key('GET', '/tr/status'), () => ({ isActive: false, expiresAt: null }))

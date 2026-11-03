@@ -9,8 +9,6 @@ export type PropertyCategory =
   | 'PRIMARY_RESIDENCE' | 'SECONDARY_RESIDENCE' | 'RENTAL' | 'LAND' | 'OTHER'
 
 /** Only houses and apartments have a reliable price per m² in the open data. */
-export const ESTIMABLE_PROPERTY_KINDS: PropertyKind[] = ['HOUSE', 'APARTMENT']
-
 export type ValuationMode = 'ESTIMATED' | 'MANUAL'
 
 export type ValuationConfidence = 'HIGH' | 'MEDIUM' | 'LOW'
