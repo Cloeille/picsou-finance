@@ -13,7 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.security.SecureRandom;
-import java.text.Normalizer;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -33,6 +32,7 @@ public class FamilyService {
     private final AccountRepository accountRepository;
     private final GoalRepository goalRepository;
     private final PasswordEncoder passwordEncoder;
+    private final UsernameDeriver usernameDeriver;
 
     public FamilyService(
         FamilyMemberRepository memberRepository,
@@ -42,7 +42,8 @@ public class FamilyService {
         SharedResourceRepository sharedResourceRepository,
         AccountRepository accountRepository,
         GoalRepository goalRepository,
-        PasswordEncoder passwordEncoder
+        PasswordEncoder passwordEncoder,
+        UsernameDeriver usernameDeriver
     ) {
         this.memberRepository = memberRepository;
         this.userRepository = userRepository;
@@ -52,6 +53,7 @@ public class FamilyService {
         this.accountRepository = accountRepository;
         this.goalRepository = goalRepository;
         this.passwordEncoder = passwordEncoder;
+        this.usernameDeriver = usernameDeriver;
     }
 
     public List<FamilyMemberResponse> listMembers() {
@@ -170,7 +172,7 @@ public class FamilyService {
             userRepository.save(existingUser);
         } else {
             AppUser user = AppUser.builder()
-                .username(deriveUsername(member.getDisplayName()))
+                .username(usernameDeriver.derive(member.getDisplayName()))
                 .passwordHash("")
                 .member(member)
                 .role(UserRole.MEMBER)
@@ -183,33 +185,6 @@ public class FamilyService {
         }
 
         return token;
-    }
-
-    /**
-     * Derives a readable, login-safe username from a member's display name
-     * (e.g. "Jean Dupont" -> "jean.dupont"), replacing the legacy "member_<id>"
-     * scheme. Accents are stripped, non-alphanumeric runs collapse to a dot, and
-     * a numeric suffix (".2", ".3", ...) guarantees uniqueness on collision.
-     */
-    private String deriveUsername(String displayName) {
-        String base = Normalizer
-            .normalize(displayName == null ? "" : displayName, Normalizer.Form.NFD)
-            .replaceAll("\\p{M}+", "")        // strip accent marks
-            .toLowerCase()
-            .replaceAll("[^a-z0-9]+", ".")     // any separator run -> single dot
-            .replaceAll("^\\.+|\\.+$", "");    // trim leading/trailing dots
-        if (base.isBlank()) {
-            base = "user";
-        }
-        if (base.length() > 45) {
-            base = base.substring(0, 45);      // leave room for a numeric suffix
-        }
-        String candidate = base;
-        int n = 2;
-        while (userRepository.existsByUsername(candidate)) {
-            candidate = base + "." + n++;
-        }
-        return candidate;
     }
 
     public SharingSettingsResponse getSharingSettings(Long memberId, String resourceType) {

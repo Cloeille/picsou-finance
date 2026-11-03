@@ -50,6 +50,7 @@ class FamilyServiceTest {
     @Mock AccountRepository accountRepository;
     @Mock GoalRepository goalRepository;
     @Mock PasswordEncoder passwordEncoder;
+    @Mock UsernameDeriver usernameDeriver;
 
     @InjectMocks FamilyService familyService;
 
@@ -66,6 +67,7 @@ class FamilyServiceTest {
     private String usernameFromActivation(String displayName) {
         when(memberRepository.findById(3L)).thenReturn(Optional.of(member(displayName)));
         when(userRepository.findByMemberId(3L)).thenReturn(Optional.empty());
+        when(usernameDeriver.derive(displayName)).thenReturn("derived-user");
 
         familyService.generateActivationToken(3L);
 
@@ -75,38 +77,11 @@ class FamilyServiceTest {
     }
 
     @Test
-    void deriveUsername_slugifiesSimpleName() {
-        assertThat(usernameFromActivation("Alice")).isEqualTo("alice");
-    }
+    void generateActivationToken_usesDerivedUsername() {
+        String username = usernameFromActivation("Alice");
 
-    @Test
-    void deriveUsername_stripsAccentsAndSpaces() {
-        assertThat(usernameFromActivation("Jean Dupont")).isEqualTo("jean.dupont");
-    }
-
-    @Test
-    void deriveUsername_normalizesAccentedChars() {
-        assertThat(usernameFromActivation("Élodie")).isEqualTo("elodie");
-    }
-
-    @Test
-    void deriveUsername_appendsSuffixOnCollision() {
-        when(memberRepository.findById(3L)).thenReturn(Optional.of(member("Alice")));
-        when(userRepository.findByMemberId(3L)).thenReturn(Optional.empty());
-        // "alice" is taken, "alice.2" is free
-        when(userRepository.existsByUsername("alice")).thenReturn(true);
-        when(userRepository.existsByUsername("alice.2")).thenReturn(false);
-
-        familyService.generateActivationToken(3L);
-
-        ArgumentCaptor<AppUser> captor = ArgumentCaptor.forClass(AppUser.class);
-        verify(userRepository).save(captor.capture());
-        assertThat(captor.getValue().getUsername()).isEqualTo("alice.2");
-    }
-
-    @Test
-    void deriveUsername_fallsBackToUserWhenNameHasNoAlphanumerics() {
-        assertThat(usernameFromActivation("!!!")).isEqualTo("user");
+        assertThat(username).isEqualTo("derived-user");
+        verify(usernameDeriver).derive("Alice");
     }
 
     // ─── deleteMember ───────────────────────────────────────────────────
