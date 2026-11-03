@@ -58,10 +58,12 @@ HSTS emitter, the strip rules and the drift test have nothing left to protect.
 ## Trade-offs accepted
 
 - Tomcat serves static files instead of nginx. For a self-hosted dashboard this is not measurable.
-- Weak ETags: Tomcat skips compression for responses with a strong ETag. `index.html` gets a weak
-  digest of its content (it is revalidated on every load and keeps its name, so a build with the
-  same length and modification second would otherwise collide); other files keep nginx's
-  timestamp-and-length value.
+- Weak ETags: Tomcat skips compression for responses with a strong ETag. Every revalidated file
+  (`index.html` and the unhashed public files) gets a weak digest of its content: it keeps its
+  name across builds, so a build with the same length and modification second would otherwise
+  collide. `frontend/public` is 46,808 bytes in 12 files, so reading them per conditional request
+  is negligible. Hashed `/assets/` files keep nginx's timestamp-and-length value, so a bundle is
+  never read to build a tag.
 - Unhashed public files and `index.html` now cost a conditional request (a `304`) per load instead
   of being served from the browser cache for a year. A redeploy is visible immediately.
 - A missing file with a static extension is a 404 even when the request would otherwise look like a
