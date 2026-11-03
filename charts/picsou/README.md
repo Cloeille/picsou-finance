@@ -95,7 +95,7 @@ an internal CA, a wildcard Secret.
   explains how to fix them).
 - **`HSTS_ENABLED`** (`app.env.HSTS_ENABLED: "true"`) only with a certificate
   every browser that opens Picsou trusts.
-- **Client addresses: `PICSOU_PROXY_IP`.** nginx takes the client address from
+- **Client addresses: `PICSOU_PROXY_IP`.** The app takes the client address from
   `X-Forwarded-For` only when the request comes from that one exact IPv4 address
   ([trusted proxy ADR](../../docs/decisions/2026-10-31-trusted-proxy-client-address.md)).
   Ingress controllers usually run several pods whose addresses change, so the
@@ -451,16 +451,26 @@ The test pod uses `global.imagePullSecrets` and the app's `nodeSelector`,
 - **One app replica.** Flyway and the `ReadWriteOnce` `/data` volume rule out
   more; rendering fails above one replica. Zero scales the app down. The Deployment
   uses the `Recreate` strategy to prevent overlapping versions.
-- **Pod Security `baseline`, not `restricted`.** The app image runs nginx and
-  the JVM as root under supervisord, PostgreSQL starts as root before dropping
-  privileges, and the sidecar images declare non-numeric users, so
-  `runAsNonRoot` cannot be verified. The namespace must allow `baseline`.
+- **Pod Security `baseline`, not `restricted`.** The app and the migration Job run
+  as uid 1000 with `runAsNonRoot`, but PostgreSQL starts as root before dropping
+  privileges and the sidecar images declare non-numeric users, so `runAsNonRoot`
+  cannot be verified for them. The namespace must allow `baseline`.
+- **`/data` ownership.** The app pod sets `fsGroup: 1000` with
+  `fsGroupChangePolicy: OnRootMismatch`, so Kubernetes hands an existing root-owned
+  volume to group 1000 on the first mount. A storage driver that ignores `fsGroup`
+  (some NFS and CIFS volumes) needs the export made writable for uid 1000 outside
+  the cluster. Kubernetes also adds group read and write to existing files, so the
+  0600 secrets of a root-owned volume stay readable by the app through group 1000;
+  the owner remains root until you `chown -R 1000:1000 /data` as root (for example in a
+  one-off pod), which is optional.
 - **No Ollama.** Run it separately if you want local AI categorization and set
   its URL in Admin → Settings.
 
-The app has no startup probe by default (`app.startupProbe: {}`). HTTP readiness
-holds traffic during long migrations or database outages without restarting the
-container. TCP liveness still detects an unresponsive nginx listener. PostgreSQL
+The app has a startup probe on `/actuator/health/liveness` (every 10 s, 30 failures:
+five minutes for the JVM and Flyway). Liveness uses the same endpoint, which ignores
+the database, so an outage never restarts the app. HTTP readiness on
+`/actuator/health` holds traffic during long migrations or database outages.
+The JVM is the container's only process, so the kubelet restarts it when it exits. PostgreSQL
 has a `pg_isready` startup probe with a ten-minute recovery budget before liveness
 starts. Custom `app.podLabels` cannot override the reserved `app.kubernetes.io/name`,
 `app.kubernetes.io/instance` and `app.kubernetes.io/component` labels on the app or

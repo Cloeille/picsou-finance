@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The app image is one non-root Java process.** nginx, supervisord and the shell entrypoint are
+  gone. The container runs as uid 1000 on port 8080; Compose and Helm hand `/data` to that user
+  (`data-permissions` service, `fsGroup`). Tomcat trusts forwarded headers only from
+  `PICSOU_PROXY_IP` and no longer trusts loopback. Helm probes use `/actuator/health/liveness`.
+  **Upgrade:** `data-permissions` runs `chown -R 1000:1000 /data` before each app start
+  (`deploy.sh` runs it too). A bind mount where `chown` is ignored (SMB/CIFS) needs the mount
+  options `uid=1000,gid=1000`. Behaviour changes: uploads follow Spring's 10 MB multipart limit
+  instead of nginx's 1 MB body limit, no proxy timeout cuts slow requests any more, and a stopped
+  backend is a refused connection instead of an nginx 502.
+
 ### Added
 
 - **AI categorization over MCP.** `start_ai_categorization` starts the inbox's AI job and

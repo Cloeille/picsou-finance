@@ -73,7 +73,7 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 | Backend | Java 21, Spring Boot 3.4, Maven |
 | Frontend | React 19, TypeScript 5.9, Vite 7, Tailwind v4, Bun |
 | Database | PostgreSQL 16, Flyway |
-| Runtime | Docker (Nginx + Spring Boot + supervisor) |
+| Runtime | Docker (one non-root Spring Boot process) |
 
 ## Getting started
 
@@ -91,7 +91,7 @@ git clone https://github.com/Cloeille/picsou-finance.git
 cd picsou-finance
 ```
 
-Unreleased work on this fork (Finary holdings, account matching, CI e2e, `/mcp` nginx proxy):
+Unreleased work on this fork (Finary holdings, account matching, CI e2e, `/mcp` streaming):
 
 ```bash
 git clone https://github.com/christopheche/picsou-finance.git
@@ -291,15 +291,13 @@ curl -sI https://picsou.example.com/ | grep -i strict-transport
 
 Exactly one `Strict-Transport-Security` line when enabled, none when disabled.
 
-In this image nginx is the only emitter the browser ever sees: it adds the header to every response
-including proxied ones, and strips the backend's copy on `/api` and `/actuator`
-(`proxy_hide_header`) so it is never sent twice. The backend has its own gate on the same variable,
-which is what a bare-metal deployment behind your own proxy relies on — to check that one, ask the backend directly,
-bypassing nginx:
+In this image Spring Boot is the only emitter, gated by `HSTS_ENABLED`, and it sends the header
+once on every response over HTTPS. To check the backend without the proxy in front, ask it
+directly:
 
 ```bash
 docker compose -f docker/docker-compose.yml exec app \
-  curl -sI -H 'X-Forwarded-Proto: https' http://127.0.0.1:9090/actuator/health \
+  curl -sI -H 'X-Forwarded-Proto: https' http://127.0.0.1:8080/actuator/health \
   | grep -i strict-transport
 ```
 
@@ -314,7 +312,7 @@ docker compose -f docker/docker-compose.yml exec app \
 Skip the profile entirely and point Traefik / Nginx Proxy Manager / a Cloudflare Tunnel at the app
 container's `:8080`. Your proxy **must** forward `X-Forwarded-Proto: https` (all of the above do by
 default). Set `PICSOU_PROXY_IP` in `docker/.env` to the proxy's exact IPv4 address as seen by
-Picsou's nginx, then recreate the app. nginx accepts forwarded client addresses only from that
+the app, then recreate the app. The app accepts forwarded client addresses only from that
 peer; direct connections retain their connection address. The bundled `tls` profile configures
 its dedicated proxy address automatically. See [proxy configuration](docs/features/docker-deployment.md#trusted-proxy-client-addresses)
 for subnet overrides.

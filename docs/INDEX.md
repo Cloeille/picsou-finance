@@ -85,6 +85,7 @@
 | 2026-10-31 | [Trusted proxy client addresses](./decisions/2026-10-31-trusted-proxy-client-address.md) | Active |
 | 2026-10-31 | [Helm chart in the repository, published by CI next to the images](./decisions/2026-10-31-helm-chart-published-from-ci.md) | Active |
 | 2026-11-01 | [Sidecars share one Python package for their plumbing](./decisions/2026-11-01-shared-sidecar-package.md) | Active |
+| 2026-11-03 | [One non-root Java process in the app image](./decisions/2026-11-03-one-non-root-process.md) | Active |
 
 ## Feature notes
 

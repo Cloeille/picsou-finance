@@ -36,12 +36,12 @@ jobs:
         with:
           list-files: json
           # backend reads services/sofidy-auth (Java/Python contract), services/base
-          # (its interpreter's pins) and docker/entrypoint.sh (HSTS parsing).
+          # (its interpreter's pins).
           filters: |
             workflows: &workflows ['.github/**']
             release-deployment: [*workflows, 'backend/**', 'frontend/**', 'docker/**', '.dockerignore']
             docker-entrypoint: [*workflows, 'docker/**']
-            backend: [*workflows, 'backend/**', 'services/base/**', 'services/sofidy-auth/**', 'docker/entrypoint.sh']
+            backend: [*workflows, 'backend/**', 'services/base/**', 'services/sofidy-auth/**']
             frontend: [*workflows, 'frontend/**']
             # The entrypoint tests read each Camoufox sidecar's runtime parameters.
             sidecar-base: [*workflows, 'services/base/**', 'services/*-auth/Dockerfile']
@@ -50,7 +50,7 @@ jobs:
             sidecar: [*workflows, 'services/base/**', 'services/*-auth/**']
             compose-sidecar-build: [*workflows, 'services/**', 'docker/docker-compose.yml']
             workflow-inventory: [*workflows, 'services/**', 'backend/src/main/resources/application*.yml', '.env.example',
-                                 'docker/.env.example', 'docker/entrypoint.sh', 'docker/docker-compose.yml', 'docker/Dockerfile']
+                                 'docker/.env.example', 'docker/docker-compose.yml', 'docker/Dockerfile']
             helm-chart: [*workflows, 'charts/**', 'backend/src/main/resources/application.yml', 'docker/docker-compose.yml']
             e2e: [*workflows, 'frontend/**']
       - name: Select the jobs and the sidecar matrix
@@ -105,11 +105,9 @@ jobs:
     steps:
       - *checkout
       - *python
-      - name: Check entrypoint syntax
-        run: bash -n docker/entrypoint.sh
-      - name: Test secrets passed to the backend process
-        run: python -m unittest discover -s docker/tests -p 'test_entrypoint.py' -v
-      - name: Test trusted proxy client address forwarding
+      - name: Test the Compose password and data-permissions wiring
+        run: python -m unittest discover -s docker/tests -p 'test_compose.py' -v
+      - name: Test the Compose trusted proxy addresses
         run: |
           docker info > /dev/null
           python3 -m pip install pytest

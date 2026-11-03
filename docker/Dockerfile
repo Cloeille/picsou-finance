@@ -1,5 +1,5 @@
 # ============================================================
-# Picsou — All-in-one Docker image (frontend + backend)
+# Picsou — Docker image (frontend + backend, one Java process)
 # Build context: project root (..)
 # ============================================================
 
@@ -34,14 +34,13 @@ COPY backend/src ./src
 RUN mvn package -DskipTests -q
 
 # ---------- Stage 3: Runtime ----------
+# One non-root Java process: Spring Boot serves the SPA and the API on 8080 and is PID 1.
 FROM eclipse-temurin:21-jre-jammy
 
-# Install Nginx + supervisor (the app generates its own secrets, so no openssl)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        nginx \
-        supervisor \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+RUN groupadd --gid 1000 picsou \
+    && useradd --uid 1000 --gid 1000 --home-dir /app --no-create-home --shell /usr/sbin/nologin picsou \
+    && mkdir -p /data \
+    && chown picsou:picsou /data
 
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
@@ -53,22 +52,14 @@ ENV SPA_LOCATION=/app/spa
 # The app generates and persists its secrets here on first start (SecretBootstrap).
 ENV PICSOU_SECRETS_DIR=/data/.secrets
 
+# Sync at startup stays off unless the operator turns it on.
+ENV APP_STARTUP_SYNC_ENABLED=false
+
 # Copy built backend
 COPY --from=backend-build /build/backend/target/*.jar /app/app.jar
 
-# Copy configs
-COPY docker/nginx.conf /etc/nginx/sites-available/picsou
-RUN rm -f /etc/nginx/sites-enabled/default \
-    && ln -s /etc/nginx/sites-available/picsou /etc/nginx/sites-enabled/picsou \
-    # nginx.conf includes the trusted-proxy snippets through a wildcard; entrypoint.sh writes
-    # them at boot. Fail the build on a broken nginx config rather than at container start.
-    && mkdir -p /etc/nginx/snippets \
-    && nginx -t
-
-COPY docker/supervisord.conf /etc/supervisor/conf.d/picsou.conf
-COPY docker/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
-
+WORKDIR /app
+USER 1000:1000
 EXPOSE 8080
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75.0", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/app.jar"]

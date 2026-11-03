@@ -28,7 +28,7 @@ class SecurityConfigHstsParsingTest {
     }
 
     /**
-     * Interior whitespace must NOT be squashed. {@code entrypoint.sh} deliberately trims only the
+     * Interior whitespace must NOT be squashed. {@code SecurityConfig.parseHstsEnabled} deliberately trims only the
      * surrounding kind so a typo falls through to its warning rather than silently enabling HSTS.
      */
     @Test
