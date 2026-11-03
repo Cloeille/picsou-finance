@@ -18,7 +18,12 @@ public final class SpaPaths {
     private static final List<String> BACKEND_PREFIXES =
         List.of("/api", "/oauth2", "/.well-known/oauth-", "/actuator", "/mcp");
 
-    /** Static files the browser may cache for a year: their names carry a content hash. */
+    /**
+     * Asset extensions. A missing file with one of them is a 404, never {@code index.html}. Only
+     * Vite's build output under {@code /assets/} carries a content hash in its name, so only those
+     * files are cached for a year ({@link #isHashedAsset}); files copied from {@code public/}
+     * (favicon, {@code theme-init.js}, provider logos) keep their URL across releases.
+     */
     private static final Pattern CACHED_EXTENSION =
         Pattern.compile("\\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$", Pattern.CASE_INSENSITIVE);
 
@@ -36,6 +41,11 @@ public final class SpaPaths {
 
     public static boolean hasCachedExtension(String path) {
         return CACHED_EXTENSION.matcher(path).find();
+    }
+
+    /** A content-hashed build file: safe to cache for a year as immutable. */
+    public static boolean isHashedAsset(String path) {
+        return path.startsWith("/assets/") && hasCachedExtension(path);
     }
 
     /**

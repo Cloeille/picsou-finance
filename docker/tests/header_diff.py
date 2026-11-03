@@ -31,9 +31,21 @@ ACCEPTED = {
     # A missing hashed bundle stays a 404, with Spring's problem body instead of nginx's HTML page.
     "content-encoding": lambda path: path == "/assets/does-not-exist.js",
     "content-disposition": lambda path: path == "/assets/does-not-exist.js",
-    # HSTS on the OAuth2 chain now follows HSTS_ENABLED like every other response (bug fix).
-    "strict-transport-security": lambda path: path.startswith(("/oauth2", "/.well-known/oauth-")),
+    # Files copied from frontend/public keep their URL across releases, so they are no longer
+    # cached for a year as immutable; only the hashed /assets/ output is.
+    "cache-control": lambda path: is_unhashed_public_file(path),
+    "expires": lambda path: is_unhashed_public_file(path),
 }
+
+# HSTS on the OAuth2 chain now follows HSTS_ENABLED like every other response (bug fix). Accepted
+# only when the caller states the candidate runs with HSTS off, and only as "base sent it,
+# candidate did not" on the OAuth2 paths.
+OAUTH_PREFIXES = ("/oauth2", "/.well-known/oauth-")
+STATIC_EXTENSION = re.compile(r"\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$", re.IGNORECASE)
+
+
+def is_unhashed_public_file(path):
+    return not path.startswith("/assets/") and bool(STATIC_EXTENSION.search(path))
 
 SCENARIOS = (
     {},
@@ -72,9 +84,11 @@ def diff(base, candidate):
     return lines
 
 
-def is_accepted(path, line):
+def is_accepted(path, line, candidate_hsts_disabled=False):
     """True when a diff line names a header whose difference on this path was reviewed and kept."""
     name = line.split(":", 1)[0]
+    if name == "strict-transport-security":
+        return candidate_hsts_disabled and path.startswith(OAUTH_PREFIXES) and line.endswith("!= absent")
     predicate = ACCEPTED.get(name)
     return predicate is not None and predicate(path)
 
@@ -110,11 +124,20 @@ def first_asset(base_url, extension):
     return match.group(1) if match else None
 
 
-def paths(base_url):
-    found = [first_asset(base_url, "js"), first_asset(base_url, "css")]
-    listed = ["/", "/accounts/12", *[p for p in found if p], "/favicon.svg", "/assets/does-not-exist.js",
-              "/api/auth/me", "/actuator/health", "/oauth2/jwks", "/.well-known/oauth-authorization-server"]
-    return listed
+FIXED_PATHS = ("/favicon.svg", "/assets/does-not-exist.js", "/api/auth/me", "/actuator/health",
+               "/oauth2/jwks", "/.well-known/oauth-authorization-server")
+
+
+def paths(base_url, candidate_url):
+    """(base path, candidate path) pairs. Each side requests the bundle its own index.html names,
+    so two builds with different content hashes still compare their entry JS and CSS."""
+    pairs = [("/", "/"), ("/accounts/12", "/accounts/12")]
+    for extension in ("js", "css"):
+        left, right = first_asset(base_url, extension), first_asset(candidate_url, extension)
+        if left or right:
+            pairs.append((left, right))
+    pairs.extend((path, path) for path in FIXED_PATHS)
+    return pairs
 
 
 def fetch_mcp(base_url, extra, mcp_key):
@@ -138,21 +161,29 @@ def main(argv=None):
     parser.add_argument("base_url")
     parser.add_argument("candidate_url")
     parser.add_argument("--mcp-key", default=None, help="psk_ access key, to open the /mcp stream")
+    parser.add_argument("--candidate-hsts-disabled", action="store_true",
+                        help="the candidate runs with HSTS_ENABLED off: accept HSTS missing on OAuth2 paths")
     args = parser.parse_args(argv)
 
     failures = 0
     checks = 0
-    targets = paths(args.base_url)
+    targets = paths(args.base_url, args.candidate_url)
     for extra in SCENARIOS:
         label = "https" if extra else "plain"
-        for path in [*targets, "/mcp"]:
-            if path == "/mcp":
+        for base_path, candidate_path in [*targets, ("/mcp", "/mcp")]:
+            path = base_path if base_path == candidate_path else f"{base_path} vs {candidate_path}"
+            checks += 1
+            if base_path is None or candidate_path is None:
+                failures += 1
+                print(f"DIFF [{label}] {path}: one index.html references no such asset")
+                continue
+            if base_path == "/mcp":
                 left, right = fetch_mcp(args.base_url, extra, args.mcp_key), fetch_mcp(args.candidate_url, extra, args.mcp_key)
             else:
-                left, right = fetch(args.base_url, path, extra)[0], fetch(args.candidate_url, path, extra)[0]
-            checks += 1
+                left, right = fetch(args.base_url, base_path, extra)[0], fetch(args.candidate_url, candidate_path, extra)[0]
             differences = diff(left, right)
-            accepted = [line for line in differences if is_accepted(path, line)]
+            accepted = [line for line in differences
+                        if is_accepted(candidate_path, line, args.candidate_hsts_disabled)]
             differences = [line for line in differences if line not in accepted]
             for line in accepted:
                 print(f"accepted [{label}] {path}: {line}")

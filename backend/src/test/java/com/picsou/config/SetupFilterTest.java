@@ -59,4 +59,15 @@ class SetupFilterTest {
             assertThat(passedThrough(path)).as(path).isTrue();
         }
     }
+
+    /** MVC routes on the decoded path, so the allow-list must read the same one. */
+    @Test
+    void encodedSetupPath_staysAllowed() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/%61pi/setup/status");
+        request.setServletPath("/api/setup/status");
+        response = new MockHttpServletResponse();
+        chain = new MockFilterChain();
+        filter.doFilter(request, response, chain);
+        assertThat(chain.getRequest()).isNotNull();
+    }
 }

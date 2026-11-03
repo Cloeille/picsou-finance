@@ -69,6 +69,7 @@ class SpaServingTest {
             Files.writeString(site.resolve("assets/logo.SVG"), "<svg/>");
             Files.createDirectories(site.resolve("locales/en"));
             Files.writeString(site.resolve("locales/en/x.json"), "{\"a\":1}");
+            Files.writeString(site.resolve("theme-init.js"), "/* public, unhashed */");
             return site;
         } catch (IOException e) {
             throw new IllegalStateException(e);
@@ -178,6 +179,16 @@ class SpaServingTest {
             .andExpect(header().doesNotExist("Cache-Control"))
             .andReturn();
         assertThat(body(result)).doesNotContain("picsou-spa-index");
+    }
+
+    /** Files copied from public/ keep their URL across releases: revalidate, never immutable. */
+    @Test
+    void unhashedPublicFile_isNotCachedForAYear() throws Exception {
+        mvc.perform(get("/theme-init.js"))
+            .andExpect(status().isOk())
+            .andExpect(header().doesNotExist("Cache-Control"))
+            .andExpect(header().doesNotExist("Expires"))
+            .andExpect(header().exists("ETag"));
     }
 
     @Test

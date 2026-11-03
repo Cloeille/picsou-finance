@@ -121,7 +121,7 @@ public class SpaWebConfig implements WebMvcConfigurer {
             }
             Resource file = super.resolveResourceInternal(request, requestPath, locations, chain);
             if (file != null) {
-                return SpaPaths.hasCachedExtension(path) ? new LongLived(file) : file;
+                return SpaPaths.isHashedAsset(path) ? new LongLived(file) : file;
             }
             if (SpaPaths.hasCachedExtension(path)) {
                 return null;

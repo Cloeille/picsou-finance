@@ -58,5 +58,13 @@ HSTS emitter, the strip rules and the drift test have nothing left to protect.
 ## Consequences
 
 - OAuth2 endpoints now follow the HSTS gate (they previously ignored it).
+- Only Vite's content-hashed output under `/assets/` is cached for a year as `immutable`. Files
+  copied from `frontend/public/` (favicon, `theme-init.js`, provider logos) keep their URL across
+  releases, so they revalidate with their ETag instead. nginx cached them for a year too.
+- nginx's own 502/504 pages (backend down or too slow) carry no security header until PR 3
+  removes nginx. They hold no app content and no script, so CSP and frame options protect nothing
+  there. HSTS is not lost either: the browser keeps the policy from earlier responses.
+- The SPA's ETag stays nginx's `mtime-length` shape (weak). Two builds of `index.html` with the same
+  length in the same second would share it; a release rebuild never lands in that window.
 - `docker/tests/header_diff.py` compares two running deployments header by header.
 - Follow-ups of #342: secret generation in Java, then removing nginx, supervisord and Python from the image.

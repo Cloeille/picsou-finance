@@ -60,6 +60,30 @@ def test_missing_header_is_reported_with_its_value():
 def test_accepted_differences_are_scoped_to_their_paths():
     assert is_accepted("/accounts/12", "x-xss-protection: absent != ['0']")
     assert not is_accepted("/api/auth/me", "x-xss-protection: absent != ['0']")
-    assert is_accepted("/oauth2/jwks", "strict-transport-security: ['max-age=1'] != absent")
-    assert not is_accepted("/api/auth/me", "strict-transport-security: ['max-age=1'] != absent")
+    assert not is_accepted("/api/auth/me", "strict-transport-security: ['max-age=1'] != absent", True)
     assert not is_accepted("/", "content-security-policy: ['x'] != absent")
+
+
+def test_hsts_is_accepted_only_when_the_candidate_states_it_runs_with_hsts_off():
+    missing = "strict-transport-security: ['max-age=1'] != absent"
+    assert is_accepted("/oauth2/jwks", missing, candidate_hsts_disabled=True)
+    assert not is_accepted("/oauth2/jwks", missing)
+    added = "strict-transport-security: absent != ['max-age=1']"
+    assert not is_accepted("/oauth2/jwks", added, candidate_hsts_disabled=True)
+
+
+def test_year_long_caching_differences_are_accepted_only_for_unhashed_public_files():
+    line = "cache-control: ['immutable', 'max-age=31536000', 'public'] != absent"
+    assert is_accepted("/favicon.svg", line)
+    assert not is_accepted("/assets/index-abc.js", line)
+    assert not is_accepted("/accounts/12", line)
+
+
+def test_each_deployment_is_asked_for_its_own_bundle(monkeypatch):
+    import header_diff
+    names = {("http://base", "js"): "/assets/index-AAA.js", ("http://cand", "js"): "/assets/index-BBB.js",
+             ("http://base", "css"): "/assets/index-AAA.css", ("http://cand", "css"): None}
+    monkeypatch.setattr(header_diff, "first_asset", lambda url, ext: names[(url, ext)])
+    pairs = header_diff.paths("http://base", "http://cand")
+    assert ("/assets/index-AAA.js", "/assets/index-BBB.js") in pairs
+    assert ("/assets/index-AAA.css", None) in pairs

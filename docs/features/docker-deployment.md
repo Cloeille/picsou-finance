@@ -77,8 +77,8 @@ the legacy builder rejects the empty `$BUILDPLATFORM`.
 
 | Process | Port | Role |
 |---------|------|------|
-| Nginx | 8080 (public) | Serves SPA, proxies `/api/*` and `/actuator` to backend |
-| Java (Spring Boot) | 9090 (internal) | Backend API |
+| Nginx | 8080 (public) | Forwarding proxy: resolves the client address and public scheme/host/port, sets per-endpoint timeouts, proxies every request to the backend |
+| Java (Spring Boot) | 9090 (internal) | Serves the SPA, the API and every response header |
 
 ### Shared sidecar bases — `services/base/Dockerfile`
 
