@@ -140,8 +140,8 @@ class TrustedProxyClientIpTest {
     private AuthController controller(Map<String, Bucket> buckets) {
         return new AuthController(mock(AppUserRepository.class), mock(PasswordEncoder.class),
             mock(JwtUtil.class), buckets, new HashMap<>(), mock(AuthCookieWriter.class),
-            mock(MfaService.class), mock(PersistentSessionService.class), mock(SetupAuditService.class),
-            false, true);
+            mock(MfaService.class), mock(PersistentSessionService.class),
+            mock(com.picsou.service.SessionIssuer.class), new SsoProperties(), mock(SetupAuditService.class), false, true);
     }
 
     private void assertInvalidLogin(AuthController controller, HttpServletRequest request) {

@@ -39,7 +39,11 @@ public class JwtUtil {
     }
 
     public String generateAccessToken(AppUser user) {
-        return buildToken(user, "access", Instant.now().plus(accessExpiryMinutes, ChronoUnit.MINUTES), null);
+        return generateAccessToken(user, null);
+    }
+
+    public String generateAccessToken(AppUser user, Instant ssoAuthenticatedAt) {
+        return buildToken(user, "access", Instant.now().plus(accessExpiryMinutes, ChronoUnit.MINUTES), null, ssoAuthenticatedAt);
     }
 
     public String generateRefreshToken(AppUser user) {
@@ -54,7 +58,11 @@ public class JwtUtil {
      * tied to any persistent session.
      */
     public String generateRefreshToken(AppUser user, UUID seriesId) {
-        return buildToken(user, "refresh", Instant.now().plus(refreshExpiryDays, ChronoUnit.DAYS), seriesId);
+        return generateRefreshToken(user, seriesId, null);
+    }
+
+    public String generateRefreshToken(AppUser user, UUID seriesId, Instant ssoAuthenticatedAt) {
+        return buildToken(user, "refresh", Instant.now().plus(refreshExpiryDays, ChronoUnit.DAYS), seriesId, ssoAuthenticatedAt);
     }
 
     /**
@@ -77,7 +85,7 @@ public class JwtUtil {
             .compact();
     }
 
-    private String buildToken(AppUser user, String tokenType, Instant expiry, UUID seriesId) {
+    private String buildToken(AppUser user, String tokenType, Instant expiry, UUID seriesId, Instant ssoAuthenticatedAt) {
         JwtBuilder builder = Jwts.builder()
             .subject(user.getUsername())
             .claim("uid", user.getId())
@@ -90,7 +98,14 @@ public class JwtUtil {
         if (seriesId != null) {
             builder.claim("sid", seriesId.toString());
         }
+        if (ssoAuthenticatedAt != null) {
+            builder.claim("sso_at", ssoAuthenticatedAt.getEpochSecond());
+        }
         return builder.compact();
+    }
+
+    public Instant getSsoAuthenticatedAt(Claims claims) {
+        return claims.get("sso_at") instanceof Number value ? Instant.ofEpochSecond(value.longValue()) : null;
     }
 
     /**

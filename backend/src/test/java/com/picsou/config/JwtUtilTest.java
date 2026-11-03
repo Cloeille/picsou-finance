@@ -7,6 +7,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
+import java.time.Instant;
+import io.jsonwebtoken.Jwts;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -28,6 +30,29 @@ class JwtUtilTest {
     }
 
     // ─── token type isolation ─────────────────────────────────────────────
+
+    @Test
+    void ssoAt_roundTripsOnAccessAndRefresh_withoutChangingPasswordTokens() {
+        Instant authenticatedAt = Instant.parse("2026-10-31T12:34:56Z");
+        UUID series = UUID.fromString("11111111-2222-3333-4444-555555555555");
+
+        Claims access = jwt.validateAndParse(jwt.generateAccessToken(user, authenticatedAt));
+        Claims refresh = jwt.validateAndParse(jwt.generateRefreshToken(user, series, authenticatedAt));
+
+        assertThat(jwt.getSsoAuthenticatedAt(access)).isEqualTo(authenticatedAt);
+        assertThat(jwt.getSsoAuthenticatedAt(refresh)).isEqualTo(authenticatedAt);
+        assertThat(refresh.get("sso_at", Number.class).longValue()).isEqualTo(authenticatedAt.getEpochSecond());
+        assertThat(jwt.getSeriesId(refresh)).isEqualTo(series);
+        assertThat(jwt.validateAndParse(jwt.generateAccessToken(user))).doesNotContainKey("sso_at");
+        assertThat(jwt.validateAndParse(jwt.generateRefreshToken(user))).doesNotContainKey("sso_at");
+        assertThat(jwt.validateAndParse(jwt.generateRefreshToken(user, series))).doesNotContainKey("sso_at");
+    }
+
+    @Test
+    void ssoAt_isNullForAbsentOrNonNumericClaims() {
+        assertThat(jwt.getSsoAuthenticatedAt(Jwts.claims().build())).isNull();
+        assertThat(jwt.getSsoAuthenticatedAt(Jwts.claims().add("sso_at", "yesterday").build())).isNull();
+    }
 
     @Test
     void accessToken_isOnlyRecognizedAsAccess() {
