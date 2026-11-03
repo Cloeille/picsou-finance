@@ -18,8 +18,11 @@ snippet. Issue #342 aims at one process with no root.
   `server.tomcat.remoteip.internal-proxies` from `PICSOU_PROXY_IP`: one exact IPv4 address, or an
   expression that matches nothing. Tomcat is the edge, so loopback is no longer trusted.
   This supersedes the nginx half of the [trusted proxy ADR](./2026-10-31-trusted-proxy-client-address.md).
-- `ForwardedHostPortCustomizer` adds one Tomcat valve that restores what nginx derived: the public
-  port from `X-Forwarded-Host`, else a numeric `X-Forwarded-Port`, for the trusted proxy only.
+- `ForwardedOriginCustomizer` adds one Tomcat valve that restores what nginx did with the public
+  origin: `X-Forwarded-Proto` and `X-Forwarded-Host` apply from any peer, and the port comes from
+  the forwarded host, else a numeric `X-Forwarded-Port`, else the scheme default. Only the client
+  address stays restricted to `PICSOU_PROXY_IP`, so an install behind an undeclared HTTPS proxy
+  keeps working after the upgrade.
 - Compose runs a one-shot `data-permissions` service (same image, root, `chown -R 1000:1000 /data`)
   that the app waits for; `deploy.sh` runs it before recreating the app. The Helm pod sets
   `fsGroup: 1000` with `OnRootMismatch`, and the migration Job runs as 1000.
@@ -37,6 +40,13 @@ snippet. Issue #342 aims at one process with no root.
 
 - **Pros**: no extra Compose service.
 - **Cons**: needs root at start, a shell and an entrypoint, which is what this removes.
+
+### Accept the public origin only from `PICSOU_PROXY_IP`
+- **Pros**: one trust rule for every forwarded header.
+- **Cons**: stricter than nginx, which relayed the scheme and host from any peer. An install behind
+  an HTTPS proxy not listed in `PICSOU_PROXY_IP` (an external Caddy, `tailscale serve`) would see
+  `http` after the upgrade and reject its own logins with 403. Forging the origin gives a client
+  nothing it could not get by sending a matching `Origin` itself.
 
 ## Trade-offs accepted
 

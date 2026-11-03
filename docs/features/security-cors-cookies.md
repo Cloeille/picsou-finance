@@ -40,16 +40,20 @@ proxy→backend hop is plain HTTP. Without trusting forwarded headers the backen
 `getScheme() == "http"`, the **scheme mismatches**, a genuinely same-origin request is treated as
 cross-origin, and the fail-closed allow-list rejects it with **403**.
 
-`server.forward-headers-strategy: native` enables Tomcat's `RemoteIpValve`. It accepts
-`X-Forwarded-For/Proto/Host/Port` only from the one address in `PICSOU_PROXY_IP`
-(`TrustedProxyBootstrap` copies it into `server.tomcat.remoteip.internal-proxies`). Unset, it
-matches nothing: not loopback, not Tomcat's private-network defaults.
+Two trust levels, the same as the bundled nginx had:
 
-`ForwardedHostPortCustomizer` keeps the public port. `RemoteIpValve` removes a port from
-`X-Forwarded-Host` and reads `X-Forwarded-Port` only when `X-Forwarded-Proto` came too, so for the
-trusted proxy the valve takes the port of the public host (bracketed IPv6 included), else a numeric
-`X-Forwarded-Port`, else the scheme default. Standard HTTPS, custom HTTPS ports and published HTTP
-ports all retain the browser's origin.
+- **Client address.** `server.forward-headers-strategy: native` enables Tomcat's `RemoteIpValve`,
+  which accepts `X-Forwarded-For` only from the one address in `PICSOU_PROXY_IP`
+  (`TrustedProxyBootstrap` copies it into `server.tomcat.remoteip.internal-proxies`). Unset, it
+  matches nothing: not loopback, not Tomcat's private-network defaults.
+- **Public origin.** `ForwardedOriginCustomizer` applies `X-Forwarded-Proto` and
+  `X-Forwarded-Host` from any peer, as nginx relayed them whoever sent them. An existing install
+  behind an HTTPS proxy that is not declared in `PICSOU_PROXY_IP` (a Caddy outside the bundled
+  profile, `tailscale serve`) keeps its same-origin checks. The port is the one in the forwarded
+  host (else in `Host`, bracketed IPv6 included), else a numeric `X-Forwarded-Port`, else the
+  scheme default. Standard HTTPS, custom HTTPS ports and published HTTP ports all retain the
+  browser's origin. A client that forges these headers only changes the origin its own request is
+  compared with; it gains nothing it could not do by sending a matching `Origin`.
 
 ### Client IP trust (rate-limit keys and audit logs)
 
@@ -140,7 +144,7 @@ endpoints including the `/oauth2/authorize` cookie bridge) is a separate chain a
 | `backend/src/main/java/com/picsou/config/AuthCookieWriter.java` / `SecureCookieProvider.java` | Cookie construction + `Secure` flag |
 | `backend/src/main/resources/application.yml` | `server.forward-headers-strategy: native`, explicit Tomcat proxy trust, CORS and cookie settings |
 | `backend/src/main/java/com/picsou/config/TrustedProxyBootstrap.java` | `PICSOU_PROXY_IP` becomes Tomcat's only trusted proxy; rejects malformed values |
-| `backend/src/main/java/com/picsou/config/ForwardedHostPortCustomizer.java` | Keeps the public port from `X-Forwarded-Host` / `X-Forwarded-Port` |
+| `backend/src/main/java/com/picsou/config/ForwardedOriginCustomizer.java` | Keeps the public port from `X-Forwarded-Host` / `X-Forwarded-Port` |
 | `backend/src/main/java/com/picsou/config/ClientIp.java` | Container-resolved client IP for rate-limit keys (`getRemoteAddr()`) |
 | `backend/src/main/java/com/picsou/config/RateLimitConfig.java` | Bucket4j bucket definitions; bounded Caffeine-backed bucket-store beans |
 | `backend/src/main/java/com/picsou/controller/SetupController.java` (`/api/setup/security`) | Persists wizard's allowed origins |

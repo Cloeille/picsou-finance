@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The app image is one non-root Java process.** nginx, supervisord and the shell entrypoint are
   gone. The container runs as uid 1000 on port 8080; Compose and Helm hand `/data` to that user
   (`data-permissions` service, `fsGroup`). Tomcat trusts forwarded headers only from
-  `PICSOU_PROXY_IP` and no longer trusts loopback. Helm probes use `/actuator/health/liveness`.
+  `PICSOU_PROXY_IP` for the client address, and no longer trusts loopback; the public scheme,
+  host and port are applied from any peer as nginx did, so an undeclared HTTPS proxy keeps
+  working. Helm probes use `/actuator/health/liveness`.
   **Upgrade:** `data-permissions` runs `chown -R 1000:1000 /data` before each app start
   (`deploy.sh` runs it too). A bind mount where `chown` is ignored (SMB/CIFS) needs the mount
   options `uid=1000,gid=1000`. Behaviour changes: uploads follow Spring's 10 MB multipart limit

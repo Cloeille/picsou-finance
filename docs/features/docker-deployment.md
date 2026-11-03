@@ -378,9 +378,11 @@ retained for ACME egress. It reaches the app through the bridge-only `app-tls` a
 joins this bridge. Tomcat is the edge: its Remote IP valve trusts only `PICSOU_PROXY_IP`
 (not loopback, not the private networks), and a request from any other address keeps its socket
 address whatever headers it sends. Rate limiters, session metadata and audit logs share the
-resolved remote address. `ForwardedHostPortCustomizer` keeps the public port: for the trusted
-proxy it takes the port of `X-Forwarded-Host` (bracketed IPv6 included), else a numeric
-`X-Forwarded-Port`, else the scheme default, as nginx did.
+resolved remote address. The public origin is not restricted that way: `ForwardedOriginCustomizer`
+applies `X-Forwarded-Proto` and `X-Forwarded-Host` from any peer and takes the port of the
+forwarded host (bracketed IPv6 included), else a numeric `X-Forwarded-Port`, else the scheme
+default, as nginx did. A proxy left out of `PICSOU_PROXY_IP` therefore keeps HTTPS logins
+working; only the client address (rate limits, audit) shows the proxy instead of the browser.
 
 Defaults in `docker/docker-compose.yml` are `PICSOU_PROXY_SUBNET=172.30.253.0/29`,
 `PICSOU_PROXY_IP=172.30.253.2` for Caddy, and `PICSOU_PROXY_IP_RANGE=172.30.253.4/30`

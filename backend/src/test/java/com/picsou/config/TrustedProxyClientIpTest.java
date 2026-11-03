@@ -83,9 +83,13 @@ class TrustedProxyClientIpTest {
         assertThat(buckets).containsOnlyKeys("198.51.100.20");
     }
 
+    /**
+     * Only PICSOU_PROXY_IP may set the client address: not loopback, not the private networks. The
+     * public origin follows the forwarded headers from any peer, as the bundled nginx relayed them,
+     * so an undeclared HTTPS proxy keeps same-origin requests working.
+     */
     @Test
-    void untrustedLoopbackPrivateAndIpv6Peers_keepTheirSocketAddressAndOrigin() throws Exception {
-        // Only PICSOU_PROXY_IP is trusted: not loopback, not the private networks.
+    void untrustedPeers_keepTheirSocketAddressButTheForwardedOriginApplies() throws Exception {
         for (String peer : new String[] {"127.0.0.1", "::1", "10.0.0.5", "172.18.0.2", "192.168.1.5", "2001:db8::20"}) {
             throughValve(peer, Map.of(
                 "X-Forwarded-For", "203.0.113.9",
@@ -94,14 +98,15 @@ class TrustedProxyClientIpTest {
                 "X-Forwarded-Host", "other.example.test:8443",
                 "X-Forwarded-Port", "443"), request -> {
                     assertThat(ClientIp.resolve(request)).isEqualTo(peer);
-                    assertThat(request.getScheme()).isEqualTo("http");
-                    assertThat(request.getServerName()).isEqualTo("picsou.internal");
-                    assertThat(request.getServerPort()).isEqualTo(LISTENER_PORT);
+                    assertThat(request.getScheme()).isEqualTo("https");
+                    assertThat(request.isSecure()).isTrue();
+                    assertThat(request.getServerName()).isEqualTo("other.example.test");
+                    assertThat(request.getServerPort()).isEqualTo(8443);
                 });
         }
     }
 
-    /** Unset and empty behave the same: the expression matches nothing, even for the would-be proxy. */
+    /** Unset and empty behave the same: no peer may set the client address, even the would-be proxy. */
     @ParameterizedTest
     @NullSource
     @ValueSource(strings = "")
@@ -113,8 +118,8 @@ class TrustedProxyClientIpTest {
                 "X-Forwarded-Proto", "https",
                 "X-Forwarded-Host", "other.example.test:8443"), request -> {
                     assertThat(request.getRequest().getRemoteAddr()).as(peer).isEqualTo(peer);
-                    assertThat(request.getScheme()).as(peer).isEqualTo("http");
-                    assertThat(request.getServerPort()).as(peer).isEqualTo(LISTENER_PORT);
+                    assertThat(request.getScheme()).as(peer).isEqualTo("https");
+                    assertThat(request.getServerPort()).as(peer).isEqualTo(8443);
                 });
         }
     }
@@ -166,10 +171,40 @@ class TrustedProxyClientIpTest {
             assertThat(valve.isAsyncSupported()).as(valve.getClass().getName()).isTrue());
     }
 
+    /** Existing installs behind an HTTPS proxy that is not PICSOU_PROXY_IP keep working (nginx parity). */
     @Test
-    void untrustedPeer_cannotSetThePublicPort() throws Exception {
-        throughValve("198.51.100.20", Map.of("X-Forwarded-Host", "nas.test:8080", "X-Forwarded-Port", "9443"),
-            request -> assertThat(request.getServerPort()).isEqualTo(LISTENER_PORT));
+    void undeclaredHttpsProxy_keepsThePublicOriginButNotTheClientAddress() throws Exception {
+        String peer = "172.18.0.1";
+        new ProductionTomcatEdge(null).handle(peer, Map.of(
+            "Host", "winterfell.example.ts.net:8445",
+            "X-Forwarded-For", "100.64.0.7",
+            "X-Forwarded-Proto", "https",
+            "X-Forwarded-Host", "winterfell.example.ts.net:8445",
+            "Origin", "https://winterfell.example.ts.net:8445"), request -> {
+                assertThat(request.getRequest().getRemoteAddr()).isEqualTo(peer);
+                assertThat(request.getScheme()).isEqualTo("https");
+                assertThat(request.getServerName()).isEqualTo("winterfell.example.ts.net");
+                assertThat(request.getServerPort()).isEqualTo(8445);
+                assertThat(CorsUtils.isCorsRequest(request.getRequest())).isFalse();
+            });
+    }
+
+    /** With only X-Forwarded-Proto, the host and its port come from Host, as nginx's $http_host fallback. */
+    @Test
+    void forwardedProtoAlone_keepsThePortOfTheHostHeader() throws Exception {
+        new ProductionTomcatEdge(null).handle("172.18.0.1", Map.of(
+            "Host", "nas.test:8443", "X-Forwarded-Proto", "https"), request -> {
+                assertThat(request.getScheme()).isEqualTo("https");
+                assertThat(request.getServerName()).isEqualTo("nas.test");
+                assertThat(request.getServerPort()).isEqualTo(8443);
+            });
+    }
+
+    @Test
+    void invalidForwardedPorts_fallBackToTheSchemeDefault() throws Exception {
+        assertPublicPort(Map.of("X-Forwarded-Host", "picsou.example", "X-Forwarded-Proto", "https",
+            "X-Forwarded-Port", "99999"), 443);
+        assertPublicPort(Map.of("X-Forwarded-Host", "picsou.example:0", "X-Forwarded-Proto", "http"), 80);
     }
 
     @Test

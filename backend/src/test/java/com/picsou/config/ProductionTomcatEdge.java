@@ -52,7 +52,7 @@ final class ProductionTomcatEdge {
         assertThat(properties.getForwardHeadersStrategy()).isEqualTo(ServerProperties.ForwardHeadersStrategy.NATIVE);
         TomcatServletWebServerFactory factory = new TomcatServletWebServerFactory();
         new TomcatWebServerFactoryCustomizer(environment, properties).customize(factory);
-        new ForwardedHostPortCustomizer(properties).customize(factory);
+        new ForwardedOriginCustomizer(properties).customize(factory);
         valves = List.copyOf(factory.getEngineValves());
     }
 
