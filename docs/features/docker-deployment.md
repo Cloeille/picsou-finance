@@ -1,6 +1,6 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-11-01 (connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
+> Last updated: 2026-11-03 (Spring Boot serves the SPA and every response header, nginx only forwards and answers 502/504 itself; connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
 
 ## Context
 

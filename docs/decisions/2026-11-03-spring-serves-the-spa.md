@@ -64,6 +64,8 @@ HSTS emitter, the strip rules and the drift test have nothing left to protect.
 
 ## Trade-offs accepted
 
+- A response nginx writes itself for a malformed request (400, 413) carries no security header;
+  nginx used to add them server-wide. Only the 502/504 for an unreachable backend are covered.
 - Tomcat serves static files instead of nginx. For a self-hosted dashboard this is not measurable.
 - Weak ETags: Tomcat skips compression for responses with a strong ETag. `index.html` gets a weak
   digest of its content (it is revalidated on every load and keeps its name, so a build with the

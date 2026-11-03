@@ -351,7 +351,7 @@ def test_nginx_504_for_a_backend_that_does_not_answer_carries_security_headers(t
 @pytest.mark.parametrize(("path", "expected_status", "expected_body"), [
     ("/bad-gateway", 502, "from-backend-502\n"),
     ("/gateway-timeout", 504, "from-backend-504\n"),
-])
+], ids=["502", "504"])
 def test_nginx_passes_through_a_502_or_504_returned_by_the_backend(
     edge_with_failing_backend, path, expected_status, expected_body,
 ):
