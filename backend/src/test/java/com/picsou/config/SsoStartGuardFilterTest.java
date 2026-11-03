@@ -1,6 +1,11 @@
 package com.picsou.config;
 
 import com.picsou.service.SetupService;
+import com.picsou.service.ReAuthService;
+import com.picsou.model.AppUser;
+import jakarta.servlet.http.Cookie;
+import java.util.Optional;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import com.picsou.service.sso.SsoIntent;
 import io.github.bucket4j.Bucket;
 import java.time.Clock;
@@ -27,6 +32,8 @@ import static org.mockito.Mockito.when;
 class SsoStartGuardFilterTest {
     @Mock SsoClientRegistrationRepository repository;
     @Mock SetupService setup;
+    @Mock JwtTokenAuthenticator authenticator;
+    @Mock ReAuthService reAuthService;
     private final Map<String, Bucket> buckets = new HashMap<>();
     private SsoStartGuardFilter guard;
     private final MockHttpServletResponse response = new MockHttpServletResponse();
@@ -35,7 +42,8 @@ class SsoStartGuardFilterTest {
 
     @BeforeEach
     void createGuard() {
-        guard = new SsoStartGuardFilter(repository, setup, buckets, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+        guard = new SsoStartGuardFilter(repository, setup, buckets, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC),
+            authenticator, reAuthService);
         request.setRemoteAddr("192.0.2.1");
     }
 
@@ -92,7 +100,7 @@ class SsoStartGuardFilterTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"unknown", "link", "reauth", "activate", "setup"})
+    @ValueSource(strings = {"unknown", "activate", "setup"})
     void unsupportedIntentFailsClosed(String intent) throws Exception {
         request.addParameter("intent", intent);
         if (!intent.equals("unknown")) {
@@ -115,5 +123,46 @@ class SsoStartGuardFilterTest {
         assertThat(request.getAttribute(SsoIntent.ATTRIBUTE)).isEqualTo(new SsoIntent(
             SsoIntent.Kind.LOGIN, redirect.equals("/accounts") ? "/accounts" : "/", true, null, null, Instant.EPOCH));
         assertThat(request.getSession(false)).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"reauth", "link"})
+    void signedInIntentRequiresAccessCookie(String kind) throws Exception {
+        when(repository.isAvailable()).thenReturn(true);
+        request.addParameter("intent", kind);
+        guard.doFilter(request, response, chain);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/login");
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"reauth", "link"})
+    void signedInIntentBindsUserAndDefaultsToSettings(String kind) throws Exception {
+        var user = AppUser.builder().id(7L).build();
+        when(repository.isAvailable()).thenReturn(true);
+        when(authenticator.authenticate("access")).thenReturn(Optional.of(
+            new UsernamePasswordAuthenticationToken(user, null)));
+        if (kind.equals("link")) when(reAuthService.hasValidProof(user, request)).thenReturn(true);
+        request.setCookies(new Cookie("access_token", "access"));
+        request.addParameter("intent", kind);
+        guard.doFilter(request, response, chain);
+        assertThat(chain.getRequest()).isSameAs(request);
+        assertThat(request.getAttribute(SsoIntent.ATTRIBUTE)).isEqualTo(new SsoIntent(
+            kind.equals("link") ? SsoIntent.Kind.LINK : SsoIntent.Kind.REAUTH,
+            "/settings", false, 7L, null, Instant.EPOCH));
+    }
+
+    @Test
+    void linkWithoutProofIsRefusedBeforeProvider() throws Exception {
+        var user = AppUser.builder().id(7L).build();
+        when(repository.isAvailable()).thenReturn(true);
+        when(authenticator.authenticate("access")).thenReturn(Optional.of(
+            new UsernamePasswordAuthenticationToken(user, null)));
+        request.setCookies(new Cookie("access_token", "access"));
+        request.addParameter("intent", "link");
+        request.addParameter("redirect", "/settings?resume=link");
+        guard.doFilter(request, response, chain);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/settings?resume=link&ssoError=REAUTH_REQUIRED");
+        assertThat(chain.getRequest()).isNull();
     }
 }

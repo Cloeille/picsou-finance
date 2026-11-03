@@ -3,6 +3,10 @@ package com.picsou.config;
 import com.picsou.model.AppUser;
 import com.picsou.model.UserRole;
 import com.picsou.service.SessionIssuer;
+import com.picsou.service.ReAuthService;
+import com.picsou.service.SetupAuditService;
+import jakarta.servlet.http.Cookie;
+import java.util.HashMap;
 import com.picsou.service.sso.SsoAccountService;
 import com.picsou.service.sso.SsoFlowException;
 import com.picsou.service.sso.SsoIdentity;
@@ -46,9 +50,11 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+// allow: SIZE_OK - The plan's targeted class owns the complete SSO callback security matrix.
 class SsoAuthenticationSuccessHandlerTest {
 
     private static final Instant NOW = Instant.parse("2026-11-03T10:00:00Z");
@@ -57,6 +63,11 @@ class SsoAuthenticationSuccessHandlerTest {
     @Mock private SsoRoleSyncService ssoRoleSyncService;
     @Mock private SessionIssuer sessionIssuer;
     @Mock private SsoProperties ssoProperties;
+    @Mock private JwtTokenAuthenticator authenticator;
+    @Mock private ReAuthService reAuthService;
+    @Mock private JwtUtil jwtUtil;
+    @Mock private AuthCookieWriter cookieWriter;
+    @Mock private SetupAuditService auditService;
 
     @BeforeEach
     void stubGroupsClaim() {
@@ -66,7 +77,8 @@ class SsoAuthenticationSuccessHandlerTest {
 
     private SsoAuthenticationSuccessHandler handler(boolean adminRecoveryEnabled) {
         return new SsoAuthenticationSuccessHandler(ssoAccountService, ssoRoleSyncService, sessionIssuer,
-            ssoProperties, Clock.fixed(NOW, ZoneOffset.UTC), adminRecoveryEnabled);
+            ssoProperties, Clock.fixed(NOW, ZoneOffset.UTC), adminRecoveryEnabled,
+            authenticator, reAuthService, jwtUtil, cookieWriter, auditService);
     }
 
     private static MockHttpServletRequest requestWith(SsoIntent intent) {
@@ -103,7 +115,7 @@ class SsoAuthenticationSuccessHandlerTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SsoIntent.Kind.class, names = {"LINK", "REAUTH", "ACTIVATE", "SETUP"})
+    @EnumSource(value = SsoIntent.Kind.class, names = {"ACTIVATE", "SETUP"})
     void nonLoginIntentsFailClosedAndDiscardHandshake(SsoIntent.Kind kind) throws Exception {
         SsoIntent intent = new SsoIntent(kind, "/settings?tab=security", false, null, "token", Instant.EPOCH);
         var request = requestWith(intent);
@@ -251,5 +263,137 @@ class SsoAuthenticationSuccessHandlerTest {
         assertThat(response.getRedirectedUrl()).isEqualTo(intent.errorRedirect("REAUTH_REQUIRED"));
         verifyNoInteractions(sessionIssuer);
         assertThat(session.isInvalid()).isTrue();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0,true", "60,true", "61,false", "600,false", "-1,false"})
+    void reauthRequiresFreshIdTokenAuthTime(long age, boolean accepted) throws Exception {
+        var intent = new SsoIntent(SsoIntent.Kind.REAUTH, "/settings?resume=export", true, 1L, null, NOW);
+        var request = requestWith(intent);
+        var response = new MockHttpServletResponse();
+        var alice = signedIn(request, 1L);
+        when(ssoAccountService.isLinkedTo(any(), eq(1L))).thenReturn(true);
+        if (accepted) when(jwtUtil.generateReauthProof(alice)).thenReturn("proof");
+
+        handler(false).onAuthenticationSuccess(request, response, authenticatedAt(age));
+
+        assertThat(response.getRedirectedUrl()).isEqualTo(accepted ? intent.redirect() : intent.errorRedirect("REAUTH_TOO_OLD"));
+        if (accepted) {
+            verify(ssoAccountService).touchLogin(any());
+            verify(ssoRoleSyncService).sync(eq(alice), any(), eq(request));
+            verify(cookieWriter).setReauthProof(response, "proof");
+            verifyNoMoreInteractions(cookieWriter);
+        } else {
+            verifyNoInteractions(cookieWriter, ssoRoleSyncService);
+            verify(ssoAccountService, never()).touchLogin(any());
+        }
+        verifyNoInteractions(sessionIssuer);
+        assertThat(((MockHttpSession) request.getSession(false))).isNull();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"REAUTH,false", "LINK,false", "REAUTH,true", "LINK,true"})
+    void callbackWithoutValidAccessTokenExpiresSession(SsoIntent.Kind kind, boolean invalidCookie) throws Exception {
+        var intent = new SsoIntent(kind, "/settings", false, 1L, null, NOW);
+        var request = requestWith(intent);
+        if (invalidCookie) request.setCookies(new Cookie("access_token", "invalid"));
+        var response = new MockHttpServletResponse();
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+        assertThat(response.getRedirectedUrl()).isEqualTo(intent.errorRedirect("SESSION_EXPIRED"));
+        verifyNoInteractions(ssoAccountService, ssoRoleSyncService, cookieWriter, sessionIssuer);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SsoIntent.Kind.class, names = {"REAUTH", "LINK"})
+    void callbackRefusesChangedLocalAccount(SsoIntent.Kind kind) throws Exception {
+        var intent = new SsoIntent(kind, "/settings", false, 1L, null, NOW);
+        var request = requestWith(intent);
+        signedIn(request, 2L);
+        var response = new MockHttpServletResponse();
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+        assertThat(response.getRedirectedUrl()).isEqualTo(intent.errorRedirect("REAUTH_WRONG_ACCOUNT"));
+        verifyNoInteractions(ssoAccountService, reAuthService, cookieWriter, sessionIssuer);
+    }
+
+    @Test
+    void reauthRefusesIdentityNotLinkedToSignedInUser() throws Exception {
+        var intent = new SsoIntent(SsoIntent.Kind.REAUTH, "/settings", false, 1L, null, NOW);
+        var request = requestWith(intent);
+        signedIn(request, 1L);
+        var response = new MockHttpServletResponse();
+        handler(false).onAuthenticationSuccess(request, response, authenticatedAt(0));
+        assertThat(response.getRedirectedUrl()).isEqualTo(intent.errorRedirect("REAUTH_WRONG_ACCOUNT"));
+        verify(ssoAccountService, never()).touchLogin(any());
+        verifyNoInteractions(ssoRoleSyncService, cookieWriter, sessionIssuer);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"/settings,/settings?sso=linked", "/settings?tab=security,/settings?tab=security&sso=linked"})
+    void linkSyncsRoleAndAuditsWithoutIssuingSessionOrTouchingLogin(String redirect, String expected) throws Exception {
+        var intent = new SsoIntent(SsoIntent.Kind.LINK, redirect, false, 1L, null, NOW);
+        var request = requestWith(intent);
+        var alice = signedIn(request, 1L);
+        when(reAuthService.hasValidProof(alice, request)).thenReturn(true);
+        when(ssoAccountService.link(eq(1L), any())).thenReturn(alice);
+        var response = new MockHttpServletResponse();
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+        assertThat(response.getRedirectedUrl()).isEqualTo(expected);
+        verify(ssoRoleSyncService).sync(eq(alice), any(), eq(request));
+        verify(auditService).record(eq("sso.identity.linked"), eq("alice"), eq(request), any());
+        verify(ssoAccountService, never()).touchLogin(any());
+        verifyNoInteractions(cookieWriter, sessionIssuer);
+    }
+
+    @Test
+    void linkConflictReturnsIdentityInUse() throws Exception {
+        var intent = new SsoIntent(SsoIntent.Kind.LINK, "/settings", false, 1L, null, NOW);
+        var request = requestWith(intent);
+        var alice = signedIn(request, 1L);
+        when(reAuthService.hasValidProof(alice, request)).thenReturn(true);
+        when(ssoAccountService.link(eq(1L), any())).thenThrow(new SsoFlowException("IDENTITY_IN_USE"));
+        var response = new MockHttpServletResponse();
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+        assertThat(response.getRedirectedUrl()).isEqualTo(intent.errorRedirect("IDENTITY_IN_USE"));
+        verifyNoInteractions(ssoRoleSyncService, auditService, cookieWriter, sessionIssuer);
+    }
+
+    @Test
+    void linkProofValidAtStartButExpiredAtCallbackNeverLinks() throws Exception {
+        var request = new MockHttpServletRequest("POST", "/oauth2/sso/authorization/oidc");
+        var alice = signedIn(request, 1L);
+        when(reAuthService.hasValidProof(alice, request)).thenReturn(true, false);
+        var repository = org.mockito.Mockito.mock(SsoClientRegistrationRepository.class);
+        when(repository.isAvailable()).thenReturn(true);
+        request.addParameter("intent", "link");
+        var guard = new SsoStartGuardFilter(repository, org.mockito.Mockito.mock(com.picsou.service.SetupService.class),
+            new HashMap<>(), Clock.fixed(NOW, ZoneOffset.UTC), authenticator, reAuthService);
+        guard.doFilter(request, new MockHttpServletResponse(), new org.springframework.mock.web.MockFilterChain());
+        var intent = (SsoIntent) request.getAttribute(SsoIntent.ATTRIBUTE);
+        assertThat(intent).isNotNull();
+        request.setAttribute(SsoAuthorizationRequestRepository.REMOVED_REQUEST_ATTRIBUTE,
+            OAuth2AuthorizationRequest.authorizationCode().authorizationUri("https://idp.test/authorize")
+                .clientId("picsou").attributes(a -> a.put(SsoIntent.ATTRIBUTE, intent)).build());
+        var response = new MockHttpServletResponse();
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+        assertThat(response.getRedirectedUrl()).isEqualTo("/settings?ssoError=REAUTH_REQUIRED");
+        verify(ssoAccountService, never()).link(any(), any());
+        verifyNoInteractions(ssoRoleSyncService, auditService, cookieWriter, sessionIssuer);
+    }
+
+    private AppUser signedIn(MockHttpServletRequest request, long id) {
+        var alice = user(id, "alice", UserRole.ADMIN, true);
+        request.setCookies(new Cookie("access_token", "access"));
+        when(authenticator.authenticate("access")).thenReturn(Optional.of(new UsernamePasswordAuthenticationToken(alice, null)));
+        return alice;
+    }
+
+    private static Authentication authenticatedAt(long age) {
+        var claims = new HashMap<String, Object>();
+        claims.put("sub", "alice");
+        claims.put("iss", "https://idp.test");
+        claims.put("groups", List.of("picsou-admin"));
+        if (age >= 0) claims.put("auth_time", NOW.minusSeconds(age));
+        var token = new OidcIdToken("id-token", NOW.minusSeconds(900), NOW.plusSeconds(300), claims);
+        return new UsernamePasswordAuthenticationToken(new DefaultOidcUser(List.of(), token, "sub"), null);
     }
 }

@@ -148,6 +148,12 @@ public class SsoAccountService {
         return user;
     }
 
+    @Transactional(readOnly = true)
+    public boolean isLinkedTo(SsoIdentity identity, Long userId) {
+        return identityRepository.findByIssuerAndSubject(identity.issuer(), identity.subject())
+            .filter(row -> row.getUser().getId().equals(userId)).isPresent();
+    }
+
     @Transactional
     public void touchLogin(SsoIdentity identity) {
         identityRepository.findByIssuerAndSubject(identity.issuer(), identity.subject()).ifPresent(row -> {

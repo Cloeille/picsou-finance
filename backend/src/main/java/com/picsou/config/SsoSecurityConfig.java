@@ -1,6 +1,7 @@
 package com.picsou.config;
 
 import com.picsou.service.SetupService;
+import com.picsou.service.ReAuthService;
 import io.github.bucket4j.Bucket;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -37,10 +38,11 @@ public class SsoSecurityConfig {
     public SecurityFilterChain ssoSecurityFilterChain(HttpSecurity http, SsoClientRegistrationRepository repository,
             SetupService setupService, @Qualifier("ssoStartBuckets") Map<String, Bucket> buckets, Clock clock,
             CorsConfigurationSource corsConfigurationSource, SsoAuthenticationSuccessHandler successHandler,
-            SsoAuthenticationFailureHandler failureHandler) throws Exception {
+            SsoAuthenticationFailureHandler failureHandler, JwtTokenAuthenticator authenticator,
+            ReAuthService reAuthService) throws Exception {
         var resolver = new SsoAuthorizationRequestResolver(repository);
         var requestRepository = new SsoAuthorizationRequestRepository();
-        var guard = new SsoStartGuardFilter(repository, setupService, buckets, clock);
+        var guard = new SsoStartGuardFilter(repository, setupService, buckets, clock, authenticator, reAuthService);
         var oidcUserService = new OidcUserService();
         oidcUserService.setRetrieveUserInfo(r -> StringUtils.hasText(
             r.getClientRegistration().getProviderDetails().getUserInfoEndpoint().getUri()));

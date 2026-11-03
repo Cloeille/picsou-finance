@@ -14,6 +14,8 @@ import com.picsou.service.UsernameDeriver;
 import com.picsou.service.sso.SsoAccountService.LoginOutcome;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -224,5 +226,18 @@ class SsoAccountServiceTest {
         verify(userIdentityRepository).save(saved.capture());
         assertThat(saved.getValue().getUser()).isSameAs(alice);
         assertThat(saved.getValue().getLastLoginAt()).isNull();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"1,true", "2,false"})
+    void linkedIdentityMustBelongToExactUser(long userId, boolean expected) {
+        var row = UserIdentity.builder().user(user(1L, "alice")).issuer(ISSUER).subject("sub-1").build();
+        when(userIdentityRepository.findByIssuerAndSubject(ISSUER, "sub-1")).thenReturn(Optional.of(row));
+        assertThat(service.isLinkedTo(identity("a", null, null), userId)).isEqualTo(expected);
+    }
+
+    @Test
+    void unlinkedIdentityDoesNotBelongToUser() {
+        assertThat(service.isLinkedTo(identity("alice", "alice@home.example", null), 1L)).isFalse();
     }
 }

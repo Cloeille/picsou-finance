@@ -102,6 +102,8 @@ class SsoSecurityConfigTest {
         @MockitoBean com.picsou.service.sso.SsoRoleSyncService ssoRoleSyncService;
         @MockitoBean com.picsou.service.SessionIssuer sessionIssuer;
         @MockitoBean SsoProperties ssoProperties;
+        @MockitoBean com.picsou.service.ReAuthService reAuthService;
+        @MockitoBean com.picsou.service.SetupAuditService auditService;
 
         @BeforeEach
         void provider() {

@@ -3,6 +3,10 @@ package com.picsou.config;
 import com.picsou.model.AppUser;
 import com.picsou.model.UserRole;
 import com.picsou.service.SessionIssuer;
+import com.picsou.service.ReAuthService;
+import com.picsou.service.SetupAuditService;
+import jakarta.servlet.http.Cookie;
+import org.springframework.web.util.WebUtils;
 import com.picsou.service.sso.SsoAccountService;
 import com.picsou.service.sso.SsoFlowException;
 import com.picsou.service.sso.SsoIdentity;
@@ -45,19 +49,31 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
     private final SsoProperties ssoProperties;
     private final Clock clock;
     private final boolean adminRecoveryEnabled;
+    private final JwtTokenAuthenticator authenticator;
+    private final ReAuthService reAuthService;
+    private final JwtUtil jwtUtil;
+    private final AuthCookieWriter cookieWriter;
+    private final SetupAuditService auditService;
 
     public SsoAuthenticationSuccessHandler(SsoAccountService ssoAccountService,
                                            SsoRoleSyncService ssoRoleSyncService,
                                            SessionIssuer sessionIssuer,
                                            SsoProperties ssoProperties,
                                            Clock clock,
-                                           @Value("${app.admin-recovery.enabled:false}") boolean adminRecoveryEnabled) {
+                                           @Value("${app.admin-recovery.enabled:false}") boolean adminRecoveryEnabled,
+                                           JwtTokenAuthenticator authenticator, ReAuthService reAuthService,
+                                           JwtUtil jwtUtil, AuthCookieWriter cookieWriter, SetupAuditService auditService) {
         this.ssoAccountService = ssoAccountService;
         this.ssoRoleSyncService = ssoRoleSyncService;
         this.sessionIssuer = sessionIssuer;
         this.ssoProperties = ssoProperties;
         this.clock = clock;
         this.adminRecoveryEnabled = adminRecoveryEnabled;
+        this.authenticator = authenticator;
+        this.reAuthService = reAuthService;
+        this.jwtUtil = jwtUtil;
+        this.cookieWriter = cookieWriter;
+        this.auditService = auditService;
     }
 
     @Override
@@ -70,7 +86,8 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
         try {
             target = switch (intent == null ? null : intent.kind()) {
                 case LOGIN -> login(request, response, authentication, intent);
-                case LINK, REAUTH, ACTIVATE, SETUP -> intent.errorRedirect("IDP_ERROR");
+                case REAUTH, LINK -> signedInIntent(request, response, authentication, intent);
+                case ACTIVATE, SETUP -> intent.errorRedirect("IDP_ERROR");
                 case null -> SsoIntent.loginError("SESSION_EXPIRED");
             };
         } catch (SsoFlowException e) {
@@ -103,6 +120,44 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
                 yield redirect.startsWith(OAUTH2_TARGET_PREFIX) ? redirect
                     : COMPLETE_TARGET + URLEncoder.encode(redirect, StandardCharsets.UTF_8);
             }
+        };
+    }
+
+    private String signedInIntent(HttpServletRequest request, HttpServletResponse response,
+                                  Authentication authentication, SsoIntent intent) {
+        Cookie access = WebUtils.getCookie(request, AuthCookieWriter.ACCESS_COOKIE);
+        AppUser user = access == null ? null : authenticator.authenticate(access.getValue())
+            .map(local -> (AppUser) local.getPrincipal()).orElse(null);
+        if (user == null) {
+            return intent.errorRedirect("SESSION_EXPIRED");
+        }
+        if (!user.getId().equals(intent.userId())) {
+            return intent.errorRedirect("REAUTH_WRONG_ACCOUNT");
+        }
+        SsoIdentity identity = SsoIdentity.from((OidcUser) authentication.getPrincipal(), ssoProperties.groupsClaim());
+        return switch (intent.kind()) {
+            case REAUTH -> {
+                if (!ssoAccountService.isLinkedTo(identity, intent.userId())) {
+                    yield intent.errorRedirect("REAUTH_WRONG_ACCOUNT");
+                }
+                if (identity.authTime() == null || identity.authTime().isBefore(intent.startedAt().minusSeconds(60))) {
+                    yield intent.errorRedirect("REAUTH_TOO_OLD");
+                }
+                ssoAccountService.touchLogin(identity);
+                ssoRoleSyncService.sync(user, identity.groups(), request);
+                cookieWriter.setReauthProof(response, jwtUtil.generateReauthProof(user));
+                yield intent.redirect();
+            }
+            case LINK -> {
+                if (!reAuthService.hasValidProof(user, request)) {
+                    yield intent.errorRedirect("REAUTH_REQUIRED");
+                }
+                AppUser linked = ssoAccountService.link(intent.userId(), identity);
+                ssoRoleSyncService.sync(linked, identity.groups(), request);
+                auditService.record("sso.identity.linked", linked.getUsername(), request, "");
+                yield intent.redirect() + (intent.redirect().contains("?") ? "&" : "?") + "sso=linked";
+            }
+            case LOGIN, ACTIVATE, SETUP -> intent.errorRedirect("IDP_ERROR");
         };
     }
 

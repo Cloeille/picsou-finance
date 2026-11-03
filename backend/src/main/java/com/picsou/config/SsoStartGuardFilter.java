@@ -1,6 +1,10 @@
 package com.picsou.config;
 
 import com.picsou.service.SetupService;
+import com.picsou.service.ReAuthService;
+import com.picsou.model.AppUser;
+import jakarta.servlet.http.Cookie;
+import org.springframework.web.util.WebUtils;
 import com.picsou.service.sso.SsoIntent;
 import io.github.bucket4j.Bucket;
 import jakarta.servlet.FilterChain;
@@ -17,13 +21,18 @@ public class SsoStartGuardFilter extends OncePerRequestFilter {
     private final SetupService setupService;
     private final Map<String, Bucket> buckets;
     private final Clock clock;
+    private final JwtTokenAuthenticator authenticator;
+    private final ReAuthService reAuthService;
 
     public SsoStartGuardFilter(SsoClientRegistrationRepository repository, SetupService setupService,
-                               Map<String, Bucket> buckets, Clock clock) {
+                               Map<String, Bucket> buckets, Clock clock,
+                               JwtTokenAuthenticator authenticator, ReAuthService reAuthService) {
         this.repository = repository;
         this.setupService = setupService;
         this.buckets = buckets;
         this.clock = clock;
+        this.authenticator = authenticator;
+        this.reAuthService = reAuthService;
     }
 
     @Override
@@ -81,7 +90,26 @@ public class SsoStartGuardFilter extends OncePerRequestFilter {
                     return;
                 }
             }
-            case LINK, REAUTH, ACTIVATE, SETUP -> {
+            case LINK, REAUTH -> {
+                Cookie access = WebUtils.getCookie(request, AuthCookieWriter.ACCESS_COOKIE);
+                AppUser user = access == null ? null : authenticator.authenticate(access.getValue())
+                    .map(authentication -> (AppUser) authentication.getPrincipal()).orElse(null);
+                if (user == null) {
+                    response.sendRedirect("/login");
+                    return;
+                }
+                intent = new SsoIntent(kind, intent.redirect(), intent.rememberMe(), user.getId(), null, intent.startedAt());
+                boolean proofRequired = switch (kind) {
+                    case LINK -> true;
+                    case REAUTH -> false;
+                    case LOGIN, ACTIVATE, SETUP -> throw new IllegalStateException("Not a signed-in intent");
+                };
+                if (proofRequired && !reAuthService.hasValidProof(user, request)) {
+                    response.sendRedirect(intent.errorRedirect("REAUTH_REQUIRED"));
+                    return;
+                }
+            }
+            case ACTIVATE, SETUP -> {
                 response.sendRedirect(intent.errorRedirect("IDP_ERROR"));
                 return;
             }
