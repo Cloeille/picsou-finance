@@ -89,10 +89,11 @@ public class CryptoAssetRegistry {
      * of a (delisted) stock of the same symbol. Left in place they would count as coverage for
      * {@code PriceService.backfillHistoricalPrices}, which only fills dates without a row, and
      * would block the CoinGecko history. Dropping them here, at the moment the router changes and
-     * atomically with the insert, means a crash cannot leave a learned ticker with stock rows; the
-     * next backfill rebuilds the history from CoinGecko. Nothing is purged when the row already
-     * existed or the ticker was already known: those are curated or earlier-learned coins whose
-     * snapshots are genuine CoinGecko prices.
+     * atomically with the insert, means a crash cannot leave a learned ticker with stock rows. The
+     * startup backfill ({@code PriceBackfillRunner}) rebuilds the history from CoinGecko at the
+     * next restart; until then the coin's history holds only the daily rows written since it was
+     * learned. Nothing is purged when the row already existed or the ticker was already known:
+     * those are curated or earlier-learned coins whose snapshots are genuine CoinGecko prices.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void learn(String ticker, String id, String name) {

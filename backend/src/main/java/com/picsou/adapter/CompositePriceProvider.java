@@ -105,8 +105,9 @@ public class CompositePriceProvider implements PriceProviderPort {
      * a delisted stock symbol held in a crypto account can be learned if CoinGecko has a dominant
      * coin under it. The trigger is a crypto-context holding, never a stock one. Whatever
      * {@code price_snapshot} rows the symbol had were that stock's closes, so
-     * {@link CryptoAssetRegistry#learn} drops them in the same transaction as the insert and the
-     * next backfill rebuilds the history from CoinGecko.
+     * {@link CryptoAssetRegistry#learn} drops them in the same transaction as the insert, and the
+     * startup backfill ({@code PriceBackfillRunner}) rebuilds the history from CoinGecko at the
+     * next restart.
      */
     @Override
     public void learnCryptoTickers(Set<String> tickers) {
