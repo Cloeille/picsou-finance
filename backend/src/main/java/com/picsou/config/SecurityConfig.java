@@ -110,7 +110,8 @@ public class SecurityConfig {
                                            MfaService mfaService,
                                            AccessKeyService accessKeyService,
                                            @Qualifier("mcpKeyBuckets") Map<Long, Bucket> mcpKeyBuckets,
-                                           CorsConfigurationSource corsConfigurationSource) throws Exception {
+                                           CorsConfigurationSource corsConfigurationSource,
+                                           SsoProperties ssoProperties, java.time.Clock clock) throws Exception {
         // The chain is stateless, so no session ever carries the MCP authentication. The
         // request-attribute repository is what reloads it on the ASYNC dispatch that completes a
         // stream; AccessKeyAuthFilter saves into this same instance.
@@ -173,7 +174,8 @@ public class SecurityConfig {
             .addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(new JwtAuthenticationFilter(jwtTokenAuthenticator), UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(
-                new PersistentTokenAuthFilter(persistentSessionService, appUserRepository, jwtUtil, authCookieWriter, mfaService),
+                new PersistentTokenAuthFilter(persistentSessionService, appUserRepository, jwtUtil, authCookieWriter, mfaService,
+                    ssoProperties, clock),
                 UsernamePasswordAuthenticationFilter.class
             )
             // Last of the same-anchor filters: only acts on /mcp/** (shouldNotFilter), validates the

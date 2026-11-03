@@ -3,10 +3,13 @@ package com.picsou.controller;
 import com.picsou.config.AuthCookieWriter;
 import com.picsou.config.ClientIp;
 import com.picsou.config.JwtUtil;
+import com.picsou.config.PersistentTokenAuthFilter;
 import com.picsou.config.RateLimitConfig;
+import com.picsou.config.SsoClientRegistrationRepository;
 import com.picsou.config.SsoProperties;
 import com.picsou.dto.ActivationRequest;
 import com.picsou.dto.LoginRequest;
+import com.picsou.dto.LogoutResponse;
 import com.picsou.dto.MfaDtos;
 import com.picsou.model.AppUser;
 import com.picsou.repository.AppUserRepository;
@@ -25,6 +28,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -32,7 +36,10 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -55,6 +62,8 @@ public class AuthController {
     private final SessionIssuer sessionIssuer;
     private final SsoProperties ssoProperties;
     private final SetupAuditService auditService;
+    private final Clock clock;
+    private final ObjectProvider<SsoClientRegistrationRepository> registrations;
     private final boolean adminRecoveryEnabled;
     private final boolean loginRateLimitEnabled;
 
@@ -78,6 +87,8 @@ public class AuthController {
         SessionIssuer sessionIssuer,
         SsoProperties ssoProperties,
         SetupAuditService auditService,
+        Clock clock,
+        ObjectProvider<SsoClientRegistrationRepository> registrations,
         @org.springframework.beans.factory.annotation.Value("${app.admin-recovery.enabled:false}") boolean adminRecoveryEnabled,
         @org.springframework.beans.factory.annotation.Value("${app.auth.login-rate-limit.enabled:true}") boolean loginRateLimitEnabled
     ) {
@@ -92,6 +103,8 @@ public class AuthController {
         this.sessionIssuer = sessionIssuer;
         this.ssoProperties = ssoProperties;
         this.auditService = auditService;
+        this.clock = clock;
+        this.registrations = registrations;
         this.adminRecoveryEnabled = adminRecoveryEnabled;
         this.loginRateLimitEnabled = loginRateLimitEnabled;
         this.dummyPasswordHash = passwordEncoder.encode("login-timing-equalizer");
@@ -256,6 +269,9 @@ public class AuthController {
         @AuthenticationPrincipal AppUser persistentPrincipal,
         HttpServletRequest httpReq, HttpServletResponse httpRes
     ) {
+        if (Boolean.TRUE.equals(httpReq.getAttribute(PersistentTokenAuthFilter.SSO_REVALIDATE_ATTRIBUTE))) {
+            return ssoRevalidationRequired(httpRes);
+        }
         String refreshToken = extractCookie(httpReq, "refresh_token");
 
         // If the request still carries a persistent_token whose series has been revoked
@@ -283,6 +299,10 @@ public class AuthController {
                     // change / recovery), or the account has since been deactivated.
                     Long tv = jwtUtil.getTokenVersion(claims);
                     if (user != null && tv != null && tv == user.getTokenVersion() && user.isActivated()) {
+                        Instant ssoAt = jwtUtil.getSsoAuthenticatedAt(claims);
+                        if (requiresSsoRevalidation(ssoAt)) {
+                            return ssoRevalidationRequired(httpRes);
+                        }
                         // A refresh_token bound to a "Remember Me" series (sid) is only good
                         // while that series is live. Revoking the device breaks the chain even
                         // though the JWT itself hasn't expired. Decisive 401 -- do NOT fall
@@ -295,7 +315,6 @@ public class AuthController {
                                 .body(ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "Session revoked"));
                         }
                         boolean persistent = sessionIssuer.isPersistentDevice(httpReq, user);
-                        Instant ssoAt = jwtUtil.getSsoAuthenticatedAt(claims);
                         setTokenCookies(httpRes,
                             jwtUtil.generateAccessToken(user, ssoAt),
                             sessionIssuer.rotatedRefreshToken(user, persistent, seriesToBind(httpReq, boundSeries), ssoAt),
@@ -320,8 +339,11 @@ public class AuthController {
         // is "200 = fresh cookies were issued", never a phantom win with zero Set-Cookie.
         if (persistentPrincipal != null && !(ssoProperties.enabled()
             && sessionIssuer.requestAccessClaims(httpReq).filter(sessionIssuer::isAuthorizationServerToken).isPresent())) {
-            boolean persistent = sessionIssuer.isPersistentDevice(httpReq, persistentPrincipal);
             Instant ssoAt = sessionIssuer.currentSsoAt(httpReq);
+            if (requiresSsoRevalidation(ssoAt)) {
+                return ssoRevalidationRequired(httpRes);
+            }
+            boolean persistent = sessionIssuer.isPersistentDevice(httpReq, persistentPrincipal);
             setTokenCookies(httpRes,
                 jwtUtil.generateAccessToken(persistentPrincipal, ssoAt),
                 sessionIssuer.rotatedRefreshToken(persistentPrincipal, persistent, seriesToBind(httpReq, null), ssoAt),
@@ -340,7 +362,8 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(HttpServletRequest httpReq, HttpServletResponse httpRes) {
+    public ResponseEntity<?> logout(HttpServletRequest httpReq, HttpServletResponse httpRes) {
+        boolean ssoSession = sessionIssuer.currentSsoAt(httpReq) != null;
         // Best-effort revoke the persistent series so the cookie can't be replayed
         // even if the browser failed to honour Set-Cookie Max-Age=0.
         String persistent = extractCookie(httpReq, AuthCookieWriter.PERSISTENT_COOKIE);
@@ -349,6 +372,20 @@ public class AuthController {
                 .ifPresent(persistentSessionService::revokeBySeriesId);
         }
         clearTokenCookies(httpRes);
+        if (ssoProperties.idpLogout() && ssoSession) {
+            SsoClientRegistrationRepository repository = registrations.getIfAvailable();
+            if (repository != null) {
+                var endpoint = repository.endSessionEndpoint();
+                if (endpoint.isPresent()) {
+                    String redirect = ServletUriComponentsBuilder.fromContextPath(httpReq).path("/login").toUriString();
+                    String url = UriComponentsBuilder.fromUriString(endpoint.get())
+                        .queryParam("client_id", "{clientId}")
+                        .queryParam("post_logout_redirect_uri", "{redirect}")
+                        .encode().buildAndExpand(ssoProperties.clientId(), redirect).toUriString();
+                    return ResponseEntity.ok(new LogoutResponse(url));
+                }
+            }
+        }
         return ResponseEntity.noContent().build();
     }
 
@@ -488,6 +525,18 @@ public class AuthController {
 
     private void clearTokenCookies(HttpServletResponse response) {
         cookieWriter.clearAuthCookies(response);
+    }
+
+    private boolean requiresSsoRevalidation(Instant ssoAt) {
+        return ssoAt != null && (!ssoProperties.enabled()
+            || ssoAt.plus(ssoProperties.revalidateAfter()).isBefore(clock.instant()));
+    }
+
+    private ResponseEntity<ProblemDetail> ssoRevalidationRequired(HttpServletResponse response) {
+        clearTokenCookies(response);
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "SSO re-validation required");
+        problem.setProperty("code", "SSO_REVALIDATE");
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(problem);
     }
 
     private String extractCookie(HttpServletRequest request, String name) {

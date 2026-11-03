@@ -20,6 +20,10 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.Instant;
+import java.time.Clock;
+import java.time.ZoneOffset;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
@@ -47,10 +51,17 @@ class PersistentTokenAuthFilterTest {
     MockHttpServletRequest request;
     MockHttpServletResponse response;
     AppUser user;
+    SsoProperties properties;
+    private static final Instant NOW = Instant.parse("2026-10-31T12:00:00Z");
 
     @BeforeEach
     void setUp() {
-        filter = new PersistentTokenAuthFilter(persistentSessionService, userRepository, jwtUtil, cookieWriter, mfaService);
+        properties = new SsoProperties();
+        properties.setIssuerUri("https://idp.example");
+        properties.setClientId("picsou");
+        properties.setSessionRevalidateAfter("1m");
+        filter = new PersistentTokenAuthFilter(persistentSessionService, userRepository, jwtUtil, cookieWriter, mfaService,
+            properties, Clock.fixed(NOW, ZoneOffset.UTC));
         request = new MockHttpServletRequest();
         response = new MockHttpServletResponse();
         user = AppUser.builder().id(7L).username("alice").role(UserRole.MEMBER).activated(true).build();
@@ -200,17 +211,58 @@ class PersistentTokenAuthFilterTest {
 
     // ─── helper ──────────────────────────────────────────────────────────
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(longs = {30, 60})
+    void freshSsoSeries_restoresWithoutLocalMfa_andCarriesMarker(long ageSeconds) throws Exception {
+        PersistentSession session = setupValidCookieFor(7L, false);
+        Instant ssoAt = NOW.minusSeconds(ageSeconds);
+        session.setSsoAuthenticatedAt(ssoAt);
+        org.mockito.Mockito.lenient().when(mfaService.isEnabled(user)).thenReturn(true);
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(user));
+        JwtUtil realJwt = new JwtUtil("0123456789abcdef0123456789abcdef-test", 15, 7, 5);
+        AuthCookieWriter writer = new AuthCookieWriter(org.mockito.Mockito.mock(SecureCookieProvider.class), realJwt);
+        filter = new PersistentTokenAuthFilter(persistentSessionService, userRepository, realJwt, writer, mfaService,
+            properties, Clock.fixed(NOW, ZoneOffset.UTC));
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication().getPrincipal()).isSameAs(user);
+        assertThat(realJwt.getSsoAuthenticatedAt(realJwt.validateAndParse(response.getCookie("access_token").getValue())))
+            .isEqualTo(ssoAt);
+        assertThat(realJwt.getSsoAuthenticatedAt(realJwt.validateAndParse(response.getCookie("refresh_token").getValue())))
+            .isEqualTo(ssoAt);
+        verifyNoInteractions(mfaService);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,61", "false,0"})
+    void ssoSeries_requiresRevalidation_whenExpiredOrDisabled(boolean enabled, long ageSeconds) throws Exception {
+        PersistentSession session = setupValidCookieFor(7L, false);
+        session.setSsoAuthenticatedAt(NOW.minusSeconds(ageSeconds));
+        if (!enabled) properties.setIssuerUri(null);
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(user));
+
+        filter.doFilter(request, response, chain);
+
+        verify(persistentSessionService).revokeBySeriesId(session.getSeriesId());
+        verify(cookieWriter).clearPersistent(response);
+        assertThat(request.getAttribute("picsou.sso.revalidate")).isEqualTo(Boolean.TRUE);
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(chain).doFilter(request, response);
+        verifyNoInteractions(mfaService, jwtUtil);
+    }
+
     /**
      * Plumbs a request that carries a "valid" persistent cookie and stubs
      * the session service to return a freshly-rotated session for the given
      * user id with the given trusted-for-2fa flag.
      */
-    private void setupValidCookieFor(long userId, boolean trustedFor2fa) {
+    private PersistentSession setupValidCookieFor(long userId, boolean trustedFor2fa) {
         String rawCookie = "abc:def";
         request.setCookies(new Cookie(AuthCookieWriter.PERSISTENT_COOKIE, rawCookie));
 
         AppUser sessionUser = AppUser.builder().id(userId).username("alice").build();
-        Instant now = Instant.now();
+        Instant now = NOW;
         PersistentSession session = PersistentSession.builder()
             .id(1L)
             .seriesId(UUID.randomUUID())
@@ -225,6 +277,7 @@ class PersistentTokenAuthFilterTest {
         when(persistentSessionService.validateAndRotate(rawCookie))
             .thenReturn(Optional.of(new PersistentSessionService.ValidationResult(
                 "rotated-cookie-value", session
-            )));
+             )));
+        return session;
     }
 }

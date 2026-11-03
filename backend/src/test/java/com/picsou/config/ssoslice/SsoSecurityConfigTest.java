@@ -202,7 +202,7 @@ class SsoSecurityConfigTest {
 
     @Nested
     @WebMvcTest(controllers = ProbeController.class)
-    @Import({SecurityConfig.class, SsoSecurityConfig.class})
+    @Import({SecurityConfig.class, SsoSecurityConfig.class, SsoProperties.class, TimeConfig.class})
     @TestPropertySource(properties = "app.sso.issuer-uri=")
     class Disabled extends ApiFixture {
         @Test
