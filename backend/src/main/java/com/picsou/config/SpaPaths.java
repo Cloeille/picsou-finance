@@ -18,13 +18,14 @@ public final class SpaPaths {
     private static final List<String> BACKEND_PREFIXES =
         List.of("/api", "/oauth2", "/.well-known/oauth-", "/actuator", "/mcp");
 
+    /** Vite writes every content-hashed file, and only those, under this prefix. */
+    private static final String HASHED_ASSET_PREFIX = "/assets/";
+
     /**
-     * Asset extensions. A missing file with one of them is a 404, never {@code index.html}. Only
-     * Vite's build output under {@code /assets/} carries a content hash in its name, so only those
-     * files are cached for a year ({@link #isHashedAsset}); files copied from {@code public/}
-     * (favicon, {@code theme-init.js}, provider logos) keep their URL across releases.
+     * Extensions of static files. A request for one that does not exist is a 404: answering it
+     * with {@code index.html} would hand HTML to a script or stylesheet tag.
      */
-    private static final Pattern CACHED_EXTENSION =
+    private static final Pattern STATIC_EXTENSION =
         Pattern.compile("\\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$", Pattern.CASE_INSENSITIVE);
 
     private SpaPaths() {
@@ -39,13 +40,17 @@ public final class SpaPaths {
         return false;
     }
 
-    public static boolean hasCachedExtension(String path) {
-        return CACHED_EXTENSION.matcher(path).find();
+    public static boolean hasStaticExtension(String path) {
+        return STATIC_EXTENSION.matcher(path).find();
     }
 
-    /** A content-hashed build file: safe to cache for a year as immutable. */
+    /**
+     * A file whose name carries a content hash, so the browser may keep it for a year. Static
+     * files outside {@code /assets/} ({@code /favicon.svg}, {@code /theme-init.js}) are copied
+     * from {@code frontend/public} under a fixed name and must be revalidated.
+     */
     public static boolean isHashedAsset(String path) {
-        return path.startsWith("/assets/") && hasCachedExtension(path);
+        return path.startsWith(HASHED_ASSET_PREFIX) && hasStaticExtension(path);
     }
 
     /**

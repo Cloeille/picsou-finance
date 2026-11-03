@@ -8,7 +8,9 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.AbstractResource;
 import org.springframework.core.io.Resource;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
+import org.springframework.util.DigestUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.HandlerMapping;
@@ -39,10 +41,15 @@ import java.util.List;
  *   <li>a backend path ({@link SpaPaths#isBackend}) is never answered here, so it can not fall
  *       back to {@code index.html};</li>
  *   <li>an existing readable file is served as is;</li>
- *   <li>a missing file with a cacheable asset extension is a 404 (a stale hashed bundle must not
- *       turn into HTML);</li>
+ *   <li>a missing file with a static extension ({@link SpaPaths#hasStaticExtension}) is a 404 (a
+ *       stale bundle must not turn into HTML);</li>
  *   <li>anything else is a client-side route and gets {@code index.html}.</li>
  * </ol>
+ *
+ * <p>Caching: a hashed asset ({@link SpaPaths#isHashedAsset}) is cached for a year; every other
+ * file, {@code index.html} and its client-route fallbacks included, is {@code no-cache} so the
+ * browser revalidates it with the ETag. The headers ride on the resolved resource, so a 404 never
+ * carries them.
  *
  * <p>Highest precedence so this configurer registers {@code /**} before Spring Boot's default
  * static mapping, which skips itself once the pattern is taken.
@@ -97,16 +104,41 @@ public class SpaWebConfig implements WebMvcConfigurer {
 
     /**
      * Weak on purpose: Tomcat skips compression for a response with a strong ETag, and nginx
-     * (the previous server) also weakened it when it gzipped. Same shape as nginx's value:
+     * (the previous server) also weakened it when it gzipped.
+     *
+     * <p>{@code index.html} is revalidated on every page load and keeps its name across builds,
+     * so two builds can share a length and a modification second: its tag is a digest of the
+     * content (a cache validator, not a security control). Every other file keeps nginx's shape,
      * last-modified seconds and length in hex.
      */
     private static String etag(Resource resource) {
         try {
-            return "W/\"" + Long.toHexString(resource.lastModified() / 1000)
-                + "-" + Long.toHexString(resource.contentLength()) + "\"";
+            if (INDEX.equals(resource.getFilename())) {
+                try (InputStream content = resource.getInputStream()) {
+                    return weak(DigestUtils.md5DigestAsHex(content));
+                }
+            }
+            return weak(Long.toHexString(resource.lastModified() / 1000)
+                + "-" + Long.toHexString(resource.contentLength()));
         } catch (IOException e) {
             return null;
         }
+    }
+
+    private static String weak(String opaqueTag) {
+        return "W/\"" + opaqueTag + "\"";
+    }
+
+    private static HttpHeaders cacheHeaders(String path) {
+        HttpHeaders headers = new HttpHeaders();
+        if (SpaPaths.isHashedAsset(path)) {
+            headers.set(HttpHeaders.CACHE_CONTROL,
+                "max-age=" + ASSET_MAX_AGE.toSeconds() + ", public, immutable");
+            headers.setExpires(Instant.now().plus(ASSET_MAX_AGE));
+        } else {
+            headers.setCacheControl(CacheControl.noCache());
+        }
+        return headers;
     }
 
     private static final class SpaResourceResolver extends PathResourceResolver {
@@ -121,33 +153,33 @@ public class SpaWebConfig implements WebMvcConfigurer {
             }
             Resource file = super.resolveResourceInternal(request, requestPath, locations, chain);
             if (file != null) {
-                return SpaPaths.isHashedAsset(path) ? new LongLived(file) : file;
+                return new WithHeaders(file, cacheHeaders(path));
             }
-            if (SpaPaths.hasCachedExtension(path)) {
+            if (SpaPaths.hasStaticExtension(path)) {
                 return null;
             }
-            return super.resolveResourceInternal(request, INDEX, locations, chain);
+            Resource index = super.resolveResourceInternal(request, INDEX, locations, chain);
+            return index == null ? null : new WithHeaders(index, cacheHeaders(path));
         }
     }
 
     /**
-     * A file the browser may keep for a year. The headers ride on the resource itself so they are
-     * only sent when the file exists: a 404 for a missing bundle must not be cached.
+     * A resolved file plus the response headers chosen for its path. The headers ride on the
+     * resource itself so they are only sent when the file exists. Everything else, including the
+     * file name the ETag generator looks at, is the wrapped resource's.
      */
-    private static final class LongLived extends AbstractResource implements HttpResource {
+    private static final class WithHeaders extends AbstractResource implements HttpResource {
 
         private final Resource delegate;
+        private final HttpHeaders headers;
 
-        LongLived(Resource delegate) {
+        WithHeaders(Resource delegate, HttpHeaders headers) {
             this.delegate = delegate;
+            this.headers = headers;
         }
 
         @Override
         public HttpHeaders getResponseHeaders() {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set(HttpHeaders.CACHE_CONTROL,
-                "max-age=" + ASSET_MAX_AGE.toSeconds() + ", public, immutable");
-            headers.setExpires(Instant.now().plus(ASSET_MAX_AGE));
             return headers;
         }
 

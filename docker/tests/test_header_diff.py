@@ -73,10 +73,15 @@ def test_hsts_is_accepted_only_when_the_candidate_states_it_runs_with_hsts_off()
 
 
 def test_year_long_caching_differences_are_accepted_only_for_unhashed_public_files():
-    line = "cache-control: ['immutable', 'max-age=31536000', 'public'] != absent"
+    line = "cache-control: ['immutable', 'max-age=31536000', 'public'] != ['no-cache']"
     assert is_accepted("/favicon.svg", line)
+    assert is_accepted("/accounts/12", "cache-control: absent != ['no-cache']")
     assert not is_accepted("/assets/index-abc.js", line)
-    assert not is_accepted("/accounts/12", line)
+    assert not is_accepted("/api/auth/me", "cache-control: absent != ['no-cache']")
+    # Reversed directions never pass: a candidate that adds year-long caching is a regression.
+    assert not is_accepted("/favicon.svg", "cache-control: absent != ['immutable', 'max-age=31536000', 'public']")
+    assert not is_accepted("/favicon.svg", "expires: absent != ['<present>']")
+    assert is_accepted("/favicon.svg", "expires: ['<present>'] != absent")
 
 
 def test_each_deployment_is_asked_for_its_own_bundle(monkeypatch):
@@ -87,3 +92,11 @@ def test_each_deployment_is_asked_for_its_own_bundle(monkeypatch):
     pairs = header_diff.paths("http://base", "http://cand")
     assert ("/assets/index-AAA.js", "/assets/index-BBB.js") in pairs
     assert ("/assets/index-AAA.css", None) in pairs
+
+
+def test_entry_script_is_compared_even_when_neither_index_names_one(monkeypatch):
+    import header_diff
+    monkeypatch.setattr(header_diff, "first_asset", lambda url, ext: None)
+    pairs = header_diff.paths("http://base", "http://cand")
+    assert (None, None) in pairs
+    assert sum(1 for pair in pairs if pair == (None, None)) == 1

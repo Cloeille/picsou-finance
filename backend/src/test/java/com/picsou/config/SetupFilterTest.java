@@ -70,4 +70,16 @@ class SetupFilterTest {
         filter.doFilter(request, response, chain);
         assertThat(chain.getRequest()).isNotNull();
     }
+
+    /** Fails if the filter classified backend paths from the raw URI instead of the decoded one. */
+    @Test
+    void encodedBackendPath_isBlockedDuringSetup() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/%61pi/accounts");
+        request.setServletPath("/api/accounts");
+        response = new MockHttpServletResponse();
+        chain = new MockFilterChain();
+        filter.doFilter(request, response, chain);
+        assertThat(chain.getRequest()).isNull();
+        assertThat(response.getStatus()).isEqualTo(503);
+    }
 }

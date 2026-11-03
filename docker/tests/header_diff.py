@@ -31,9 +31,11 @@ ACCEPTED = {
     # A missing hashed bundle stays a 404, with Spring's problem body instead of nginx's HTML page.
     "content-encoding": lambda path: path == "/assets/does-not-exist.js",
     "content-disposition": lambda path: path == "/assets/does-not-exist.js",
-    # Files copied from frontend/public keep their URL across releases, so they are no longer
-    # cached for a year as immutable; only the hashed /assets/ output is.
-    "cache-control": lambda path: is_unhashed_public_file(path),
+    # Every file outside the hashed /assets/ output (index.html, client routes, frontend/public
+    # copies) is now "no-cache" so a redeploy reaches the browser; nginx sent no Cache-Control on
+    # index.html and a one-year immutable on public files.
+    "cache-control": lambda path: is_revalidated_spa_path(path),
+    # The one-year Expires of public files is gone; only the base may send it.
     "expires": lambda path: is_unhashed_public_file(path),
 }
 
@@ -42,6 +44,10 @@ ACCEPTED = {
 # candidate did not" on the OAuth2 paths.
 OAUTH_PREFIXES = ("/oauth2", "/.well-known/oauth-")
 STATIC_EXTENSION = re.compile(r"\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$", re.IGNORECASE)
+
+
+def is_revalidated_spa_path(path):
+    return not path.startswith(("/assets/", "/api", "/actuator", "/oauth2", "/.well-known", "/mcp"))
 
 
 def is_unhashed_public_file(path):
@@ -89,6 +95,10 @@ def is_accepted(path, line, candidate_hsts_disabled=False):
     name = line.split(":", 1)[0]
     if name == "strict-transport-security":
         return candidate_hsts_disabled and path.startswith(OAUTH_PREFIXES) and line.endswith("!= absent")
+    if name == "expires" and not line.endswith("!= absent"):
+        return False
+    if name == "cache-control" and not line.endswith("!= ['no-cache']"):
+        return False
     predicate = ACCEPTED.get(name)
     return predicate is not None and predicate(path)
 
@@ -134,7 +144,8 @@ def paths(base_url, candidate_url):
     pairs = [("/", "/"), ("/accounts/12", "/accounts/12")]
     for extension in ("js", "css"):
         left, right = first_asset(base_url, extension), first_asset(candidate_url, extension)
-        if left or right:
+        # The entry script is mandatory; a build may emit no stylesheet.
+        if extension == "js" or left or right:
             pairs.append((left, right))
     pairs.extend((path, path) for path in FIXED_PATHS)
     return pairs
@@ -175,7 +186,7 @@ def main(argv=None):
             checks += 1
             if base_path is None or candidate_path is None:
                 failures += 1
-                print(f"DIFF [{label}] {path}: one index.html references no such asset")
+                print(f"DIFF [{label}] {path}: an index.html references no such asset")
                 continue
             if base_path == "/mcp":
                 left, right = fetch_mcp(args.base_url, extra, args.mcp_key), fetch_mcp(args.candidate_url, extra, args.mcp_key)

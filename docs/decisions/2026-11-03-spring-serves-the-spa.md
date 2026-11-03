@@ -18,7 +18,14 @@ or Python); this is the first of three steps.
 
 - Spring Boot serves the SPA from `app.spa.location` (`SPA_LOCATION`, `/app/spa` in the image).
   `SpaWebConfig` registers `/**` with a resolver that returns an existing file, `index.html` for a
-  client route, and nothing for a backend path or a missing file with a cacheable extension.
+  client route, and nothing for a backend path or a missing file with a static extension
+  (`SpaPaths.hasStaticExtension`).
+- Caching follows what the name guarantees. Vite writes content-hashed files only under `/assets/`,
+  so `SpaPaths.isHashedAsset` files get `max-age=31536000, public, immutable` and `Expires`. Every
+  other file the handler serves, `index.html` and the client-route fallbacks included, gets
+  `Cache-Control: no-cache` and is revalidated with its ETag. nginx cached every file with a static
+  extension for a year, including the unhashed copies of `frontend/public` (`/favicon.svg`,
+  `/theme-init.js`, `/providers/*.svg`), which a redeploy could therefore not replace.
 - `SpaPaths.isBackend` is the one definition of "backend path": `/api`, `/oauth2`,
   `/.well-known/oauth-`, `/actuator`, `/mcp`, matched by plain prefix like the old nginx locations.
   The resource resolver, Spring Security (`permitAll` for GET/HEAD outside them, `no-store` only
@@ -51,20 +58,22 @@ HSTS emitter, the strip rules and the drift test have nothing left to protect.
 ## Trade-offs accepted
 
 - Tomcat serves static files instead of nginx. For a self-hosted dashboard this is not measurable.
-- Weak ETags: Tomcat skips compression for responses with a strong ETag.
-- A hashed asset that is missing is a 404 even when the request would otherwise look like a route,
-  as with nginx before.
+- Weak ETags: Tomcat skips compression for responses with a strong ETag. `index.html` gets a weak
+  digest of its content (it is revalidated on every load and keeps its name, so a build with the
+  same length and modification second would otherwise collide); other files keep nginx's
+  timestamp-and-length value.
+- Unhashed public files and `index.html` now cost a conditional request (a `304`) per load instead
+  of being served from the browser cache for a year. A redeploy is visible immediately.
+- A missing file with a static extension is a 404 even when the request would otherwise look like a
+  route, as with nginx before.
 
 ## Consequences
 
 - OAuth2 endpoints now follow the HSTS gate (they previously ignored it).
-- Only Vite's content-hashed output under `/assets/` is cached for a year as `immutable`. Files
-  copied from `frontend/public/` (favicon, `theme-init.js`, provider logos) keep their URL across
-  releases, so they revalidate with their ETag instead. nginx cached them for a year too.
+- `index.html`, `/favicon.svg` and the other non-`/assets/` files send `Cache-Control: no-cache`
+  where nginx sent none (index) or a one-year `immutable` (favicon).
 - nginx's own 502/504 pages (backend down or too slow) carry no security header until PR 3
   removes nginx. They hold no app content and no script, so CSP and frame options protect nothing
   there. HSTS is not lost either: the browser keeps the policy from earlier responses.
-- The SPA's ETag stays nginx's `mtime-length` shape (weak). Two builds of `index.html` with the same
-  length in the same second would share it; a release rebuild never lands in that window.
 - `docker/tests/header_diff.py` compares two running deployments header by header.
 - Follow-ups of #342: secret generation in Java, then removing nginx, supervisord and Python from the image.
