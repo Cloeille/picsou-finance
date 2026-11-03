@@ -1,3 +1,4 @@
+import contextlib
 import ipaddress
 import json
 import os
@@ -231,6 +232,135 @@ def test_nginx_leaves_the_forwarded_port_empty_for_scheme_default(nginx_proxy):
         "X-Forwarded-Host": "picsou.example",
     })
     assert "x-upstream-port" not in response
+
+
+# What nginx adds to the 502/504 it answers itself. Spring never sees those responses.
+NGINX_ERROR_HEADERS = {
+    "x-frame-options": "DENY",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "strict-origin-when-cross-origin",
+    "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+    "cache-control": "no-store",
+}
+
+
+@contextlib.contextmanager
+def edge_container(workdir, *, backend=None, config=NGINX_CONFIG):
+    """The nginx image with the real config; `backend` is an optional server block for :9090."""
+    snippets = workdir / "snippets"
+    snippets.mkdir()
+    name = f"picsou-edge-test-{uuid.uuid4().hex[:12]}"
+    args = [
+        "docker", "run", "--detach", "--name", name,
+        "--volume", f"{config}:/etc/nginx/conf.d/picsou.conf:ro",
+        "--volume", f"{snippets}:/etc/nginx/snippets:ro",
+    ]
+    if backend is not None:
+        backend_conf = workdir / "backend.conf"
+        backend_conf.write_text(backend, encoding="utf-8")
+        args.extend(["--volume", f"{backend_conf}:/etc/nginx/conf.d/backend.conf:ro"])
+    command([*args, NGINX_IMAGE])
+    try:
+        for _ in range(50):
+            if http_get(name, "/")[0] is not None:
+                break
+            time.sleep(0.1)
+        else:
+            pytest.fail(command(["docker", "logs", name], check=False).stderr)
+        yield name
+    finally:
+        command(["docker", "rm", "--force", name], check=False)
+
+
+def http_get(container, path):
+    """GET from inside the container: (status, lower-cased headers, body); status None if no answer.
+
+    curl rather than BusyBox wget: wget discards the body of a non-2xx response.
+    """
+    result = command([
+        "docker", "exec", container, "curl", "--silent", "--include", "--max-time", "10",
+        f"http://127.0.0.1:8080{path}",
+    ], check=False, timeout=30)
+    head, _, body = result.stdout.replace("\r\n", "\n").partition("\n\n")
+    lines = head.split("\n")
+    if not lines[0].startswith("HTTP/"):
+        return None, {}, ""
+    headers = {}
+    for line in lines[1:]:
+        name, _, value = line.partition(":")
+        headers[name.lower()] = value.strip()
+    return int(lines[0].split()[1]), headers, body
+
+
+@pytest.fixture(scope="module")
+def edge_without_backend(tmp_path_factory):
+    with edge_container(tmp_path_factory.mktemp("edge-down")) as edge:
+        yield edge
+
+
+@pytest.fixture(scope="module")
+def edge_with_failing_backend(tmp_path_factory):
+    backend = """server {
+    listen 9090;
+    location /bad-gateway {
+        add_header X-Upstream-Marker spring always;
+        return 502 "from-backend-502\\n";
+    }
+    location /gateway-timeout {
+        add_header X-Upstream-Marker spring always;
+        return 504 "from-backend-504\\n";
+    }
+}
+"""
+    with edge_container(tmp_path_factory.mktemp("edge-failing"), backend=backend) as edge:
+        yield edge
+
+
+@pytest.mark.parametrize("path", ["/", "/api/probe"])
+def test_nginx_502_for_an_unreachable_backend_carries_security_headers(edge_without_backend, path):
+    status, headers, body = http_get(edge_without_backend, path)
+
+    assert status == 502
+    assert {name: headers.get(name) for name in NGINX_ERROR_HEADERS} == NGINX_ERROR_HEADERS
+    assert headers["content-type"].startswith("text/plain")
+    # HSTS is a remembered policy: a response without it does not clear it, so nginx has no
+    # reason to emit it and Spring stays the single emitter.
+    assert "strict-transport-security" not in headers
+    assert "Bad gateway" in body
+
+
+def test_nginx_504_for_a_backend_that_does_not_answer_carries_security_headers(tmp_path):
+    # The real config waits 60 s; shorten the generic location so the timeout is observable.
+    original = NGINX_CONFIG.read_text(encoding="utf-8")
+    assert "proxy_read_timeout 60s;" in original
+    fast = tmp_path / "picsou-fast-timeout.conf"
+    fast.write_text(original.replace("proxy_read_timeout 60s;", "proxy_read_timeout 1s;", 1), encoding="utf-8")
+
+    with edge_container(tmp_path, config=fast) as edge:
+        # Accepts one connection and never answers.
+        command(["docker", "exec", "--detach", edge, "sh", "-c", "sleep 30 | nc -l -p 9090"])
+        time.sleep(0.5)
+        status, headers, body = http_get(edge, "/api/probe")
+
+    assert status == 504
+    assert {name: headers.get(name) for name in NGINX_ERROR_HEADERS} == NGINX_ERROR_HEADERS
+    assert "strict-transport-security" not in headers
+    assert "Gateway timeout" in body
+
+
+@pytest.mark.parametrize(("path", "expected_status", "expected_body"), [
+    ("/bad-gateway", 502, "from-backend-502\n"),
+    ("/gateway-timeout", 504, "from-backend-504\n"),
+])
+def test_nginx_passes_through_a_502_or_504_returned_by_the_backend(
+    edge_with_failing_backend, path, expected_status, expected_body,
+):
+    status, headers, body = http_get(edge_with_failing_backend, path)
+
+    assert status == expected_status
+    assert body == expected_body
+    assert headers["x-upstream-marker"] == "spring"
+    assert not set(NGINX_ERROR_HEADERS) & set(headers)
 
 
 def test_compose_assigns_the_same_exact_address_to_caddy_and_nginx():

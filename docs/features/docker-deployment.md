@@ -5,7 +5,7 @@
 ## Context
 
 Picsou deploys as the app, PostgreSQL and up to thirteen opt-in authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
-- **`picsou:latest`** — main app: frontend (Nginx) + backend (Spring Boot), no Python. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
+- **`picsou:latest`** — main app: Spring Boot serving the SPA and the API behind an nginx forwarding proxy, no Python. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
 - **`amundi-auth`** — Amundi login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/amundi-auth`.
@@ -79,8 +79,8 @@ the legacy builder rejects the empty `$BUILDPLATFORM`.
 
 | Process | Port | Role |
 |---------|------|------|
-| Nginx | 8080 (public) | Serves SPA, proxies `/api/*` and `/actuator` to backend |
-| Java (Spring Boot) | 9090 (internal) | Backend API |
+| Nginx | 8080 (public) | Forwarding proxy: resolves the client address and public scheme/host/port, sets per-endpoint timeouts, answers 502/504 itself when the backend is unreachable |
+| Java (Spring Boot) | 9090 (internal) | Serves the SPA, the API and every response header |
 
 ### Shared sidecar bases — `services/base/Dockerfile`
 
@@ -324,7 +324,9 @@ in `.env`. README step 3f documents the recovery path.
 Spring Security is the **only** emitter. Both of its filter chains (the API chain in
 `SecurityConfig` and the OAuth2 authorization-server chain in `AuthorizationServerConfig`) use one
 shared header customizer, so the gate applies to the SPA, `/api`, `/actuator`, `/mcp`, `/oauth2`
-and `/.well-known/oauth-*` alike. nginx adds no headers and `entrypoint.sh` writes no HSTS snippet.
+and `/.well-known/oauth-*` alike. nginx adds no headers to proxied responses and `entrypoint.sh`
+writes no HSTS snippet. The 502/504 that nginx answers itself carry the other security headers but
+not HSTS: a response without it does not clear a policy the browser already holds.
 
 **Accepted values:** `true`, `1`, `yes`, `on`, case-insensitive, surrounding whitespace tolerated.
 Anything else disables the header. A value that is neither one of those nor `false`, `0`, `no`,
@@ -706,6 +708,8 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - `uv run --with pytest pytest docker/tests/test_proxy_client_ip.py -v` runs the real nginx
   configuration in Docker: exact trusted proxy resolution, independent forwarded clients,
   ignored direct client-address headers, public origin ports and Compose address consistency.
+  The 502/504 tests start the real config without a backend (and with one that fails on purpose)
+  to prove nginx's own error responses carry the security headers and Spring's are untouched.
 - `python3 -m unittest discover -s docker/tests -p 'test_entrypoint.py' -v` also checks empty
   standalone proxy trust, exact configured addresses and rejection of malformed configuration.
 

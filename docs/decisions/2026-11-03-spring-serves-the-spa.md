@@ -33,7 +33,14 @@ or Python); this is the first of three steps.
 - One header customizer in `SecurityConfig` is applied to both security filter chains: frame
   options, nosniff, referrer policy, CSP, Permissions-Policy and the HSTS gate.
 - nginx stays for this step but only forwards: real-IP trust, `X-Forwarded-*` maps, per-endpoint
-  timeouts, SSE buffering off for `/mcp`. It adds no header and compresses nothing.
+  timeouts, SSE buffering off for `/mcp`. It adds no header to proxied responses and compresses
+  nothing. The one exception is the 502/504 it answers itself when the backend is down or too
+  slow: Spring never sees those, so two named error locations give them the frame, nosniff,
+  referrer and `default-src 'none'` CSP headers plus `no-store`. A 502/504 returned *by* Spring is
+  passed through untouched (`proxy_intercept_errors` stays off).
+- HSTS is not repeated on those nginx errors. It is a remembered policy: a response without the
+  header does not clear it, only `max-age=0` does, so an error page that omits it weakens nothing
+  and Spring remains the single emitter.
 - Compression moves to `server.compression` with nginx's types and threshold.
 - The Bash HSTS parser and snippet are deleted. The "not understood" warning is logged by Java.
 
