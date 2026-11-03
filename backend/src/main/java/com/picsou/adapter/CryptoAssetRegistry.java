@@ -2,6 +2,10 @@ package com.picsou.adapter;
 
 import com.picsou.model.CryptoAsset;
 import com.picsou.repository.CryptoAssetRepository;
+import com.picsou.repository.PriceSnapshotRepository;
+import com.picsou.util.LogSanitizer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -31,20 +35,25 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class CryptoAssetRegistry {
 
+    private static final Logger log = LoggerFactory.getLogger(CryptoAssetRegistry.class);
+
     /** The CoinGecko coin id and the display name stored for a ticker. */
     public record Coin(String id, String name) {}
 
     private final CryptoAssetRepository repository;
+    private final PriceSnapshotRepository priceSnapshotRepository;
     private final Map<String, Coin> coins = new ConcurrentHashMap<>();
     private volatile boolean loaded;
 
     @Autowired
-    public CryptoAssetRegistry(CryptoAssetRepository repository) {
+    public CryptoAssetRegistry(CryptoAssetRepository repository, PriceSnapshotRepository priceSnapshotRepository) {
         this.repository = repository;
+        this.priceSnapshotRepository = priceSnapshotRepository;
     }
 
     private CryptoAssetRegistry(Map<String, Coin> seed) {
         this.repository = null;
+        this.priceSnapshotRepository = null;
         this.coins.putAll(seed);
         this.loaded = true;
     }
@@ -72,19 +81,43 @@ public class CryptoAssetRegistry {
      *
      * <p>The coin reaches the in-memory map only once that transaction commits: the map is the
      * router, and a row that failed to commit must stay unknown so the caller's retry runs.
+     *
+     * <p>When this call is the one that inserts the row, every {@code price_snapshot} row of the
+     * ticker is deleted in the same transaction. {@code price_snapshot} is keyed by ticker alone,
+     * and until now the ticker was routed to Yahoo: crypto-only paths filter on
+     * {@code supportsCrypto} and never wrote a row for it, so whatever rows exist are the closes
+     * of a (delisted) stock of the same symbol. Left in place they would count as coverage for
+     * {@code PriceService.backfillHistoricalPrices}, which only fills dates without a row, and
+     * would block the CoinGecko history. Dropping them here, at the moment the router changes and
+     * atomically with the insert, means a crash cannot leave a learned ticker with stock rows; the
+     * next backfill rebuilds the history from CoinGecko. Nothing is purged when the row already
+     * existed or the ticker was already known: those are curated or earlier-learned coins whose
+     * snapshots are genuine CoinGecko prices.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void learn(String ticker, String id, String name) {
         String key = ticker.toUpperCase(Locale.ROOT);
         ensureLoaded();
         if (coins.containsKey(key)) return;
-        if (repository != null && repository.insertAutoIfAbsent(key, id, name) == 0) {
-            // Another instance or thread inserted the same ticker first; its row stands.
-            repository.findById(key).ifPresent(row ->
-                publishAfterCommit(key, new Coin(row.getCoingeckoId(), row.getName())));
-            return;
+        if (repository != null) {
+            if (repository.insertAutoIfAbsent(key, id, name) == 0) {
+                // Another instance or thread inserted the same ticker first; its row stands.
+                repository.findById(key).ifPresent(row ->
+                    publishAfterCommit(key, new Coin(row.getCoingeckoId(), row.getName())));
+                return;
+            }
+            dropStockSnapshots(key);
         }
         publishAfterCommit(key, new Coin(id, name));
+    }
+
+    /** Deletes the Yahoo-era {@code price_snapshot} rows of a ticker that has just become crypto. */
+    private void dropStockSnapshots(String key) {
+        int dropped = priceSnapshotRepository.deleteByTicker(key);
+        if (dropped > 0) {
+            log.info("Learned crypto ticker {}: dropped {} price snapshots written while it was priced as a stock",
+                LogSanitizer.safe(key), dropped);
+        }
     }
 
     private void publishAfterCommit(String key, Coin coin) {

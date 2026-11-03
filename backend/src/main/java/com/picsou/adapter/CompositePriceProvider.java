@@ -103,7 +103,10 @@ public class CompositePriceProvider implements PriceProviderPort {
      *
      * <p>Known limit: Yahoo answers 404 both for a symbol it never had and for a delisted one, so
      * a delisted stock symbol held in a crypto account can be learned if CoinGecko has a dominant
-     * coin under it. The trigger is a crypto-context holding, never a stock one.
+     * coin under it. The trigger is a crypto-context holding, never a stock one. Whatever
+     * {@code price_snapshot} rows the symbol had were that stock's closes, so
+     * {@link CryptoAssetRegistry#learn} drops them in the same transaction as the insert and the
+     * next backfill rebuilds the history from CoinGecko.
      */
     @Override
     public void learnCryptoTickers(Set<String> tickers) {

@@ -75,6 +75,15 @@ public interface PriceSnapshotRepository extends JpaRepository<PriceSnapshot, Lo
         """)
     void deleteByTickerAndDate(@Param("ticker") String ticker, @Param("date") LocalDate date);
 
+    /**
+     * Drops every row of {@code ticker}; returns how many. Used by {@code CryptoAssetRegistry.learn}
+     * when a ticker changes router: the rows it had were written by Yahoo for a stock, and the
+     * table is keyed by ticker alone.
+     */
+    @Modifying
+    @Query("DELETE FROM PriceSnapshot ps WHERE ps.ticker = :ticker")
+    int deleteByTicker(@Param("ticker") String ticker);
+
     @Modifying
     @Query("DELETE FROM PriceSnapshot")
     int deleteAllSnapshots();

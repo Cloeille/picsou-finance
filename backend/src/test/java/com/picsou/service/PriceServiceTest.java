@@ -231,6 +231,22 @@ class PriceServiceTest {
     }
 
     @Test
+    void getReads_neverOfferAnUnknownTickerToTheRegistry_soAGetStaysReadOnly() {
+        // The ticker the registry does not know yet is the one a write path would learn. On a GET
+        // the supportsCrypto filter alone must decide: no learning, no provider call, no answer.
+        when(priceProvider.supportsCrypto("NEWCOIN")).thenReturn(false);
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+
+        assertThat(priceService.getCryptoQuotes(Set.of("newcoin"))).isEmpty();
+        assertThat(priceService.getCryptoQuote("newcoin")).isNull();
+        assertThat(priceService.getCryptoIntradayPricesEur("newcoin", now.minusDays(1), now)).isEmpty();
+
+        verify(priceProvider, never()).learnCryptoTickers(any());
+        verify(priceProvider, never()).getPricesEur(any());
+        verify(priceProvider, never()).getIntradayPricesEur(any(), any(), any());
+    }
+
+    @Test
     void cryptoRefresh_offersTheTickersToTheRegistryFirst_butNeverEurOrBlank() {
         when(priceProvider.supportsCrypto("NEXO")).thenReturn(true);
         // refreshPrices has never skipped a blank ticker itself; it is only kept out of learning.

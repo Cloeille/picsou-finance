@@ -703,20 +703,57 @@ class CoinGeckoPriceProviderTest {
         assertThat(resolution.accepted()).isEmpty();
     }
 
-    @Test
-    void resolveBySymbol_sharesOneTimeoutAcrossPages_soSlowPagesCannotStackUp() {
-        // Two pages of 6 s each: either fits the 10 s budget alone, both together do not. Page 2
-        // therefore times out on what is left of the shared deadline and the batch is undecided.
-        var urls = new java.util.ArrayList<String>();
+    /**
+     * A CoinGecko whose page 1 (a full page, so a second one is needed) takes {@code page1Takes}
+     * on {@code clock} to arrive, without sleeping; page 2 is {@code []}, held back by a real
+     * {@code page2Delay}. Every requested URL lands in {@code urls}.
+     */
+    private CoinGeckoPriceProvider providerWithSlowFirstPage(
+            java.util.concurrent.atomic.AtomicLong clock, java.time.Duration page1Takes,
+            java.time.Duration page2Delay, java.util.List<String> urls) {
         ExchangeFunction exchange = request -> {
             String url = request.url().toString();
             urls.add(url);
-            String body = url.contains("page=1") ? fullPageOfOther(1, null) : "[]";
-            return Mono.just(ClientResponse.create(HttpStatus.OK)
-                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE).body(body).build())
-                .delayElement(java.time.Duration.ofSeconds(6));
+            boolean first = url.contains("page=1");
+            if (first) clock.addAndGet(page1Takes.toNanos());
+            Mono<ClientResponse> response = Mono.just(ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(first ? fullPageOfOther(1, null) : "[]").build());
+            return first ? response : response.delayElement(page2Delay);
         };
-        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
+        return new CoinGeckoPriceProvider(
+            WebClient.builder().exchangeFunction(exchange).build(), REGISTRY, clock::get);
+    }
+
+    @Test
+    void resolveBySymbol_requestsNoFurtherPage_whenAPageSpendsTheWholeSharedBudget() {
+        // The lookup budget is one deadline for all pages, read on the injected monotonic clock.
+        // Page 1 takes the whole 10 s (the fake clock jumps, nothing sleeps), so there is nothing
+        // left for page 2: it is never sent, and the batch is undecided rather than refused.
+        var clock = new java.util.concurrent.atomic.AtomicLong(1_000L);
+        var urls = new java.util.ArrayList<String>();
+        var provider = providerWithSlowFirstPage(clock, java.time.Duration.ofSeconds(10),
+            java.time.Duration.ZERO, urls);
+
+        var resolution = provider.resolveBySymbol(Set.of("OTHER"));
+
+        assertThat(urls).hasSize(1);
+        assertThat(resolution.answered()).isFalse();
+        assertThat(resolution.accepted()).isEmpty();
+        assertThat(eventsAt(Level.WARN)).singleElement()
+            .satisfies(e -> assertThat(e.getFormattedMessage()).contains("ran out of its"));
+    }
+
+    @Test
+    void resolveBySymbol_givesALaterPageOnlyWhatIsLeftOfTheSharedBudget() {
+        // Page 1 leaves 0.1 s of the 10 s budget. Page 2 answers after a real 8 s: it fits a
+        // per-page 10 s timeout (answered() would be true after an 8 s wait) but not the 0.1 s
+        // that remains of the shared one, so it times out at once. The 7.9 s gap is the margin
+        // a stalled CI machine has before the two designs stop being told apart.
+        var clock = new java.util.concurrent.atomic.AtomicLong(1_000L);
+        var urls = new java.util.ArrayList<String>();
+        var provider = providerWithSlowFirstPage(clock, java.time.Duration.ofMillis(9_900),
+            java.time.Duration.ofSeconds(8), urls);
 
         var resolution = provider.resolveBySymbol(Set.of("OTHER"));
 
@@ -724,7 +761,7 @@ class CoinGeckoPriceProviderTest {
         assertThat(resolution.answered()).isFalse();
         assertThat(resolution.accepted()).isEmpty();
         assertThat(eventsAt(Level.WARN)).singleElement()
-            .satisfies(e -> assertThat(e.getFormattedMessage()).contains("timed out after PT10S"));
+            .satisfies(e -> assertThat(e.getFormattedMessage()).contains("timed out"));
     }
 
     @Test

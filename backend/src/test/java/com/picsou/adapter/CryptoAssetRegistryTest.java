@@ -2,8 +2,10 @@ package com.picsou.adapter;
 
 import com.picsou.model.CryptoAsset;
 import com.picsou.repository.CryptoAssetRepository;
+import com.picsou.repository.PriceSnapshotRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -15,6 +17,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -25,6 +28,7 @@ import static org.mockito.Mockito.when;
 class CryptoAssetRegistryTest {
 
     @Mock CryptoAssetRepository repository;
+    @Mock PriceSnapshotRepository priceSnapshotRepository;
 
     private static CryptoAsset row(String ticker, String id, String name, CryptoAsset.Source source) {
         return CryptoAsset.builder().ticker(ticker).coingeckoId(id).name(name).source(source).build();
@@ -32,9 +36,9 @@ class CryptoAssetRegistryTest {
 
     @Test
     void construction_doesNotTouchTheRepository() {
-        new CryptoAssetRegistry(repository);
+        new CryptoAssetRegistry(repository, priceSnapshotRepository);
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(repository, priceSnapshotRepository);
     }
 
     @Test
@@ -42,7 +46,7 @@ class CryptoAssetRegistryTest {
         when(repository.findAll()).thenReturn(List.of(
             row("BTC", "bitcoin", "Bitcoin", CryptoAsset.Source.CURATED),
             row("NEXO", "nexo", "NEXO", CryptoAsset.Source.CURATED)));
-        var registry = new CryptoAssetRegistry(repository);
+        var registry = new CryptoAssetRegistry(repository, priceSnapshotRepository);
 
         assertThat(registry.find("btc")).contains(new CryptoAssetRegistry.Coin("bitcoin", "Bitcoin"));
         assertThat(registry.find("NEXO")).contains(new CryptoAssetRegistry.Coin("nexo", "NEXO"));
@@ -62,7 +66,7 @@ class CryptoAssetRegistryTest {
     void learn_insertsAnAutoRow_andServesItFromMemory() {
         when(repository.findAll()).thenReturn(List.of());
         when(repository.insertAutoIfAbsent("NEXO", "nexo", "NEXO")).thenReturn(1);
-        var registry = new CryptoAssetRegistry(repository);
+        var registry = new CryptoAssetRegistry(repository, priceSnapshotRepository);
 
         registry.learn("nexo", "nexo", "NEXO");
 
@@ -74,7 +78,7 @@ class CryptoAssetRegistryTest {
     @Test
     void learn_doesNotWriteWhenTheTickerIsAlreadyKnown() {
         when(repository.findAll()).thenReturn(List.of(row("BTC", "bitcoin", "Bitcoin", CryptoAsset.Source.CURATED)));
-        var registry = new CryptoAssetRegistry(repository);
+        var registry = new CryptoAssetRegistry(repository, priceSnapshotRepository);
 
         registry.learn("BTC", "bitcoin-wrapped", "Wrapped");
 
@@ -88,7 +92,7 @@ class CryptoAssetRegistryTest {
         when(repository.insertAutoIfAbsent("CRO", "other-cro", "Other")).thenReturn(0);
         when(repository.findById("CRO")).thenReturn(
             Optional.of(row("CRO", "crypto-com-chain", "Cronos", CryptoAsset.Source.AUTO)));
-        var registry = new CryptoAssetRegistry(repository);
+        var registry = new CryptoAssetRegistry(repository, priceSnapshotRepository);
 
         registry.learn("CRO", "other-cro", "Other");
 
@@ -99,7 +103,7 @@ class CryptoAssetRegistryTest {
     void learn_publishesTheCoinOnlyOnceItsTransactionCommits() {
         when(repository.findAll()).thenReturn(List.of());
         when(repository.insertAutoIfAbsent("NEXO", "nexo", "NEXO")).thenReturn(1);
-        var registry = new CryptoAssetRegistry(repository);
+        var registry = new CryptoAssetRegistry(repository, priceSnapshotRepository);
         TransactionSynchronizationManager.initSynchronization();
         try {
             registry.learn("NEXO", "nexo", "NEXO");
@@ -117,7 +121,7 @@ class CryptoAssetRegistryTest {
     void learn_aRolledBackWrite_leavesTheTickerUnknown_soTheRetryWritesIt() {
         when(repository.findAll()).thenReturn(List.of());
         when(repository.insertAutoIfAbsent("NEXO", "nexo", "NEXO")).thenReturn(1);
-        var registry = new CryptoAssetRegistry(repository);
+        var registry = new CryptoAssetRegistry(repository, priceSnapshotRepository);
         TransactionSynchronizationManager.initSynchronization();
         try {
             registry.learn("NEXO", "nexo", "NEXO");
@@ -132,6 +136,49 @@ class CryptoAssetRegistryTest {
 
         verify(repository, times(2)).insertAutoIfAbsent("NEXO", "nexo", "NEXO");
         assertThat(registry.find("NEXO")).isPresent();
+    }
+
+    @Test
+    void learn_dropsTheTickersStockSnapshots_afterInsertingTheRow() {
+        // price_snapshot is keyed by ticker alone: before this insert the ticker was routed to
+        // Yahoo, so any rows it has are a stock's closes and must not pass for coverage of the
+        // CoinGecko history. Insert and purge share the REQUIRES_NEW transaction, in this order.
+        when(repository.findAll()).thenReturn(List.of());
+        when(repository.insertAutoIfAbsent("NEXO", "nexo", "NEXO")).thenReturn(1);
+        when(priceSnapshotRepository.deleteByTicker("NEXO")).thenReturn(3);
+        var registry = new CryptoAssetRegistry(repository, priceSnapshotRepository);
+
+        registry.learn("nexo", "nexo", "NEXO");
+
+        InOrder order = inOrder(repository, priceSnapshotRepository);
+        order.verify(repository).insertAutoIfAbsent("NEXO", "nexo", "NEXO");
+        order.verify(priceSnapshotRepository).deleteByTicker("NEXO");
+        assertThat(registry.find("NEXO")).isPresent();
+    }
+
+    @Test
+    void learn_keepsTheSnapshots_whenAnotherInstanceInsertedTheRowFirst() {
+        // Not this call's insert: the row, and the CoinGecko snapshots written since, are theirs.
+        when(repository.findAll()).thenReturn(List.of());
+        when(repository.insertAutoIfAbsent("CRO", "other-cro", "Other")).thenReturn(0);
+        when(repository.findById("CRO")).thenReturn(
+            Optional.of(row("CRO", "crypto-com-chain", "Cronos", CryptoAsset.Source.AUTO)));
+        var registry = new CryptoAssetRegistry(repository, priceSnapshotRepository);
+
+        registry.learn("CRO", "other-cro", "Other");
+
+        verifyNoInteractions(priceSnapshotRepository);
+    }
+
+    @Test
+    void learn_keepsTheSnapshots_whenTheTickerIsAlreadyKnown() {
+        // A curated or earlier-learned coin: its snapshots are genuine CoinGecko history.
+        when(repository.findAll()).thenReturn(List.of(row("BTC", "bitcoin", "Bitcoin", CryptoAsset.Source.CURATED)));
+        var registry = new CryptoAssetRegistry(repository, priceSnapshotRepository);
+
+        registry.learn("BTC", "bitcoin-wrapped", "Wrapped");
+
+        verifyNoInteractions(priceSnapshotRepository);
     }
 
     @Test

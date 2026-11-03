@@ -25,6 +25,7 @@ import java.util.*;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
 import java.util.function.LongFunction;
+import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 
 /**
@@ -81,6 +82,14 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
      */
     private volatile Instant rateLimitedUntil = Instant.EPOCH;
 
+    /**
+     * The monotonic clock the shared symbol-lookup deadline is measured on ({@code System::nanoTime}
+     * in production). A deadline on the wall clock would move with an NTP step or a suspended VM:
+     * a backwards step stretches the budget, a forwards one spends it at once. Only the tests
+     * replace it, to advance time without sleeping.
+     */
+    private final LongSupplier nanoTime;
+
     @Autowired
     public CoinGeckoPriceProvider(CryptoAssetRegistry registry) {
         this(WebClient.builder()
@@ -91,8 +100,14 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
 
     // Package-private constructor for tests — inject a WebClient backed by an ExchangeFunction.
     CoinGeckoPriceProvider(WebClient webClient, CryptoAssetRegistry registry) {
+        this(webClient, registry, System::nanoTime);
+    }
+
+    // Package-private constructor for tests that need to move the lookup clock without sleeping.
+    CoinGeckoPriceProvider(WebClient webClient, CryptoAssetRegistry registry, LongSupplier nanoTime) {
         this.webClient = webClient;
         this.registry = registry;
+        this.nanoTime = nanoTime;
     }
 
     /**
@@ -299,8 +314,9 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
      * {@link #SYMBOL_LOOKUP_MAX_PAGES} pages is undecided.
      *
      * <p>The whole lookup shares one {@link #TIMEOUT} budget rather than getting one per page,
-     * so four slow pages cannot stack up to forty seconds inside a refresh or a sync. A page
-     * that times out, or a budget spent before the next page starts, leaves the batch
+     * so four slow pages cannot stack up to forty seconds inside a refresh or a sync. The budget
+     * is measured on the monotonic clock, so a wall-clock adjustment cannot stretch or spend it.
+     * A page that times out, or a budget spent before the next page starts, leaves the batch
      * undecided; the caller asks again in 15 minutes. The 429 cooldown is checked before
      * <em>every</em> page, because a price call on another thread can arm it between two pages
      * and the free tier counts the requests it rejects.
@@ -316,18 +332,18 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
             .map(t -> t.toLowerCase(Locale.ROOT))
             .collect(java.util.stream.Collectors.joining(","));
 
-        Instant deadline = Instant.now().plus(TIMEOUT);
+        long deadlineNanos = nanoTime.getAsLong() + TIMEOUT.toNanos();
         try {
             List<MarketEntry> markets = new ArrayList<>();
             for (int page = 1; ; page++) {
                 if (coolingDown("symbol lookup", wanted)) return new Resolution(Map.of(), false);
-                Duration remaining = Duration.between(Instant.now(), deadline);
-                if (remaining.isZero() || remaining.isNegative()) {
+                long remainingNanos = deadlineNanos - nanoTime.getAsLong();
+                if (remainingNanos <= 0) {
                     log.warn("CoinGecko symbol lookup {} ran out of its {} budget after {} pages -- learning nothing",
                         LogSanitizer.safe(wanted), TIMEOUT, page - 1);
                     return new Resolution(Map.of(), false);
                 }
-                List<MarketEntry> batch = symbolLookupPage(symbols, page, remaining);
+                List<MarketEntry> batch = symbolLookupPage(symbols, page, Duration.ofNanos(remainingNanos));
                 if (batch == null) {
                     log.warn("CoinGecko returned an empty body for symbol lookup {} -- learning nothing", LogSanitizer.safe(wanted));
                     return new Resolution(Map.of(), false);
