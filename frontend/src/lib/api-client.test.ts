@@ -20,6 +20,7 @@ vi.stubGlobal('sessionStorage', memoryStorage())
 const { api, isSetupRequiredResponse } = await import('./api-client')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { useProfileStore } = await import('@/stores/profile-store')
+const { consumeSsoRevalidate } = await import('./sso-revalidate')
 
 describe('isSetupRequiredResponse', () => {
   it('detects setup-required ProblemDetail code responses', () => {
@@ -109,5 +110,53 @@ describe('api-client memberId interceptor', () => {
     ).rejects.toMatchObject({ response: { status: 502 } })
 
     expect(window.location.href).toBe(href)
+  })
+})
+
+/**
+ * The 401 refresh loop is the SSO session's death detector: when the backend refuses the
+ * refresh with SSO_REVALIDATE (the re-validation window expired, todo 14), the client must
+ * mark the one-shot flag so /login restarts SSO silently instead of showing a bare form.
+ */
+describe('api-client SSO revalidation flag', () => {
+  let original: Location
+
+  beforeEach(() => {
+    sessionStorage.clear()
+    original = window.location
+    Object.defineProperty(window, 'location', {
+      value: { assign: vi.fn(), href: 'http://localhost/', pathname: '/', search: '' },
+      configurable: true,
+      writable: true,
+    })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(window, 'location', { value: original, configurable: true })
+  })
+
+  // Real axios errors carry their request config, which the interceptor reads.
+  function failEveryRequest(refreshCode: string) {
+    api.defaults.adapter = async (config) =>
+      Promise.reject({
+        config,
+        response: { status: 401, data: config.url === '/auth/refresh' ? { code: refreshCode } : {} },
+      })
+  }
+
+  it('marks the flag when the refresh fails with SSO_REVALIDATE', async () => {
+    failEveryRequest('SSO_REVALIDATE')
+
+    await expect(api.get('/dashboard')).rejects.toMatchObject({ response: { status: 401 } })
+
+    expect(consumeSsoRevalidate()).toBe(true)
+  })
+
+  it('does not mark the flag when the refresh fails for another reason', async () => {
+    failEveryRequest('SESSION_EXPIRED')
+
+    await expect(api.get('/dashboard')).rejects.toMatchObject({ response: { status: 401 } })
+
+    expect(consumeSsoRevalidate()).toBe(false)
   })
 })

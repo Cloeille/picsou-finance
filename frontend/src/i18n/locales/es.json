@@ -94,6 +94,12 @@
     "mfaTooManyAttempts": "Demasiados intentos, inténtalo de nuevo en unos minutos",
     "mfaSessionExpired": "La sesión de verificación ha caducado, inicia sesión de nuevo",
     "mfaGenericError": "No se pudo verificar el código. Inténtalo de nuevo.",
+    "sso": {
+      "button": "Iniciar sesión con {{provider}}",
+      "or": "o",
+      "redirecting": "Redirigiendo a tu proveedor de inicio de sesión...",
+      "completing": "Completando el inicio de sesión..."
+    },
     "validation": {
       "usernameTooShort": "El nombre de usuario debe tener al menos 3 caracteres.",
       "usernameTooLong": "El nombre de usuario debe tener 50 caracteres como máximo.",

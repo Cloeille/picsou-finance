@@ -94,6 +94,12 @@
     "mfaTooManyAttempts": "Too many attempts, try again in a few minutes",
     "mfaSessionExpired": "Verification session expired, sign in again",
     "mfaGenericError": "We couldn't verify the code. Please try again.",
+    "sso": {
+      "button": "Sign in with {{provider}}",
+      "or": "or",
+      "redirecting": "Redirecting to your sign-in provider...",
+      "completing": "Completing sign-in..."
+    },
     "validation": {
       "usernameTooShort": "The username must contain at least 3 characters.",
       "usernameTooLong": "The username must contain 50 characters or fewer.",

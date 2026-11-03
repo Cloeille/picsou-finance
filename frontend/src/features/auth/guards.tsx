@@ -1,8 +1,12 @@
-import { useEffect } from 'react'
-import { Navigate } from 'react-router'
+import { useEffect, useRef, useState } from 'react'
+import { Navigate, useSearchParams } from 'react-router'
 import { useAuthStore } from '@/stores/auth-store'
 import { useAppStore } from '@/stores/app-store'
 import { RouteSpinner } from '@/components/shared/RouteFallback'
+import { getErrorCode } from '@/lib/errors'
+import { markSsoRevalidate } from '@/lib/sso-revalidate'
+import { isOAuthAuthorizeRedirect, safeRedirect } from '@/lib/utils'
+import { authApi } from './api'
 import { useSessionProbe } from './hooks'
 
 export function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -42,14 +46,41 @@ export function PublicOnly({
   const isAuthenticated = useAuthStore(s => s.isAuthenticated)
   const login = useAuthStore(s => s.login)
   const demoMode = useAppStore(s => s.demoMode)
+  const [searchParams] = useSearchParams()
 
-  const shouldProbe = probe && !demoMode && !isAuthenticated
+  // The Authorization Server bounces an authorize request without a usable session to
+  // /login?redirect=/oauth2/…. Neither the sessionStorage flag nor the cached probe can tell
+  // whether that session is still restorable, so ask the server once and resume the
+  // authorization on success; redirecting to "/" instead would lose it.
+  const oauthTarget = safeRedirect(searchParams.get('redirect'))
+  const resumeOAuth = probe && !demoMode && isOAuthAuthorizeRedirect(oauthTarget)
+  const [oauthProbeFailed, setOauthProbeFailed] = useState(false)
+  const oauthProbeStarted = useRef(false)
+
+  const shouldProbe = probe && !demoMode && !isAuthenticated && !resumeOAuth
   const sessionProbe = useSessionProbe(shouldProbe)
 
   useEffect(() => {
     if (sessionProbe.isSuccess) login(sessionProbe.data)
   }, [sessionProbe.isSuccess, sessionProbe.data, login])
 
+  useEffect(() => {
+    if (!resumeOAuth || oauthProbeStarted.current) return
+    oauthProbeStarted.current = true
+    authApi.refresh().then(
+      (user) => {
+        login(user)
+        window.location.assign(oauthTarget)
+      },
+      (err: unknown) => {
+        if (getErrorCode(err) === 'SSO_REVALIDATE') markSsoRevalidate()
+        useAuthStore.getState().logout()
+        setOauthProbeFailed(true)
+      },
+    )
+  }, [resumeOAuth, oauthTarget, login])
+
+  if (resumeOAuth) return oauthProbeFailed ? <>{children}</> : <RouteSpinner />
   if (demoMode || isAuthenticated) return <Navigate to="/" replace />
   // While the probe resolves (only when actually enabled), hold the form back so
   // a restorable session redirects into the app rather than flashing /login.

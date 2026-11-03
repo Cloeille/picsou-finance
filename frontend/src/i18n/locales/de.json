@@ -94,6 +94,12 @@
     "mfaTooManyAttempts": "Zu viele Versuche, versuche es in ein paar Minuten erneut",
     "mfaSessionExpired": "Verifizierungssitzung abgelaufen, melde dich erneut an",
     "mfaGenericError": "Der Code konnte nicht überprüft werden. Bitte versuche es erneut.",
+    "sso": {
+      "button": "Mit {{provider}} anmelden",
+      "or": "oder",
+      "redirecting": "Weiterleitung zu deinem Anmeldeanbieter...",
+      "completing": "Anmeldung wird abgeschlossen..."
+    },
     "validation": {
       "usernameTooShort": "Der Benutzername muss mindestens 3 Zeichen enthalten.",
       "usernameTooLong": "Der Benutzername darf höchstens 50 Zeichen enthalten.",

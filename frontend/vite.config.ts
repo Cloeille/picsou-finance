@@ -94,6 +94,15 @@ export default defineConfig(({ command }) => {
           target: process.env.VITE_API_TARGET || 'http://localhost:8080',
           changeOrigin: true,
         },
+        // SSO chain endpoints (start/callback POSTs + the authorization-server
+        // authorize/consent flow). xfwd lets Tomcat build the dev redirect_uri on
+        // the Vite origin; honored only for loopback peers (application.yml's
+        // server.tomcat.remoteip.internal-proxies) — never widen that list.
+        '/oauth2': {
+          target: process.env.VITE_API_TARGET || 'http://localhost:8080',
+          changeOrigin: true,
+          xfwd: true,
+        },
       },
       // Embedded MCP server (HTTP+SSE): GET /mcp stream + POST /mcp/message.
       // http-proxy streams Server-Sent Events as-is, so an MCP client can point

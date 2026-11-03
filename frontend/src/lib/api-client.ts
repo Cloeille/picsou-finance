@@ -4,6 +4,8 @@ import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { useConnectivityStore } from '@/stores/connectivity-store'
 import { useProfileStore } from '@/stores/profile-store'
+import { getErrorCode } from '@/lib/errors'
+import { markSsoRevalidate } from '@/lib/sso-revalidate'
 
 declare module 'axios' {
   interface AxiosRequestConfig {
@@ -131,11 +133,12 @@ api.interceptors.response.use(
         await api.post('/auth/refresh')
         notifyRefreshSubscribers()
         return api(originalRequest!)
-      } catch {
+      } catch (refreshError) {
         // Refresh failed: the session is dead. Clear the JS-side auth flag
         // (sessionStorage) before redirecting, otherwise PublicOnly on /login
         // sees `isAuthenticated=true` and bounces back to "/", which fires
         // /family/members → 401 → refresh → 401 → redirect → … infinite loop.
+        if (getErrorCode(refreshError) === 'SSO_REVALIDATE') markSsoRevalidate()
         useAuthStore.getState().logout()
         if (window.location.pathname !== '/login') {
           window.location.href =

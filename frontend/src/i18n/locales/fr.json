@@ -94,6 +94,12 @@
     "mfaTooManyAttempts": "Trop de tentatives, réessayez dans quelques minutes",
     "mfaSessionExpired": "Session de vérification expirée, reconnectez-vous",
     "mfaGenericError": "Impossible de vérifier le code. Veuillez réessayer.",
+    "sso": {
+      "button": "Se connecter avec {{provider}}",
+      "or": "ou",
+      "redirecting": "Redirection vers votre fournisseur de connexion...",
+      "completing": "Finalisation de la connexion..."
+    },
     "validation": {
       "usernameTooShort": "Le nom d'utilisateur doit contenir au moins 3 caractères.",
       "usernameTooLong": "Le nom d'utilisateur doit contenir 50 caractères maximum.",
