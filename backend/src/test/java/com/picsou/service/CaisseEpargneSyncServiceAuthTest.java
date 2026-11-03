@@ -38,6 +38,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /** initiateAuth / completeAuth: no password is kept, one attempt, member-scoped, session untouched on failure. */
@@ -422,6 +423,9 @@ class CaisseEpargneSyncServiceAuthTest {
 
         assertThat(session.getEncryptedCredentials()).isEqualTo("encrypted-newer-id");
         verify(sessionRepository, never()).save(any());
+        verify(sessionRepository).findByMemberId(7L);
+        verify(sessionRepository).findByMemberIdForUpdate(7L);
+        verifyNoMoreInteractions(sessionRepository);
     }
 
     @Test
@@ -453,11 +457,141 @@ class CaisseEpargneSyncServiceAuthTest {
     @Test
     void status_saysAnIdentifierIsRememberedWithoutExposingIt() {
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+        when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
 
         CaisseEpargneSyncService.SessionStatusResponse status = service.getStatus(7L);
 
         assertThat(status.remembered()).isTrue();
-        assertThat(status.toString()).doesNotContain("encrypted-id");
+        assertThat(status.toString()).doesNotContain("encrypted-id").doesNotContain(CUSTOMER_ID);
+        verify(sessionRepository).findByMemberId(7L);
+        verifyNoMoreInteractions(sessionRepository);
+    }
+
+    @Test
+    void status_doesNotRememberAnIdentifierThatCannotBeRead() {
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+        when(encryption.decrypt("encrypted-id")).thenThrow(new IllegalStateException("wrong key"));
+
+        assertThat(service.getStatus(7L).remembered()).isFalse();
+
+        // a GET never writes: the unreadable value is only forgotten by the next initiate
+        verify(sessionRepository).findByMemberId(7L);
+        verifyNoMoreInteractions(sessionRepository);
+        verifyNoInteractions(txTemplate);
+    }
+
+    @Test
+    void status_doesNotRememberAStoredValueWithoutAnIdentifier() {
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+        when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\" \"}");
+
+        assertThat(service.getStatus(7L).remembered()).isFalse();
+        verifyNoMoreInteractions(sessionRepository);
+    }
+
+    @Test
+    void status_doesNotRememberWhenNothingIsStored() {
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(storedSession(null)));
+
+        assertThat(service.getStatus(7L).remembered()).isFalse();
+        verifyNoInteractions(encryption);
+    }
+
+    // -- disconnect while a login is in flight -------------------------------
+
+    @Test
+    void clearSession_cancelsALoginWaitingOnThePhoneApproval() {
+        pushPending("proc-1");
+
+        service.clearSession(7L);
+
+        assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        verify(port, never()).completeAuth(any());
+        verify(sessionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void clearSession_whileTheApprovalIsBeingAwaitedStoresNothing() {
+        pushPending("proc-1");
+        when(port.completeAuth("proc-1")).thenAnswer(call -> {
+            // The user disconnects while the sidecar waits on the phone, then approves.
+            service.clearSession(7L);
+            return "cookies-json";
+        });
+        arrangeStore("cookies-json");
+
+        assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+
+        verify(sessionRepository, never()).saveAndFlush(any());
+        verify(sessionRepository, never()).delete(any());
+        verifyNoInteractions(encryption);
+    }
+
+    @Test
+    void clearSession_whileTheKeypadIsBeingSubmittedLeavesNothingToComplete() {
+        challenge("proc-1", 90);
+        service.initiateAuth(CUSTOMER_ID, 7L);
+        org.mockito.Mockito.doAnswer(call -> {
+            service.clearSession(7L);
+            return null;
+        }).when(port).submitKeypad("proc-1", POSITIONS);
+
+        assertThatThrownBy(() -> service.submitKeypad("proc-1", POSITIONS, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        verify(port, never()).completeAuth(any());
+    }
+
+    @Test
+    void clearSession_whileTheLoginIsBeingInitiatedRegistersNothing() {
+        when(port.initiateAuth(CUSTOMER_ID)).thenAnswer(call -> {
+            service.clearSession(7L);
+            return new CaisseEpargnePort.InitiateResult("proc-1", keypad(), 90);
+        });
+
+        assertThatThrownBy(() -> service.initiateAuth(CUSTOMER_ID, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        assertThatThrownBy(() -> service.submitKeypad("proc-1", POSITIONS, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        verify(port, never()).submitKeypad(any(), any());
+    }
+
+    @Test
+    void clearSession_doesNotCancelAnotherMembersLoginNorTheNextOne() {
+        pushPending("proc-1");
+        service.clearSession(8L);
+        when(port.completeAuth("proc-1")).thenReturn("cookies-json");
+        arrangeStore("cookies-json");
+
+        service.completeAuth("proc-1", 7L);
+        verify(sessionRepository).saveAndFlush(any(CaisseEpargneSession.class));
+
+        // a login started after the disconnect is a new attempt and can be stored
+        service.clearSession(7L);
+        pushPending("proc-2");
+        when(port.completeAuth("proc-2")).thenReturn("cookies-json");
+
+        service.completeAuth("proc-2", 7L);
+        verify(sessionRepository, org.mockito.Mockito.times(2)).saveAndFlush(any(CaisseEpargneSession.class));
+    }
+
+    @Test
+    void storeSession_withoutALoginInFlightIsNotCancelledByAnEarlierDisconnect() {
+        arrangeStore("cookies-json");
+        service.clearSession(7L);
+
+        service.storeSession("cookies-json", 7L);
+
+        verify(sessionRepository).saveAndFlush(any(CaisseEpargneSession.class));
     }
 
     @Test

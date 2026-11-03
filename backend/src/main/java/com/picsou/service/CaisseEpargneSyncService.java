@@ -115,6 +115,13 @@ public class CaisseEpargneSyncService {
      * starts again.
      */
     private final Map<String, PendingLogin> pendingLogins = new ConcurrentHashMap<>();
+    /**
+     * Bumped by {@link #clearSession}: a login that was waiting on the bank or the phone when the
+     * connection was removed carries an older generation and stores nothing. Checked and bumped
+     * under {@link #sessionWriteLock}.
+     */
+    private final Map<Long, Long> authGenerations = new ConcurrentHashMap<>();
+    private final Object sessionWriteLock = new Object();
 
     @org.springframework.beans.factory.annotation.Autowired
     public CaisseEpargneSyncService(
@@ -179,6 +186,7 @@ public class CaisseEpargneSyncService {
      * submitted again.
      */
     public InitiateResponse initiateAuth(String customerId, Long memberId) {
+        long generation = authGeneration(memberId);
         StoredIdentifier stored = customerId == null || customerId.isBlank()
             ? storedCustomerId(memberId)
             : null;
@@ -201,8 +209,8 @@ public class CaisseEpargneSyncService {
         Instant now = clock.instant();
         // Swept on every start: a stale process id must never be reachable again.
         pendingLogins.values().removeIf(pending -> !pending.deadline().isAfter(now));
-        pendingLogins.put(result.processId(),
-            new PendingLogin(memberId, identifier, now.plusSeconds(result.expiresInSeconds()), null));
+        registerPending(result.processId(),
+            new PendingLogin(memberId, identifier, now.plusSeconds(result.expiresInSeconds()), null, generation));
         return new InitiateResponse(result.processId(), result.keypad(), result.expiresInSeconds());
     }
 
@@ -212,19 +220,28 @@ public class CaisseEpargneSyncService {
             .map(CaisseEpargneSession::getEncryptedCredentials)
             .orElse(null);
         if (encrypted != null) {
-            try {
-                String customerId = JSON.readTree(encryption.decrypt(encrypted)).path("customerId").asText("");
-                if (!customerId.isBlank()) {
-                    return new StoredIdentifier(customerId, encrypted);
-                }
-            } catch (RuntimeException | JsonProcessingException ex) {
-                log.warn("Stored Caisse d'Epargne identifier is unreadable (member={}; type={})",
-                    memberId, ex.getClass().getSimpleName());
+            Optional<String> customerId = readCustomerId(memberId, encrypted);
+            if (customerId.isPresent()) {
+                return new StoredIdentifier(customerId.get(), encrypted);
             }
             forgetStoredCustomerId(memberId, encrypted);
         }
         throw error(CaisseEpargneErrorCode.INVALID_CREDENTIALS,
             "No Caisse d'Epargne identifier is remembered. Please enter it.", null);
+    }
+
+    /** The identifier inside a stored ciphertext, or empty when it is unreadable or blank. */
+    private Optional<String> readCustomerId(Long memberId, String encrypted) {
+        try {
+            String customerId = JSON.readTree(encryption.decrypt(encrypted)).path("customerId").asText("");
+            if (!customerId.isBlank()) {
+                return Optional.of(customerId);
+            }
+        } catch (RuntimeException | JsonProcessingException ex) {
+            log.warn("Stored Caisse d'Epargne identifier is unreadable (member={}; type={})",
+                memberId, ex.getClass().getSimpleName());
+        }
+        return Optional.empty();
     }
 
     /**
@@ -314,8 +331,19 @@ public class CaisseEpargneSyncService {
                 "The Caisse d'Epargne keypad expired. Start again.", null);
         }
         port.submitKeypad(processId, positions);
-        pendingLogins.put(processId, new PendingLogin(memberId, pending.customerId(), null,
-            clock.instant().plusSeconds(KEYPAD_APPROVAL_WINDOW_SECONDS)));
+        registerPending(processId, new PendingLogin(memberId, pending.customerId(), null,
+            clock.instant().plusSeconds(KEYPAD_APPROVAL_WINDOW_SECONDS), pending.generation()));
+    }
+
+    /**
+     * Puts a login in the map unless {@link #clearSession} ran since it started: a disconnect
+     * during a sidecar call must not leave a process that could later be completed.
+     */
+    private void registerPending(String processId, PendingLogin pending) {
+        synchronized (sessionWriteLock) {
+            requireGeneration(pending.memberId(), pending.generation());
+            pendingLogins.put(processId, pending);
+        }
     }
 
     /**
@@ -356,7 +384,7 @@ public class CaisseEpargneSyncService {
             throw error(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED,
                 "Caisse d'Epargne did not return a session", null);
         }
-        return storeSession(plainState, memberId, pending.customerId());
+        return storeSession(plainState, memberId, pending.customerId(), pending.generation());
     }
 
     /**
@@ -364,32 +392,49 @@ public class CaisseEpargneSyncService {
      * the user triggers it. Keeps any identifier already remembered.
      */
     public SessionStatusResponse storeSession(String plainState, Long memberId) {
-        return storeSession(plainState, memberId, null);
+        return storeSession(plainState, memberId, null, authGeneration(memberId));
     }
 
     /**
      * Stores (encrypted) the session state and, when given, the identifier that logged in, so the
      * next reconnect does not ask for it. A {@code null} identifier keeps the one already stored.
+     * Refused when {@link #clearSession} ran since {@code generation} was read: the user
+     * disconnected while this login was in flight.
      */
-    SessionStatusResponse storeSession(String plainState, Long memberId, String customerId) {
+    private SessionStatusResponse storeSession(String plainState, Long memberId, String customerId, long generation) {
         if (plainState == null || plainState.isBlank()) {
             throw error(CaisseEpargneErrorCode.INVALID_SESSION_STATE, "No Caisse d'Epargne session was provided", null);
         }
-        requireTransactionResult(txTemplate.execute(status -> {
-            FamilyMember member = memberRepository.findById(memberId)
-                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            Optional<CaisseEpargneSession> previous = sessionRepository.findByMemberIdForUpdate(memberId);
-            String credentials = customerId != null
-                ? encryptCustomerId(customerId)
-                : previous.map(CaisseEpargneSession::getEncryptedCredentials).orElse(null);
-            previous.ifPresent(sessionRepository::delete);
-            sessionRepository.flush();
-            CaisseEpargneSession session =
-                CaisseEpargneSession.create(member, encryption.encrypt(plainState), Instant.now());
-            session.setEncryptedCredentials(credentials);
-            return sessionRepository.saveAndFlush(session);
-        }));
+        synchronized (sessionWriteLock) {
+            requireGeneration(memberId, generation);
+            requireTransactionResult(txTemplate.execute(status -> {
+                FamilyMember member = memberRepository.findById(memberId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
+                Optional<CaisseEpargneSession> previous = sessionRepository.findByMemberIdForUpdate(memberId);
+                String credentials = customerId != null
+                    ? encryptCustomerId(customerId)
+                    : previous.map(CaisseEpargneSession::getEncryptedCredentials).orElse(null);
+                previous.ifPresent(sessionRepository::delete);
+                sessionRepository.flush();
+                CaisseEpargneSession session =
+                    CaisseEpargneSession.create(member, encryption.encrypt(plainState), Instant.now());
+                session.setEncryptedCredentials(credentials);
+                return sessionRepository.saveAndFlush(session);
+            }));
+        }
         return getStatus(memberId);
+    }
+
+    private long authGeneration(Long memberId) {
+        return authGenerations.getOrDefault(memberId, 0L);
+    }
+
+    /** Must be called under {@link #sessionWriteLock}, in the same block as the write it guards. */
+    private void requireGeneration(Long memberId, long generation) {
+        if (authGeneration(memberId) != generation) {
+            throw error(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
+                "The Caisse d'Epargne connection was removed during the login", null);
+        }
     }
 
     public SessionStatusResponse queueSync(Long memberId) {
@@ -408,7 +453,7 @@ public class CaisseEpargneSyncService {
                 );
             }
             if (session.isSyncInFlight()) {
-                return new QueueDecision(null, toStatus(session), null);
+                return new QueueDecision(null, toStatus(session, memberId), null);
             }
 
             String plainState;
@@ -430,7 +475,7 @@ public class CaisseEpargneSyncService {
             }
             session.markQueued();
             sessionRepository.save(session);
-            return new QueueDecision(new SyncJob(session.getId(), memberId, plainState), toStatus(session), null);
+            return new QueueDecision(new SyncJob(session.getId(), memberId, plainState), toStatus(session, memberId), null);
         }));
 
         if (decision.failure() != null) {
@@ -1089,24 +1134,32 @@ public class CaisseEpargneSyncService {
     @Transactional(readOnly = true)
     public SessionStatusResponse getStatus(Long memberId) {
         return sessionRepository.findByMemberId(memberId)
-            .map(this::toStatus)
+            .map(session -> toStatus(session, memberId))
             .orElseGet(SessionStatusResponse::inactive);
     }
 
     /**
      * Deletes the stored session. This only forgets the cookies in Picsou: the bank session is
      * not revoked (there is no confirmed logout call on the port) and may stay active until it
-     * expires. Returns whether a stored session was there to delete.
+     * expires. Returns whether a stored session was there to delete. A login still in flight is
+     * cancelled too, so an approval on the phone after this stores nothing.
      */
     public boolean clearSession(Long memberId) {
-        return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            var session = sessionRepository.findByMemberIdForUpdate(memberId);
-            session.ifPresent(sessionRepository::delete);
-            return session.isPresent();
-        }));
+        synchronized (sessionWriteLock) {
+            authGenerations.merge(memberId, 1L, Long::sum);
+            boolean removed = Boolean.TRUE.equals(txTemplate.execute(status -> {
+                var session = sessionRepository.findByMemberIdForUpdate(memberId);
+                session.ifPresent(sessionRepository::delete);
+                return session.isPresent();
+            }));
+            pendingLogins.values().removeIf(pending -> pending.memberId().equals(memberId));
+            return removed;
+        }
     }
 
-    private SessionStatusResponse toStatus(CaisseEpargneSession session) {
+    /** Whether the stored identifier is readable is part of the answer, so it is decrypted here; nothing is written. */
+    private SessionStatusResponse toStatus(CaisseEpargneSession session, Long memberId) {
+        String encryptedCredentials = session.getEncryptedCredentials();
         return new SessionStatusResponse(
             session.isActive(),
             session.getSyncStatus(),
@@ -1114,7 +1167,7 @@ public class CaisseEpargneSyncService {
             session.getLastSyncCompletedAt(),
             session.getLastSyncError(),
             parseUnsupported(session.getUnsupportedContracts()),
-            session.getEncryptedCredentials() != null
+            encryptedCredentials != null && readCustomerId(memberId, encryptedCredentials).isPresent()
         );
     }
 
@@ -1250,7 +1303,8 @@ public class CaisseEpargneSyncService {
         Long memberId,
         String customerId,
         Instant keypadExpiresAt,
-        Instant approvalExpiresAt
+        Instant approvalExpiresAt,
+        long generation
     ) {
         Instant deadline() {
             return approvalExpiresAt != null ? approvalExpiresAt : keypadExpiresAt;

@@ -139,6 +139,20 @@ describe('CaisseEpargneTab', () => {
       )
     })
 
+    it('shows the identifier field again when the bank rejects the remembered one', async () => {
+      apiGet
+        .mockResolvedValueOnce({ data: DISCONNECTED_REMEMBERED })
+        .mockResolvedValue({ data: DISCONNECTED })
+      apiPost.mockRejectedValueOnce(problem(401, 'INVALID_CREDENTIALS'))
+      renderTab()
+
+      expect(await screen.findByText('sync.caisseEpargne.rememberedIdentifier')).toBeInTheDocument()
+      fireEvent.click(screen.getByText('sync.caisseEpargne.connect'))
+
+      expect(await screen.findByLabelText('sync.caisseEpargne.customerId')).toBeInTheDocument()
+      expect(screen.queryByText('sync.caisseEpargne.rememberedIdentifier')).not.toBeInTheDocument()
+    })
+
     it('lets the user type another identifier instead of the remembered one', async () => {
       apiGet.mockResolvedValue({ data: DISCONNECTED_REMEMBERED })
       apiPost.mockReturnValueOnce(new Promise(() => {}))
@@ -160,7 +174,7 @@ describe('CaisseEpargneTab', () => {
       renderTab()
 
       fireEvent.click(await screen.findByText('sync.caisseEpargne.useAnotherIdentifier'))
-      expect(screen.getByLabelText('sync.caisseEpargne.customerId')).toBeInTheDocument()
+      await typeIdentifier('87654321')
       fireEvent.click(screen.getByText('sync.caisseEpargne.backToRememberedIdentifier'))
 
       expect(screen.queryByLabelText('sync.caisseEpargne.customerId')).not.toBeInTheDocument()

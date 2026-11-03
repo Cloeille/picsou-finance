@@ -98,11 +98,11 @@ Login is three backend calls that drive the sidecar's browser login (`POST /init
 The session lives a few minutes, so the user reconnects often. Like Bourso, the identifier is kept server side so it is not typed every time:
 
 - A successful login stores its identifier (encrypted, `encrypted_credentials`) with the new session. A login replayed through `storeSession` without an identifier keeps the one already stored.
-- `GET /status` answers `remembered: true` when one is stored. The value itself is never sent back to the UI.
+- `GET /status` answers `remembered: true` only when the stored identifier decrypts to a non-blank value; an unreadable one reports `false`. The read never writes (it is a GET): the panel then asks for the identifier, and the next successful login replaces the unreadable value. The value itself is never sent back to the UI.
 - The panel then shows "Identifier remembered" instead of the field and sends `customerId: ""`; the service reads the stored identifier. "Use another identifier" brings the field back and "Use the remembered identifier" hides it again; a successful login with another identifier replaces the stored one.
 - An empty `customerId` with nothing stored (or an unreadable one, which is then cleared) is refused with `INVALID_CREDENTIALS` without calling the sidecar.
 - If the bank rejects the remembered identifier at `/initiate` (`INVALID_CREDENTIALS`), it is forgotten so it is never sent again, and the panel re-reads the status to show the field. Only the ciphertext that was read is cleared: an identifier stored meanwhile by another successful login survives. A transient failure keeps it.
-- Disconnect (`DELETE /session`) deletes the row, so the identifier goes with it.
+- Disconnect (`DELETE /session`) deletes the row, so the identifier goes with it. It also cancels a login in flight (a per-member generation, as in CMES): an approval on the phone after the disconnect is refused with `AUTH_ATTEMPT_EXPIRED` and stores neither the session nor the identifier.
 
 ### Recovering a lost completion response
 
