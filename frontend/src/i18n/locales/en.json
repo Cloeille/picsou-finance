@@ -1455,6 +1455,7 @@
       "customerId": "Identifier",
       "rememberedIdentifier": "Identifier remembered",
       "useAnotherIdentifier": "Use another identifier",
+      "backToRememberedIdentifier": "Use the remembered identifier",
       "connect": "Connect",
       "connecting": "Connecting…",
       "sync": "Sync",

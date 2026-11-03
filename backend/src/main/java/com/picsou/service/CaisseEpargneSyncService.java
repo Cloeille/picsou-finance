@@ -179,14 +179,16 @@ public class CaisseEpargneSyncService {
      * submitted again.
      */
     public InitiateResponse initiateAuth(String customerId, Long memberId) {
-        boolean fromStore = customerId == null || customerId.isBlank();
-        String identifier = fromStore ? storedCustomerId(memberId) : customerId;
+        StoredIdentifier stored = customerId == null || customerId.isBlank()
+            ? storedCustomerId(memberId)
+            : null;
+        String identifier = stored != null ? stored.customerId() : customerId;
         CaisseEpargnePort.InitiateResult result;
         try {
             result = port.initiateAuth(identifier);
         } catch (SyncException ex) {
-            if (fromStore && codeOf(ex) == CaisseEpargneErrorCode.INVALID_CREDENTIALS) {
-                forgetStoredCustomerId(memberId);
+            if (stored != null && codeOf(ex) == CaisseEpargneErrorCode.INVALID_CREDENTIALS) {
+                forgetStoredCustomerId(memberId, stored.ciphertext());
             }
             throw ex;
         }
@@ -205,7 +207,7 @@ public class CaisseEpargneSyncService {
     }
 
     /** The remembered identifier, or a refusal when there is none (or it cannot be read). */
-    private String storedCustomerId(Long memberId) {
+    private StoredIdentifier storedCustomerId(Long memberId) {
         String encrypted = sessionRepository.findByMemberId(memberId)
             .map(CaisseEpargneSession::getEncryptedCredentials)
             .orElse(null);
@@ -213,26 +215,40 @@ public class CaisseEpargneSyncService {
             try {
                 String customerId = JSON.readTree(encryption.decrypt(encrypted)).path("customerId").asText("");
                 if (!customerId.isBlank()) {
-                    return customerId;
+                    return new StoredIdentifier(customerId, encrypted);
                 }
             } catch (RuntimeException | JsonProcessingException ex) {
                 log.warn("Stored Caisse d'Epargne identifier is unreadable (member={}; type={})",
                     memberId, ex.getClass().getSimpleName());
             }
-            forgetStoredCustomerId(memberId);
+            forgetStoredCustomerId(memberId, encrypted);
         }
         throw error(CaisseEpargneErrorCode.INVALID_CREDENTIALS,
             "No Caisse d'Epargne identifier is remembered. Please enter it.", null);
     }
 
-    private void forgetStoredCustomerId(Long memberId) {
+    /**
+     * Forgets the remembered identifier, but only if it is still the one that was read: a login
+     * that succeeded meanwhile stores a new ciphertext (fresh IV), which must survive.
+     */
+    private void forgetStoredCustomerId(Long memberId, String readCiphertext) {
         txTemplate.execute(status -> {
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(session -> {
-                session.setEncryptedCredentials(null);
-                sessionRepository.save(session);
-            });
+            sessionRepository.findByMemberIdForUpdate(memberId)
+                .filter(session -> readCiphertext.equals(session.getEncryptedCredentials()))
+                .ifPresent(session -> {
+                    session.setEncryptedCredentials(null);
+                    sessionRepository.save(session);
+                });
             return null;
         });
+    }
+
+    /** The remembered identifier and the ciphertext it was read from. */
+    private record StoredIdentifier(String customerId, String ciphertext) {
+        @Override
+        public String toString() {
+            return "StoredIdentifier[redacted]";
+        }
     }
 
     private String encryptCustomerId(String customerId) {

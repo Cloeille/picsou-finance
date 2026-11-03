@@ -1455,6 +1455,7 @@
       "customerId": "Identifiant",
       "rememberedIdentifier": "Identifiant mémorisé",
       "useAnotherIdentifier": "Utiliser un autre identifiant",
+      "backToRememberedIdentifier": "Utiliser l'identifiant mémorisé",
       "connect": "Se connecter",
       "connecting": "Connexion…",
       "sync": "Synchroniser",

@@ -406,6 +406,25 @@ class CaisseEpargneSyncServiceAuthTest {
     }
 
     @Test
+    void initiateAuth_aRejectionKeepsAnIdentifierAConcurrentLoginJustStored() {
+        CaisseEpargneSession session = storedSession("encrypted-id");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
+        when(port.initiateAuth(CUSTOMER_ID)).thenAnswer(call -> {
+            // Another login succeeds while the bank answers this one: a new identifier is stored.
+            session.setEncryptedCredentials("encrypted-newer-id");
+            throw new SyncException("The identifier was refused", null,
+                CaisseEpargneErrorCode.INVALID_CREDENTIALS.name());
+        });
+
+        assertThatThrownBy(() -> service.initiateAuth(null, 7L)).isInstanceOf(SyncException.class);
+
+        assertThat(session.getEncryptedCredentials()).isEqualTo("encrypted-newer-id");
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
     void initiateAuth_keepsTheRememberedIdentifierOnATransientFailure() {
         CaisseEpargneSession session = storedSession("encrypted-id");
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
@@ -529,9 +548,10 @@ class CaisseEpargneSyncServiceAuthTest {
             for (var component : type.getRecordComponents() == null
                 ? new java.lang.reflect.RecordComponent[0] : type.getRecordComponents()) {
                 assertThat(component.getName().toLowerCase()).doesNotContain("password").doesNotContain("positions");
-                // Only the pending login carries the identifier, until the session stores it.
+                // Only the pending login (until the session stores it) and the identifier read
+                // back from the session carry it.
                 if (component.getName().toLowerCase().contains("customer")) {
-                    assertThat(type.getSimpleName()).isEqualTo("PendingLogin");
+                    assertThat(type.getSimpleName()).isIn("PendingLogin", "StoredIdentifier");
                 }
             }
         }

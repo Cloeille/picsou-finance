@@ -154,6 +154,22 @@ describe('CaisseEpargneTab', () => {
       )
     })
 
+    it('lets the user go back to the remembered identifier', async () => {
+      apiGet.mockResolvedValue({ data: DISCONNECTED_REMEMBERED })
+      apiPost.mockReturnValueOnce(new Promise(() => {}))
+      renderTab()
+
+      fireEvent.click(await screen.findByText('sync.caisseEpargne.useAnotherIdentifier'))
+      expect(screen.getByLabelText('sync.caisseEpargne.customerId')).toBeInTheDocument()
+      fireEvent.click(screen.getByText('sync.caisseEpargne.backToRememberedIdentifier'))
+
+      expect(screen.queryByLabelText('sync.caisseEpargne.customerId')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByText('sync.caisseEpargne.connect'))
+      await waitFor(() =>
+        expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/initiate', { customerId: '' }),
+      )
+    })
+
     it('does not offer the keypad before initiate answered', async () => {
       apiPost.mockReturnValueOnce(new Promise(() => {}))
       renderTab()

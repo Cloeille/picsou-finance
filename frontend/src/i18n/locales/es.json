@@ -1135,6 +1135,7 @@
       "customerId": "Identificador",
       "rememberedIdentifier": "Identificador guardado",
       "useAnotherIdentifier": "Usar otro identificador",
+      "backToRememberedIdentifier": "Usar el identificador guardado",
       "connect": "Conectar",
       "connecting": "Conectando…",
       "sync": "Sincronizar",

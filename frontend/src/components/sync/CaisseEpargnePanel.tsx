@@ -592,6 +592,17 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
                       onChange={(event) => setCustomerId(event.target.value.replace(/\D/g, ""))}
                       required
                     />
+                    {status.data?.remembered === true && (
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0"
+                        onClick={() => setTypingIdentifier(false)}
+                      >
+                        {t("sync.caisseEpargne.backToRememberedIdentifier")}
+                      </Button>
+                    )}
                   </>
                 )}
               </div>

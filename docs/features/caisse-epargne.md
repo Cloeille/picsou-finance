@@ -99,9 +99,9 @@ The session lives a few minutes, so the user reconnects often. Like Bourso, the 
 
 - A successful login stores its identifier (encrypted, `encrypted_credentials`) with the new session. A login replayed through `storeSession` without an identifier keeps the one already stored.
 - `GET /status` answers `remembered: true` when one is stored. The value itself is never sent back to the UI.
-- The panel then shows "Identifier remembered" instead of the field and sends `customerId: ""`; the service reads the stored identifier. "Use another identifier" brings the field back; a successful login with it replaces the stored one.
+- The panel then shows "Identifier remembered" instead of the field and sends `customerId: ""`; the service reads the stored identifier. "Use another identifier" brings the field back and "Use the remembered identifier" hides it again; a successful login with another identifier replaces the stored one.
 - An empty `customerId` with nothing stored (or an unreadable one, which is then cleared) is refused with `INVALID_CREDENTIALS` without calling the sidecar.
-- If the bank rejects the remembered identifier at `/initiate` (`INVALID_CREDENTIALS`), it is forgotten so it is never sent again, and the panel re-reads the status to show the field. A transient failure keeps it.
+- If the bank rejects the remembered identifier at `/initiate` (`INVALID_CREDENTIALS`), it is forgotten so it is never sent again, and the panel re-reads the status to show the field. Only the ciphertext that was read is cleared: an identifier stored meanwhile by another successful login survives. A transient failure keeps it.
 - Disconnect (`DELETE /session`) deletes the row, so the identifier goes with it.
 
 ### Recovering a lost completion response
