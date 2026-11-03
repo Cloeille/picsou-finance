@@ -40,10 +40,11 @@ public class SsoSecurityConfig {
             SetupService setupService, @Qualifier("ssoStartBuckets") Map<String, Bucket> buckets, Clock clock,
             CorsConfigurationSource corsConfigurationSource, SsoAuthenticationSuccessHandler successHandler,
             SsoAuthenticationFailureHandler failureHandler, JwtTokenAuthenticator authenticator,
-            ReAuthService reAuthService, AppUserRepository userRepository) throws Exception {
+            ReAuthService reAuthService, SsoProperties ssoProperties, AppUserRepository userRepository) throws Exception {
         var resolver = new SsoAuthorizationRequestResolver(repository);
         var requestRepository = new SsoAuthorizationRequestRepository();
-        var guard = new SsoStartGuardFilter(repository, setupService, buckets, clock, authenticator, reAuthService, userRepository);
+        var guard = new SsoStartGuardFilter(repository, setupService, buckets, clock, authenticator, reAuthService,
+            ssoProperties, userRepository);
         var oidcUserService = new OidcUserService();
         oidcUserService.setRetrieveUserInfo(r -> StringUtils.hasText(
             r.getClientRegistration().getProviderDetails().getUserInfoEndpoint().getUri()));

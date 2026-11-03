@@ -5,6 +5,9 @@ import com.picsou.model.UserRole;
 import com.picsou.service.SessionIssuer;
 import com.picsou.service.ReAuthService;
 import com.picsou.service.SetupAuditService;
+import com.picsou.service.SetupService;
+import org.springframework.dao.ConcurrencyFailureException;
+import org.springframework.transaction.TransactionException;
 import jakarta.servlet.http.Cookie;
 import org.springframework.web.util.WebUtils;
 import com.picsou.service.sso.SsoAccountService;
@@ -54,6 +57,7 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
     private final JwtUtil jwtUtil;
     private final AuthCookieWriter cookieWriter;
     private final SetupAuditService auditService;
+    private final SetupService setupService;
 
     public SsoAuthenticationSuccessHandler(SsoAccountService ssoAccountService,
                                            SsoRoleSyncService ssoRoleSyncService,
@@ -62,7 +66,8 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
                                            Clock clock,
                                            @Value("${app.admin-recovery.enabled:false}") boolean adminRecoveryEnabled,
                                            JwtTokenAuthenticator authenticator, ReAuthService reAuthService,
-                                           JwtUtil jwtUtil, AuthCookieWriter cookieWriter, SetupAuditService auditService) {
+                                           JwtUtil jwtUtil, AuthCookieWriter cookieWriter, SetupAuditService auditService,
+                                           SetupService setupService) {
         this.ssoAccountService = ssoAccountService;
         this.ssoRoleSyncService = ssoRoleSyncService;
         this.sessionIssuer = sessionIssuer;
@@ -74,6 +79,7 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
         this.jwtUtil = jwtUtil;
         this.cookieWriter = cookieWriter;
         this.auditService = auditService;
+        this.setupService = setupService;
     }
 
     @Override
@@ -88,7 +94,7 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
                 case LOGIN -> login(request, response, authentication, intent);
                 case REAUTH, LINK -> signedInIntent(request, response, authentication, intent);
                 case ACTIVATE -> activate(request, response, authentication, intent);
-                case SETUP -> intent.errorRedirect("IDP_ERROR");
+                case SETUP -> setup(request, response, authentication, intent);
                 case null -> SsoIntent.loginError("SESSION_EXPIRED");
             };
         } catch (SsoFlowException e) {
@@ -136,6 +142,24 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
         }
         log.info("SSO activation user={}", LogSanitizer.safe(user.getUsername()));
         return COMPLETE_TARGET + URLEncoder.encode(intent.redirect(), StandardCharsets.UTF_8);
+    }
+
+    private String setup(HttpServletRequest request, HttpServletResponse response,
+                         Authentication authentication, SsoIntent intent) {
+        SsoIdentity identity = SsoIdentity.from((OidcUser) authentication.getPrincipal(), ssoProperties.groupsClaim());
+        if (identity.groups().filter(groups -> groups.contains(ssoProperties.adminGroup())).isEmpty()) {
+            return intent.errorRedirect("NOT_IN_ADMIN_GROUP");
+        }
+        AppUser user;
+        try {
+            user = setupService.seedSsoAdmin(identity,
+                ssoAccountService.usernameFor(identity), ssoAccountService.displayNameFor(identity));
+        } catch (IllegalStateException | ConcurrencyFailureException | TransactionException e) {
+            return intent.errorRedirect("SETUP_ALREADY_CLAIMED");
+        }
+        auditService.record("setup.admin.created", user.getUsername(), request, "method=sso");
+        sessionIssuer.issue(user, false, false, clock.instant(), request, response);
+        return "/setup/security";
     }
 
     private String signedInIntent(HttpServletRequest request, HttpServletResponse response,

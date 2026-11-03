@@ -5,6 +5,7 @@ import com.picsou.model.UserRole;
 import com.picsou.service.SessionIssuer;
 import com.picsou.service.ReAuthService;
 import com.picsou.service.SetupAuditService;
+import com.picsou.service.SetupService;
 import jakarta.servlet.http.Cookie;
 import java.util.HashMap;
 import com.picsou.service.sso.SsoAccountService;
@@ -68,6 +69,7 @@ class SsoAuthenticationSuccessHandlerTest {
     @Mock private JwtUtil jwtUtil;
     @Mock private AuthCookieWriter cookieWriter;
     @Mock private SetupAuditService auditService;
+    @Mock private SetupService setupService;
 
     @BeforeEach
     void stubGroupsClaim() {
@@ -78,7 +80,7 @@ class SsoAuthenticationSuccessHandlerTest {
     private SsoAuthenticationSuccessHandler handler(boolean adminRecoveryEnabled) {
         return new SsoAuthenticationSuccessHandler(ssoAccountService, ssoRoleSyncService, sessionIssuer,
             ssoProperties, Clock.fixed(NOW, ZoneOffset.UTC), adminRecoveryEnabled,
-            authenticator, reAuthService, jwtUtil, cookieWriter, auditService);
+            authenticator, reAuthService, jwtUtil, cookieWriter, auditService, setupService);
     }
 
     private static MockHttpServletRequest requestWith(SsoIntent intent) {
@@ -114,18 +116,66 @@ class SsoAuthenticationSuccessHandlerTest {
         return AppUser.builder().id(id).username(username).passwordHash("x").role(role).activated(activated).build();
     }
 
-    @ParameterizedTest
-    @EnumSource(value = SsoIntent.Kind.class, names = {"SETUP"})
-    void setupIntentFailsClosedAndDiscardsHandshake(SsoIntent.Kind kind) throws Exception {
-        SsoIntent intent = new SsoIntent(kind, "/settings?tab=security", false, null, "token", Instant.EPOCH);
+    @Test
+    void setupWithoutAdminGroupMembershipDiscardsHandshakeAndNeverSeeds() throws Exception {
+        SsoIntent intent = new SsoIntent(SsoIntent.Kind.SETUP, "/setup/admin", false, null, null, Instant.EPOCH);
         var request = requestWith(intent);
         var session = (MockHttpSession) request.getSession(false);
         var response = new MockHttpServletResponse();
-        handler(false).onAuthenticationSuccess(request, response, null);
-        assertThat(response.getRedirectedUrl()).isEqualTo(intent.errorRedirect("IDP_ERROR"));
+        when(ssoProperties.adminGroup()).thenReturn("different-admin-group");
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+        assertThat(response.getRedirectedUrl()).isEqualTo("/setup/admin?ssoError=NOT_IN_ADMIN_GROUP");
         assertThat(session.isInvalid()).isTrue();
         assertThat(response.getHeaders("Set-Cookie")).isEmpty();
-        verifyNoInteractions(ssoAccountService, sessionIssuer);
+        verifyNoInteractions(ssoAccountService, setupService, sessionIssuer, auditService);
+    }
+
+    @Test
+    void setupSeedsAndAuditsBeforeIssuingNonPersistentSessionAndOpeningSecurityStep() throws Exception {
+        var request = requestWith(new SsoIntent(SsoIntent.Kind.SETUP, "/setup/admin", true, null, null, NOW));
+        var session = (MockHttpSession) request.getSession(false);
+        var response = new MockHttpServletResponse();
+        var alice = user(1L, "alice", UserRole.ADMIN, true);
+        when(ssoProperties.adminGroup()).thenReturn("picsou-admin");
+        when(ssoAccountService.usernameFor(any())).thenReturn("alice");
+        when(ssoAccountService.displayNameFor(any())).thenReturn("Alice");
+        when(setupService.seedSsoAdmin(any(), eq("alice"), eq("Alice"))).thenReturn(alice);
+
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+
+        var identity = ArgumentCaptor.forClass(SsoIdentity.class);
+        InOrder order = inOrder(setupService, auditService, sessionIssuer);
+        order.verify(setupService).seedSsoAdmin(identity.capture(), eq("alice"), eq("Alice"));
+        assertThat(identity.getValue().subject()).isEqualTo("alice");
+        order.verify(auditService).record("setup.admin.created", "alice", request, "method=sso");
+        order.verify(sessionIssuer).issue(alice, false, false, NOW, request, response);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/setup/security");
+        assertThat(session.isInvalid()).isTrue();
+        verifyNoInteractions(ssoRoleSyncService);
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.MethodSource("bootstrapFailures")
+    void setupLostClaimMapsToStableErrorWithoutIssuingSession(RuntimeException failure) throws Exception {
+        var request = requestWith(new SsoIntent(SsoIntent.Kind.SETUP, "/setup/admin", false, null, null, NOW));
+        var session = (MockHttpSession) request.getSession(false);
+        var response = new MockHttpServletResponse();
+        when(ssoProperties.adminGroup()).thenReturn("picsou-admin");
+        when(ssoAccountService.usernameFor(any())).thenReturn("alice");
+        when(ssoAccountService.displayNameFor(any())).thenReturn("Alice");
+        when(setupService.seedSsoAdmin(any(), eq("alice"), eq("Alice"))).thenThrow(failure);
+
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+
+        assertThat(response.getRedirectedUrl()).isEqualTo("/setup/admin?ssoError=SETUP_ALREADY_CLAIMED");
+        assertThat(session.isInvalid()).isTrue();
+        verifyNoInteractions(sessionIssuer, auditService);
+    }
+
+    static java.util.stream.Stream<RuntimeException> bootstrapFailures() {
+        return java.util.stream.Stream.of(new IllegalStateException("claimed"),
+            new org.springframework.dao.ConcurrencyFailureException("serialization failure"),
+            new org.springframework.transaction.TransactionSystemException("commit failure"));
     }
 
     @Test
@@ -367,7 +417,7 @@ class SsoAuthenticationSuccessHandlerTest {
         request.addParameter("intent", "link");
         var guard = new SsoStartGuardFilter(repository, org.mockito.Mockito.mock(com.picsou.service.SetupService.class),
             new HashMap<>(), Clock.fixed(NOW, ZoneOffset.UTC), authenticator, reAuthService,
-            org.mockito.Mockito.mock(com.picsou.repository.AppUserRepository.class));
+            ssoProperties, org.mockito.Mockito.mock(com.picsou.repository.AppUserRepository.class));
         guard.doFilter(request, new MockHttpServletResponse(), new org.springframework.mock.web.MockFilterChain());
         var intent = (SsoIntent) request.getAttribute(SsoIntent.ATTRIBUTE);
         assertThat(intent).isNotNull();

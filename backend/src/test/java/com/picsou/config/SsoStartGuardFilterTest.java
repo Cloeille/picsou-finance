@@ -3,6 +3,7 @@ package com.picsou.config;
 import com.picsou.service.SetupService;
 import com.picsou.service.ReAuthService;
 import com.picsou.model.AppUser;
+import com.picsou.model.SetupState;
 import com.picsou.repository.AppUserRepository;
 import jakarta.servlet.http.Cookie;
 import java.util.Optional;
@@ -36,6 +37,7 @@ class SsoStartGuardFilterTest {
     @Mock JwtTokenAuthenticator authenticator;
     @Mock ReAuthService reAuthService;
     @Mock AppUserRepository userRepository;
+    private final SsoProperties ssoProperties = new SsoProperties();
     private final Map<String, Bucket> buckets = new HashMap<>();
     private SsoStartGuardFilter guard;
     private final MockHttpServletResponse response = new MockHttpServletResponse();
@@ -45,7 +47,7 @@ class SsoStartGuardFilterTest {
     @BeforeEach
     void createGuard() {
         guard = new SsoStartGuardFilter(repository, setup, buckets, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC),
-            authenticator, reAuthService, userRepository);
+            authenticator, reAuthService, ssoProperties, userRepository);
         request.setRemoteAddr("192.0.2.1");
     }
 
@@ -102,7 +104,7 @@ class SsoStartGuardFilterTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"unknown", "setup"})
+    @ValueSource(strings = {"unknown"})
     void unsupportedIntentFailsClosed(String intent) throws Exception {
         request.addParameter("intent", intent);
         if (!intent.equals("unknown")) {
@@ -111,6 +113,29 @@ class SsoStartGuardFilterTest {
         guard.doFilter(request, response, chain);
         assertThat(response.getRedirectedUrl()).contains("ssoError=IDP_ERROR");
         assertThat(chain.getRequest()).isNull();
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+        "PENDING_ADMIN,true,true", "IN_PROGRESS,true,false", "COMPLETE,true,false", "PENDING_ADMIN,false,false"})
+    void setupRequiresPendingAdminAndManagedAdminGroup(SetupState state, boolean managed, boolean accepted) throws Exception {
+        when(repository.isAvailable()).thenReturn(true);
+        when(setup.currentState()).thenReturn(state);
+        ssoProperties.setIssuerUri("https://idp.test");
+        ssoProperties.setClientId("picsou");
+        if (managed) ssoProperties.setAdminGroup("picsou-admin");
+        request.addParameter("intent", "setup");
+
+        guard.doFilter(request, response, chain);
+
+        if (accepted) {
+            assertThat(chain.getRequest()).isSameAs(request);
+            assertThat(request.getAttribute(SsoIntent.ATTRIBUTE)).isEqualTo(new SsoIntent(
+                SsoIntent.Kind.SETUP, "/setup/admin", false, null, null, Instant.EPOCH));
+        } else {
+            assertThat(response.getRedirectedUrl()).isEqualTo("/setup/admin?ssoError=SETUP_ALREADY_CLAIMED");
+            assertThat(chain.getRequest()).isNull();
+        }
     }
 
     @ParameterizedTest

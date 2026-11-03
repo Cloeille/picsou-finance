@@ -3,6 +3,7 @@ package com.picsou.config;
 import com.picsou.service.SetupService;
 import com.picsou.service.ReAuthService;
 import com.picsou.model.AppUser;
+import com.picsou.model.SetupState;
 import com.picsou.repository.AppUserRepository;
 import jakarta.servlet.http.Cookie;
 import org.springframework.web.util.WebUtils;
@@ -25,11 +26,13 @@ public class SsoStartGuardFilter extends OncePerRequestFilter {
     private final JwtTokenAuthenticator authenticator;
     private final ReAuthService reAuthService;
     private final AppUserRepository userRepository;
+    private final SsoProperties ssoProperties;
 
     public SsoStartGuardFilter(SsoClientRegistrationRepository repository, SetupService setupService,
                                Map<String, Bucket> buckets, Clock clock,
-                               JwtTokenAuthenticator authenticator, ReAuthService reAuthService,
-                               AppUserRepository userRepository) {
+                                JwtTokenAuthenticator authenticator, ReAuthService reAuthService,
+                                SsoProperties ssoProperties,
+                                AppUserRepository userRepository) {
         this.repository = repository;
         this.setupService = setupService;
         this.buckets = buckets;
@@ -37,6 +40,7 @@ public class SsoStartGuardFilter extends OncePerRequestFilter {
         this.authenticator = authenticator;
         this.reAuthService = reAuthService;
         this.userRepository = userRepository;
+        this.ssoProperties = ssoProperties;
     }
 
     @Override
@@ -125,8 +129,10 @@ public class SsoStartGuardFilter extends OncePerRequestFilter {
                 }
             }
             case SETUP -> {
-                response.sendRedirect(intent.errorRedirect("IDP_ERROR"));
-                return;
+                if (setupService.currentState() != SetupState.PENDING_ADMIN || !ssoProperties.adminGroupManaged()) {
+                    response.sendRedirect("/setup/admin?ssoError=SETUP_ALREADY_CLAIMED");
+                    return;
+                }
             }
         }
         request.setAttribute(SsoIntent.ATTRIBUTE, intent);

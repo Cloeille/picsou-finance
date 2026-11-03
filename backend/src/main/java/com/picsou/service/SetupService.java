@@ -1,6 +1,11 @@
 package com.picsou.service;
 
 import com.picsou.dto.SetupStatusResponse;
+import com.picsou.dto.SetupSsoInfo;
+import com.picsou.config.SsoProperties;
+import com.picsou.model.UserIdentity;
+import com.picsou.repository.UserIdentityRepository;
+import com.picsou.service.sso.SsoIdentity;
 import com.picsou.model.AppSetting;
 import com.picsou.model.AppUser;
 import com.picsou.model.FamilyMember;
@@ -20,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.Clock;
 
 @Service
 public class SetupService {
@@ -48,15 +54,22 @@ public class SetupService {
     private final AppUserRepository userRepository;
     private final FamilyMemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
+    private final SsoProperties ssoProperties;
+    private final UserIdentityRepository identityRepository;
+    private final Clock clock;
 
     public SetupService(AppSettingRepository settingRepository,
                         AppUserRepository userRepository,
                         FamilyMemberRepository memberRepository,
-                        PasswordEncoder passwordEncoder) {
+                        PasswordEncoder passwordEncoder, SsoProperties ssoProperties,
+                        UserIdentityRepository identityRepository, Clock clock) {
         this.settingRepository = settingRepository;
         this.userRepository = userRepository;
         this.memberRepository = memberRepository;
         this.passwordEncoder = passwordEncoder;
+        this.ssoProperties = ssoProperties;
+        this.identityRepository = identityRepository;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -66,7 +79,8 @@ public class SetupService {
         for (String name : INTEGRATIONS) {
             integrations.put(name, readBool(integrationKey(name), false));
         }
-        return new SetupStatusResponse(state, state != SetupState.COMPLETE, integrations);
+        return new SetupStatusResponse(state, state != SetupState.COMPLETE, integrations,
+            new SetupSsoInfo(ssoProperties.enabled(), ssoProperties.providerName(), ssoProperties.adminGroupConfigured()));
     }
 
     public SetupState currentState() {
@@ -96,28 +110,7 @@ public class SetupService {
             return userRepository.findByUsernameWithMember(username).orElseThrow();
         }
 
-        SetupState state = currentState();
-        if (state == SetupState.COMPLETE) {
-            throw new IllegalStateException("Setup is already complete; use the admin UI to manage users.");
-        }
-
-        if (userRepository.count() > 0) {
-            throw new IllegalStateException(
-                "An account already exists; additional members are created from the Family admin UI.");
-        }
-
-        int claimed = settingRepository.compareAndSet(
-            KEY_SETUP_STATE,
-            SetupState.PENDING_ADMIN.name(),
-            SetupState.IN_PROGRESS.name()
-        );
-        if (claimed == 0 && state == SetupState.PENDING_ADMIN) {
-            // Two concurrent seeding attempts raced on the PENDING_ADMIN → IN_PROGRESS CAS
-            // (e.g. double-submitted wizard tabs). Log it so the resulting 5xx is
-            // distinguishable from a genuine server error in the logs.
-            log.warn("Setup: concurrent admin-seeding attempt lost the setup-state CAS (state={})", state);
-            throw new IllegalStateException("Another setup session is already in progress.");
-        }
+        claimBootstrap();
 
         if (!bcryptHash.startsWith("$2")) {
             throw new IllegalArgumentException(
@@ -144,6 +137,54 @@ public class SetupService {
 
         log.info("setup.admin.created username={} role=ADMIN", LogSanitizer.safe(username));
         return user;
+    }
+
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public AppUser seedSsoAdmin(SsoIdentity identity, String username, String displayName) {
+        claimBootstrap();
+        FamilyMember member = FamilyMember.builder()
+            .displayName(displayName)
+            .managed(false)
+            .build();
+        memberRepository.save(member);
+        AppUser user = AppUser.builder()
+            .username(username)
+            .passwordHash("")
+            .member(member)
+            .role(UserRole.ADMIN)
+            .activated(true)
+            .acknowledgedWarning(true)
+            .build();
+        userRepository.save(user);
+        identityRepository.save(UserIdentity.builder()
+            .user(user)
+            .issuer(identity.issuer())
+            .subject(identity.subject())
+            .email(identity.email() == null || identity.email().length() <= 320
+                ? identity.email() : identity.email().substring(0, 320))
+            .displayName(identity.displayName() == null || identity.displayName().length() <= 255
+                ? identity.displayName() : identity.displayName().substring(0, 255))
+            .lastLoginAt(clock.instant())
+            .build());
+        log.info("setup.admin.created username={} role=ADMIN method=sso", LogSanitizer.safe(username));
+        return user;
+    }
+
+    private void claimBootstrap() {
+        SetupState state = currentState();
+        if (state == SetupState.COMPLETE) {
+            throw new IllegalStateException("Setup is already complete; use the admin UI to manage users.");
+        }
+        if (userRepository.count() > 0) {
+            throw new IllegalStateException(
+                "An account already exists; additional members are created from the Family admin UI.");
+        }
+        int claimed = settingRepository.compareAndSet(
+            KEY_SETUP_STATE, SetupState.PENDING_ADMIN.name(), SetupState.IN_PROGRESS.name());
+        if (claimed == 0 && state == SetupState.PENDING_ADMIN) {
+            log.warn("Setup: concurrent admin-seeding attempt lost the setup-state CAS (state={})", state);
+            throw new IllegalStateException("Another setup session is already in progress.");
+        }
     }
 
     /**

@@ -409,7 +409,9 @@ class InstanceStatusServiceTest {
         when(settings.findByKey(SetupService.KEY_BOURSO_AUTH_URL))
             .thenReturn(Optional.of(setting("http://setup-bourso")));
         SetupService setup = new SetupService(
-            settings, mock(AppUserRepository.class), mock(FamilyMemberRepository.class), mock(PasswordEncoder.class));
+            settings, mock(AppUserRepository.class), mock(FamilyMemberRepository.class), mock(PasswordEncoder.class),
+            new com.picsou.config.SsoProperties(), mock(com.picsou.repository.UserIdentityRepository.class),
+            java.time.Clock.systemUTC());
         MockEnvironment env = new MockEnvironment()
             .withProperty("app.bourso-auth.url", "http://property-bourso")
             .withProperty("app.sofidy-auth.url", "http://sofidy")

@@ -2,6 +2,8 @@ package com.picsou.controller;
 
 import com.picsou.config.ClientIp;
 import com.picsou.config.RateLimitConfig;
+import com.picsou.config.SsoProperties;
+import com.picsou.exception.SignInMethodException;
 import com.picsou.dto.BoursoBankHealthResponse;
 import com.picsou.dto.CryptoKeyGenerateResponse;
 import com.picsou.dto.EnableBankingConfigRequest;
@@ -68,13 +70,15 @@ public class SetupController {
     private final CryptoKeyGeneratorService cryptoKeyService;
     private final SetupAuditService auditService;
     private final Map<String, Bucket> setupBuckets;
+    private final SsoProperties ssoProperties;
 
     public SetupController(SetupService setupService,
                            IntegrationsService integrationsService,
                            IntegrationsHealthService healthService,
                            EnableBankingKeyPairService keyPairService,
                            CryptoKeyGeneratorService cryptoKeyService,
-                           SetupAuditService auditService,
+                            SetupAuditService auditService,
+                            SsoProperties ssoProperties,
                            @Qualifier("setupBuckets") Map<String, Bucket> setupBuckets) {
         this.setupService = setupService;
         this.integrationsService = integrationsService;
@@ -83,6 +87,7 @@ public class SetupController {
         this.cryptoKeyService = cryptoKeyService;
         this.auditService = auditService;
         this.setupBuckets = setupBuckets;
+        this.ssoProperties = ssoProperties;
     }
 
     @GetMapping("/status")
@@ -94,6 +99,10 @@ public class SetupController {
     public ResponseEntity<?> seedAdmin(@Valid @RequestBody SetupAdminRequest request,
                                        HttpServletRequest httpRequest) {
         if (!consumeRateLimitToken(httpRequest)) return rateLimited();
+        if (ssoProperties.adminGroupConfigured()) {
+            throw new SignInMethodException(HttpStatus.CONFLICT, "SSO_ADMIN_REQUIRED",
+                "The first admin must sign in through the configured SSO admin group.");
+        }
         requireNotComplete();
 
         String bcryptHash = setupService.hashPassword(request.password());
