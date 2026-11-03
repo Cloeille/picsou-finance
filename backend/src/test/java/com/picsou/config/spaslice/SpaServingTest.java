@@ -75,6 +75,9 @@ class SpaServingTest {
             Files.createDirectories(site.resolve("providers"));
             Files.writeString(site.resolve("providers/bank.svg"), "<svg/>");
             Files.createDirectories(site.resolve("etag"));
+            Files.writeString(site.resolve("etag/index.html"), "<html/>");
+            Files.writeString(site.resolve("etag/theme-init.js"), "a");
+            Files.writeString(site.resolve("etag/x.json"), "{}");
             Files.createDirectories(site.resolve("locales/en"));
             Files.writeString(site.resolve("locales/en/x.json"), "{\"a\":1}");
             return site;
@@ -223,30 +226,45 @@ class SpaServingTest {
         assertThat(body(result)).isEqualTo("{\"a\":1}");
     }
 
+    /** Every no-cache file is revalidated by its ETag: a rebuild with the same length and second must show. */
     @Test
-    void indexEtag_followsContentEvenWhenLengthAndMtimeMatch() throws Exception {
-        Path file = ROOT.resolve("etag/index.html");
-        FileTime sameSecond = FileTime.from(Instant.parse("2026-01-01T00:00:00Z"));
-        Files.writeString(file, "<html>build-A</html>");
-        Files.setLastModifiedTime(file, sameSecond);
-        String first = mvc.perform(get("/etag/index.html")).andExpect(status().isOk())
-            .andReturn().getResponse().getHeader("ETag");
+    void unhashedFileEtag_followsContentEvenWhenLengthAndMtimeMatch() throws Exception {
+        for (String path : new String[] {"/etag/index.html", "/etag/theme-init.js", "/etag/x.json"}) {
+            Path file = ROOT.resolve(path.substring(1));
+            FileTime sameSecond = FileTime.from(Instant.parse("2026-01-01T00:00:00Z"));
+            Files.writeString(file, "build-A");
+            Files.setLastModifiedTime(file, sameSecond);
+            String first = mvc.perform(get(path)).andExpect(status().isOk())
+                .andReturn().getResponse().getHeader("ETag");
 
-        Files.writeString(file, "<html>build-B</html>");
-        Files.setLastModifiedTime(file, sameSecond);
-        String second = mvc.perform(get("/etag/index.html")).andExpect(status().isOk())
-            .andReturn().getResponse().getHeader("ETag");
+            Files.writeString(file, "build-B");
+            Files.setLastModifiedTime(file, sameSecond);
+            String second = mvc.perform(get(path)).andExpect(status().isOk())
+                .andReturn().getResponse().getHeader("ETag");
 
-        assertThat(first).startsWith("W/\"").endsWith("\"");
-        assertThat(second).startsWith("W/\"");
-        assertThat(second).isNotEqualTo(first);
+            assertThat(first).as(path).startsWith("W/\"").endsWith("\"");
+            assertThat(second).as(path).startsWith("W/\"");
+            assertThat(second).as(path).isNotEqualTo(first);
+        }
     }
 
     @Test
-    void otherFilesKeepTheTimestampAndLengthEtag() throws Exception {
-        String etag = mvc.perform(get("/locales/en/x.json")).andExpect(status().isOk())
-            .andReturn().getResponse().getHeader("ETag");
-        assertThat(etag).matches("W/\"[0-9a-f]+-[0-9a-f]+\"");
+    void unhashedFileEtag_isAContentDigestNotATimestampAndLength() throws Exception {
+        for (String path : new String[] {"/", "/accounts/12", "/favicon.svg", "/locales/en/x.json", "/providers/bank.svg"}) {
+            String etag = mvc.perform(get(path)).andExpect(status().isOk())
+                .andReturn().getResponse().getHeader("ETag");
+            assertThat(etag).as(path).matches("W/\"[0-9a-f]{32}\"");
+        }
+    }
+
+    /** A hashed asset is immutable and renamed on change: its tag stays cheap, the bundle is never read. */
+    @Test
+    void hashedAssetEtag_keepsTheTimestampAndLengthShape() throws Exception {
+        for (String path : new String[] {"/assets/app-abc.js", "/assets/logo.SVG"}) {
+            String etag = mvc.perform(get(path)).andExpect(status().isOk())
+                .andReturn().getResponse().getHeader("ETag");
+            assertThat(etag).as(path).matches("W/\"[0-9a-f]+-[0-9a-f]+\"");
+        }
     }
 
     @Test
