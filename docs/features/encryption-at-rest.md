@@ -29,6 +29,7 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 | Trade Republic refresh token | `TradeRepublicSession` | `refresh_token` | V15 (2026-04-08), `TEXT` since V86 |
 | DEGIRO session blob | `DegiroSession` | `session_blob` | V71 (2026-08-10), `TEXT` since V86 |
 | SimpleFIN access URL | `SimplefinConnection` | `access_url` | V113 (2026-10-06) |
+| Wise personal API token | `WiseConnection` | `api_token` | V123 (2026-11-03) |
 
 ### What is NOT encrypted (and why)
 

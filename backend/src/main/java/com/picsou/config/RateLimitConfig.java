@@ -246,6 +246,15 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-IP Wise limiter: 6 requests per minute, shared by connect and sync. Each sync
+     * makes one request per Wise profile plus one for the profile list.
+     */
+    @Bean("wiseRequestBuckets")
+    public Map<String, Bucket> wiseRequestBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-IP setup wizard rate limiter: 10 mutating requests per minute.
      * Tight because the endpoints are unauthenticated until setup completes
      * — without this, a fresh install is exposed to admin-seeding floods
@@ -559,6 +568,15 @@ public class RateLimitConfig {
     }
 
     public static Bucket createSimplefinRequestBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(6)
+                .refillIntervally(6, Duration.ofMinutes(1))
+                .build())
+            .build();
+    }
+
+    public static Bucket createWiseRequestBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(6)

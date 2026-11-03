@@ -55,13 +55,15 @@ class AccountConnectionServiceTest {
     @Mock DegiroSyncService degiroSyncService;
     @Mock IbkrSyncService ibkrSyncService;
     @Mock SimplefinSyncService simplefinSyncService;
+    @Mock WiseSyncService wiseSyncService;
 
     private AccountConnectionService service() {
         return new AccountConnectionService(
             accountRepository, accountService, walletRepository, exchangeSessionRepository,
             requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService, cmesSyncService, cicSyncService,
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
-            fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService);
+            fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService,
+            wiseSyncService);
     }
 
     private static Account account(long id, String externalId) {
@@ -343,6 +345,20 @@ class AccountConnectionServiceTest {
         given(account(40L, "sfin_conn_checking"));
         service().deleteAccount(40L, MEMBER_ID);
         verify(simplefinSyncService).deleteConnection(MEMBER_ID);
+    }
+
+    @Test
+    void keepsWiseWhileAnotherJarRemains() {
+        given(account(50L, "wise_jar_101"), account(51L, "wise_jar_102"));
+        service().deleteAccount(50L, MEMBER_ID);
+        verify(wiseSyncService, never()).deleteConnection(anyLong());
+    }
+
+    @Test
+    void clearsWiseWithItsLastJar() {
+        given(account(50L, "wise_jar_101"));
+        service().deleteAccount(50L, MEMBER_ID);
+        verify(wiseSyncService).deleteConnection(MEMBER_ID);
     }
 
     /**

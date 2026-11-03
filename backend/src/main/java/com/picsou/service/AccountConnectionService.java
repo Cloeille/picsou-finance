@@ -55,7 +55,7 @@ public class AccountConnectionService {
     /** One connection instance. {@code discriminator} separates two of the same kind. */
     public record ConnectionRef(Kind kind, String discriminator) {}
 
-    public enum Kind { WALLET, EXCHANGE, AMUNDI, CMES, CIC, TRADE_REPUBLIC, BOURSE_DIRECT, BOURSO, FORTUNEO, IBKR, SIMPLEFIN, DEGIRO, ENABLE_BANKING }
+    public enum Kind { WALLET, EXCHANGE, AMUNDI, CMES, CIC, TRADE_REPUBLIC, BOURSE_DIRECT, BOURSO, FORTUNEO, IBKR, SIMPLEFIN, WISE, DEGIRO, ENABLE_BANKING }
 
     /**
      * What deleting an account would cost ({@link #describeDeletion}, a prediction) or what it
@@ -80,6 +80,7 @@ public class AccountConnectionService {
     private final DegiroSyncService degiroSyncService;
     private final IbkrSyncService ibkrSyncService;
     private final SimplefinSyncService simplefinSyncService;
+    private final WiseSyncService wiseSyncService;
 
     public AccountConnectionService(
         AccountRepository accountRepository,
@@ -98,7 +99,8 @@ public class AccountConnectionService {
         FortuneoSyncService fortuneoSyncService,
         DegiroSyncService degiroSyncService,
         IbkrSyncService ibkrSyncService,
-        SimplefinSyncService simplefinSyncService
+        SimplefinSyncService simplefinSyncService,
+        WiseSyncService wiseSyncService
     ) {
         this.accountRepository = accountRepository;
         this.accountService = accountService;
@@ -117,6 +119,7 @@ public class AccountConnectionService {
         this.degiroSyncService = degiroSyncService;
         this.ibkrSyncService = ibkrSyncService;
         this.simplefinSyncService = simplefinSyncService;
+        this.wiseSyncService = wiseSyncService;
     }
 
     /**
@@ -202,6 +205,7 @@ public class AccountConnectionService {
             if (externalId.startsWith(FORTUNEO_PREFIX)) return singleton(Kind.FORTUNEO);
             if (externalId.startsWith(IBKR_PREFIX)) return singleton(Kind.IBKR);
             if (externalId.startsWith(SIMPLEFIN_PREFIX)) return singleton(Kind.SIMPLEFIN);
+            if (externalId.startsWith(WiseSyncService.EXTERNAL_ID_PREFIX)) return singleton(Kind.WISE);
             if (externalId.equals(DEGIRO_EXTERNAL_ID)) return singleton(Kind.DEGIRO);
         }
 
@@ -253,6 +257,7 @@ public class AccountConnectionService {
             case DEGIRO -> degiroSyncService.clearSession(memberId);
             case IBKR -> ibkrSyncService.deleteConnection(memberId);
             case SIMPLEFIN -> simplefinSyncService.deleteConnection(memberId);
+            case WISE -> wiseSyncService.deleteConnection(memberId);
             // Not SyncService.deleteRequisition: it throws on a missing requisition, and one
             // removed concurrently (DELETE /api/sync/requisitions/{id}) would roll back the
             // account deletion with it.
@@ -279,6 +284,7 @@ public class AccountConnectionService {
             case DEGIRO -> "DEGIRO";
             case IBKR -> "Interactive Brokers";
             case SIMPLEFIN -> "SimpleFIN";
+            case WISE -> "Wise Jars";
             case ENABLE_BANKING -> requisitionRepository
                 .findByIdAndMemberId(Long.valueOf(ref.discriminator()), memberId)
                 .map(r -> r.getInstitutionName())

@@ -73,6 +73,8 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: { connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null } })
       case '/simplefin/status':
         return Promise.resolve({ data: simplefinStatus })
+      case '/wise/status':
+        return Promise.resolve({ data: wiseStatus })
       case '/amex/status':
         return Promise.resolve({ data: amexStatus })
       case '/caisse-epargne/status':
@@ -100,6 +102,7 @@ function mockStatusEndpoints() {
 /** Overridden per test to drive the session-provider rows. */
 let amundiStatus: Record<string, unknown>
 let simplefinStatus: Record<string, unknown>
+let wiseStatus: Record<string, unknown>
 let accountsFixture: unknown[]
 let revolutStatus: Record<string, unknown>
 let revolutProgress: Record<string, unknown>
@@ -192,6 +195,7 @@ const SCPI_ACCOUNT = {
 function resetFixtures() {
   amundiStatus = AMUNDI_INACTIVE
   simplefinStatus = SIMPLEFIN_DISCONNECTED
+  wiseStatus = SIMPLEFIN_DISCONNECTED
   amexStatus = AMUNDI_INACTIVE
   caisseEpargneStatus = { ...AMUNDI_INACTIVE, unsupported: [], unsupportedCount: 0 }
   corumStatus = AMUNDI_INACTIVE
@@ -338,6 +342,7 @@ describe('SyncAllModal session providers', () => {
     expect(screen.queryByText('DEGIRO')).not.toBeInTheDocument()
     expect(screen.queryByText('Interactive Brokers')).not.toBeInTheDocument()
     expect(screen.queryByText('SimpleFIN')).not.toBeInTheDocument()
+    expect(screen.queryByText('Wise Jars')).not.toBeInTheDocument()
   })
 
   it('lists SimpleFIN when connected and syncs through its endpoint', async () => {
@@ -350,6 +355,18 @@ describe('SyncAllModal session providers', () => {
     fireEvent.click(within(row).getByRole('button'))
 
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/simplefin/sync'))
+  })
+
+  it('lists Wise Jars when connected and syncs through its endpoint', async () => {
+    wiseStatus = { ...SIMPLEFIN_DISCONNECTED, connected: true, connectionId: 1, status: 'CONNECTED' }
+    apiPost.mockResolvedValue({ data: [] })
+    renderModal()
+
+    const row = (await screen.findByText('Wise Jars')).closest('[data-slot="card"]') as HTMLElement
+    expect(row).not.toBeNull()
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/wise/sync'))
   })
 
   it('lists a provider whose session is live', async () => {

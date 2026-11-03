@@ -91,6 +91,12 @@ vi.mock('@/components/sync/SimplefinPanel', () => ({
   ),
 }))
 
+vi.mock('@/components/sync/WisePanel', () => ({
+  WisePanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>wise-wizard</button>
+  ),
+}))
+
 vi.mock('@/components/sync/AmexPanel', () => ({
   AmexPanel: ({ onConnected }: { onConnected?: () => void }) => (
     <button onClick={onConnected}>amex-wizard</button>
@@ -465,7 +471,7 @@ describe('AddAccountModal SimpleFIN wizard', () => {
   })
 })
 
-describe.each(['amex', 'corum', 'sofidy'])('AddAccountModal %s wizard', (key) => {
+describe.each(['wise', 'amex', 'corum', 'sofidy'])('AddAccountModal %s wizard', (key) => {
   it('lists the source, opens the connector and closes after authentication', () => {
     const onOpenChange = vi.fn()
     render(<AddAccountModal open onOpenChange={onOpenChange} />)
