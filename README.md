@@ -400,6 +400,15 @@ cp docker/.env.example docker/.env
 | `CIC_AUTH_URL` | Custom sidecar | Defaults to `http://cic-auth:8001`. Set it to reach a `cic-auth` sidecar run elsewhere (CIC online banking) |
 | `PICSOU_DOMAIN` | TLS profile | Hostname Caddy serves — see [step 3](#3-https-decide-before-the-first-launch) |
 | `HSTS_ENABLED` | Trusted cert | `true` only with a publicly-trusted certificate |
+| `SSO_ISSUER_URI` | Single sign-on | OIDC issuer, exactly as the IdP discovery document spells it. SSO is on when this and `SSO_CLIENT_ID` are set. No default. An invalid value logs an error and leaves SSO off. Register the redirect URI `https://<host>/login/sso/callback` at the IdP |
+| `SSO_CLIENT_ID` | Single sign-on | Client ID registered at the IdP. No default |
+| `SSO_CLIENT_SECRET` | Confidential client | Blank (default): public client, PKCE only. Set: `client_secret_basic` plus PKCE |
+| `SSO_PROVIDER_NAME` | Single sign-on | Button label ("Sign in with Zitadel"), at most 40 characters. Defaults to `SSO` |
+| `SSO_SCOPES` | Single sign-on | Defaults to `openid,profile,email`; `openid` is always added. Add `groups` for IdPs that need it (Pocket ID, Authelia), but not with Zitadel and its groups Action |
+| `SSO_GROUPS_CLAIM` | Single sign-on | Literal claim name holding the groups, e.g. `urn:zitadel:iam:org:project:roles`. Defaults to `groups` |
+| `SSO_ADMIN_GROUP` | SSO admins | Turns on the SSO first admin, admin provisioning and role sync. While set, the password first-admin form is refused. No default |
+| `SSO_SESSION_REVALIDATE_AFTER` | Single sign-on | Maximum age of an SSO session before it must pass through the IdP again. Defaults to `24h` |
+| `SSO_IDP_LOGOUT` | Single sign-on | `true` also ends the IdP session on logout (RP-initiated logout with `client_id` and `post_logout_redirect_uri`; register `https://<host>/login` as post-logout URI). Defaults to `false` |
 
 > **Note:** The bcrypt hash contains `$` characters. In `.env`, write it as-is without quotes. Never export it in a shell without single quotes: `export APP_PASSWORD_HASH='$2a$12$...'`.
 
