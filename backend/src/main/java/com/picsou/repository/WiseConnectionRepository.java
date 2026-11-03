@@ -22,10 +22,13 @@ public interface WiseConnectionRepository extends JpaRepository<WiseConnection, 
      * updates that row from its own transaction while the holder is still open. Selecting from
      * the function sidesteps Hibernate's lack of a mapping for its {@code void} result.
      *
+     * <p>The key is a 64-bit hash of the Wise-scoped member id, so any {@code BIGSERIAL} id fits;
+     * a hash collision only makes two members wait for each other, never a correctness issue.
+     *
      * @return always {@code 1}; the call is made for its effect
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    @Query(value = "SELECT 1 FROM pg_advisory_xact_lock(hashtext('wise_connection'), CAST(:memberId AS integer))",
+    @Query(value = "SELECT 1 FROM pg_advisory_xact_lock(hashtextextended('wise_connection:' || CAST(:memberId AS text), 0))",
         nativeQuery = true)
     int lockMember(@Param("memberId") Long memberId);
 }

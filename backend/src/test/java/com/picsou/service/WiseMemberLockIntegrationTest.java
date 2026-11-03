@@ -114,6 +114,13 @@ class WiseMemberLockIntegrationTest {
     }
 
     @Test
+    void lockMember_takesTheLockForAnIdAboveIntegerMaxValue() {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        Integer locked = tx.execute(status -> repository.lockMember(3_000_000_000L));
+        assertThat(locked).isEqualTo(1);
+    }
+
+    @Test
     void lockMember_outsideATransaction_isRefused() {
         assertThatThrownBy(() -> repository.lockMember(MEMBER_X))
             .isInstanceOf(org.springframework.transaction.IllegalTransactionStateException.class);
