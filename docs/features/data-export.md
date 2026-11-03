@@ -63,7 +63,7 @@ DataExportService.streamExport(user, options, OutputStream out)
    │     ProfileExporter, FamilyMembersExporter,
    │     AccountsExporter, HoldingsExporter, TransactionsExporter,
    │     GoalsExporter (with contributors / manual contribs / month overrides),
-   │     DebtsExporter, WalletAddressesExporter, SharedResourcesExporter,
+   │     DebtsExporter, WalletAddressesExporter, LinkedIdentitiesExporter, SharedResourcesExporter,
    │     BankConnectionsMetadataExporter,
    │     BalanceSnapshotsExporter      (gated by options.includeBalanceSnapshots)
    ├─ writes data.json (hierarchical, assembled from all exporters)
@@ -131,6 +131,7 @@ RFC 4180: UTF-8 (no BOM), comma-separated, CRLF line endings, fields containing 
 | `goal_month_overrides.csv`     | `GoalMonthOverride`                    | id, **goalId**, month, amount                          |
 | `debts.csv`                    | `Debt`                                 | id, lender, principal, interestRate, ...               |
 | `wallet_addresses.csv`         | `WalletAddress`                        | id, chain, address, label                              |
+| `linked_identities.csv`        | `UserIdentity` (own SSO identities)    | id, issuer, subject, email, display_name, created_at, last_login_at |
 | `shared_resources.csv`         | `SharedResource`                       | id, resourceType, resourceId, sharedWithMemberId       |
 | `bank_connections.csv`         | aggregator (Bourso / TR / Finary / EB) | provider, connectedAt, lastSyncAt, status              |
 | `balance_snapshots.csv`        | `BalanceSnapshot` (only if toggle on)  | date, **accountId**, balance, currency                 |

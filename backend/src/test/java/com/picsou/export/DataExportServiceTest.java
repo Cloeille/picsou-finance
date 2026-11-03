@@ -15,6 +15,7 @@ import com.picsou.repository.GoalRepository;
 import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.SharedResourceRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.repository.UserIdentityRepository;
 import com.picsou.repository.WalletAddressRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +52,7 @@ class DataExportServiceTest {
     @Mock private SharedResourceRepository sharedResourceRepository;
     @Mock private TransactionRepository transactionRepository;
     @Mock private WalletAddressRepository walletAddressRepository;
+    @Mock private UserIdentityRepository userIdentityRepository;
     @Mock private BalanceSnapshotRepository balanceSnapshotRepository;
 
     private DataExportService service;
@@ -92,12 +94,13 @@ class DataExportServiceTest {
         SharedResourcesExporter sharedResources = new SharedResourcesExporter(sharedResourceRepository);
         TransactionsExporter transactions = new TransactionsExporter(accountRepository, transactionRepository);
         WalletAddressesExporter walletAddresses = new WalletAddressesExporter(walletAddressRepository);
+        LinkedIdentitiesExporter linkedIdentities = new LinkedIdentitiesExporter(userIdentityRepository);
         BalanceSnapshotsExporter balanceSnapshots =
             new BalanceSnapshotsExporter(accountRepository, balanceSnapshotRepository);
 
         service = new DataExportService(List.of(
             profile, accounts, holdings, bankConnections, debts, goals,
-            sharedResources, transactions, walletAddresses, balanceSnapshots
+            sharedResources, transactions, walletAddresses, linkedIdentities, balanceSnapshots
         ));
     }
 
