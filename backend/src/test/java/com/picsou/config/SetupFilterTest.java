@@ -54,6 +54,19 @@ class SetupFilterTest {
     }
 
     @Test
+    void encodedSetupPath_isMatchedOnTheDecodedServletPath() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/%61pi/setup/status");
+        request.setServletPath("/api/setup/status");
+        response = new MockHttpServletResponse();
+        chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(chain.getRequest()).isNotNull();
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
     void setupAndHealthPaths_stayAllowed() throws Exception {
         for (String path : new String[] {"/api/setup/status", "/actuator/health", "/actuator/info"}) {
             assertThat(passedThrough(path)).as(path).isTrue();

@@ -37,8 +37,8 @@ public class SetupFilter extends OncePerRequestFilter {
             return;
         }
 
-        String path = request.getRequestURI();
-        if (isAllowedDuringSetup(path) || !SpaPaths.isBackend(SpaPaths.requestPath(request))) {
+        String path = SpaPaths.requestPath(request);
+        if (isAllowedDuringSetup(path) || !SpaPaths.isBackend(path)) {
             chain.doFilter(request, response);
             return;
         }
