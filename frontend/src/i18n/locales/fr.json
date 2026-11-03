@@ -2967,5 +2967,29 @@
       "yes": "Oui",
       "no": "Non"
     }
+  },
+  "ssoErrors": {
+    "NOT_LINKED": "Ce compte n'est pas associé à votre fournisseur de connexion. Connectez-vous avec votre mot de passe, puis associez-le depuis les paramètres.",
+    "NOT_IN_ADMIN_GROUP": "Votre compte n'appartient pas au groupe requis pour administrer cette instance.",
+    "IDENTITY_IN_USE": "Cette identité est déjà associée à un autre compte.",
+    "REAUTH_REQUIRED": "Veuillez confirmer à nouveau votre identité pour continuer.",
+    "REAUTH_TOO_OLD": "Votre dernière confirmation est trop ancienne. Veuillez confirmer à nouveau votre identité.",
+    "REAUTH_WRONG_ACCOUNT": "Vous avez confirmé un autre compte que celui avec lequel vous êtes connecté. Veuillez utiliser le même compte.",
+    "ACCOUNT_INACTIVE": "Ce compte est inactif. Contactez votre administrateur.",
+    "ADMIN_RECOVERY_ACTIVE": "Une récupération administrateur est en cours pour ce compte. Terminez-la avant de vous connecter avec le SSO.",
+    "ACTIVATION_INVALID": "Ce lien d'activation est invalide ou a expiré.",
+    "SETUP_ALREADY_CLAIMED": "La configuration initiale a déjà été prise en charge par un autre administrateur.",
+    "IDP_UNAVAILABLE": "Le fournisseur de connexion est injoignable. Veuillez réessayer dans quelques minutes.",
+    "IDP_ERROR": "Le fournisseur de connexion a renvoyé une erreur. Veuillez réessayer.",
+    "SESSION_EXPIRED": "Votre tentative de connexion a expiré. Veuillez recommencer.",
+    "RATE_LIMITED": "Trop de tentatives. Veuillez patienter un instant et réessayer.",
+    "SSO_ADMIN_REQUIRED": "La première configuration nécessite un administrateur issu de votre fournisseur de connexion. Utilisez le SSO pour créer le compte administrateur.",
+    "IDENTITY_NOT_USED_YET": "Vous ne vous êtes pas encore connecté avec le SSO. Connectez-vous une première fois avec avant de désactiver la connexion par mot de passe.",
+    "LAST_SIGN_IN_METHOD": "C'est votre dernière méthode de connexion. Ajoutez-en une autre avant de la retirer.",
+    "PASSWORD_ALREADY_SET": "Un mot de passe est déjà défini pour ce compte.",
+    "REAUTH_FAILED": "La nouvelle authentification a échoué. Vérifiez vos identifiants et réessayez.",
+    "SSO_REVALIDATE": "Votre session doit être revalidée auprès de votre fournisseur de connexion.",
+    "SSO_DISABLED": "La connexion unique n'est pas activée sur cette instance.",
+    "generic": "La connexion unique a échoué. Veuillez réessayer."
   }
 }

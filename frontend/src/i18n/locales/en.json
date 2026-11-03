@@ -2967,5 +2967,29 @@
       "yes": "Yes",
       "no": "No"
     }
+  },
+  "ssoErrors": {
+    "NOT_LINKED": "This account is not linked to your sign-in provider. Sign in with your password, then link it from Settings.",
+    "NOT_IN_ADMIN_GROUP": "Your account is not in the group required to administer this instance.",
+    "IDENTITY_IN_USE": "This identity is already linked to another account.",
+    "REAUTH_REQUIRED": "Please confirm your identity again to continue.",
+    "REAUTH_TOO_OLD": "Your last confirmation is too old. Please confirm your identity again.",
+    "REAUTH_WRONG_ACCOUNT": "You confirmed a different account than the one you are signed in with. Please use the same account.",
+    "ACCOUNT_INACTIVE": "This account is inactive. Contact your administrator.",
+    "ADMIN_RECOVERY_ACTIVE": "An administrator recovery is in progress for this account. Finish it before signing in with SSO.",
+    "ACTIVATION_INVALID": "This activation link is invalid or has expired.",
+    "SETUP_ALREADY_CLAIMED": "The initial setup has already been claimed by another administrator.",
+    "IDP_UNAVAILABLE": "The sign-in provider is unreachable. Please try again in a few minutes.",
+    "IDP_ERROR": "The sign-in provider returned an error. Please try again.",
+    "SESSION_EXPIRED": "Your sign-in attempt expired. Please start again.",
+    "RATE_LIMITED": "Too many attempts. Please wait a moment and try again.",
+    "SSO_ADMIN_REQUIRED": "First-time setup requires an administrator from your sign-in provider. Use SSO to create the administrator account.",
+    "IDENTITY_NOT_USED_YET": "You have not signed in with SSO yet. Sign in once with it before turning off password sign-in.",
+    "LAST_SIGN_IN_METHOD": "This is your last sign-in method. Add another one before removing it.",
+    "PASSWORD_ALREADY_SET": "A password is already set for this account.",
+    "REAUTH_FAILED": "Re-authentication failed. Check your credentials and try again.",
+    "SSO_REVALIDATE": "Your session needs to be re-validated with your sign-in provider.",
+    "SSO_DISABLED": "Single sign-on is not enabled on this instance.",
+    "generic": "Single sign-on failed. Please try again."
   }
 }

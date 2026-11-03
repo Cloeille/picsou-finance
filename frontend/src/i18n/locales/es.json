@@ -2967,5 +2967,29 @@
     "suggestionsBanner_other": "{{count}} savings accounts to configure",
     "configureSavings": "Configure",
     "uncertain": "Uncertain classification — please verify"
+  },
+  "ssoErrors": {
+    "NOT_LINKED": "Esta cuenta no está vinculada a tu proveedor de inicio de sesión. Inicia sesión con tu contraseña y vincúlala desde Ajustes.",
+    "NOT_IN_ADMIN_GROUP": "Tu cuenta no pertenece al grupo necesario para administrar esta instancia.",
+    "IDENTITY_IN_USE": "Esta identidad ya está vinculada a otra cuenta.",
+    "REAUTH_REQUIRED": "Confirma tu identidad de nuevo para continuar.",
+    "REAUTH_TOO_OLD": "Tu última confirmación es demasiado antigua. Confirma tu identidad de nuevo.",
+    "REAUTH_WRONG_ACCOUNT": "Has confirmado una cuenta distinta de la que tienes abierta. Usa la misma cuenta.",
+    "ACCOUNT_INACTIVE": "Esta cuenta está inactiva. Contacta con tu administrador.",
+    "ADMIN_RECOVERY_ACTIVE": "Hay una recuperación de administrador en curso para esta cuenta. Termínala antes de iniciar sesión con SSO.",
+    "ACTIVATION_INVALID": "Este enlace de activación no es válido o ha caducado.",
+    "SETUP_ALREADY_CLAIMED": "La configuración inicial ya ha sido reclamada por otro administrador.",
+    "IDP_UNAVAILABLE": "No se puede contactar con el proveedor de inicio de sesión. Inténtalo de nuevo en unos minutos.",
+    "IDP_ERROR": "El proveedor de inicio de sesión ha devuelto un error. Inténtalo de nuevo.",
+    "SESSION_EXPIRED": "Tu intento de inicio de sesión ha caducado. Vuelve a empezar.",
+    "RATE_LIMITED": "Demasiados intentos. Espera un momento e inténtalo de nuevo.",
+    "SSO_ADMIN_REQUIRED": "La primera configuración requiere un administrador de tu proveedor de inicio de sesión. Usa SSO para crear la cuenta de administrador.",
+    "IDENTITY_NOT_USED_YET": "Aún no has iniciado sesión con SSO. Hazlo una vez antes de desactivar el inicio de sesión con contraseña.",
+    "LAST_SIGN_IN_METHOD": "Es tu último método de inicio de sesión. Añade otro antes de eliminarlo.",
+    "PASSWORD_ALREADY_SET": "Esta cuenta ya tiene una contraseña establecida.",
+    "REAUTH_FAILED": "La reautenticación ha fallado. Comprueba tus credenciales e inténtalo de nuevo.",
+    "SSO_REVALIDATE": "Tu sesión debe revalidarse con tu proveedor de inicio de sesión.",
+    "SSO_DISABLED": "El inicio de sesión único no está activado en esta instancia.",
+    "generic": "El inicio de sesión único ha fallado. Inténtalo de nuevo."
   }
 }

@@ -2967,5 +2967,29 @@
     "suggestionsBanner_other": "{{count}} savings accounts to configure",
     "configureSavings": "Configure",
     "uncertain": "Uncertain classification — please verify"
+  },
+  "ssoErrors": {
+    "NOT_LINKED": "Dieses Konto ist nicht mit deinem Anmeldeanbieter verknüpft. Melde dich mit deinem Passwort an und verknüpfe es dann in den Einstellungen.",
+    "NOT_IN_ADMIN_GROUP": "Dein Konto gehört nicht zur Gruppe, die für die Verwaltung dieser Instanz erforderlich ist.",
+    "IDENTITY_IN_USE": "Diese Identität ist bereits mit einem anderen Konto verknüpft.",
+    "REAUTH_REQUIRED": "Bitte bestätige deine Identität erneut, um fortzufahren.",
+    "REAUTH_TOO_OLD": "Deine letzte Bestätigung ist zu alt. Bitte bestätige deine Identität erneut.",
+    "REAUTH_WRONG_ACCOUNT": "Du hast ein anderes Konto bestätigt als das, mit dem du angemeldet bist. Bitte verwende dasselbe Konto.",
+    "ACCOUNT_INACTIVE": "Dieses Konto ist inaktiv. Wende dich an deine Administratorin oder deinen Administrator.",
+    "ADMIN_RECOVERY_ACTIVE": "Für dieses Konto läuft eine Administrator-Wiederherstellung. Schließe sie ab, bevor du dich mit SSO anmeldest.",
+    "ACTIVATION_INVALID": "Dieser Aktivierungslink ist ungültig oder abgelaufen.",
+    "SETUP_ALREADY_CLAIMED": "Die Ersteinrichtung wurde bereits von einem anderen Administrator übernommen.",
+    "IDP_UNAVAILABLE": "Der Anmeldeanbieter ist nicht erreichbar. Bitte versuche es in einigen Minuten erneut.",
+    "IDP_ERROR": "Der Anmeldeanbieter hat einen Fehler gemeldet. Bitte versuche es erneut.",
+    "SESSION_EXPIRED": "Dein Anmeldeversuch ist abgelaufen. Bitte starte erneut.",
+    "RATE_LIMITED": "Zu viele Versuche. Bitte warte einen Moment und versuche es erneut.",
+    "SSO_ADMIN_REQUIRED": "Die Ersteinrichtung erfordert einen Administrator deines Anmeldeanbieters. Nutze SSO, um das Administratorkonto anzulegen.",
+    "IDENTITY_NOT_USED_YET": "Du hast dich noch nicht mit SSO angemeldet. Melde dich einmal damit an, bevor du die Passwort-Anmeldung abschaltest.",
+    "LAST_SIGN_IN_METHOD": "Das ist deine letzte Anmeldemethode. Füge eine weitere hinzu, bevor du sie entfernst.",
+    "PASSWORD_ALREADY_SET": "Für dieses Konto ist bereits ein Passwort festgelegt.",
+    "REAUTH_FAILED": "Die erneute Authentifizierung ist fehlgeschlagen. Prüfe deine Zugangsdaten und versuche es erneut.",
+    "SSO_REVALIDATE": "Deine Sitzung muss beim Anmeldeanbieter erneut bestätigt werden.",
+    "SSO_DISABLED": "Single Sign-on ist auf dieser Instanz nicht aktiviert.",
+    "generic": "Die Single-Sign-on-Anmeldung ist fehlgeschlagen. Bitte versuche es erneut."
   }
 }
