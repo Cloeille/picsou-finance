@@ -336,6 +336,41 @@ class SecretBootstrapTest {
         assertThat(Files.readAllBytes(secretsDir().resolve("jwt_secret"))).isEqualTo("ours".getBytes(StandardCharsets.UTF_8));
     }
 
+    // ─── filesystem without hard links ────────────────────────────────────
+
+    @Test
+    void createExclusively_neverReplacesAFileThatAppearedFirst() throws IOException {
+        seed("jwt_secret", "created-by-another-process");
+
+        boolean created = bootstrap.createExclusively(secretsDir().resolve("jwt_secret"), "ours");
+
+        assertThat(created).isFalse();
+        assertThat(read("jwt_secret")).isEqualTo("created-by-another-process");
+        try (var entries = Files.list(secretsDir())) {
+            assertThat(entries.count()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void createExclusively_writesTheValueWithOwnerOnlyMode() throws IOException {
+        Files.createDirectories(secretsDir());
+        Path file = secretsDir().resolve("jwt_secret");
+
+        boolean created = bootstrap.createExclusively(file, "ours \u00e9");
+
+        assertThat(created).isTrue();
+        assertThat(Files.readAllBytes(file)).isEqualTo("ours \u00e9".getBytes(StandardCharsets.UTF_8));
+        assertThat(Files.getPosixFilePermissions(file)).isEqualTo(PosixFilePermissions.fromString("rw-------"));
+    }
+
+    @Test
+    void createExclusively_failsWithoutLeavingAFileWhenTheDirectoryIsMissing() {
+        Path file = secretsDir().resolve("jwt_secret");
+
+        assertThatThrownBy(() -> bootstrap.createExclusively(file, "ours")).isInstanceOf(IOException.class);
+        assertThat(file).doesNotExist();
+    }
+
     @Test
     void secretsDirectoryIsCreatedWithItsParents() {
         run();

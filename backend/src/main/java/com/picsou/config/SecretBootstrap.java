@@ -10,11 +10,13 @@ import org.springframework.core.env.MapPropertySource;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
 import java.util.Base64;
@@ -131,8 +133,12 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
     }
 
     /**
-     * Writes {@code value} to {@code file} unless it already exists, without ever exposing a
-     * partially written file. Returns {@code false} when the file was already there.
+     * Writes {@code value} to {@code file} unless it already exists, and never replaces a file.
+     * Returns {@code false} when the file was already there.
+     *
+     * <p>The value is written to a temp file and hard-linked into place, so the final name never
+     * shows a partial write. A filesystem without hard links (some NAS mounts) falls back to
+     * {@link #createExclusively}, where the final file is visible while its bytes are still landing.
      */
     boolean writeIfAbsent(Path file, String value) {
         if (Files.exists(file)) {
@@ -149,11 +155,7 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
             } catch (FileAlreadyExistsException ex) {
                 return false;
             } catch (UnsupportedOperationException | IOException ex) {
-                // Hard links unavailable (some NAS filesystems): fall back to a rename.
-                if (Files.exists(file)) {
-                    return false;
-                }
-                Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE);
+                return createExclusively(file, value);
             }
             return true;
         } catch (IOException ex) {
@@ -167,6 +169,35 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
                 }
             }
         }
+    }
+
+    /**
+     * Creates {@code file} with {@code CREATE_NEW} ({@code O_EXCL}), which fails atomically when
+     * it exists, then writes and syncs the value. Unlike a rename it can not replace a file another
+     * process created in the meantime. A reader that opens the file before the bytes land finds it
+     * empty, and {@link #read} refuses to start on an empty file, so that window fails closed.
+     * The mode is restricted before the value is written, and a failed write removes the file this
+     * call created, so no truncated secret is left behind to be reused.
+     */
+    boolean createExclusively(Path file, String value) throws IOException {
+        FileChannel channel;
+        try {
+            channel = FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        } catch (FileAlreadyExistsException ex) {
+            return false;
+        }
+        try (channel) {
+            tryChmod(file, "rw-------");
+            ByteBuffer bytes = ByteBuffer.wrap(value.getBytes(StandardCharsets.UTF_8));
+            while (bytes.hasRemaining()) {
+                channel.write(bytes);
+            }
+            channel.force(true);
+        } catch (IOException ex) {
+            Files.deleteIfExists(file);
+            throw ex;
+        }
+        return true;
     }
 
     private void tryChmod(Path path, String permissions) {
