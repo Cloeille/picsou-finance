@@ -25,7 +25,7 @@ before claiming a successful PER import.
 
 ### Storage (session cookies and identifier, never the password)
 
-Table `caisse_epargne_session` (migration `V109`) mirrors `bourso_session`. The password and the Secur'Pass are never stored. The session state is encrypted with `CryptoEncryption`. Since `V122`, `encrypted_credentials` holds the identifier of the last successful login (`{"customerId": …}`, encrypted with `CryptoEncryption`) so a reconnect does not ask for it again (see "Remembered identifier" below). It never holds the password, so it cannot drive an unattended login. A session the bank rejects (`SESSION_EXPIRED`) or Picsou cannot read (`INVALID_SESSION_STATE`) becomes inactive and the user must reconnect: it cannot be renewed silently. `last_sync_error` is a CHECK listing exactly `CaisseEpargneErrorCode`. `unsupported_contracts` holds the last list of contracts the bank reported but Picsou does not import.
+Table `caisse_epargne_session` (migration `V109`) mirrors `bourso_session`. The password and the Secur'Pass are never stored. The session state is encrypted with `CryptoEncryption`. Since `V124`, `encrypted_credentials` holds the identifier of the last successful login (`{"customerId": …}`, encrypted with `CryptoEncryption`) so a reconnect does not ask for it again (see "Remembered identifier" below). It never holds the password, so it cannot drive an unattended login. A session the bank rejects (`SESSION_EXPIRED`) or Picsou cannot read (`INVALID_SESSION_STATE`) becomes inactive and the user must reconnect: it cannot be renewed silently. `last_sync_error` is a CHECK listing exactly `CaisseEpargneErrorCode`. `unsupported_contracts` holds the last list of contracts the bank reported but Picsou does not import.
 
 ### Supported products
 
