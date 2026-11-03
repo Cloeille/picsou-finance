@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Spring Boot serves the web app; nginx only forwards.** The built SPA, its caching, gzip and
+  every security header now come from the backend (`SPA_LOCATION`, `/app/spa` in the image).
+  nginx keeps client-address and port forwarding and the long timeouts. HSTS has a single
+  emitter, so the OAuth2 endpoints no longer send it when `HSTS_ENABLED` is off. See
+  [the ADR](docs/decisions/2026-11-03-spring-serves-the-spa.md) (#342).
+
 - **Caisse d'Epargne: a failed account import says where it failed.** The sidecar's
   `accounts fetch failed` line now names the step (synthesis, transactions,
   serialisation) and the cause (the bank's HTTP status, an oversized answer, or the

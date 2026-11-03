@@ -107,6 +107,10 @@ server:
     include-message: never
   compression:
     enabled: true
+    # The bundled nginx used to compress; Spring does now. Same types and threshold, so SVG and
+    # images stay uncompressed.
+    mime-types: text/html,text/plain,text/css,text/javascript,application/javascript,application/json
+    min-response-size: 20B
 
 management:
   endpoints:
@@ -181,11 +185,14 @@ app:
   cors:
     allowed-origins: ${ALLOWED_ORIGINS:}
   secure-cookies: ${SECURE_COOKIES:true}
-  # Strict-Transport-Security. Off by default and read from the same env var as the
-  # nginx-side gate (docker/entrypoint.sh), so one flag controls the header on both
-  # the SPA/static responses and the /api responses. Enable only behind a
+  # Strict-Transport-Security. Off by default; one flag controls the header on every response
+  # (SPA, /api and the OAuth2 endpoints). Enable only behind a
   # publicly-trusted certificate — see docs/features/docker-deployment.md.
   hsts-enabled: ${HSTS_ENABLED:false}
+  spa:
+    # Directory holding the built React app (index.html and assets). The Docker image sets it to
+    # /app/spa. Blank (the default) serves nothing: development uses the Vite dev server.
+    location: ${SPA_LOCATION:}
   crypto:
     encryption-key: ${CRYPTO_ENCRYPTION_KEY:}
   tr-auth:

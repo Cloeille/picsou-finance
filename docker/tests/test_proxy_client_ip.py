@@ -110,7 +110,6 @@ def nginx_proxy(tmp_path_factory):
         trusted_proxy_ip = str(subnet.network_address + 10)
         untrusted_client_ip = str(subnet.network_address + 11)
 
-        (snippets / "picsou-hsts.conf").write_text("", encoding="utf-8")
         (snippets / "picsou-trusted-proxy.generated.conf").write_text(
             f"set_real_ip_from {trusted_proxy_ip};\n",
             encoding="utf-8",
