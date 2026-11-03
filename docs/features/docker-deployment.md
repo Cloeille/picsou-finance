@@ -429,7 +429,10 @@ in the file.
 The Java tests (`TrustedProxyClientIpTest`, `ForwardedHeadersCorsTest`) build the Tomcat
 valves from the production properties and cover trusted and untrusted peers, IPv4 and IPv6,
 the public port cases, the precedence of an explicit `internal-proxies` and the
-`PICSOU_PROXY_IP` validation. See [CORS & cookie security](./security-cors-cookies.md) and the
+`PICSOU_PROXY_IP` validation. `ForwardedOriginServerTest` starts the real server on a random
+port (PostgreSQL through Testcontainers) and checks that `X-Forwarded-Proto` and
+`X-Forwarded-Host` from a plain-HTTP peer reach the application as the public origin and
+that `Strict-Transport-Security` follows `HSTS_ENABLED`. See [CORS & cookie security](./security-cors-cookies.md) and the
 [proxy address ADR](../decisions/2026-10-31-trusted-proxy-client-address.md).
 
 `docker/tests/test_proxy_client_ip.py` starts fresh isolated Compose projects with real Caddy

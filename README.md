@@ -293,7 +293,9 @@ Exactly one `Strict-Transport-Security` line when enabled, none when disabled.
 
 In this image Spring Boot is the only emitter, gated by `HSTS_ENABLED`, and it sends the header
 once on every response over HTTPS. To check the backend without the proxy in front, ask it
-directly:
+directly from inside the container (`curl` is in the base image). The backend applies
+`X-Forwarded-Proto` from any peer, so the loopback request below counts as HTTPS; it prints one
+line when `HSTS_ENABLED` is on and nothing when it is off:
 
 ```bash
 docker compose -f docker/docker-compose.yml exec app \
