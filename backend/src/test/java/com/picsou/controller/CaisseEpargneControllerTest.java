@@ -58,7 +58,7 @@ class CaisseEpargneControllerTest {
     private static CaisseEpargneSyncService.SessionStatusResponse statusOf(CaisseEpargneSyncStatus syncStatus) {
         return new CaisseEpargneSyncService.SessionStatusResponse(
             true, syncStatus, null, null, null,
-            List.of(new CaisseEpargneSyncService.UnsupportedContract("9001", "7")));
+            List.of(new CaisseEpargneSyncService.UnsupportedContract("9001", "7")), false);
     }
 
     @Test

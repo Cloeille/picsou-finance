@@ -9,8 +9,8 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * One Caisse d'Epargne session per member. Holds the encrypted session state only:
- * there is deliberately no credentials field (decision D5, cookies only).
+ * One Caisse d'Epargne session per member. Holds the encrypted session state and the encrypted
+ * identifier. The password is never stored: the user clicks it on the bank's keypad.
  */
 @Entity
 @Table(name = "caisse_epargne_session")
@@ -33,6 +33,12 @@ public class CaisseEpargneSession extends AuditableEntity {
     @ToString.Exclude
     @Column(name = "session_state", nullable = false, columnDefinition = "TEXT")
     private String sessionState;
+
+    /** The bank identifier as JSON {@code {"customerId": …}}, encrypted via CryptoEncryption. Never exposed. */
+    @JsonIgnore
+    @ToString.Exclude
+    @Column(name = "encrypted_credentials", columnDefinition = "TEXT")
+    private String encryptedCredentials;
 
     @Column(name = "last_validated_at")
     private Instant lastValidatedAt;
@@ -78,6 +84,10 @@ public class CaisseEpargneSession extends AuditableEntity {
         this.sessionState = Objects.requireNonNull(encryptedState, "encryptedState");
         this.lastValidatedAt = Objects.requireNonNull(validatedAt, "validatedAt");
         this.active = true;
+    }
+
+    public void setEncryptedCredentials(String encryptedCredentials) {
+        this.encryptedCredentials = encryptedCredentials;
     }
 
     public void recordUnsupportedContracts(String json) {

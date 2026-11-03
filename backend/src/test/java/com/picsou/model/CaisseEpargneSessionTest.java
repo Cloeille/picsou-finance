@@ -29,10 +29,14 @@ class CaisseEpargneSessionTest {
     }
 
     @Test
-    void neverStoresCredentials() {
-        // Decision D5: cookies only, never the password.
+    void neverStoresThePassword() {
+        // The cookies and the encrypted identifier only: the password is clicked on the bank's
+        // keypad and never reaches Picsou.
         assertThat(Arrays.stream(CaisseEpargneSession.class.getDeclaredFields()).map(Field::getName))
-            .noneMatch(name -> name.toLowerCase().contains("credential") || name.toLowerCase().contains("password"));
+            .noneMatch(name -> name.toLowerCase().contains("password") || name.toLowerCase().contains("position"));
+        assertThat(Arrays.stream(CaisseEpargneSession.class.getDeclaredFields()).map(Field::getName)
+            .filter(name -> name.toLowerCase().contains("credential")))
+            .containsExactly("encryptedCredentials");
     }
 
     @Test

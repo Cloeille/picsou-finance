@@ -976,6 +976,8 @@ export interface CaisseEpargneSessionStatus {
   lastSyncError: CaisseEpargneErrorCode | null
   unsupported: CaisseEpargneUnsupportedContract[]
   unsupportedCount: number
+  /** An identifier is stored (encrypted): an empty one at initiate reuses it. Never the value. */
+  remembered: boolean
 }
 
 /**

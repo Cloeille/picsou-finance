@@ -343,16 +343,102 @@ class CaisseEpargneSyncServiceAuthTest {
     }
 
     @Test
-    void completeAuth_neverHandsAnythingButTheSessionStateToEncryption() {
+    void completeAuth_encryptsTheSessionAndTheIdentifierButNeverTheKeypadPositions() {
         pushPending("proc-1");
         when(port.completeAuth("proc-1")).thenReturn("cookies-json");
         arrangeStore("cookies-json");
+        when(encryption.encrypt("{\"customerId\":\"" + CUSTOMER_ID + "\"}")).thenReturn("encrypted-id");
 
         service.completeAuth("proc-1", 7L);
 
-        verify(encryption).encrypt("cookies-json");
-        verify(encryption, never()).encrypt(CUSTOMER_ID);
-        verify(encryption, never()).encrypt(org.mockito.ArgumentMatchers.contains(CUSTOMER_ID));
+        ArgumentCaptor<String> encrypted = ArgumentCaptor.forClass(String.class);
+        verify(encryption, org.mockito.Mockito.times(2)).encrypt(encrypted.capture());
+        assertThat(encrypted.getAllValues())
+            .containsExactlyInAnyOrder("cookies-json", "{\"customerId\":\"" + CUSTOMER_ID + "\"}");
+        ArgumentCaptor<CaisseEpargneSession> stored = ArgumentCaptor.forClass(CaisseEpargneSession.class);
+        verify(sessionRepository).saveAndFlush(stored.capture());
+        assertThat(stored.getValue().getEncryptedCredentials()).isEqualTo("encrypted-id");
+    }
+
+    // -- remembered identifier ----------------------------------------------
+
+    private CaisseEpargneSession storedSession(String encryptedCredentials) {
+        CaisseEpargneSession session = CaisseEpargneSession.create(
+            FamilyMember.builder().id(7L).displayName("Owner").build(), "encrypted-state", T0);
+        session.setEncryptedCredentials(encryptedCredentials);
+        return session;
+    }
+
+    @Test
+    void initiateAuth_withoutAnIdentifierReusesTheRememberedOne() {
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+        when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
+        challenge("proc-1", 90);
+
+        service.initiateAuth(null, 7L);
+
+        verify(port).initiateAuth(CUSTOMER_ID);
+    }
+
+    @Test
+    void initiateAuth_withoutAnIdentifierAndNoneRememberedRefusesWithoutCallingTheBank() {
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.initiateAuth(null, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.INVALID_CREDENTIALS.name()));
+        verify(port, never()).initiateAuth(any());
+    }
+
+    @Test
+    void initiateAuth_forgetsARememberedIdentifierTheBankRejects() {
+        CaisseEpargneSession session = storedSession("encrypted-id");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
+        when(port.initiateAuth(CUSTOMER_ID)).thenThrow(new SyncException(
+            "The identifier was refused", null, CaisseEpargneErrorCode.INVALID_CREDENTIALS.name()));
+
+        assertThatThrownBy(() -> service.initiateAuth(null, 7L)).isInstanceOf(SyncException.class);
+
+        assertThat(session.getEncryptedCredentials()).isNull();
+        verify(sessionRepository).save(session);
+    }
+
+    @Test
+    void initiateAuth_keepsTheRememberedIdentifierOnATransientFailure() {
+        CaisseEpargneSession session = storedSession("encrypted-id");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
+        when(port.initiateAuth(CUSTOMER_ID)).thenThrow(new SyncException(
+            "Sidecar down", null, CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name()));
+
+        assertThatThrownBy(() -> service.initiateAuth(null, 7L)).isInstanceOf(SyncException.class);
+
+        assertThat(session.getEncryptedCredentials()).isEqualTo("encrypted-id");
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void storeSession_withoutANewIdentifierKeepsTheRememberedOne() {
+        arrangeStore("cookies-json");
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+
+        service.storeSession("cookies-json", 7L);
+
+        ArgumentCaptor<CaisseEpargneSession> stored = ArgumentCaptor.forClass(CaisseEpargneSession.class);
+        verify(sessionRepository).saveAndFlush(stored.capture());
+        assertThat(stored.getValue().getEncryptedCredentials()).isEqualTo("encrypted-id");
+    }
+
+    @Test
+    void status_saysAnIdentifierIsRememberedWithoutExposingIt() {
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+
+        CaisseEpargneSyncService.SessionStatusResponse status = service.getStatus(7L);
+
+        assertThat(status.remembered()).isTrue();
+        assertThat(status.toString()).doesNotContain("encrypted-id");
     }
 
     @Test
@@ -434,7 +520,7 @@ class CaisseEpargneSyncServiceAuthTest {
     }
 
     @Test
-    void theServiceKeepsNoFieldThatCouldHoldACredential() {
+    void theServiceKeepsNoFieldThatCouldHoldThePassword() {
         for (var field : CaisseEpargneSyncService.class.getDeclaredFields()) {
             assertThat(field.getName().toLowerCase()).doesNotContain("password").doesNotContain("credential")
                 .doesNotContain("customer").doesNotContain("positions");
@@ -442,8 +528,11 @@ class CaisseEpargneSyncServiceAuthTest {
         for (var type : CaisseEpargneSyncService.class.getDeclaredClasses()) {
             for (var component : type.getRecordComponents() == null
                 ? new java.lang.reflect.RecordComponent[0] : type.getRecordComponents()) {
-                assertThat(component.getName().toLowerCase()).doesNotContain("password")
-                    .doesNotContain("customer").doesNotContain("positions");
+                assertThat(component.getName().toLowerCase()).doesNotContain("password").doesNotContain("positions");
+                // Only the pending login carries the identifier, until the session stores it.
+                if (component.getName().toLowerCase().contains("customer")) {
+                    assertThat(type.getSimpleName()).isEqualTo("PendingLogin");
+                }
             }
         }
     }

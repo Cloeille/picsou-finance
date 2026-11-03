@@ -1133,6 +1133,8 @@
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Kennung",
+      "rememberedIdentifier": "Kennung gespeichert",
+      "useAnotherIdentifier": "Andere Kennung verwenden",
       "connect": "Verbinden",
       "connecting": "Verbindung…",
       "sync": "Synchronisieren",
@@ -1144,7 +1146,7 @@
       "disconnectConfirmAction": "Gespeicherte Sitzung löschen",
       "noSession": "Keine aktive Sitzung",
       "sessionActive": "Sitzung aktiv",
-      "scope": "Synchronisiert Ihre Girokonten, Livret A, LDDS, PER (nur Saldo), Privatkredite und Karten bei der Caisse d'Epargne auf Abruf. Nur die Sitzung wird verschlüsselt gespeichert. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
+      "scope": "Synchronisiert Ihre Girokonten, Livret A, LDDS, PER (nur Saldo), Privatkredite und Karten bei der Caisse d'Epargne auf Abruf. Nur die Sitzung und Ihre Kennung werden verschlüsselt gespeichert, nie Ihr Passwort. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
       "notice": {
         "neverStored": "Picsou sieht und speichert Ihr Passwort nie. Sie klicken es selbst auf der Tastatur der Bank; nur die Tastenpositionen werden einmalig gesendet.",
         "noRetry": "Picsou wiederholt eine Anmeldung nie. Schlägt sie fehl, wird nichts erneut gesendet, bis Sie das Formular selbst absenden.",

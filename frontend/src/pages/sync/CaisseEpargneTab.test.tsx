@@ -31,7 +31,10 @@ const DISCONNECTED = {
   lastSyncError: null,
   unsupported: [],
   unsupportedCount: 0,
+  remembered: false,
 }
+
+const DISCONNECTED_REMEMBERED = { ...DISCONNECTED, remembered: true }
 
 const PAD = Array.from({ length: 10 }, (_, i) => `data:image/png;base64,PAD${i}`)
 
@@ -118,6 +121,35 @@ describe('CaisseEpargneTab', () => {
       await waitFor(() =>
         expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/initiate', {
           customerId: '1234',
+        }),
+      )
+    })
+
+    it('reuses the remembered identifier without asking for it', async () => {
+      apiGet.mockResolvedValue({ data: DISCONNECTED_REMEMBERED })
+      apiPost.mockReturnValueOnce(new Promise(() => {}))
+      renderTab()
+
+      expect(await screen.findByText('sync.caisseEpargne.rememberedIdentifier')).toBeInTheDocument()
+      expect(screen.queryByLabelText('sync.caisseEpargne.customerId')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByText('sync.caisseEpargne.connect'))
+
+      await waitFor(() =>
+        expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/initiate', { customerId: '' }),
+      )
+    })
+
+    it('lets the user type another identifier instead of the remembered one', async () => {
+      apiGet.mockResolvedValue({ data: DISCONNECTED_REMEMBERED })
+      apiPost.mockReturnValueOnce(new Promise(() => {}))
+      renderTab()
+
+      fireEvent.click(await screen.findByText('sync.caisseEpargne.useAnotherIdentifier'))
+      await signIn('87654321')
+
+      await waitFor(() =>
+        expect(apiPost).toHaveBeenCalledWith('/caisse-epargne/auth/initiate', {
+          customerId: '87654321',
         }),
       )
     })

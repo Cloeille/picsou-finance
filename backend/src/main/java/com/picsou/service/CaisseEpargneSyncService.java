@@ -109,9 +109,10 @@ public class CaisseEpargneSyncService {
     private final CaisseEpargnePerService perService;
     private final Clock clock;
     /**
-     * Logins waiting for the human to approve on the phone. Holds the process id, the member and a
-     * deadline: never the identifier, the password nor the session. Process-local on purpose, a
-     * restart drops the attempt and the user starts again.
+     * Logins waiting for the human to approve on the phone. Holds the process id, the member, the
+     * identifier (stored with the session once the login succeeds) and a deadline: never the
+     * password nor the session. Process-local on purpose, a restart drops the attempt and the user
+     * starts again.
      */
     private final Map<String, PendingLogin> pendingLogins = new ConcurrentHashMap<>();
 
@@ -172,9 +173,23 @@ public class CaisseEpargneSyncService {
      * Starts a login. One call to the sidecar, no retry. No password ever reaches Picsou: the
      * sidecar answers with the bank's keypad, which the user clicks himself. A failure leaves any
      * session already stored (valid or not) exactly as it was.
+     *
+     * <p>A blank {@code customerId} reuses the identifier remembered from the last successful
+     * login. If the bank rejects that remembered identifier, it is forgotten so it is never
+     * submitted again.
      */
     public InitiateResponse initiateAuth(String customerId, Long memberId) {
-        CaisseEpargnePort.InitiateResult result = port.initiateAuth(customerId);
+        boolean fromStore = customerId == null || customerId.isBlank();
+        String identifier = fromStore ? storedCustomerId(memberId) : customerId;
+        CaisseEpargnePort.InitiateResult result;
+        try {
+            result = port.initiateAuth(identifier);
+        } catch (SyncException ex) {
+            if (fromStore && codeOf(ex) == CaisseEpargneErrorCode.INVALID_CREDENTIALS) {
+                forgetStoredCustomerId(memberId);
+            }
+            throw ex;
+        }
         if (result == null || result.processId() == null || result.processId().isBlank()
             || result.keypad() == null || result.expiresInSeconds() <= 0) {
             throw error(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED,
@@ -185,8 +200,47 @@ public class CaisseEpargneSyncService {
         // Swept on every start: a stale process id must never be reachable again.
         pendingLogins.values().removeIf(pending -> !pending.deadline().isAfter(now));
         pendingLogins.put(result.processId(),
-            new PendingLogin(memberId, now.plusSeconds(result.expiresInSeconds()), null));
+            new PendingLogin(memberId, identifier, now.plusSeconds(result.expiresInSeconds()), null));
         return new InitiateResponse(result.processId(), result.keypad(), result.expiresInSeconds());
+    }
+
+    /** The remembered identifier, or a refusal when there is none (or it cannot be read). */
+    private String storedCustomerId(Long memberId) {
+        String encrypted = sessionRepository.findByMemberId(memberId)
+            .map(CaisseEpargneSession::getEncryptedCredentials)
+            .orElse(null);
+        if (encrypted != null) {
+            try {
+                String customerId = JSON.readTree(encryption.decrypt(encrypted)).path("customerId").asText("");
+                if (!customerId.isBlank()) {
+                    return customerId;
+                }
+            } catch (RuntimeException | JsonProcessingException ex) {
+                log.warn("Stored Caisse d'Epargne identifier is unreadable (member={}; type={})",
+                    memberId, ex.getClass().getSimpleName());
+            }
+            forgetStoredCustomerId(memberId);
+        }
+        throw error(CaisseEpargneErrorCode.INVALID_CREDENTIALS,
+            "No Caisse d'Epargne identifier is remembered. Please enter it.", null);
+    }
+
+    private void forgetStoredCustomerId(Long memberId) {
+        txTemplate.execute(status -> {
+            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(session -> {
+                session.setEncryptedCredentials(null);
+                sessionRepository.save(session);
+            });
+            return null;
+        });
+    }
+
+    private String encryptCustomerId(String customerId) {
+        try {
+            return encryption.encrypt(JSON.writeValueAsString(Map.of("customerId", customerId)));
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Could not encode the Caisse d'Epargne identifier");
+        }
     }
 
     /**
@@ -244,7 +298,7 @@ public class CaisseEpargneSyncService {
                 "The Caisse d'Epargne keypad expired. Start again.", null);
         }
         port.submitKeypad(processId, positions);
-        pendingLogins.put(processId, new PendingLogin(memberId, null,
+        pendingLogins.put(processId, new PendingLogin(memberId, pending.customerId(), null,
             clock.instant().plusSeconds(KEYPAD_APPROVAL_WINDOW_SECONDS)));
     }
 
@@ -286,24 +340,38 @@ public class CaisseEpargneSyncService {
             throw error(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED,
                 "Caisse d'Epargne did not return a session", null);
         }
-        return storeSession(plainState, memberId);
+        return storeSession(plainState, memberId, pending.customerId());
     }
 
     /**
      * Stores (encrypted) the session state produced by a login. It does <b>not</b> queue a sync:
-     * the user triggers it.
+     * the user triggers it. Keeps any identifier already remembered.
      */
     public SessionStatusResponse storeSession(String plainState, Long memberId) {
+        return storeSession(plainState, memberId, null);
+    }
+
+    /**
+     * Stores (encrypted) the session state and, when given, the identifier that logged in, so the
+     * next reconnect does not ask for it. A {@code null} identifier keeps the one already stored.
+     */
+    SessionStatusResponse storeSession(String plainState, Long memberId, String customerId) {
         if (plainState == null || plainState.isBlank()) {
             throw error(CaisseEpargneErrorCode.INVALID_SESSION_STATE, "No Caisse d'Epargne session was provided", null);
         }
         requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+            Optional<CaisseEpargneSession> previous = sessionRepository.findByMemberIdForUpdate(memberId);
+            String credentials = customerId != null
+                ? encryptCustomerId(customerId)
+                : previous.map(CaisseEpargneSession::getEncryptedCredentials).orElse(null);
+            previous.ifPresent(sessionRepository::delete);
             sessionRepository.flush();
-            return sessionRepository.saveAndFlush(
-                CaisseEpargneSession.create(member, encryption.encrypt(plainState), Instant.now()));
+            CaisseEpargneSession session =
+                CaisseEpargneSession.create(member, encryption.encrypt(plainState), Instant.now());
+            session.setEncryptedCredentials(credentials);
+            return sessionRepository.saveAndFlush(session);
         }));
         return getStatus(memberId);
     }
@@ -1029,7 +1097,8 @@ public class CaisseEpargneSyncService {
             session.getLastSyncStartedAt(),
             session.getLastSyncCompletedAt(),
             session.getLastSyncError(),
-            parseUnsupported(session.getUnsupportedContracts())
+            parseUnsupported(session.getUnsupportedContracts()),
+            session.getEncryptedCredentials() != null
         );
     }
 
@@ -1161,9 +1230,20 @@ public class CaisseEpargneSyncService {
      * the approval window's once the digits were sent. Both are nulled out with the process id, so
      * nothing about the pad survives a step.
      */
-    private record PendingLogin(Long memberId, Instant keypadExpiresAt, Instant approvalExpiresAt) {
+    private record PendingLogin(
+        Long memberId,
+        String customerId,
+        Instant keypadExpiresAt,
+        Instant approvalExpiresAt
+    ) {
         Instant deadline() {
             return approvalExpiresAt != null ? approvalExpiresAt : keypadExpiresAt;
+        }
+
+        @Override
+        public String toString() {
+            return "PendingLogin[memberId=" + memberId + ", customerId=***, keypadExpiresAt="
+                + keypadExpiresAt + ", approvalExpiresAt=" + approvalExpiresAt + "]";
         }
     }
 
@@ -1175,14 +1255,16 @@ public class CaisseEpargneSyncService {
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         CaisseEpargneErrorCode lastSyncError,
-        List<UnsupportedContract> unsupported
+        List<UnsupportedContract> unsupported,
+        /** An identifier is remembered: a reconnect can send a blank one. Never the value itself. */
+        boolean remembered
     ) {
         public SessionStatusResponse {
             unsupported = unsupported == null ? List.of() : List.copyOf(unsupported);
         }
 
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, CaisseEpargneSyncStatus.IDLE, null, null, null, List.of());
+            return new SessionStatusResponse(false, CaisseEpargneSyncStatus.IDLE, null, null, null, List.of(), false);
         }
 
         @JsonProperty("unsupportedCount")
