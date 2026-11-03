@@ -58,6 +58,11 @@ public class RateLimitConfig {
         return boundedBucketStore();
     }
 
+    @Bean("ssoStartBuckets")
+    public Map<String, Bucket> ssoStartBuckets() {
+        return boundedBucketStore();
+    }
+
     /**
      * Per-IP sync rate limiter: 10 requests per minute.
      */
@@ -374,6 +379,15 @@ public class RateLimitConfig {
             .addLimit(Bandwidth.builder()
                 .capacity(5)
                 .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createSsoStartBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(30)
+                .refillIntervally(30, Duration.ofMinutes(15))
                 .build())
             .build();
     }

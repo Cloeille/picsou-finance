@@ -147,6 +147,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/auth/mfa/verify").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/auth/activate/*").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/auth/sso").permitAll()
                 .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                 // RFC 9728 protected-resource metadata (Task 7) and RFC 7591 dynamic client
                 // registration (Task 8): unauthenticated by design, so a remote-MCP client can
@@ -212,7 +213,7 @@ public class SecurityConfig {
         return http.build();
     }
 
-    private static AccessDeniedHandler crossSiteAwareAccessDeniedHandler() {
+    static AccessDeniedHandler crossSiteAwareAccessDeniedHandler() {
         LinkedHashMap<Class<? extends AccessDeniedException>, AccessDeniedHandler> handlers = new LinkedHashMap<>();
         handlers.put(CsrfException.class, (req, res, denied) -> {
             res.setStatus(403);

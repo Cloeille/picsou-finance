@@ -2,6 +2,7 @@ package com.picsou.config;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequestWrapper;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
@@ -48,15 +49,21 @@ public class CrossSiteCookieRequestMatcher implements RequestMatcher {
     );
 
     private final CorsConfigurationSource corsConfigurationSource;
+    private final boolean requireCredentialCookie;
 
     public CrossSiteCookieRequestMatcher(CorsConfigurationSource corsConfigurationSource) {
+        this(corsConfigurationSource, true);
+    }
+
+    public CrossSiteCookieRequestMatcher(CorsConfigurationSource corsConfigurationSource, boolean requireCredentialCookie) {
         this.corsConfigurationSource = corsConfigurationSource;
+        this.requireCredentialCookie = requireCredentialCookie;
     }
 
     @Override
     public boolean matches(HttpServletRequest request) {
         return STATE_CHANGING_METHODS.contains(request.getMethod())
-            && carriesCredentialCookie(request)
+            && (!requireCredentialCookie || carriesCredentialCookie(request))
             && isCrossOrigin(request)
             && !isAllowListedOrigin(request);
     }
@@ -102,7 +109,15 @@ public class CrossSiteCookieRequestMatcher implements RequestMatcher {
     private boolean isAllowListedOrigin(HttpServletRequest request) {
         String origin = request.getHeader(HttpHeaders.ORIGIN);
         if (origin == null) return false;
-        CorsConfiguration config = corsConfigurationSource.getCorsConfiguration(request);
+        // The shared source exposes its DB-first origin policy only for /api/ routes. SSO
+        // reuses that policy for this lookup without changing the request sent down the chain.
+        HttpServletRequest policyRequest = requireCredentialCookie ? request : new HttpServletRequestWrapper(request) {
+            @Override
+            public String getRequestURI() {
+                return "/api/";
+            }
+        };
+        CorsConfiguration config = corsConfigurationSource.getCorsConfiguration(policyRequest);
         return config != null && config.checkOrigin(origin) != null;
     }
 }

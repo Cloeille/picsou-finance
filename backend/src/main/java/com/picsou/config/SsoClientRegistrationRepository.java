@@ -41,6 +41,7 @@ public class SsoClientRegistrationRepository implements ClientRegistrationReposi
     private ClientRegistration registration;
     private Instant lastFailure;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public SsoClientRegistrationRepository(SsoProperties properties, Clock clock) {
         this(properties, ClientRegistrations::fromIssuerLocation, clock);
     }

@@ -1,0 +1,92 @@
+package com.picsou.config;
+
+import com.picsou.service.SetupService;
+import com.picsou.service.sso.SsoIntent;
+import io.github.bucket4j.Bucket;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.time.Clock;
+import java.util.Map;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+public class SsoStartGuardFilter extends OncePerRequestFilter {
+    private final SsoClientRegistrationRepository repository;
+    private final SetupService setupService;
+    private final Map<String, Bucket> buckets;
+    private final Clock clock;
+
+    public SsoStartGuardFilter(SsoClientRegistrationRepository repository, SetupService setupService,
+                               Map<String, Bucket> buckets, Clock clock) {
+        this.repository = repository;
+        this.setupService = setupService;
+        this.buckets = buckets;
+        this.clock = clock;
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws ServletException, IOException {
+        String path = request.getRequestURI().substring(request.getContextPath().length());
+        if (!"POST".equals(request.getMethod())) {
+            response.sendRedirect("/login");
+            return;
+        }
+        if (path.startsWith("/oauth2/sso/code/")) {
+            chain.doFilter(request, response);
+            return;
+        }
+        if (!path.equals("/oauth2/sso/authorization/" + SsoClientRegistrationRepository.REGISTRATION_ID)) {
+            response.sendRedirect("/login");
+            return;
+        }
+        if (!buckets.computeIfAbsent(ClientIp.resolve(request), key -> RateLimitConfig.createSsoStartBucket()).tryConsume(1)) {
+            response.sendRedirect(SsoIntent.loginError("RATE_LIMITED"));
+            return;
+        }
+        String rawKind = request.getParameter("intent");
+        SsoIntent.Kind kind = switch (rawKind == null ? "login" : rawKind) {
+            case "login" -> SsoIntent.Kind.LOGIN;
+            case "link" -> SsoIntent.Kind.LINK;
+            case "reauth" -> SsoIntent.Kind.REAUTH;
+            case "activate" -> SsoIntent.Kind.ACTIVATE;
+            case "setup" -> SsoIntent.Kind.SETUP;
+            default -> null;
+        };
+        if (kind == null) {
+            response.sendRedirect(SsoIntent.loginError("IDP_ERROR"));
+            return;
+        }
+        String fallback = switch (kind) {
+            case LOGIN, ACTIVATE -> "/";
+            case LINK, REAUTH -> "/settings";
+            case SETUP -> "/setup/admin";
+        };
+        String activationToken = switch (kind) {
+            case ACTIVATE -> request.getParameter("activationToken") == null ? "" : request.getParameter("activationToken");
+            case LOGIN, LINK, REAUTH, SETUP -> null;
+        };
+        SsoIntent intent = new SsoIntent(kind, SafeRedirect.sanitize(request.getParameter("redirect"), fallback),
+            "1".equals(request.getParameter("rememberMe")), null, activationToken, clock.instant());
+        if (!repository.isAvailable()) {
+            response.sendRedirect(intent.errorRedirect("IDP_UNAVAILABLE"));
+            return;
+        }
+        switch (kind) {
+            case LOGIN -> {
+                if (!setupService.isComplete()) {
+                    response.sendRedirect("/setup");
+                    return;
+                }
+            }
+            case LINK, REAUTH, ACTIVATE, SETUP -> {
+                response.sendRedirect(intent.errorRedirect("IDP_ERROR"));
+                return;
+            }
+        }
+        request.setAttribute(SsoIntent.ATTRIBUTE, intent);
+        chain.doFilter(request, response);
+    }
+}
