@@ -219,6 +219,7 @@ helm upgrade
 - **Migration database context matches the app.** Shared helpers render datasource defaults
   and `app.env`/`app.extraEnv` overrides; explicit overrides replace defaults by name.
   The Job also inherits `app.envFrom`, extra volumes/mounts (including database CA files),
+  the pod security context (`fsGroup` applies to those volumes as it does to the app's),
   pod labels, pod annotations (including mesh injection opt-outs) and node selector, tolerations and affinity. It keeps its `migrate` component
   label and does not attach the app's `/data` PVC. The CLI password falls back from
   `SPRING_DATASOURCE_PASSWORD` to `POSTGRES_PASSWORD`, as the app does.

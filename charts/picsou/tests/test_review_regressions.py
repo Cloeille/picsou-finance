@@ -196,6 +196,19 @@ class ReviewRegressionsTest(unittest.TestCase):
         container = job["spec"]["template"]["spec"]["containers"][0]
         self.assertEqual(container["securityContext"], {
             "allowPrivilegeEscalation": False, "runAsNonRoot": True, "runAsUser": 1000, "runAsGroup": 1000})
+        # The pod-level context carries fsGroup, which is what makes app.extraVolumes writable here.
+        self.assertEqual(job["spec"]["template"]["spec"]["securityContext"], pod)
+
+    def test_migration_job_pod_follows_the_app_pod_security_context(self):
+        resources = self.configured_resources({"app": {
+            "podSecurityContext": {"fsGroup": 2000},
+            "extraVolumes": [{"name": "db-ca", "secret": {"secretName": "db-ca"}}]}})
+        job = next(r for r in resources if r["kind"] == "Job")
+        self.assertEqual(job["spec"]["template"]["spec"]["securityContext"]["fsGroup"], 2000)
+        self.assertEqual(job["spec"]["template"]["spec"]["volumes"][0]["name"], "db-ca")
+        resources = self.configured_resources({"app": {"podSecurityContext": None}})
+        job = next(r for r in resources if r["kind"] == "Job")
+        self.assertNotIn("securityContext", job["spec"]["template"]["spec"])
 
     def test_postgresql_startup_allows_ten_minutes_for_recovery(self):
         container = self.database_pod()["spec"]["containers"][0]

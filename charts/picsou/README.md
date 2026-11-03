@@ -259,7 +259,8 @@ If either step fails the upgrade stops and the running app is left untouched.
 The app also migrates on startup, as defence in depth.
 
 The Job inherits `app.env`, `app.extraEnv`, `app.envFrom`, `app.extraVolumes`,
-`app.extraVolumeMounts`, `app.podLabels`, `app.podAnnotations`, `app.nodeSelector`, `app.tolerations`
+`app.extraVolumeMounts`, `app.podSecurityContext` (so `fsGroup` applies to the extra volumes),
+`app.podLabels`, `app.podAnnotations`, `app.nodeSelector`, `app.tolerations`
 and `app.affinity`. Use the extra mounts for database CA certificates referenced
 by `externalDatabase.jdbcParams`. It keeps its own `migrate` component label
 and does not mount the app's `/data` volume, which may still be in use.
