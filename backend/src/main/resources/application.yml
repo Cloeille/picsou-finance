@@ -5,7 +5,7 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/picsou}
     username: ${SPRING_DATASOURCE_USERNAME:picsou}
-    password: ${SPRING_DATASOURCE_PASSWORD:picsou}
+    password: ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:picsou}}
     hikari:
       maximum-pool-size: 10
       connection-timeout: 30000

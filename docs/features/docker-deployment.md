@@ -262,11 +262,16 @@ On subsequent boots, re-reads from the files. If the env var is already set by t
 `docker/entrypoint.sh` no longer touches secrets. It writes the nginx trusted-proxy snippet from
 `PICSOU_PROXY_IP`, sets `SERVER_PORT` and the `APP_STARTUP_SYNC_ENABLED` default, then execs supervisord.
 
-After resolving these secrets, `SecretBootstrap` sets `spring.datasource.password`
-from `POSTGRES_PASSWORD`, so Spring uses the supplied, persisted or generated
-password rather than its literal `picsou` fallback. An explicit non-empty
-`SPRING_DATASOURCE_PASSWORD` takes precedence; an empty value uses the resolved
-PostgreSQL password.
+The datasource password follows Spring's ordinary precedence, through `application.yml`:
+`password: ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:picsou}}`. `SecretBootstrap`
+publishes the supplied, persisted or generated `POSTGRES_PASSWORD`, so it feeds that
+placeholder instead of the literal `picsou` fallback, and `--spring.datasource.password`,
+`-Dspring.datasource.password`, `SPRING_APPLICATION_JSON` and a non-empty
+`SPRING_DATASOURCE_PASSWORD` all outrank it. An empty `SPRING_DATASOURCE_PASSWORD` would map to
+an empty `spring.datasource.password`, so in that one case `SecretBootstrap` adds a source with
+the resolved PostgreSQL password just above the environment (the command line and `-D` still
+win). Without `PICSOU_SECRETS_DIR`, `POSTGRES_PASSWORD` in the environment also reaches the
+datasource now; with neither variable the password is still `picsou`.
 
 This does not synchronize or rotate the database container's password. Set
 `POSTGRES_PASSWORD` in `docker/.env` to the actual database password before

@@ -3,7 +3,12 @@ package com.picsou.config;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
 import org.springframework.mock.env.MockEnvironment;
 
 import java.io.IOException;
@@ -12,7 +17,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -111,7 +118,6 @@ class SecretBootstrapTest {
         MockEnvironment environment = run();
 
         assertThat(environment.getProperty("POSTGRES_PASSWORD")).isEqualTo("fixture-postgres-password");
-        assertThat(environment.getProperty("spring.datasource.password")).isEqualTo("fixture-postgres-password");
     }
 
     @Test
@@ -223,47 +229,136 @@ class SecretBootstrapTest {
     }
 
     // ─── datasource password ──────────────────────────────────────────────
+    //
+    // SecretBootstrap does not set spring.datasource.password. application.yml reads
+    // SPRING_DATASOURCE_PASSWORD, then POSTGRES_PASSWORD, so these tests boot a real Spring
+    // environment (application.yml, command line, system properties, the environment) and bind
+    // the property the way the datasource does.
+
+    private static Map<String, Object> variables(String... nameValuePairs) {
+        Map<String, Object> variables = new HashMap<>();
+        for (int i = 0; i < nameValuePairs.length; i += 2) {
+            variables.put(nameValuePairs[i], nameValuePairs[i + 1]);
+        }
+        return variables;
+    }
+
+    private Map<String, Object> variablesWithSecretsDir(String... nameValuePairs) {
+        Map<String, Object> variables = variables(nameValuePairs);
+        variables.put("PICSOU_SECRETS_DIR", secretsDir().toString());
+        return variables;
+    }
+
+    /**
+     * The datasource password after a real start-up, with {@code environment} as the OS
+     * environment and {@code systemProperties} as the JVM's {@code -D} options.
+     */
+    private String datasourcePassword(Map<String, Object> environment, Map<String, Object> systemProperties,
+                                      String... commandLine) {
+        StandardEnvironment standard = new StandardEnvironment();
+        standard.getPropertySources().replace(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+            new SystemEnvironmentPropertySource(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME, environment));
+        standard.getPropertySources().replace(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME,
+            new MapPropertySource(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME, systemProperties));
+        try (var context = new SpringApplicationBuilder(Empty.class)
+            .web(WebApplicationType.NONE)
+            .environment(standard)
+            .run(commandLine)) {
+            return Binder.get(context.getEnvironment()).bind("spring.datasource.password", String.class).orElse(null);
+        }
+    }
+
+    private String datasourcePassword(Map<String, Object> environment, String... commandLine) {
+        return datasourcePassword(environment, Map.of(), commandLine);
+    }
 
     @Test
     void generatedPostgresPassword_isUsedByTheDatasource() throws IOException {
-        MockEnvironment environment = run();
+        String password = datasourcePassword(variablesWithSecretsDir());
 
-        assertThat(environment.getProperty("spring.datasource.password"))
-            .isEqualTo(environment.getProperty("POSTGRES_PASSWORD"))
-            .isEqualTo(read("postgres_password"));
+        assertThat(password).isNotBlank().isEqualTo(read("postgres_password"));
     }
 
     @Test
-    void postgresPassword_isUsedWhenNoSpringOverrideExists() {
+    void persistedPostgresPassword_isUsedByTheDatasource() throws IOException {
+        seed("postgres_password", "persisted-postgres-password");
+
+        assertThat(datasourcePassword(variablesWithSecretsDir())).isEqualTo("persisted-postgres-password");
+    }
+
+    @Test
+    void postgresPasswordVariable_isUsedByTheDatasource() {
         String password = "p; $pecial'\"\\pass";
 
-        MockEnvironment environment = run("POSTGRES_PASSWORD", password);
-
-        assertThat(environment.getProperty("spring.datasource.password")).isEqualTo(password);
+        assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", password))).isEqualTo(password);
     }
 
     @Test
-    void nonEmptySpringPasswordOverride_isPreserved() {
-        MockEnvironment environment = run(
+    void nonEmptySpringPasswordVariable_winsOverPostgresPassword() {
+        assertThat(datasourcePassword(variablesWithSecretsDir(
             "POSTGRES_PASSWORD", "postgres-special; $value",
-            "SPRING_DATASOURCE_PASSWORD", "spring-override");
-
-        assertThat(environment.getProperty("spring.datasource.password")).isEqualTo("spring-override");
-        assertThat(environment.getProperty("POSTGRES_PASSWORD")).isEqualTo("postgres-special; $value");
+            "SPRING_DATASOURCE_PASSWORD", "spring-override"))).isEqualTo("spring-override");
     }
 
     @Test
-    void emptySpringPasswordOverride_fallsBackToPostgresPassword() {
-        MockEnvironment environment = run(
+    void emptySpringPasswordVariable_fallsBackToPostgresPassword() {
+        assertThat(datasourcePassword(variablesWithSecretsDir(
             "POSTGRES_PASSWORD", "postgres-special; $value",
-            "SPRING_DATASOURCE_PASSWORD", "");
+            "SPRING_DATASOURCE_PASSWORD", ""))).isEqualTo("postgres-special; $value");
+    }
 
-        assertThat(environment.getProperty("spring.datasource.password")).isEqualTo("postgres-special; $value");
+    @Test
+    void emptySpringPasswordVariable_fallsBackToTheGeneratedPassword() throws IOException {
+        assertThat(datasourcePassword(variablesWithSecretsDir("SPRING_DATASOURCE_PASSWORD", "")))
+            .isNotBlank().isEqualTo(read("postgres_password"));
+    }
+
+    @Test
+    void commandLinePassword_winsOverPostgresPassword() {
+        assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", "from-the-environment"),
+            "--spring.datasource.password=from-the-command-line")).isEqualTo("from-the-command-line");
+    }
+
+    @Test
+    void systemPropertyPassword_winsOverPostgresPassword() {
+        assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", "from-the-environment"),
+            Map.of("spring.datasource.password", "from-d"))).isEqualTo("from-d");
+    }
+
+    @Test
+    void springApplicationJsonPassword_winsOverPostgresPassword() {
+        assertThat(datasourcePassword(variablesWithSecretsDir(
+            "POSTGRES_PASSWORD", "from-the-environment",
+            "SPRING_APPLICATION_JSON", "{\"spring\":{\"datasource\":{\"password\":\"from-json\"}}}")))
+            .isEqualTo("from-json");
+    }
+
+    /** The empty-variable fallback sits below the command line and {@code -D}, not above them. */
+    @Test
+    void explicitPassword_winsOverTheEmptyVariableFallbackToo() {
+        Map<String, Object> environment = variablesWithSecretsDir(
+            "POSTGRES_PASSWORD", "from-the-environment", "SPRING_DATASOURCE_PASSWORD", "");
+
+        assertThat(datasourcePassword(environment, "--spring.datasource.password=from-the-command-line"))
+            .isEqualTo("from-the-command-line");
+        assertThat(datasourcePassword(environment, Map.of("spring.datasource.password", "from-d")))
+            .isEqualTo("from-d");
     }
 
     @Test
     void explicitPicsouPassword_isPreserved() {
-        assertThat(run("POSTGRES_PASSWORD", "picsou").getProperty("spring.datasource.password")).isEqualTo("picsou");
+        assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", "picsou"))).isEqualTo("picsou");
+    }
+
+    /** Without a secrets directory SecretBootstrap does nothing: application.yml alone decides. */
+    @Test
+    void withoutASecretsDirectory_theYamlDefaultAndTheVariablesStillApply() {
+        assertThat(datasourcePassword(variables())).isEqualTo("picsou");
+        assertThat(datasourcePassword(variables("POSTGRES_PASSWORD", "from-compose"))).isEqualTo("from-compose");
+        assertThat(datasourcePassword(variables(
+            "POSTGRES_PASSWORD", "from-compose", "SPRING_DATASOURCE_PASSWORD", "spring-override")))
+            .isEqualTo("spring-override");
+        assertThat(secretsDir()).doesNotExist();
     }
 
     // ─── consumers accept the generated values ────────────────────────────
@@ -297,8 +392,8 @@ class SecretBootstrapTest {
 
     @Test
     void isRegisteredWithSpringBoot() {
-        try (var context = new org.springframework.boot.builder.SpringApplicationBuilder(Empty.class)
-            .web(org.springframework.boot.WebApplicationType.NONE)
+        try (var context = new SpringApplicationBuilder(Empty.class)
+            .web(WebApplicationType.NONE)
             .properties("PICSOU_SECRETS_DIR=" + secretsDir())
             .run()) {
             assertThat(context.getEnvironment().getProperty("spring.datasource.password"))

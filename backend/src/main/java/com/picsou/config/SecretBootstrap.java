@@ -7,6 +7,8 @@ import org.springframework.boot.logging.DeferredLogFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.env.MutablePropertySources;
+import org.springframework.core.env.StandardEnvironment;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
@@ -32,12 +34,20 @@ import java.util.Map;
  * For each secret an explicit value wins, then the file in that directory, then a freshly
  * generated value that is persisted there. A secret is never regenerated once its file exists:
  * doing so would log every user out and make every stored API secret undecryptable.
+ *
+ * <p>The datasource password is not set here: {@code application.yml} reads
+ * {@code SPRING_DATASOURCE_PASSWORD}, then {@code POSTGRES_PASSWORD}, so the resolved password
+ * reaches the datasource through Spring's ordinary precedence and every explicit
+ * {@code spring.datasource.password} (command line, {@code -D}, {@code SPRING_APPLICATION_JSON},
+ * the environment) outranks it. The one exception is an empty {@code SPRING_DATASOURCE_PASSWORD},
+ * which Compose-style files produce for an unset variable: it falls back to the resolved password.
  */
 public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
 
     static final String SECRETS_DIR_PROPERTY = "picsou.secrets-dir";
     static final String SECRETS_DIR_ENV = "PICSOU_SECRETS_DIR";
     static final String SOURCE_NAME = "picsouGeneratedSecrets";
+    static final String DATASOURCE_SOURCE_NAME = "picsouDatasourcePassword";
     static final String DATASOURCE_PASSWORD_ENV = "SPRING_DATASOURCE_PASSWORD";
     static final String DATASOURCE_PASSWORD_PROPERTY = "spring.datasource.password";
     static final String POSTGRES_PASSWORD = "POSTGRES_PASSWORD";
@@ -79,10 +89,21 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
         for (Secret secret : SECRETS) {
             resolved.put(secret.variable(), resolve(environment, dir, secret));
         }
-        String datasourcePassword = environment.getProperty(DATASOURCE_PASSWORD_ENV);
-        resolved.put(DATASOURCE_PASSWORD_PROPERTY,
-            StringUtils.hasLength(datasourcePassword) ? datasourcePassword : resolved.get(POSTGRES_PASSWORD));
-        environment.getPropertySources().addFirst(new MapPropertySource(SOURCE_NAME, resolved));
+        MutablePropertySources sources = environment.getPropertySources();
+        // An empty SPRING_DATASOURCE_PASSWORD would otherwise reach application.yml's placeholder,
+        // and the datasource, as an empty password: the resolved POSTGRES_PASSWORD replaces it.
+        if ("".equals(environment.getProperty(DATASOURCE_PASSWORD_ENV))) {
+            MapPropertySource fallback = new MapPropertySource(DATASOURCE_SOURCE_NAME,
+                Map.of(DATASOURCE_PASSWORD_PROPERTY, resolved.get(POSTGRES_PASSWORD)));
+            // Behind the command line, SPRING_APPLICATION_JSON and -D, which still win; above the
+            // environment variable that is being overridden.
+            if (sources.contains(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME)) {
+                sources.addBefore(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME, fallback);
+            } else {
+                sources.addFirst(fallback);
+            }
+        }
+        sources.addFirst(new MapPropertySource(SOURCE_NAME, resolved));
     }
 
     private String resolve(ConfigurableEnvironment environment, Path dir, Secret secret) {
