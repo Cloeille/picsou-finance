@@ -3,6 +3,7 @@ package com.picsou.config;
 import com.picsou.model.AppUser;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -20,12 +21,15 @@ public class JwtUtil {
     private final long accessExpiryMinutes;
     private final long refreshExpiryDays;
     private final long mfaChallengeExpiryMinutes;
+    private final long reauthProofExpiryMinutes;
 
+    @Autowired
     public JwtUtil(
         @Value("${app.jwt.secret}") String secret,
         @Value("${app.jwt.access-token-expiry-minutes:15}") long accessExpiryMinutes,
         @Value("${app.jwt.refresh-token-expiry-days:7}") long refreshExpiryDays,
-        @Value("${app.jwt.mfa-challenge-expiry-minutes:5}") long mfaChallengeExpiryMinutes
+        @Value("${app.jwt.mfa-challenge-expiry-minutes:5}") long mfaChallengeExpiryMinutes,
+        @Value("${app.jwt.reauth-proof-expiry-minutes:5}") long reauthProofExpiryMinutes
     ) {
         // Ensure the key is at least 256 bits for HS256
         byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
@@ -36,6 +40,16 @@ public class JwtUtil {
         this.accessExpiryMinutes = accessExpiryMinutes;
         this.refreshExpiryDays = refreshExpiryDays;
         this.mfaChallengeExpiryMinutes = mfaChallengeExpiryMinutes;
+        this.reauthProofExpiryMinutes = reauthProofExpiryMinutes;
+    }
+
+    public JwtUtil(
+        String secret,
+        long accessExpiryMinutes,
+        long refreshExpiryDays,
+        long mfaChallengeExpiryMinutes
+    ) {
+        this(secret, accessExpiryMinutes, refreshExpiryDays, mfaChallengeExpiryMinutes, 5);
     }
 
     public String generateAccessToken(AppUser user) {
@@ -79,6 +93,25 @@ public class JwtUtil {
             .claim("role", user.getRole().name())
             .claim("type", "mfa_challenge")
             .claim("remember_me", rememberMe)
+            .issuedAt(Date.from(Instant.now()))
+            .expiration(Date.from(expiry))
+            .signWith(signingKey)
+            .compact();
+    }
+
+    /**
+     * Short-lived proof that the user has just re-authenticated (password + TOTP when 2FA
+     * is on), carried in the {@code reauth_proof} cookie. Credential changes (export,
+     * linking an IdP, removing the password) accept it in place of an inline payload; it is
+     * bound to the account id and current {@code tv} so it dies with a password change.
+     */
+    public String generateReauthProof(AppUser user) {
+        Instant expiry = Instant.now().plus(reauthProofExpiryMinutes, ChronoUnit.MINUTES);
+        return Jwts.builder()
+            .subject(user.getUsername())
+            .claim("uid", user.getId())
+            .claim("type", "reauth")
+            .claim("tv", user.getTokenVersion())
             .issuedAt(Date.from(Instant.now()))
             .expiration(Date.from(expiry))
             .signWith(signingKey)
@@ -157,6 +190,10 @@ public class JwtUtil {
         return "mfa_challenge".equals(claims.get("type", String.class));
     }
 
+    public boolean isReauthProof(Claims claims) {
+        return "reauth".equals(claims.get("type", String.class));
+    }
+
     public boolean getRememberMeClaim(Claims claims) {
         Boolean v = claims.get("remember_me", Boolean.class);
         return v != null && v;
@@ -172,5 +209,9 @@ public class JwtUtil {
 
     public long getMfaChallengeExpirySeconds() {
         return mfaChallengeExpiryMinutes * 60;
+    }
+
+    public long getReauthProofExpirySeconds() {
+        return reauthProofExpiryMinutes * 60;
     }
 }

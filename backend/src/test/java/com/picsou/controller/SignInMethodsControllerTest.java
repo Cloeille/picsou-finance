@@ -1,30 +1,65 @@
 package com.picsou.controller;
 
+import com.picsou.config.AuthCookieWriter;
+import com.picsou.config.JwtUtil;
+import com.picsou.config.RateLimitConfig;
+import com.picsou.config.SecureCookieProvider;
+import com.picsou.dto.ReAuthDto;
 import com.picsou.dto.SignInMethodsResponse;
 import com.picsou.dto.SsoInfoResponse;
 import com.picsou.model.AppUser;
+import com.picsou.service.ReAuthService;
 import com.picsou.service.SignInMethodsService;
+import io.github.bucket4j.Bucket;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletResponse;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class SignInMethodsControllerTest {
 
-    @Mock private SignInMethodsService service;
+    private static final String SECRET = "0123456789abcdef0123456789abcdef-test";
+
+    @Mock private SignInMethodsService signInMethodsService;
+    @Mock private ReAuthService reAuthService;
+    @Mock private SecureCookieProvider secureCookieProvider;
+
+    private JwtUtil jwtUtil;
+    private Map<String, Bucket> buckets;
+    private SignInMethodsController controller;
+
+    @BeforeEach
+    void setUp() {
+        jwtUtil = new JwtUtil(SECRET, 15, 7, 5);
+        buckets = new HashMap<>();
+        controller = new SignInMethodsController(
+            signInMethodsService, reAuthService, jwtUtil,
+            new AuthCookieWriter(secureCookieProvider, jwtUtil), buckets);
+    }
 
     @Test
     void sso_returnsTheServiceInfo() {
         SsoInfoResponse info = new SsoInfoResponse(false, "SSO");
-        when(service.ssoInfo()).thenReturn(info);
+        when(signInMethodsService.ssoInfo()).thenReturn(info);
 
-        assertThat(new SignInMethodsController(service).sso()).isSameAs(info);
+        assertThat(controller.sso()).isSameAs(info);
     }
 
     @Test
@@ -32,8 +67,56 @@ class SignInMethodsControllerTest {
         AppUser user = AppUser.builder().id(7L).username("chloe").build();
         SignInMethodsResponse response =
             new SignInMethodsResponse(true, false, List.of(), false, "SSO", false);
-        when(service.signInMethods(user)).thenReturn(response);
+        when(signInMethodsService.signInMethods(user)).thenReturn(response);
 
-        assertThat(new SignInMethodsController(service).signInMethods(user)).isSameAs(response);
+        assertThat(controller.signInMethods(user)).isSameAs(response);
+    }
+
+    @Test
+    void reauth_onSuccess_setsTheProofCookieAndReturns204() {
+        AppUser user = AppUser.builder().id(7L).username("chloe").build();
+        MockHttpServletResponse httpRes = new MockHttpServletResponse();
+
+        ResponseEntity<?> response =
+            controller.reauth(user, new ReAuthDto("qa-password", null), httpRes);
+
+        verify(reAuthService).verifyPasswordAndTotp(user, new ReAuthDto("qa-password", null));
+        assertThat(response.getStatusCode().value()).isEqualTo(204);
+        assertThat(httpRes.getHeaders("Set-Cookie")).singleElement()
+            .satisfies(c -> assertThat(c).startsWith("reauth_proof=").contains("Max-Age=300"));
+    }
+
+    @Test
+    void reauth_onRefusal_setsNoProofCookie() {
+        AppUser user = AppUser.builder().id(7L).username("chloe").build();
+        MockHttpServletResponse httpRes = new MockHttpServletResponse();
+        doThrow(new ReAuthService.ReAuthFailedException("invalid password"))
+            .when(reAuthService).verifyPasswordAndTotp(any(), any());
+
+        assertThatThrownBy(() -> controller.reauth(
+            user, new ReAuthDto("wrong", null), httpRes))
+            .isInstanceOf(ReAuthService.ReAuthFailedException.class);
+        assertThat(httpRes.getHeaders("Set-Cookie")).isEmpty();
+    }
+
+    @Test
+    void reauth_afterFiveAttempts_theSixthIsRateLimitedWithCodeRateLimited() {
+        AppUser user = AppUser.builder().id(7L).username("chloe").build();
+        buckets.put("7", RateLimitConfig.createReauthBucket());
+        doThrow(new ReAuthService.ReAuthFailedException("invalid password"))
+            .when(reAuthService).verifyPasswordAndTotp(any(), any());
+
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            assertThatThrownBy(() -> controller.reauth(
+                user, new ReAuthDto("wrong", null), new MockHttpServletResponse()))
+                .isInstanceOf(ReAuthService.ReAuthFailedException.class);
+        }
+
+        ResponseEntity<?> sixth =
+            controller.reauth(user, new ReAuthDto("wrong", null), new MockHttpServletResponse());
+
+        assertThat(sixth.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(sixth.getBody()).isInstanceOf(ProblemDetail.class);
+        assertThat(((ProblemDetail) sixth.getBody()).getProperties()).containsEntry("code", "RATE_LIMITED");
     }
 }

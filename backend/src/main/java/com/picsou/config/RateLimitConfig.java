@@ -64,6 +64,15 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-user re-authentication proof rate limiter: 5 attempts per 15 minutes,
+     * keyed by user id so one member cannot lock out the rest of the family.
+     */
+    @Bean("reauthBuckets")
+    public Map<String, Bucket> reauthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-IP sync rate limiter: 10 requests per minute.
      */
     @Bean("syncBuckets")
@@ -375,6 +384,15 @@ public class RateLimitConfig {
     }
 
     public static Bucket createLoginBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createReauthBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(5)

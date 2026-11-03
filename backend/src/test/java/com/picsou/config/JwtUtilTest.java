@@ -131,4 +131,41 @@ class JwtUtilTest {
         // 5 minutes → 300 seconds.
         assertThat(jwt.getMfaChallengeExpirySeconds()).isEqualTo(300L);
     }
+
+    // ─── reauth proof ─────────────────────────────────────────────────────
+
+    @Test
+    void reauthProof_roundTripsSubjectUidTypeAndTokenVersion() {
+        AppUser bob = AppUser.builder().id(7L).username("bob").passwordHash("h").role(UserRole.MEMBER).build();
+
+        Claims claims = jwt.validateAndParse(jwt.generateReauthProof(bob));
+
+        assertThat(jwt.isReauthProof(claims)).isTrue();
+        assertThat(claims.getSubject()).isEqualTo("bob");
+        assertThat(claims.get("uid", Long.class)).isEqualTo(7L);
+        assertThat(claims.get("type", String.class)).isEqualTo("reauth");
+        assertThat(jwt.getTokenVersion(claims)).isEqualTo(bob.getTokenVersion());
+    }
+
+    @Test
+    void reauthProof_isNeverAnotherTokenType() {
+        assertThat(jwt.isReauthProof(jwt.validateAndParse(jwt.generateAccessToken(user)))).isFalse();
+        assertThat(jwt.isReauthProof(jwt.validateAndParse(jwt.generateRefreshToken(user)))).isFalse();
+        assertThat(jwt.isReauthProof(jwt.validateAndParse(jwt.generateMfaChallengeToken(user, false)))).isFalse();
+        Claims proof = jwt.validateAndParse(jwt.generateReauthProof(user));
+        assertThat(jwt.isAccessToken(proof)).isFalse();
+        assertThat(jwt.isRefreshToken(proof)).isFalse();
+        assertThat(jwt.isMfaChallengeToken(proof)).isFalse();
+    }
+
+    @Test
+    void reauthProofExpirySeconds_defaultsTo5MinutesOnTheFourArgConstructor() {
+        assertThat(jwt.getReauthProofExpirySeconds()).isEqualTo(300L);
+    }
+
+    @Test
+    void reauthProofExpirySeconds_matchesTheConfiguredLifetime() {
+        JwtUtil custom = new JwtUtil("0123456789abcdef0123456789abcdef-test", 15, 7, 5, 7);
+        assertThat(custom.getReauthProofExpirySeconds()).isEqualTo(420L);
+    }
 }

@@ -31,8 +31,8 @@ import java.util.Map;
 
 /**
  * GDPR self-service data export — streams the authenticated user's full graph
- * as a ZIP (JSON + CSV). Re-authentication required: TOTP if MFA is enabled,
- * password otherwise. Throttled per-user to 5/hour.
+ * as a ZIP (JSON + CSV). Re-authentication required: a valid reauth_proof cookie, or the
+ * inline TOTP (MFA on) / password (MFA off) payload. Throttled per-user to 5/hour.
  */
 @RestController
 @RequestMapping("/api/me")
@@ -67,7 +67,7 @@ public class MeExportController {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).build();
         }
 
-        reAuthService.verify(user, req.reAuth());
+        reAuthService.verify(user, req.reAuth(), httpReq);
 
         log.warn("export.requested userId={} username={} ip={} includeBalanceSnapshots={}",
             user.getId(), LogSanitizer.safe(user.getUsername()), LogSanitizer.safe(httpReq.getRemoteAddr()), req.includeBalanceSnapshots());
