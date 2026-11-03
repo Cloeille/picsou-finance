@@ -26,24 +26,40 @@ profile, personal and business. Each jar becomes an account:
 | `type` | `SAVINGS` on creation; a resync keeps whatever the member chose |
 | `provider` | `Wise Jars` |
 | `external_account_id` | `wise_jar_{balanceId}` |
-| `current_balance` | `totalWorth.value`, else `amount.value` |
+| `current_balance` | `totalWorth.value` |
 
 A resync only updates the balance, currency and sync time, then writes the day's snapshot
-through the existing FX path. A jar the member deleted is not recreated. A currency with no
-minor unit, or a balance that does not fit the ledger, skips that jar and keeps the others.
+through the existing FX path. A jar the member deleted is not recreated. A jar whose
+`totalWorth.value` is missing or not a number, a currency with no minor unit, or a balance that
+does not fit the ledger is skipped and the others are kept: the skipped jar's account keeps its
+last saved balance and snapshot.
 
 There are no transactions. Wise answers balance statements for EEA and UK personal tokens with
 HTTP 403 and an SCA challenge, and its activity feed has display-only amounts.
 
-HTTP 401 or 403 from Wise carries code `SESSION_EXPIRED`. A sync that gets it stores
+HTTP 401 from Wise carries code `SESSION_EXPIRED`. A sync that gets it stores
 `REAUTH_REQUIRED` on the connection instead of `ERROR`: only a new token fixes it. The Wise Jars
 tab then shows "token refused" with the token form, where pasting a new token replaces the stored
 one in place; the Sync All row opens that tab instead of retrying; `get_sync_status` and the MCP
 trigger summary report `NEEDS_REAUTH`. Any other failure stores `ERROR` and keeps its retry
-button. A malformed token carries `INVALID_TOKEN` and HTTP 429 carries `RATE_LIMITED`; the panel
-translates these three codes and shows any other server message as sent. Redirects are
+button. HTTP 403 carries its own code, `ACCESS_DENIED`: Wise refused this data, which can be the
+token's permissions or a temporary refusal, so a new token is not assumed to fix it. It stores
+`ERROR` and `get_sync_status` reports it as `FAILED`. A malformed token carries `INVALID_TOKEN`
+and HTTP 429 carries `RATE_LIMITED`; the panel translates these four codes and shows any other
+server message as sent. Redirects are
 refused. Response bodies are capped while they are read (256 KB for profiles, 1 MB for
 balances) through `BoundedUtf8Body`, shared with SimpleFIN.
+
+One fetch has a total budget of 45 seconds, below the 60 seconds nginx waits for `/api`. It
+covers the profiles request and every balances request after it: each request gets at most 30
+seconds and no more than what is left, measured on a monotonic clock. When nothing is left, no
+further request is sent and the sync fails with "Wise took too long to answer".
+
+Connect, sync and the daily refresh take a PostgreSQL advisory lock per member first
+(`pg_advisory_xact_lock`, released when the transaction ends), so two of them for one member run
+one after the other instead of overwriting each other's balances. Other members do not wait. The
+lock is on a key, not on the `wise_connection` row, which the failed-sync status write updates
+from its own transaction.
 
 The two Wise connections are told apart in the UI. The Wise Jars tab opens by saying it is only
 for jars and that the current account stays on the Banks tab. On the Banks tab, an Enable Banking
@@ -54,7 +70,8 @@ the line says the jars sync through Wise Jars, or, after a failed sync (`ERROR` 
 
 Daily refresh is the `wise` source in `MemberSyncService`, right after SimpleFIN. Manual sync and
 connect share a limit of 6 requests per minute per IP. Disconnect deletes the token and keeps
-the accounts. Deleting the last jar account also deletes the connection. The table is created
+the accounts. A stored token that can no longer be decrypted (the encryption key changed) fails
+the sync with a message that asks to disconnect first, then connect again. Deleting the last jar account also deletes the connection. The table is created
 by `V123__wise_connection.sql`.
 
 ### Key files
@@ -90,8 +107,10 @@ by `V123__wise_connection.sql`.
 | Jars only | Enable Banking already brings the current balances with transactions. A token copy would duplicate them without history, and no field matches the two | Importing every balance |
 | `provider = "Wise Jars"` | Enable Banking stamps the institution name, `Wise`. A shared string would merge both connections in Sync All | `Wise` |
 | Created as `SAVINGS` | A jar is money set aside, and Wise types it `SAVINGS` | `CHECKING`, as SimpleFIN does when the protocol has no type |
-| `totalWorth` as the balance | It includes an invested jar's market value, which is what the member owns | `amount`, the uninvested cash only |
+| `totalWorth` as the balance | It includes an invested jar's market value, which is what the member owns | `amount`, the uninvested cash only, even as a fallback |
 | Connect imports at once | The token is reusable, so validating it and importing are one request; a refused token stores nothing | SimpleFIN's connect-then-sync, needed there because its setup token is single-use |
+| Skip a jar without `totalWorth` | The sync reads one number per jar. `amount` is only the uninvested cash, so falling back to it would silently cut an invested jar's balance. A skipped jar keeps its last saved balance | Falling back to `amount` |
+| Advisory lock per member | Connect and sync call Wise for seconds with a transaction open. Two of them for one member could save the older answer last. A key lock serialises them without touching rows | A lock on the `wise_connection` row, which `WiseStatusWriter` updates from its own transaction and would deadlock against; `family_member FOR UPDATE`, which would block other connectors' inserts for the member during the Wise call |
 | Token limited to letters, digits and dashes | It goes into a header; anything else could inject a header line | Passing the pasted text as is |
 | `@DynamicUpdate` on `WiseConnection` | A sync loads the row before calling Wise and saves its status after. A full-row update would put back the token it loaded over one a concurrent connect stored meanwhile | Optimistic locking, which needs a version column and turns the overlap into a failed sync |
 | Jars-only connector, pointed to from the Wise bank connection | Wise refuses statements to personal tokens in the EEA and the UK, and no longer accepts signed requests from personal accounts, so only Enable Banking brings the current account's transactions. The hint keeps the split visible instead of making the member guess | Moving the whole Wise account to the token, which loses its transactions |
@@ -106,20 +125,29 @@ by `V123__wise_connection.sql`.
 - Moves between the Wise current account and a jar show on the Enable Banking account as
   ordinary transactions. Picsou does not mark them as internal transfers.
 - A connection in `ERROR` failed for a reason other than a refused token (Wise unreachable, rate
-  limited, unreadable answer). `get_sync_status` shows it as `FAILED` with `reauth=false`.
+  limited, access denied, out of time, unreadable answer). `get_sync_status` shows it as `FAILED` with `reauth=false`.
 
 ## Tests
 
 Backend (`mvn test`):
 - `WiseClientTest` — profiles then jars per profile, bearer header on every request and never in
-  the URI, `totalWorth` then `amount`, unreadable rows skipped, 401/403 give `SESSION_EXPIRED`,
-  429 and other statuses fail, malformed tokens send nothing
+  the URI, `totalWorth` only (a jar without it is skipped), unreadable rows skipped, 401 gives
+  `SESSION_EXPIRED` and 403 `ACCESS_DENIED`, 429 and other statuses fail, malformed tokens send
+  nothing; a fake clock proves the 45 s budget (no request once it is spent, a later request gets
+  only the time left); a local HTTP server proves the production transport (oversized profiles
+  body refused, bearer header received)
 - `WiseSyncServiceTest` — connect stores the encrypted token only after Wise accepts it; sync
   creates `SAVINGS` jars, keeps a member's name and type, never resurrects a deleted jar, skips
-  currencies with no minor unit; a refused token marks `REAUTH_REQUIRED`, other failures `ERROR`; `resyncReporting` maps a refused token
-  to `NEEDS_REAUTH`; status masks the token
+  currencies with no minor unit and leaves an account alone when its jar is absent from the
+  fetch; a refused token marks `REAUTH_REQUIRED`, other failures (`ACCESS_DENIED` included)
+  `ERROR`; `resyncReporting` maps a refused token to `NEEDS_REAUTH` and `ACCESS_DENIED` to
+  `FAILED`; connect, sync and `resyncReporting` take the member lock before any lookup or Wise
+  call; status masks the token
 - `WiseControllerTest` — member from `UserContext`, validation, shared per-IP limit, errors
   without the token
+- `WiseMemberLockIntegrationTest` (PostgreSQL via Testcontainers) — while one transaction holds a
+  member's lock, a second transaction for that member waits until the first ends and one for
+  another member does not; the lock refuses to run outside a transaction
 - `WiseConnectionTest` — JSON serialization never includes the token
 - `WiseConnectionPersistenceTest` (H2 slice) — a sync's status write keeps a token a concurrent
   connect stored meanwhile; `markError` and `markReauthRequired` survive the sync's rollback
@@ -129,12 +157,14 @@ Backend (`mvn test`):
 
 Frontend (`bunx vitest run`, `bun run test:e2e`):
 - `WisePanel.test.tsx` — including the badge turning to the failure state when a healthy
-  connection's sync fails, the refused-token state and its replace form, and the translated
-  error codes; `WiseTab.test.tsx`
+  connection's sync fails, the refused-token state and its replace form, the translated
+  error codes (`ACCESS_DENIED` included), and the error card with Retry when the status request
+  fails; `WiseTab.test.tsx`
 - `SyncAllModal.test.tsx`, `AddAccountModal.test.tsx` — the Wise Jars row (a refused token opens
   the tab instead of syncing) and the add-account entry
 - `BankSyncTab.test.tsx` — the hint under a Wise connection, its button, the connected and failed
-  wordings, and no Wise status request when no Wise connection exists
+  wordings, the unavailable wording without a Connect button when the status request fails, and
+  no Wise status request when no Wise connection exists
 - `e2e/wise.spec.ts` — demo-mode connect and disconnect, and the add-account entry; `e2e/sync.spec.ts`
   lists the Wise Jars tab
 

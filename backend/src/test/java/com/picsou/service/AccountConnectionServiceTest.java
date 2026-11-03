@@ -357,8 +357,12 @@ class AccountConnectionServiceTest {
     @Test
     void clearsWiseWithItsLastJar() {
         given(account(50L, "wise_jar_101"));
-        service().deleteAccount(50L, MEMBER_ID);
+        when(wiseSyncService.deleteConnection(MEMBER_ID)).thenReturn(true);
+
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(50L, MEMBER_ID);
+
         verify(wiseSyncService).deleteConnection(MEMBER_ID);
+        assertThat(impact.removesConnection()).isTrue();
     }
 
     /**

@@ -29,6 +29,10 @@ import java.util.Optional;
 /**
  * Imports Wise jars as savings accounts from a member's personal API token. One token per
  * member. Wise current balances keep coming from Enable Banking.
+ *
+ * <p>{@code connect}, {@code sync} and {@code resyncReporting} take the member's Wise lock first
+ * ({@link WiseConnectionRepository#lockMember}), so two of them for one member run one after the
+ * other, each reading what the previous one committed.
  */
 @Service
 @RequiredArgsConstructor
@@ -66,6 +70,7 @@ public class WiseSyncService {
      * A refused token stores nothing.
      */
     public List<AccountResponse> connect(String apiToken, Long memberId) {
+        connectionRepository.lockMember(memberId);
         FamilyMember member = familyMemberRepository.findById(memberId)
             .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
         String token = apiToken.trim();
@@ -104,6 +109,7 @@ public class WiseSyncService {
     }
 
     public List<AccountResponse> sync(Long memberId) {
+        connectionRepository.lockMember(memberId);
         WiseConnection connection = connectionRepository.findByMemberId(memberId)
             .orElseThrow(() -> new SyncException("No Wise connection. Connect with an API token first."));
         return syncWithConnection(connection, memberId);
@@ -115,6 +121,7 @@ public class WiseSyncService {
      */
     public SourceSyncResult resyncReporting(Long memberId) {
         try {
+            connectionRepository.lockMember(memberId);
             Optional<WiseConnection> connection = connectionRepository.findByMemberId(memberId);
             if (connection.isEmpty()) {
                 return new SourceSyncResult(SOURCE, SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No connection");
@@ -138,7 +145,7 @@ public class WiseSyncService {
             } catch (RuntimeException ex) {
                 throw new SyncException(
                     "Could not decrypt the stored Wise token. The encryption key may have changed. "
-                        + "Connect again with a new token.", ex);
+                        + "Disconnect, then connect again with a new token.", ex);
             }
             List<WiseJar> jars = wisePort.fetchJars(token);
             FamilyMember member = familyMemberRepository.findById(memberId)

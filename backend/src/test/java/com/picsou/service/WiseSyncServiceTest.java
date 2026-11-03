@@ -23,6 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
@@ -37,11 +38,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -94,13 +97,31 @@ class WiseSyncServiceTest {
     }
 
     @Test
+    void connect_locksTheMemberBeforeAnyLookupOrWiseCall() {
+        when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(member));
+        when(wisePort.fetchJars(TOKEN)).thenReturn(List.of());
+        when(connectionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.empty());
+        when(encryption.encrypt(TOKEN)).thenReturn("ciphertext");
+
+        service.connect(TOKEN, MEMBER_ID);
+
+        InOrder order = inOrder(connectionRepository, familyMemberRepository, wisePort);
+        order.verify(connectionRepository).lockMember(MEMBER_ID);
+        order.verify(familyMemberRepository).findById(MEMBER_ID);
+        order.verify(wisePort).fetchJars(TOKEN);
+        order.verify(connectionRepository).findByMemberId(MEMBER_ID);
+    }
+
+    @Test
     void connect_refusedToken_storesNothing() {
         when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(member));
         when(wisePort.fetchJars(TOKEN)).thenThrow(new SyncException("Wise refused the API token.", null, "SESSION_EXPIRED"));
 
         assertThatThrownBy(() -> service.connect(TOKEN, MEMBER_ID)).isInstanceOf(SyncException.class);
 
-        verifyNoInteractions(connectionRepository, encryption, accountRepository);
+        verify(connectionRepository).lockMember(MEMBER_ID);
+        verifyNoMoreInteractions(connectionRepository);
+        verifyNoInteractions(encryption, accountRepository);
     }
 
     @Test
@@ -109,7 +130,9 @@ class WiseSyncServiceTest {
 
         assertThatThrownBy(() -> service.connect(TOKEN, MEMBER_ID)).isInstanceOf(ResourceNotFoundException.class);
 
-        verifyNoInteractions(wisePort, connectionRepository, encryption);
+        verify(connectionRepository).lockMember(MEMBER_ID);
+        verifyNoMoreInteractions(connectionRepository);
+        verifyNoInteractions(wisePort, encryption);
     }
 
     @Test
@@ -147,6 +170,27 @@ class WiseSyncServiceTest {
         });
         verify(accountService).upsertSnapshotFromNative(any(Account.class), eq(new BigDecimal("2002.08")),
             eq(LocalDate.now()));
+    }
+
+    @Test
+    void sync_locksTheMemberBeforeLoadingTheConnectionAndCallingWise() {
+        givenWiseReturns(jar(102, "Coup dur", "EUR", "2002.08"));
+
+        service.sync(MEMBER_ID);
+
+        InOrder order = inOrder(connectionRepository, wisePort);
+        order.verify(connectionRepository).lockMember(MEMBER_ID);
+        order.verify(connectionRepository).findByMemberId(MEMBER_ID);
+        order.verify(wisePort).fetchJars(TOKEN);
+    }
+
+    @Test
+    void sync_jarAbsentFromTheFetch_leavesItsAccountAndSnapshotUntouched() {
+        givenWiseReturns();
+
+        assertThat(service.sync(MEMBER_ID)).isEmpty();
+
+        verifyNoInteractions(accountRepository, accountService);
     }
 
     @Test
@@ -225,7 +269,7 @@ class WiseSyncServiceTest {
         when(encryption.decrypt("ciphertext")).thenThrow(new IllegalStateException("bad key"));
 
         assertThatThrownBy(() -> service.sync(MEMBER_ID))
-            .isInstanceOf(SyncException.class).hasMessageContaining("Connect again");
+            .isInstanceOf(SyncException.class).hasMessageContaining("Disconnect, then connect again");
 
         verify(statusWriter).markError(42L);
         verifyNoInteractions(wisePort);
@@ -242,6 +286,29 @@ class WiseSyncServiceTest {
 
         assertThat(result.source()).isEqualTo("wise");
         assertThat(result.status()).isEqualTo(SourceSyncResult.Status.NEEDS_REAUTH);
+    }
+
+    @Test
+    void resyncReporting_accessDenied_isAFailureNotAReauth() {
+        givenStoredConnection();
+        when(wisePort.fetchJars(TOKEN)).thenThrow(new SyncException("denied", null, "ACCESS_DENIED"));
+
+        SourceSyncResult result = service.resyncReporting(MEMBER_ID);
+
+        assertThat(result.status()).isEqualTo(SourceSyncResult.Status.FAILED);
+        verify(statusWriter).markError(42L);
+        verify(statusWriter, never()).markReauthRequired(any());
+    }
+
+    @Test
+    void resyncReporting_locksTheMemberBeforeLoadingTheConnection() {
+        when(connectionRepository.findByMemberId(MEMBER_ID)).thenReturn(Optional.empty());
+
+        service.resyncReporting(MEMBER_ID);
+
+        InOrder order = inOrder(connectionRepository);
+        order.verify(connectionRepository).lockMember(MEMBER_ID);
+        order.verify(connectionRepository).findByMemberId(MEMBER_ID);
     }
 
     @Test

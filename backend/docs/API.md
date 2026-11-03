@@ -2106,8 +2106,9 @@ requests per minute; over it, both return `429`. See
 accepted it.
 
 **Errors:** 422 (blank or oversized token; malformed token, with `code: "INVALID_TOKEN"`; Wise
-refused it, with `code: "SESSION_EXPIRED"`; Wise rate limiting, with `code: "RATE_LIMITED"`; Wise
-unreachable), 404 (unknown member), 429
+refused it (HTTP 401), with `code: "SESSION_EXPIRED"`; Wise refused the data (HTTP 403), with
+`code: "ACCESS_DENIED"`; Wise rate limiting, with `code: "RATE_LIMITED"`; Wise unreachable or
+slower than 45 s in total), 404 (unknown member), 429
 
 ---
 
@@ -2127,8 +2128,8 @@ unreachable), 404 (unknown member), 429
 ```
 
 Without a connection every field but `connected: false` is `null`. `status` is
-`REAUTH_REQUIRED` after Wise refused the stored token (connect again with a new one to replace it
-in place) and `ERROR` after any other failed sync.
+`REAUTH_REQUIRED` after Wise refused the stored token with HTTP 401 (connect again with a new one
+to replace it in place) and `ERROR` after any other failed sync, HTTP 403 included.
 
 ---
 
@@ -2140,8 +2141,8 @@ in place) and `ERROR` after any other failed sync.
 **Response `200` — `AccountResponse[]`:** the jars updated by this sync.
 
 **Errors:** 422 (no connection; Wise refused the token, with `code: "SESSION_EXPIRED"`, and the
-connection becomes `REAUTH_REQUIRED`; Wise rate limiting, with `code: "RATE_LIMITED"`; other
-Wise failures), 429
+connection becomes `REAUTH_REQUIRED`; Wise refused the data, with `code: "ACCESS_DENIED"`; Wise
+rate limiting, with `code: "RATE_LIMITED"`; other Wise failures), 429
 
 ---
 

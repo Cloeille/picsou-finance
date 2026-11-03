@@ -80,4 +80,4 @@ account deletion never mistake one connection for the other.
 - The UI names the split: the Wise Jars tab says it only covers jars, and a Wise connection on the
   Banks tab points to it.
 - Wise joins the MCP bank sources: `get_sync_status`, `trigger_bank_sync`, and the full sync.
-  HTTP 401 or 403 reports `NEEDS_REAUTH`.
+  HTTP 401 reports `NEEDS_REAUTH`; HTTP 403 is `ACCESS_DENIED` and reports `FAILED`.

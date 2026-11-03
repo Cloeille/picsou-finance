@@ -14,32 +14,48 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.LongSupplier;
 
 /**
  * Wise over HTTPS, on the fixed host {@code api.wise.com}. Redirects are refused and the
  * token travels only in the Authorization header.
+ *
+ * <p>One {@link #fetchJars} call shares a single {@link #TOTAL_BUDGET}: the profiles request
+ * and every balances request after it run one after the other, and a slow Wise must not keep
+ * the caller waiting past the 60 s the reverse proxy allows.
  */
 @Component
 public class WiseClient implements WisePort {
 
     static final String API_BASE = "https://api.wise.com";
+    /** Whole {@link #fetchJars} call, kept under nginx's {@code proxy_read_timeout} of 60 s. */
+    static final Duration TOTAL_BUDGET = Duration.ofSeconds(45);
+    static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
 
     private static final Logger log = LoggerFactory.getLogger(WiseClient.class);
     private static final int MAX_PROFILES_BODY = 256_000;
     private static final int MAX_BALANCES_BODY = 1_000_000;
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
-    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
 
+    private final String apiBase;
     private final WiseTransport transport;
+    private final LongSupplier nanoTime;
 
     public WiseClient() {
+        this(API_BASE);
+    }
+
+    /** Visible for tests: the production transport against a local server. */
+    WiseClient(String apiBase) {
+        this.apiBase = apiBase;
+        this.nanoTime = System::nanoTime;
         HttpClient http = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NEVER)
             .connectTimeout(CONNECT_TIMEOUT)
             .build();
-        this.transport = (uri, authorization, maxBody) -> {
+        this.transport = (uri, authorization, maxBody, timeout) -> {
             HttpRequest request = HttpRequest.newBuilder(uri)
-                .timeout(REQUEST_TIMEOUT)
+                .timeout(timeout)
                 .header("Authorization", authorization)
                 .header("Accept", "application/json")
                 .GET()
@@ -59,20 +75,24 @@ public class WiseClient implements WisePort {
         };
     }
 
-    /** Visible for tests. */
-    WiseClient(WiseTransport transport) {
+    /** Visible for tests: a fake transport and a fake monotonic clock. */
+    WiseClient(WiseTransport transport, LongSupplier nanoTime) {
+        this.apiBase = API_BASE;
         this.transport = transport;
+        this.nanoTime = nanoTime;
     }
 
     @Override
     public List<WiseJar> fetchJars(String apiToken) {
         String authorization = "Bearer " + requireToken(apiToken);
+        long startedAt = nanoTime.getAsLong();
         List<WiseJson.Profile> profiles = WiseJson.profiles(
-            get(URI.create(API_BASE + "/v2/profiles"), authorization, MAX_PROFILES_BODY, "profiles"));
+            get(URI.create(apiBase + "/v2/profiles"), authorization, MAX_PROFILES_BODY, "profiles", startedAt));
         List<WiseJar> jars = new ArrayList<>();
         for (WiseJson.Profile profile : profiles) {
-            URI balances = URI.create(API_BASE + "/v4/profiles/" + profile.id() + "/balances?types=SAVINGS");
-            jars.addAll(WiseJson.jars(get(balances, authorization, MAX_BALANCES_BODY, "balances"), profile));
+            URI balances = URI.create(apiBase + "/v4/profiles/" + profile.id() + "/balances?types=SAVINGS");
+            jars.addAll(WiseJson.jars(
+                get(balances, authorization, MAX_BALANCES_BODY, "balances", startedAt), profile));
         }
         return jars;
     }
@@ -90,8 +110,13 @@ public class WiseClient implements WisePort {
         return token;
     }
 
-    private String get(URI uri, String authorization, int maxBody, String call) {
-        WiseTransport.Response response = transport.get(uri, authorization, maxBody);
+    private String get(URI uri, String authorization, int maxBody, String call, long startedAt) {
+        Duration remaining = TOTAL_BUDGET.minusNanos(nanoTime.getAsLong() - startedAt);
+        if (remaining.isNegative() || remaining.isZero()) {
+            throw new SyncException("Wise took too long to answer. Try again in a moment.");
+        }
+        Duration timeout = remaining.compareTo(REQUEST_TIMEOUT) < 0 ? remaining : REQUEST_TIMEOUT;
+        WiseTransport.Response response = transport.get(uri, authorization, maxBody, timeout);
         int status = response.status();
         if (status == 401) {
             throw new SyncException(
@@ -100,8 +125,8 @@ public class WiseClient implements WisePort {
         }
         if (status == 403) {
             throw new SyncException(
-                "Wise refused to share this data with the token. Create a read-only personal token in Wise and connect again.",
-                null, "SESSION_EXPIRED");
+                "Wise refused access to this data. Check the token's permissions in Wise, or try again later.",
+                null, "ACCESS_DENIED");
         }
         if (status == 429) {
             throw new SyncException("Wise is limiting requests right now. Try again in a few minutes.",

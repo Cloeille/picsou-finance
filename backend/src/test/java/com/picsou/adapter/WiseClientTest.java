@@ -2,22 +2,34 @@ package com.picsou.adapter;
 
 import com.picsou.exception.SyncException;
 import com.picsou.port.WisePort.WiseJar;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.net.InetSocketAddress;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** The client against a fake transport keyed by request URI. */
+/**
+ * The client against a fake transport keyed by request URI and a fake monotonic clock, plus the
+ * production transport against a local HTTP server.
+ */
 class WiseClientTest {
 
     private static final String TOKEN = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0";
@@ -40,8 +52,15 @@ class WiseClientTest {
         ]
         """;
 
-    private final FakeTransport transport = new FakeTransport();
-    private final WiseClient client = new WiseClient(transport);
+    private final AtomicLong nanos = new AtomicLong();
+    private final FakeTransport transport = new FakeTransport(nanos);
+    private final WiseClient client = new WiseClient(transport, nanos::get);
+    private HttpServer server;
+
+    @AfterEach
+    void stopServer() {
+        if (server != null) server.stop(0);
+    }
 
     @Test
     void fetchJars_readsEveryProfileAndKeepsOnlySavingsBalances() {
@@ -73,14 +92,18 @@ class WiseClientTest {
     }
 
     @Test
-    void fetchJars_jarWithoutTotalWorth_fallsBackToItsAmount() {
+    void fetchJars_jarWithoutTotalWorth_isSkippedNotReadFromItsAmount() {
         transport.answer(PROFILES, 200, "[{\"id\": 11, \"type\": \"PERSONAL\"}]");
-        transport.answer(PERSONAL_BALANCES, 200,
-            "[{\"id\": 5, \"currency\": \"EUR\", \"type\": \"SAVINGS\", \"name\": \"Voyage\","
-                + " \"amount\": {\"value\": 1.11, \"currency\": \"EUR\"}}]");
+        transport.answer(PERSONAL_BALANCES, 200, """
+            [
+              {"id": 5, "currency": "EUR", "type": "SAVINGS", "name": "Voyage", "amount": {"value": 1.11, "currency": "EUR"}},
+              {"id": 6, "currency": "EUR", "type": "SAVINGS", "name": "Text worth", "amount": {"value": 2},
+               "totalWorth": {"value": "2.5"}},
+              {"id": 8, "currency": "EUR", "type": "SAVINGS", "name": "Kept", "totalWorth": {"value": 4}}
+            ]
+            """);
 
-        assertThat(client.fetchJars(TOKEN)).singleElement()
-            .satisfies(jar -> assertThat(jar.totalWorth()).isEqualByComparingTo("1.11"));
+        assertThat(client.fetchJars(TOKEN)).extracting(WiseJar::name).containsExactly("Kept");
     }
 
     @Test
@@ -108,12 +131,13 @@ class WiseClientTest {
     }
 
     @Test
-    void fetchJars_403OnBalances_asksForANewToken() {
+    void fetchJars_403OnBalances_isAccessDeniedNotARefusedToken() {
         transport.answer(PROFILES, 200, "[{\"id\": 11, \"type\": \"PERSONAL\"}]");
         transport.answer(PERSONAL_BALANCES, 403, "");
 
         assertThatThrownBy(() -> client.fetchJars(TOKEN))
-            .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isEqualTo("SESSION_EXPIRED"));
+            .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isEqualTo("ACCESS_DENIED"))
+            .hasMessageContaining("permissions");
     }
 
     @Test
@@ -162,21 +186,107 @@ class WiseClientTest {
         assertThat(transport.requested).isEmpty();
     }
 
+    @Test
+    void fetchJars_laterRequestReceivesOnlyTheRemainingBudget() {
+        transport.answer(PROFILES, 200,
+            "[{\"id\": 11, \"type\": \"PERSONAL\"}, {\"id\": 22, \"type\": \"BUSINESS\"}]", Duration.ofSeconds(20));
+        transport.answer(PERSONAL_BALANCES, 200, "[]", Duration.ofSeconds(10));
+        transport.answer(BUSINESS_BALANCES, 200, "[]");
+
+        client.fetchJars(TOKEN);
+
+        assertThat(transport.timeouts).containsExactly(
+            WiseClient.REQUEST_TIMEOUT, Duration.ofSeconds(25), Duration.ofSeconds(15));
+    }
+
+    @Test
+    void fetchJars_budgetSpentByEarlierRequests_sendsNoFurtherRequest() {
+        transport.answer(PROFILES, 200,
+            "[{\"id\": 11, \"type\": \"PERSONAL\"}, {\"id\": 22, \"type\": \"BUSINESS\"}]", Duration.ofSeconds(30));
+        transport.answer(PERSONAL_BALANCES, 200, "[]", WiseClient.TOTAL_BUDGET.minusSeconds(30));
+        transport.answer(BUSINESS_BALANCES, 200, "[]");
+
+        assertThatThrownBy(() -> client.fetchJars(TOKEN))
+            .isInstanceOf(SyncException.class)
+            .hasMessage("Wise took too long to answer. Try again in a moment.");
+
+        assertThat(transport.requested).containsExactly(URI.create(PROFILES), URI.create(PERSONAL_BALANCES));
+    }
+
+    @Test
+    void productionTransport_profilesBodyOverTheCap_isRefusedAsTooLarge() throws IOException {
+        startServer(exchange -> {
+            byte[] body = ("[" + "1,".repeat(200_000) + "1]").getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+
+        assertThatThrownBy(() -> new WiseClient(baseUri()).fetchJars(TOKEN))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("too large");
+    }
+
+    @Test
+    void productionTransport_sendsTheBearerHeaderAndReadsTheJars() throws IOException {
+        AtomicReference<String> authorization = new AtomicReference<>();
+        startServer(exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            String path = exchange.getRequestURI().getPath();
+            String json = path.equals("/v2/profiles")
+                ? "[{\"id\": 11, \"type\": \"PERSONAL\"}]"
+                : "[{\"id\": 5, \"currency\": \"EUR\", \"type\": \"SAVINGS\", \"name\": \"Voyage\","
+                    + " \"totalWorth\": {\"value\": 4, \"currency\": \"EUR\"}}]";
+            byte[] body = json.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+
+        assertThat(new WiseClient(baseUri()).fetchJars(TOKEN)).extracting(WiseJar::name).containsExactly("Voyage");
+        assertThat(authorization.get()).isEqualTo("Bearer " + TOKEN);
+    }
+
+    private void startServer(HttpHandler handler) throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", handler);
+        server.start();
+    }
+
+    private String baseUri() {
+        return "http://127.0.0.1:" + server.getAddress().getPort();
+    }
+
     private static final class FakeTransport implements WiseTransport {
         private final Map<URI, Response> answers = new HashMap<>();
+        private final Map<URI, Duration> durations = new HashMap<>();
+        private final AtomicLong nanos;
         final List<URI> requested = new ArrayList<>();
         final List<String> authorizations = new ArrayList<>();
+        final List<Duration> timeouts = new ArrayList<>();
+
+        FakeTransport(AtomicLong nanos) {
+            this.nanos = nanos;
+        }
 
         void answer(String uri, int status, String body) {
+            answer(uri, status, body, Duration.ZERO);
+        }
+
+        /** The request takes {@code takes} on the fake clock before it answers. */
+        void answer(String uri, int status, String body, Duration takes) {
             answers.put(URI.create(uri), new Response(status, body));
+            durations.put(URI.create(uri), takes);
         }
 
         @Override
-        public Response get(URI uri, String authorization, int maxBody) {
+        public Response get(URI uri, String authorization, int maxBody, Duration timeout) {
             requested.add(uri);
             authorizations.add(authorization);
+            timeouts.add(timeout);
             Response response = answers.get(uri);
             if (response == null) throw new AssertionError("unexpected request " + uri);
+            nanos.addAndGet(durations.get(uri).toNanos());
             return response;
         }
     }

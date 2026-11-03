@@ -33,7 +33,11 @@ final class WiseJson {
         return profiles;
     }
 
-    /** Jars only. A row without an id, a currency or a readable amount is skipped. */
+    /**
+     * Jars only. A row without an id, a currency or a readable {@code totalWorth} is skipped, so
+     * a sync leaves that account's last saved balance alone. {@code amount} is never a fallback:
+     * it is the uninvested cash, which understates an invested jar.
+     */
     static List<WiseJar> jars(String json, Profile profile) {
         List<WiseJar> jars = new ArrayList<>();
         for (JsonNode node : array(json)) {
@@ -41,7 +45,6 @@ final class WiseJson {
             JsonNode id = node.get("id");
             String currency = text(node, "currency");
             BigDecimal worth = amount(node.get("totalWorth"));
-            if (worth == null) worth = amount(node.get("amount"));
             if (id == null || !id.canConvertToLong() || currency == null || worth == null) continue;
             jars.add(new WiseJar(id.asLong(), profile.business(), text(node, "name"),
                 currency.toUpperCase(Locale.ROOT), worth));

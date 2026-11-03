@@ -79,6 +79,11 @@ class SourceSyncResultTest {
     }
 
     @Test
+    void fromSyncException_wiseAccessDenied_isFailedNotReauth() {
+        assertStatus("wise", coded("ACCESS_DENIED"), SourceSyncResult.Status.FAILED);
+    }
+
+    @Test
     void fromSyncException_wiseWithoutCode_isFailed() {
         assertStatus("wise", new SyncException("Wise is limiting requests right now."), SourceSyncResult.Status.FAILED);
     }
