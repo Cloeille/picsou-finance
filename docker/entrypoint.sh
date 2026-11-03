@@ -1,83 +1,18 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────
-# Picsou container entrypoint — "zero-config" secrets bootstrap.
+# Picsou container entrypoint.
 #
-# On first boot, generates the three secrets the app needs before Spring
-# can even start (they're read at bean-construction time, so they cannot
-# live in the DB):
-#   • JWT_SECRET              → /data/.secrets/jwt_secret
-#   • CRYPTO_ENCRYPTION_KEY   → /data/.secrets/crypto_key
-#   • POSTGRES_PASSWORD       → /data/.secrets/postgres_password
+# Secrets (JWT_SECRET, CRYPTO_ENCRYPTION_KEY, POSTGRES_PASSWORD) are no
+# longer handled here: the Spring Boot app resolves, generates and persists
+# them under PICSOU_SECRETS_DIR (/data/.secrets in the image) before any
+# bean exists. See SecretBootstrap.
 #
-# On subsequent boots, the files already exist on the /data volume, so we
-# just re-export. A secret is **never** regenerated once created — doing
-# so would invalidate every previously-issued JWT (users logged out) and
-# every encrypted crypto API secret in the DB (permanent data loss).
-#
-# If the env var is already set (user-supplied via .env or an external
-# secret manager), we respect it and skip generation entirely. That means
-# existing installs upgrading to this image see zero behavior change.
+# This script still:
+#   • writes the nginx trusted-proxy snippet from PICSOU_PROXY_IP,
+#   • sets SERVER_PORT and the APP_STARTUP_SYNC_ENABLED default,
+#   • execs supervisord (nginx + the Spring Boot app).
 # ─────────────────────────────────────────────────────────────────────────
 set -euo pipefail
-
-SECRETS_DIR="/data/.secrets"
-mkdir -p "$SECRETS_DIR"
-
-# Tighten permissions, but do not abort if the filesystem cannot represent them.
-# /data is frequently a bind mount on a NAS (SMB/CIFS, some overlay and FUSE
-# filesystems) where chmod is simply unsupported — failing hard there would break
-# exactly the self-hosted deployments this image targets. Warn instead, so the
-# operator can see it and decide, rather than the mode silently not applying.
-try_chmod() {  # $1 = mode, $2 = path
-    chmod "$1" "$2" 2>/dev/null \
-        || echo "[entrypoint] WARNING: could not chmod $1 $2 — the filesystem may not support it. Secrets may be readable by other users on the host." >&2
-}
-
-try_chmod 0700 "$SECRETS_DIR"
-
-# $1 = file basename, $2 = env var name, $3 = openssl args (e.g. "rand -base64 48")
-bootstrap_secret() {
-    local file="$SECRETS_DIR/$1"
-    local var_name="$2"
-    local gen_args="$3"
-
-    # 1. If the env var is already set by the operator, honor it and write
-    #    it to the file for consistency across restarts.
-    if [ -n "${!var_name:-}" ]; then
-        if [ ! -f "$file" ]; then
-            printf '%s' "${!var_name}" > "$file"
-            try_chmod 0600 "$file"
-        fi
-        return 0
-    fi
-
-    # 2. Env var unset — use the file if present, else generate.
-    if [ ! -f "$file" ]; then
-        # shellcheck disable=SC2086
-        openssl $gen_args > "$file"
-        try_chmod 0600 "$file"
-        echo "[entrypoint] generated $var_name at $file"
-    fi
-
-    # Read into a plain variable first, then export. `export VAR=$(cmd)` returns
-    # export's own exit status, so a failing cat would be masked by `set -e` and
-    # silently export an empty secret — an empty JWT_SECRET or encryption key
-    # fails much later, and far less legibly, inside Spring.
-    local value
-    value="$(cat "$file")"
-    if [ -z "$value" ]; then
-        echo "[entrypoint] FATAL: $file is empty — refusing to start with a blank $var_name." >&2
-        exit 1
-    fi
-    export "$var_name=$value"
-}
-
-bootstrap_secret "jwt_secret"        "JWT_SECRET"            "rand -base64 48"
-bootstrap_secret "crypto_key"        "CRYPTO_ENCRYPTION_KEY" "rand -base64 32"
-bootstrap_secret "postgres_password" "POSTGRES_PASSWORD"     "rand -base64 24"
-
-# Spring reads its datasource password from this variable, not POSTGRES_PASSWORD.
-export SPRING_DATASOURCE_PASSWORD="${SPRING_DATASOURCE_PASSWORD:-$POSTGRES_PASSWORD}"
 
 # nginx only accepts a forwarded client address from a known peer. Compose
 # assigns the bundled Caddy this exact address on a dedicated network and

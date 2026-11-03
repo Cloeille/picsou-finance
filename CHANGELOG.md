@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Secret generation moved from shell into the app.** `SecretBootstrap`, a Spring Boot
+  `EnvironmentPostProcessor`, resolves or generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY` and
+  `POSTGRES_PASSWORD` under `PICSOU_SECRETS_DIR` (`/data/.secrets` in the image) with the same
+  rules as the old entrypoint: env var first, then the file, never regenerated. The entrypoint
+  no longer touches secrets. **Bare metal:** `backend/scripts/picsou-init.sh` is gone; set
+  `PICSOU_SECRETS_DIR` (for example `.local/secrets`) and the app creates the secrets on
+  first start.
 - **Spring Boot serves the web app; nginx only forwards.** The built SPA, its caching, gzip and
   every security header now come from the backend (`SPA_LOCATION`, `/app/spa` in the image).
   nginx keeps client-address and port forwarding and the long timeouts. HSTS has a single

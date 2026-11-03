@@ -13,11 +13,11 @@ with a guided, web-based flow the first time the app is opened.
 
 The bootstrap runs on two levels.
 
-- **Invisible (Docker entrypoint)** auto-generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY`,
-  `POSTGRES_PASSWORD` into `/data/.secrets/` when the corresponding env vars are unset.
-  This happens before `supervisord` starts Spring, because those three secrets are
-  consumed by bean constructors (`JwtUtil`, `CryptoEncryption`) and by Flyway before any
-  DB-backed config is available.
+- **Invisible (`SecretBootstrap`)** generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY`,
+  `POSTGRES_PASSWORD` into `$PICSOU_SECRETS_DIR` (`/data/.secrets` in the Docker image) when
+  the corresponding env vars are unset. It is an `EnvironmentPostProcessor`, so it runs before
+  any bean: those secrets are consumed by bean constructors (`JwtUtil`, `CryptoEncryption`)
+  and by Flyway before any DB-backed config is available.
 - **Visible (web wizard)** is served at `/setup` while `setup.state != COMPLETE`. It
   walks the user through: admin account → CORS & secure cookies → integration picker →
   per-integration sub-flows → Done (with confetti + auto-login).
@@ -43,7 +43,7 @@ Backend:
   idempotent AES-256 key checker/writer. If `CRYPTO_ENCRYPTION_KEY` is already present
   in the running process (the normal bare-metal `.env.local` flow), the wizard treats
   that as configured and does not touch Docker's `/data` path. Otherwise it writes the
-  same `/data/.secrets/crypto_key` path as the Docker entrypoint.
+  same `/data/.secrets/crypto_key` path as `SecretBootstrap`.
 - `backend/src/main/java/com/picsou/config/SetupFilter.java` — 503/410 gate.
 - `backend/src/main/java/com/picsou/config/DynamicCorsConfigurationSource.java` — reads
   `cors.allowed-origins` from `app_setting` so the wizard's Security step takes effect
@@ -51,8 +51,8 @@ Backend:
 - `backend/src/main/resources/db/migration/V25__setup_state.sql` — conditional seed:
   `setup.state='COMPLETE'` for existing installs (admin already present), else
   `'PENDING_ADMIN'`.
-- `backend/scripts/picsou-init.sh` — bare-metal equivalent of the Docker entrypoint;
-  prints an `.env.local` to stdout.
+- `backend/src/main/java/com/picsou/config/SecretBootstrap.java`: resolves or generates
+  the three secrets from `PICSOU_SECRETS_DIR` before any bean exists (Docker and bare metal).
 
 Frontend:
 - `frontend/src/pages/setup/SetupLayout.tsx` — the centered hero layout, top progress
@@ -78,7 +78,7 @@ Frontend:
 First boot
     │
     ▼
-docker entrypoint.sh  ──► writes /data/.secrets/{jwt_secret,crypto_key,postgres_password}
+SecretBootstrap       ──► writes $PICSOU_SECRETS_DIR/{jwt_secret,crypto_key,postgres_password}
                               (only if env vars unset — idempotent)
     │
     ▼
@@ -138,7 +138,7 @@ Application ID and PEM form remains possible follow-up work.
 
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
-| Two-layer bootstrap (entrypoint + web) | `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` are consumed in bean constructors before the DB is available, so they can't live in DB. | Storing every secret in DB (wouldn't boot). |
+| Two-layer bootstrap (`SecretBootstrap` + web) | `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` are consumed in bean constructors before the DB is available, so they can't live in DB. | Storing every secret in DB (wouldn't boot). |
 | `setup.state` as a DB row | Survives container restarts; single source of truth; Flyway can conditionally seed it. | Env var (ephemeral); file on disk (hard to CAS). |
 | SERIALIZABLE + CAS on admin creation | Two concurrent POST /admin calls on a fresh install can't both succeed. | Optimistic Hibernate version (doesn't block the second transaction). |
 | In-memory stash for auto-login | Password must never hit sessionStorage; refresh loses auto-login but never leaks credentials. | Persisting credentials in the Zustand store. |
@@ -153,8 +153,8 @@ Application ID and PEM form remains possible follow-up work.
 - **`CryptoKeyGeneratorService` must not write Docker's `/data` path when
   `CRYPTO_ENCRYPTION_KEY` is already loaded from `.env.local`.** Bare-metal macOS
   installs often cannot create `/data`; the runtime env key is already sufficient for
-  encryption. If a file fallback is needed, `CryptoKeyGeneratorService` and the Docker
-  entrypoint still share `/data/.secrets/crypto_key`. Covered by
+  encryption. If a file fallback is needed, `CryptoKeyGeneratorService` and
+  `SecretBootstrap` still share `/data/.secrets/crypto_key`. Covered by
   `CryptoKeyGeneratorServiceTest.ensureKey_treatsConfiguredRuntimeKeyAsExistingWithoutWritingFile`
   and `ensureKey_isIdempotent_neverOverwritesExistingKey`.
 - **V25 migration seeding logic** reads `EXISTS(SELECT 1 FROM app_user)` and seeds
@@ -248,16 +248,16 @@ future work):
 
 ## Running without Docker
 
-Bare-metal installs (`mvn spring-boot:run`) need the secrets bootstrap done manually
-on first boot:
+Bare-metal installs (`mvn spring-boot:run`) set `PICSOU_SECRETS_DIR`. The app generates
+the secrets there on first start and reuses them afterwards:
 
 ```bash
-./backend/scripts/picsou-init.sh > .env.local
-set -a && . .env.local && set +a
+export PICSOU_SECRETS_DIR=.local/secrets
 mvn -pl backend spring-boot:run
 ```
 
-The wizard itself works identically — only the secrets-generation step differs.
+Exporting `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY` or `POSTGRES_PASSWORD` yourself still works
+and wins over the files. The wizard itself works identically.
 
 ## Privacy
 

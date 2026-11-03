@@ -221,7 +221,7 @@ when it is missing or empty. Sidecar URLs are set in one place,
 `backend/src/main/resources/application.yml` (`app.<sidecar>.url`, Compose service
 name); `application-dev.yml` gives each one its own `127.0.0.1` port. Compose and the
 entrypoint set none. The AMEX service uses `init: true` so an init process reaps orphaned
-browser children during repeated logins. The entrypoint does not generate the
+browser children during repeated logins. The app does not generate the
 shared secret: the sidecars run in separate containers and
 cannot read the app's `/data/.secrets/` volume.
 
@@ -248,16 +248,21 @@ cannot read the app's `/data/.secrets/` volume.
   `docker compose -f docker/docker-compose.yml logs <bank>-auth`, then set the key and
   recreate the app and enabled sidecars.
 
-### Entrypoint (`docker/entrypoint.sh`)
+### Secrets (`SecretBootstrap`) and entrypoint (`docker/entrypoint.sh`)
 
-On first boot, auto-generates three secrets into `/data/.secrets/` (mounted named volume):
-- `JWT_SECRET` — 48-byte base64
-- `CRYPTO_ENCRYPTION_KEY` — 32-byte base64
-- `POSTGRES_PASSWORD` — 24-byte base64
+The image sets `PICSOU_SECRETS_DIR=/data/.secrets`. Before any bean exists, the Spring Boot app
+(`com.picsou.config.SecretBootstrap`, an `EnvironmentPostProcessor`) generates three secrets in
+that directory (mounted named volume) on first boot:
+- `JWT_SECRET` (`jwt_secret`): 48-byte base64
+- `CRYPTO_ENCRYPTION_KEY` (`crypto_key`): 32-byte base64
+- `POSTGRES_PASSWORD` (`postgres_password`): 24-byte base64
 
-On subsequent boots, re-reads from the files. If the env var is already set by the operator, it is respected and written to the file for consistency. Secrets are **never** regenerated once created — doing so would invalidate JWTs and corrupt all encrypted data in the DB.
+On subsequent boots, re-reads from the files. If the env var is already set by the operator, it is respected and written to the file for consistency (an existing file is never overwritten). Secrets are **never** regenerated once created: doing so would invalidate JWTs and corrupt all encrypted data in the DB. An empty secret file stops the app, naming the file and the variable. Files are written through a temp file and an atomic link or rename, mode `0600` in a `0700` directory; a filesystem that cannot apply the modes only logs a warning. Without `PICSOU_SECRETS_DIR`, nothing is generated.
 
-After resolving these secrets, the entrypoint exports `SPRING_DATASOURCE_PASSWORD`
+`docker/entrypoint.sh` no longer touches secrets. It writes the nginx trusted-proxy snippet from
+`PICSOU_PROXY_IP`, sets `SERVER_PORT` and the `APP_STARTUP_SYNC_ENABLED` default, then execs supervisord.
+
+After resolving these secrets, `SecretBootstrap` sets `spring.datasource.password`
 from `POSTGRES_PASSWORD`, so Spring uses the supplied, persisted or generated
 password rather than its literal `picsou` fallback. An explicit non-empty
 `SPRING_DATASOURCE_PASSWORD` takes precedence; an empty value uses the resolved
@@ -434,7 +439,7 @@ and HTTPS API response through the deployment script.
 - `services/fortuneo-auth/Dockerfile` — Fortuneo sidecar image
 - `docker/nginx.conf` — Nginx forwarding proxy (everything → backend, with real-IP and `X-Forwarded-*` handling and per-endpoint timeouts)
 - `docker/supervisord.conf` — supervisor (nginx + backend)
-- `docker/entrypoint.sh` — secret bootstrap + trusted-proxy snippet + exec supervisord
+- `docker/entrypoint.sh`: trusted-proxy snippet + exec supervisord (secrets: `SecretBootstrap`)
 
 ### Flow
 

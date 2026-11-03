@@ -30,7 +30,7 @@ One release creates:
   `externalDatabase` for an operator-managed cluster.
 - **Secret** — `sidecar-api-key` and `postgres-password`, generated once and preserved through
   `lookup`, or an `existingSecret`. `jwt-secret` and `crypto-encryption-key` are optional keys;
-  when absent the image entrypoint generates them under `/data/.secrets` as on Compose.
+  when absent the app generates them under `/data/.secrets` as on Compose.
   Disabling app persistence requires both inline keys or an existing Secret; in the latter
   case both key references become mandatory at pod startup so a missing key cannot be regenerated.
 - **migration Job** — `pre-upgrade` hook running `ReleaseMigrationCli migrate` then `verify`
@@ -129,7 +129,7 @@ helm upgrade
 |--------|-----|----------------------|
 | TLS on the Ingress/Gateway, no Caddy | Clusters already have a controller and a certificate source (cert-manager, internal CA); the chart only needs `X-Forwarded-Proto` | Shipping the Caddy terminator of the `tls` Compose profile |
 | Sidecar Services named `<release>-<sidecar>`, URLs without a domain | `SidecarBaseUrl` accepts plain HTTP only on a single-label host; the fullname starts with a lowercase letter for Java URI parsing and is capped at 40 characters (a 33-character prefix plus a six-character hash for longer names) so the longest name stays a valid DNS label | Cluster FQDNs (`*.svc.cluster.local`), which would require HTTPS between pods |
-| JWT and encryption keys left to the entrypoint by default | Matches Compose and keeps the encryption key off any value the chart could regenerate | Generating them in the chart Secret, which a `helm template` renderer would rotate on every sync and make stored secrets unreadable |
+| JWT and encryption keys left to the app by default | Matches Compose and keeps the encryption key off any value the chart could regenerate | Generating them in the chart Secret, which a `helm template` renderer would rotate on every sync and make stored secrets unreadable |
 | `lookup` + `helm.sh/resource-policy: keep` for the generated Secret | Values survive upgrades and uninstall | Regenerating on each upgrade |
 | Chart version and `appVersion` stamped at publish time | One chart per release and per commit of main, each pinned to its own images, without a manual bump | A version kept in `Chart.yaml` and bumped by hand |
 | Main channel pinned to `sha-<short>` images | A chart version always deploys the same code | `nightly`, which moves under an installed chart |
@@ -219,7 +219,7 @@ helm upgrade
   The Job also inherits `app.envFrom`, extra volumes/mounts (including database CA files),
   pod labels, pod annotations (including mesh injection opt-outs) and node selector, tolerations and affinity. It keeps its `migrate` component
   label and does not attach the app's `/data` PVC. The CLI password falls back from
-  `SPRING_DATASOURCE_PASSWORD` to `POSTGRES_PASSWORD`, as the app entrypoint does.
+  `SPRING_DATASOURCE_PASSWORD` to `POSTGRES_PASSWORD`, as `SecretBootstrap` does in the app.
   Explicit env entries take precedence over `envFrom`, so generated datasource values
   must be overridden through `app.env` or `app.extraEnv`. Hook dependencies must exist
   before the upgrade, before Helm applies ordinary resources.

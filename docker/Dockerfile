@@ -36,7 +36,7 @@ RUN mvn package -DskipTests -q
 # ---------- Stage 3: Runtime ----------
 FROM eclipse-temurin:21-jre-jammy
 
-# Install Nginx + supervisor + openssl (entrypoint auto-generates secrets on first boot)
+# Install Nginx + supervisor + openssl
 RUN apt-get update && apt-get install -y --no-install-recommends \
         nginx \
         supervisor \
@@ -50,6 +50,9 @@ ENV APP_VERSION=$APP_VERSION
 # Copy built frontend; Spring Boot serves it from SPA_LOCATION
 COPY --from=frontend-build /build/frontend/dist /app/spa
 ENV SPA_LOCATION=/app/spa
+
+# The app generates and persists its secrets here on first start (SecretBootstrap).
+ENV PICSOU_SECRETS_DIR=/data/.secrets
 
 # Copy built backend
 COPY --from=backend-build /build/backend/target/*.jar /app/app.jar

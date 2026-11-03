@@ -36,7 +36,7 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-picsou}?sslmode=prefer
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-picsou}
-      # Match the database service fallback; entrypoint forwards this to Spring
+      # Match the database service fallback; the app forwards this to Spring
       # unless explicitly overridden.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-picsou}
       # application.yml reads SPRING_DATASOURCE_PASSWORD, not POSTGRES_PASSWORD.
@@ -328,7 +328,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-picsou}
       POSTGRES_USER: ${POSTGRES_USER:-picsou}
       # Both app and database receive the supplied password, or 'picsou' when
-      # POSTGRES_PASSWORD is unset or empty. The entrypoint persists that value
+      # POSTGRES_PASSWORD is unset or empty. The app persists that value
       # in /data/.secrets/postgres_password for first-boot use.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-picsou}
     volumes:

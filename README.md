@@ -139,7 +139,7 @@ docker compose -f docker/docker-compose.yml up -d
 >
 > Building from source instead of pulling? Run `docker compose -f docker/docker-compose.yml up --build` — the `build:` sections are kept for contributors.
 
-On first launch the entrypoint auto-generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` (persisted to the `picsou_data` volume under `/data/.secrets/`).
+On first launch the app auto-generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` (persisted to the `picsou_data` volume under `/data/.secrets/`).
 
 > [!IMPORTANT]
 > **Planning to sync bank accounts? Set up HTTPS now, before opening the wizard — jump to
