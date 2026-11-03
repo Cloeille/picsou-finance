@@ -15,6 +15,7 @@ import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.GoalRepository;
 import com.picsou.repository.SharedResourceRepository;
 import com.picsou.repository.SharingSettingsRepository;
+import com.picsou.repository.UserIdentityRepository;
 import com.picsou.repository.UserMfaRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,6 +46,7 @@ class FamilyServiceTest {
     @Mock FamilyMemberRepository memberRepository;
     @Mock AppUserRepository userRepository;
     @Mock UserMfaRepository userMfaRepository;
+    @Mock UserIdentityRepository identityRepository;
     @Mock SharingSettingsRepository sharingSettingsRepository;
     @Mock SharedResourceRepository sharedResourceRepository;
     @Mock AccountRepository accountRepository;
@@ -116,7 +118,7 @@ class FamilyServiceTest {
     void deleteMember_lastAdmin_throwsForbidden() {
         when(memberRepository.findById(3L)).thenReturn(Optional.of(member("TheAdmin")));
         when(userRepository.findByMemberId(3L)).thenReturn(Optional.of(appUser(UserRole.ADMIN)));
-        when(userRepository.countByRole(UserRole.ADMIN)).thenReturn(1L);
+        when(userRepository.findAllByRoleForUpdate(UserRole.ADMIN)).thenReturn(List.of(appUser(UserRole.ADMIN)));
 
         assertThatThrownBy(() -> familyService.deleteMember(3L, 1L))
             .isInstanceOf(ResponseStatusException.class)
@@ -130,10 +132,11 @@ class FamilyServiceTest {
         FamilyMember target = member("SecondAdmin");
         when(memberRepository.findById(3L)).thenReturn(Optional.of(target));
         when(userRepository.findByMemberId(3L)).thenReturn(Optional.of(appUser(UserRole.ADMIN)));
-        when(userRepository.countByRole(UserRole.ADMIN)).thenReturn(2L);
+        when(userRepository.findAllByRoleForUpdate(UserRole.ADMIN)).thenReturn(List.of(appUser(UserRole.ADMIN), appUser(UserRole.ADMIN)));
 
         familyService.deleteMember(3L, 1L);
 
+        verify(userRepository).findAllByRoleForUpdate(UserRole.ADMIN);
         verify(memberRepository).delete(target);
     }
 
@@ -278,5 +281,25 @@ class FamilyServiceTest {
         verify(sharedResourceRepository, never()).deleteAllByOwnerMemberIdAndResourceType(any(), any());
         verify(sharedResourceRepository, never()).save(any());
         verify(sharedResourceRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void listMembers_fillsHasPasswordAndSsoLinked_fromOneBatchQuery() {
+        FamilyMember m1 = FamilyMember.builder().id(1L).displayName("A").avatarColor("#fff").build();
+        FamilyMember m2 = FamilyMember.builder().id(2L).displayName("B").avatarColor("#fff").build();
+        FamilyMember m3 = FamilyMember.builder().id(3L).displayName("C").avatarColor("#fff").managed(true).build();
+        AppUser withPw = AppUser.builder().id(10L).username("a").passwordHash("$2a$x").member(m1).build();
+        AppUser ssoOnly = AppUser.builder().id(11L).username("b").passwordHash("").member(m2).build();
+        when(memberRepository.findAllByOrderByCreatedAtAsc()).thenReturn(List.of(m1, m2, m3));
+        when(userRepository.findByMemberId(1L)).thenReturn(Optional.of(withPw));
+        when(userRepository.findByMemberId(2L)).thenReturn(Optional.of(ssoOnly));
+        when(userRepository.findByMemberId(3L)).thenReturn(Optional.empty());
+        when(identityRepository.findUserIdsWithIdentity(any())).thenReturn(java.util.Set.of(11L));
+
+        var result = familyService.listMembers();
+
+        assertThat(result).extracting("hasPassword").containsExactly(true, false, false);
+        assertThat(result).extracting("ssoLinked").containsExactly(false, true, false);
+        verify(identityRepository).findUserIdsWithIdentity(any());
     }
 }

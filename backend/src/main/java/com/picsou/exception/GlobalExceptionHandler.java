@@ -42,6 +42,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
+    @ExceptionHandler(SignInMethodException.class)
+    ProblemDetail handleSignInMethod(SignInMethodException ex) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(ex.getStatus(), ex.getMessage());
+        detail.setProperty("code", ex.getCode());
+        return detail;
+    }
+
     @ExceptionHandler(TotpRequiredException.class)
     ProblemDetail handleTotpRequired(TotpRequiredException ex) {
         log.info("TOTP required: {}", ex.getMessage());

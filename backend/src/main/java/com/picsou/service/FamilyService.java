@@ -19,6 +19,8 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 @Service
 @Transactional(readOnly = true)
@@ -27,6 +29,7 @@ public class FamilyService {
     private final FamilyMemberRepository memberRepository;
     private final AppUserRepository userRepository;
     private final UserMfaRepository userMfaRepository;
+    private final UserIdentityRepository identityRepository;
     private final SharingSettingsRepository sharingSettingsRepository;
     private final SharedResourceRepository sharedResourceRepository;
     private final AccountRepository accountRepository;
@@ -38,6 +41,7 @@ public class FamilyService {
         FamilyMemberRepository memberRepository,
         AppUserRepository userRepository,
         UserMfaRepository userMfaRepository,
+        UserIdentityRepository identityRepository,
         SharingSettingsRepository sharingSettingsRepository,
         SharedResourceRepository sharedResourceRepository,
         AccountRepository accountRepository,
@@ -48,6 +52,7 @@ public class FamilyService {
         this.memberRepository = memberRepository;
         this.userRepository = userRepository;
         this.userMfaRepository = userMfaRepository;
+        this.identityRepository = identityRepository;
         this.sharingSettingsRepository = sharingSettingsRepository;
         this.sharedResourceRepository = sharedResourceRepository;
         this.accountRepository = accountRepository;
@@ -57,15 +62,22 @@ public class FamilyService {
     }
 
     public List<FamilyMemberResponse> listMembers() {
-        return memberRepository.findAllByOrderByCreatedAtAsc().stream()
-            .map(m -> {
-                AppUser user = userRepository.findByMemberId(m.getId()).orElse(null);
-                boolean mfaEnabled = user != null && userMfaRepository.findByUserId(user.getId())
-                    .map(UserMfa::isEnabled)
-                    .orElse(false);
-                return FamilyMemberResponse.from(m, user, mfaEnabled);
-            })
+        List<FamilyMember> members = memberRepository.findAllByOrderByCreatedAtAsc();
+        List<AppUser> users = members.stream()
+            .map(m -> userRepository.findByMemberId(m.getId()).orElse(null))
             .toList();
+        Set<Long> linkedUserIds = identityRepository.findUserIdsWithIdentity(
+            users.stream().filter(Objects::nonNull).map(AppUser::getId).toList());
+        List<FamilyMemberResponse> responses = new ArrayList<>();
+        for (int i = 0; i < members.size(); i++) {
+            AppUser user = users.get(i);
+            boolean mfaEnabled = user != null && userMfaRepository.findByUserId(user.getId())
+                .map(UserMfa::isEnabled)
+                .orElse(false);
+            boolean ssoLinked = user != null && linkedUserIds.contains(user.getId());
+            responses.add(FamilyMemberResponse.from(members.get(i), user, mfaEnabled, ssoLinked));
+        }
+        return responses;
     }
 
     @Transactional
@@ -76,7 +88,7 @@ public class FamilyService {
             .managed(true)
             .build();
         member = memberRepository.save(member);
-        return FamilyMemberResponse.from(member, null, false);
+        return FamilyMemberResponse.from(member, null, false, false);
     }
 
     @Transactional
@@ -89,7 +101,8 @@ public class FamilyService {
         boolean mfaEnabled = user != null && userMfaRepository.findByUserId(user.getId())
             .map(UserMfa::isEnabled)
             .orElse(false);
-        return FamilyMemberResponse.from(member, user, mfaEnabled);
+        boolean ssoLinked = user != null && identityRepository.countByUserId(user.getId()) > 0;
+        return FamilyMemberResponse.from(member, user, mfaEnabled, ssoLinked);
     }
 
     /**
@@ -122,7 +135,7 @@ public class FamilyService {
         }
         AppUser user = userRepository.findByMemberId(id).orElse(null);
         if (user != null && user.getRole() == UserRole.ADMIN
-            && userRepository.countByRole(UserRole.ADMIN) <= 1) {
+            && userRepository.findAllByRoleForUpdate(UserRole.ADMIN).size() <= 1) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot delete the last administrator");
         }
         if (user != null) {

@@ -5,6 +5,8 @@ import com.picsou.config.JwtUtil;
 import com.picsou.config.RateLimitConfig;
 import com.picsou.config.SecureCookieProvider;
 import com.picsou.dto.ReAuthDto;
+import com.picsou.dto.SetPasswordRequest;
+import org.springframework.mock.web.MockHttpServletRequest;
 import com.picsou.dto.SignInMethodsResponse;
 import com.picsou.dto.SsoInfoResponse;
 import com.picsou.model.AppUser;
@@ -118,5 +120,40 @@ class SignInMethodsControllerTest {
         assertThat(sixth.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
         assertThat(sixth.getBody()).isInstanceOf(ProblemDetail.class);
         assertThat(((ProblemDetail) sixth.getBody()).getProperties()).containsEntry("code", "RATE_LIMITED");
+    }
+
+    @Test
+    void removePassword_delegatesAndReturns204() {
+        AppUser user = AppUser.builder().id(7L).username("chloe").build();
+        MockHttpServletRequest req = new MockHttpServletRequest();
+        MockHttpServletResponse res = new MockHttpServletResponse();
+
+        ResponseEntity<Void> response = controller.removePassword(user, req, res);
+
+        verify(signInMethodsService).removePassword(user, req, res);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    }
+
+    @Test
+    void setPassword_delegatesAndReturns204() {
+        AppUser user = AppUser.builder().id(7L).username("chloe").build();
+        MockHttpServletRequest req = new MockHttpServletRequest();
+        MockHttpServletResponse res = new MockHttpServletResponse();
+
+        ResponseEntity<Void> response = controller.setPassword(user, new SetPasswordRequest("new-password-1"), req, res);
+
+        verify(signInMethodsService).setPassword(user, "new-password-1", req, res);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    }
+
+    @Test
+    void unlinkIdentity_delegatesAndReturns204() {
+        AppUser user = AppUser.builder().id(7L).username("chloe").build();
+        MockHttpServletRequest req = new MockHttpServletRequest();
+
+        ResponseEntity<Void> response = controller.unlinkIdentity(user, 5L, req);
+
+        verify(signInMethodsService).unlinkIdentity(user, 5L, req);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
     }
 }
