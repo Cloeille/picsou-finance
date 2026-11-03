@@ -33,6 +33,8 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -67,6 +69,11 @@ class SpaServingTest {
             Files.createDirectories(site.resolve("assets"));
             Files.writeString(site.resolve("assets/app-abc.js"), "console.log('app');");
             Files.writeString(site.resolve("assets/logo.SVG"), "<svg/>");
+            Files.writeString(site.resolve("favicon.svg"), "<svg/>");
+            Files.writeString(site.resolve("theme-init.js"), "document.title='x';");
+            Files.createDirectories(site.resolve("providers"));
+            Files.writeString(site.resolve("providers/bank.svg"), "<svg/>");
+            Files.createDirectories(site.resolve("etag"));
             Files.createDirectories(site.resolve("locales/en"));
             Files.writeString(site.resolve("locales/en/x.json"), "{\"a\":1}");
             return site;
@@ -118,7 +125,7 @@ class SpaServingTest {
     }
 
     @Test
-    void root_servesIndexWithSecurityHeadersAndNoCacheControl() throws Exception {
+    void root_servesIndexWithSecurityHeadersAndRevalidates() throws Exception {
         MvcResult result = mvc.perform(get("/"))
             .andExpect(status().isOk())
             .andExpect(header().string("Content-Type", org.hamcrest.Matchers.startsWith("text/html")))
@@ -129,7 +136,8 @@ class SpaServingTest {
             .andExpect(header().string("Referrer-Policy", "strict-origin-when-cross-origin"))
             .andExpect(header().exists("ETag"))
             .andExpect(header().exists("Last-Modified"))
-            .andExpect(header().doesNotExist("Cache-Control"))
+            .andExpect(header().string("Cache-Control", "no-cache"))
+            .andExpect(header().doesNotExist("Expires"))
             .andReturn();
         assertThat(body(result)).isEqualTo(INDEX);
     }
@@ -139,7 +147,8 @@ class SpaServingTest {
         for (String route : new String[] {"/accounts/12", "/setup/admin", "/consent?x=1"}) {
             MvcResult result = mvc.perform(get(route))
                 .andExpect(status().isOk())
-                .andExpect(header().doesNotExist("Cache-Control"))
+                .andExpect(header().string("Cache-Control", "no-cache"))
+                .andExpect(header().doesNotExist("Expires"))
                 .andReturn();
             assertThat(body(result)).as(route).isEqualTo(INDEX);
         }
@@ -172,21 +181,81 @@ class SpaServingTest {
     }
 
     @Test
-    void missingAsset_is404NotIndex() throws Exception {
-        MvcResult result = mvc.perform(get("/assets/nope.js"))
-            .andExpect(status().isNotFound())
-            .andExpect(header().doesNotExist("Cache-Control"))
-            .andReturn();
-        assertThat(body(result)).doesNotContain("picsou-spa-index");
+    void unhashedPublicFile_isRevalidatedNotCached() throws Exception {
+        mvc.perform(get("/favicon.svg"))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Cache-Control", "no-cache"))
+            .andExpect(header().doesNotExist("Expires"))
+            .andExpect(header().exists("ETag"))
+            .andExpect(header().exists("Last-Modified"));
     }
 
     @Test
-    void otherExistingFile_isServedWithoutCacheControl() throws Exception {
+    void staticExtensionOutsideAssets_isNotImmutable() throws Exception {
+        for (String path : new String[] {"/providers/bank.svg", "/theme-init.js"}) {
+            MvcResult result = mvc.perform(get(path))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist("Expires"))
+                .andReturn();
+            assertThat(result.getResponse().getHeader("Cache-Control")).as(path)
+                .isEqualTo("no-cache");
+        }
+    }
+
+    @Test
+    void missingAsset_is404NotIndex() throws Exception {
+        for (String path : new String[] {"/assets/nope.js", "/nope.png"}) {
+            MvcResult result = mvc.perform(get(path))
+                .andExpect(status().isNotFound())
+                .andExpect(header().doesNotExist("Cache-Control"))
+                .andReturn();
+            assertThat(body(result)).as(path).doesNotContain("picsou-spa-index");
+        }
+    }
+
+    @Test
+    void otherExistingFile_isRevalidated() throws Exception {
         MvcResult result = mvc.perform(get("/locales/en/x.json"))
             .andExpect(status().isOk())
-            .andExpect(header().doesNotExist("Cache-Control"))
+            .andExpect(header().string("Cache-Control", "no-cache"))
             .andReturn();
         assertThat(body(result)).isEqualTo("{\"a\":1}");
+    }
+
+    @Test
+    void indexEtag_followsContentEvenWhenLengthAndMtimeMatch() throws Exception {
+        Path file = ROOT.resolve("etag/index.html");
+        FileTime sameSecond = FileTime.from(Instant.parse("2026-01-01T00:00:00Z"));
+        Files.writeString(file, "<html>build-A</html>");
+        Files.setLastModifiedTime(file, sameSecond);
+        String first = mvc.perform(get("/etag/index.html")).andExpect(status().isOk())
+            .andReturn().getResponse().getHeader("ETag");
+
+        Files.writeString(file, "<html>build-B</html>");
+        Files.setLastModifiedTime(file, sameSecond);
+        String second = mvc.perform(get("/etag/index.html")).andExpect(status().isOk())
+            .andReturn().getResponse().getHeader("ETag");
+
+        assertThat(first).startsWith("W/\"").endsWith("\"");
+        assertThat(second).startsWith("W/\"");
+        assertThat(second).isNotEqualTo(first);
+    }
+
+    @Test
+    void otherFilesKeepTheTimestampAndLengthEtag() throws Exception {
+        String etag = mvc.perform(get("/locales/en/x.json")).andExpect(status().isOk())
+            .andReturn().getResponse().getHeader("ETag");
+        assertThat(etag).matches("W/\"[0-9a-f]+-[0-9a-f]+\"");
+    }
+
+    @Test
+    void matchingIfNoneMatch_answers304ForTheIndexAndItsRoutes() throws Exception {
+        for (String route : new String[] {"/", "/accounts/12"}) {
+            String etag = mvc.perform(get(route)).andExpect(status().isOk())
+                .andReturn().getResponse().getHeader("ETag");
+            mvc.perform(get(route).header("If-None-Match", etag))
+                .andExpect(status().isNotModified());
+        }
     }
 
     @Test
