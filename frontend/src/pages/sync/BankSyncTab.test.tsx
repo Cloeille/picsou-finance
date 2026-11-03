@@ -167,6 +167,18 @@ describe('BankSyncTab Wise connection', () => {
     expect(screen.queryByRole('button', { name: 'sync.banks.wiseJarsConnect' })).not.toBeInTheDocument()
   })
 
+  it.each(['ERROR', 'REAUTH_REQUIRED'])('says the last Jars sync failed when Wise Jars is %s and keeps the way there', async (status) => {
+    const onOpenWiseJars = vi.fn()
+    givenStatuses([WISE_CONNECTION], { ...WISE_DISCONNECTED, connected: true, connectionId: 1, status })
+
+    renderTab({ onOpenWiseJars })
+
+    expect(await screen.findByText('sync.banks.wiseJarsFailed')).toBeInTheDocument()
+    expect(screen.queryByText('sync.banks.wiseJarsConnected')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.banks.wiseJarsOpen' }))
+    expect(onOpenWiseJars).toHaveBeenCalledTimes(1)
+  })
+
   it('stays silent under other banks and never asks for the Wise status', async () => {
     givenStatuses(FAILED_CONNECTIONS, WISE_DISCONNECTED)
 

@@ -8,8 +8,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Persists a Wise connection's {@code ERROR} status in its own transaction, so a
- * rolled-back sync still leaves a visible failure. Same reason as {@link SimplefinStatusWriter}.
+ * Persists a failed Wise sync's status in its own transaction, so a rolled-back sync still
+ * leaves a visible failure. Same reason as {@link SimplefinStatusWriter}.
  */
 @Service
 @RequiredArgsConstructor
@@ -20,9 +20,19 @@ public class WiseStatusWriter {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markError(Long connectionId) {
+        mark(connectionId, WiseSyncService.STATUS_ERROR);
+    }
+
+    /** Wise refused the token: only a new one fixes it, so retrying is pointless. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markReauthRequired(Long connectionId) {
+        mark(connectionId, WiseSyncService.STATUS_REAUTH_REQUIRED);
+    }
+
+    private void mark(Long connectionId, String status) {
         connectionRepository.findById(connectionId).ifPresentOrElse(connection -> {
-            connection.setStatus("ERROR");
+            connection.setStatus(status);
             connectionRepository.save(connection);
-        }, () -> log.error("Cannot mark Wise connection {} as ERROR: row not found", connectionId));
+        }, () -> log.error("Cannot mark Wise connection {} as {}: row not found", connectionId, status));
     }
 }

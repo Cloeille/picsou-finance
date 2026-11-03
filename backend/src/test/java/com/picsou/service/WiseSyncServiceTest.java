@@ -196,14 +196,27 @@ class WiseSyncServiceTest {
     }
 
     @Test
-    void sync_wiseFails_marksTheConnectionErrorAndRethrows() {
+    void sync_tokenRefused_marksTheConnectionReauthRequiredAndRethrows() {
         givenStoredConnection();
         SyncException refused = new SyncException("Wise refused the API token.", null, "SESSION_EXPIRED");
         when(wisePort.fetchJars(TOKEN)).thenThrow(refused);
 
         assertThatThrownBy(() -> service.sync(MEMBER_ID)).isSameAs(refused);
 
+        verify(statusWriter).markReauthRequired(42L);
+        verify(statusWriter, never()).markError(any());
+    }
+
+    @Test
+    void sync_otherWiseFailure_marksTheConnectionErrorAndRethrows() {
+        givenStoredConnection();
+        SyncException limited = new SyncException("Wise is limiting requests right now.", null, "RATE_LIMITED");
+        when(wisePort.fetchJars(TOKEN)).thenThrow(limited);
+
+        assertThatThrownBy(() -> service.sync(MEMBER_ID)).isSameAs(limited);
+
         verify(statusWriter).markError(42L);
+        verify(statusWriter, never()).markReauthRequired(any());
     }
 
     @Test

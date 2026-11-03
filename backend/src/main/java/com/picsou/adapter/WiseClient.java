@@ -84,7 +84,8 @@ public class WiseClient implements WisePort {
     static String requireToken(String apiToken) {
         String token = apiToken == null ? "" : apiToken.trim();
         if (token.isEmpty() || token.length() > MAX_TOKEN_CHARS || !token.matches("[A-Za-z0-9-]+")) {
-            throw new SyncException("This does not look like a Wise API token. Copy it again from Wise.");
+            throw new SyncException("This does not look like a Wise API token. Copy it again from Wise.",
+                null, "INVALID_TOKEN");
         }
         return token;
     }
@@ -103,7 +104,8 @@ public class WiseClient implements WisePort {
                 null, "SESSION_EXPIRED");
         }
         if (status == 429) {
-            throw new SyncException("Wise is limiting requests right now. Try again in a few minutes.");
+            throw new SyncException("Wise is limiting requests right now. Try again in a few minutes.",
+                null, "RATE_LIMITED");
         }
         if (status >= 300 && status < 400) {
             throw new SyncException("Wise redirected the request, which Picsou refuses.");

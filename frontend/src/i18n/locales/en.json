@@ -1101,6 +1101,8 @@
       "wiseJarsMissing": "Your Wise Jars do not come through this connection.",
       "wiseJarsConnect": "Connect the Jars",
       "wiseJarsConnected": "Your Wise Jars sync through the Wise Jars connector.",
+      "wiseJarsFailed": "The last sync of your Wise Jars failed.",
+      "wiseJarsOpen": "Open Wise Jars",
       "proBadge": "Pro",
       "proBadgeTitle": "Business account — this bank only serves professional customers"
     },
@@ -1226,9 +1228,16 @@
       "statusError": "Last sync failed",
       "lastSync": "Last sync",
       "neverSynced": "Never synced",
-      "syncedToast": "Wise synced: {{count}} Jar(s)",
+      "syncedToast": "Wise synced: {{count}} Jar",
+      "syncedToast_other": "Wise synced: {{count}} Jars",
+      "statusTokenRefused": "Token refused by Wise",
+      "replaceTokenHint": "Wise refused the stored token. Create a new one on wise.com and paste it here to resume syncing.",
+      "replaceToken": "Replace the token",
       "scopeNote": "Only Jar balances are tracked: in Europe, Wise does not share their history with a personal token.",
       "errors": {
+        "tokenRefused": "Wise refused this token. It may have been revoked: create a new read-only one on wise.com.",
+        "invalidToken": "This is not a Wise API token. Copy it again from wise.com.",
+        "rateLimited": "Wise is limiting requests right now. Try again in a few minutes.",
         "connectFailed": "Could not connect to Wise. Check the token and try again.",
         "syncFailed": "Wise sync failed. Try again, or create a new token if it was revoked.",
         "disconnectFailed": "Could not remove the connection. Try again."

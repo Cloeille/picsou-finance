@@ -815,6 +815,8 @@
       "wiseJarsMissing": "Tus Jars de Wise no llegan por esta conexión.",
       "wiseJarsConnect": "Conectar los Jars",
       "wiseJarsConnected": "Tus Jars de Wise se sincronizan con el conector Wise Jars.",
+      "wiseJarsFailed": "Falló la última sincronización de tus Jars de Wise.",
+      "wiseJarsOpen": "Abrir Wise Jars",
       "proBadge": "Pro",
       "proBadgeTitle": "Cuenta de empresa — este banco solo atiende a clientes profesionales"
     },
@@ -906,9 +908,16 @@
       "statusError": "Falló la última sincronización",
       "lastSync": "Última sincronización",
       "neverSynced": "Nunca sincronizado",
-      "syncedToast": "Wise sincronizado: {{count}} Jar(s)",
+      "syncedToast": "Wise sincronizado: {{count}} Jar",
+      "syncedToast_other": "Wise sincronizado: {{count}} Jars",
+      "statusTokenRefused": "Token rechazado por Wise",
+      "replaceTokenHint": "Wise rechazó el token guardado. Crea uno nuevo en wise.com y pégalo aquí para reanudar la sincronización.",
+      "replaceToken": "Reemplazar el token",
       "scopeNote": "Solo se siguen los saldos de los Jars: en Europa, Wise no comparte su historial con un token personal.",
       "errors": {
+        "tokenRefused": "Wise rechazó este token. Puede que se haya revocado: crea uno nuevo de solo lectura en wise.com.",
+        "invalidToken": "Esto no es un token de API de Wise. Cópialo de nuevo desde wise.com.",
+        "rateLimited": "Wise está limitando las solicitudes. Inténtalo de nuevo en unos minutos.",
         "connectFailed": "No se pudo conectar con Wise. Comprueba el token e inténtalo de nuevo.",
         "syncFailed": "Falló la sincronización de Wise. Inténtalo de nuevo o crea un token nuevo si fue revocado.",
         "disconnectFailed": "No se pudo eliminar la conexión. Inténtalo de nuevo."

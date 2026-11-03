@@ -121,7 +121,7 @@ class WiseClientTest {
         transport.answer(PROFILES, 429, "");
 
         assertThatThrownBy(() -> client.fetchJars(TOKEN))
-            .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isNull())
+            .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isEqualTo("RATE_LIMITED"))
             .hasMessageContaining("Try again");
     }
 
@@ -149,7 +149,8 @@ class WiseClientTest {
     @NullAndEmptySource
     @ValueSource(strings = {"   ", "Bearer abc", "abc\r\nX-Injected: 1", "jeton avec espaces"})
     void fetchJars_malformedToken_sendsNothing(String token) {
-        assertThatThrownBy(() -> client.fetchJars(token)).isInstanceOf(SyncException.class);
+        assertThatThrownBy(() -> client.fetchJars(token))
+            .isInstanceOfSatisfying(SyncException.class, ex -> assertThat(ex.getCode()).isEqualTo("INVALID_TOKEN"));
 
         assertThat(transport.requested).isEmpty();
     }

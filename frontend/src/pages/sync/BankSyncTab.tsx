@@ -59,7 +59,7 @@ function WiseJarsHint({ onOpenWiseJars }: { onOpenWiseJars?: () => void }) {
   const { t } = useTranslation()
   const { data: wiseStatus } = useWiseStatus()
 
-  if (wiseStatus?.connected) {
+  if (wiseStatus?.connected && wiseStatus.status === 'CONNECTED') {
     return (
       <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
         <PiggyBank className="size-4 shrink-0" />
@@ -67,13 +67,14 @@ function WiseJarsHint({ onOpenWiseJars }: { onOpenWiseJars?: () => void }) {
       </p>
     )
   }
+  const failed = wiseStatus?.connected ?? false
   return (
     <div className="flex flex-wrap items-center gap-2 px-1 text-xs text-muted-foreground">
       <PiggyBank className="size-4 shrink-0" />
-      <span>{t('sync.banks.wiseJarsMissing')}</span>
+      <span>{t(failed ? 'sync.banks.wiseJarsFailed' : 'sync.banks.wiseJarsMissing')}</span>
       {onOpenWiseJars && (
         <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={onOpenWiseJars}>
-          {t('sync.banks.wiseJarsConnect')}
+          {t(failed ? 'sync.banks.wiseJarsOpen' : 'sync.banks.wiseJarsConnect')}
         </Button>
       )}
     </div>

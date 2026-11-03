@@ -2105,8 +2105,9 @@ requests per minute; over it, both return `429`. See
 **Response `200` — `AccountResponse[]`:** the imported jars. The token is stored only when Wise
 accepted it.
 
-**Errors:** 422 (blank, oversized or malformed token; Wise refused it, with `code:
-"SESSION_EXPIRED"`; Wise unreachable or rate limiting), 404 (unknown member), 429
+**Errors:** 422 (blank or oversized token; malformed token, with `code: "INVALID_TOKEN"`; Wise
+refused it, with `code: "SESSION_EXPIRED"`; Wise rate limiting, with `code: "RATE_LIMITED"`; Wise
+unreachable), 404 (unknown member), 429
 
 ---
 
@@ -2125,8 +2126,9 @@ accepted it.
 }
 ```
 
-Without a connection every field but `connected: false` is `null`. `status` is `ERROR` after a
-failed sync.
+Without a connection every field but `connected: false` is `null`. `status` is
+`REAUTH_REQUIRED` after Wise refused the stored token (connect again with a new one to replace it
+in place) and `ERROR` after any other failed sync.
 
 ---
 
@@ -2137,7 +2139,8 @@ failed sync.
 
 **Response `200` — `AccountResponse[]`:** the jars updated by this sync.
 
-**Errors:** 422 (no connection; Wise refused the token, with `code: "SESSION_EXPIRED"`; other
+**Errors:** 422 (no connection; Wise refused the token, with `code: "SESSION_EXPIRED"`, and the
+connection becomes `REAUTH_REQUIRED`; Wise rate limiting, with `code: "RATE_LIMITED"`; other
 Wise failures), 429
 
 ---

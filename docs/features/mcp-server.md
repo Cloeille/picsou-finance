@@ -275,8 +275,9 @@ sessions/credentials as the documented side effect of deleting a connection's la
   it once, and `trigger_bank_sync` runs it with Enable Banking. A revoked access (HTTP 403) is
   `NEEDS_REAUTH` in the trigger summary. `get_sync_status` reads the stored connection: `ERROR`
   is `FAILED` with `reauth=false`, because the stored status does not keep the reason.
-- **Wise jars are a bank source too.** They run right after SimpleFIN, under the same rules. A
-  refused token (HTTP 401 or 403) is `NEEDS_REAUTH` in the trigger summary.
+- **Wise jars are a bank source too.** They run right after SimpleFIN. A refused token (HTTP 401
+  or 403) is `NEEDS_REAUTH` in the trigger summary and, because the connection stores
+  `REAUTH_REQUIRED`, in `get_sync_status` too (`reauth=true`).
 - **The sync summary distinguishes failures from missing connections and expired credentials.**
   An unconnected Finary source is `SKIPPED_NOT_CONNECTED`, and an IBKR connection in `ERROR`
   is `FAILED` in `get_sync_status`. A crypto-exchange batch keeps running after a session fails,

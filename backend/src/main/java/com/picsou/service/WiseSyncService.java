@@ -43,6 +43,13 @@ public class WiseSyncService {
     /** Prefix of every jar's external id; account deletion recognises the connection by it. */
     public static final String EXTERNAL_ID_PREFIX = "wise_jar_";
 
+    public static final String STATUS_CONNECTED = "CONNECTED";
+    public static final String STATUS_ERROR = "ERROR";
+    /** Wise refused the stored token; the member must paste a new one. */
+    public static final String STATUS_REAUTH_REQUIRED = "REAUTH_REQUIRED";
+
+    private static final String TOKEN_REFUSED_CODE = "SESSION_EXPIRED";
+
     private static final int MAX_NAME_LEN = 100;
     private static final String COLOR = "#9fe870";
 
@@ -83,7 +90,7 @@ public class WiseSyncService {
             masked = mask(encryption.decrypt(stored.getApiToken()));
         } catch (RuntimeException ex) {
             log.error("Wise: cannot decrypt stored token for connection {}", stored.getId(), ex);
-            return new WiseConnectionStatusResponse(true, stored.getId(), "ERROR", stored.getLastSyncedAt(), "••••");
+            return new WiseConnectionStatusResponse(true, stored.getId(), STATUS_ERROR, stored.getLastSyncedAt(), "••••");
         }
         return new WiseConnectionStatusResponse(
             true, stored.getId(), stored.getStatus(), stored.getLastSyncedAt(), masked);
@@ -138,8 +145,10 @@ public class WiseSyncService {
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             return importJars(jars, connection, member);
         } catch (RuntimeException ex) {
-            log.error("Wise sync failed for connection {} — marking ERROR status", connection.getId(), ex);
-            statusWriter.markError(connection.getId());
+            boolean tokenRefused = ex instanceof SyncException sync && TOKEN_REFUSED_CODE.equals(sync.getCode());
+            log.error("Wise sync failed for connection {} (token refused: {})", connection.getId(), tokenRefused, ex);
+            if (tokenRefused) statusWriter.markReauthRequired(connection.getId());
+            else statusWriter.markError(connection.getId());
             if (ex instanceof SyncException sync) throw sync;
             throw new SyncException("Wise sync failed. Try again in a moment.", ex);
         }
@@ -158,7 +167,7 @@ public class WiseSyncService {
             }
             upsertJar(jar, member).ifPresent(responses::add);
         }
-        connection.setStatus("CONNECTED");
+        connection.setStatus(STATUS_CONNECTED);
         connection.setLastSyncedAt(Instant.now());
         connectionRepository.save(connection);
         log.info("Wise sync complete for member {}: {} jar(s) updated", member.getId(), responses.size());

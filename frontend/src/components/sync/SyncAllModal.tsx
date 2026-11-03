@@ -267,7 +267,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     {
       type: 'wise' as const, name: 'Wise Jars', provider: 'Wise Jars',
       active: wiseStatus?.connected ?? false, lastSyncedAt: wiseStatus?.lastSyncedAt ?? null,
-      failed: wiseStatus?.status === 'ERROR',
+      failed: wiseStatus?.status === 'ERROR' || wiseStatus?.status === 'REAUTH_REQUIRED',
+      // A refused token only clears with a new one, pasted on the Wise Jars tab.
+      reauth: wiseStatus?.status === 'REAUTH_REQUIRED',
     },
     {
       type: 'amex' as const, name: 'American Express', provider: 'American Express',

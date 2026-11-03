@@ -81,6 +81,19 @@ class WiseConnectionPersistenceTest {
         assertThat(reloaded.getApiToken()).isEqualTo(TOKEN_A);
     }
 
+    @Test
+    void markReauthRequired_commitsEvenWhenTheSyncRollsBack() {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        Long connectionId = seedConnection(tx);
+
+        assertThatThrownBy(() -> tx.execute(sync -> {
+            statusWriter.markReauthRequired(connectionId);
+            throw new IllegalStateException("simulated refused token");
+        })).isInstanceOf(IllegalStateException.class);
+
+        assertThat(connectionRepository.findById(connectionId).orElseThrow().getStatus()).isEqualTo("REAUTH_REQUIRED");
+    }
+
     private Long seedConnection(TransactionTemplate tx) {
         return tx.execute(status -> {
             FamilyMember member = familyMemberRepository.save(FamilyMember.builder().displayName("Owner").build());

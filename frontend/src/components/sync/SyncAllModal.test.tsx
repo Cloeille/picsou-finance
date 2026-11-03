@@ -369,6 +369,17 @@ describe('SyncAllModal session providers', () => {
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/wise/sync'))
   })
 
+  it('sends a Wise Jars row whose token Wise refused to its tab instead of retrying it', async () => {
+    wiseStatus = { ...SIMPLEFIN_DISCONNECTED, connected: true, connectionId: 1, status: 'REAUTH_REQUIRED' }
+    renderModal()
+
+    const row = (await screen.findByText('Wise Jars')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=wise'))
+    expect(apiPost).not.toHaveBeenCalledWith('/wise/sync')
+  })
+
   it('lists a provider whose session is live', async () => {
     amundiStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS', lastSyncCompletedAt: '2026-08-10T08:00:00Z' }
     renderModal()

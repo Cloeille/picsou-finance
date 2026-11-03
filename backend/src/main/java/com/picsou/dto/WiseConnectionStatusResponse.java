@@ -7,7 +7,7 @@ import java.time.Instant;
  *
  * @param connected     whether a token is stored for the member
  * @param connectionId  row id (null when not connected)
- * @param status        "CONNECTED" or "ERROR" (last sync outcome)
+ * @param status        "CONNECTED", "ERROR" (last sync failed) or "REAUTH_REQUIRED" (Wise refused the token)
  * @param lastSyncedAt  last successful sync, null if never
  * @param maskedToken   last four characters of the token behind a mask; null when not connected
  */

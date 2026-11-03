@@ -117,7 +117,10 @@ describe('WisePanel', () => {
     })
 
     it.each([
-      ['shows the server detail', { response: { status: 422, data: { detail: 'Wise refused the API token.' } } }, 'Wise refused the API token.'],
+      ['translates a refused token', { response: { status: 422, data: { detail: 'Wise refused the API token.', code: 'SESSION_EXPIRED' } } }, 'sync.wise.errors.tokenRefused'],
+      ['translates a malformed token', { response: { status: 422, data: { detail: 'This does not look like a Wise API token.', code: 'INVALID_TOKEN' } } }, 'sync.wise.errors.invalidToken'],
+      ['translates the Wise rate limit', { response: { status: 422, data: { detail: 'Wise is limiting requests right now.', code: 'RATE_LIMITED' } } }, 'sync.wise.errors.rateLimited'],
+      ['shows an uncoded server detail', { response: { status: 422, data: { detail: 'Could not reach Wise. Try again in a moment.' } } }, 'Could not reach Wise. Try again in a moment.'],
       ['falls back on a network failure', new Error('Network Error'), 'sync.wise.errors.connectFailed'],
     ])('on a refused token, %s and keeps the form usable', async (_name, rejection, message) => {
       const onConnected = vi.fn()
@@ -194,6 +197,44 @@ describe('WisePanel', () => {
 
       fireEvent.click(await screen.findByRole('button', { name: 'sync.wise.sync' }))
       await waitFor(() => expect(screen.queryByText('Wise refused the API token.')).not.toBeInTheDocument())
+    })
+  })
+
+  describe('refused token', () => {
+    it('shows why, hides Sync, and replaces the token through connect', async () => {
+      apiGet.mockResolvedValue(connected({ status: 'REAUTH_REQUIRED' }))
+      apiPost.mockImplementation(() => {
+        apiGet.mockResolvedValue(connected())
+        return Promise.resolve({ data: [{ id: 1 }] })
+      })
+
+      renderPanel()
+
+      expect(await screen.findByText('sync.wise.statusTokenRefused')).toBeInTheDocument()
+      expect(screen.getByText('sync.wise.replaceTokenHint')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'sync.wise.sync' })).not.toBeInTheDocument()
+      fireEvent.change(screen.getByLabelText('sync.wise.token'), { target: { value: 'tok-new' } })
+      fireEvent.click(screen.getByRole('button', { name: 'sync.wise.replaceToken' }))
+
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/wise/connect', { token: 'tok-new' }))
+      expect(await screen.findByRole('button', { name: 'sync.wise.sync' })).toBeEnabled()
+    })
+
+    it('turns a sync that Wise refuses into the replace-token form with a translated message', async () => {
+      apiGet.mockResolvedValue(connected())
+      apiPost.mockImplementation(() => {
+        apiGet.mockResolvedValue(connected({ status: 'REAUTH_REQUIRED' }))
+        return Promise.reject({
+          response: { status: 422, data: { detail: 'Wise refused the API token.', code: 'SESSION_EXPIRED' } },
+        })
+      })
+
+      renderPanel()
+      fireEvent.click(await screen.findByRole('button', { name: 'sync.wise.sync' }))
+
+      expect(await screen.findByText('sync.wise.errors.tokenRefused')).toBeInTheDocument()
+      expect(screen.queryByText('Wise refused the API token.')).not.toBeInTheDocument()
+      expect(await screen.findByRole('button', { name: 'sync.wise.replaceToken' })).toBeInTheDocument()
     })
   })
 

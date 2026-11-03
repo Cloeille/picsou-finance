@@ -223,8 +223,10 @@ public class SyncStatusService {
     }
 
     private String wiseLine(WiseConnection row) {
-        String status = "ERROR".equals(row.getStatus()) ? "FAILED" : "CONNECTED";
-        return line(WiseSyncService.SOURCE, status, row.getLastSyncedAt(), false, null);
+        boolean reauth = WiseSyncService.STATUS_REAUTH_REQUIRED.equals(row.getStatus());
+        String status = reauth ? "NEEDS_REAUTH"
+            : WiseSyncService.STATUS_ERROR.equals(row.getStatus()) ? "FAILED" : "CONNECTED";
+        return line(WiseSyncService.SOURCE, status, row.getLastSyncedAt(), reauth, null);
     }
 
     private List<String> exchanges(Long memberId) {

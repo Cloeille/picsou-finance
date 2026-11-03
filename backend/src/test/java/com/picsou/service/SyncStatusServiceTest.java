@@ -290,6 +290,14 @@ class SyncStatusServiceTest {
     }
 
     @Test
+    void wise_refusedToken_needsReauth() {
+        when(wiseConnectionRepository.findByMemberId(MID)).thenReturn(Optional.of(
+            WiseConnection.builder().status("REAUTH_REQUIRED").lastSyncedAt(SYNCED_AT).build()));
+
+        assertThat(service.describe(MID)).contains("wise: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true");
+    }
+
+    @Test
     void wise_noRow_isNotConnected() {
         assertThat(service.describe(MID)).contains("wise: NOT_CONNECTED lastSync=none reauth=false");
     }
