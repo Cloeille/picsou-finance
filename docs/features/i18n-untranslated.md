@@ -4,7 +4,7 @@
 
 These keys exist in `de.json` and `es.json` (locale parity holds) but still carry the English text. They are kept, not deleted: removing them would make German and Spanish fall back to French. Translators can pick any group; once a string is translated, drop it from this list.
 
-221 keys, the same set in both files. Regenerate the list by comparing each `de`/`es` value with `en` and keeping the ones that are identical in English and differ from French (brand names, ticker labels and other words that are the same in every language are left out).
+This is a partial inventory: 221 keys, the same set in both files. A key is listed when its `de` and `es` values are both identical to `en`, the `fr` value differs, and the English text has at least two words of two letters or more. The last rule drops brand names and tickers ("Trade Republic", "ETF"), but it also drops single-word labels that are really untranslated, such as `admin.ai.save`, `budget.cadence.monthly` or `accounts.tabOverview`. A plain "identical to English" comparison returns about 330 keys per language, and translators should check those single words too.
 
 - `accounts`: `changeCategory`, `importAlreadyDone`, `importCsvTR`, `importError`, `importSuccess`, `importSuccessWithSkipped`, `importSuccessWithSkipped_other`, `importSuccess_other`
 - `addAccount.desc`: `revolut`
