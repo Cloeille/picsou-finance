@@ -52,7 +52,9 @@ dev-backend:
 	@JWT_SECRET="$${JWT_SECRET:-$$(docker exec picsou-db printenv PICSOU_DEV_JWT_SECRET 2>/dev/null)}"; \
 	CRYPTO_ENCRYPTION_KEY="$${CRYPTO_ENCRYPTION_KEY:-$$(docker exec picsou-db printenv PICSOU_DEV_CRYPTO_ENCRYPTION_KEY 2>/dev/null)}"; \
 	if [ -z "$$JWT_SECRET" ] || [ -z "$$CRYPTO_ENCRYPTION_KEY" ]; then \
-	  if ! docker container inspect picsou-db >/dev/null 2>&1; then echo "picsou-db does not exist: run 'make db' first."; exit 1; fi; \
+	  state=$$(docker container inspect -f '{{.State.Running}}' picsou-db 2>/dev/null); \
+	  if [ -z "$$state" ]; then echo "picsou-db does not exist: run 'make db' first."; exit 1; fi; \
+	  if [ "$$state" != true ]; then echo "picsou-db is stopped: run 'make db' first."; exit 1; fi; \
 	  echo "picsou-db holds no dev secrets: 'make db' adds them only when it creates the container."; \
 	  echo "Export the JWT_SECRET and CRYPTO_ENCRYPTION_KEY its data was encrypted with, or"; \
 	  echo "'docker rm -f picsou-db' and 'make db' to start over (its data is lost)."; \
