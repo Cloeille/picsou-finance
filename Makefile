@@ -5,11 +5,12 @@ COMPOSE  := docker compose -f docker/docker-compose.yml
 SIDECARS := $(patsubst services/%/Dockerfile,%,$(wildcard services/*-auth/Dockerfile))
 REMOTE   ?= origin
 
-.PHONY: help dev db dev-backend dev-frontend deps test test-backend test-frontend test-e2e \
+.PHONY: help dev db dev-backend dev-frontend format deps test test-backend test-frontend test-e2e \
         test-sidecars test-sidecar-base test-sidecar build release
 
 help:
 	@echo "make dev                       PostgreSQL in Docker, backend on :8080, Vite on :5173"
+	@echo "make format                    Prettier on the frontend sources"
 	@echo "make test                      backend, frontend (unit and e2e), every sidecar"
 	@echo "make test-backend [TEST=Class] backend Maven tests, or one class or method"
 	@echo "make test-frontend             lint, typecheck, Vitest"
@@ -28,9 +29,14 @@ dev: db
 # The probe logs in with the backend's credentials (application.yml) over TCP on the
 # container's address: the socket and localhost trust any user, and pg_isready also
 # answers while the first-boot init still runs on the socket.
+# The container also holds the backend's dev secrets, generated when it is created:
+# every checkout that uses this database gets the CRYPTO_ENCRYPTION_KEY its data was
+# encrypted with, and recreating the container renews the key with the data.
 db:
 	docker start picsou-db 2>/dev/null || docker run -d --name picsou-db -p 127.0.0.1:5432:5432 \
-	  -e POSTGRES_DB=picsou -e POSTGRES_USER=picsou -e POSTGRES_PASSWORD=picsou postgres:16-alpine
+	  -e POSTGRES_DB=picsou -e POSTGRES_USER=picsou -e POSTGRES_PASSWORD=picsou \
+	  -e PICSOU_DEV_JWT_SECRET="$$(openssl rand -base64 48)" \
+	  -e PICSOU_DEV_CRYPTO_ENCRYPTION_KEY="$$(openssl rand -base64 32)" postgres:16-alpine
 	@for i in $$(seq 30); do \
 	  err=$$(docker exec -e PGPASSWORD=picsou picsou-db sh -c 'psql -h "$$(hostname -i | cut -d" " -f1)" -U picsou -d picsou -Atqc "select 1"' 2>&1) && exit 0; \
 	  sleep 1; \
@@ -39,20 +45,23 @@ db:
 	echo "If it was created with other settings, 'docker rm -f picsou-db' recreates it (its data is lost)."; \
 	exit 1
 
-dev-backend: | backend/.local/dev.env
-	. ./backend/.local/dev.env && cd backend && mvn spring-boot:run -Dspring-boot.run.profiles=dev
-
-# Secrets the backend refuses to start without, generated once per checkout (gitignored).
-# Kept between runs: a new CRYPTO_ENCRYPTION_KEY could not decrypt the stored ones.
-# Values already in the environment win.
-backend/.local/dev.env:
-	mkdir -p backend/.local
-	set -e; umask 077; jwt=$$(openssl rand -base64 48); key=$$(openssl rand -base64 32); \
-	  printf 'export JWT_SECRET="$${JWT_SECRET:-%s}"\nexport CRYPTO_ENCRYPTION_KEY="$${CRYPTO_ENCRYPTION_KEY:-%s}"\n' "$$jwt" "$$key" > $@.tmp; \
-	  mv $@.tmp $@
+# Values already in the environment win over the ones picsou-db holds.
+dev-backend:
+	@JWT_SECRET="$${JWT_SECRET:-$$(docker exec picsou-db printenv PICSOU_DEV_JWT_SECRET 2>/dev/null)}"; \
+	CRYPTO_ENCRYPTION_KEY="$${CRYPTO_ENCRYPTION_KEY:-$$(docker exec picsou-db printenv PICSOU_DEV_CRYPTO_ENCRYPTION_KEY 2>/dev/null)}"; \
+	if [ -z "$$JWT_SECRET" ] || [ -z "$$CRYPTO_ENCRYPTION_KEY" ]; then \
+	  echo "No dev secrets in picsou-db: run 'make db' first. If it was not created by 'make db', export"; \
+	  echo "JWT_SECRET and CRYPTO_ENCRYPTION_KEY, or 'docker rm -f picsou-db' recreates it (its data is lost)."; \
+	  exit 1; \
+	fi; \
+	export JWT_SECRET CRYPTO_ENCRYPTION_KEY; \
+	cd backend && exec mvn spring-boot:run -Dspring-boot.run.profiles=dev
 
 dev-frontend: | frontend/node_modules
 	cd frontend && bun run dev
+
+format: | frontend/node_modules
+	cd frontend && bun run format
 
 # `deps` reinstalls after a lockfile change; other targets only install when missing.
 deps frontend/node_modules:
