@@ -1,7 +1,7 @@
 # ADR: Caddy as an opt-in TLS terminator for the Docker stack
 
 > Date: 2026-07-19
-> Status: ✅ Active
+> Status: ✅ Active (the nginx and `entrypoint.sh` HSTS details are superseded by [One non-root Java process](./2026-11-03-one-non-root-process.md))
 
 ## Context
 

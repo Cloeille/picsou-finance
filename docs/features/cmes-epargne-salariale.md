@@ -156,8 +156,8 @@ modal lists no CMES row there.
   `service/CmesSyncService.java`, `controller/CmesController.java`, `model/CmesSession.java`,
   `db/migration/V117__cmes_session.sql`, `V120__cmes_session_invalid_otp.sql`.
 - `frontend/src/components/sync/CmesPanel.tsx`, `features/sync/{api,hooks}.ts`.
-- `docker/nginx.conf`: `/api/cmes/auth/complete` gets 180 s, the
-  confirmation can take two minutes.
+- No proxy timeout applies since #342 (Tomcat has none): the confirmation of
+  `/api/cmes/auth/complete` can take two minutes, and the backend bounds its own wait.
 
 ## Deployment
 

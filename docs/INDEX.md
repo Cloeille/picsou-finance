@@ -54,7 +54,7 @@
 | 2026-07-12 | [Remote-MCP OAuth authorization for third-party clients (claude.ai)](./decisions/2026-07-12-remote-mcp-oauth-authorization.md) | Active |
 | 2026-07-12 | [UI controls follow the shadcn theme radius, not a pill shape](./decisions/2026-07-12-ui-controls-follow-shadcn-theme-radius.md) | Active |
 | 2026-07-17 | [EVM multichain wallets — one address, many chains](./decisions/2026-07-17-evm-multichain-wallets.md) | Active |
-| 2026-07-19 | [Caddy as an opt-in TLS terminator for the Docker stack](./decisions/2026-07-19-caddy-opt-in-tls-profile.md) | Active |
+| 2026-07-19 | [Caddy as an opt-in TLS terminator for the Docker stack](./decisions/2026-07-19-caddy-opt-in-tls-profile.md) | Active (nginx details superseded) |
 | 2026-07-21 | [Bourse Direct isolated browser sidecar and atomic complete snapshots](./decisions/2026-07-21-bourse-direct-isolated-atomic-sync.md) | Active |
 | 2026-07-26 | [Fortuneo isolated browser sidecar and complete atomic history sync](./decisions/2026-07-26-fortuneo-isolated-atomic-history-sync.md) | Active |
 | 2026-07-19 | [Interactive Brokers via the Flex Web Service (read-only, EOD)](./decisions/2026-07-19-ibkr-flex-web-service.md) | Active |
@@ -85,7 +85,7 @@
 | 2026-10-31 | [Trusted proxy client addresses](./decisions/2026-10-31-trusted-proxy-client-address.md) | Active |
 | 2026-10-31 | [Helm chart in the repository, published by CI next to the images](./decisions/2026-10-31-helm-chart-published-from-ci.md) | Active |
 | 2026-11-01 | [Sidecars share one Python package for their plumbing](./decisions/2026-11-01-shared-sidecar-package.md) | Active |
-| 2026-11-03 | [Spring Boot serves the SPA and every response header](./decisions/2026-11-03-spring-serves-the-spa.md) | Active |
+| 2026-11-03 | [Spring Boot serves the SPA and every response header](./decisions/2026-11-03-spring-serves-the-spa.md) | Active (nginx step superseded) |
 | 2026-11-03 | [One non-root Java process in the app image](./decisions/2026-11-03-one-non-root-process.md) | Active |
 
 ## Feature notes
