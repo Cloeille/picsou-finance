@@ -66,7 +66,6 @@ class FortuneoSessionTest {
         assertThat(session.isActive()).isTrue();
     }
 
-
     @Test
     void aCodeFortuneoNeverDeclaredIsRejectedBeforeItReachesTheCheckConstraint() {
         FortuneoSession session = newSession();
@@ -79,6 +78,7 @@ class FortuneoSessionTest {
         assertThat(session.getSyncStatus()).isEqualTo(FortuneoSyncStatus.RUNNING);
         assertThat(session.getLastSyncError()).isNull();
     }
+
     private FortuneoSession newSession() {
         return FortuneoSession.create(TestEntities.owner(), "encrypted", VALIDATED_AT);
     }
