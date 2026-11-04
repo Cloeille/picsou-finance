@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `get_ai_categorization_status` reports its progress as counters only, under a new
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
   browser session. See [Budget + OAuth2 tools in MCP](docs/features/mcp-budget-oauth2.md).
+- **Unused-file check for the frontend.** `frontend/knip.jsonc` lets
+  `bunx knip --production` report unused files under `src/`. German and Spanish strings still
+  in English are listed for translators in `docs/features/i18n-untranslated.md`.
+
 ### Fixed
 
 - **The account export dialog says "2 accounts selected".** Its count key used the legacy
@@ -69,9 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unreachable frontend code.** `PortfolioView`, `CashflowTab`, `types/app.ts`, thirteen hooks
   and helpers and three constants with no caller, the API functions only they called, the
   Trade Republic sync-progress client stub (the backend never served it) and 94 translation
-  keys nothing reads. No screen changes. `frontend/knip.jsonc`
-  lets `bunx knip --production` check for unused files; German and Spanish strings still in
-  English are listed in `docs/features/i18n-untranslated.md`.
+  keys nothing reads. No screen changes.
 
 - **Split Docker stack.** The root `docker-compose.yml`, `backend/Dockerfile`,
   `frontend/Dockerfile`, `frontend/nginx.conf`, `frontend/picsou-realip.conf`, both
