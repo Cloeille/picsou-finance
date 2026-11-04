@@ -155,6 +155,7 @@ jobs:
           15 migration.LegacyMigrationRenumberingTest
           6 service.SidecarBudgetPostgresTest
           15 config.SsoLoginIntegrationTest
+          2 config.SsoHandshakeSessionRaceIntegrationTest
           EOF
 
   frontend:

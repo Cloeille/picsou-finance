@@ -275,7 +275,11 @@ Frontend (`frontend/src/`):
   the PKCE verifier and the intent; the callback invalidates it, success or failure. It is the
   only server-side session in Picsou. The callback response may still carry a new
   `Set-Cookie: JSESSIONID` for an empty session; that is harmless. A cookie-stripping proxy or a
-  different browser between start and callback gives `SESSION_EXPIRED`.
+  different browser between start and callback gives `SESSION_EXPIRED`. The stateless API chain
+  disables Spring's session-fixation protection (`sessionFixation().none()`): otherwise any
+  JWT-authenticated request carrying the handshake `JSESSIONID` (health probe, SPA polling) rotates
+  that id, and the callback, sent with the stale id, ends on `SESSION_EXPIRED`.
+  `SsoHandshakeSessionRaceIntegrationTest` pins it.
 - **App sessions stay bounded without refresh tokens.** The iOS app and the remote-MCP connector
   are public clients and get no refresh token, so each new access token needs a browser
   authorization, which the SSO window governs. A member removed at the IdP keeps app access for

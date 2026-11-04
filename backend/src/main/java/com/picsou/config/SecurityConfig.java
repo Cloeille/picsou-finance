@@ -125,7 +125,14 @@ public class SecurityConfig {
             .csrf(csrf -> csrf
                 .requireCsrfProtectionMatcher(new CrossSiteCookieRequestMatcher(corsConfigurationSource))
                 .csrfTokenRepository(new NoStoredCsrfTokenRepository()))
-            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            // STATELESS still installs SessionManagementFilter with ChangeSessionIdAuthenticationStrategy: a
+            // JWT-authenticated request (RequestAttribute repo => no saved context) carrying a JSESSIONID would
+            // rotate it. That id is the SSO handshake session of the /oauth2/sso chain, so polling requests made
+            // while the IdP step is open invalidated the id the callback later presents (SESSION_EXPIRED).
+            // This chain never creates sessions or binds authentication to one, so there is nothing to fix.
+            .sessionManagement(sm -> sm
+                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                .sessionFixation(fixation -> fixation.none()))
             .securityContext(sc -> sc.securityContextRepository(securityContextRepository))
             .headers(headers -> headers
                 .frameOptions(fo -> fo.deny())
