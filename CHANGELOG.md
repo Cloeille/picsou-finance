@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   current price empty and value it at its average buy-in. A sync updates current holdings and
   today's snapshot; earlier daily snapshots keep their recorded values.
 
+- **Loan monthly payments count the insurance once.** When the monthly payment is left empty,
+  the dashboard's liabilities card now adds the insurance to the computed annuity, as the loan
+  page does. The XLSX export's monthly total no longer adds the insurance on top of an entered
+  payment, and no longer shows only the insurance when the payment is empty. See
+  [Loans](docs/features/loans.md).
+
 ### Changed
 
 - **Caisse d'Epargne: a failed account import says where it failed.** The sidecar's
