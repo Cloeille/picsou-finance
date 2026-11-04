@@ -62,6 +62,8 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
     static final String DATASOURCE_PASSWORD_ENV = "SPRING_DATASOURCE_PASSWORD";
     static final String POSTGRES_PASSWORD = "POSTGRES_PASSWORD";
     static final String POSTGRES_PASSWORD_FILE = "postgres_password";
+    /** {@code spring.datasource.password} as the bundled {@code application.yml} declares it. */
+    static final String DATASOURCE_PASSWORD_TEMPLATE = "${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:picsou}}";
     static final String DATASOURCE_PASSWORD_PROPERTY = "spring.datasource.password";
     /** The last fallback of {@code spring.datasource.password} in {@code application.yml}. */
     static final String DEFAULT_DATASOURCE_PASSWORD = "picsou";
@@ -162,29 +164,45 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
     }
 
     /**
-     * An explicit {@code spring.datasource.password}, or {@code null}. {@code application.yml}
-     * itself holds {@code ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:picsou}}} under that
-     * name, which is a template and not a password: any value holding a placeholder reference is
-     * skipped, so the search reaches the source the user actually set.
+     * An explicit {@code spring.datasource.password}, or {@code null}. The bundled
+     * {@code application.yml} declares {@link #DATASOURCE_PASSWORD_TEMPLATE} under that name, which
+     * is the precedence itself and not a password, so that exact value is skipped. Any other value
+     * is the operator's, a {@code ${DB_PASSWORD}} reference included: it is returned as is and
+     * Spring resolves it as it would without this processor.
      */
     private static String explicitDatasourcePassword(ConfigurableEnvironment environment) {
         for (PropertySource<?> source : environment.getPropertySources()) {
             Object value = source.getProperty(DATASOURCE_PASSWORD_PROPERTY);
-            if (value == null) {
-                continue;
-            }
-            String text = value.toString();
-            if (!text.isEmpty() && !text.contains("${")) {
-                return text;
+            if (value != null && !value.toString().isEmpty()
+                && !DATASOURCE_PASSWORD_TEMPLATE.equals(value.toString())) {
+                return value.toString();
             }
         }
         return null;
     }
 
-    /** The first non-empty value of {@code name} among the property sources, or {@code null}. */
+    /**
+     * {@code SPRING_DATASOURCE_PASSWORD} or {@code spring.datasource.password} holds a password, so
+     * the legacy {@code postgres_password} file is never consulted, nor refused when it is empty.
+     */
+    private static boolean hasAnExplicitDatasourcePassword(ConfigurableEnvironment environment) {
+        return firstNonEmpty(environment, DATASOURCE_PASSWORD_ENV) != null
+            || explicitDatasourcePassword(environment) != null;
+    }
+
+    /**
+     * The first non-empty value of {@code name} among the property sources, or {@code null}. An
+     * empty value in one source, as Compose gives for an unset variable, does not hide a real one
+     * in a later source.
+     */
     private static String firstNonEmpty(ConfigurableEnvironment environment, String name) {
-        String value = valueOf(environment, name);
-        return StringUtils.hasLength(value) ? value : null;
+        for (PropertySource<?> source : environment.getPropertySources()) {
+            Object value = source.getProperty(name);
+            if (value != null && !value.toString().isEmpty()) {
+                return value.toString();
+            }
+        }
+        return null;
     }
 
     /**
@@ -221,6 +239,10 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
                 writeIfAbsent(file, supplied);
             }
             return Optional.of(supplied);
+        }
+        if (!secret.isGenerated() && hasAnExplicitDatasourcePassword(environment)) {
+            // The datasource has its password, and the legacy file would lose to it anyway.
+            return Optional.empty();
         }
         if (!Files.exists(file)) {
             if (!secret.isGenerated()) {
