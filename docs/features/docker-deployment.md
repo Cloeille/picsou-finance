@@ -262,7 +262,7 @@ database's password, so a generated one could only mismatch it. It comes from th
 earlier version, or from the variable on a previous start); with neither, `SecretBootstrap`
 publishes nothing and `application.yml`'s default `picsou` applies.
 
-On subsequent boots, re-reads from the files. If the env var is already set by the operator, it is respected and written to the file for consistency (an existing file is never overwritten). Secrets are **never** regenerated once created: doing so would invalidate JWTs and corrupt all encrypted data in the DB. An empty secret file stops the app, naming the file and the variable. Files are written through a temp file and a hard link, mode `0600` in a `0700` directory, so the final name never shows a partial value and an existing file is never replaced. A filesystem without hard links (some NAS mounts) falls back to creating the final file exclusively (`CREATE_NEW`): it still never replaces a file another process created first, but a reader that opens it before the bytes land finds it empty, and an empty file stops the app instead of being used. A filesystem that cannot apply the modes only logs a warning. Without `PICSOU_SECRETS_DIR`, nothing is generated.
+On subsequent boots, re-reads from the files. If the env var is already set by the operator, it is respected and written to the file for consistency (an existing file is never overwritten). Secrets are **never** regenerated once created: doing so would invalidate JWTs and corrupt all encrypted data in the DB. An empty secret file stops the app, naming the file and the variable, when the variable is unset. A set variable is used and the empty file is left as is, so the next start without it fails: delete the empty file to let the value be copied again. Files are written through a temp file and a hard link, mode `0600` in a `0700` directory, so the final name never shows a partial value and an existing file is never replaced. A filesystem without hard links (some NAS mounts) falls back to creating the final file exclusively (`CREATE_NEW`): it still never replaces a file another process created first, but a reader that opens it before the bytes land finds it empty, and an empty file stops the app instead of being used. A filesystem that cannot apply the modes only logs a warning. Without `PICSOU_SECRETS_DIR`, nothing is generated.
 
 `docker/entrypoint.sh` no longer touches secrets. It writes the nginx trusted-proxy snippet from
 `PICSOU_PROXY_IP`, sets `SERVER_PORT` and the `APP_STARTUP_SYNC_ENABLED` default, then execs supervisord.
@@ -272,11 +272,16 @@ The datasource password follows Spring's ordinary precedence, through `applicati
 publishes the supplied or persisted `POSTGRES_PASSWORD`, so it feeds that
 placeholder instead of the literal `picsou` fallback, and `--spring.datasource.password`,
 `-Dspring.datasource.password`, `SPRING_APPLICATION_JSON` and a non-empty
-`SPRING_DATASOURCE_PASSWORD` all outrank it. An empty `SPRING_DATASOURCE_PASSWORD` would map to
-an empty `spring.datasource.password`, so in that one case `SecretBootstrap` adds a source with
-the resolved PostgreSQL password, or `picsou` when there is none, just above the environment
-(the command line and `-D` still win). Without `PICSOU_SECRETS_DIR`, `POSTGRES_PASSWORD` in the
+`SPRING_DATASOURCE_PASSWORD` all outrank it. An empty `SPRING_DATASOURCE_PASSWORD` or
+`POSTGRES_PASSWORD` (what a Compose-style file gives for an unset variable) is dropped from the
+environment, with or without `PICSOU_SECRETS_DIR`, so it behaves exactly as unset: a
+`spring.datasource.password` from any source wins, a config file included, then the resolved
+PostgreSQL password, then `picsou`. Without `PICSOU_SECRETS_DIR`, `POSTGRES_PASSWORD` in the
 environment also reaches the datasource; with neither variable the password is still `picsou`.
+
+The Helm migration hook does not start Spring's environment: it maps `SPRING_DATASOURCE_PASSWORD`
+to `POSTGRES_PASSWORD` in the shell. A password given only through `SPRING_APPLICATION_JSON` is
+not seen there, so set `SPRING_DATASOURCE_PASSWORD` instead when the two differ.
 
 This does not synchronize or rotate the database container's password. Set
 `POSTGRES_PASSWORD` in `docker/.env` to the actual database password before

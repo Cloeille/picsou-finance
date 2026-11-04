@@ -9,6 +9,7 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
@@ -26,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Resolves the install secrets before any bean exists, so {@link JwtUtil},
@@ -46,18 +48,16 @@ import java.util.Optional;
  * {@code SPRING_DATASOURCE_PASSWORD}, then {@code POSTGRES_PASSWORD}, so the resolved password
  * reaches the datasource through Spring's ordinary precedence and every explicit
  * {@code spring.datasource.password} (command line, {@code -D}, {@code SPRING_APPLICATION_JSON},
- * the environment) outranks it. The one exception is an empty {@code SPRING_DATASOURCE_PASSWORD},
- * which Compose-style files produce for an unset variable: it is treated as unset, so the
- * datasource gets the resolved {@code POSTGRES_PASSWORD}, else {@code application.yml}'s default.
+ * the environment, a config file) outranks it. An empty {@code SPRING_DATASOURCE_PASSWORD} or
+ * {@code POSTGRES_PASSWORD}, which Compose-style files produce for an unset variable, is treated
+ * as unset, with or without a secrets directory.
  */
 public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
 
     static final String SECRETS_DIR_PROPERTY = "picsou.secrets-dir";
     static final String SECRETS_DIR_ENV = "PICSOU_SECRETS_DIR";
     static final String SOURCE_NAME = "picsouGeneratedSecrets";
-    static final String DATASOURCE_SOURCE_NAME = "picsouDatasourcePassword";
     static final String DATASOURCE_PASSWORD_ENV = "SPRING_DATASOURCE_PASSWORD";
-    static final String DATASOURCE_PASSWORD_PROPERTY = "spring.datasource.password";
     static final String POSTGRES_PASSWORD = "POSTGRES_PASSWORD";
     /** The last fallback of {@code spring.datasource.password} in {@code application.yml}. */
     static final String DEFAULT_DATASOURCE_PASSWORD = "picsou";
@@ -96,6 +96,7 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
         if (!StringUtils.hasText(configured)) {
             configured = environment.getProperty(SECRETS_DIR_ENV);
         }
+        dropEmptyPasswordVariables(environment);
         if (!StringUtils.hasText(configured)) {
             return;
         }
@@ -106,22 +107,31 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
         for (Secret secret : SECRETS) {
             resolve(environment, dir, secret).ifPresent(value -> resolved.put(secret.variable(), value));
         }
+        environment.getPropertySources().addFirst(new MapPropertySource(SOURCE_NAME, resolved));
+    }
+
+    /**
+     * Compose-style files turn an unset variable into an empty one, while application.yml's
+     * {@code ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:picsou}}} and Spring's relaxed binding
+     * only treat an absent one as unset. An empty {@code SPRING_DATASOURCE_PASSWORD} or
+     * {@code POSTGRES_PASSWORD} is removed from the environment source, so the datasource gets
+     * exactly what an unset variable gives: an explicit {@code spring.datasource.password} from any
+     * source, a config file included, else the resolved {@code POSTGRES_PASSWORD}, else
+     * {@code picsou}. Runs with or without a secrets directory.
+     */
+    private static void dropEmptyPasswordVariables(ConfigurableEnvironment environment) {
         MutablePropertySources sources = environment.getPropertySources();
-        // An empty SPRING_DATASOURCE_PASSWORD would otherwise reach application.yml's placeholder,
-        // and the datasource, as an empty password: treat it as unset instead.
-        if ("".equals(environment.getProperty(DATASOURCE_PASSWORD_ENV))) {
-            Object password = resolved.getOrDefault(POSTGRES_PASSWORD, DEFAULT_DATASOURCE_PASSWORD);
-            MapPropertySource fallback = new MapPropertySource(DATASOURCE_SOURCE_NAME,
-                Map.of(DATASOURCE_PASSWORD_PROPERTY, password));
-            // Behind the command line, SPRING_APPLICATION_JSON and -D, which still win; above the
-            // environment variable that is being overridden.
-            if (sources.contains(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME)) {
-                sources.addBefore(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME, fallback);
-            } else {
-                sources.addFirst(fallback);
-            }
+        String name = StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME;
+        if (!(sources.get(name) instanceof MapPropertySource system)) {
+            return;
         }
-        sources.addFirst(new MapPropertySource(SOURCE_NAME, resolved));
+        Map<String, Object> variables = new LinkedHashMap<>(system.getSource());
+        boolean dropped = variables.entrySet().removeIf(entry ->
+            (DATASOURCE_PASSWORD_ENV.equals(entry.getKey()) || POSTGRES_PASSWORD.equals(entry.getKey()))
+                && "".equals(entry.getValue()));
+        if (dropped) {
+            sources.replace(name, new SystemEnvironmentPropertySource(name, variables));
+        }
     }
 
     /** The secret's value, or empty for a secret that is never generated and was not found. */
@@ -129,6 +139,12 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
         Path file = dir.resolve(secret.fileName());
         String supplied = environment.getProperty(secret.variable());
         if (StringUtils.hasLength(supplied)) {
+            if (supplied.endsWith("\n") && secret.isGenerated()) {
+                // Used verbatim while the variable is set, but read back without the newline once it
+                // is removed: the key would change then. Not stripped here, which would change it now.
+                log.warn(secret.variable() + " ends with a newline. It is used as is, but the copy in "
+                    + file + " is read without it if the variable is removed later. Remove the newline.");
+            }
             writeIfAbsent(file, supplied);
             return Optional.of(supplied);
         }
@@ -230,7 +246,7 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
     boolean createExclusively(Path file, String value) throws IOException {
         FileChannel channel;
         try {
-            channel = FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            channel = openOwnerOnly(file);
         } catch (FileAlreadyExistsException ex) {
             return false;
         }
@@ -248,14 +264,29 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
         return true;
     }
 
+    /** {@code CREATE_NEW} with mode {@code 0600} from creation; without it on a filesystem that has no POSIX modes. */
+    private static FileChannel openOwnerOnly(Path file) throws IOException {
+        try {
+            return FileChannel.open(file, Set.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE),
+                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+        } catch (UnsupportedOperationException noPosixModes) {
+            return FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        }
+    }
+
     void tryChmod(Path path, String permissions) {
         try {
-            Files.setPosixFilePermissions(path, PosixFilePermissions.fromString(permissions));
+            setPermissions(path, permissions);
         } catch (UnsupportedOperationException | IOException ex) {
             // NAS bind mounts (SMB/CIFS, some FUSE) cannot represent POSIX modes: warn, do not fail.
             log.warn("could not chmod " + permissions + " " + path
                 + ": the filesystem may not support it. Secrets may be readable by other users on the host.");
         }
+    }
+
+    /** Overridable so tests can simulate a filesystem without POSIX modes. */
+    void setPermissions(Path path, String permissions) throws IOException {
+        Files.setPosixFilePermissions(path, PosixFilePermissions.fromString(permissions));
     }
 
     private static String generate(int bytes) {

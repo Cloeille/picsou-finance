@@ -284,6 +284,16 @@ class SecretBootstrapTest {
         }
     }
 
+    private String configFile(String content) {
+        try {
+            Path file = root.resolve("extra.properties");
+            Files.writeString(file, content);
+            return "file:" + file;
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private String datasourcePassword(Map<String, Object> environment, String... commandLine) {
         return datasourcePassword(environment, Map.of(), commandLine);
     }
@@ -386,6 +396,35 @@ class SecretBootstrapTest {
     @Test
     void explicitPicsouPassword_isPreserved() {
         assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", "picsou"))).isEqualTo("picsou");
+    }
+
+    /** Compose writes POSTGRES_PASSWORD= for an unset variable; Compose itself then uses picsou. */
+    @Test
+    void emptyPostgresPasswordVariable_isTreatedAsUnset() throws IOException {
+        assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", ""))).isEqualTo("picsou");
+        assertThat(datasourcePassword(variables("POSTGRES_PASSWORD", ""))).isEqualTo("picsou");
+        assertThat(datasourcePassword(variables("POSTGRES_PASSWORD", "", "SPRING_DATASOURCE_PASSWORD", "")))
+            .isEqualTo("picsou");
+        seed("postgres_password", "persisted-postgres-password");
+        assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", "")))
+            .isEqualTo("persisted-postgres-password");
+    }
+
+    /** The empty-variable fallback does not need a secrets directory. */
+    @Test
+    void emptySpringPasswordVariable_withoutASecretsDirectory_fallsBackToPostgresPassword() {
+        assertThat(datasourcePassword(variables("SPRING_DATASOURCE_PASSWORD", "", "POSTGRES_PASSWORD", "from-compose")))
+            .isEqualTo("from-compose");
+        assertThat(datasourcePassword(variables("SPRING_DATASOURCE_PASSWORD", ""))).isEqualTo("picsou");
+    }
+
+    /** A config file's spring.datasource.password beats the empty variable it replaces. */
+    @Test
+    void emptySpringPasswordVariable_lostToAConfigFilePassword() {
+        assertThat(datasourcePassword(variablesWithSecretsDir("SPRING_DATASOURCE_PASSWORD", "",
+                "POSTGRES_PASSWORD", "from-compose"),
+            "--spring.config.additional-location=" + configFile("spring.datasource.password=from-the-file")))
+            .isEqualTo("from-the-file");
     }
 
     /** Without a secrets directory SecretBootstrap does nothing: application.yml alone decides. */
@@ -529,7 +568,15 @@ class SecretBootstrapTest {
         Files.createDirectories(secretsDir());
         Path file = secretsDir().resolve("jwt_secret");
 
-        boolean created = bootstrap.createExclusively(file, "ours \u00e9");
+        // Even when the later chmod cannot run, the file is created owner-only.
+        SecretBootstrap chmodFails = new SecretBootstrap(supplier -> supplier.get()) {
+            @Override
+            void setPermissions(Path path, String permissions) throws IOException {
+                throw new IOException("chmod refused");
+            }
+        };
+
+        boolean created = chmodFails.createExclusively(file, "ours \u00e9");
 
         assertThat(created).isTrue();
         assertThat(Files.readAllBytes(file)).isEqualTo("ours \u00e9".getBytes(StandardCharsets.UTF_8));
@@ -581,6 +628,48 @@ class SecretBootstrapTest {
     }
 
     // ─── filesystem without POSIX modes ───────────────────────────────────
+
+    @Test
+    void suppliedSecretEndingWithANewline_isUsedAsIs_withAWarning() {
+        List<String> warnings = new ArrayList<>();
+        SecretBootstrap logged = new SecretBootstrap(supplier -> new NoOpLog() {
+            @Override
+            public void warn(Object message) {
+                warnings.add(String.valueOf(message));
+            }
+        });
+        MockEnvironment environment = new MockEnvironment()
+            .withProperty("PICSOU_SECRETS_DIR", secretsDir().toString())
+            .withProperty("JWT_SECRET", "supplied-jwt\n");
+
+        logged.postProcessEnvironment(environment, new SpringApplication());
+
+        assertThat(environment.getProperty("JWT_SECRET")).isEqualTo("supplied-jwt\n");
+        assertThat(warnings).singleElement().asString()
+            .contains("JWT_SECRET ends with a newline").doesNotContain("supplied-jwt");
+    }
+
+    /** NAS mounts without POSIX modes throw UnsupportedOperationException, not an IOException. */
+    @Test
+    void chmodUnsupported_logsAWarning_andDoesNotThrow() throws IOException {
+        List<String> warnings = new ArrayList<>();
+        SecretBootstrap noPosix = new SecretBootstrap(supplier -> new NoOpLog() {
+            @Override
+            public void warn(Object message) {
+                warnings.add(String.valueOf(message));
+            }
+        }) {
+            @Override
+            void setPermissions(Path path, String permissions) {
+                throw new UnsupportedOperationException("no POSIX modes");
+            }
+        };
+        Files.createDirectories(secretsDir());
+
+        noPosix.tryChmod(secretsDir(), "rwx------");
+
+        assertThat(warnings).singleElement().asString().contains("could not chmod rwx------");
+    }
 
     @Test
     void chmodFailure_logsAWarning_andDoesNotThrow() {
