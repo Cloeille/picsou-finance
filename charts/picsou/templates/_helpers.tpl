@@ -223,6 +223,14 @@ Image reference. Call with (dict "ctx" $ "image" .Values.app.image).
       name: {{ $secret }}
       key: crypto-encryption-key
       optional: {{ .Values.app.persistence.enabled }}
+# Optional: SSO is configured through app.env (SSO_ISSUER_URI, SSO_CLIENT_ID, ...).
+# A blank secret means a public client (PKCE only).
+- name: SSO_CLIENT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: sso-client-secret
+      optional: true
 {{- range $name, $sc := .Values.sidecars }}
 - name: {{ $sc.urlEnv }}
 {{- if $sc.enabled }}
