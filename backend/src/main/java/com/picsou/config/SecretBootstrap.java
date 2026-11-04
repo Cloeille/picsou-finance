@@ -194,7 +194,7 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
             tryChmod(temp, "rw-------");
             try {
                 // A hard link fails when the target exists, unlike a rename, which would replace it.
-                Files.createLink(file, temp);
+                link(file, temp);
             } catch (FileAlreadyExistsException ex) {
                 return false;
             } catch (UnsupportedOperationException | IOException ex) {
@@ -212,6 +212,11 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
                 }
             }
         }
+    }
+
+    /** Hard-links {@code temp} as {@code file}; overridable so tests can simulate a filesystem without hard links. */
+    void link(Path file, Path temp) throws IOException {
+        Files.createLink(file, temp);
     }
 
     /**
@@ -243,7 +248,7 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
         return true;
     }
 
-    private void tryChmod(Path path, String permissions) {
+    void tryChmod(Path path, String permissions) {
         try {
             Files.setPosixFilePermissions(path, PosixFilePermissions.fromString(permissions));
         } catch (UnsupportedOperationException | IOException ex) {

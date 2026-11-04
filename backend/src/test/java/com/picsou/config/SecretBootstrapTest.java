@@ -1,7 +1,10 @@
 package com.picsou.config;
 
+import org.apache.commons.logging.impl.NoOpLog;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -13,9 +16,11 @@ import org.springframework.mock.env.MockEnvironment;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -63,6 +68,12 @@ class SecretBootstrapTest {
 
     private static int decodedLength(String base64) {
         return Base64.getDecoder().decode(base64).length;
+    }
+
+    private List<String> secretsDirEntries() throws IOException {
+        try (var entries = Files.list(secretsDir())) {
+            return entries.map(p -> p.getFileName().toString()).toList();
+        }
     }
 
     // ─── generation ───────────────────────────────────────────────────────
@@ -455,6 +466,49 @@ class SecretBootstrapTest {
         assertThat(Files.readAllBytes(secretsDir().resolve("jwt_secret"))).isEqualTo("ours".getBytes(StandardCharsets.UTF_8));
     }
 
+    // ─── dangling symlink ─────────────────────────────────────────────────
+    //
+    // Files.exists follows links, so a link to a missing target looks absent and generation runs.
+    // The hard link then finds the name taken: the link must stay as it is and never be followed.
+
+    private Path danglingTarget() {
+        return root.resolve("planted-target");
+    }
+
+    private Path seedDanglingSymlink(String file) throws IOException {
+        Files.createDirectories(secretsDir());
+        return Files.createSymbolicLink(secretsDir().resolve(file), danglingTarget());
+    }
+
+    private void assertDanglingSymlinkIsUntouched(Path link) throws IOException {
+        assertThat(link).isSymbolicLink();
+        assertThat(Files.readSymbolicLink(link)).isEqualTo(danglingTarget());
+        assertThat(danglingTarget()).doesNotExist();
+    }
+
+    @Test
+    void writeIfAbsent_leavesADanglingSymlinkAlone() throws IOException {
+        Path link = seedDanglingSymlink("jwt_secret");
+
+        boolean written = bootstrap.writeIfAbsent(link, "ours");
+
+        assertThat(written).isFalse();
+        assertDanglingSymlinkIsUntouched(link);
+        assertThat(secretsDirEntries()).containsExactly("jwt_secret");
+    }
+
+    @Test
+    void danglingSymlink_refusesToStart_namingTheFile_withoutFollowingIt() throws IOException {
+        Path link = seedDanglingSymlink("jwt_secret");
+
+        assertThatThrownBy(() -> run())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining(link.toString())
+            .hasMessageContaining("JWT_SECRET");
+        assertDanglingSymlinkIsUntouched(link);
+        assertThat(secretsDirEntries()).containsExactly("jwt_secret");
+    }
+
     // ─── filesystem without hard links ────────────────────────────────────
 
     @Test
@@ -482,6 +536,34 @@ class SecretBootstrapTest {
         assertThat(Files.getPosixFilePermissions(file)).isEqualTo(PosixFilePermissions.fromString("rw-------"));
     }
 
+    static List<Exception> hardLinkFailures() {
+        return List.of(new UnsupportedOperationException("no hard links"),
+            new FileSystemException("jwt_secret", ".secret-x.tmp", "Operation not permitted"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("hardLinkFailures")
+    void writeIfAbsent_withoutHardLinks_createsTheFileExclusively(Exception failure) throws IOException {
+        SecretBootstrap withoutHardLinks = new SecretBootstrap(supplier -> supplier.get()) {
+            @Override
+            void link(Path file, Path temp) throws IOException {
+                if (failure instanceof IOException io) {
+                    throw io;
+                }
+                throw (RuntimeException) failure;
+            }
+        };
+        Files.createDirectories(secretsDir());
+        Path file = secretsDir().resolve("jwt_secret");
+
+        boolean written = withoutHardLinks.writeIfAbsent(file, "ours \u00e9");
+
+        assertThat(written).isTrue();
+        assertThat(Files.readAllBytes(file)).isEqualTo("ours \u00e9".getBytes(StandardCharsets.UTF_8));
+        assertThat(Files.getPosixFilePermissions(file)).isEqualTo(PosixFilePermissions.fromString("rw-------"));
+        assertThat(secretsDirEntries()).containsExactly("jwt_secret");
+    }
+
     @Test
     void createExclusively_failsWithoutLeavingAFileWhenTheDirectoryIsMissing() {
         Path file = secretsDir().resolve("jwt_secret");
@@ -496,5 +578,26 @@ class SecretBootstrapTest {
 
         assertThat(secretsDir()).isDirectory();
         assertThat(Set.of(secretsDir().toFile().list())).containsAll(FILES);
+    }
+
+    // ─── filesystem without POSIX modes ───────────────────────────────────
+
+    @Test
+    void chmodFailure_logsAWarning_andDoesNotThrow() {
+        List<String> warnings = new ArrayList<>();
+        NoOpLog log = new NoOpLog() {
+            @Override
+            public void warn(Object message) {
+                warnings.add(String.valueOf(message));
+            }
+        };
+        SecretBootstrap logged = new SecretBootstrap(supplier -> log);
+        Path missing = secretsDir().resolve("jwt_secret");
+
+        logged.tryChmod(missing, "rw-------");
+
+        assertThat(warnings).singleElement().asString()
+            .contains("could not chmod rw-------")
+            .contains(missing.toString());
     }
 }
