@@ -61,7 +61,7 @@ On Kubernetes, the Helm chart in `charts/picsou` deploys the same images; the `c
 
 1. **`frontend-build`** — `oven/bun:alpine`. `bun install --frozen-lockfile`, `bun run build`. Output: `dist/`.
 2. **`backend-build`** — `maven:3.9-eclipse-temurin-21-alpine`. `mvn dependency:go-offline` (layer cache), then `mvn package -DskipTests`. Output: fat JAR.
-3. **Runtime** — `eclipse-temurin:21-jre-jammy`. Installs Nginx + supervisor + openssl. Copies `dist/` to `/app/spa` (served by Spring Boot, `SPA_LOCATION=/app/spa`) and the JAR from build stages, plus `docker/{nginx.conf,supervisord.conf,entrypoint.sh}`.
+3. **Runtime** — `eclipse-temurin:21-jre-jammy`. Installs Nginx + supervisor (no openssl: the app generates its secrets in Java). Copies `dist/` to `/app/spa` (served by Spring Boot, `SPA_LOCATION=/app/spa`) and the JAR from build stages, plus `docker/{nginx.conf,supervisord.conf,entrypoint.sh}`.
 
 Spring Boot serves the SPA, the API and every response header. nginx is only a forwarding proxy in front of it: it resolves the client address and public scheme/host/port, and sets the per-endpoint timeouts. See [the ADR](../decisions/2026-11-03-spring-serves-the-spa.md).
 

@@ -36,11 +36,10 @@ RUN mvn package -DskipTests -q
 # ---------- Stage 3: Runtime ----------
 FROM eclipse-temurin:21-jre-jammy
 
-# Install Nginx + supervisor + openssl
+# Install Nginx + supervisor (the app generates its own secrets, so no openssl)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         nginx \
         supervisor \
-        openssl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

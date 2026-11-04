@@ -65,7 +65,7 @@ spec:
           args:
             - |
               set -e
-              # Match the image entrypoint, which this CLI invocation bypasses.
+              # The app derives this at startup; the CLI reads the environment only.
               export SPRING_DATASOURCE_PASSWORD="${SPRING_DATASOURCE_PASSWORD:-$POSTGRES_PASSWORD}"
               for op in migrate verify; do
                 java -XX:MaxRAMPercentage=75.0 -Dloader.main=com.picsou.migration.ReleaseMigrationCli \
