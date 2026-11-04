@@ -78,7 +78,7 @@ source of the withdrawal price for files that do not carry it. Cross-checking th
 share count against `rapportdetail.php` was considered and rejected: it costs two
 requests per fund (about 2.5 s each), a BIFF reader in the image, and its own HTML
 interstitial, to re-check a figure the table's total row already reconciles. The
-dividend export is a separate feature, tracked in #425.
+dividend export is a separate feature, tracked in [#425](https://github.com/Cloeille/picsou-finance/issues/425).
 
 The same session showed that every cookie is host-only on `moncompte.sofidy.com`,
 `httpOnly` and `secure`. `PHPSESSID` is a browser-session cookie, and the
