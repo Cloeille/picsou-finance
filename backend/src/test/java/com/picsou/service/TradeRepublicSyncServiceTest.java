@@ -44,10 +44,14 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -845,6 +849,149 @@ class TradeRepublicSyncServiceTest {
             .extracting(ex -> ((SyncException) ex).getCode())
             .isEqualTo("INVALID_SESSION_STATE");
         verify(trPort, never()).openSession(anyString());
+    }
+
+    // --- Automatic transaction import during the sync ---
+
+    private static final LocalDate TODAY = LocalDate.now(ZoneId.of("Europe/Paris"));
+
+    private static String csvText(String... dataRows) {
+        return "datetime" + ",".repeat(18) + "\n" + String.join("\n", dataRows) + "\n";
+    }
+
+    private FamilyMember syncMember() {
+        FamilyMember member = FamilyMember.builder().id(MEMBER).displayName("Owner").build();
+        arrangeSession(member);
+        return member;
+    }
+
+    @Test
+    void sync_aFirstImportAsksForThreeYearsOfTransactions() {
+        syncMember();
+        when(trPort.fetchAccounts("cookie", CLAIMS)).thenReturn(List.of());
+        when(trPort.fetchTransactionsCsv(anyString(), any(), any())).thenReturn(csvText());
+
+        service.queueSync(MEMBER);
+
+        verify(trPort).fetchTransactionsCsv("plain-state", TODAY.minusYears(3), TODAY);
+    }
+
+    @Test
+    void sync_aLaterImportRereadsTheLastTwoWeeksBeforeTheNewestImportedEntry() {
+        syncMember();
+        Account cash = trCash();
+        when(trPort.fetchAccounts("cookie", CLAIMS)).thenReturn(List.of());
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER)).thenReturn(List.of(cash));
+        when(transactionRepository.findLatestSyncedDateByAccountId(1L)).thenReturn(LocalDate.of(2026, 10, 30));
+        when(trPort.fetchTransactionsCsv(anyString(), any(), any())).thenReturn(csvText());
+
+        service.queueSync(MEMBER);
+
+        verify(trPort).fetchTransactionsCsv("plain-state", LocalDate.of(2026, 10, 16), TODAY);
+    }
+
+    @Test
+    void sync_importsTheExportIntoTrCashAndTheInvestmentAccount() {
+        SidecarSession session = arrangeSession(FamilyMember.builder().id(MEMBER).displayName("Owner").build());
+        Account cash = trCash();
+        Account pea = trPea();
+        when(trPort.fetchAccounts("cookie", CLAIMS)).thenReturn(List.of());
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER)).thenReturn(List.of(cash, pea));
+        when(categorizationService.categoriesBySlug(MEMBER))
+            .thenReturn(categoriesWithBoth(investTransferCategory(), investPurchaseCategory()));
+        when(trPort.fetchTransactionsCsv(anyString(), any(), any())).thenReturn(csvText(
+            row("2026-10-01", "PEA", "TRADING", "BUY", "S&P 500", "-59,31", "Buy", "ext-1"),
+            row("2026-10-02", "DEFAULT", "CASH", "CARD_PAYMENT", "", "-12.50", "Coffee", "ext-2")));
+
+        service.queueSync(MEMBER);
+
+        ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, times(3)).save(saved.capture());
+        assertThat(saved.getAllValues()).extracting(Transaction::getExternalId)
+            .containsExactlyInAnyOrder("ext-1_cash", "ext-1_inv", "ext-2_cash");
+        assertThat(saved.getAllValues()).filteredOn(t -> t.getExternalId().endsWith("_inv"))
+            .singleElement().satisfies(t -> assertThat(t.getAccount()).isSameAs(pea));
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+    }
+
+    @Test
+    void sync_aSecondIdenticalImportInsertsNothing() {
+        syncMember();
+        when(trPort.fetchAccounts("cookie", CLAIMS)).thenReturn(List.of());
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER)).thenReturn(List.of(trCash(), trPea()));
+        when(categorizationService.categoriesBySlug(MEMBER))
+            .thenReturn(categoriesWithBoth(investTransferCategory(), investPurchaseCategory()));
+        when(trPort.fetchTransactionsCsv(anyString(), any(), any())).thenReturn(csvText(
+            row("2026-10-01", "PEA", "TRADING", "BUY", "S&P 500", "-59,31", "Buy", "ext-1")));
+        Set<String> stored = new HashSet<>();
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> {
+            Transaction tx = inv.getArgument(0);
+            stored.add(tx.getAccount().getId() + ":" + tx.getExternalId());
+            return tx;
+        });
+        when(transactionRepository.existsByAccountIdAndExternalId(anyLong(), anyString()))
+            .thenAnswer(inv -> stored.contains(inv.getArgument(0) + ":" + inv.getArgument(1)));
+
+        service.queueSync(MEMBER);
+        service.queueSync(MEMBER);
+
+        verify(transactionRepository, times(2)).save(any(Transaction.class));
+        assertThat(stored).containsExactlyInAnyOrder("1:ext-1_cash", "2:ext-1_inv");
+    }
+
+    @Test
+    void sync_aFailedExportKeepsTheCommittedAccountsAndTheSyncSuccessful() {
+        SidecarSession session = arrangeSession(FamilyMember.builder().id(MEMBER).displayName("Owner").build());
+        stubOneSyncedAccount();
+        when(trPort.fetchTransactionsCsv(anyString(), any(), any()))
+            .thenThrow(new SyncException("down", null, "UPSTREAM_UNAVAILABLE"));
+
+        service.queueSync(MEMBER);
+
+        verify(accountRepository).save(any(Account.class));
+        verify(transactionRepository, never()).save(any(Transaction.class));
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+    }
+
+    @Test
+    void sync_anExportTheImporterCannotWriteKeepsTheCommittedAccountsAndTheSyncSuccessful() {
+        SidecarSession session = arrangeSession(FamilyMember.builder().id(MEMBER).displayName("Owner").build());
+        stubOneSyncedAccount();
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER)).thenReturn(List.of(trCash()));
+        when(categorizationService.categoriesBySlug(MEMBER)).thenReturn(Map.of("investissement", investTransferCategory()));
+        when(trPort.fetchTransactionsCsv(anyString(), any(), any())).thenReturn(csvText(
+            row("2026-10-02", "DEFAULT", "CASH", "CARD_PAYMENT", "", "-12.50", "Coffee", "ext-2")));
+        when(transactionRepository.save(any(Transaction.class))).thenThrow(new IllegalStateException("boom"));
+
+        service.queueSync(MEMBER);
+
+        verify(accountRepository).save(any(Account.class));
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+    }
+
+    @Test
+    void sync_anExpiredSessionOnTheExportStillFailsTheSync() {
+        SidecarSession session = arrangeSession(FamilyMember.builder().id(MEMBER).displayName("Owner").build());
+        when(trPort.fetchAccounts("cookie", CLAIMS)).thenReturn(List.of());
+        when(trPort.fetchTransactionsCsv(anyString(), any(), any()))
+            .thenThrow(new SyncException("expired", null, "SESSION_EXPIRED"));
+
+        service.queueSync(MEMBER);
+
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
+    }
+
+    private void stubOneSyncedAccount() {
+        TrAccountData data = new TrAccountData("tr_cto", "TR Titres", AccountType.COMPTE_TITRES, bd("0"), List.of());
+        when(trPort.fetchAccounts("cookie", CLAIMS)).thenReturn(List.of(data));
+        Account existing = Account.builder().id(42L).name("TR Titres").type(AccountType.COMPTE_TITRES)
+            .provider("Trade Republic").currency("EUR").currentBalance(bd("1000"))
+            .externalAccountId("tr_cto").isManual(false).build();
+        when(accountRepository.findByExternalAccountIdAndMemberId("tr_cto", MEMBER)).thenReturn(Optional.of(existing));
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(accountService.toResponse(any(Account.class)))
+            .thenAnswer(inv -> com.picsou.dto.AccountResponse.from(inv.getArgument(0), bd("0")));
     }
 
     private static BigDecimal bd(String v) { return new BigDecimal(v); }

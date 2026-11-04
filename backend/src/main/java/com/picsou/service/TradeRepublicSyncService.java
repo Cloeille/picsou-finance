@@ -42,12 +42,16 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.Reader;
+import java.io.StringReader;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -65,6 +69,9 @@ public class TradeRepublicSyncService {
 
     private static final Logger log = LoggerFactory.getLogger(TradeRepublicSyncService.class);
     private static final String SOURCE = "trade-republic";
+    private static final ZoneId PARIS = ZoneId.of("Europe/Paris");
+    private static final int FIRST_IMPORT_YEARS = 3;
+    private static final int OVERLAP_DAYS = 14;
 
     private final TradeRepublicAdapter          trPort;
     private final AccountRepository             accountRepository;
@@ -113,8 +120,11 @@ public class TradeRepublicSyncService {
             familyMemberRepository, encryption, txTemplate, syncExecutor, false);
     }
 
-    /** The fetched accounts and their resolved tickers, so the commit makes no network call. */
-    private record Prepared(List<TrAccountData> accounts, Map<String, TickerResult> tickers) {}
+    /**
+     * What a sync fetched: the accounts, their resolved tickers (so the commit makes no network
+     * call), and TR's CSV export of the activity (null when it was not fetched).
+     */
+    private record Prepared(List<TrAccountData> accounts, Map<String, TickerResult> tickers, String csv) {}
 
     private final class Strategy implements SidecarSyncStrategy<Prepared> {
         @Override
@@ -128,7 +138,7 @@ public class TradeRepublicSyncService {
                     tickers.computeIfAbsent(p.isin(), isinConverter::resolve);
                 }
             }
-            return new Prepared(accounts, tickers);
+            return new Prepared(accounts, tickers, fetchTransactionsCsv(job));
         }
 
         @Override
@@ -136,10 +146,75 @@ public class TradeRepublicSyncService {
             prepared.accounts().forEach(data -> upsertAccount(data, job.memberId(), prepared.tickers()));
         }
 
+        /**
+         * Runs after the accounts are committed, in its own transaction: a row the importer cannot
+         * write rolls back the transactions only, never the balances and holdings just synced.
+         */
+        @Override
+        public void afterCommit(SidecarSyncJob job, Prepared prepared) {
+            if (prepared.csv() == null) {
+                return;
+            }
+            try {
+                ImportResult result = txTemplate.execute(status -> {
+                    try (Reader reader = new StringReader(prepared.csv())) {
+                        return importTransactions(reader, job.memberId());
+                    } catch (IOException ex) {
+                        throw new IllegalStateException(ex);
+                    }
+                });
+                if (result != null) {
+                    log.info("Trade Republic transactions imported (member={}; tx={}; skipped={})",
+                        job.memberId(), result.inserted(), result.skipped());
+                }
+            } catch (RuntimeException ex) {
+                log.warn("Trade Republic transactions import failed (member={}; type={})",
+                    job.memberId(), ex.getClass().getSimpleName());
+            }
+        }
+
         @Override
         public String describe(Prepared prepared) {
-            return "accounts=" + prepared.accounts().size();
+            return "accounts=" + prepared.accounts().size()
+                + (prepared.csv() == null ? "" : "; transactions=fetched");
         }
+    }
+
+    /**
+     * The export covering the activity since the last import, or null when the sidecar cannot
+     * render it: the balances are worth syncing without the history. An expired session is the one
+     * failure that still fails the sync, as the same session just failed to open.
+     */
+    private String fetchTransactionsCsv(SidecarSyncJob job) {
+        LocalDate today = LocalDate.now(PARIS);
+        try {
+            return trPort.fetchTransactionsCsv(job.plainState(), transactionsWindowStart(job.memberId(), today), today);
+        } catch (SyncException ex) {
+            if (SidecarErrorCode.SESSION_EXPIRED.name().equals(ex.getCode())) {
+                throw ex;
+            }
+            log.warn("Trade Republic transactions export unavailable (member={}; code={})",
+                job.memberId(), ex.getCode());
+            return null;
+        } catch (RuntimeException ex) {
+            log.warn("Trade Republic transactions export unavailable (member={}; type={})",
+                job.memberId(), ex.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    /**
+     * Newest imported TR Cash entry minus a safety overlap, or three years back for a first import.
+     * The session's own completion time cannot anchor this: queueing and starting a run clears it.
+     * Re-reading the overlap is safe, the importer skips rows it already holds.
+     */
+    private LocalDate transactionsWindowStart(Long memberId, LocalDate today) {
+        LocalDate latest = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId).stream()
+            .filter(a -> "Trade Republic".equals(a.getProvider()) && a.getType() == AccountType.CHECKING)
+            .findFirst()
+            .map(a -> transactionRepository.findLatestSyncedDateByAccountId(a.getId()))
+            .orElse(null);
+        return latest == null ? today.minusYears(FIRST_IMPORT_YEARS) : latest.minusDays(OVERLAP_DAYS);
     }
 
     // --- Auth ---
@@ -291,6 +366,19 @@ public class TradeRepublicSyncService {
         accountRepository.findByIdAndMemberId(accountId, memberId)
             .orElseThrow(() -> ResourceNotFoundException.account(accountId));
 
+        try (Reader reader = new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8)) {
+            return importTransactions(reader, memberId);
+        } catch (Exception ex) {
+            log.error("Failed to read TR Transactions CSV", ex);
+            throw new RuntimeException("Failed to read CSV file: " + ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * The parsing and insertion shared by the manual upload and the automatic sync. It owns no
+     * transaction (the callers do) and never closes the reader.
+     */
+    private ImportResult importTransactions(Reader source, Long memberId) throws IOException {
         List<Account> trAccounts = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId).stream()
             .filter(a -> "Trade Republic".equals(a.getProvider()))
             .toList();
@@ -316,161 +404,155 @@ public class TradeRepublicSyncService {
         // Resolved on the first TRADING row so a CASH-only import creates nothing.
         Category investmentPurchaseCategory = categoriesBySlug.get(INVESTMENT_PURCHASE_SLUG);
 
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
+        BufferedReader reader = new BufferedReader(source);
+        String line;
+        boolean firstLine = true;
+        int insertedCount = 0;
+        int skippedCount = 0;
 
-            String line;
-            boolean firstLine = true;
-            int insertedCount = 0;
-            int skippedCount = 0;
+        while ((line = reader.readLine()) != null) {
+            line = line.trim();
+            if (line.isEmpty()) continue;
 
-            while ((line = reader.readLine()) != null) {
-                line = line.trim();
-                if (line.isEmpty()) continue;
-
-                if (firstLine) {
-                    firstLine = false;
-                    if (line.toLowerCase().contains("datetime") || line.toLowerCase().startsWith("\"datetime\"")) {
-                        continue;
-                    }
-                }
-
-                List<String> parts = parseCsvLine(line);
-                if (parts.size() < 19) {
+            if (firstLine) {
+                firstLine = false;
+                if (line.toLowerCase().contains("datetime") || line.toLowerCase().startsWith("\"datetime\"")) {
                     continue;
                 }
+            }
 
-                String dateStr = parts.get(1);
-                String accountTypeStr = parts.get(2);
-                String category = parts.get(3);
-                String type = parts.get(4);
-                String stockName = parts.get(6);
-                String amountStr = parts.get(10);
-                String description = parts.get(17);
-                String externalId = parts.get(18);
+            List<String> parts = parseCsvLine(line);
+            if (parts.size() < 19) {
+                continue;
+            }
 
-                // Skip rows with no external ID — they would all collide on "_cash"/"_inv"
-                if (externalId == null || externalId.isBlank()) {
-                    log.debug("TR CSV Import: skipping row with blank externalId (date={}, type={})", dateStr, type);
-                    continue;
+            String dateStr = parts.get(1);
+            String accountTypeStr = parts.get(2);
+            String category = parts.get(3);
+            String type = parts.get(4);
+            String stockName = parts.get(6);
+            String amountStr = parts.get(10);
+            String description = parts.get(17);
+            String externalId = parts.get(18);
+
+            // Skip rows with no external ID — they would all collide on "_cash"/"_inv"
+            if (externalId == null || externalId.isBlank()) {
+                log.debug("TR CSV Import: skipping row with blank externalId (date={}, type={})", dateStr, type);
+                continue;
+            }
+
+            if ("TRANSFER_IN".equalsIgnoreCase(type) || "TRANSFER_OUT".equalsIgnoreCase(type)) {
+                continue;
+            }
+
+            // Handle FR-locale decimal comma (e.g. "59,31" → "59.31")
+            BigDecimal amount;
+            try {
+                amount = new BigDecimal(amountStr.replace(",", "."));
+            } catch (NumberFormatException e) {
+                log.debug("TR CSV Import: skipping row with unparseable amount '{}'", amountStr);
+                continue;
+            }
+
+            // Defensive date parsing: handle both yyyy-MM-dd and ISO timestamps (yyyy-MM-ddTHH:mm:ssZ)
+            LocalDate date;
+            try {
+                String datePart = dateStr.length() > 10 ? dateStr.substring(0, 10) : dateStr;
+                date = LocalDate.parse(datePart);
+            } catch (Exception e) {
+                log.debug("TR CSV Import: skipping row with unparseable date '{}'", dateStr);
+                continue;
+            }
+            
+            // Build a readable description for the transaction
+            String finalDescription = (description != null && !description.isBlank()) ? description : type;
+            if ("BUY".equalsIgnoreCase(type) || "SELL".equalsIgnoreCase(type)) {
+                // e.g. "BUY S&P 500 EUR (Acc)" or "SELL Dell Technologies"
+                finalDescription = type + (stockName != null && !stockName.isBlank() ? " " + stockName : "");
+            }
+
+            boolean isTrading = "TRADING".equalsIgnoreCase(category);
+
+            // --- Cash leg (always created, except TRANSFER_IN/OUT already filtered above) ---
+            // Dedup is scoped by account to ensure member isolation.
+            boolean cashSkipped = false;
+            if (!transactionRepository.existsByAccountIdAndExternalId(trCash.getId(), externalId + "_cash")) {
+                // DEPOSIT for positive amounts (Saveback, interest, incoming transfers)
+                // WITHDRAWAL for negative amounts (card payments, investment debits)
+                TransactionType txTypeCash = amount.compareTo(BigDecimal.ZERO) < 0
+                    ? TransactionType.WITHDRAWAL
+                    : TransactionType.DEPOSIT;
+                // A securities purchase is a real outflow (an "investment purchase"): the cash
+                // leg of a TRADING row is booked under the "Investissement" EXPENSE category so
+                // it counts as spending (a sale, being positive, as an inflow). Non-TRADING
+                // CASH rows stay uncategorized and count by sign. Only the investment leg below
+                // is a TRANSFER, which keeps the movement from being counted twice (as income).
+                if (isTrading && investmentPurchaseCategory == null) {
+                    investmentPurchaseCategory = ensureInvestmentPurchaseCategory(memberId);
                 }
+                Transaction txCash = Transaction.builder()
+                    .account(trCash)
+                    .date(date)
+                    .amount(amount)
+                    .description(finalDescription)
+                    .merchantLabel(finalDescription)
+                    .type(type)
+                    .category(category)
+                    .categoryRef(isTrading ? investmentPurchaseCategory : null)
+                    .txType(txTypeCash)
+                    .externalId(externalId + "_cash")
+                    .nativeCurrency("EUR")
+                    .build();
+                transactionRepository.save(txCash);
+                insertedCount++;
+            } else {
+                cashSkipped = true;
+            }
 
-                if ("TRANSFER_IN".equalsIgnoreCase(type) || "TRANSFER_OUT".equalsIgnoreCase(type)) {
-                    continue;
-                }
+            // --- Investment leg (only for TRADING rows, opposite sign on the target account) ---
+            if (isTrading) {
+                Account targetInvestmentAccount = "PEA".equalsIgnoreCase(accountTypeStr) ? trPea : trTitres;
 
-                // Handle FR-locale decimal comma (e.g. "59,31" → "59.31")
-                BigDecimal amount;
-                try {
-                    amount = new BigDecimal(amountStr.replace(",", "."));
-                } catch (NumberFormatException e) {
-                    log.debug("TR CSV Import: skipping row with unparseable amount '{}'", amountStr);
-                    continue;
-                }
-
-                // Defensive date parsing: handle both yyyy-MM-dd and ISO timestamps (yyyy-MM-ddTHH:mm:ssZ)
-                LocalDate date;
-                try {
-                    String datePart = dateStr.length() > 10 ? dateStr.substring(0, 10) : dateStr;
-                    date = LocalDate.parse(datePart);
-                } catch (Exception e) {
-                    log.debug("TR CSV Import: skipping row with unparseable date '{}'", dateStr);
-                    continue;
-                }
-                
-                // Build a readable description for the transaction
-                String finalDescription = (description != null && !description.isBlank()) ? description : type;
-                if ("BUY".equalsIgnoreCase(type) || "SELL".equalsIgnoreCase(type)) {
-                    // e.g. "BUY S&P 500 EUR (Acc)" or "SELL Dell Technologies"
-                    finalDescription = type + (stockName != null && !stockName.isBlank() ? " " + stockName : "");
-                }
-
-                boolean isTrading = "TRADING".equalsIgnoreCase(category);
-
-                // --- Cash leg (always created, except TRANSFER_IN/OUT already filtered above) ---
-                // Dedup is scoped by account to ensure member isolation.
-                boolean cashSkipped = false;
-                if (!transactionRepository.existsByAccountIdAndExternalId(trCash.getId(), externalId + "_cash")) {
-                    // DEPOSIT for positive amounts (Saveback, interest, incoming transfers)
-                    // WITHDRAWAL for negative amounts (card payments, investment debits)
-                    TransactionType txTypeCash = amount.compareTo(BigDecimal.ZERO) < 0
-                        ? TransactionType.WITHDRAWAL
-                        : TransactionType.DEPOSIT;
-                    // A securities purchase is a real outflow (an "investment purchase"): the cash
-                    // leg of a TRADING row is booked under the "Investissement" EXPENSE category so
-                    // it counts as spending (a sale, being positive, as an inflow). Non-TRADING
-                    // CASH rows stay uncategorized and count by sign. Only the investment leg below
-                    // is a TRANSFER, which keeps the movement from being counted twice (as income).
-                    if (isTrading && investmentPurchaseCategory == null) {
-                        investmentPurchaseCategory = ensureInvestmentPurchaseCategory(memberId);
-                    }
-                    Transaction txCash = Transaction.builder()
-                        .account(trCash)
-                        .date(date)
-                        .amount(amount)
-                        .description(finalDescription)
-                        .merchantLabel(finalDescription)
-                        .type(type)
-                        .category(category)
-                        .categoryRef(isTrading ? investmentPurchaseCategory : null)
-                        .txType(txTypeCash)
-                        .externalId(externalId + "_cash")
-                        .nativeCurrency("EUR")
-                        .build();
-                    transactionRepository.save(txCash);
-                    insertedCount++;
-                } else {
-                    cashSkipped = true;
-                }
-
-                // --- Investment leg (only for TRADING rows, opposite sign on the target account) ---
-                if (isTrading) {
-                    Account targetInvestmentAccount = "PEA".equalsIgnoreCase(accountTypeStr) ? trPea : trTitres;
-
-                    if (targetInvestmentAccount != null) {
-                        if (!transactionRepository.existsByAccountIdAndExternalId(targetInvestmentAccount.getId(), externalId + "_inv")) {
-                            // Double-entry: the investment leg is the mirror of the cash leg, so it
-                            // carries the opposite sign. BUY (cash −) → money enters investments:
-                            // DEPOSIT +amount. SELL (cash +) → money leaves investments: WITHDRAWAL
-                            // −amount. The positive DEPOSIT is what AllocationService reads as an
-                            // investment contribution.
-                            BigDecimal investAmount = amount.negate();
-                            TransactionType txTypeInv = investAmount.signum() >= 0
-                                ? TransactionType.DEPOSIT
-                                : TransactionType.WITHDRAWAL;
-                            Transaction txInv = Transaction.builder()
-                                .account(targetInvestmentAccount)
-                                .date(date)
-                                .amount(investAmount)
-                                .description(finalDescription)
-                                .merchantLabel(finalDescription)
-                                .type(type)
-                                .category(category)
-                                .categoryRef(investmentTransferCategory)
-                                .txType(txTypeInv)
-                                .externalId(externalId + "_inv")
-                                .nativeCurrency("EUR")
-                                .build();
-                            transactionRepository.save(txInv);
-                            insertedCount++;
-                        } else if (cashSkipped) {
-                            // Both legs already exist → count as fully skipped
-                            skippedCount++;
-                        }
+                if (targetInvestmentAccount != null) {
+                    if (!transactionRepository.existsByAccountIdAndExternalId(targetInvestmentAccount.getId(), externalId + "_inv")) {
+                        // Double-entry: the investment leg is the mirror of the cash leg, so it
+                        // carries the opposite sign. BUY (cash −) → money enters investments:
+                        // DEPOSIT +amount. SELL (cash +) → money leaves investments: WITHDRAWAL
+                        // −amount. The positive DEPOSIT is what AllocationService reads as an
+                        // investment contribution.
+                        BigDecimal investAmount = amount.negate();
+                        TransactionType txTypeInv = investAmount.signum() >= 0
+                            ? TransactionType.DEPOSIT
+                            : TransactionType.WITHDRAWAL;
+                        Transaction txInv = Transaction.builder()
+                            .account(targetInvestmentAccount)
+                            .date(date)
+                            .amount(investAmount)
+                            .description(finalDescription)
+                            .merchantLabel(finalDescription)
+                            .type(type)
+                            .category(category)
+                            .categoryRef(investmentTransferCategory)
+                            .txType(txTypeInv)
+                            .externalId(externalId + "_inv")
+                            .nativeCurrency("EUR")
+                            .build();
+                        transactionRepository.save(txInv);
+                        insertedCount++;
                     } else if (cashSkipped) {
-                        // No investment account found and cash was also skipped → row fully skipped
+                        // Both legs already exist → count as fully skipped
                         skippedCount++;
                     }
                 } else if (cashSkipped) {
+                    // No investment account found and cash was also skipped → row fully skipped
                     skippedCount++;
                 }
+            } else if (cashSkipped) {
+                skippedCount++;
             }
-            log.info("TR CSV import complete: {} inserted, {} skipped (already present)", insertedCount, skippedCount);
-            return new ImportResult(insertedCount, skippedCount);
-        } catch (Exception ex) {
-            log.error("Failed to read TR Transactions CSV", ex);
-            throw new RuntimeException("Failed to read CSV file: " + ex.getMessage(), ex);
         }
+        log.info("TR CSV import complete: {} inserted, {} skipped (already present)", insertedCount, skippedCount);
+        return new ImportResult(insertedCount, skippedCount);
     }
 
     /**
