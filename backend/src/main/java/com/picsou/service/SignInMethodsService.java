@@ -2,19 +2,19 @@ package com.picsou.service;
 
 import com.picsou.config.AuthCookieWriter;
 import com.picsou.config.SsoProperties;
+import com.picsou.dto.LinkedIdentityResponse;
+import com.picsou.dto.SignInMethodsResponse;
+import com.picsou.dto.SsoInfoResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SignInMethodException;
+import com.picsou.model.AppUser;
+import com.picsou.model.UserIdentity;
 import com.picsou.repository.AppUserRepository;
+import com.picsou.repository.UserIdentityRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import com.picsou.dto.LinkedIdentityResponse;
-import com.picsou.dto.SignInMethodsResponse;
-import com.picsou.dto.SsoInfoResponse;
-import com.picsou.model.AppUser;
-import com.picsou.model.UserIdentity;
-import com.picsou.repository.UserIdentityRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -80,7 +80,9 @@ public class SignInMethodsService {
      * identity can never sign in again).
      */
     @Transactional
-    public void removePassword(AppUser user, HttpServletRequest request, HttpServletResponse response) {
+    public void removePassword(AppUser caller, HttpServletRequest request, HttpServletResponse response) {
+        AppUser user = userRepository.findByIdForUpdate(caller.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("User not found"));
         reAuthService.requireProof(user, request);
         if (!ssoProperties.enabled()) {
             throw new SignInMethodException(HttpStatus.CONFLICT, "SSO_DISABLED",
@@ -126,7 +128,9 @@ public class SignInMethodsService {
     }
 
     @Transactional
-    public void unlinkIdentity(AppUser user, Long identityId, HttpServletRequest request) {
+    public void unlinkIdentity(AppUser caller, Long identityId, HttpServletRequest request) {
+        AppUser user = userRepository.findByIdForUpdate(caller.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("User not found"));
         reAuthService.requireProof(user, request);
         UserIdentity identity = identityRepository.findByIdAndUserId(identityId, user.getId())
             .orElseThrow(() -> new ResourceNotFoundException("Identity not found"));

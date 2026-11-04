@@ -1,22 +1,23 @@
 package com.picsou.config;
 
-import com.picsou.service.SetupService;
-import com.picsou.service.ReAuthService;
 import com.picsou.model.AppUser;
 import com.picsou.model.SetupState;
 import com.picsou.repository.AppUserRepository;
-import jakarta.servlet.http.Cookie;
-import org.springframework.web.util.WebUtils;
+import com.picsou.service.ReAuthService;
+import com.picsou.service.SetupService;
 import com.picsou.service.sso.SsoIntent;
 import io.github.bucket4j.Bucket;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.WebUtils;
+
 import java.io.IOException;
 import java.time.Clock;
 import java.util.Map;
-import org.springframework.web.filter.OncePerRequestFilter;
 
 public class SsoStartGuardFilter extends OncePerRequestFilter {
     private final SsoClientRegistrationRepository repository;

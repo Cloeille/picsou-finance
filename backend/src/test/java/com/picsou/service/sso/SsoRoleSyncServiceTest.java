@@ -162,6 +162,22 @@ class SsoRoleSyncServiceTest {
     }
 
     @Test
+    void notInGroup_alreadyDemotedInDatabase_doesNotMutateOrAudit() {
+        AppUser caller = user(1, "alice", UserRole.ADMIN);
+        when(appUserRepository.findAllByRoleForUpdate(UserRole.ADMIN))
+            .thenReturn(List.of(user(2, "bob", UserRole.ADMIN)));
+
+        UserRole result = service.sync(caller, Optional.of(Set.of()), request);
+
+        org.assertj.core.api.SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(result).isEqualTo(UserRole.ADMIN);
+            softly.assertThat(caller.getRole()).isEqualTo(UserRole.ADMIN);
+        });
+        verify(appUserRepository, never()).save(any());
+        verifyNoInteractions(setupAuditService);
+    }
+
+    @Test
     void missingClaim_warnsAndCountsAsEmptySet() {
         AppUser caller = user(1, "alice", UserRole.MEMBER);
 

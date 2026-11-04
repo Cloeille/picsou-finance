@@ -18,6 +18,10 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
     long countByRole(UserRole role);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM AppUser u WHERE u.id = :id")
+    Optional<AppUser> findByIdForUpdate(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT u FROM AppUser u WHERE u.role = :role")
     List<AppUser> findAllByRoleForUpdate(@Param("role") UserRole role);
 

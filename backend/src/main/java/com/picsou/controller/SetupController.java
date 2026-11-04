@@ -3,7 +3,6 @@ package com.picsou.controller;
 import com.picsou.config.ClientIp;
 import com.picsou.config.RateLimitConfig;
 import com.picsou.config.SsoProperties;
-import com.picsou.exception.SignInMethodException;
 import com.picsou.dto.BoursoBankHealthResponse;
 import com.picsou.dto.CryptoKeyGenerateResponse;
 import com.picsou.dto.EnableBankingConfigRequest;
@@ -14,6 +13,7 @@ import com.picsou.dto.SetupAdminRequest;
 import com.picsou.dto.SetupAdminResponse;
 import com.picsou.dto.SetupSecurityRequest;
 import com.picsou.dto.SetupStatusResponse;
+import com.picsou.exception.SignInMethodException;
 import com.picsou.model.AppUser;
 import com.picsou.service.CryptoKeyGeneratorService;
 import com.picsou.service.EnableBankingKeyPairService;
@@ -77,8 +77,8 @@ public class SetupController {
                            IntegrationsHealthService healthService,
                            EnableBankingKeyPairService keyPairService,
                            CryptoKeyGeneratorService cryptoKeyService,
-                            SetupAuditService auditService,
-                            SsoProperties ssoProperties,
+                           SetupAuditService auditService,
+                           SsoProperties ssoProperties,
                            @Qualifier("setupBuckets") Map<String, Bucket> setupBuckets) {
         this.setupService = setupService;
         this.integrationsService = integrationsService;

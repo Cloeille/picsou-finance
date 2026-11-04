@@ -2,35 +2,36 @@ package com.picsou.config;
 
 import com.picsou.model.AppUser;
 import com.picsou.model.UserRole;
-import com.picsou.service.SessionIssuer;
 import com.picsou.service.ReAuthService;
+import com.picsou.service.SessionIssuer;
 import com.picsou.service.SetupAuditService;
 import com.picsou.service.SetupService;
-import org.springframework.dao.ConcurrencyFailureException;
-import org.springframework.transaction.TransactionException;
-import jakarta.servlet.http.Cookie;
-import org.springframework.web.util.WebUtils;
 import com.picsou.service.sso.SsoAccountService;
 import com.picsou.service.sso.SsoFlowException;
 import com.picsou.service.sso.SsoIdentity;
 import com.picsou.service.sso.SsoIntent;
 import com.picsou.service.sso.SsoRoleSyncService;
 import com.picsou.util.LogSanitizer;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
-import java.io.IOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.time.Clock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Conditional;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.TransactionException;
+import org.springframework.web.util.WebUtils;
+
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 
 /**
  * Completes a successful SSO handshake. The IdP only authenticates (S1): no IdP token is kept and
@@ -196,7 +197,7 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
                 auditService.record("sso.identity.linked", linked.getUsername(), request, "");
                 yield intent.redirect() + (intent.redirect().contains("?") ? "&" : "?") + "sso=linked";
             }
-            case LOGIN, ACTIVATE, SETUP -> intent.errorRedirect("IDP_ERROR");
+            case LOGIN, ACTIVATE, SETUP -> throw new IllegalStateException("Not a signed-in intent");
         };
     }
 

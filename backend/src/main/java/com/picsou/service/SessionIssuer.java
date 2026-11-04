@@ -11,6 +11,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
@@ -21,12 +22,14 @@ public class SessionIssuer {
     private final JwtUtil jwtUtil;
     private final AuthCookieWriter cookieWriter;
     private final PersistentSessionService persistentSessionService;
+    private final Clock clock;
 
     public SessionIssuer(JwtUtil jwtUtil, AuthCookieWriter cookieWriter,
-                         PersistentSessionService persistentSessionService) {
+                         PersistentSessionService persistentSessionService, Clock clock) {
         this.jwtUtil = jwtUtil;
         this.cookieWriter = cookieWriter;
         this.persistentSessionService = persistentSessionService;
+        this.clock = clock;
     }
 
     public void issue(AppUser user, boolean issuePersistent, boolean trustedFor2fa,
@@ -47,7 +50,7 @@ public class SessionIssuer {
                 jwtUtil.generateRefreshToken(user, session.getSeriesId(), ssoAuthenticatedAt),
                 true);
             long secondsUntilExpiry = Math.max(
-                ChronoUnit.SECONDS.between(Instant.now(), session.getExpiresAt()),
+                ChronoUnit.SECONDS.between(clock.instant(), session.getExpiresAt()),
                 0
             );
             cookieWriter.setPersistent(httpRes, issued.cookieValue(), secondsUntilExpiry);

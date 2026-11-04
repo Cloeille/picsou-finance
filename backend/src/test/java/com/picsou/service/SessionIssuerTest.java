@@ -43,14 +43,16 @@ class SessionIssuerTest {
     void setUp() {
         request = new MockHttpServletRequest();
         response = new MockHttpServletResponse();
-        issuer = new SessionIssuer(jwt, new AuthCookieWriter(mock(SecureCookieProvider.class), jwt), sessions);
+        issuer = new SessionIssuer(jwt, new AuthCookieWriter(mock(SecureCookieProvider.class), jwt), sessions,
+            Clock.systemUTC());
     }
 
     @Test
     void issue_rememberMe_storesSsoAt_andBindsRefreshToNewSeries() {
         PersistentSessionService realSessions = new PersistentSessionService(repository,
             Clock.fixed(Instant.parse("2099-01-01T00:00:00Z"), ZoneOffset.UTC), 90, 30);
-        issuer = new SessionIssuer(jwt, new AuthCookieWriter(mock(SecureCookieProvider.class), jwt), realSessions);
+        issuer = new SessionIssuer(jwt, new AuthCookieWriter(mock(SecureCookieProvider.class), jwt), realSessions,
+            Clock.fixed(Instant.parse("2099-01-01T00:00:00Z"), ZoneOffset.UTC));
 
         issuer.issue(user, true, true, SSO_AT, request, response);
 
@@ -64,6 +66,7 @@ class SessionIssuerTest {
         assertThat(jwt.getSsoAuthenticatedAt(jwt.validateAndParse(response.getCookie("access_token").getValue())))
             .isEqualTo(SSO_AT);
         assertThat(response.getCookie("persistent_token").getValue()).startsWith(saved.getValue().getSeriesId() + ":");
+        assertThat(response.getCookie("persistent_token").getMaxAge()).isEqualTo(90 * 24 * 60 * 60);
     }
 
     @ParameterizedTest

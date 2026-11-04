@@ -1,19 +1,20 @@
 package com.picsou.service;
 
-import com.picsou.dto.SetupStatusResponse;
-import com.picsou.dto.SetupSsoInfo;
 import com.picsou.config.SsoProperties;
-import com.picsou.model.UserIdentity;
-import com.picsou.repository.UserIdentityRepository;
-import com.picsou.service.sso.SsoIdentity;
+import com.picsou.dto.SetupSsoInfo;
+import com.picsou.dto.SetupStatusResponse;
 import com.picsou.model.AppSetting;
 import com.picsou.model.AppUser;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.SetupState;
+import com.picsou.model.UserIdentity;
 import com.picsou.model.UserRole;
 import com.picsou.repository.AppSettingRepository;
 import com.picsou.repository.AppUserRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.UserIdentityRepository;
+import com.picsou.service.sso.SsoAccountService;
+import com.picsou.service.sso.SsoIdentity;
 import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,10 +23,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.time.Clock;
 
 @Service
 public class SetupService {
@@ -160,10 +161,8 @@ public class SetupService {
             .user(user)
             .issuer(identity.issuer())
             .subject(identity.subject())
-            .email(identity.email() == null || identity.email().length() <= 320
-                ? identity.email() : identity.email().substring(0, 320))
-            .displayName(identity.displayName() == null || identity.displayName().length() <= 255
-                ? identity.displayName() : identity.displayName().substring(0, 255))
+            .email(SsoAccountService.truncate(identity.email(), 320))
+            .displayName(SsoAccountService.truncate(identity.displayName(), 255))
             .lastLoginAt(clock.instant())
             .build());
         log.info("setup.admin.created username={} role=ADMIN method=sso", LogSanitizer.safe(username));

@@ -2,35 +2,34 @@ package com.picsou.controller;
 
 import com.picsou.config.AuthCookieWriter;
 import com.picsou.config.JwtUtil;
-import com.picsou.config.SsoProperties;
-import com.picsou.config.SsoClientRegistrationRepository;
-import com.picsou.dto.LogoutResponse;
-import org.springframework.beans.factory.ObjectProvider;
-import java.time.Clock;
-import java.time.ZoneOffset;
 import com.picsou.config.SecureCookieProvider;
+import com.picsou.config.SsoClientRegistrationRepository;
+import com.picsou.config.SsoProperties;
 import com.picsou.dto.ActivationRequest;
 import com.picsou.dto.LoginRequest;
+import com.picsou.dto.LogoutResponse;
 import com.picsou.model.AppUser;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.UserRole;
 import com.picsou.repository.AppUserRepository;
-import com.picsou.service.MfaService;
 import com.picsou.service.ActivationService;
+import com.picsou.service.MfaService;
 import com.picsou.service.PersistentSessionService;
 import com.picsou.service.SessionIssuer;
 import com.picsou.service.SetupAuditService;
 import io.github.bucket4j.Bucket;
 import io.jsonwebtoken.Claims;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -40,9 +39,9 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import jakarta.servlet.http.Cookie;
-
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Map;
@@ -100,7 +99,7 @@ class AuthControllerTest {
         return new AuthController(
             userRepository, passwordEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService),
+            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService, Clock.systemUTC()), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService),
             Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, adminRecoveryEnabled,
             loginRateLimitEnabled
         );
@@ -286,7 +285,7 @@ class AuthControllerTest {
         AuthController timingController = new AuthController(
             userRepository, realEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService),
+            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService, Clock.systemUTC()), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService),
             Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, false, true);
 
         // Path A — the username does not exist: there is no stored hash to compare,
@@ -338,7 +337,7 @@ class AuthControllerTest {
         AuthController timingController = new AuthController(
             userRepository, realEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService),
+            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService, Clock.systemUTC()), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService),
             Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, false, true);
 
         AppUser pending = AppUser.builder()
@@ -381,7 +380,7 @@ class AuthControllerTest {
         AuthController spoofTestController = new AuthController(
             userRepository, passwordEncoder, jwtUtil,
             mockedLoginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService),
+            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService, Clock.systemUTC()), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService),
             Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, false, true);
 
         MockHttpServletRequest firstCall = new MockHttpServletRequest();
@@ -484,7 +483,7 @@ class AuthControllerTest {
         }
         AuthCookieWriter writer = new AuthCookieWriter(mock(SecureCookieProvider.class), jwt);
         return new AuthController(userRepository, passwordEncoder, jwt, loginBuckets, mfaVerifyBuckets,
-            writer, mfaService, persistentSessionService, new SessionIssuer(jwt, writer, persistentSessionService),
+            writer, mfaService, persistentSessionService, new SessionIssuer(jwt, writer, persistentSessionService, Clock.systemUTC()),
             properties, new ActivationService(userRepository, persistentSessionService, auditService), Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, false, true);
     }
 
@@ -586,7 +585,7 @@ class AuthControllerTest {
         properties.setIdpLogout(Boolean.toString(optIn));
         AuthCookieWriter writer = new AuthCookieWriter(mock(SecureCookieProvider.class), jwt);
         AuthController real = new AuthController(userRepository, passwordEncoder, jwt, loginBuckets, mfaVerifyBuckets,
-            writer, mfaService, persistentSessionService, new SessionIssuer(jwt, writer, persistentSessionService),
+            writer, mfaService, persistentSessionService, new SessionIssuer(jwt, writer, persistentSessionService, Clock.systemUTC()),
             properties, new ActivationService(userRepository, persistentSessionService, auditService), Clock.fixed(SSO_AT, ZoneOffset.UTC), registrations, false, true);
         httpReq.setScheme("https");
         httpReq.setServerName("picsou.example");
@@ -671,7 +670,7 @@ class AuthControllerTest {
             JwtUtil jwt = new JwtUtil(TEST_SECRET, 15, 7, 5);
             AuthCookieWriter writer = new AuthCookieWriter(mock(SecureCookieProvider.class), jwt);
             AuthController real = new AuthController(userRepository, passwordEncoder, jwt, loginBuckets, mfaVerifyBuckets,
-                writer, mfaService, persistentSessionService, new SessionIssuer(jwt, writer, persistentSessionService),
+                writer, mfaService, persistentSessionService, new SessionIssuer(jwt, writer, persistentSessionService, clock),
                 properties, new ActivationService(userRepository, persistentSessionService, auditService), clock, registrations, false, true);
             httpReq.setCookies(new Cookie("refresh_token", jwt.generateRefreshToken(user(true), null, SSO_AT)));
 

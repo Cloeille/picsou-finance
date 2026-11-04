@@ -72,15 +72,17 @@ public class SsoRoleSyncService {
         Optional<AppUser> managed = admins.stream()
             .filter(admin -> admin.getId().equals(user.getId()))
             .findFirst();
-        if (managed.isPresent() && admins.size() == 1) {
+        if (managed.isEmpty()) {
+            return;
+        }
+        if (admins.size() == 1) {
             log.warn("sso.role.demotion-skipped-last-admin user={}", LogSanitizer.safe(user.getUsername()));
             setupAuditService.record("sso.role.demotion-skipped-last-admin", user.getUsername(), request, null);
             return;
         }
-        managed.ifPresent(row -> {
-            row.setRole(UserRole.MEMBER);
-            appUserRepository.save(row);
-        });
+        AppUser row = managed.get();
+        row.setRole(UserRole.MEMBER);
+        appUserRepository.save(row);
         user.setRole(UserRole.MEMBER);
         setupAuditService.record("sso.role.demoted", user.getUsername(), request, null);
     }

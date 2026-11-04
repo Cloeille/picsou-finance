@@ -210,7 +210,7 @@ public class SsoAccountService {
         return DEFAULT_DISPLAY_NAME;
     }
 
-    private static String truncate(String value, int max) {
+    public static String truncate(String value, int max) {
         return value == null || value.length() <= max ? value : value.substring(0, max);
     }
 }

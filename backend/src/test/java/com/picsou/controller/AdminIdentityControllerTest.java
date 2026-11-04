@@ -1,10 +1,12 @@
 package com.picsou.controller;
 
+import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.model.AppUser;
 import com.picsou.model.UserRole;
 import com.picsou.repository.AppUserRepository;
 import com.picsou.repository.UserIdentityRepository;
+import com.picsou.service.AdminIdentityService;
 import com.picsou.service.PersistentSessionService;
 import com.picsou.service.SetupAuditService;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,7 +18,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,6 +35,9 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
 class AdminIdentityControllerTest {
@@ -43,8 +53,8 @@ class AdminIdentityControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new AdminIdentityController(
-            userRepository, identityRepository, persistentSessionService, auditService);
+        controller = new AdminIdentityController(new AdminIdentityService(
+            userRepository, identityRepository, persistentSessionService, auditService));
         admin = AppUser.builder().id(1L).username("root").role(UserRole.ADMIN).activated(true).build();
     }
 
@@ -74,12 +84,20 @@ class AdminIdentityControllerTest {
     }
 
     @Test
-    void unlinkAll_ownMember_is403AndChangesNothing() {
+    void unlinkAll_ownMember_is403WithCodeAndChangesNothing() throws Exception {
         when(userRepository.findByMemberId(10L)).thenReturn(Optional.of(admin));
-
-        ResponseEntity<Void> res = controller.unlinkAll(admin, 10L, request);
-
-        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        SecurityContextHolder.getContext().setAuthentication(
+            UsernamePasswordAuthenticationToken.authenticated(admin, null, List.of()));
+        try {
+            MockMvcBuilders.standaloneSetup(controller)
+                .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
+                .setControllerAdvice(new GlobalExceptionHandler()).build()
+                .perform(delete("/api/admin/members/10/identities"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SELF_UNLINK_FORBIDDEN"));
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
         verify(identityRepository, never()).deleteByUserId(anyLong());
         verify(persistentSessionService, never()).revokeAllForUser(anyLong());
         assertThat(admin.getTokenVersion()).isZero();

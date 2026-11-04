@@ -4,37 +4,37 @@ import com.picsou.config.AuthCookieWriter;
 import com.picsou.config.JwtUtil;
 import com.picsou.config.SecureCookieProvider;
 import com.picsou.config.SsoProperties;
+import com.picsou.dto.LinkedIdentityResponse;
+import com.picsou.dto.SignInMethodsResponse;
+import com.picsou.dto.SsoInfoResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SignInMethodException;
+import com.picsou.model.AppUser;
+import com.picsou.model.UserIdentity;
 import com.picsou.repository.AppUserRepository;
+import com.picsou.repository.UserIdentityRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
-import com.picsou.dto.LinkedIdentityResponse;
-import com.picsou.dto.SignInMethodsResponse;
-import com.picsou.dto.SsoInfoResponse;
-import com.picsou.model.AppUser;
-import com.picsou.model.UserIdentity;
-import com.picsou.repository.UserIdentityRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
-
-import java.time.Instant;
-import java.util.List;
-
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -68,6 +68,7 @@ class SignInMethodsServiceTest {
         service = new SignInMethodsService(identityRepository, mfaService, sso, reAuthService,
             userRepository, passwordEncoder, persistentSessionService, sessionIssuer, cookieWriter, auditService);
         user = AppUser.builder().id(7L).username("chloe").passwordHash("$2a$hash").build();
+        org.mockito.Mockito.lenient().when(userRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(user));
     }
 
     private static UserIdentity identity(long id, String issuer, Instant createdAt) {

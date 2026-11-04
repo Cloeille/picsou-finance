@@ -92,7 +92,7 @@ same-origin POST, as the bank OAuth callback does.
 Every callback that resolves an account syncs the admin role (see below). Errors redirect with
 `ssoError=<CODE>` to the page the flow came from (`/login`, `/activate/{token}`, `/setup/admin`,
 or the `redirect` of a `link` / `reauth`). The full code list is in
-[API.md](../../backend/docs/API.md#sso-error-codes); the SPA translates every code
+[API.md](../../backend/docs/API.md#sso-error-codes); the SPA translates the codes it can display
 (`ssoErrors.*`).
 
 ### Admin group and role sync
@@ -149,7 +149,8 @@ Active only when SSO is enabled and `SSO_ADMIN_GROUP` is set (`SsoProperties.adm
   and re-issues session-scoped cookies for the current browser, like `change-password`.
 - An admin can remove every identity of another member
   (`DELETE /api/admin/members/{memberId}/identities`, no proof, not on themselves). It bumps the
-  member's `tv` and revokes their series.
+  member's `tv` and revokes their series. Self-targeting returns a 403 ProblemDetail with
+  `code=SELF_UNLINK_FORBIDDEN`; the admin UI hides this action for the current member.
 
 ### Configuration
 

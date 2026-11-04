@@ -291,7 +291,7 @@ Removes every SSO identity of another member, e.g. after an IdP account was comp
 
 **Response `204`** — the member's identities are deleted and all their sessions are logged out (token version bumped, Remember-Me series revoked).
 
-**Errors:** 403 (an admin targeting themselves, or a non-admin caller), 404 (`"Member not found"`, or the member has no login)
+**Errors:** 403 `"code":"SELF_UNLINK_FORBIDDEN"` (an admin targeting themselves), 403 (a non-admin caller), 404 (`"Member not found"`, or the member has no login). Self-targeting returns a ProblemDetail; the admin UI hides this action for the current member.
 
 ---
 
@@ -378,6 +378,7 @@ Errors redirect with `ssoError={CODE}` to the page the flow came from: `/login` 
 | `SSO_ADMIN_REQUIRED` | `code` | `POST /api/setup/admin` (409) while `SSO_ADMIN_GROUP` is set |
 | `IDENTITY_NOT_USED_YET` | `code` | `DELETE /api/auth/password` (409) |
 | `LAST_SIGN_IN_METHOD` | `code` | `DELETE /api/auth/identities/{id}` (409) |
+| `SELF_UNLINK_FORBIDDEN` | `code` | `DELETE /api/admin/members/{memberId}/identities` targeting the caller (403); hidden in the admin UI |
 | `PASSWORD_ALREADY_SET` | `code` | `PUT /api/auth/password` (409) |
 | `REAUTH_FAILED` | `code` | 401 from `POST /api/auth/reauth`, the proof-gated `/api/auth/password` and `/api/auth/identities/{id}` endpoints, and `POST /api/me/export` |
 | `SSO_REVALIDATE` | `code` | `POST /api/auth/refresh` (401) once the SSO session is older than `SSO_SESSION_REVALIDATE_AFTER` |
