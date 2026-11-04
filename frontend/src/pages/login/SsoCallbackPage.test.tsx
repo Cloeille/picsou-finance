@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import { render, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const { SsoCallbackPage } = await import('./SsoCallbackPage')
