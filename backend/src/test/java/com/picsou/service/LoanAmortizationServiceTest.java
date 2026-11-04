@@ -184,10 +184,10 @@ class LoanAmortizationServiceTest {
 
     @Test
     void resolveMonthlyPayment_returnsAnEnteredPaymentAsIs() {
-        Debt debt = debt("200000", "0.036", "1200.22", "2025-01-01", "2045-01-01");
+        Debt debt = debt("200000", "0.036", "1500", "2025-01-01", "2045-01-01");
         debt.setInsuranceMonthly(new BigDecimal("30"));
 
-        assertThat(service.resolveMonthlyPayment(debt)).isEqualByComparingTo("1200.22");
+        assertThat(service.resolveMonthlyPayment(debt)).isEqualByComparingTo("1500");
     }
 
     @Test

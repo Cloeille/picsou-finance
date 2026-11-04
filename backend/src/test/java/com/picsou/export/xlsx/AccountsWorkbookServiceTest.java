@@ -491,16 +491,16 @@ class AccountsWorkbookServiceTest {
     @Test
     void debtSummaryBlock_countsTheInsuranceOnce_enteredOrComputed() throws IOException {
         // monthlyPayment is the whole installment, insurance included (docs/features/loans.md).
-        // 200 000 at 3.6% over 20 years with 30 of insurance is 1 200.22 a month, whether the
-        // user typed it in or left it for the service to compute.
+        // An entered payment counts as typed (1 500); a missing one is computed: 200 000 at 3.6%
+        // over 20 years with 30 of insurance is 1 200.22 a month.
         when(debtRepository.findAllByMemberId(MEMBER)).thenReturn(List.of(
-            debt(10L, "Prêt maison", "BoursoBank", "200000", "180000", "1200.22", "0.036", "30"),
+            debt(10L, "Prêt maison", "BoursoBank", "200000", "180000", "1500", "0.036", "30"),
             debt(11L, "Prêt travaux", "BoursoBank", "200000", "180000", null, "0.036", "30")));
         stubAccount(bank(1L, "PEA", AccountType.PEA));
 
         Sheet summary = export(List.of(1L)).getSheet("Summary");
 
-        assertThat(numberBesideLabel(summary, "Monthly payments")).isEqualTo(2400.44);
+        assertThat(numberBesideLabel(summary, "Monthly payments")).isEqualTo(2700.22);
     }
 
     @Test
