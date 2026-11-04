@@ -268,7 +268,7 @@ database's password, so a generated one could only mismatch it. It comes from th
 earlier version, or from the variable on a previous start); with neither, `SecretBootstrap`
 publishes nothing and `application.yml`'s default `picsou` applies.
 
-On subsequent boots, re-reads from the files. If the env var is already set by the operator, it is respected and written to the file for consistency (an existing file is never overwritten). Secrets are **never** regenerated once created: doing so would invalidate JWTs and corrupt all encrypted data in the DB. An empty secret file stops the app, naming the file and the variable. Files are written through a temp file and a hard link, mode `0600` in a `0700` directory, so the final name never shows a partial value and an existing file is never replaced. A filesystem without hard links (some NAS mounts) falls back to creating the final file exclusively (`CREATE_NEW`): it still never replaces a file another process created first, but a reader that opens it before the bytes land finds it empty, and an empty file stops the app instead of being used. A filesystem that cannot apply the modes only logs a warning. Without `PICSOU_SECRETS_DIR`, nothing is generated.
+On subsequent boots, re-reads from the files. If the env var is already set by the operator, it is respected and written to the file for consistency (an existing file is never overwritten). Secrets are **never** regenerated once created: doing so would invalidate JWTs and corrupt all encrypted data in the DB. An empty secret file stops the app, naming the file and the variable, when the variable is unset. A set variable is used and the empty file is left as is, so the next start without it fails: delete the empty file to let the value be copied again. Files are written through a temp file and a hard link, mode `0600` in a `0700` directory, so the final name never shows a partial value and an existing file is never replaced. A filesystem without hard links (some NAS mounts) falls back to creating the final file exclusively (`CREATE_NEW`): it still never replaces a file another process created first, but a reader that opens it before the bytes land finds it empty, and an empty file stops the app instead of being used. A filesystem that cannot apply the modes only logs a warning. Without `PICSOU_SECRETS_DIR`, nothing is generated.
 
 `TrustedProxyBootstrap`, a second `EnvironmentPostProcessor` registered next to it, turns `PICSOU_PROXY_IP` into `server.tomcat.remoteip.internal-proxies`, the only peer Tomcat takes the client address from. Unset or empty, the expression matches nothing. Anything but one plain IPv4 address (no leading zeros, octets up to 255) stops startup with `PICSOU_PROXY_IP must be one plain IPv4 address.`, without echoing the value; this check runs whenever the variable is set. **An explicitly configured `server.tomcat.remoteip.internal-proxies` wins** (`SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES`, `-D`, the command line, `SPRING_APPLICATION_JSON`): `PICSOU_PROXY_IP` is then ignored for the expression. Compose always sets `PICSOU_PROXY_IP` (default `172.30.253.2`), which is why the explicit property has to outrank it.
 
@@ -277,11 +277,16 @@ The datasource password follows Spring's ordinary precedence, through `applicati
 publishes the supplied or persisted `POSTGRES_PASSWORD`, so it feeds that
 placeholder instead of the literal `picsou` fallback, and `--spring.datasource.password`,
 `-Dspring.datasource.password`, `SPRING_APPLICATION_JSON` and a non-empty
-`SPRING_DATASOURCE_PASSWORD` all outrank it. An empty `SPRING_DATASOURCE_PASSWORD` would map to
-an empty `spring.datasource.password`, so in that one case `SecretBootstrap` adds a source with
-the resolved PostgreSQL password, or `picsou` when there is none, just above the environment
-(the command line and `-D` still win). Without `PICSOU_SECRETS_DIR`, `POSTGRES_PASSWORD` in the
+`SPRING_DATASOURCE_PASSWORD` all outrank it. An empty `SPRING_DATASOURCE_PASSWORD` or
+`POSTGRES_PASSWORD` (what a Compose-style file gives for an unset variable) is dropped from the
+environment, with or without `PICSOU_SECRETS_DIR`, so it behaves exactly as unset: a
+`spring.datasource.password` from any source wins, a config file included, then the resolved
+PostgreSQL password, then `picsou`. Without `PICSOU_SECRETS_DIR`, `POSTGRES_PASSWORD` in the
 environment also reaches the datasource; with neither variable the password is still `picsou`.
+
+The Helm migration hook does not start Spring's environment: it maps `SPRING_DATASOURCE_PASSWORD`
+to `POSTGRES_PASSWORD` in the shell. A password given only through `SPRING_APPLICATION_JSON` is
+not seen there, so set `SPRING_DATASOURCE_PASSWORD` instead when the two differ.
 
 This does not synchronize or rotate the database container's password. Set
 `POSTGRES_PASSWORD` in `docker/.env` to the actual database password before
@@ -719,7 +724,7 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - **`VITE_DEMO_MODE` build arg** defaults to `false`. Pass `--build-arg VITE_DEMO_MODE=true` for a demo build.
 - **Spring Boot listens on 8080** and is the only process. `server.port` is 8080 in `application.yml`; there is no 9090 any more.
 - **`/data` must be writable by uid 1000.** Compose runs the one-shot `data-permissions` service (same image, `user: "0:0"`, `chown -R 1000:1000 /data`) before the app; `deploy.sh` runs it explicitly because it recreates the app with `--no-deps`. A bind mount whose filesystem ignores `chown` (NAS, CIFS) needs mount options `uid=1000,gid=1000` instead.
-- **`SPA_LOCATION` blank means no SPA.** `app.spa.location` registers nothing when empty (development uses Vite, backend tests are unaffected). A SPA file that Spring cannot read gives `index.html` for routes and a 404 for any path with a static extension.
+- **`SPA_LOCATION` blank means no SPA.** `app.spa.location` registers nothing when empty (development uses Vite, backend tests are unaffected). A SPA file that Spring cannot read gives `index.html` for routes and a 404 for any path with a static extension. An unreadable `index.html` itself gives a 404 for every route, since there is no page to fall back to.
 - **`docker/tests/header_diff.py BASE CANDIDATE`** compares status and headers of two running instances, path by path, plain and with `X-Forwarded-Proto: https`. Use it against a pre-change image to prove nothing observable changed.
 - **`caddy_data` must persist.** It holds issued certificates *and the internal CA's root key*. Deleting the volume regenerates the root, invalidating the certificate every device was told to trust — everyone has to re-install it.
 - **Closing the plain-HTTP `:8080` publish uses an overlay file**, `docker/docker-compose.no-http.yml` (`ports: !reset []`), not an env var. Compose cannot vary `ports` by profile, and two env-var forms were tried and rejected: `${VAR:-0.0.0.0}:8080:8080` binds IPv4 only and silently drops the `[::]` binding the unqualified short form gives (breaking IPv6 clients on *every* deployment), while the prefix form `${VAR:-}8080:8080` turns a value missing its trailing colon into `127.0.0.18080:8080` — an opaque "invalid published port" that aborts the whole stack, db and tr-auth included. Long-syntax `host_ip: ""` is rejected as an invalid IP. Requires Compose v2.24+ for `!reset`.

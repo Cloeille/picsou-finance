@@ -47,6 +47,14 @@ OAUTH_PREFIXES = ("/oauth2", "/.well-known/oauth-")
 STATIC_EXTENSION = re.compile(r"\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$", re.IGNORECASE)
 
 
+# The only two baselines nginx sent on those paths: nothing (index.html, client routes) and the
+# one-year policy of frontend/public files. Any other baseline, no-store included, still fails.
+REVALIDATED_CACHE_CHANGES = {
+    "cache-control: absent != ['no-cache']",
+    "cache-control: ['immutable', 'max-age=31536000', 'public'] != ['no-cache']",
+}
+
+
 def is_revalidated_spa_path(path):
     return not path.startswith(("/assets/", "/api", "/actuator", "/oauth2", "/.well-known", "/mcp"))
 
@@ -98,12 +106,19 @@ def is_accepted(path, line, candidate_hsts_disabled=False):
         return candidate_hsts_disabled and path.startswith(OAUTH_PREFIXES) and line.endswith("!= absent")
     if name == "expires" and not line.endswith("!= absent"):
         return False
-    if name == "cache-control" and not line.endswith("!= ['no-cache']"):
+    if name == "cache-control" and line not in REVALIDATED_CACHE_CHANGES:
         return False
-    if name == "content-type" and not is_javascript_type_change(line):
-        return False
+    if name == "content-type":
+        return path.endswith(".js") and (is_javascript_type_change(line) or is_missing_bundle_body_change(path, line))
     predicate = ACCEPTED.get(name)
     return predicate is not None and predicate(path)
+
+
+def is_missing_bundle_body_change(path, line):
+    """True for the missing hashed bundle only: nginx's HTML 404 page became Spring's problem body."""
+    return path == "/assets/does-not-exist.js" and re.fullmatch(
+        r"content-type: \['text/html(;charset=[^';]+)?'\] != \['application/problem\+json(;charset=[^';]+)?'\]",
+        line) is not None
 
 
 def is_javascript_type_change(line):

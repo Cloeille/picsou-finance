@@ -63,7 +63,8 @@ class SpaServingTest {
         try {
             Path parent = Files.createTempDirectory("picsou-spa-test");
             Files.writeString(parent.resolve("secret.txt"), SECRET);
-            Path site = Files.createDirectory(parent.resolve("public"));
+            // '#' starts a fragment in a file: URL; the SPA directory must still resolve.
+            Path site = Files.createDirectory(parent.resolve("public#1"));
             Files.writeString(site.resolve("index.html"), INDEX);
             Files.writeString(site.resolve("application.yml"), "inside: true");
             Files.createDirectories(site.resolve("assets"));
@@ -309,8 +310,22 @@ class SpaServingTest {
         mvc.perform(post("/accounts/12")).andExpect(status().is4xxClientError());
     }
 
+    /** {@code /api/setup/**} is permitAll, so only the resolver's backend guard stops the fallback. */
+    @Test
+    void permittedBackendPathWithoutController_is404WithoutHtml() throws Exception {
+        MvcResult result = mvc.perform(get("/api/setup/nope")).andExpect(status().isNotFound()).andReturn();
+        assertThat(body(result)).doesNotContain("picsou-spa-index");
+        assertThat(String.valueOf(result.getResponse().getContentType())).doesNotStartWith("text/html");
+    }
+
+    /**
+     * MockMvc does not reproduce Tomcat's URI normalisation, and the firewall rejects most of these
+     * before the resolver runs. This only pins that no path reaches a file outside the SPA through
+     * MVC; the container-level rejection (400) is Tomcat's and is not re-tested here.
+     */
     @Test
     void traversal_isNeverServed() throws Exception {
+        int answered = 0;
         for (String uri : new String[] {"/..%2fsecret.txt", "/%2e%2e/secret.txt", "/%2e%2e%2fsecret.txt",
             "/../secret.txt", "/assets/..%2f..%2fsecret.txt", "/%252e%252e/secret.txt"}) {
             String served;
@@ -319,8 +334,11 @@ class SpaServingTest {
             } catch (Exception rejectedByFirewall) {
                 continue;
             }
+            answered++;
             assertThat(served).as(uri).doesNotContain(SECRET);
         }
+        // Some forms must reach the resolver, or a firewall rejecting all of them would pass this test.
+        assertThat(answered).isPositive();
     }
 
     @Test

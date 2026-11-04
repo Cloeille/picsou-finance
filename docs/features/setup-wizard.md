@@ -80,8 +80,10 @@ Frontend:
 First boot
     │
     ▼
-SecretBootstrap       ──► writes $PICSOU_SECRETS_DIR/{jwt_secret,crypto_key}
-                              (only if env vars unset — idempotent)
+SecretBootstrap       ──► writes $PICSOU_SECRETS_DIR/{jwt_secret,crypto_key,postgres_password}
+                              (keys generated when unset, postgres_password never;
+                               a supplied value is copied when its file is missing;
+                               an existing file is never overwritten)
     │
     ▼
 Spring boots → Flyway V25 seeds setup.state='PENDING_ADMIN'
@@ -148,7 +150,7 @@ Application ID and PEM form remains possible follow-up work.
 | Dedicated axios client for `/api/setup/*` | The main `api` instance has a 401 → refresh → `/login` interceptor that would bounce unauthenticated wizard calls. | Sharing the main client and special-casing 401 (fragile). |
 | Idempotent EB keypair | Re-generating the public PEM from an existing private key never invalidates what the user already uploaded to Enable Banking. | Overwriting on every call (silent data loss). |
 | Self-hosted Homemade Apple font | Picsou never phones home to fonts.googleapis.com. | Google Fonts CDN link (exfils user IP + user-agent on every fresh install). |
-| Nginx-level CSP + security headers | Applies to the index.html that serves the SPA — backend API-only CSP would have no browser effect. | Spring-level CSP (wouldn't apply since SPAs load HTML from nginx). |
+| Spring-level CSP + security headers | Spring serves `index.html` too, so one header customizer covers the SPA, the API and the authorization server ([ADR](../decisions/2026-11-03-spring-serves-the-spa.md)). | nginx-level headers (a second copy to keep in sync, and missing on direct backend access). |
 
 ## Gotchas / Pitfalls
 
@@ -226,14 +228,14 @@ future work):
 ## Security posture
 
 - **Rate limiting** on `/api/setup/*` via Bucket4j (10 rpm / IP). 429 on breach.
-- **Headers** (set by nginx, app-wide):
+- **Headers** (set by Spring Security, app-wide):
   `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy:
   strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`.
 - **`Strict-Transport-Security` is opt-in**, not app-wide: it is only sent when
   `HSTS_ENABLED=true` (see [docker-deployment.md](./docker-deployment.md)). Enabling it
   with a locally-issued certificate locks users out — the browser drops the
   "proceed anyway" bypass. Do not assume HSTS is enforced on a deployment.
-- **CSP** (nginx):
+- **CSP** (Spring Security):
   `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src
   'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'`.
   `'unsafe-inline'` is only in `style-src` because Tailwind's JIT injects inline

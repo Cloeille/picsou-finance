@@ -57,7 +57,6 @@ public class SetupFilter extends OncePerRequestFilter {
             || path.equals("/actuator/health")
             || path.equals("/actuator/health/liveness")
             || path.equals("/actuator/health/readiness")
-            || path.equals("/actuator/info")
-            || path.equals("/error");
+            || path.equals("/actuator/info");
     }
 }

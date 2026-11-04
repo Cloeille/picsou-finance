@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.AbstractResource;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
@@ -73,7 +74,8 @@ public class SpaWebConfig implements WebMvcConfigurer {
             return;
         }
         registry.addResourceHandler("/**")
-            .addResourceLocations("file:" + (location.endsWith("/") ? location : location + "/"))
+            // A Resource, not a "file:" URL string: a '#' in the path would start a URL fragment.
+            .addResourceLocations(new FileSystemResource(location.endsWith("/") ? location : location + "/"))
             .setEtagGenerator(SpaWebConfig::etag)
             .resourceChain(false)
             .addResolver(new SpaResourceResolver());
