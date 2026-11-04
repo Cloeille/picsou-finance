@@ -25,7 +25,7 @@ com.picsou/
 │                   PriceSnapshot;
 │                   identity & sharing: AppUser, FamilyMember, UserRole, SharingSettings,
 │                   SharingLevel, SharedResource, UserMfa, UserMfaRecoveryCode,
-│                   PersistentSession;
+│                   PersistentSession, UserIdentity (linked SSO identity);
 │                   setup: AppSetting, SetupState, SetupAudit
 ├── repository/     Spring Data JPA interfaces (one per entity, ~25 repos)
 ├── service/        Business logic — financial: AccountService, GoalService,
@@ -38,14 +38,20 @@ com.picsou/
 │                   AmundiSyncService,
 │                   FinaryImportService, FinaryApiSyncService;
 │                   identity & family: UserContext, FamilyService, FamilyViewService,
-│                   MfaService, PersistentSessionService, ReAuthService;
+│                   MfaService, PersistentSessionService, ReAuthService,
+│                   SessionIssuer, ActivationService, SignInMethodsService,
+│                   UsernameDeriver;
+│                   sso/: SsoAccountService, SsoRoleSyncService, GroupsClaimParser,
+│                   SsoIdentity, SsoIntent;
 │                   setup: SetupService, SetupAuditService, IntegrationsService,
 │                   IntegrationsHealthService, CryptoKeyGeneratorService,
 │                   EnableBankingKeyPairService
 ├── controller/     REST controllers under /api/ — auth, mfa, sessions, family,
 │                   accounts, transactions, holdings, goals, debts, dashboard, history,
 │                   sync, tr, bourso, bourse-direct, degiro, amundi, crypto-exchange, wallet,
-│                   finary-import, finary-api-sync, setup, admin, admin-mfa, me-export, price
+│                   finary-import, finary-api-sync, setup, admin, admin-mfa, me-export, price,
+│                   sign-in methods (/api/auth/sso, reauth, password, identities),
+│                   admin member identities
 ├── dto/            Request/response records (records are the convention)
 ├── port/           Port interfaces (BankConnectorPort, PriceProviderPort,
 │                   TradeRepublicPort, CryptoExchangePort, WalletPort, BoursoPort,
@@ -67,13 +73,18 @@ com.picsou/
 │                   FinaryPersistenceHelper, FinaryApiSyncService)
 ├── export/         GDPR data export — DataExportService orchestrator + per-entity
 │                   exporters (Profile, Accounts, Holdings, Transactions, Goals, Debts,
-│                   Wallets, SharedResources, BankConnections, BalanceSnapshots) + CsvWriter
+│                   Wallets, LinkedIdentities, SharedResources, BankConnections,
+│                   BalanceSnapshots) + CsvWriter
 ├── config/         SecurityConfig, JwtUtil, JwtAuthenticationFilter,
 │                   PersistentTokenAuthFilter, AuthCookieWriter, SecureCookieProvider,
 │                   DynamicCorsConfigurationSource, LoggingCorsProcessor, SetupFilter,
 │                   DataSeeder, RateLimitConfig, FinaryProperties, CryptoEncryption,
 │                   TotpConfig, EnableBankingConfigProvider, PriceBackfillRunner,
-│                   StartupSyncService
+│                   StartupSyncService;
+│                   SSO: SsoProperties, SsoEnabledCondition, SsoSecurityConfig,
+│                   SsoClientRegistrationRepository, SsoStartGuardFilter,
+│                   SsoAuthorizationRequestResolver, SsoAuthorizationRequestRepository,
+│                   SsoAuthentication{Success,Failure}Handler, SafeRedirect
 └── exception/      GlobalExceptionHandler, ResourceNotFoundException, SyncException,
                     MfaException, TotpRequiredException
 ```
@@ -220,7 +231,7 @@ Browser → SetupFilter → /setup → SetupController → SetupService → AppS
                                                   → IntegrationsService
 ```
 
-`SetupFilter` redirects every request to `/setup` until `SetupState.completed = true`. The wizard collects admin credentials, security settings (CORS, encryption key), and per-integration credentials. Each step is appended to `setup_audit` (actor, IP, timestamp). After completion, the filter becomes a no-op.
+`SetupFilter` redirects every request to `/setup` until `SetupState.completed = true`. The wizard collects admin credentials, security settings (CORS, encryption key), and per-integration credentials. Each step is appended to `setup_audit` (actor, IP, timestamp). After completion, the filter becomes a no-op. With `SSO_ADMIN_GROUP` set, the admin step only offers SSO: the first member of that IdP group to sign in becomes the password-less administrator (flow 16).
 
 ### 12. Authentication & MFA
 
@@ -254,9 +265,10 @@ Admins can use `/admin/impersonate/{memberId}` to view another member's data; `U
 ### 14. GDPR data export
 
 ```
-POST /api/me/export/reauth → ReAuthService verifies password (+ TOTP if enabled)
-GET  /api/me/export        → DataExportService runs each EntityExporter
-                          → emits a single ZIP containing JSON + CSV per entity
+POST /api/me/export → ReAuthService accepts a valid reauth_proof cookie,
+                      else the inline TOTP (2FA on) or password (2FA off)
+                    → DataExportService runs each EntityExporter
+                    → emits a single ZIP containing JSON + CSV per entity
 ```
 
 Wrapped in a read-only Spring transaction; rate-limited via `RateLimitConfig`.
@@ -270,12 +282,31 @@ GET /api/accounts/{id}/loan-schedule → AccountController → LoanAmortizationS
 
 Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month rows persisted. See ADR `2026-04-26-loan-amortization-on-the-fly.md`.
 
+### 16. SSO login
+
+```
+/login → form POST /oauth2/sso/authorization/oidc → SsoStartGuardFilter → IdP (PKCE, state, nonce)
+IdP → GET /login/sso/callback (SPA page) → form POST /oauth2/sso/code/oidc
+    → Spring OIDC client (code exchange, ID token, userinfo)
+    → SsoAuthenticationSuccessHandler → SsoAccountService (resolve by iss + sub)
+                                      → SsoRoleSyncService (admin group)
+                                      → SessionIssuer (Picsou's own cookies, sso_at)
+    → /login/sso-complete → POST /api/auth/refresh → app
+```
+
+Optional, configured by the `SSO_*` environment variables, and served by its own
+`SecurityFilterChain` at `@Order(0)` on `/oauth2/sso/**`. The IdP only authenticates; IdP tokens
+are discarded. SSO sessions pass through the IdP again after `SSO_SESSION_REVALIDATE_AFTER`
+(refresh answers 401 `SSO_REVALIDATE`). The same flow handles re-authentication, identity
+linking, invitation activation and the first admin. See [sso-login.md](./features/sso-login.md)
+and the [ADR](./decisions/2026-11-04-sso-login-alongside-passwords.md).
+
 ## External dependencies
 
 | Service | Usage | Config |
 |---------|-------|--------|
 | PostgreSQL 16 | Persistence | `SPRING_DATASOURCE_URL` |
-| Flyway | Schema migrations | `db/migration/` (latest V81) |
+| Flyway | Schema migrations | `db/migration/` (latest V122) |
 | Enable Banking | PSD2 bank sync (optional) | `ENABLEBANKING_*` |
 | SimpleFIN | Bank balances and posted transactions from a setup token (optional, no app credentials) | User-supplied token |
 | Powens / Budget Insight | Scraping bank sync (**experimental, disabled in 1.0.0**) | `POWENS_*` |
@@ -294,13 +325,14 @@ Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month r
 | Solana RPC | Solana wallet balances | No config |
 | Blockstream Esplora | Bitcoin wallet balances | No config |
 | Finary | Import xlsx or API sync (optional) | `FINARY_*` |
+| OIDC identity provider | SSO login, admin group (optional) | `SSO_*` |
 
 ## Key constraints
 
 - **Ports & adapters:** controllers/services never import adapters directly. All external integrations go through port interfaces.
-- **Flyway owns schema:** never use `ddl-auto: create/update`. Every schema change is a new migration file (latest: V81).
+- **Flyway owns schema:** never use `ddl-auto: create/update`. Every schema change is a new migration file (latest: V122).
 - **Multi-member families:** each authenticated user is an `AppUser` linked to a `FamilyMember`. All financial rows are scoped by `member_id`; cross-member visibility is gated by `SharingSettings` + `SharedResource`. Admin role can impersonate any member.
-- **Auth:** JWT (`access_token` + `refresh_token`) in HttpOnly `SameSite=Lax` cookies. Optional TOTP 2FA, rotating persistent sessions ("Remember Me"), stateless invalidation via `tokenVersion` claim on password change.
+- **Auth:** JWT (`access_token` + `refresh_token`) in HttpOnly `SameSite=Lax` cookies. Optional TOTP 2FA, rotating persistent sessions ("Remember Me"), stateless invalidation via `tokenVersion` claim on password change. Optional SSO through one external OIDC provider ends in the same cookies: the IdP only authenticates, accounts are linked by `(iss, sub)` only, SSO sessions carry `sso_at` and are re-validated through the IdP after `SSO_SESSION_REVALIDATE_AFTER`, and accounts may have no password. Credential changes need the short-lived `reauth_proof` cookie.
 - **First-launch setup wizard:** on a fresh install, `SetupFilter` redirects to a wizard that creates the admin, configures CORS, generates the encryption key, and seeds integration credentials. No env-var editing required.
 - **AES-256-GCM encryption:** crypto-exchange API secrets, bank session tokens, and Finary credentials encrypted at rest. `CRYPTO_ENCRYPTION_KEY` must be backed up — lost key means re-authenticating all integrations.
 - **Scheduled tasks:** `SchedulerService` handles daily balance snapshots, price cache refresh, and per-member auto-sync.

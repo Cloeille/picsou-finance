@@ -410,6 +410,8 @@ cp docker/.env.example docker/.env
 | `SSO_SESSION_REVALIDATE_AFTER` | Single sign-on | Maximum age of an SSO session before it must pass through the IdP again. Defaults to `24h` |
 | `SSO_IDP_LOGOUT` | Single sign-on | `true` also ends the IdP session on logout (RP-initiated logout with `client_id` and `post_logout_redirect_uri`; register `https://<host>/login` as post-logout URI). Defaults to `false` |
 
+Single sign-on, the admin group and a step-by-step Zitadel setup are described in [docs/features/sso-login.md](docs/features/sso-login.md).
+
 > **Note:** The bcrypt hash contains `$` characters. In `.env`, write it as-is without quotes. Never export it in a shell without single quotes: `export APP_PASSWORD_HASH='$2a$12$...'`.
 
 > **Settings the wizard already stored win over `.env`.** `ENABLEBANKING_REDIRECT_URI`,

@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sign in with your identity provider (SSO).** Set `SSO_ISSUER_URI` and `SSO_CLIENT_ID` to add
+  a "Sign in with <provider>" button that works with any OpenID Connect provider (Zitadel,
+  Authentik, Keycloak, Authelia, Pocket ID...). It sits alongside passwords: without these
+  variables nothing changes. Picsou still issues its own session cookies, Remember Me included,
+  and links an account to the provider's identity only, never by email or username. With
+  `SSO_ADMIN_GROUP`, a fresh instance can be set up without any password (the first member of
+  that group to sign in becomes the administrator), and the group keeps managing who is an admin.
+  Invited members can activate with SSO, and from Settings you can link or unlink an identity
+  and turn password login off. Sensitive actions such as the data export then re-authenticate
+  through the provider. SSO sessions pass through the provider again after
+  `SSO_SESSION_REVALIDATE_AFTER` (24 hours by default), and `SSO_IDP_LOGOUT=true` also ends the
+  provider session on logout. The data export gains a `linked_identities` table. See
+  [docs/features/sso-login.md](docs/features/sso-login.md).
+
 - **AI categorization over MCP.** `start_ai_categorization` starts the inbox's AI job and
   `get_ai_categorization_status` reports its progress as counters only, under a new
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
