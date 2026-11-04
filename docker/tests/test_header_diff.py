@@ -107,6 +107,14 @@ def test_content_type_is_accepted_only_for_the_javascript_spelling_change():
     assert not is_accepted("/accounts/12", "content-type: ['application/javascript'] != ['text/javascript']")
 
 
+def test_the_missing_bundle_may_swap_nginx_html_for_a_problem_body_only_there():
+    line = "content-type: ['text/html'] != ['application/problem+json']"
+    assert is_accepted("/assets/does-not-exist.js", line)
+    assert is_accepted("/assets/does-not-exist.js", "content-type: ['text/html;charset=utf-8'] != ['application/problem+json']")
+    assert not is_accepted("/assets/index-abc.js", line)
+    assert not is_accepted("/assets/does-not-exist.js", "content-type: ['application/problem+json'] != ['text/html']")
+
+
 def test_each_deployment_is_asked_for_its_own_bundle(monkeypatch):
     import header_diff
     names = {("http://base", "js"): "/assets/index-AAA.js", ("http://cand", "js"): "/assets/index-BBB.js",

@@ -108,10 +108,17 @@ def is_accepted(path, line, candidate_hsts_disabled=False):
         return False
     if name == "cache-control" and line not in REVALIDATED_CACHE_CHANGES:
         return False
-    if name == "content-type" and not is_javascript_type_change(line):
-        return False
+    if name == "content-type":
+        return path.endswith(".js") and (is_javascript_type_change(line) or is_missing_bundle_body_change(path, line))
     predicate = ACCEPTED.get(name)
     return predicate is not None and predicate(path)
+
+
+def is_missing_bundle_body_change(path, line):
+    """True for the missing hashed bundle only: nginx's HTML 404 page became Spring's problem body."""
+    return path == "/assets/does-not-exist.js" and re.fullmatch(
+        r"content-type: \['text/html(;charset=[^';]+)?'\] != \['application/problem\+json(;charset=[^';]+)?'\]",
+        line) is not None
 
 
 def is_javascript_type_change(line):

@@ -313,6 +313,7 @@ class SpaServingTest {
      */
     @Test
     void traversal_isNeverServed() throws Exception {
+        int answered = 0;
         for (String uri : new String[] {"/..%2fsecret.txt", "/%2e%2e/secret.txt", "/%2e%2e%2fsecret.txt",
             "/../secret.txt", "/assets/..%2f..%2fsecret.txt", "/%252e%252e/secret.txt"}) {
             String served;
@@ -321,8 +322,11 @@ class SpaServingTest {
             } catch (Exception rejectedByFirewall) {
                 continue;
             }
+            answered++;
             assertThat(served).as(uri).doesNotContain(SECRET);
         }
+        // Some forms must reach the resolver, or a firewall rejecting all of them would pass this test.
+        assertThat(answered).isPositive();
     }
 
     @Test
