@@ -197,6 +197,10 @@ Whether a forced re-authentication asks for the second factor again depends on t
 second-factor "check lifetimes" of the Zitadel login settings. Other IdPs (Pocket ID, Authelia)
 usually need `groups` in `SSO_SCOPES`.
 
+With `SSO_IDP_LOGOUT=true`, Zitadel shows its own sign-out confirmation page where the user picks
+the account to sign out, then returns to Picsou's login page (verified against a real Zitadel
+instance).
+
 ### Key files
 
 Backend (`backend/src/main/java/com/picsou/`):
