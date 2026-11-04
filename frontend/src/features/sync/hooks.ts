@@ -118,12 +118,27 @@ export function useDeleteBankConnection() {
 // ---------------------------------------------------------------------------
 
 export function useTrSessionStatus() {
-  return useQuery({
+  const queryClient = useQueryClient()
+  const query = useQuery({
     queryKey: syncKeys.tr(),
     queryFn: trApi.getSessionStatus,
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    // The sync is only queued by POST /tr/sync: follow it closely until it settles.
+    refetchInterval: query => {
+      const state = query.state.data?.syncStatus
+      return state === 'QUEUED' || state === 'RUNNING' ? 1_500 : 60_000
+    },
   })
+  const completedAt = query.data?.lastSyncCompletedAt
+  const succeeded = query.data?.syncStatus === 'SUCCESS'
+
+  // The queued sync imports in the background: refresh the account views once it has landed.
+  useEffect(() => {
+    if (!succeeded || !completedAt) return
+    for (const key of ACCOUNT_VIEWS) queryClient.invalidateQueries({ queryKey: key })
+  }, [completedAt, queryClient, succeeded])
+
+  return query
 }
 
 export function useInitiateTrAuth() {
@@ -135,7 +150,8 @@ export function useInitiateTrAuth() {
 
 export function useCompleteTrAuth() {
   return useInvalidatingMutation({
-    mutationFn: ({ processId, tan }: { processId: string; tan: string }) => trApi.completeAuth(processId, tan),
+    // No `tan` for the in-app confirmation: the request stays open until the member confirms.
+    mutationFn: ({ processId, tan }: { processId: string; tan?: string }) => trApi.completeAuth(processId, tan),
     invalidates: [syncKeys.tr(), ...ACCOUNT_VIEWS],
   })
 }
@@ -143,6 +159,20 @@ export function useCompleteTrAuth() {
 export function useSyncTradeRepublic() {
   return useInvalidatingMutation({
     mutationFn: () => trApi.sync(),
+    invalidates: [syncKeys.tr(), ...ACCOUNT_VIEWS],
+  })
+}
+
+export function useImportTrCsv() {
+  return useInvalidatingMutation({
+    mutationFn: (file: File) => trApi.importCsv(file),
+    invalidates: [syncKeys.tr(), ...ACCOUNT_VIEWS],
+  })
+}
+
+export function useClearTrSession() {
+  return useInvalidatingMutation({
+    mutationFn: () => trApi.clearSession(),
     invalidates: [syncKeys.tr(), ...ACCOUNT_VIEWS],
   })
 }

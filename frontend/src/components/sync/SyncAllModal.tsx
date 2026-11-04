@@ -64,7 +64,8 @@ import {
 import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
 import type { Account } from '@/types/api'
-import { formatApiError, formatTrAuthError, isTrSessionDeadError } from '@/lib/errors'
+import { formatApiError, formatTrAuthError, isTrAttemptOverError, isTrSessionDeadError } from '@/lib/errors'
+import { TrAppConfirmation } from '@/components/sync/TrAppConfirmation'
 import { syncKeys } from '@/features/sync/keys'
 import { revolutErrorLabel } from '@/features/sync/revolut-phase'
 import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
@@ -209,10 +210,12 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: accounts } = useAccounts()
 
   // Show TR in modal if: there are active TR accounts, the session is active, or the session
-  // is expired but was previously created (expiresAt != null). This keeps TR visible even when
-  // accounts were soft-deleted — the session still exists and the user can reconnect from here.
-  // isActive=false + expiresAt=null means no session has ever been created → hide TR.
-  const hasTrSession = trStatus?.isActive === true || trStatus?.expiresAt != null
+  // is deactivated but a sync once ran on it. This keeps TR visible even when accounts were
+  // soft-deleted — the session still exists and the user can reconnect from here.
+  // isActive=false + no sync ever started means no session has ever been created → hide TR.
+  const hasTrSession = trStatus?.isActive === true
+    || trStatus?.lastSyncStartedAt != null
+    || trStatus?.lastSyncCompletedAt != null
   const hasTrAccount = (accounts?.some(a => a.provider === 'Trade Republic') ?? false) || hasTrSession
   // Same "keep visible across soft-delete" rule as TR — see comment above.
   // Remembered credentials play the role expiresAt played for TR: they mean
@@ -345,11 +348,12 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set())
 
   // TR inline auth state
-  const [trAuthStep, setTrAuthStep] = useState<'idle' | 'phone' | 'tan'>('idle')
+  const [trAuthStep, setTrAuthStep] = useState<'idle' | 'phone' | 'app' | 'tan'>('idle')
   const [trPhone, setTrPhone] = useState('')
   const [trPin, setTrPin] = useState('')
   const [trTan, setTrTan] = useState('')
   const [trProcessId, setTrProcessId] = useState<string | null>(null)
+  const [trCountdown, setTrCountdown] = useState(0)
   const [trAuthError, setTrAuthError] = useState<string | null>(null)
 
   // Per-connection sync/retry errors, keyed by connection id
@@ -697,6 +701,29 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   // failure has no valid processId, so stay on the phone/PIN step and clear
   // pending state; a complete failure keeps the processId so the user can
   // retry the code without re-entering phone/PIN.
+  function completeTrLogin(processId: string, tan?: string) {
+    completeTrMutation.mutate(
+      { processId, tan },
+      {
+        onSuccess: () => {
+          resetTrAuth()
+          // Query invalidation (status, accounts, dashboard) is handled by
+          // useCompleteTrAuth itself; the background sync results arrive via
+          // the existing refetch intervals.
+        },
+        onError: (err: unknown) => {
+          setTrAuthError(formatTrAuthError(err, t))
+          setTrTan('')
+          // An in-app confirmation or a dead attempt cannot be retried: start over.
+          if (tan === undefined || isTrAttemptOverError(err)) {
+            setTrProcessId(null)
+            setTrAuthStep('phone')
+          }
+        },
+      },
+    )
+  }
+
   function handleTrInitiate(e: React.FormEvent) {
     e.preventDefault()
     initiateTrMutation.mutate(
@@ -704,8 +731,14 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       {
         onSuccess: (data) => {
           setTrProcessId(data.processId)
-          setTrAuthStep('tan')
           setTrAuthError(null)
+          if (data.flow === 'confirmInApp') {
+            setTrCountdown(data.countdownInSeconds)
+            setTrAuthStep('app')
+            completeTrLogin(data.processId)
+            return
+          }
+          setTrAuthStep('tan')
         },
         onError: (err: unknown) => {
           setTrAuthError(formatTrAuthError(err, t))
@@ -720,26 +753,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   function handleTrComplete(e: React.FormEvent) {
     e.preventDefault()
     if (!trProcessId || trTan.length !== TR_VERIFICATION_CODE_LENGTH) return
-    completeTrMutation.mutate(
-      { processId: trProcessId, tan: trTan },
-      {
-        onSuccess: () => {
-          setTrAuthStep('idle')
-          setTrPhone('')
-          setTrPin('')
-          setTrTan('')
-          setTrProcessId(null)
-          setTrAuthError(null)
-          // Query invalidation (status, accounts, dashboard) is handled by
-          // useCompleteTrAuth itself; the background sync results arrive via
-          // the existing refetch intervals.
-        },
-        onError: (err: unknown) => {
-          setTrAuthError(formatTrAuthError(err, t))
-          setTrTan('')
-        },
-      },
-    )
+    completeTrLogin(trProcessId, trTan)
   }
 
   function resetTrAuth() {
@@ -945,6 +959,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                               </Button>
                             </div>
                           </form>
+                        )}
+                        {trAuthStep === 'app' && (
+                          <TrAppConfirmation countdownInSeconds={trCountdown} />
                         )}
                         {trAuthStep === 'tan' && (
                           <form onSubmit={handleTrComplete} className="space-y-3">

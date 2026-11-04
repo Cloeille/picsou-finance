@@ -47,6 +47,17 @@ function renderTab() {
   render(<TradeRepublicTab />, { wrapper: Wrapper })
 }
 
+const OTP_INIT = { processId: 'process-123', flow: 'otp', countdownInSeconds: 120 }
+const APP_INIT = { processId: 'process-123', flow: 'confirmInApp', countdownInSeconds: 120 }
+
+const DISCONNECTED = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+}
+
 async function fillCredentials() {
   fireEvent.change(await screen.findByLabelText('sync.tr.phone'), {
     target: { value: '+33612345678' },
@@ -61,7 +72,7 @@ describe('TradeRepublicTab authentication flow', () => {
     apiGet.mockReset()
     apiPost.mockReset()
     apiDelete.mockReset()
-    apiGet.mockResolvedValue({ data: { isActive: false } })
+    apiGet.mockResolvedValue({ data: DISCONNECTED })
   })
 
   it('keeps the phone and PIN form visible when initiation fails', async () => {
@@ -84,7 +95,7 @@ describe('TradeRepublicTab authentication flow', () => {
   })
 
   it('moves focus to the verification-code input once the PIN is accepted', async () => {
-    apiPost.mockResolvedValue({ data: { processId: 'process-123' } })
+    apiPost.mockResolvedValue({ data: OTP_INIT })
 
     renderTab()
     await fillCredentials()
@@ -97,7 +108,7 @@ describe('TradeRepublicTab authentication flow', () => {
   it('keeps the verification-code step visible when TAN completion fails', async () => {
     apiPost.mockImplementation((url: string) => {
       if (url === '/tr/auth/initiate') {
-        return Promise.resolve({ data: { processId: 'process-123' } })
+        return Promise.resolve({ data: OTP_INIT })
       }
       if (url === '/tr/auth/complete') {
         return Promise.reject({
@@ -120,9 +131,112 @@ describe('TradeRepublicTab authentication flow', () => {
     const tanInput = screen.getByLabelText('sync.tr.tan')
     expect(tanInput).toBeInTheDocument()
     await waitFor(() => expect(tanInput).toHaveValue(''))
-    expect(apiPost).toHaveBeenCalledWith('/tr/auth/complete', {
-      processId: 'process-123',
-      tan: '9876',
+    expect(apiPost).toHaveBeenCalledWith(
+      '/tr/auth/complete',
+      { processId: 'process-123', tan: '9876' },
+      expect.any(Object),
+    )
+  })
+
+  it('shows the code field, and no app prompt, for the otp flow', async () => {
+    apiPost.mockResolvedValue({ data: OTP_INIT })
+
+    renderTab()
+    await fillCredentials()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    expect(await screen.findByLabelText('sync.tr.tan')).toBeInTheDocument()
+    expect(screen.queryByText('sync.tr.appConfirmPrompt')).not.toBeInTheDocument()
+    expect(apiPost).not.toHaveBeenCalledWith('/tr/auth/complete', expect.anything(), expect.anything())
+  })
+
+  it('shows the app prompt with the countdown and completes once, without a code, for the confirmInApp flow', async () => {
+    let finish: (value: unknown) => void = () => {}
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/tr/auth/initiate') return Promise.resolve({ data: APP_INIT })
+      if (url === '/tr/auth/complete') return new Promise(resolve => { finish = resolve })
+      return Promise.reject(new Error(`Unexpected POST ${url}`))
     })
+
+    renderTab()
+    await fillCredentials()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    expect(await screen.findByText('sync.tr.appConfirmPrompt')).toBeInTheDocument()
+    expect(screen.getByTestId('tr-countdown')).toHaveTextContent('2:00')
+    expect(screen.queryByLabelText('sync.tr.tan')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith('/tr/auth/complete', { processId: 'process-123' }, expect.any(Object)),
+    )
+    expect(apiPost.mock.calls.filter(([url]) => url === '/tr/auth/complete')).toHaveLength(1)
+
+    finish({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } })
+    await waitFor(() => expect(screen.queryByText('sync.tr.appConfirmPrompt')).not.toBeInTheDocument())
+  })
+
+  it.each([
+    ['APP_VALIDATION_TIMEOUT', 408, 'sync.tr.errors.appValidationTimeout'],
+    ['APP_VALIDATION_CANCELLED', 422, 'sync.tr.errors.appValidationCancelled'],
+    ['AUTH_ATTEMPT_EXPIRED', 422, 'sync.tr.errors.authAttemptExpired'],
+    ['INVALID_CREDENTIALS', 422, 'sync.tr.errors.invalidCredentials'],
+    ['RATE_LIMITED', 429, 'sync.tr.errors.tooManyAttempts'],
+  ])('maps %s on the in-app confirmation to its message and returns to the credentials form', async (code, status, message) => {
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/tr/auth/initiate') return Promise.resolve({ data: APP_INIT })
+      return Promise.reject({ response: { status, data: { code } } })
+    })
+
+    renderTab()
+    await fillCredentials()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(screen.getByLabelText('sync.tr.phone')).toBeInTheDocument()
+    expect(screen.queryByText('sync.tr.appConfirmPrompt')).not.toBeInTheDocument()
+  })
+
+  it('keeps the code field after INVALID_OTP', async () => {
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/tr/auth/initiate') return Promise.resolve({ data: OTP_INIT })
+      return Promise.reject({ response: { status: 422, data: { code: 'INVALID_OTP' } } })
+    })
+
+    renderTab()
+    await fillCredentials()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+    fireEvent.change(await screen.findByLabelText('sync.tr.tan'), { target: { value: '9876' } })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    expect(await screen.findByText('sync.tr.errors.invalidTan')).toBeInTheDocument()
+    expect(screen.getByLabelText('sync.tr.tan')).toBeInTheDocument()
+  })
+})
+
+describe('TradeRepublicTab session status', () => {
+  beforeEach(() => {
+    apiGet.mockReset()
+    apiPost.mockReset()
+    apiDelete.mockReset()
+  })
+
+  it('shows the reconnect call to action when the session failed with SESSION_EXPIRED', async () => {
+    apiGet.mockResolvedValue({
+      data: { ...DISCONNECTED, isActive: true, syncStatus: 'FAILED', lastSyncError: 'SESSION_EXPIRED' },
+    })
+    apiDelete.mockResolvedValue({ data: null })
+
+    renderTab()
+
+    expect(await screen.findByText('sync.tr.errors.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.reconnect' }))
+    await waitFor(() => expect(apiDelete).toHaveBeenCalledWith('/tr/session'))
+  })
+
+  it('shows the queued state after a sync is requested', async () => {
+    apiGet.mockResolvedValue({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } })
+
+    renderTab()
+
+    expect(await screen.findByText('sync.tr.queued')).toBeInTheDocument()
   })
 })

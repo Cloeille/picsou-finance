@@ -1076,7 +1076,6 @@
       "clearSession": "Disconnect",
       "noSession": "No active session",
       "sessionActive": "Active session",
-      "expiresAt": "Expires on",
       "errors": {
         "tooManyAttempts": "Too many attempts. Please wait a few minutes.",
         "invalidPhoneNumber": "Invalid phone number.",
@@ -1089,8 +1088,20 @@
         "phoneNumberRequired": "Phone number is required.",
         "pinRequired": "PIN is required.",
         "validationFailed": "Invalid data.",
-        "unknownError": "An unexpected error occurred."
-      }
+        "unknownError": "An unexpected error occurred.",
+        "invalidCredentials": "Incorrect Trade Republic phone number or PIN.",
+        "appValidationTimeout": "The login was not confirmed in the app in time. Please start over.",
+        "appValidationCancelled": "The login was declined in the Trade Republic app. Please start over.",
+        "authAttemptExpired": "The authentication attempt expired. Please start over.",
+        "sessionExpired": "The Trade Republic session expired. Please reconnect."
+      },
+      "appConfirmPrompt": "Confirm the login in your Trade Republic app.",
+      "appConfirmHint": "This page updates as soon as you confirm.",
+      "countdownLabel": "Time left:",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "Last sync succeeded.",
+      "reconnect": "Reconnect"
     },
     "revolut": {
       "title": "Revolut",

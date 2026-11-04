@@ -800,7 +800,6 @@
       "clearSession": "Desconectar",
       "noSession": "Sin sesión activa",
       "sessionActive": "Sesión activa",
-      "expiresAt": "Caduca el",
       "errors": {
         "tooManyAttempts": "Demasiados intentos. Espera unos minutos.",
         "invalidPhoneNumber": "Número de teléfono no válido.",
@@ -813,8 +812,20 @@
         "phoneNumberRequired": "El número de teléfono es obligatorio.",
         "pinRequired": "El PIN es obligatorio.",
         "validationFailed": "Datos no válidos.",
-        "unknownError": "Se ha producido un error inesperado."
-      }
+        "unknownError": "Se ha producido un error inesperado.",
+        "invalidCredentials": "Número de teléfono o PIN de Trade Republic incorrectos.",
+        "appValidationTimeout": "El inicio de sesión no se confirmó a tiempo en la aplicación. Vuelve a empezar.",
+        "appValidationCancelled": "El inicio de sesión se rechazó en la aplicación Trade Republic. Vuelve a empezar.",
+        "authAttemptExpired": "El intento de autenticación ha caducado. Vuelve a empezar.",
+        "sessionExpired": "La sesión de Trade Republic ha caducado. Vuelve a conectarte."
+      },
+      "appConfirmPrompt": "Confirma el inicio de sesión en tu aplicación Trade Republic.",
+      "appConfirmHint": "Esta página se actualiza en cuanto lo confirmes.",
+      "countdownLabel": "Tiempo restante:",
+      "queued": "Sincronización en cola…",
+      "syncing": "Sincronizando…",
+      "syncSuccess": "Última sincronización correcta.",
+      "reconnect": "Volver a conectar"
     },
     "ibkr": {
       "title": "Interactive Brokers",
