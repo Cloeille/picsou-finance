@@ -36,7 +36,7 @@ jobs:
         with:
           list-files: json
           # backend reads services/sofidy-auth (Java/Python contract), services/base
-          # (its interpreter's pins) and docker/entrypoint.sh (HSTS parsing).
+          # (its interpreter's pins) and docker/entrypoint.sh (it starts the backend).
           filters: |
             workflows: &workflows ['.github/**']
             release-deployment: [*workflows, 'backend/**', 'frontend/**', 'docker/**', '.dockerignore']

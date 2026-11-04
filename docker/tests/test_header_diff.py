@@ -82,6 +82,9 @@ def test_year_long_caching_differences_are_accepted_only_for_unhashed_public_fil
     assert not is_accepted("/favicon.svg", "cache-control: absent != ['immutable', 'max-age=31536000', 'public']")
     assert not is_accepted("/favicon.svg", "expires: absent != ['<present>']")
     assert is_accepted("/favicon.svg", "expires: ['<present>'] != absent")
+    # Only the two nginx baselines may become no-cache: a weaker policy than the base fails.
+    assert not is_accepted("/accounts/12", "cache-control: ['no-store'] != ['no-cache']")
+    assert not is_accepted("/favicon.svg", "cache-control: ['max-age=60'] != ['no-cache']")
 
 
 def test_each_deployment_is_asked_for_its_own_bundle(monkeypatch):

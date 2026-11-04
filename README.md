@@ -291,11 +291,9 @@ curl -sI https://picsou.example.com/ | grep -i strict-transport
 
 Exactly one `Strict-Transport-Security` line when enabled, none when disabled.
 
-In this image nginx is the only emitter the browser ever sees: it adds the header to every response
-including proxied ones, and strips the backend's copy on `/api` and `/actuator`
-(`proxy_hide_header`) so it is never sent twice. The backend has its own gate on the same variable,
-which is what a bare-metal deployment behind your own proxy relies on — to check that one, ask the backend directly,
-bypassing nginx:
+Spring Boot is the only emitter: it adds the header to every response, the SPA and the
+authorization server included, and nginx only relays it. To check the backend on its own, ask it
+directly, bypassing nginx:
 
 ```bash
 docker compose -f docker/docker-compose.yml exec app \

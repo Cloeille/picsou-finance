@@ -75,5 +75,8 @@ HSTS emitter, the strip rules and the drift test have nothing left to protect.
 - nginx's own 502/504 pages (backend down or too slow) carry no security header until PR 3
   removes nginx. They hold no app content and no script, so CSP and frame options protect nothing
   there. HSTS is not lost either: the browser keeps the policy from earlier responses.
+- The cookie authentication filters (`JwtAuthenticationFilter`, `PersistentTokenAuthFilter`)
+  skip SPA paths. Static files carry no user data, so no user lookup runs per asset and no token
+  rotation can put a `Set-Cookie` on a `public, immutable` response.
 - `docker/tests/header_diff.py` compares two running deployments header by header.
 - Follow-ups of #342: secret generation in Java, then removing nginx, supervisord and Python from the image.
