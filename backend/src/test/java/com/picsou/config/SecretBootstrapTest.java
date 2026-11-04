@@ -318,12 +318,66 @@ class SecretBootstrapTest {
         assertThat(datasourcePassword(variablesWithSecretsDir())).isEqualTo("persisted-postgres-password");
     }
 
+    /**
+     * The app does not own the database password, so it never writes it: a wrong variable left in
+     * place would otherwise keep overriding the database's own password afterwards.
+     */
     @Test
-    void postgresPasswordVariable_isUsedByTheDatasource_andPersisted() throws IOException {
+    void postgresPasswordVariable_isUsedByTheDatasource_butNeverWrittenToTheLegacyFile() throws IOException {
         String password = "p; $pecial'\"\\pass";
 
         assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", password))).isEqualTo(password);
-        assertThat(read("postgres_password")).isEqualTo(password);
+        assertThat(secretsDir().resolve("postgres_password")).doesNotExist();
+    }
+
+    /** An empty {@code POSTGRES_PASSWORD} is what Compose gives for an unset variable. */
+    @Test
+    void anEmptyPostgresPasswordVariable_leavesAnExistingLegacyFileAlone() throws IOException {
+        seed("postgres_password", "persisted-postgres-password");
+
+        assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", "")))
+            .isEqualTo("persisted-postgres-password");
+        assertThat(read("postgres_password")).isEqualTo("persisted-postgres-password");
+    }
+
+    /**
+     * A password is not a Spring template: {@code ${...}} is four characters, not a placeholder to
+     * expand. {@code environment.getProperty} would expand it, which both throws when the
+     * placeholder names nothing and puts the whole password in the failure message.
+     */
+    @Test
+    void aPasswordHoldingAPlaceholder_isUsedVerbatim_andNeverLogged() throws IOException {
+        String password = "Zq9${nope}secretTail";
+
+        assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", password))).isEqualTo(password);
+        assertThat(datasourcePassword(variablesWithSecretsDir(
+            "POSTGRES_PASSWORD", "irrelevant", "SPRING_DATASOURCE_PASSWORD", password))).isEqualTo(password);
+        assertThat(datasourcePassword(variables("SPRING_DATASOURCE_PASSWORD", password))).isEqualTo(password);
+        assertThat(datasourcePassword(variables("POSTGRES_PASSWORD", password))).isEqualTo(password);
+        // The same rule for the app's own secrets. environment.getProperty resolves placeholders in
+        // whatever it returns, so the raw storage is what must hold the value; a consumer reading
+        // ${JWT_SECRET} gets it verbatim, since a substituted value is not scanned again.
+        MockEnvironment environment = run("JWT_SECRET", "a${nope}b");
+        assertThat(environment.getPropertySources().get(SecretBootstrap.SOURCE_NAME).getProperty("JWT_SECRET"))
+            .isEqualTo("a${nope}b");
+    }
+
+    @Test
+    void theSystemEnvironmentSource_isNeverReplaced() {
+        Map<String, Object> variables = variablesWithSecretsDir("POSTGRES_PASSWORD", "");
+        StandardEnvironment standard = new StandardEnvironment();
+        standard.getPropertySources().replace(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+            new SystemEnvironmentPropertySource(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME, variables));
+        Object before = standard.getPropertySources()
+            .get(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
+
+        bootstrap.postProcessEnvironment(standard, new SpringApplication());
+
+        // Replacing it would drop Boot's origin tracking for every environment variable.
+        assertThat(standard.getPropertySources().get(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME))
+            .isSameAs(before);
+        assertThat(standard.getProperty(SecretBootstrap.POSTGRES_PASSWORD)).isEqualTo("picsou");
+        assertThat(standard.getProperty(SecretBootstrap.DATASOURCE_PASSWORD_ENV)).isEqualTo("picsou");
     }
 
     @Test

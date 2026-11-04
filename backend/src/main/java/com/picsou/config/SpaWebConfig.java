@@ -111,8 +111,10 @@ public class SpaWebConfig implements WebMvcConfigurer {
      * <p>Every file that is not a hashed asset is {@code no-cache}: the browser revalidates it on
      * each load and its name survives a rebuild, so two builds can share a length and a
      * modification second. Its tag is a digest of the content (a cache validator, not a security
-     * control). {@code frontend/public} is 46,808 bytes in 12 files and {@code index.html} 489 bytes,
-     * so hashing them on each conditional request costs nothing measurable. A hashed asset is
+     * control). The digest is read on every GET or HEAD of such a file, not only on a conditional
+     * request: a 200 reads the file once for the tag and once for the body. {@code frontend/public}
+     * is 46,808 bytes in 12 files and {@code index.html} 489 bytes, so that costs nothing
+     * measurable. A hashed asset is
      * immutable for a year and its name changes with its content, so it keeps nginx's shape,
      * last-modified seconds and length in hex, and a multi-MB bundle is never read to build a tag.
      */
@@ -146,7 +148,8 @@ public class SpaWebConfig implements WebMvcConfigurer {
         return headers;
     }
 
-    private static final class SpaResourceResolver extends PathResourceResolver {
+    /** Package-private so {@code SpaResourceResolverTest} can drive it without a servlet container. */
+    static final class SpaResourceResolver extends PathResourceResolver {
 
         @Override
         protected Resource resolveResourceInternal(HttpServletRequest request, String requestPath,

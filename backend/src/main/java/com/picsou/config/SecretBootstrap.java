@@ -7,8 +7,7 @@ import org.springframework.boot.logging.DeferredLogFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
-import org.springframework.core.env.MutablePropertySources;
-import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.env.PropertySource;
 import org.springframework.core.env.SystemEnvironmentPropertySource;
 import org.springframework.util.StringUtils;
 
@@ -39,18 +38,21 @@ import java.util.Set;
  * generated and persisted there. A secret is never regenerated once its file exists: doing so
  * would log every user out and make every stored API secret undecryptable.
  *
- * <p>{@code POSTGRES_PASSWORD} is never generated: the app cannot set the database's password,
- * so a generated one could only mismatch it. Compose and the Helm chart always supply it, and a
- * file an earlier version wrote is still read. With neither, nothing is published and
- * {@code application.yml} decides, with {@code picsou} as its default.
+ * <p>{@code POSTGRES_PASSWORD} is never generated and never written: the app cannot set the
+ * database's password, so a generated or stale one could only mismatch it. Compose and the Helm
+ * chart always supply it, and a file an earlier version wrote is still read.
  *
- * <p>The datasource password is not set here: {@code application.yml} reads
- * {@code SPRING_DATASOURCE_PASSWORD}, then {@code POSTGRES_PASSWORD}, so the resolved password
- * reaches the datasource through Spring's ordinary precedence and every explicit
- * {@code spring.datasource.password} (command line, {@code -D}, {@code SPRING_APPLICATION_JSON},
- * the environment, a config file) outranks it. An empty {@code SPRING_DATASOURCE_PASSWORD} or
- * {@code POSTGRES_PASSWORD}, which Compose-style files produce for an unset variable, is treated
- * as unset, with or without a secrets directory.
+ * <p>Secret values are read <em>raw</em>, straight from the property sources: a password holding
+ * {@code ${...}} keeps its characters instead of being expanded as a placeholder (which would
+ * throw, or write the expanded value to the log).
+ *
+ * <p>An empty {@code SPRING_DATASOURCE_PASSWORD} or {@code POSTGRES_PASSWORD} is what a
+ * Compose-style file gives for an unset variable, while Spring's relaxed binding and
+ * {@code application.yml}'s template only treat an absent one as unset. When one of the two is
+ * present but empty, both are published with the fallback password: an explicit
+ * {@code spring.datasource.password} from the first source holding a literal one, then a non-empty
+ * {@code POSTGRES_PASSWORD}, then the {@code postgres_password} file an earlier version wrote,
+ * then {@code picsou}. Every other start keeps Spring's ordinary precedence, untouched.
  */
 public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
 
@@ -59,6 +61,8 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
     static final String SOURCE_NAME = "picsouGeneratedSecrets";
     static final String DATASOURCE_PASSWORD_ENV = "SPRING_DATASOURCE_PASSWORD";
     static final String POSTGRES_PASSWORD = "POSTGRES_PASSWORD";
+    static final String POSTGRES_PASSWORD_FILE = "postgres_password";
+    static final String DATASOURCE_PASSWORD_PROPERTY = "spring.datasource.password";
     /** The last fallback of {@code spring.datasource.password} in {@code application.yml}. */
     static final String DEFAULT_DATASOURCE_PASSWORD = "picsou";
 
@@ -76,7 +80,7 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
     private static final List<Secret> SECRETS = List.of(
         new Secret("JWT_SECRET", "jwt_secret", 48),
         new Secret("CRYPTO_ENCRYPTION_KEY", "crypto_key", 32),
-        new Secret(POSTGRES_PASSWORD, "postgres_password", NEVER_GENERATED));
+        new Secret(POSTGRES_PASSWORD, POSTGRES_PASSWORD_FILE, NEVER_GENERATED));
 
     private final Log log;
 
@@ -96,48 +100,114 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
         if (!StringUtils.hasText(configured)) {
             configured = environment.getProperty(SECRETS_DIR_ENV);
         }
-        dropEmptyPasswordVariables(environment);
-        if (!StringUtils.hasText(configured)) {
-            return;
-        }
-        Path dir = Path.of(configured);
-        prepareDirectory(dir);
-
+        Path dir = StringUtils.hasText(configured) ? Path.of(configured) : null;
         Map<String, Object> resolved = new LinkedHashMap<>();
-        for (Secret secret : SECRETS) {
-            resolve(environment, dir, secret).ifPresent(value -> resolved.put(secret.variable(), value));
+        if (hasAnEmptyPasswordVariable(environment)) {
+            // application.yml reads SPRING_DATASOURCE_PASSWORD, then POSTGRES_PASSWORD. Publishing
+            // both names, rather than spring.datasource.password itself, keeps that template in
+            // charge: a value substituted into it is not scanned for placeholders again, so a
+            // password holding ${...} survives, while a password published as the template's own
+            // value would be expanded.
+            String fallback = fallbackDatasourcePassword(environment, dir);
+            resolved.put(DATASOURCE_PASSWORD_ENV, fallback);
+            resolved.put(POSTGRES_PASSWORD, fallback);
         }
-        environment.getPropertySources().addFirst(new MapPropertySource(SOURCE_NAME, resolved));
+        if (dir != null) {
+            prepareDirectory(dir);
+            for (Secret secret : SECRETS) {
+                resolve(environment, dir, secret).ifPresent(value -> resolved.put(secret.variable(), value));
+            }
+        }
+        if (!resolved.isEmpty()) {
+            // An environment-style source, not a plain MapPropertySource: Boot's relaxed binding
+            // only maps SPRING_DATASOURCE_PASSWORD to spring.datasource.password for a source it
+            // knows as an environment, and the fallback above is published under those names.
+            environment.getPropertySources().addFirst(new SystemEnvironmentPropertySource(SOURCE_NAME, resolved));
+        }
     }
 
     /**
-     * Compose-style files turn an unset variable into an empty one, while application.yml's
-     * {@code ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:picsou}}} and Spring's relaxed binding
-     * only treat an absent one as unset. An empty {@code SPRING_DATASOURCE_PASSWORD} or
-     * {@code POSTGRES_PASSWORD} is removed from the environment source, so the datasource gets
-     * exactly what an unset variable gives: an explicit {@code spring.datasource.password} from any
-     * source, a config file included, else the resolved {@code POSTGRES_PASSWORD}, else
-     * {@code picsou}. Runs with or without a secrets directory.
+     * {@code SPRING_DATASOURCE_PASSWORD} or {@code POSTGRES_PASSWORD} is present with an empty value,
+     * which Compose-style files give for a variable the user never set. Spring's relaxed binding
+     * cannot tell that apart from an unset one, and neither can {@code application.yml}, so the
+     * datasource password is published explicitly in that case, and in that case only.
      */
-    private static void dropEmptyPasswordVariables(ConfigurableEnvironment environment) {
-        MutablePropertySources sources = environment.getPropertySources();
-        String name = StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME;
-        if (!(sources.get(name) instanceof MapPropertySource system)) {
-            return;
+    private static boolean hasAnEmptyPasswordVariable(ConfigurableEnvironment environment) {
+        return "".equals(valueOf(environment, DATASOURCE_PASSWORD_ENV))
+            || "".equals(valueOf(environment, POSTGRES_PASSWORD));
+    }
+
+    /**
+     * What the datasource should get when a password variable is present but empty: an explicit
+     * {@code spring.datasource.password} from the first source that holds a literal one, then a
+     * non-empty {@code POSTGRES_PASSWORD}, then the {@code postgres_password} file an earlier
+     * version wrote, then {@code picsou}. An empty value counts as unset, at every step.
+     */
+    private static String fallbackDatasourcePassword(ConfigurableEnvironment environment, Path dir) {
+        String explicit = explicitDatasourcePassword(environment);
+        if (explicit != null) {
+            return explicit;
         }
-        Map<String, Object> variables = new LinkedHashMap<>(system.getSource());
-        boolean dropped = variables.entrySet().removeIf(entry ->
-            (DATASOURCE_PASSWORD_ENV.equals(entry.getKey()) || POSTGRES_PASSWORD.equals(entry.getKey()))
-                && "".equals(entry.getValue()));
-        if (dropped) {
-            sources.replace(name, new SystemEnvironmentPropertySource(name, variables));
+        String postgres = firstNonEmpty(environment, POSTGRES_PASSWORD);
+        if (postgres != null) {
+            return postgres;
         }
+        if (dir != null) {
+            Path legacy = dir.resolve(POSTGRES_PASSWORD_FILE);
+            if (Files.exists(legacy)) {
+                return read(legacy, POSTGRES_PASSWORD);
+            }
+        }
+        return DEFAULT_DATASOURCE_PASSWORD;
+    }
+
+    /**
+     * An explicit {@code spring.datasource.password}, or {@code null}. {@code application.yml}
+     * itself holds {@code ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:picsou}}} under that
+     * name, which is a template and not a password: any value holding a placeholder reference is
+     * skipped, so the search reaches the source the user actually set.
+     */
+    private static String explicitDatasourcePassword(ConfigurableEnvironment environment) {
+        for (PropertySource<?> source : environment.getPropertySources()) {
+            Object value = source.getProperty(DATASOURCE_PASSWORD_PROPERTY);
+            if (value == null) {
+                continue;
+            }
+            String text = value.toString();
+            if (!text.isEmpty() && !text.contains("${")) {
+                return text;
+            }
+        }
+        return null;
+    }
+
+    /** The first non-empty value of {@code name} among the property sources, or {@code null}. */
+    private static String firstNonEmpty(ConfigurableEnvironment environment, String name) {
+        String value = valueOf(environment, name);
+        return StringUtils.hasLength(value) ? value : null;
+    }
+
+    /**
+     * The raw value of {@code name}: {@code source.getProperty} directly, never
+     * {@code environment.getProperty}, which expands placeholders. A secret is not a template, and
+     * a database password holding {@code ${...}} must reach the datasource byte for byte. The
+     * sources are walked in order, so an explicit {@code spring.datasource.password} keeps the
+     * precedence Spring itself would give it.
+     */
+    private static String valueOf(ConfigurableEnvironment environment, String name) {
+        for (PropertySource<?> source : environment.getPropertySources()) {
+            Object value = source.getProperty(name);
+            if (value != null) {
+                return value.toString();
+            }
+        }
+        return null;
     }
 
     /** The secret's value, or empty for a secret that is never generated and was not found. */
     private Optional<String> resolve(ConfigurableEnvironment environment, Path dir, Secret secret) {
         Path file = dir.resolve(secret.fileName());
-        String supplied = environment.getProperty(secret.variable());
+        String supplied = valueOf(environment, secret.variable());
         if (StringUtils.hasLength(supplied)) {
             if (supplied.endsWith("\n") && secret.isGenerated()) {
                 // Used verbatim while the variable is set, but read back without the newline once it
@@ -145,7 +215,11 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
                 log.warn(secret.variable() + " ends with a newline. It is used as is, but the copy in "
                     + file + " is read without it if the variable is removed later. Remove the newline.");
             }
-            writeIfAbsent(file, supplied);
+            if (secret.isGenerated()) {
+                // Only a secret the app owns is persisted. Writing POSTGRES_PASSWORD here would let a
+                // wrong variable keep overriding the database's own password afterwards.
+                writeIfAbsent(file, supplied);
+            }
             return Optional.of(supplied);
         }
         if (!Files.exists(file)) {
@@ -159,7 +233,7 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
             }
             // Another process created the file first: use its content.
         }
-        return Optional.of(read(file, secret));
+        return Optional.of(read(file, secret.variable()));
     }
 
     private void prepareDirectory(Path dir) {
@@ -171,13 +245,13 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
         tryChmod(dir, "rwx------");
     }
 
-    private String read(Path file, Secret secret) {
+    private static String read(Path file, String variable) {
         String content;
         try {
             content = Files.readString(file, StandardCharsets.UTF_8);
         } catch (IOException ex) {
             throw new IllegalStateException(
-                "Cannot read secret file " + file + " for " + secret.variable(), ex);
+                "Cannot read secret file " + file + " for " + variable, ex);
         }
         // Files written by the former shell entrypoint end with a newline that `$(cat file)` dropped.
         int end = content.length();
@@ -186,7 +260,7 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
         }
         if (end == 0) {
             throw new IllegalStateException(
-                "Secret file " + file + " is empty: refusing to start with a blank " + secret.variable());
+                "Secret file " + file + " is empty: refusing to start with a blank " + variable);
         }
         return content.substring(0, end);
     }
