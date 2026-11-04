@@ -126,3 +126,8 @@ resolves `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY` and `POSTGRES_PASSWORD` from `PIC
 else the existing file, else a generated value, never regenerated once the file exists.
 `backend/scripts/picsou-init.sh` is removed; bare-metal installs set `PICSOU_SECRETS_DIR`
 instead. The text above is kept as written at the time.
+
+`POSTGRES_PASSWORD` is the exception: it is no longer generated. The app cannot set the
+database's password, so a generated one could only mismatch it (bare metal against the
+`picsou` database of CONTRIBUTING.md, a standalone `docker run`). Without the variable or an
+existing file, the datasource uses `application.yml`'s default `picsou`, as Compose does.

@@ -27,7 +27,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SecretBootstrapTest {
 
-    private static final List<String> FILES = List.of("jwt_secret", "crypto_key", "postgres_password");
+    /** The secrets the app generates. postgres_password is only ever written from POSTGRES_PASSWORD. */
+    private static final List<String> FILES = List.of("jwt_secret", "crypto_key");
 
     @TempDir
     Path root;
@@ -67,12 +68,11 @@ class SecretBootstrapTest {
     // ─── generation ───────────────────────────────────────────────────────
 
     @Test
-    void firstStart_generatesThreeSecretsWithExpectedSizesAndModes() throws IOException {
+    void firstStart_generatesTwoSecretsWithExpectedSizesAndModes() throws IOException {
         MockEnvironment environment = run();
 
         assertThat(decodedLength(environment.getProperty("JWT_SECRET"))).isEqualTo(48);
         assertThat(decodedLength(environment.getProperty("CRYPTO_ENCRYPTION_KEY"))).isEqualTo(32);
-        assertThat(decodedLength(environment.getProperty("POSTGRES_PASSWORD"))).isEqualTo(24);
         for (String file : FILES) {
             assertThat(Files.getPosixFilePermissions(secretsDir().resolve(file)))
                 .isEqualTo(PosixFilePermissions.fromString("rw-------"));
@@ -81,7 +81,17 @@ class SecretBootstrapTest {
             .isEqualTo(PosixFilePermissions.fromString("rwx------"));
         assertThat(environment.getProperty("JWT_SECRET")).isEqualTo(read("jwt_secret"));
         assertThat(environment.getProperty("CRYPTO_ENCRYPTION_KEY")).isEqualTo(read("crypto_key"));
-        assertThat(environment.getProperty("POSTGRES_PASSWORD")).isEqualTo(read("postgres_password"));
+    }
+
+    /** The app cannot set the database's password, so a generated one could only mismatch it. */
+    @Test
+    void firstStart_neverGeneratesTheDatabasePassword() {
+        MockEnvironment environment = run();
+
+        assertThat(environment.getProperty("POSTGRES_PASSWORD")).isNull();
+        assertThat(environment.getPropertySources().get(SecretBootstrap.SOURCE_NAME).containsProperty("POSTGRES_PASSWORD"))
+            .isFalse();
+        assertThat(secretsDir().resolve("postgres_password")).doesNotExist();
     }
 
     @Test
@@ -99,16 +109,13 @@ class SecretBootstrapTest {
         MockEnvironment first = run();
         byte[] jwt = Files.readAllBytes(secretsDir().resolve("jwt_secret"));
         byte[] crypto = Files.readAllBytes(secretsDir().resolve("crypto_key"));
-        byte[] postgres = Files.readAllBytes(secretsDir().resolve("postgres_password"));
 
         MockEnvironment second = run();
 
         assertThat(Files.readAllBytes(secretsDir().resolve("jwt_secret"))).isEqualTo(jwt);
         assertThat(Files.readAllBytes(secretsDir().resolve("crypto_key"))).isEqualTo(crypto);
-        assertThat(Files.readAllBytes(secretsDir().resolve("postgres_password"))).isEqualTo(postgres);
         assertThat(second.getProperty("JWT_SECRET")).isEqualTo(first.getProperty("JWT_SECRET"));
         assertThat(second.getProperty("CRYPTO_ENCRYPTION_KEY")).isEqualTo(first.getProperty("CRYPTO_ENCRYPTION_KEY"));
-        assertThat(second.getProperty("POSTGRES_PASSWORD")).isEqualTo(first.getProperty("POSTGRES_PASSWORD"));
     }
 
     @Test
@@ -172,15 +179,13 @@ class SecretBootstrapTest {
         run();
         String jwt = read("jwt_secret");
         String crypto = read("crypto_key");
-        String postgres = read("postgres_password");
         Files.writeString(secretsDir().resolve("crypto_key"), "");
 
         assertThatThrownBy(() -> run())
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining(secretsDir().resolve("crypto_key").toString())
             .hasMessageContaining("CRYPTO_ENCRYPTION_KEY")
-            .satisfies(ex -> assertThat(ex.getMessage())
-                .doesNotContain(jwt).doesNotContain(crypto).doesNotContain(postgres));
+            .satisfies(ex -> assertThat(ex.getMessage()).doesNotContain(jwt).doesNotContain(crypto));
         assertThat(read("crypto_key")).isEmpty();
     }
 
@@ -272,11 +277,17 @@ class SecretBootstrapTest {
         return datasourcePassword(environment, Map.of(), commandLine);
     }
 
+    /**
+     * The bare-metal quick start: CONTRIBUTING.md starts PostgreSQL with the password picsou and
+     * the user only exports PICSOU_SECRETS_DIR, so the datasource must keep application.yml's default.
+     */
     @Test
-    void generatedPostgresPassword_isUsedByTheDatasource() throws IOException {
-        String password = datasourcePassword(variablesWithSecretsDir());
+    void secretsDirectoryAlone_keepsTheYamlDefaultPassword_andGeneratesOnlyTheAppSecrets() {
+        assertThat(datasourcePassword(variablesWithSecretsDir())).isEqualTo("picsou");
 
-        assertThat(password).isNotBlank().isEqualTo(read("postgres_password"));
+        assertThat(secretsDir().resolve("postgres_password")).doesNotExist();
+        assertThat(secretsDir().resolve("jwt_secret")).isNotEmptyFile();
+        assertThat(secretsDir().resolve("crypto_key")).isNotEmptyFile();
     }
 
     @Test
@@ -287,10 +298,11 @@ class SecretBootstrapTest {
     }
 
     @Test
-    void postgresPasswordVariable_isUsedByTheDatasource() {
+    void postgresPasswordVariable_isUsedByTheDatasource_andPersisted() throws IOException {
         String password = "p; $pecial'\"\\pass";
 
         assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", password))).isEqualTo(password);
+        assertThat(read("postgres_password")).isEqualTo(password);
     }
 
     @Test
@@ -308,9 +320,24 @@ class SecretBootstrapTest {
     }
 
     @Test
-    void emptySpringPasswordVariable_fallsBackToTheGeneratedPassword() throws IOException {
+    void emptySpringPasswordVariable_fallsBackToThePersistedPassword() throws IOException {
+        seed("postgres_password", "persisted-postgres-password");
+
         assertThat(datasourcePassword(variablesWithSecretsDir("SPRING_DATASOURCE_PASSWORD", "")))
-            .isNotBlank().isEqualTo(read("postgres_password"));
+            .isEqualTo("persisted-postgres-password");
+    }
+
+    /**
+     * Nothing resolved: the empty variable is treated as unset and the datasource gets the password
+     * of a start with no variable at all, which pins the constant to application.yml's default.
+     * (Without a secrets directory Spring maps the empty variable to an empty password.)
+     */
+    @Test
+    void emptySpringPasswordVariable_withoutAnyPostgresPassword_fallsBackToTheYamlDefault() {
+        assertThat(datasourcePassword(variablesWithSecretsDir("SPRING_DATASOURCE_PASSWORD", "")))
+            .isEqualTo(SecretBootstrap.DEFAULT_DATASOURCE_PASSWORD)
+            .isEqualTo(datasourcePassword(variables()));
+        assertThat(secretsDir().resolve("postgres_password")).doesNotExist();
     }
 
     @Test
@@ -391,16 +418,13 @@ class SecretBootstrapTest {
     // ─── registration ─────────────────────────────────────────────────────
 
     @Test
-    void isRegisteredWithSpringBoot() {
+    void isRegisteredWithSpringBoot() throws IOException {
         try (var context = new SpringApplicationBuilder(Empty.class)
             .web(WebApplicationType.NONE)
             .properties("PICSOU_SECRETS_DIR=" + secretsDir())
             .run()) {
-            assertThat(context.getEnvironment().getProperty("spring.datasource.password"))
-                .isEqualTo(context.getEnvironment().getProperty("POSTGRES_PASSWORD"))
-                .isNotBlank();
+            assertThat(context.getEnvironment().getProperty("JWT_SECRET")).isEqualTo(read("jwt_secret"));
         }
-        assertThat(secretsDir().resolve("jwt_secret")).exists();
     }
 
     @org.springframework.context.annotation.Configuration

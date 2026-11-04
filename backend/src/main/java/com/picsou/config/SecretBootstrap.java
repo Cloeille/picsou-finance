@@ -25,22 +25,30 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
- * Resolves the three install secrets before any bean exists, so {@link JwtUtil},
+ * Resolves the install secrets before any bean exists, so {@link JwtUtil},
  * {@link CryptoEncryption} and the datasource keep reading plain properties.
  *
  * <p>Active only when {@code PICSOU_SECRETS_DIR} (property {@code picsou.secrets-dir}) is set.
- * For each secret an explicit value wins, then the file in that directory, then a freshly
- * generated value that is persisted there. A secret is never regenerated once its file exists:
- * doing so would log every user out and make every stored API secret undecryptable.
+ * For each secret an explicit value wins (and is persisted when its file is missing), then the
+ * file in that directory. {@code JWT_SECRET} and {@code CRYPTO_ENCRYPTION_KEY} are otherwise
+ * generated and persisted there. A secret is never regenerated once its file exists: doing so
+ * would log every user out and make every stored API secret undecryptable.
+ *
+ * <p>{@code POSTGRES_PASSWORD} is never generated: the app cannot set the database's password,
+ * so a generated one could only mismatch it. Compose and the Helm chart always supply it, and a
+ * file an earlier version wrote is still read. With neither, nothing is published and
+ * {@code application.yml} decides, with {@code picsou} as its default.
  *
  * <p>The datasource password is not set here: {@code application.yml} reads
  * {@code SPRING_DATASOURCE_PASSWORD}, then {@code POSTGRES_PASSWORD}, so the resolved password
  * reaches the datasource through Spring's ordinary precedence and every explicit
  * {@code spring.datasource.password} (command line, {@code -D}, {@code SPRING_APPLICATION_JSON},
  * the environment) outranks it. The one exception is an empty {@code SPRING_DATASOURCE_PASSWORD},
- * which Compose-style files produce for an unset variable: it falls back to the resolved password.
+ * which Compose-style files produce for an unset variable: it is treated as unset, so the
+ * datasource gets the resolved {@code POSTGRES_PASSWORD}, else {@code application.yml}'s default.
  */
 public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
 
@@ -51,15 +59,24 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
     static final String DATASOURCE_PASSWORD_ENV = "SPRING_DATASOURCE_PASSWORD";
     static final String DATASOURCE_PASSWORD_PROPERTY = "spring.datasource.password";
     static final String POSTGRES_PASSWORD = "POSTGRES_PASSWORD";
+    /** The last fallback of {@code spring.datasource.password} in {@code application.yml}. */
+    static final String DEFAULT_DATASOURCE_PASSWORD = "picsou";
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
-    private record Secret(String variable, String fileName, int bytes) {}
+    private static final int NEVER_GENERATED = 0;
+
+    /** {@code generatedBytes} is the size of a generated value, or {@link #NEVER_GENERATED}. */
+    private record Secret(String variable, String fileName, int generatedBytes) {
+        boolean isGenerated() {
+            return generatedBytes != NEVER_GENERATED;
+        }
+    }
 
     private static final List<Secret> SECRETS = List.of(
         new Secret("JWT_SECRET", "jwt_secret", 48),
         new Secret("CRYPTO_ENCRYPTION_KEY", "crypto_key", 32),
-        new Secret(POSTGRES_PASSWORD, "postgres_password", 24));
+        new Secret(POSTGRES_PASSWORD, "postgres_password", NEVER_GENERATED));
 
     private final Log log;
 
@@ -87,14 +104,15 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
 
         Map<String, Object> resolved = new LinkedHashMap<>();
         for (Secret secret : SECRETS) {
-            resolved.put(secret.variable(), resolve(environment, dir, secret));
+            resolve(environment, dir, secret).ifPresent(value -> resolved.put(secret.variable(), value));
         }
         MutablePropertySources sources = environment.getPropertySources();
         // An empty SPRING_DATASOURCE_PASSWORD would otherwise reach application.yml's placeholder,
-        // and the datasource, as an empty password: the resolved POSTGRES_PASSWORD replaces it.
+        // and the datasource, as an empty password: treat it as unset instead.
         if ("".equals(environment.getProperty(DATASOURCE_PASSWORD_ENV))) {
+            Object password = resolved.getOrDefault(POSTGRES_PASSWORD, DEFAULT_DATASOURCE_PASSWORD);
             MapPropertySource fallback = new MapPropertySource(DATASOURCE_SOURCE_NAME,
-                Map.of(DATASOURCE_PASSWORD_PROPERTY, resolved.get(POSTGRES_PASSWORD)));
+                Map.of(DATASOURCE_PASSWORD_PROPERTY, password));
             // Behind the command line, SPRING_APPLICATION_JSON and -D, which still win; above the
             // environment variable that is being overridden.
             if (sources.contains(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME)) {
@@ -106,22 +124,26 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
         sources.addFirst(new MapPropertySource(SOURCE_NAME, resolved));
     }
 
-    private String resolve(ConfigurableEnvironment environment, Path dir, Secret secret) {
+    /** The secret's value, or empty for a secret that is never generated and was not found. */
+    private Optional<String> resolve(ConfigurableEnvironment environment, Path dir, Secret secret) {
         Path file = dir.resolve(secret.fileName());
         String supplied = environment.getProperty(secret.variable());
         if (StringUtils.hasLength(supplied)) {
             writeIfAbsent(file, supplied);
-            return supplied;
+            return Optional.of(supplied);
         }
         if (!Files.exists(file)) {
-            String generated = generate(secret.bytes());
+            if (!secret.isGenerated()) {
+                return Optional.empty();
+            }
+            String generated = generate(secret.generatedBytes());
             if (writeIfAbsent(file, generated)) {
                 log.info("generated " + secret.variable() + " at " + file);
-                return generated;
+                return Optional.of(generated);
             }
             // Another process created the file first: use its content.
         }
-        return read(file, secret);
+        return Optional.of(read(file, secret));
     }
 
     private void prepareDirectory(Path dir) {

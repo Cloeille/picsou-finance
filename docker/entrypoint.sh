@@ -3,9 +3,9 @@
 # Picsou container entrypoint.
 #
 # Secrets (JWT_SECRET, CRYPTO_ENCRYPTION_KEY, POSTGRES_PASSWORD) are no
-# longer handled here: the Spring Boot app resolves, generates and persists
-# them under PICSOU_SECRETS_DIR (/data/.secrets in the image) before any
-# bean exists. See SecretBootstrap.
+# longer handled here: the Spring Boot app resolves and persists them under
+# PICSOU_SECRETS_DIR (/data/.secrets in the image) before any bean exists,
+# generating the first two only. See SecretBootstrap.
 #
 # This script still:
 #   • writes the nginx trusted-proxy snippet from PICSOU_PROXY_IP,

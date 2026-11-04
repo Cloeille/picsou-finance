@@ -1,6 +1,6 @@
 # Feature: First-launch Setup Wizard
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-04
 
 ## Context
 
@@ -13,9 +13,10 @@ with a guided, web-based flow the first time the app is opened.
 
 The bootstrap runs on two levels.
 
-- **Invisible (`SecretBootstrap`)** generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY`,
-  `POSTGRES_PASSWORD` into `$PICSOU_SECRETS_DIR` (`/data/.secrets` in the Docker image) when
-  the corresponding env vars are unset. It is an `EnvironmentPostProcessor`, so it runs before
+- **Invisible (`SecretBootstrap`)** generates `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` into
+  `$PICSOU_SECRETS_DIR` (`/data/.secrets` in the Docker image) when the corresponding env vars
+  are unset. It reads `POSTGRES_PASSWORD` from the environment or an existing file but never
+  generates it. It is an `EnvironmentPostProcessor`, so it runs before
   any bean: those secrets are consumed by bean constructors (`JwtUtil`, `CryptoEncryption`)
   and by Flyway before any DB-backed config is available.
 - **Visible (web wizard)** is served at `/setup` while `setup.state != COMPLETE`. It
@@ -51,8 +52,9 @@ Backend:
 - `backend/src/main/resources/db/migration/V25__setup_state.sql` — conditional seed:
   `setup.state='COMPLETE'` for existing installs (admin already present), else
   `'PENDING_ADMIN'`.
-- `backend/src/main/java/com/picsou/config/SecretBootstrap.java`: resolves or generates
-  the three secrets from `PICSOU_SECRETS_DIR` before any bean exists (Docker and bare metal).
+- `backend/src/main/java/com/picsou/config/SecretBootstrap.java`: resolves the secrets from
+  `PICSOU_SECRETS_DIR` before any bean exists, generating the JWT and encryption keys (Docker
+  and bare metal).
 
 Frontend:
 - `frontend/src/pages/setup/SetupLayout.tsx` — the centered hero layout, top progress
@@ -78,7 +80,7 @@ Frontend:
 First boot
     │
     ▼
-SecretBootstrap       ──► writes $PICSOU_SECRETS_DIR/{jwt_secret,crypto_key,postgres_password}
+SecretBootstrap       ──► writes $PICSOU_SECRETS_DIR/{jwt_secret,crypto_key}
                               (only if env vars unset — idempotent)
     │
     ▼
@@ -249,15 +251,19 @@ future work):
 ## Running without Docker
 
 Bare-metal installs (`mvn spring-boot:run`) set `PICSOU_SECRETS_DIR`. The app generates
-the secrets there on first start and reuses them afterwards:
+`JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` there on first start and reuses them afterwards:
 
 ```bash
+cd backend
 export PICSOU_SECRETS_DIR=.local/secrets
-mvn -pl backend spring-boot:run
+mvn spring-boot:run
 ```
 
-Exporting `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY` or `POSTGRES_PASSWORD` yourself still works
-and wins over the files. The wizard itself works identically.
+The app never generates the database password, because it cannot change the database's own.
+It stays `picsou`, which matches the PostgreSQL container in
+[CONTRIBUTING.md](../../CONTRIBUTING.md), unless you export `POSTGRES_PASSWORD` or
+`SPRING_DATASOURCE_PASSWORD`. Exporting `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY` or
+`POSTGRES_PASSWORD` yourself wins over the files. The wizard itself works identically.
 
 ## Privacy
 

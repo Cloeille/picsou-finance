@@ -328,8 +328,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-picsou}
       POSTGRES_USER: ${POSTGRES_USER:-picsou}
       # Both app and database receive the supplied password, or 'picsou' when
-      # POSTGRES_PASSWORD is unset or empty. The app persists that value
-      # in /data/.secrets/postgres_password for first-boot use.
+      # POSTGRES_PASSWORD is unset or empty. The app never generates one.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-picsou}
     volumes:
       - pgdata:/var/lib/postgresql/data

@@ -1,6 +1,6 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-11-01 (connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
+> Last updated: 2026-11-04 (the app generates the JWT and encryption keys, never the database password; connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
 
 ## Context
 
@@ -251,11 +251,16 @@ cannot read the app's `/data/.secrets/` volume.
 ### Secrets (`SecretBootstrap`) and entrypoint (`docker/entrypoint.sh`)
 
 The image sets `PICSOU_SECRETS_DIR=/data/.secrets`. Before any bean exists, the Spring Boot app
-(`com.picsou.config.SecretBootstrap`, an `EnvironmentPostProcessor`) generates three secrets in
+(`com.picsou.config.SecretBootstrap`, an `EnvironmentPostProcessor`) generates two secrets in
 that directory (mounted named volume) on first boot:
 - `JWT_SECRET` (`jwt_secret`): 48-byte base64
 - `CRYPTO_ENCRYPTION_KEY` (`crypto_key`): 32-byte base64
-- `POSTGRES_PASSWORD` (`postgres_password`): 24-byte base64
+
+`POSTGRES_PASSWORD` (`postgres_password`) is never generated: the app cannot set the
+database's password, so a generated one could only mismatch it. It comes from the
+`POSTGRES_PASSWORD` variable, else from an existing `postgres_password` file (written by an
+earlier version, or from the variable on a previous start); with neither, `SecretBootstrap`
+publishes nothing and `application.yml`'s default `picsou` applies.
 
 On subsequent boots, re-reads from the files. If the env var is already set by the operator, it is respected and written to the file for consistency (an existing file is never overwritten). Secrets are **never** regenerated once created: doing so would invalidate JWTs and corrupt all encrypted data in the DB. An empty secret file stops the app, naming the file and the variable. Files are written through a temp file and a hard link, mode `0600` in a `0700` directory, so the final name never shows a partial value and an existing file is never replaced. A filesystem without hard links (some NAS mounts) falls back to creating the final file exclusively (`CREATE_NEW`): it still never replaces a file another process created first, but a reader that opens it before the bytes land finds it empty, and an empty file stops the app instead of being used. A filesystem that cannot apply the modes only logs a warning. Without `PICSOU_SECRETS_DIR`, nothing is generated.
 
@@ -264,23 +269,23 @@ On subsequent boots, re-reads from the files. If the env var is already set by t
 
 The datasource password follows Spring's ordinary precedence, through `application.yml`:
 `password: ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:picsou}}`. `SecretBootstrap`
-publishes the supplied, persisted or generated `POSTGRES_PASSWORD`, so it feeds that
+publishes the supplied or persisted `POSTGRES_PASSWORD`, so it feeds that
 placeholder instead of the literal `picsou` fallback, and `--spring.datasource.password`,
 `-Dspring.datasource.password`, `SPRING_APPLICATION_JSON` and a non-empty
 `SPRING_DATASOURCE_PASSWORD` all outrank it. An empty `SPRING_DATASOURCE_PASSWORD` would map to
 an empty `spring.datasource.password`, so in that one case `SecretBootstrap` adds a source with
-the resolved PostgreSQL password just above the environment (the command line and `-D` still
-win). Without `PICSOU_SECRETS_DIR`, `POSTGRES_PASSWORD` in the environment also reaches the
-datasource now; with neither variable the password is still `picsou`.
+the resolved PostgreSQL password, or `picsou` when there is none, just above the environment
+(the command line and `-D` still win). Without `PICSOU_SECRETS_DIR`, `POSTGRES_PASSWORD` in the
+environment also reaches the datasource; with neither variable the password is still `picsou`.
 
 This does not synchronize or rotate the database container's password. Set
 `POSTGRES_PASSWORD` in `docker/.env` to the actual database password before
 starting the stack. Compose explicitly passes `${POSTGRES_PASSWORD:-picsou}`
 to both the app and PostgreSQL, so an unset or empty password retains their
-shared `picsou` default rather than generating a different app-side secret.
-Standalone image runs still generate a password when none is supplied; that
-password must match the external database. Changing an environment variable
-does not change the password of an already initialized database volume.
+shared `picsou` default. A standalone `docker run` without `POSTGRES_PASSWORD`
+and without an existing `postgres_password` file also uses `picsou`, so set
+`POSTGRES_PASSWORD` to the external database's password. Changing an environment
+variable does not change the password of an already initialized database volume.
 
 ### TLS — the optional `tls` compose profile
 
@@ -690,7 +695,8 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 | Bun for frontend build | Project uses bun exclusively (`bun.lock`) | npm (would need a separate lock file) |
 | Browser connectors as separate containers | Keeps the main image slim (JRE only, no Python/Playwright) and isolates unofficial browser protocols | Embed browser automation in the main image via supervisord |
 | `python:3.12-slim` + Chromium only | Only Chromium is used (`p.chromium.launch()`); base image is ~5× smaller than `mcr.microsoft.com/playwright/python` which pre-installs all three browsers | `mcr.microsoft.com/playwright/python:v1.44.0-jammy` — included Firefox + WebKit unnecessarily (+~1.5GB uncompressed) |
-| Auto-generated secrets on first boot | Zero-config install: user runs `docker compose up` with no pre-configuration | Require operator to set secrets manually before first boot |
+| Auto-generated JWT and encryption keys on first boot | Zero-config install: user runs `docker compose up` with no pre-configuration | Require operator to set secrets manually before first boot |
+| Database password never generated by the app | The app cannot set the database's password, so a generated one could only mismatch it; Compose and Helm always pass one | Generating it like the other secrets, which broke bare-metal and standalone starts against an existing database |
 | `.dockerignore` excludes `docker/Dockerfile` | Prevents the Dockerfile from being part of its own build context | No exclusion (harmless but unnecessary) |
 
 ## Gotchas / Pitfalls

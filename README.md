@@ -139,7 +139,7 @@ docker compose -f docker/docker-compose.yml up -d
 >
 > Building from source instead of pulling? Run `docker compose -f docker/docker-compose.yml up --build` — the `build:` sections are kept for contributors.
 
-On first launch the app auto-generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` (persisted to the `picsou_data` volume under `/data/.secrets/`).
+On first launch the app auto-generates `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` (persisted to the `picsou_data` volume under `/data/.secrets/`). The database password defaults to `picsou` for both the app and PostgreSQL; set `POSTGRES_PASSWORD` in `docker/.env` before the first start to change it.
 
 > [!IMPORTANT]
 > **Planning to sync bank accounts? Set up HTTPS now, before opening the wizard — jump to
@@ -385,7 +385,7 @@ cp docker/.env.example docker/.env
 |----------|-------------|-------------|
 | `COMPOSE_PROFILES` | To enable connectors or TLS | Comma-separated connector profiles (`bourso,revolut`), optionally including `tls`, or `all-connectors`. Empty: app and database only |
 | `APP_SIDECAR_API_KEY` | When a connector is enabled | `openssl rand -base64 32`. Shared by the app and every enabled `*-auth` sidecar; recreate them together after a rotation |
-| `POSTGRES_PASSWORD` | Override auto-gen | Strong random password |
+| `POSTGRES_PASSWORD` | Before the first start | Strong random password, shared by the app and PostgreSQL (default `picsou`) |
 | `JWT_SECRET` | Override auto-gen | `openssl rand -base64 48` |
 | `CRYPTO_ENCRYPTION_KEY` | Override auto-gen | `openssl rand -base64 32` |
 | `APP_USERNAME` / `APP_PASSWORD_HASH` | Skip wizard | `htpasswd -bnBC 12 "" YOUR_PASSWORD \| tr -d ':\r\n'` |
