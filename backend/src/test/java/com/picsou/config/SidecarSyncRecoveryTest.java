@@ -11,6 +11,7 @@ import com.picsou.service.CaisseEpargneSyncService;
 import com.picsou.service.CicSyncService;
 import com.picsou.service.CmesSyncService;
 import com.picsou.service.FortuneoSyncService;
+import com.picsou.service.TradeRepublicSyncService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -38,9 +39,10 @@ class SidecarSyncRecoveryTest {
     @Mock CicSyncService cic;
     @Mock CmesSyncService cmes;
     @Mock FortuneoSyncService fortuneo;
+    @Mock TradeRepublicSyncService tradeRepublic;
 
     private SidecarSyncRecovery recovery() {
-        return new SidecarSyncRecovery(amex, amundi, bourseDirect, bourso, caisseEpargne, cic, cmes, fortuneo);
+        return new SidecarSyncRecovery(amex, amundi, bourseDirect, bourso, caisseEpargne, cic, cmes, fortuneo, tradeRepublic);
     }
 
     @Test
@@ -55,6 +57,7 @@ class SidecarSyncRecoveryTest {
         verify(cic).recoverInterruptedSyncs();
         verify(cmes).recoverInterruptedSyncs();
         verify(fortuneo).recoverInterruptedSyncs();
+        verify(tradeRepublic).recoverInterruptedSyncs();
     }
 
     @Test

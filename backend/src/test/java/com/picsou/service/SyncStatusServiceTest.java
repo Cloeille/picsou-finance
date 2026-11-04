@@ -18,7 +18,6 @@ import com.picsou.repository.IbkrConnectionRepository;
 import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.SimplefinConnectionRepository;
 import com.picsou.repository.WiseConnectionRepository;
-import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.WalletAddressRepository;
 import com.picsou.model.LbpSyncStatus;
 import com.picsou.model.SidecarSyncStatus;
@@ -48,7 +47,6 @@ class SyncStatusServiceTest {
     @Mock RevolutSyncService revolutSyncService;
     @Mock RequisitionRepository requisitionRepository;
     @Mock TradeRepublicSyncService tradeRepublicSyncService;
-    @Mock TradeRepublicSessionRepository tradeRepublicSessionRepository;
     @Mock BoursoSyncService boursoSyncService;
     @Mock BourseDirectSyncService bourseDirectSyncService;
     @Mock AmundiSyncService amundiSyncService;
@@ -72,7 +70,7 @@ class SyncStatusServiceTest {
     @BeforeEach
     void setUp() {
         service = new SyncStatusService(
-            revolutSyncService, requisitionRepository, tradeRepublicSyncService, tradeRepublicSessionRepository,
+            revolutSyncService, requisitionRepository, tradeRepublicSyncService,
             boursoSyncService, bourseDirectSyncService, amundiSyncService, cmesSyncService, cicSyncService, corumSyncService, natixisSyncService,
             lbpSyncService,
             fortuneoSyncService,
@@ -82,9 +80,8 @@ class SyncStatusServiceTest {
             finarySessionRepository, degiroSessionRepository);
         when(revolutSyncService.getStatus(MID)).thenReturn(new RevolutSyncService.StatusResponse(false, false, null));
         when(requisitionRepository.findAllByMemberId(MID)).thenReturn(List.of());
-        when(tradeRepublicSyncService.getSessionStatus(MID))
-            .thenReturn(new TradeRepublicSyncService.SessionStatusResponse(false, null));
-        when(tradeRepublicSessionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
+        when(tradeRepublicSyncService.getStatus(MID)).thenReturn(
+            new TradeRepublicSyncService.SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null));
         when(boursoSyncService.getStatus(MID)).thenReturn(
             new BoursoSyncService.SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null));
         when(bourseDirectSyncService.getStatus(MID)).thenReturn(

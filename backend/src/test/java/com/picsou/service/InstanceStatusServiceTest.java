@@ -14,7 +14,6 @@ import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.LbpSessionRepository;
 import com.picsou.repository.RevolutSessionRepository;
-import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.UserIdentityRepository;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -408,7 +407,7 @@ class InstanceStatusServiceTest {
                 mock(FamilyMemberRepository.class), mock(PasswordEncoder.class),
                 new SsoProperties(), mock(UserIdentityRepository.class), Clock.systemUTC()),
             SidecarProperties.of(Map.of()),
-            mock(TradeRepublicSessionRepository.class), mock(SidecarSessionRepository.class),
+            mock(SidecarSessionRepository.class),
             mock(BanquePopulaireSessionRepository.class),
             mock(RevolutSessionRepository.class), mock(DegiroSessionRepository.class),
             mock(LbpSessionRepository.class),
@@ -442,13 +441,12 @@ class InstanceStatusServiceTest {
             Map.entry("lbp-auth", "http://lbp"),
             Map.entry("amex-auth", "http://amex"),
             Map.entry("revolut-auth", "http://revolut")));
-        var tr = mock(TradeRepublicSessionRepository.class);
         var sidecarSessions = mock(SidecarSessionRepository.class);
         var banquePopulaire = mock(BanquePopulaireSessionRepository.class);
         var revolut = mock(RevolutSessionRepository.class);
         var degiro = mock(DegiroSessionRepository.class);
         var lbp = mock(LbpSessionRepository.class);
-        when(tr.count()).thenReturn(1L);
+        when(sidecarSessions.countByBank(SidecarBank.TRADE_REPUBLIC)).thenReturn(1L);
         when(sidecarSessions.countByBank(SidecarBank.BOURSO)).thenReturn(2L);
         when(sidecarSessions.countByBank(SidecarBank.CAISSE_EPARGNE)).thenReturn(3L);
         when(revolut.count()).thenReturn(4L);
@@ -469,7 +467,7 @@ class InstanceStatusServiceTest {
             disabledReleases(),
             setup,
             sidecars,
-            tr, sidecarSessions, banquePopulaire, revolut, degiro, lbp,
+            sidecarSessions, banquePopulaire, revolut, degiro, lbp,
             "1.1.0");
 
         assertThat(wired.targets())

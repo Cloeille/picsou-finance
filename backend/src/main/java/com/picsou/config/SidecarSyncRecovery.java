@@ -8,6 +8,7 @@ import com.picsou.service.CaisseEpargneSyncService;
 import com.picsou.service.CicSyncService;
 import com.picsou.service.CmesSyncService;
 import com.picsou.service.FortuneoSyncService;
+import com.picsou.service.TradeRepublicSyncService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -39,7 +40,8 @@ public class SidecarSyncRecovery implements ApplicationRunner {
         CaisseEpargneSyncService caisseEpargne,
         CicSyncService cic,
         CmesSyncService cmes,
-        FortuneoSyncService fortuneo
+        FortuneoSyncService fortuneo,
+        TradeRepublicSyncService tradeRepublic
     ) {
         recoveries.put("Amex", amex::recoverInterruptedSyncs);
         recoveries.put("Amundi", amundi::recoverInterruptedSyncs);
@@ -49,6 +51,7 @@ public class SidecarSyncRecovery implements ApplicationRunner {
         recoveries.put("CIC", cic::recoverInterruptedSyncs);
         recoveries.put("CMES", cmes::recoverInterruptedSyncs);
         recoveries.put("Fortuneo", fortuneo::recoverInterruptedSyncs);
+        recoveries.put("Trade Republic", tradeRepublic::recoverInterruptedSyncs);
     }
 
     @Override

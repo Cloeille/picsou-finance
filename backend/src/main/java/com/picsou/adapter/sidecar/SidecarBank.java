@@ -21,9 +21,9 @@ import static com.picsou.port.SidecarErrorCode.*;
  * treated as unknown rather than stored. {@code SidecarBankCodesTest} pins every set to the latest
  * CHECK on its table.
  *
- * <p>Trade Republic, DEGIRO and Revolut stay out: their sidecars do not use the {@code detail}-code
- * contract (DEGIRO relays a bare 401 for an expired session, Trade Republic relays the broker's own
- * status), so they take the shared {@link SidecarWebClientFactory} client and keep their own mapping.
+ * <p>DEGIRO and Revolut stay out: their sidecars do not use the {@code detail}-code contract (DEGIRO
+ * relays a bare 401 for an expired session), so they take the shared {@link SidecarWebClientFactory}
+ * client and keep their own mapping.
  */
 public enum SidecarBank {
 
@@ -224,7 +224,27 @@ public enum SidecarBank {
         say(UPSTREAM_FORMAT_CHANGED, "The Sofidy website format changed"),
         say(INVALID_DATA, "Sofidy returned invalid portfolio data"),
         say(UPSTREAM_UNAVAILABLE, "Sofidy is temporarily unavailable"),
-        say(INTERNAL_ERROR, "Sofidy is temporarily unavailable")));
+        say(INTERNAL_ERROR, "Sofidy is temporarily unavailable"))),
+
+    /**
+     * The sidecar logs in with the phone number and PIN, then waits for an in-app confirmation (or a
+     * 4-digit code when TR falls back to the v1 login). It stores no password: the session state holds
+     * only the refresh cookie, the device cookie and the subject. {@code INVALID_SESSION_STATE} ends
+     * the session, as a refresh cookie the sidecar cannot read can never be renewed.
+     */
+    TRADE_REPUBLIC("Trade Republic", "tr-auth", Map.ofEntries(
+        say(INVALID_CREDENTIALS, "Trade Republic rejected the phone number or PIN"),
+        say(INVALID_OTP, "Trade Republic rejected the verification code"),
+        say(APP_VALIDATION_TIMEOUT, "The Trade Republic app confirmation was not given in time"),
+        say(APP_VALIDATION_CANCELLED, "The Trade Republic app confirmation was refused"),
+        say(AUTH_ATTEMPT_EXPIRED, "The Trade Republic authentication attempt expired"),
+        say(SESSION_EXPIRED, "The Trade Republic session expired"),
+        say(INVALID_SESSION_STATE, "The stored Trade Republic session is unusable"),
+        say(RATE_LIMITED, "Trade Republic is rate-limiting this login, try again later"),
+        say(UPSTREAM_FORMAT_CHANGED, "The Trade Republic API format changed"),
+        say(INVALID_DATA, "Trade Republic returned invalid account data"),
+        say(UPSTREAM_UNAVAILABLE, "Trade Republic is temporarily unavailable"),
+        say(INTERNAL_ERROR, "Trade Republic is temporarily unavailable")));
 
     private final String label;
     private final String serviceName;

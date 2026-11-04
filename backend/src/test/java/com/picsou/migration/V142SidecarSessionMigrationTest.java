@@ -35,9 +35,10 @@ class V142SidecarSessionMigrationTest {
         "cic", "cmes", "corum", "fortuneo", "sofidy"
     };
 
-    /** The banks V142 moved: Banque Populaire (V134) keeps its own table, Natixis arrives with V146. */
+    /** The banks V142 moved: Banque Populaire (V134) keeps its own table, Natixis arrives with V146, Trade Republic with V148. */
     private static final List<SidecarBank> V142_BANKS = java.util.Arrays.stream(SidecarBank.values())
-        .filter(SidecarBank::storedInSidecarSession).filter(bank -> bank != SidecarBank.NATIXIS).toList();
+        .filter(SidecarBank::storedInSidecarSession).filter(bank -> bank != SidecarBank.NATIXIS)
+        .filter(bank -> bank != SidecarBank.TRADE_REPUBLIC).toList();
 
     private static final String ROW = """
         SELECT bank, member_id, session_state, encrypted_credentials, unsupported_contracts,

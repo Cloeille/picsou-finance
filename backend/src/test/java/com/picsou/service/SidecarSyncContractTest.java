@@ -62,17 +62,18 @@ class SidecarSyncContractTest {
     private static final long MEMBER = 7L;
     private static final long SESSION = 3L;
 
-    private static final Map<SidecarBank, Class<?>> SERVICES = Map.of(
-        SidecarBank.AMEX, AmexSyncService.class,
-        SidecarBank.AMUNDI, AmundiSyncService.class,
-        SidecarBank.BOURSE_DIRECT, BourseDirectSyncService.class,
-        SidecarBank.BOURSO, BoursoSyncService.class,
-        SidecarBank.CAISSE_EPARGNE, CaisseEpargneSyncService.class,
-        SidecarBank.CIC, CicSyncService.class,
-        SidecarBank.CMES, CmesSyncService.class,
-        SidecarBank.CORUM, CorumSyncService.class,
-        SidecarBank.FORTUNEO, FortuneoSyncService.class,
-        SidecarBank.SOFIDY, SofidySyncService.class
+    private static final Map<SidecarBank, Class<?>> SERVICES = Map.ofEntries(
+        Map.entry(SidecarBank.AMEX, AmexSyncService.class),
+        Map.entry(SidecarBank.AMUNDI, AmundiSyncService.class),
+        Map.entry(SidecarBank.BOURSE_DIRECT, BourseDirectSyncService.class),
+        Map.entry(SidecarBank.BOURSO, BoursoSyncService.class),
+        Map.entry(SidecarBank.CAISSE_EPARGNE, CaisseEpargneSyncService.class),
+        Map.entry(SidecarBank.CIC, CicSyncService.class),
+        Map.entry(SidecarBank.CMES, CmesSyncService.class),
+        Map.entry(SidecarBank.CORUM, CorumSyncService.class),
+        Map.entry(SidecarBank.FORTUNEO, FortuneoSyncService.class),
+        Map.entry(SidecarBank.SOFIDY, SofidySyncService.class),
+        Map.entry(SidecarBank.TRADE_REPUBLIC, TradeRepublicSyncService.class)
     );
 
     /** The banks SidecarSyncRecovery does not run at boot, as before this refactor. */
@@ -370,7 +371,8 @@ class SidecarSyncContractTest {
         if (type == TransactionTemplate.class) return inlineTransactions();
         if (adapter) {
             return mock(type, invocation -> {
-                if (invocation.getMethod().getName().startsWith("fetch")) {
+                String call = invocation.getMethod().getName();
+                if (call.startsWith("fetch") || call.equals("openSession")) {
                     onFetch.run();
                     throw new SyncException(bank.label() + " is down", null,
                         SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
