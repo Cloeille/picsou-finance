@@ -331,7 +331,8 @@ class SpaServingTest {
             MvcResult result = mvc.perform(get(URI.create(uri))).andReturn();
             assertThat(result.getResponse().getStatus()).as(uri).isEqualTo(400);
             assertThat(result.getHandler()).as(uri).isNull();
-            assertThat(body(result)).as(uri).doesNotContain(SECRET);
+            // The documented contract, which also covers "no part of the file outside the SPA".
+            assertThat(body(result)).as(uri).isEmpty();
         }
     }
 
