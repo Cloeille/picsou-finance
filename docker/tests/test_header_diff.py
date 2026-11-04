@@ -82,6 +82,37 @@ def test_year_long_caching_differences_are_accepted_only_for_unhashed_public_fil
     assert not is_accepted("/favicon.svg", "cache-control: absent != ['immutable', 'max-age=31536000', 'public']")
     assert not is_accepted("/favicon.svg", "expires: absent != ['<present>']")
     assert is_accepted("/favicon.svg", "expires: ['<present>'] != absent")
+    # Only the two nginx baselines may become no-cache: a weaker policy than the base fails.
+    assert not is_accepted("/accounts/12", "cache-control: ['no-store'] != ['no-cache']")
+    assert not is_accepted("/favicon.svg", "cache-control: ['max-age=60'] != ['no-cache']")
+
+
+def test_content_type_is_accepted_only_for_the_javascript_spelling_change():
+    js = "/assets/index-abc.js"
+    assert is_accepted(js, "content-type: ['application/javascript'] != ['text/javascript']")
+    assert is_accepted(js, "content-type: ['application/javascript;charset=utf-8'] != ['text/javascript;charset=utf-8']")
+    # Any other type on a script path is a regression, not the reviewed change.
+    assert not is_accepted(js, "content-type: ['text/javascript'] != ['text/html']")
+    assert not is_accepted(js, "content-type: ['application/javascript'] != ['text/html']")
+    assert not is_accepted(js, "content-type: ['application/javascript'] != ['text/html;charset=utf-8']")
+    assert not is_accepted(js, "content-type: ['application/javascript'] != absent")
+    assert not is_accepted(js, "content-type: absent != ['text/javascript']")
+    # A charset appearing, vanishing or changing is a different response.
+    assert not is_accepted(js, "content-type: ['application/javascript'] != ['text/javascript;charset=utf-8']")
+    assert not is_accepted(js, "content-type: ['application/javascript;charset=utf-8'] != ['text/javascript']")
+    assert not is_accepted(js, "content-type: ['application/javascript;charset=utf-8'] != ['text/javascript;charset=iso-8859-1']")
+    # Reversed direction: the candidate going back to the old type is not the reviewed change.
+    assert not is_accepted(js, "content-type: ['text/javascript'] != ['application/javascript']")
+    # And only on script paths.
+    assert not is_accepted("/accounts/12", "content-type: ['application/javascript'] != ['text/javascript']")
+
+
+def test_the_missing_bundle_may_swap_nginx_html_for_a_problem_body_only_there():
+    line = "content-type: ['text/html'] != ['application/problem+json']"
+    assert is_accepted("/assets/does-not-exist.js", line)
+    assert is_accepted("/assets/does-not-exist.js", "content-type: ['text/html;charset=utf-8'] != ['application/problem+json']")
+    assert not is_accepted("/assets/index-abc.js", line)
+    assert not is_accepted("/assets/does-not-exist.js", "content-type: ['application/problem+json'] != ['text/html']")
 
 
 def test_each_deployment_is_asked_for_its_own_bundle(monkeypatch):

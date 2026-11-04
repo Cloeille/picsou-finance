@@ -26,7 +26,8 @@ ACCEPTED = {
     "accept-ranges": lambda path: not path.startswith(("/api", "/actuator", "/oauth2", "/.well-known", "/mcp")),
     # Spring Security's default value, already sent on every backend response before #342.
     "x-xss-protection": lambda path: not path.startswith(("/api", "/actuator", "/oauth2", "/.well-known", "/mcp")),
-    # RFC 9239 makes text/javascript the registered type; browsers treat both alike.
+    # RFC 9239 makes text/javascript the registered type; browsers treat both alike. Only that
+    # spelling change is accepted, not any other type on a .js path (see is_javascript_type_change).
     "content-type": lambda path: path.endswith(".js"),
     # A missing hashed bundle stays a 404, with Spring's problem body instead of nginx's HTML page.
     "content-encoding": lambda path: path == "/assets/does-not-exist.js",
@@ -44,6 +45,14 @@ ACCEPTED = {
 # candidate did not" on the OAuth2 paths.
 OAUTH_PREFIXES = ("/oauth2", "/.well-known/oauth-")
 STATIC_EXTENSION = re.compile(r"\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$", re.IGNORECASE)
+
+
+# The only two baselines nginx sent on those paths: nothing (index.html, client routes) and the
+# one-year policy of frontend/public files. Any other baseline, no-store included, still fails.
+REVALIDATED_CACHE_CHANGES = {
+    "cache-control: absent != ['no-cache']",
+    "cache-control: ['immutable', 'max-age=31536000', 'public'] != ['no-cache']",
+}
 
 
 def is_revalidated_spa_path(path):
@@ -97,10 +106,28 @@ def is_accepted(path, line, candidate_hsts_disabled=False):
         return candidate_hsts_disabled and path.startswith(OAUTH_PREFIXES) and line.endswith("!= absent")
     if name == "expires" and not line.endswith("!= absent"):
         return False
-    if name == "cache-control" and not line.endswith("!= ['no-cache']"):
+    if name == "cache-control" and line not in REVALIDATED_CACHE_CHANGES:
         return False
+    if name == "content-type":
+        return path.endswith(".js") and (is_javascript_type_change(line) or is_missing_bundle_body_change(path, line))
     predicate = ACCEPTED.get(name)
     return predicate is not None and predicate(path)
+
+
+def is_missing_bundle_body_change(path, line):
+    """True for the missing hashed bundle only: nginx's HTML 404 page became Spring's problem body."""
+    return path == "/assets/does-not-exist.js" and re.fullmatch(
+        r"content-type: \['text/html(;charset=[^';]+)?'\] != \['application/problem\+json(;charset=[^';]+)?'\]",
+        line) is not None
+
+
+def is_javascript_type_change(line):
+    """True for exactly the reviewed change: application/javascript on the base became
+    text/javascript on the candidate, with the same charset parameter or none. The values are the
+    ones `normalise` produces (lower case, no spaces)."""
+    match = re.fullmatch(
+        r"content-type: \['application/javascript(;charset=[^';]+)?'\] != \['text/javascript(;charset=[^';]+)?'\]", line)
+    return match is not None and match.group(1) == match.group(2)
 
 
 def fetch(base_url, path, headers, read_body=True):

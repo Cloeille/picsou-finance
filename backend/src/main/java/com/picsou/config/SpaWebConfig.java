@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.AbstractResource;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
@@ -73,7 +74,8 @@ public class SpaWebConfig implements WebMvcConfigurer {
             return;
         }
         registry.addResourceHandler("/**")
-            .addResourceLocations("file:" + (location.endsWith("/") ? location : location + "/"))
+            // A Resource, not a "file:" URL string: a '#' in the path would start a URL fragment.
+            .addResourceLocations(new FileSystemResource(location.endsWith("/") ? location : location + "/"))
             .setEtagGenerator(SpaWebConfig::etag)
             .resourceChain(false)
             .addResolver(new SpaResourceResolver());
@@ -106,14 +108,17 @@ public class SpaWebConfig implements WebMvcConfigurer {
      * Weak on purpose: Tomcat skips compression for a response with a strong ETag, and nginx
      * (the previous server) also weakened it when it gzipped.
      *
-     * <p>{@code index.html} is revalidated on every page load and keeps its name across builds,
-     * so two builds can share a length and a modification second: its tag is a digest of the
-     * content (a cache validator, not a security control). Every other file keeps nginx's shape,
-     * last-modified seconds and length in hex.
+     * <p>Every file that is not a hashed asset is {@code no-cache}: the browser revalidates it on
+     * each load and its name survives a rebuild, so two builds can share a length and a
+     * modification second. Its tag is a digest of the content (a cache validator, not a security
+     * control). {@code frontend/public} is 46,808 bytes in 12 files and {@code index.html} 489 bytes,
+     * so hashing them on each conditional request costs nothing measurable. A hashed asset is
+     * immutable for a year and its name changes with its content, so it keeps nginx's shape,
+     * last-modified seconds and length in hex, and a multi-MB bundle is never read to build a tag.
      */
     private static String etag(Resource resource) {
         try {
-            if (INDEX.equals(resource.getFilename())) {
+            if (!(resource instanceof WithHeaders served && served.hashedAsset)) {
                 try (InputStream content = resource.getInputStream()) {
                     return weak(DigestUtils.md5DigestAsHex(content));
                 }
@@ -129,9 +134,9 @@ public class SpaWebConfig implements WebMvcConfigurer {
         return "W/\"" + opaqueTag + "\"";
     }
 
-    private static HttpHeaders cacheHeaders(String path) {
+    private static HttpHeaders cacheHeaders(boolean hashedAsset) {
         HttpHeaders headers = new HttpHeaders();
-        if (SpaPaths.isHashedAsset(path)) {
+        if (hashedAsset) {
             headers.set(HttpHeaders.CACHE_CONTROL,
                 "max-age=" + ASSET_MAX_AGE.toSeconds() + ", public, immutable");
             headers.setExpires(Instant.now().plus(ASSET_MAX_AGE));
@@ -153,29 +158,32 @@ public class SpaWebConfig implements WebMvcConfigurer {
             }
             Resource file = super.resolveResourceInternal(request, requestPath, locations, chain);
             if (file != null) {
-                return new WithHeaders(file, cacheHeaders(path));
+                return new WithHeaders(file, path);
             }
             if (SpaPaths.hasStaticExtension(path)) {
                 return null;
             }
             Resource index = super.resolveResourceInternal(request, INDEX, locations, chain);
-            return index == null ? null : new WithHeaders(index, cacheHeaders(path));
+            return index == null ? null : new WithHeaders(index, path);
         }
     }
 
     /**
-     * A resolved file plus the response headers chosen for its path. The headers ride on the
-     * resource itself so they are only sent when the file exists. Everything else, including the
-     * file name the ETag generator looks at, is the wrapped resource's.
+     * A resolved file plus the response headers chosen for the request path. The headers ride on
+     * the resource itself so they are only sent when the file exists, and {@link #hashedAsset}
+     * tells the ETag generator, which only sees the resource, how to build its tag. Everything
+     * else is the wrapped resource's.
      */
     private static final class WithHeaders extends AbstractResource implements HttpResource {
 
         private final Resource delegate;
+        private final boolean hashedAsset;
         private final HttpHeaders headers;
 
-        WithHeaders(Resource delegate, HttpHeaders headers) {
+        WithHeaders(Resource delegate, String requestPath) {
             this.delegate = delegate;
-            this.headers = headers;
+            this.hashedAsset = SpaPaths.isHashedAsset(requestPath);
+            this.headers = cacheHeaders(hashedAsset);
         }
 
         @Override

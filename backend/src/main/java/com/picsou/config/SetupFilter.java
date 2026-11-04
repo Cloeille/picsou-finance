@@ -55,7 +55,6 @@ public class SetupFilter extends OncePerRequestFilter {
         return path.startsWith("/api/setup/")
             || path.equals("/api/setup")
             || path.equals("/actuator/health")
-            || path.equals("/actuator/info")
-            || path.equals("/error");
+            || path.equals("/actuator/info");
     }
 }

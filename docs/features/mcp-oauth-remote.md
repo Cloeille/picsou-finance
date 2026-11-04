@@ -66,8 +66,8 @@ Properties B (no `?memberId=` override) and C (scope-only authorities, never `RO
 ### Consent, registration, persistence
 
 - **Consent** is interactive: the AS `consentPage("/consent")` redirects to a React page (SPA route
-  `/consent`, served by nginx `try_files` — it is deliberately NOT under `/oauth2`, which nginx
-  routes to the backend). The page reads the requested scopes via `GET /api/oauth2/consent-info` and
+  `/consent`, served by Spring's SPA fallback — it is deliberately NOT under `/oauth2`, which
+  `SpaPaths.isBackend` keeps for the backend). The page reads the requested scopes via `GET /api/oauth2/consent-info` and
   submits a native form POST to `/oauth2/authorize` with one `scope` field per approved scope (deny =
   submit with none → `access_denied`). Only the logged-in user (password + TOTP) can approve, and
   the consent narrows scopes — it can never widen past `Scopes.ALL`.
@@ -108,8 +108,8 @@ Properties B (no `?memberId=` override) and C (scope-only authorities, never `RO
   only binds a column as binary when its JDBC-reported type is `Types.BLOB`; pgjdbc reports `bytea`
   as `Types.BINARY`, so a `bytea` column breaks the String write path. The vendor
   `oauth2-authorization-schema.sql` says so in its own comment. The migration keeps `text`.
-- **Consent page must live outside `/oauth2`.** nginx routes `/oauth2/*` to the backend; the SPA
-  consent page is at `/consent` so `location /` serves `index.html`.
+- **Consent page must live outside `/oauth2`.** `SpaPaths.isBackend` keeps `/oauth2/*` for the
+  backend; the SPA consent page is at `/consent` so the SPA fallback serves `index.html`.
 - **`McpAuthenticationEntryPoint` uses `ServletUriComponentsBuilder.fromContextPath(request)`**, not
   `fromCurrentContextPath()` — `RequestContextHolder` is not bound when `ExceptionTranslationFilter`
   calls `commence()`. It is wired via two `defaultAuthenticationEntryPointFor(...)` mappings; a plain
