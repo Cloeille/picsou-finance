@@ -1,8 +1,11 @@
 package com.picsou.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.bucket4j.Bucket;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -19,6 +22,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -111,6 +115,30 @@ class ForwardedOriginServerTest {
 
             assertThat(response.headers().firstValue("Strict-Transport-Security")).isEmpty();
             assertThat(response.headers().firstValue("X-Frame-Options")).contains("DENY");
+        }
+
+        /** Loopback is not PICSOU_PROXY_IP here: the rate-limit key stays the socket address. */
+        @Test
+        void untrustedPeer_cannotChooseItsRateLimitKey(@Autowired @Qualifier("setupBuckets") Map<String, Bucket> buckets)
+            throws Exception {
+            send("POST", "/api/setup/integrations/enablebanking/keypair", "X-Forwarded-For", "203.0.113.9");
+
+            assertThat(buckets).containsKey("127.0.0.1").doesNotContainKey("203.0.113.9");
+        }
+    }
+
+    /** The running server's RemoteIpValve, wired from PICSOU_PROXY_IP, resolves the client address. */
+    @Nested
+    @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+    @TestPropertySource(properties = "PICSOU_PROXY_IP=127.0.0.1")
+    class BehindTheTrustedProxy extends Fixture {
+
+        @Test
+        void forwardedClientAddress_isTheRateLimitKey(@Autowired @Qualifier("setupBuckets") Map<String, Bucket> buckets)
+            throws Exception {
+            send("POST", "/api/setup/integrations/enablebanking/keypair", "X-Forwarded-For", "203.0.113.9");
+
+            assertThat(buckets).containsKey("203.0.113.9").doesNotContainKey("127.0.0.1");
         }
     }
 }
