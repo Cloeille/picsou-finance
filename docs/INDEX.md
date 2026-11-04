@@ -94,7 +94,7 @@
 | Budget + OAuth2 tools in MCP | 2026-07-06 | [mcp-budget-oauth2.md](./features/mcp-budget-oauth2.md) |
 | Remote-MCP OAuth (claude.ai connector) | 2026-07-12 | [mcp-oauth-remote.md](./features/mcp-oauth-remote.md) |
 | Internationalization (FR/EN/DE/ES) | 2026-10-31 | [i18n.md](./features/i18n.md) |
-| Frontend utilities (lib/utils.ts) | 2026-10-31 | [frontend-utils.md](./features/frontend-utils.md) |
+| Frontend utilities (lib/utils.ts) | 2026-11-01 | [frontend-utils.md](./features/frontend-utils.md) |
 | Demo mode | 2026-10-31 | [demo-mode.md](./features/demo-mode.md) |
 | Theme (dark / light / system) + theme-adaptive rendering | 2026-10-31 | [theme-persistence.md](./features/theme-persistence.md) |
 | Dashboard — Time range isolation | 2026-04-13 | [dashboard-time-range-isolation.md](./features/dashboard-time-range-isolation.md) |
