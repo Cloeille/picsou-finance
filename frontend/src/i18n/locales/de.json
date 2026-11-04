@@ -1639,6 +1639,31 @@
         "AGGRESSIVE": "Offensiv"
       },
       "saved": "Profil gespeichert"
+    },
+    "signInMethods": {
+      "title": "Anmeldemethoden",
+      "password": "Passwort",
+      "passwordOn": "Du kannst dich mit deinem Benutzernamen und deinem Passwort anmelden.",
+      "passwordOff": "Kein Passwort: Du meldest dich mit {{provider}} an.",
+      "turnOff": "Passwort-Anmeldung deaktivieren",
+      "turnOffHint": "Melde dich einmal mit {{provider}} an, bevor du die Passwort-Anmeldung deaktivierst.",
+      "setPassword": "Passwort festlegen",
+      "identityFallback": "{{provider}}-Konto",
+      "lastSignIn": "Letzte Anmeldung",
+      "neverUsed": "Noch nicht zur Anmeldung verwendet",
+      "unlink": "Trennen",
+      "unlinkHint": "Lege ein Passwort fest, bevor du deine letzte Anmeldemethode trennst.",
+      "link": "{{provider}}-Konto verknüpfen",
+      "adminGroupNote": "Deine Administratorrechte richten sich nach deiner Gruppe in {{provider}}.",
+      "linked": "Konto verknüpft. Du kannst dich jetzt damit anmelden.",
+      "removePasswordTitle": "Passwort-Anmeldung deaktivieren?",
+      "removePasswordDesc": "Du meldest dich dann nur noch mit {{provider}} an. Deine anderen Geräte werden abgemeldet, und die Zwei-Faktor-Authentifizierung wird deaktiviert, falls sie aktiv ist.",
+      "setPasswordDesc": "Du kannst dich dann zusätzlich zu {{provider}} mit deinem Benutzernamen und diesem Passwort anmelden. Deine anderen Geräte werden abgemeldet.",
+      "passwordMismatch": "Die Passwörter stimmen nicht überein.",
+      "unlinkTitle": "Dieses Konto trennen?",
+      "unlinkDesc": "Du kannst dich dann nicht mehr mit diesem {{provider}}-Konto anmelden.",
+      "linkTitle": "{{provider}}-Konto verknüpfen",
+      "linkDesc": "Bestätige deine Identität und melde dich dann mit dem {{provider}}-Konto an, das du verknüpfen möchtest."
     }
   },
   "accessKeys": {
@@ -2973,6 +2998,12 @@
     "suggestionsBanner_other": "{{count}} savings accounts to configure",
     "configureSavings": "Configure",
     "uncertain": "Uncertain classification — please verify"
+  },
+  "reauth": {
+    "confirm": "Bestätigen",
+    "confirmWith": "Mit {{provider}} bestätigen",
+    "ssoHint": "{{provider}} bittet dich, dich erneut anzumelden, und bringt dich dann hierher zurück.",
+    "expired": "Deine Bestätigung ist abgelaufen. Bitte bestätige deine Identität erneut."
   },
   "ssoErrors": {
     "NOT_LINKED": "Dieses Konto ist nicht mit deinem Anmeldeanbieter verknüpft. Melde dich mit deinem Passwort an und verknüpfe es dann in den Einstellungen.",

@@ -1925,6 +1925,31 @@
         "AGGRESSIVE": "Offensif"
       },
       "saved": "Profil enregistré"
+    },
+    "signInMethods": {
+      "title": "Méthodes de connexion",
+      "password": "Mot de passe",
+      "passwordOn": "Vous pouvez vous connecter avec votre nom d'utilisateur et votre mot de passe.",
+      "passwordOff": "Aucun mot de passe : vous vous connectez avec {{provider}}.",
+      "turnOff": "Désactiver la connexion par mot de passe",
+      "turnOffHint": "Connectez-vous une première fois avec {{provider}} avant de désactiver la connexion par mot de passe.",
+      "setPassword": "Définir un mot de passe",
+      "identityFallback": "Compte {{provider}}",
+      "lastSignIn": "Dernière connexion",
+      "neverUsed": "Pas encore utilisé pour vous connecter",
+      "unlink": "Dissocier",
+      "unlinkHint": "Définissez un mot de passe avant de dissocier votre dernière méthode de connexion.",
+      "link": "Associer un compte {{provider}}",
+      "adminGroupNote": "Vos droits d'administration suivent votre groupe dans {{provider}}.",
+      "linked": "Compte associé. Vous pouvez maintenant l'utiliser pour vous connecter.",
+      "removePasswordTitle": "Désactiver la connexion par mot de passe ?",
+      "removePasswordDesc": "Vous vous connecterez uniquement avec {{provider}}. Vos autres appareils seront déconnectés, et l'authentification à deux facteurs sera désactivée si elle est active.",
+      "setPasswordDesc": "Vous pourrez vous connecter avec votre nom d'utilisateur et ce mot de passe, en plus de {{provider}}. Vos autres appareils seront déconnectés.",
+      "passwordMismatch": "Les mots de passe ne correspondent pas.",
+      "unlinkTitle": "Dissocier ce compte ?",
+      "unlinkDesc": "Vous ne pourrez plus vous connecter avec ce compte {{provider}}.",
+      "linkTitle": "Associer un compte {{provider}}",
+      "linkDesc": "Confirmez votre identité, puis connectez-vous avec le compte {{provider}} à associer."
     }
   },
   "accessKeys": {
@@ -2973,6 +2998,12 @@
       "yes": "Oui",
       "no": "Non"
     }
+  },
+  "reauth": {
+    "confirm": "Confirmer",
+    "confirmWith": "Confirmer avec {{provider}}",
+    "ssoHint": "{{provider}} vous demandera de vous reconnecter, puis vous ramènera ici.",
+    "expired": "Votre confirmation a expiré. Veuillez confirmer à nouveau votre identité."
   },
   "ssoErrors": {
     "NOT_LINKED": "Ce compte n'est pas associé à votre fournisseur de connexion. Connectez-vous avec votre mot de passe, puis associez-le depuis les paramètres.",

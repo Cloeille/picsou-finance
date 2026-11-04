@@ -1925,6 +1925,31 @@
         "AGGRESSIVE": "Aggressive"
       },
       "saved": "Profile saved"
+    },
+    "signInMethods": {
+      "title": "Sign-in methods",
+      "password": "Password",
+      "passwordOn": "You can sign in with your username and password.",
+      "passwordOff": "No password: you sign in with {{provider}}.",
+      "turnOff": "Turn off password login",
+      "turnOffHint": "Sign in once with {{provider}} before turning off password login.",
+      "setPassword": "Set a password",
+      "identityFallback": "{{provider}} account",
+      "lastSignIn": "Last sign-in",
+      "neverUsed": "Not used to sign in yet",
+      "unlink": "Unlink",
+      "unlinkHint": "Set a password before unlinking your last sign-in method.",
+      "link": "Link {{provider}} account",
+      "adminGroupNote": "Admin rights follow your group in {{provider}}.",
+      "linked": "Account linked. You can now sign in with it.",
+      "removePasswordTitle": "Turn off password login?",
+      "removePasswordDesc": "You will sign in with {{provider}} only. Your other devices will be signed out, and two-factor authentication will be turned off if it is on.",
+      "setPasswordDesc": "You will be able to sign in with your username and this password as well as with {{provider}}. Your other devices will be signed out.",
+      "passwordMismatch": "The passwords do not match.",
+      "unlinkTitle": "Unlink this account?",
+      "unlinkDesc": "You will no longer be able to sign in with this {{provider}} account.",
+      "linkTitle": "Link a {{provider}} account",
+      "linkDesc": "Confirm your identity, then sign in with the {{provider}} account to link."
     }
   },
   "accessKeys": {
@@ -2973,6 +2998,12 @@
       "yes": "Yes",
       "no": "No"
     }
+  },
+  "reauth": {
+    "confirm": "Confirm",
+    "confirmWith": "Confirm with {{provider}}",
+    "ssoHint": "{{provider}} will ask you to sign in again, then bring you back here.",
+    "expired": "Your confirmation has expired. Please confirm your identity again."
   },
   "ssoErrors": {
     "NOT_LINKED": "This account is not linked to your sign-in provider. Sign in with your password, then link it from Settings.",

@@ -10,7 +10,8 @@ export interface LinkedIdentity {
   email: string | null
   displayName: string | null
   createdAt: string
-  lastLoginAt: string | null
+  /** Absent until the identity first signs in: the server omits null fields. */
+  lastLoginAt?: string | null
   currentIssuer: boolean
 }
 
