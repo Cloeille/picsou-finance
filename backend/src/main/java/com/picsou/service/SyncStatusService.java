@@ -13,7 +13,6 @@ import com.picsou.repository.FinarySessionRepository;
 import com.picsou.repository.IbkrConnectionRepository;
 import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.SimplefinConnectionRepository;
-import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.WalletAddressRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -37,7 +36,6 @@ public class SyncStatusService {
     private final RevolutSyncService revolutSyncService;
     private final RequisitionRepository requisitionRepository;
     private final TradeRepublicSyncService tradeRepublicSyncService;
-    private final TradeRepublicSessionRepository tradeRepublicSessionRepository;
     private final BoursoSyncService boursoSyncService;
     private final BourseDirectSyncService bourseDirectSyncService;
     private final AmundiSyncService amundiSyncService;
@@ -56,7 +54,6 @@ public class SyncStatusService {
     public SyncStatusService(RevolutSyncService revolutSyncService,
                              RequisitionRepository requisitionRepository,
                              TradeRepublicSyncService tradeRepublicSyncService,
-                             TradeRepublicSessionRepository tradeRepublicSessionRepository,
                              BoursoSyncService boursoSyncService,
                              BourseDirectSyncService bourseDirectSyncService,
                              AmundiSyncService amundiSyncService,
@@ -74,7 +71,6 @@ public class SyncStatusService {
         this.revolutSyncService = revolutSyncService;
         this.requisitionRepository = requisitionRepository;
         this.tradeRepublicSyncService = tradeRepublicSyncService;
-        this.tradeRepublicSessionRepository = tradeRepublicSessionRepository;
         this.boursoSyncService = boursoSyncService;
         this.bourseDirectSyncService = bourseDirectSyncService;
         this.amundiSyncService = amundiSyncService;
@@ -96,7 +92,10 @@ public class SyncStatusService {
         List<String> lines = new ArrayList<>();
         add(lines, "revolut", () -> revolut(memberId));
         add(lines, "enable-banking", () -> banking(memberId));
-        add(lines, "trade-republic", () -> tradeRepublic(memberId));
+        add(lines, "trade-republic", () -> {
+            TradeRepublicSyncService.SessionStatusResponse s = tradeRepublicSyncService.getStatus(memberId);
+            return List.of(broker("trade-republic", s.isActive(), s.syncStatus().name(), s.lastSyncCompletedAt(), s.lastSyncError()));
+        });
         add(lines, "bourso", () -> {
             BoursoSyncService.SessionStatusResponse s = boursoSyncService.getStatus(memberId);
             return List.of(broker("bourso", s.isActive(), s.syncStatus().name(), s.lastSyncCompletedAt(), s.lastSyncError()));
@@ -178,17 +177,6 @@ public class SyncStatusService {
             lines.add(line(label, status, row.getLastSyncedAt(), reauth, null));
         }
         return lines;
-    }
-
-    private List<String> tradeRepublic(Long memberId) {
-        TradeRepublicSyncService.SessionStatusResponse status = tradeRepublicSyncService.getSessionStatus(memberId);
-        if (status.isActive()) {
-            return List.of(line("trade-republic", "CONNECTED", null, false, null));
-        }
-        if (tradeRepublicSessionRepository.findByMemberId(memberId).isEmpty()) {
-            return List.of(line("trade-republic", "NOT_CONNECTED", null, false, null));
-        }
-        return List.of(line("trade-republic", "NEEDS_REAUTH", null, true, null));
     }
 
     private List<String> ibkr(Long memberId) {

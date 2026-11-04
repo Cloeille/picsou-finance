@@ -48,22 +48,25 @@ public class TradeRepublicController {
         return ResponseEntity.ok(trService.initiateAuth(req.phoneNumber(), req.pin()));
     }
 
-    /** Step 2: Exchange 2FA code -> session stored, sync runs in background. */
+    /**
+     * Step 2: blocks while the member confirms in the Trade Republic app (up to two minutes), or
+     * checks the 4-digit code of the fallback login. The session is stored and the first import queued.
+     */
     @PostMapping("/auth/complete")
     public TradeRepublicSyncService.SessionStatusResponse completeAuth(@RequestBody CompleteAuthRequest req) {
         return trService.completeAuth(req.processId(), req.tan(), userContext.currentMemberId());
     }
 
-    /** Manual sync using the stored session. */
+    /** Manual sync of the stored session: queues the import and returns where it stands. */
     @PostMapping("/sync")
-    public List<AccountResponse> sync() {
-        return trService.sync(userContext.currentMemberId());
+    public TradeRepublicSyncService.SessionStatusResponse sync() {
+        return trService.queueSync(userContext.currentMemberId());
     }
 
-    /** Session status: is there an active session, and when does it expire? */
+    /** Session status: connected or not, and how the last import went. */
     @GetMapping("/status")
     public TradeRepublicSyncService.SessionStatusResponse getStatus() {
-        return trService.getSessionStatus(userContext.currentMemberId());
+        return trService.getStatus(userContext.currentMemberId());
     }
 
     /** CSV fallback import (accounts/balances). */

@@ -34,6 +34,10 @@ class V129SidecarSessionMigrationTest {
         "cic", "cmes", "corum", "fortuneo", "sofidy"
     };
 
+    /** The banks V122 knew: Trade Republic joined in V123. */
+    private static final List<SidecarBank> V122_BANKS = java.util.Arrays.stream(SidecarBank.values())
+        .filter(bank -> bank != SidecarBank.TRADE_REPUBLIC).toList();
+
     private static final String ROW = """
         SELECT bank, member_id, session_state, encrypted_credentials, unsupported_contracts,
                last_validated_at, is_active, sync_status, last_sync_started_at,
@@ -104,7 +108,7 @@ class V129SidecarSessionMigrationTest {
 
     @Test
     void everyRowOfEveryBankIsCopiedByteForByte() throws SQLException {
-        for (SidecarBank bank : SidecarBank.values()) {
+        for (SidecarBank bank : V122_BANKS) {
             String table = bank.name().toLowerCase(Locale.ROOT);
             List<Object> row = row(bank, alice);
             assertThat(row).as(bank.name()).containsExactly(
@@ -200,7 +204,7 @@ class V129SidecarSessionMigrationTest {
     void onlyTheBanksThatKeepALoginCanStoreOne() throws SQLException {
         try (Connection c = PostgresContainers.connection(POSTGRES)) {
             long member = newMember(c, "login");
-            for (SidecarBank bank : SidecarBank.values()) {
+            for (SidecarBank bank : V122_BANKS) {
                 String insert = "INSERT INTO sidecar_session (bank, member_id, session_state, encrypted_credentials) "
                     + "VALUES ('" + bank.name() + "', " + member + ", 's', 'login')";
                 switch (bank) {

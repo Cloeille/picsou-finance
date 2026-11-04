@@ -6,7 +6,6 @@ import com.picsou.model.AppSetting;
 import com.picsou.repository.AppSettingRepository;
 import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FinarySessionRepository;
-import com.picsou.repository.TradeRepublicSessionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -27,7 +26,6 @@ class IntegrationsServiceTest {
 
     @Mock AppSettingRepository settingRepository;
     @Mock EnableBankingConfigProvider enableBankingConfig;
-    @Mock TradeRepublicSessionRepository tradeRepublicSessions;
     @Mock FinarySessionRepository finarySessions;
     @Mock SidecarSessionRepository sidecarSessions;
     @Mock UserContext userContext;
@@ -87,7 +85,7 @@ class IntegrationsServiceTest {
     @Test
     void isEffectivelyEnabled_traderepublic_trueWhenSessionExists_evenIfFlagOff() {
         when(settingRepository.findByKey("integration.traderepublic.enabled")).thenReturn(Optional.empty());
-        when(tradeRepublicSessions.count()).thenReturn(1L);
+        when(sidecarSessions.countByBank(SidecarBank.TRADE_REPUBLIC)).thenReturn(1L);
 
         assertThat(integrationsService.isEffectivelyEnabled("traderepublic")).isTrue();
     }

@@ -10,7 +10,7 @@ public record SourceSyncResult(String source, Status status, String message) {
     String code = exception.getCode();
     String message = exception.getMessage();
     boolean needsReauth = switch (source) {
-      case "trade-republic" -> "SESSION_EXPIRED".equals(code)
+      case "trade-republic" -> "SESSION_EXPIRED".equals(code) || "INVALID_SESSION_STATE".equals(code)
           || (code == null && "AUTHENTICATION_ERROR".equals(message));
       case "revolut" -> "SESSION_EXPIRED".equals(code)
           || (code == null && "SESSION_EXPIRED".equals(message));
