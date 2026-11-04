@@ -307,26 +307,20 @@ class SpaServingTest {
     }
 
     /**
-     * MockMvc does not reproduce Tomcat's URI normalisation, and the firewall rejects most of these
-     * before the resolver runs. This only pins that no path reaches a file outside the SPA through
-     * MVC; the container-level rejection (400) is Tomcat's and is not re-tested here.
+     * Each of these is refused by the Spring Security firewall with a 400 and an empty body, so
+     * neither a handler nor a resolver sees it. That is what this test pins. The resolver's own
+     * guard is tested directly in {@code SpaResourceResolverTest}, because MockMvc cannot carry
+     * such a path past the firewall.
      */
     @Test
-    void traversal_isNeverServed() throws Exception {
-        int answered = 0;
+    void traversalForms_areRejectedWithAnEmptyFourHundred() throws Exception {
         for (String uri : new String[] {"/..%2fsecret.txt", "/%2e%2e/secret.txt", "/%2e%2e%2fsecret.txt",
             "/../secret.txt", "/assets/..%2f..%2fsecret.txt", "/%252e%252e/secret.txt"}) {
-            String served;
-            try {
-                served = body(mvc.perform(get(URI.create(uri))).andReturn());
-            } catch (Exception rejectedByFirewall) {
-                continue;
-            }
-            answered++;
-            assertThat(served).as(uri).doesNotContain(SECRET);
+            MvcResult result = mvc.perform(get(URI.create(uri))).andReturn();
+            assertThat(result.getResponse().getStatus()).as(uri).isEqualTo(400);
+            assertThat(result.getHandler()).as(uri).isNull();
+            assertThat(body(result)).as(uri).doesNotContain(SECRET);
         }
-        // Some forms must reach the resolver, or a firewall rejecting all of them would pass this test.
-        assertThat(answered).isPositive();
     }
 
     @Test

@@ -65,7 +65,7 @@ On Kubernetes, the Helm chart in `charts/picsou` deploys the same images; the `c
 
 Spring Boot serves the SPA, the API and every response header. nginx is only a forwarding proxy in front of it: it resolves the client address and public scheme/host/port, and sets the per-endpoint timeouts. See [the ADR](../decisions/2026-11-03-spring-serves-the-spa.md).
 
-SPA caching: files under `/assets/` (Vite's content-hashed output) are cached for a year (`immutable`); every other file, `index.html` and the client-route fallbacks included, is `no-cache` and revalidated by ETag, so a redeploy reaches browsers at once. The ETag of every one of those revalidated files is a digest of its content (`frontend/public` is about 47 KB in total, so reading them per conditional request costs nothing measurable); hashed assets use last-modified seconds and length, so a bundle is never read to build a tag.
+SPA caching: files under `/assets/` (Vite's content-hashed output) are cached for a year (`immutable`); every other file, `index.html` and the client-route fallbacks included, is `no-cache` and revalidated by ETag, so a redeploy reaches browsers at once. The ETag of every one of those revalidated files is a digest of its content (`frontend/public` is about 47 KB in total, so reading them on every GET or HEAD costs nothing measurable, one read for the tag and one for the body); hashed assets use last-modified seconds and length, so a bundle is never read to build a tag.
 
 The two build stages run on `--platform=$BUILDPLATFORM`: `dist/` and the JAR are the same on
 every architecture, so the multi-platform publish builds them once, natively, and only the
