@@ -534,10 +534,10 @@ class CiJobSelectionTest(unittest.TestCase):
             "CHANGELOG.md": set(),
             "frontend/src/App.tsx": {"frontend", "e2e", "release-deployment"},
             "backend/src/main/java/com/picsou/App.java": {"backend", "release-deployment"},
-            "docker/deploy.sh": {"docker-entrypoint", "release-deployment"},
+            "docker/deploy.sh": {"docker-compose", "release-deployment"},
             ".env.example": {"workflow-inventory"},
-            "docker/Dockerfile": {"docker-entrypoint", "release-deployment", "workflow-inventory"},
-            "docker/docker-compose.yml": {"docker-entrypoint", "release-deployment", "helm-chart"} | services,
+            "docker/Dockerfile": {"docker-compose", "release-deployment", "workflow-inventory"},
+            "docker/docker-compose.yml": {"docker-compose", "release-deployment", "helm-chart"} | services,
             "backend/src/main/resources/application.yml": {
                 "backend", "helm-chart", "release-deployment", "workflow-inventory",
             },
