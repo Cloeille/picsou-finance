@@ -50,6 +50,13 @@ public class CompositePriceProvider implements PriceProviderPort {
      */
     private static final Duration PROBE_BUDGET = Duration.ofSeconds(5);
 
+    /**
+     * Longest ticker the learned tables can store: {@code crypto_asset.ticker} and
+     * {@code price_snapshot.ticker} are VARCHAR(30), unlike {@code account_holding.ticker} (100).
+     * A longer one would fail its insert on every pass.
+     */
+    private static final int MAX_LEARNABLE_TICKER_LENGTH = 30;
+
     private final CoinGeckoPriceProvider coinGecko;
     private final YahooFinancePriceProvider yahoo;
     private final CryptoAssetRegistry registry;
@@ -121,6 +128,8 @@ public class CompositePriceProvider implements PriceProviderPort {
         for (String raw : tickers) {
             if (raw == null || raw.isBlank()) continue;
             String ticker = raw.trim().toUpperCase(Locale.ROOT);
+            // Such a ticker could never be stored: skip it before it costs a probe or a CoinGecko slot.
+            if (ticker.length() > MAX_LEARNABLE_TICKER_LENGTH) continue;
             if (coinGecko.supports(ticker)) continue;
             Instant next = retryAfter.get(ticker);
             if (next != null && now.isBefore(next)) continue;

@@ -75,7 +75,11 @@ class CryptoAssetRegistryPostgresTest {
     }
 
     private void seedSnapshot(String ticker) {
-        snapshots.save(PriceSnapshot.builder().ticker(ticker).date(SNAPSHOT_DATE)
+        seedSnapshot(ticker, SNAPSHOT_DATE);
+    }
+
+    private void seedSnapshot(String ticker, LocalDate date) {
+        snapshots.save(PriceSnapshot.builder().ticker(ticker).date(date)
             .priceEur(new BigDecimal("12.5")).build());
     }
 
@@ -105,7 +109,9 @@ class CryptoAssetRegistryPostgresTest {
         // A delisted stock's closes under the symbol, written by Yahoo before the ticker became
         // crypto. The caller's transaction is read-only, so the DELETE (like the INSERT) only
         // succeeds because learn() runs in its own REQUIRES_NEW transaction.
+        // Two dates, so a purge narrowed to one of them leaves a row behind and fails the assertion.
         seedSnapshot(STOCK_TURNED_CRYPTO);
+        seedSnapshot(STOCK_TURNED_CRYPTO, SNAPSHOT_DATE.plusDays(1));
         assertThat(snapshots.findPricedTickers(Set.of(STOCK_TURNED_CRYPTO)))
             .containsExactly(STOCK_TURNED_CRYPTO);
 

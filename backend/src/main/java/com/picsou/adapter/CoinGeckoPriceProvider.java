@@ -60,6 +60,12 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
     private static final int SYMBOL_LOOKUP_MAX_PAGES = 4;
 
     /**
+     * Most symbols one {@code /coins/markets} request may carry with {@code include_tokens=all}:
+     * CoinGecko answers HTTP 400 from the 51st. Larger batches are queried in groups of this size.
+     */
+    private static final int SYMBOL_LOOKUP_BATCH = 50;
+
+    /**
      * A symbol's leading coin must be worth at least this many times the next ranked one to be
      * taken as <em>the</em> coin for that ticker. Every curated coin clears it by a wide margin
      * (DAI, the closest, by 90x); ONE, shared by six coins, sits at 3.6x and must not pass.
@@ -296,7 +302,8 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
     public record Resolution(Map<String, CryptoAssetRegistry.Coin> accepted, boolean answered) {}
 
     /**
-     * Looks each ticker up by symbol on {@code /coins/markets} (one request for the batch) and
+     * Looks each ticker up by symbol on {@code /coins/markets} (one request per group of at most
+     * {@link #SYMBOL_LOOKUP_BATCH} tickers, the API's limit) and
      * returns the coins it is safe to treat as <em>the</em> coin for that ticker. Persists
      * nothing: deciding whether a symbol may be learned at all is the caller's job.
      *
@@ -320,6 +327,10 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
      * undecided; the caller asks again in 15 minutes. The 429 cooldown is checked before
      * <em>every</em> page, because a price call on another thread can arm it between two pages
      * and the free tier counts the requests it rejects.
+     *
+     * <p>A group left undecided stops the lookup and {@code answered} is false, whatever the
+     * earlier groups decided: their accepted coins are returned, but the tickers they refused
+     * are retried soon rather than remembered as a no.
      */
     public Resolution resolveBySymbol(Set<String> tickers) {
         Set<String> wanted = tickers == null ? Set.of() : tickers.stream()
@@ -328,49 +339,65 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
             .collect(java.util.stream.Collectors.toCollection(TreeSet::new));
         if (wanted.isEmpty()) return new Resolution(Map.of(), true);
 
+        long deadlineNanos = nanoTime.getAsLong() + TIMEOUT.toNanos();
+        Map<String, CryptoAssetRegistry.Coin> accepted = new TreeMap<>();
+        List<String> sorted = List.copyOf(wanted);
+        // The first group left undecided ends the lookup: the rest would hit the same spent
+        // budget or cooldown. What earlier groups accepted is kept, but the whole is unanswered.
+        for (int from = 0; from < sorted.size(); from += SYMBOL_LOOKUP_BATCH) {
+            Set<String> group = new TreeSet<>(sorted.subList(from, Math.min(from + SYMBOL_LOOKUP_BATCH, sorted.size())));
+            Map<String, CryptoAssetRegistry.Coin> found;
+            try {
+                found = resolveGroup(group, deadlineNanos);
+            } catch (RuntimeException ex) {
+                handleFetchFailure("symbol lookup", group, TIMEOUT, ex);
+                found = null;
+            }
+            if (found == null) return new Resolution(accepted, false);
+            accepted.putAll(found);
+        }
+        return new Resolution(accepted, true);
+    }
+
+    /** One group of at most {@link #SYMBOL_LOOKUP_BATCH} tickers; {@code null} when it is left undecided. */
+    private Map<String, CryptoAssetRegistry.Coin> resolveGroup(Set<String> wanted, long deadlineNanos) {
         String symbols = wanted.stream()
             .map(t -> t.toLowerCase(Locale.ROOT))
             .collect(java.util.stream.Collectors.joining(","));
 
-        long deadlineNanos = nanoTime.getAsLong() + TIMEOUT.toNanos();
-        try {
-            List<MarketEntry> markets = new ArrayList<>();
-            for (int page = 1; ; page++) {
-                if (coolingDown("symbol lookup", wanted)) return new Resolution(Map.of(), false);
-                long remainingNanos = deadlineNanos - nanoTime.getAsLong();
-                if (remainingNanos <= 0) {
-                    log.warn("CoinGecko symbol lookup {} ran out of its {} budget after {} pages -- learning nothing",
-                        LogSanitizer.safe(wanted), TIMEOUT, page - 1);
-                    return new Resolution(Map.of(), false);
-                }
-                List<MarketEntry> batch = symbolLookupPage(symbols, page, Duration.ofNanos(remainingNanos));
-                if (batch == null) {
-                    log.warn("CoinGecko returned an empty body for symbol lookup {} -- learning nothing", LogSanitizer.safe(wanted));
-                    return new Resolution(Map.of(), false);
-                }
-                markets.addAll(batch);
-                if (batch.size() < SYMBOL_LOOKUP_PAGE || endsUncapped(batch)) break;
-                if (page == SYMBOL_LOOKUP_MAX_PAGES) {
-                    log.warn("CoinGecko symbol lookup {} still lists ranked coins after {} pages -- learning nothing",
-                        LogSanitizer.safe(wanted), SYMBOL_LOOKUP_MAX_PAGES);
-                    return new Resolution(Map.of(), false);
-                }
+        List<MarketEntry> markets = new ArrayList<>();
+        for (int page = 1; ; page++) {
+            if (coolingDown("symbol lookup", wanted)) return null;
+            long remainingNanos = deadlineNanos - nanoTime.getAsLong();
+            if (remainingNanos <= 0) {
+                log.warn("CoinGecko symbol lookup {} ran out of its {} budget after {} pages -- learning nothing",
+                    LogSanitizer.safe(wanted), TIMEOUT, page - 1);
+                return null;
             }
-
-            Map<String, CryptoAssetRegistry.Coin> accepted = new TreeMap<>();
-            for (String ticker : wanted) {
-                List<MarketEntry> ranked = markets.stream()
-                    .filter(e -> e != null && e.id() != null && e.symbol() != null
-                        && e.symbol().equalsIgnoreCase(ticker) && e.rank() != null)
-                    .sorted(java.util.Comparator.comparing(MarketEntry::rank))
-                    .toList();
-                pickDominant(ticker, ranked).ifPresent(coin -> accepted.put(ticker, coin));
+            List<MarketEntry> batch = symbolLookupPage(symbols, page, Duration.ofNanos(remainingNanos));
+            if (batch == null) {
+                log.warn("CoinGecko returned an empty body for symbol lookup {} -- learning nothing", LogSanitizer.safe(wanted));
+                return null;
             }
-            return new Resolution(accepted, true);
-        } catch (RuntimeException ex) {
-            handleFetchFailure("symbol lookup", wanted, TIMEOUT, ex);
-            return new Resolution(Map.of(), false);
+            markets.addAll(batch);
+            if (batch.size() < SYMBOL_LOOKUP_PAGE || endsUncapped(batch)) break;
+            if (page == SYMBOL_LOOKUP_MAX_PAGES) {
+                log.warn("CoinGecko symbol lookup {} still lists ranked coins after {} pages -- learning nothing",
+                    LogSanitizer.safe(wanted), SYMBOL_LOOKUP_MAX_PAGES);
+                return null;
+            }
         }
+
+        Map<String, CryptoAssetRegistry.Coin> accepted = new TreeMap<>();
+        for (String ticker : wanted) {
+            List<MarketEntry> ranked = markets.stream()
+                .filter(e -> e != null && e.id() != null && e.symbol() != null
+                    && e.symbol().equalsIgnoreCase(ticker) && e.rank() != null)
+                .sorted(java.util.Comparator.comparing(MarketEntry::rank))
+                .toList();
+            pickDominant(ticker, ranked).ifPresent(coin -> accepted.put(ticker, coin));
+        }
+        return accepted;
     }
 
     private List<MarketEntry> symbolLookupPage(String symbols, int page, Duration timeout) {
@@ -378,12 +405,14 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
             .uri(uriBuilder -> uriBuilder
                 .path("/coins/markets")
                 .queryParam("vs_currency", "eur")
-                .queryParam("symbols", symbols)
+                // A template variable, not the literal: a held ticker is user data, and a "{X}" in
+                // it would be parsed as a URI variable and throw. Variables are encoded, not parsed.
+                .queryParam("symbols", "{symbols}")
                 .queryParam("include_tokens", "all")
                 .queryParam("order", "market_cap_desc")
                 .queryParam("per_page", SYMBOL_LOOKUP_PAGE)
                 .queryParam("page", page)
-                .build())
+                .build(Map.of("symbols", symbols)))
             .retrieve()
             .bodyToMono(new org.springframework.core.ParameterizedTypeReference<List<MarketEntry>>() {})
             .timeout(timeout)

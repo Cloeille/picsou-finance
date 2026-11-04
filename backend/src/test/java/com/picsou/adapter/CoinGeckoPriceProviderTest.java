@@ -542,9 +542,70 @@ class CoinGeckoPriceProviderTest {
 
         assertThat(requests.get()).isEqualTo(1);
         assertThat(captured.get())
-            .contains("/coins/markets").contains("vs_currency=eur").contains("symbols=cro,nexo")
+            .contains("/coins/markets").contains("vs_currency=eur").contains("symbols=cro%2Cnexo")
             .contains("include_tokens=all").contains("per_page=250")
             .contains("order=market_cap_desc").contains("page=1");
+    }
+
+    @Test
+    void resolveBySymbol_encodesATickerHoldingBraces_insteadOfParsingItAsAUriTemplate() {
+        var urls = new java.util.ArrayList<String>();
+        ExchangeFunction exchange = request -> {
+            urls.add(request.url().toString());
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("[" + market("nexo", "nexo", "NEXO", 105, 600000000L) + "]").build());
+        };
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
+
+        var resolution = provider.resolveBySymbol(Set.of("NEXO", "{X}"));
+
+        assertThat(resolution.answered()).isTrue();
+        assertThat(resolution.accepted()).containsOnlyKeys("NEXO");
+        assertThat(urls).singleElement().satisfies(url -> assertThat(url).contains("symbols=nexo%2C%7Bx%7D"));
+    }
+
+    @Test
+    void resolveBySymbol_queriesAtMostFiftySymbolsPerRequest() {
+        var urls = new java.util.ArrayList<String>();
+        var provider = providerPaging(List.of(), urls);
+        Set<String> tickers = java.util.stream.IntStream.rangeClosed(1, 51)
+            .mapToObj(i -> String.format("T%02d", i))
+            .collect(java.util.stream.Collectors.toSet());
+
+        var resolution = provider.resolveBySymbol(tickers);
+
+        assertThat(urls).hasSize(2);
+        assertThat(urls).allSatisfy(url -> {
+            String symbols = java.util.regex.Pattern.compile("symbols=([^&]*)").matcher(url).results()
+                .findFirst().orElseThrow().group(1);
+            assertThat(java.net.URLDecoder.decode(symbols, java.nio.charset.StandardCharsets.UTF_8).split(","))
+                .hasSizeLessThanOrEqualTo(50);
+        });
+        assertThat(resolution.answered()).isTrue();
+    }
+
+    @Test
+    void resolveBySymbol_keepsTheCoinsOfAnsweredGroups_butIsUnanswered_whenALaterGroupFails() {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        ExchangeFunction exchange = request -> {
+            boolean first = calls.getAndIncrement() == 0;
+            return Mono.just(ClientResponse.create(first ? HttpStatus.OK : HttpStatus.BAD_GATEWAY)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(first ? "[" + market("aaa-coin", "aaa", "Aaa", 10, 600000000L) + "]" : "{}").build());
+        };
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
+        // "AAA" sorts first, so it lands in the first group of 50; ZZZ is the 51st.
+        Set<String> tickers = new java.util.TreeSet<>(java.util.stream.IntStream.rangeClosed(1, 49)
+            .mapToObj(i -> String.format("B%02d", i)).toList());
+        tickers.add("AAA");
+        tickers.add("ZZZ");
+
+        var resolution = provider.resolveBySymbol(tickers);
+
+        assertThat(calls.get()).isEqualTo(2);
+        assertThat(resolution.answered()).isFalse();
+        assertThat(resolution.accepted()).containsOnlyKeys("AAA");
     }
 
     @Test

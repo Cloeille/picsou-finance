@@ -290,6 +290,19 @@ class CompositePriceProviderTest {
     }
 
     @Test
+    void learn_skipsTickersLongerThanTheColumnHolds_neverProbingNorAskingCoinGecko() {
+        String tooLong = "A".repeat(31);
+        String longestStorable = "B".repeat(30);
+        when(yahoo.probeQuote(longestStorable)).thenReturn(YahooFinancePriceProvider.QuoteProbe.UNKNOWN_SYMBOL);
+        when(coinGecko.resolveBySymbol(Set.of(longestStorable))).thenReturn(NOTHING_ACCEPTED);
+
+        composite().learnCryptoTickers(Set.of(tooLong, longestStorable));
+
+        verify(yahoo, never()).probeQuote(tooLong);
+        verify(coinGecko, times(1)).resolveBySymbol(Set.of(longestStorable));
+    }
+
+    @Test
     void learn_stopsProbingYahooOnceTheCallBudgetIsSpent_andAsksTheRestNextCall() {
         // Each probe takes 3 s of the 5 s budget: the third ticker is left for the next call,
         // with no retry window holding it back.
