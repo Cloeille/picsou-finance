@@ -89,6 +89,8 @@ export default defineConfig(({ command }) => {
         '/api': {
           target: process.env.VITE_API_TARGET || 'http://localhost:8080',
           changeOrigin: true,
+          // Dev only; same loopback-only trust as /oauth2 (IdP post-logout URL).
+          xfwd: true,
         },
         '/actuator': {
           target: process.env.VITE_API_TARGET || 'http://localhost:8080',
