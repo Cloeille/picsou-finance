@@ -24,6 +24,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URI;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -70,6 +71,8 @@ public class TradeRepublicAdapter {
      */
     private static final Duration DEFAULT_COMPLETE_TIMEOUT = Duration.ofSeconds(150);
     private static final Duration DEFAULT_SESSION_TIMEOUT = Duration.ofSeconds(45);
+    /** TR renders the export on demand, which takes a while over a long window. */
+    private static final Duration DEFAULT_TRANSACTIONS_TIMEOUT = Duration.ofSeconds(120);
     // Total time the WebSocket read may take before the sync goes on with what it has.
     // Kept under WS_HARD_TIMEOUT around the whole exchange, which fails the sync.
     static final Duration WS_WAIT_CAP = Duration.ofSeconds(30);
@@ -89,6 +92,7 @@ public class TradeRepublicAdapter {
     private final Duration      authTimeout;
     private final Duration      completeTimeout;
     private final Duration      sessionTimeout;
+    private final Duration      transactionsTimeout;
     private final URI           wsUri;
 
     @Autowired
@@ -107,7 +111,7 @@ public class TradeRepublicAdapter {
     }
 
     TradeRepublicAdapter(ObjectMapper objectMapper, WebClient client, Duration timeout, URI wsUri) {
-        this(objectMapper, client, timeout, timeout, timeout, wsUri);
+        this(objectMapper, client, timeout, timeout, timeout, timeout, wsUri);
     }
 
     TradeRepublicAdapter(
@@ -118,6 +122,20 @@ public class TradeRepublicAdapter {
         Duration sessionTimeout,
         URI wsUri
     ) {
+        this(objectMapper, client, authTimeout, completeTimeout, sessionTimeout,
+            DEFAULT_TRANSACTIONS_TIMEOUT, wsUri);
+    }
+
+    TradeRepublicAdapter(
+        ObjectMapper objectMapper,
+        WebClient client,
+        Duration authTimeout,
+        Duration completeTimeout,
+        Duration sessionTimeout,
+        Duration transactionsTimeout,
+        URI wsUri
+    ) {
+        this.transactionsTimeout = transactionsTimeout;
         this.objectMapper    = objectMapper;
         this.sidecar         = new SidecarClient(client, objectMapper, SidecarBank.TRADE_REPUBLIC,
             SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
@@ -200,6 +218,23 @@ public class TradeRepublicAdapter {
                 "Trade Republic returned no session token", null);
         }
         return session;
+    }
+
+    /**
+     * Trade Republic's own CSV export of the account activity between two dates (inclusive),
+     * rendered by the sidecar from the stored session. The body is returned untouched: the
+     * caller's parser owns its format, and it carries personal data, so it is never logged here.
+     */
+    public String fetchTransactionsCsv(String sessionState, LocalDate from, LocalDate to) {
+        log.info("Fetching TR transactions export via tr-auth sidecar");
+        return sidecar.post(
+            "/transactions",
+            Map.of("sessionState", sessionState, "from", from.toString(), "to", to.toString()),
+            String.class,
+            transactionsTimeout,
+            "Could not fetch the Trade Republic transactions",
+            SidecarErrorCode.SESSION_EXPIRED
+        );
     }
 
     // ─── Data (WebSocket, no WAF needed) ──────────────────────────────────────

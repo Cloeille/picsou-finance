@@ -130,6 +130,15 @@ The two legs are strict mirrors: the investment leg always carries the **opposit
 
 **Frontend**: on the **TR Cash** (CHECKING) account detail page, the **"+ Ajouter CSV (TR)"** button appears next to the manual-transaction button. After upload, a sonner toast shows the count of inserted rows and, if some were already present, the skip count.
 
+### Automatic transaction import
+
+Each sync also imports the transactions, with no upload. After the accounts are fetched, `TradeRepublicAdapter.fetchTransactionsCsv()` calls the sidecar's `POST /transactions` (`sessionState`, `from`, `to`; 120 s timeout) and gets Trade Republic's own CSV export back. The body goes through the same parser as the manual import (`importTransactions(Reader, memberId)`), so both paths write identical `<transaction_id>_cash` / `_inv` external IDs and never duplicate each other's rows.
+
+- **Window**: `to` is today (Europe/Paris). `from` is the newest imported TR Cash entry minus 14 days, or today minus 3 years on a first import. The session's `lastSyncCompletedAt` is not used: queueing and starting a run both clear it. The 14-day overlap is harmless because rows already present are skipped.
+- **Order**: the export is fetched in `Strategy.fetch()`, outside any transaction. `commit()` upserts the accounts only. The import runs in `afterCommit()`, in its own transaction, so a row that cannot be written rolls back the transactions alone and leaves the synced balances and holdings in place.
+- **Failure policy**: any sidecar failure on the export other than `SESSION_EXPIRED` is logged by code or exception type and the sync still ends `SUCCESS` without transactions. `SESSION_EXPIRED` fails the sync like the account fetch. Neither the CSV nor its rows are logged.
+- **Log line**: the completion line reports `transactions=fetched` when an export was received; the import itself logs `tx=<inserted>` and `skipped=<n>`.
+
 ### Scheduled sync
 
 `MemberSyncService` calls `TradeRepublicSyncService.resyncReporting()` for the daily run. It goes through `SidecarSyncTemplate.resyncReporting`: no session reports "not connected", an inactive or expired one reports "needs re-authentication", otherwise an import is queued. The daily run needs no refresh step of its own: every job opens a fresh cookie through `/session`.
