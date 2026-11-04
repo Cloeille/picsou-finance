@@ -1926,6 +1926,11 @@
       "resetMfaConfirmTitle": "¿Restablecer la autenticación en dos pasos?",
       "resetMfaConfirmDesc": "Esto desactiva la 2FA de la cuenta del miembro, revoca sus códigos de recuperación y cierra su sesión en todos los dispositivos. Úsalo solo si ha perdido el acceso a su app de autenticación y no puede usar un código de recuperación.",
       "mfaOn": "2FA activada",
+      "signInPassword": "Contraseña",
+      "signInSso": "SSO",
+      "unlinkSso": "Desvincular SSO",
+      "unlinkSsoTitle": "¿Desvincular el SSO de {{name}}?",
+      "unlinkSsoDescription": "Este miembro ya no podrá iniciar sesión con SSO y se cerrarán sus sesiones en todos los dispositivos. Si no le queda contraseña, necesitará un enlace para restablecerla y volver a iniciar sesión.",
       "delete": "Eliminar",
       "deleteConfirmTitle": "Eliminar miembro",
       "deleteConfirmDesc": "Esto eliminará al miembro y todos sus datos. Esta acción no se puede deshacer.",
@@ -2085,6 +2090,9 @@
       "submitError": "No se pudo crear la cuenta. Inténtalo de nuevo.",
       "showPassword": "Mostrar contraseña",
       "hidePassword": "Ocultar contraseña",
+      "ssoHint": "El administrador de Picsou inicia sesión con {{provider}}. Usa una cuenta del grupo de administradores.",
+      "ssoContinue": "Continuar con {{provider}}",
+      "ssoMisconfigured": "Para crear el administrador se requiere el inicio de sesión único, pero su configuración no es válida. Revisa los registros del servidor.",
       "strength": {
         "weak": "Débil",
         "fair": "Aceptable",
@@ -2998,6 +3006,30 @@
     "suggestionsBanner_other": "{{count}} savings accounts to configure",
     "configureSavings": "Configure",
     "uncertain": "Uncertain classification — please verify"
+  },
+  "activation": {
+    "title": "Activa tu cuenta",
+    "subtitle": "Elige una contraseña para terminar de configurar tu cuenta.",
+    "subtitleSso": "Actívala con {{provider}} o elige una contraseña para terminar de configurar tu cuenta.",
+    "noticeTitle": "Aviso sobre el acceso a los datos",
+    "noticeBody": "El administrador de esta instancia de Picsou tiene acceso técnico a todos los datos almacenados aquí, incluidos los datos de las cuentas bancarias y las credenciales de API. Al activar tu cuenta, lo aceptas.",
+    "acknowledge": "Entiendo y acepto que el administrador tiene acceso a todos los datos de esta instancia.",
+    "ssoButton": "Activar con {{provider}}",
+    "password": "Contraseña",
+    "passwordPlaceholder": "Mínimo 8 caracteres",
+    "confirmPassword": "Confirmar contraseña",
+    "confirmPlaceholder": "Repite tu contraseña",
+    "submit": "Activar cuenta",
+    "submitting": "Activando...",
+    "successTitle": "¡Cuenta activada!",
+    "successRedirect": "Redirigiendo al inicio de sesión...",
+    "errors": {
+      "acknowledgeRequired": "Debes aceptar el aviso sobre el acceso a los datos.",
+      "passwordTooShort": "La contraseña debe tener al menos 8 caracteres.",
+      "passwordMismatch": "Las contraseñas no coinciden.",
+      "invalidLink": "Enlace de activación no válido.",
+      "failed": "No se pudo activar la cuenta. Es posible que el enlace haya caducado."
+    }
   },
   "reauth": {
     "confirm": "Confirmar",

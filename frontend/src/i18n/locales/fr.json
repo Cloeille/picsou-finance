@@ -2257,6 +2257,11 @@
       "resetMfaConfirmTitle": "Réinitialiser la 2FA ?",
       "resetMfaConfirmDesc": "Cela désactive la 2FA du compte du membre, révoque ses codes de secours et déconnecte ses appareils. À utiliser uniquement si l'authenticator est perdu et qu'aucun code de secours n'est disponible.",
       "mfaOn": "2FA active",
+      "signInPassword": "Mot de passe",
+      "signInSso": "SSO",
+      "unlinkSso": "Dissocier le SSO",
+      "unlinkSsoTitle": "Dissocier le SSO de {{name}} ?",
+      "unlinkSsoDescription": "Ce membre ne pourra plus se connecter avec le SSO et sera déconnecté de tous ses appareils. S'il n'a plus de mot de passe, il lui faudra un lien de réinitialisation du mot de passe pour se reconnecter.",
       "delete": "Supprimer",
       "deleteConfirmTitle": "Supprimer le membre",
       "deleteConfirmDesc": "Cela supprimera le membre et toutes ses données. Action irréversible.",
@@ -2396,6 +2401,9 @@
       "submitError": "Impossible de créer le compte. Réessayez.",
       "showPassword": "Afficher le mot de passe",
       "hidePassword": "Masquer le mot de passe",
+      "ssoHint": "L'administrateur de Picsou se connecte avec {{provider}}. Utilisez un compte du groupe des administrateurs.",
+      "ssoContinue": "Continuer avec {{provider}}",
+      "ssoMisconfigured": "La création de l'administrateur nécessite la connexion unique, mais ses paramètres sont invalides. Consultez les journaux du serveur.",
       "strength": {
         "weak": "La sécurité du mot de passe est faible.",
         "fair": "La sécurité du mot de passe est correcte.",
@@ -2997,6 +3005,30 @@
       "totalPayment": "Mensualité",
       "yes": "Oui",
       "no": "Non"
+    }
+  },
+  "activation": {
+    "title": "Activez votre compte",
+    "subtitle": "Choisissez un mot de passe pour terminer la configuration de votre compte.",
+    "subtitleSso": "Activez-le avec {{provider}}, ou choisissez un mot de passe pour terminer la configuration de votre compte.",
+    "noticeTitle": "Accès aux données",
+    "noticeBody": "L'administrateur de cette instance Picsou dispose d'un accès technique à toutes les données qui y sont stockées, y compris les coordonnées bancaires et les identifiants d'API. En activant votre compte, vous le reconnaissez.",
+    "acknowledge": "Je comprends et reconnais que l'administrateur a accès à toutes les données de cette instance.",
+    "ssoButton": "Activer avec {{provider}}",
+    "password": "Mot de passe",
+    "passwordPlaceholder": "8 caractères minimum",
+    "confirmPassword": "Confirmer le mot de passe",
+    "confirmPlaceholder": "Saisissez à nouveau votre mot de passe",
+    "submit": "Activer le compte",
+    "submitting": "Activation...",
+    "successTitle": "Compte activé !",
+    "successRedirect": "Redirection vers la connexion...",
+    "errors": {
+      "acknowledgeRequired": "Vous devez accepter l'avertissement sur l'accès aux données.",
+      "passwordTooShort": "Le mot de passe doit contenir au moins 8 caractères.",
+      "passwordMismatch": "Les mots de passe ne correspondent pas.",
+      "invalidLink": "Lien d'activation invalide.",
+      "failed": "L'activation a échoué. Le lien a peut-être expiré."
     }
   },
   "reauth": {

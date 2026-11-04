@@ -1926,6 +1926,11 @@
       "resetMfaConfirmTitle": "Zwei-Faktor-Authentifizierung zurücksetzen?",
       "resetMfaConfirmDesc": "Dadurch wird 2FA für das Konto des Mitglieds deaktiviert, seine Wiederherstellungscodes werden widerrufen und es wird überall abgemeldet. Nur verwenden, wenn der Zugriff auf die Authenticator-App verloren ging und kein Wiederherstellungscode mehr genutzt werden kann.",
       "mfaOn": "2FA aktiv",
+      "signInPassword": "Passwort",
+      "signInSso": "SSO",
+      "unlinkSso": "SSO trennen",
+      "unlinkSsoTitle": "SSO für {{name}} trennen?",
+      "unlinkSsoDescription": "Dieses Mitglied kann sich nicht mehr per SSO anmelden und wird überall abgemeldet. Bleibt kein Passwort, braucht es einen Link zum Zurücksetzen des Passworts, um sich wieder anzumelden.",
       "delete": "Löschen",
       "deleteConfirmTitle": "Mitglied löschen",
       "deleteConfirmDesc": "Dadurch werden das Mitglied und alle seine Daten gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
@@ -2085,6 +2090,9 @@
       "submitError": "Das Konto konnte nicht erstellt werden. Versuche es erneut.",
       "showPassword": "Passwort anzeigen",
       "hidePassword": "Passwort verbergen",
+      "ssoHint": "Der Administrator von Picsou meldet sich mit {{provider}} an. Verwende ein Konto aus der Administratorengruppe.",
+      "ssoContinue": "Weiter mit {{provider}}",
+      "ssoMisconfigured": "Zum Anlegen des Administrators ist Single Sign-on erforderlich, aber seine Einstellungen sind ungültig. Prüfe die Serverprotokolle.",
       "strength": {
         "weak": "Schwach",
         "fair": "Ausreichend",
@@ -2998,6 +3006,30 @@
     "suggestionsBanner_other": "{{count}} savings accounts to configure",
     "configureSavings": "Configure",
     "uncertain": "Uncertain classification — please verify"
+  },
+  "activation": {
+    "title": "Aktiviere dein Konto",
+    "subtitle": "Wähle ein Passwort, um die Einrichtung deines Kontos abzuschließen.",
+    "subtitleSso": "Aktiviere es mit {{provider}} oder wähle ein Passwort, um die Einrichtung deines Kontos abzuschließen.",
+    "noticeTitle": "Hinweis zum Datenzugriff",
+    "noticeBody": "Der Administrator dieser Picsou-Instanz hat technischen Zugriff auf alle hier gespeicherten Daten, einschließlich Bankverbindungen und API-Zugangsdaten. Mit der Aktivierung deines Kontos bestätigst du dies.",
+    "acknowledge": "Ich verstehe und bestätige, dass der Administrator Zugriff auf alle Daten dieser Instanz hat.",
+    "ssoButton": "Mit {{provider}} aktivieren",
+    "password": "Passwort",
+    "passwordPlaceholder": "Mindestens 8 Zeichen",
+    "confirmPassword": "Passwort bestätigen",
+    "confirmPlaceholder": "Passwort wiederholen",
+    "submit": "Konto aktivieren",
+    "submitting": "Wird aktiviert...",
+    "successTitle": "Konto aktiviert!",
+    "successRedirect": "Weiterleitung zur Anmeldung...",
+    "errors": {
+      "acknowledgeRequired": "Du musst den Hinweis zum Datenzugriff bestätigen.",
+      "passwordTooShort": "Das Passwort muss mindestens 8 Zeichen lang sein.",
+      "passwordMismatch": "Die Passwörter stimmen nicht überein.",
+      "invalidLink": "Ungültiger Aktivierungslink.",
+      "failed": "Die Aktivierung ist fehlgeschlagen. Der Link ist möglicherweise abgelaufen."
+    }
   },
   "reauth": {
     "confirm": "Bestätigen",

@@ -2257,6 +2257,11 @@
       "resetMfaConfirmTitle": "Reset two-factor auth?",
       "resetMfaConfirmDesc": "This disables 2FA on the member's account, revokes their recovery codes, and signs them out everywhere. Use only when they have lost access to their authenticator and cannot use a recovery code.",
       "mfaOn": "2FA on",
+      "signInPassword": "Password",
+      "signInSso": "SSO",
+      "unlinkSso": "Unlink SSO",
+      "unlinkSsoTitle": "Unlink SSO for {{name}}?",
+      "unlinkSsoDescription": "This member will no longer sign in with SSO and will be signed out everywhere. If no password remains, they will need a password reset link to sign in again.",
       "delete": "Delete",
       "deleteConfirmTitle": "Delete member",
       "deleteConfirmDesc": "This will delete the member and all their data. This action cannot be undone.",
@@ -2396,6 +2401,9 @@
       "submitError": "We couldn't create the account. Please try again.",
       "showPassword": "Show password",
       "hidePassword": "Hide password",
+      "ssoHint": "Picsou's administrator signs in with {{provider}}. Use an account from the administrators group.",
+      "ssoContinue": "Continue with {{provider}}",
+      "ssoMisconfigured": "Creating the administrator requires single sign-on, but its settings are invalid. Check the server logs.",
       "strength": {
         "weak": "Password security is weak.",
         "fair": "Password security is fair.",
@@ -2997,6 +3005,30 @@
       "totalPayment": "Payment",
       "yes": "Yes",
       "no": "No"
+    }
+  },
+  "activation": {
+    "title": "Activate your account",
+    "subtitle": "Choose a password to complete your account setup.",
+    "subtitleSso": "Activate it with {{provider}}, or choose a password to complete your account setup.",
+    "noticeTitle": "Data access notice",
+    "noticeBody": "The administrator of this Picsou instance has technical access to all data stored here, including bank account details and API credentials. By activating your account, you acknowledge this.",
+    "acknowledge": "I understand and acknowledge that the admin has access to all data on this instance.",
+    "ssoButton": "Activate with {{provider}}",
+    "password": "Password",
+    "passwordPlaceholder": "Min. 8 characters",
+    "confirmPassword": "Confirm password",
+    "confirmPlaceholder": "Repeat your password",
+    "submit": "Activate account",
+    "submitting": "Activating...",
+    "successTitle": "Account activated!",
+    "successRedirect": "Redirecting to login...",
+    "errors": {
+      "acknowledgeRequired": "You must acknowledge the data access warning.",
+      "passwordTooShort": "Password must be at least 8 characters.",
+      "passwordMismatch": "Passwords do not match.",
+      "invalidLink": "Invalid activation link.",
+      "failed": "Activation failed. The link may have expired."
     }
   },
   "reauth": {

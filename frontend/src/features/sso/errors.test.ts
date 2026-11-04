@@ -44,4 +44,8 @@ describe('formatSsoApiError', () => {
   it('falls back to the generic API formatter', () => {
     expect(formatSsoApiError(apiError(500), t)).toBe('common.errors.serverError')
   })
+
+  it('falls back to the caller key when the API gives no usable reason', () => {
+    expect(formatSsoApiError(apiError(400), t, 'setup.admin.submitError')).toBe('setup.admin.submitError')
+  })
 })

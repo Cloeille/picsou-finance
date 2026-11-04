@@ -1,18 +1,32 @@
 import { useState } from 'react'
-import { useParams, useNavigate } from 'react-router'
+import { useParams, useNavigate, useSearchParams } from 'react-router'
+import { useTranslation } from 'react-i18next'
+import { KeyRound } from 'lucide-react'
 import { authApi } from '@/features/auth/api'
+import { ssoErrorMessage } from '@/features/sso/errors'
+import { useSsoInfo } from '@/features/sso/hooks'
+import { submitSsoStart } from '@/features/sso/start'
+import { formatApiError, getErrorStatus } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 export function ActivationPage() {
+  const { t } = useTranslation()
   const { token } = useParams<{ token: string }>()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const { data: ssoInfo } = useSsoInfo()
+  const sso = ssoInfo?.enabled ? ssoInfo : null
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [acknowledged, setAcknowledged] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(() => {
+    const ssoError = searchParams.get('ssoError')
+    return ssoError ? ssoErrorMessage(t, ssoError) : null
+  })
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
 
@@ -21,19 +35,19 @@ export function ActivationPage() {
     setError(null)
 
     if (!acknowledged) {
-      setError('You must acknowledge the data access warning.')
+      setError(t('activation.errors.acknowledgeRequired'))
       return
     }
     if (password.length < 8) {
-      setError('Password must be at least 8 characters.')
+      setError(t('activation.errors.passwordTooShort'))
       return
     }
     if (password !== confirmPassword) {
-      setError('Passwords do not match.')
+      setError(t('activation.errors.passwordMismatch'))
       return
     }
     if (!token) {
-      setError('Invalid activation link.')
+      setError(t('activation.errors.invalidLink'))
       return
     }
 
@@ -43,8 +57,13 @@ export function ActivationPage() {
       setSuccess(true)
       setTimeout(() => navigate('/login'), 2000)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Activation failed. The link may have expired.'
-      setError(message)
+      // An unknown token answers 401 and an expired one 400: a dead link, not an expired session.
+      const status = getErrorStatus(err)
+      setError(
+        status === 400 || status === 401
+          ? t('activation.errors.failed')
+          : formatApiError(err, t, 'activation.errors.failed'),
+      )
     } finally {
       setLoading(false)
     }
@@ -55,8 +74,8 @@ export function ActivationPage() {
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>Account activated!</CardTitle>
-            <CardDescription>Redirecting to login...</CardDescription>
+            <CardTitle>{t('activation.successTitle')}</CardTitle>
+            <CardDescription>{t('activation.successRedirect')}</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -67,18 +86,16 @@ export function ActivationPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Activate your account</CardTitle>
-          <CardDescription>Choose a password to complete your account setup.</CardDescription>
+          <CardTitle>{t('activation.title')}</CardTitle>
+          <CardDescription>
+            {sso ? t('activation.subtitleSso', { provider: sso.providerName }) : t('activation.subtitle')}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {/* Warning */}
-          <div className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-200">
-            <p className="font-semibold mb-1">Data access notice</p>
-            <p>
-              The administrator of this Picsou instance has technical access to all data stored
-              here, including bank account details and API credentials. By activating your account,
-              you acknowledge this.
-            </p>
+          <div className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-900 dark:text-yellow-200">
+            <p className="font-semibold mb-1">{t('activation.noticeTitle')}</p>
+            <p>{t('activation.noticeBody')}</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -91,41 +108,61 @@ export function ActivationPage() {
                 className="mt-1"
               />
               <Label htmlFor="acknowledge" className="text-sm">
-                I understand and acknowledge that the admin has access to all data on this instance.
+                {t('activation.acknowledge')}
               </Label>
             </div>
 
+            {sso && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!acknowledged}
+                  onClick={() => submitSsoStart({ intent: 'activate', token, ack: true })}
+                  className="h-auto min-h-10 w-full whitespace-normal py-2"
+                >
+                  <KeyRound aria-hidden="true" />
+                  {t('activation.ssoButton', { provider: sso.providerName })}
+                </Button>
+                <div className="flex items-center gap-3">
+                  <Separator className="h-px flex-1" />
+                  <span className="text-sm text-muted-foreground">{t('auth.sso.or')}</span>
+                  <Separator className="h-px flex-1" />
+                </div>
+              </>
+            )}
+
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t('activation.password')}</Label>
               <Input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Min. 8 characters"
+                placeholder={t('activation.passwordPlaceholder')}
                 minLength={8}
                 required
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm password</Label>
+              <Label htmlFor="confirmPassword">{t('activation.confirmPassword')}</Label>
               <Input
                 id="confirmPassword"
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Repeat your password"
+                placeholder={t('activation.confirmPlaceholder')}
                 required
               />
             </div>
 
             {error && (
-              <p className="text-sm text-destructive">{error}</p>
+              <p role="alert" className="text-sm text-destructive">{error}</p>
             )}
 
             <Button type="submit" className="w-full" disabled={!acknowledged || loading}>
-              {loading ? 'Activating...' : 'Activate account'}
+              {loading ? t('activation.submitting') : t('activation.submit')}
             </Button>
           </form>
         </CardContent>

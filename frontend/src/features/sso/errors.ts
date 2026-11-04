@@ -36,9 +36,9 @@ export function ssoErrorMessage(t: TFunc, code: string | null | undefined): stri
   return t(isSsoErrorCode(code) ? `ssoErrors.${code}` : 'ssoErrors.generic')
 }
 
-export function formatSsoApiError(err: unknown, t: TFunc): string {
+export function formatSsoApiError(err: unknown, t: TFunc, fallbackKey?: string): string {
   const code = getErrorCode(err)
   if (isSsoErrorCode(code)) return ssoErrorMessage(t, code)
   if (getErrorStatus(err) === 429) return t('common.errors.tooManyRequests')
-  return formatApiError(err, t)
+  return formatApiError(err, t, fallbackKey)
 }
