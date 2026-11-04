@@ -291,8 +291,10 @@ curl -sI https://picsou.example.com/ | grep -i strict-transport
 
 Exactly one `Strict-Transport-Security` line when enabled, none when disabled.
 
-Spring Boot is the only emitter: it adds the header to every response, the SPA and the
-authorization server included, and nginx only relays it. To check the backend on its own, ask it
+Spring Boot is the only emitter: it adds the header to every response it generates, the SPA and
+the authorization server included, and nginx only relays it. nginx's own error pages, such as the
+502 or 504 it sends when the backend is down or too slow, carry none; a browser keeps the policy
+from earlier responses. To check the backend on its own, ask it
 directly, bypassing nginx:
 
 ```bash
