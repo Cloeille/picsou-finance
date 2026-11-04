@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { KeyRound, Loader2, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -139,6 +139,15 @@ function ProviderConfirmation({
   const { t } = useTranslation()
   const [redirecting, setRedirecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Back from the IdP can restore this page from the back/forward cache, spinner included.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setRedirecting(false)
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
+  }, [])
 
   const confirm = async () => {
     setRedirecting(true)

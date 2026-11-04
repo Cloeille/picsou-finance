@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LinkedIdentity, SignInMethods } from '@/features/sso/api'
 import en from '@/i18n/locales/en.json'
@@ -38,8 +38,9 @@ vi.mock('@/features/sso/api', () => ({ ssoApi: { getSignInMethods } }))
 vi.mock('@/features/auth/api', () => ({ authApi: { refresh: vi.fn() } }))
 vi.mock('@/features/sso/start', () => ({ submitSsoStart: vi.fn() }))
 
-const { SignInMethodsCard } = await import('./SignInMethodsCard')
+const { LinkIdentityDialog, SignInMethodsCard } = await import('./SignInMethodsCard')
 const { ssoKeys } = await import('@/features/sso/hooks')
+const { submitSsoStart } = await import('@/features/sso/start')
 
 // The server omits null fields: an identity that never signed in arrives without `lastLoginAt`.
 const NEVER_USED: LinkedIdentity = {
@@ -144,5 +145,29 @@ describe('SignInMethodsCard', () => {
 
     await waitFor(() => expect(queryClient.getQueryState(ssoKeys.methods)?.status).toBe('success'))
     expect(container).toBeEmptyDOMElement()
+  })
+})
+
+describe('LinkIdentityDialog', () => {
+  beforeEach(() => getSignInMethods.mockReset())
+
+  it('shows the confirmation again when Back from the IdP restores the page from the back/forward cache', async () => {
+    getSignInMethods.mockResolvedValue(METHODS)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <LinkIdentityDialog open resumed onOpenChange={() => {}} providerName="Zitadel" />
+      </QueryClientProvider>,
+    )
+
+    expect(screen.getByText(en.auth.sso.redirecting)).toBeInTheDocument()
+    await waitFor(() => expect(submitSsoStart).toHaveBeenCalledWith({ intent: 'link', redirect: '/settings' }))
+
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+    })
+
+    expect(screen.queryByText(en.auth.sso.redirecting)).not.toBeInTheDocument()
+    expect(await screen.findByLabelText(en.settings.currentPassword)).toBeInTheDocument()
   })
 })

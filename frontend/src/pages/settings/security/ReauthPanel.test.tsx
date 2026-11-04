@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import en from '@/i18n/locales/en.json'
 
@@ -132,6 +132,21 @@ describe('ReauthPanel', () => {
     expect(submitSsoStart).toHaveBeenCalledWith({ intent: 'reauth', redirect: '/settings?resume=unlink-7' })
     // The proof arrives with the IdP round trip; the caller resumes from the URL, not from here.
     expect(onConfirmed).not.toHaveBeenCalled()
+  })
+
+  it('offers the IdP confirmation again when Back restores the page from the back/forward cache', async () => {
+    refresh.mockResolvedValue({ username: 'alice' })
+    renderPanel({ hasPassword: false }, 'export')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm with Zitadel' }))
+    await waitFor(() => expect(submitSsoStart).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('button', { name: 'Confirm with Zitadel' })).toBeDisabled()
+
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+    })
+
+    expect(screen.getByRole('button', { name: 'Confirm with Zitadel' })).toBeEnabled()
   })
 
   it('never starts the round trip when the session refresh fails', async () => {

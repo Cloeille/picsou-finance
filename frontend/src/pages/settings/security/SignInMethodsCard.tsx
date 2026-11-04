@@ -186,6 +186,15 @@ function LinkSteps({ resumed }: { resumed: boolean }) {
     startResumedLink()
   }, [resumed])
 
+  // Back from the IdP can restore this page from the back/forward cache, spinner included.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setRedirecting(false)
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
+  }, [])
+
   if (redirecting) {
     return (
       <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
