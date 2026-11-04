@@ -2,6 +2,7 @@ package com.picsou.config;
 
 import org.apache.commons.logging.impl.NoOpLog;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -9,6 +10,8 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.env.SystemEnvironmentPropertySource;
@@ -346,7 +349,8 @@ class SecretBootstrapTest {
      * placeholder names nothing and puts the whole password in the failure message.
      */
     @Test
-    void aPasswordHoldingAPlaceholder_isUsedVerbatim_andNeverLogged() throws IOException {
+    @ExtendWith(OutputCaptureExtension.class)
+    void aPasswordHoldingAPlaceholder_isUsedVerbatim_andNeverLogged(CapturedOutput output) throws IOException {
         String password = "Zq9${nope}secretTail";
 
         assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", password))).isEqualTo(password);
@@ -360,6 +364,43 @@ class SecretBootstrapTest {
         MockEnvironment environment = run("JWT_SECRET", "a${nope}b");
         assertThat(environment.getPropertySources().get(SecretBootstrap.SOURCE_NAME).getProperty("JWT_SECRET"))
             .isEqualTo("a${nope}b");
+
+        // The capture saw the start-ups, so an empty capture cannot pass.
+        assertThat(output.getAll()).contains("Started").doesNotContain("secretTail").doesNotContain("a${nope}b");
+    }
+
+    /** The template application.yml declares is skipped; a reference the operator wrote is not. */
+    @Test
+    void anOperatorPlaceholder_isResolvedBySpring_whenAPasswordVariableIsEmpty() {
+        assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", "", "DB_PASSWORD", "from-db-var"),
+            "--spring.config.additional-location=" + configFile("spring.datasource.password=${DB_PASSWORD}")))
+            .isEqualTo("from-db-var");
+    }
+
+    @Test
+    void aSpringPasswordVariableHoldingAPlaceholder_isKept_whenPostgresPasswordIsEmpty() throws IOException {
+        seed("postgres_password", "persisted-postgres-password");
+
+        assertThat(datasourcePassword(variablesWithSecretsDir(
+            "POSTGRES_PASSWORD", "", "SPRING_DATASOURCE_PASSWORD", "Zq9${nope}secretTail")))
+            .isEqualTo("Zq9${nope}secretTail");
+    }
+
+    /** The legacy file only matters as a fallback, so an empty one cannot block an explicit password. */
+    @Test
+    void anEmptyLegacyFile_isIgnored_whenTheDatasourcePasswordIsSupplied() throws IOException {
+        seed("postgres_password", "");
+
+        assertThat(datasourcePassword(variablesWithSecretsDir(
+            "POSTGRES_PASSWORD", "", "SPRING_DATASOURCE_PASSWORD", "from-spring"))).isEqualTo("from-spring");
+        assertThat(datasourcePassword(variablesWithSecretsDir("SPRING_DATASOURCE_PASSWORD", "from-spring")))
+            .isEqualTo("from-spring");
+    }
+
+    @Test
+    void anEmptyPostgresPassword_doesNotHideANonEmptyOneInALaterSource() {
+        assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", "from-env"),
+            "--POSTGRES_PASSWORD=")).isEqualTo("from-env");
     }
 
     @Test
