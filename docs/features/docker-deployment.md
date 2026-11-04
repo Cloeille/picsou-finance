@@ -79,7 +79,7 @@ The main container runs **one** process: the JVM is PID 1, as uid 1000.
 
 | Process | Port | Role |
 |---------|------|------|
-| Java (Spring Boot) | 8080 | Serves the SPA, the API and every response header; Tomcat resolves the client address and public origin from the one trusted proxy |
+| Java (Spring Boot) | 8080 | Serves the SPA, the API and every response header; Tomcat resolves the client address from the one trusted proxy; the public origin is applied from any peer |
 
 There is no supervisor: Docker (`restart: unless-stopped`) and Kubernetes restart the container when the JVM exits. Behaviour that nginx used to provide and that changed:
 

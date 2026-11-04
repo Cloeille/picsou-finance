@@ -155,7 +155,8 @@ endpoints including the `/oauth2/authorize` cookie bridge) is a separate chain a
 
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
-| `forward-headers-strategy: native`, one exact proxy peer | One trust policy for every address reader and the public origin | Unrestricted framework forwarding; trusting all private networks |
+| `forward-headers-strategy: native`, one exact proxy peer | One trust policy for every client-address reader | Unrestricted framework forwarding; trusting all private networks |
+| Public origin from any peer (`ForwardedOriginCustomizer`) | Keeps installs behind an undeclared HTTPS proxy working, as nginx did; a forged origin only affects the sender's own request | Accepting it only from `PICSOU_PROXY_IP` |
 | Derive the public port from the forwarded host or port header | Native forwarding reads host and port separately; the container listener is not the public port | Trusting the listener port |
 | Fail-closed empty default + wildcard stripping | `*` with credentials is unsafe and illegal in Spring | `ALLOWED_ORIGINS=*` default (previous behavior) |
 | `setAllowedOrigins` (exact) | Credentialed CORS; origins come from the wizard | `setAllowedOriginPatterns("*")` |

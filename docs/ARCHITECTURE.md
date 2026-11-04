@@ -224,9 +224,12 @@ Browser → SetupFilter → /setup → SetupController → SetupService → AppS
 
 ### 12. Authentication & MFA
 
-Tomcat's native forwarding support trusts forwarded client addresses and the public origin only
-from the proxy named by `PICSOU_PROXY_IP`, and nobody when it is unset. All per-IP limiters, session metadata and audit readers share `getRemoteAddr()` through
-this policy. See [CORS & cookie security](./features/security-cors-cookies.md).
+Tomcat's native forwarding support trusts forwarded client addresses only from the proxy named by
+`PICSOU_PROXY_IP`, and nobody when it is unset. All per-IP limiters, session metadata and audit
+readers share `getRemoteAddr()` through this policy. The public origin (scheme, host, port) is a
+separate decision: `ForwardedOriginCustomizer` applies `X-Forwarded-Proto`, `X-Forwarded-Host` and
+`X-Forwarded-Port` from any peer, whether or not `PICSOU_PROXY_IP` is set, as nginx did. See
+[CORS & cookie security](./features/security-cors-cookies.md).
 
 ```
 POST /api/auth/login → AuthController → (if 2FA) issue mfa_challenge JWT → 401 + cookie
