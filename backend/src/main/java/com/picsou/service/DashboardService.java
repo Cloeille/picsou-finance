@@ -13,7 +13,6 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.GoalRepository;
-import com.picsou.repository.PeerLoanTermsRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -41,7 +40,6 @@ public class DashboardService {
     private final LoanAmortizationService loanAmortizationService;
     private final AccountService accountService;
     private final AccountAccessResolver accessResolver;
-    private final PeerLoanTermsRepository peerLoanTermsRepository;
 
     public DashboardService(
         AccountRepository accountRepository,
@@ -53,8 +51,7 @@ public class DashboardService {
         DebtRepository debtRepository,
         LoanAmortizationService loanAmortizationService,
         AccountService accountService,
-        AccountAccessResolver accessResolver,
-        PeerLoanTermsRepository peerLoanTermsRepository
+        AccountAccessResolver accessResolver
     ) {
         this.accountRepository = accountRepository;
         this.goalService = goalService;
@@ -66,7 +63,6 @@ public class DashboardService {
         this.loanAmortizationService = loanAmortizationService;
         this.accountService = accountService;
         this.accessResolver = accessResolver;
-        this.peerLoanTermsRepository = peerLoanTermsRepository;
     }
 
     public DashboardResponse getDashboard(Long memberId, String range) {
@@ -77,21 +73,11 @@ public class DashboardService {
             .toList();
         Map<Long, BigDecimal> shares = accessResolver.sharesFor(accounts, memberId);
 
-        // A closed peer loan is history: its residual was written off, the account stays for
-        // the ledger, and the net-worth curve keeps the loss. A 0 EUR line in the asset
-        // distribution would just accumulate over the years.
-        Set<Long> closedPeerLoanIds = peerLoanTermsRepository
-            .findAllByAccountMemberIdOrderByLentAtAscIdAsc(memberId).stream()
-            .filter(terms -> terms.getClosedAt() != null && terms.getAccount() != null)
-            .map(terms -> terms.getAccount().getId())
-            .collect(Collectors.toSet());
+        // A peer loan is a receivable, not an allocation asset: the ADR keeps it out of the
+        // donut and the pyramid. It stays in net worth through the unfiltered accounts list,
+        // so an open loan still counts, it just does not claim a slice of "what my money does".
         List<Account> distributable = accounts.stream()
-            .filter(account -> !closedPeerLoanIds.contains(account.getId()))
-            // A 0 EUR receivable has nothing to show in the pie either: an unconfigured
-            // account, or a closed one whose write-off has already zeroed it.
-            .filter(account -> account.getType() != AccountType.PEER_LOAN
-                || account.getCurrentBalance() == null
-                || account.getCurrentBalance().signum() != 0)
+            .filter(account -> account.getType() != AccountType.PEER_LOAN)
             .toList();
 
         // Pre-load all holdings and group by account

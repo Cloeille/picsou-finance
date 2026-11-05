@@ -4,12 +4,10 @@ import com.picsou.dto.DashboardResponse;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
-import com.picsou.model.PeerLoanTerms;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.GoalRepository;
-import com.picsou.repository.PeerLoanTermsRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,7 +39,6 @@ class DashboardServiceTest {
     @Mock AccountService accountService;
 
     @Mock AccountAccessResolver accessResolver;
-    @Mock PeerLoanTermsRepository peerLoanTermsRepository;
 
     @InjectMocks DashboardService dashboardService;
 
@@ -285,7 +282,7 @@ class DashboardServiceTest {
     }
 
     @Test
-    void getDashboard_keepsClosedPeerLoansOutOfTheDistribution() {
+    void getDashboard_keepsPeerLoansOutOfTheDistribution() {
         Account open = peerLoanAccount(20L, "Marie", "1000");
         Account closed = peerLoanAccount(21L, "Jean", "0");
         Account unconfigured = peerLoanAccount(22L, "Sans conditions", "0");
@@ -295,18 +292,14 @@ class DashboardServiceTest {
         when(holdingRepository.findByAccount_Id(21L)).thenReturn(List.of());
         when(holdingRepository.findByAccount_Id(22L)).thenReturn(List.of());
         when(priceService.toEur(any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
-        when(peerLoanTermsRepository.findAllByAccountMemberIdOrderByLentAtAscIdAsc(42L)).thenReturn(List.of(
-            peerLoanTerms(open, null),
-            peerLoanTerms(closed, LocalDate.parse("2026-01-01"))));
         when(historyService.buildHistory(List.of(20L, 21L, 22L), 12, 42L)).thenReturn(List.of());
         when(goalRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of());
 
         DashboardResponse response = dashboardService.getDashboard(42L, "1Y");
 
-        // The closed loan keeps its ledger and its place in the net-worth history, but a
-        // 0 EUR receivable has nothing to say in today's asset distribution.
-        assertThat(response.distribution()).extracting(DashboardResponse.DistributionItem::name)
-            .containsExactly("Marie");
+        // A receivable is not an allocation asset, so no peer loan claims a slice of the
+        // donut -- not even an open one with a balance. Net worth still counts it.
+        assertThat(response.distribution()).isEmpty();
         assertThat(response.totalNetWorth()).isEqualByComparingTo("1000");
     }
 
@@ -367,9 +360,5 @@ class DashboardServiceTest {
             .currentBalance(new BigDecimal(balance))
             .color("#0d9488")
             .build();
-    }
-
-    private PeerLoanTerms peerLoanTerms(Account account, LocalDate closedAt) {
-        return PeerLoanTerms.builder().account(account).closedAt(closedAt).build();
     }
 }

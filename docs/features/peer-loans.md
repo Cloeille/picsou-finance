@@ -293,7 +293,9 @@ Backend:
 - `backend/.../dto/PeerLoan*.java`
 - `backend/.../service/AccountService.java` — `valuation()` branch
 - `backend/.../service/HistoryService.java` — receivable excluded from invested/PnL
-- `backend/.../service/WealthPyramidService.java` — receivable skipped
+- `backend/.../service/WealthPyramidService.java` - receivable skipped
+- `backend/.../service/DashboardService.java` - receivable excluded from the distribution
+  (assets and liabilities lists), kept in net worth through the unfiltered accounts
 - `backend/.../model/AssetClass.java`, `WealthTier.java` — exhaustive switches
 - `backend/.../db/migration/V122__account_type_peer_loan.sql`,
   `V123__peer_loans.sql`, `V124__peer_loan_cash_leg.sql`,
