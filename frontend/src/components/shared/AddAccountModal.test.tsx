@@ -79,6 +79,12 @@ vi.mock('@/components/sync/CaisseEpargnePanel', () => ({
   ),
 }))
 
+vi.mock('@/components/sync/BanquePopulairePanel', () => ({
+  BanquePopulairePanel: ({ onConnected }: { onConnected?: () => void }) => (
+    <button onClick={onConnected}>banque-populaire-wizard</button>
+  ),
+}))
+
 vi.mock('@/components/sync/IbkrPanel', () => ({
   IbkrPanel: ({ onConnected }: { onConnected?: () => void }) => (
     <button onClick={onConnected}>ibkr-wizard</button>
@@ -448,6 +454,25 @@ describe('AddAccountModal Caisse d\'Epargne wizard', () => {
 
     fireEvent.click(screen.getByText('sync.caisseEpargne.title'))
     fireEvent.click(screen.getByRole('button', { name: 'caisse-epargne-wizard' }))
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('AddAccountModal Banque Populaire wizard', () => {
+  it('lists the source with its own description', () => {
+    render(<AddAccountModal open onOpenChange={vi.fn()} />)
+
+    expect(screen.getByText('sync.banquePopulaire.title')).toBeInTheDocument()
+    expect(screen.getByText('addAccount.desc.banquePopulaire')).toBeInTheDocument()
+  })
+
+  it('opens the connector and closes after authentication', () => {
+    const onOpenChange = vi.fn()
+    render(<AddAccountModal open onOpenChange={onOpenChange} />)
+
+    fireEvent.click(screen.getByText('sync.banquePopulaire.title'))
+    fireEvent.click(screen.getByRole('button', { name: 'banque-populaire-wizard' }))
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })

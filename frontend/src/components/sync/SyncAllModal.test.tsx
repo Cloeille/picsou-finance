@@ -77,6 +77,8 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: amexStatus })
       case '/caisse-epargne/status':
         return Promise.resolve({ data: caisseEpargneStatus })
+      case '/banque-populaire/status':
+        return Promise.resolve({ data: banquePopulaireStatus })
       case '/corum/status':
         return Promise.resolve({ data: corumStatus })
       case '/cmes/status':
@@ -124,6 +126,7 @@ const SIMPLEFIN_DISCONNECTED = {
 }
 let amexStatus: Record<string, unknown>
 let caisseEpargneStatus: Record<string, unknown>
+let banquePopulaireStatus: Record<string, unknown>
 let corumStatus: Record<string, unknown>
 let sofidyStatus: Record<string, unknown>
 let cmesStatus: Record<string, unknown>
@@ -160,6 +163,15 @@ const CAISSE_EPARGNE_ACCOUNT = {
   provider: "Caisse d'Epargne",
 }
 
+/** A current account created by the Banque Populaire sidecar (provider label `Banque Populaire`). */
+const BANQUE_POPULAIRE_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 8,
+  name: 'Compte courant',
+  type: 'CHECKING',
+  provider: 'Banque Populaire',
+}
+
 /** An account created by the Crédit Mutuel / CIC Épargne Salariale sidecar (`CmesSyncService.PROVIDER`). */
 const CMES_ACCOUNT = {
   ...TR_ACCOUNT,
@@ -194,6 +206,7 @@ function resetFixtures() {
   simplefinStatus = SIMPLEFIN_DISCONNECTED
   amexStatus = AMUNDI_INACTIVE
   caisseEpargneStatus = { ...AMUNDI_INACTIVE, unsupported: [], unsupportedCount: 0 }
+  banquePopulaireStatus = { ...AMUNDI_INACTIVE, unsupported: [], unsupportedCount: 0 }
   corumStatus = AMUNDI_INACTIVE
   sofidyStatus = AMUNDI_INACTIVE
   cmesStatus = AMUNDI_INACTIVE
@@ -489,6 +502,30 @@ describe('SyncAllModal session providers', () => {
     fireEvent.click(within(row).getByRole('button'))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=caisse-epargne'))
     expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
+  })
+
+  it('lists and syncs a live Banque Populaire session', async () => {
+    banquePopulaireStatus = { ...banquePopulaireStatus, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: banquePopulaireStatus })
+    renderModal()
+
+    const row = (await screen.findByText('Banque Populaire')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/banque-populaire/sync'))
+    expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  /** Same BPCE keypad plus Sécur'Pass login as Caisse d'Epargne: only its tab can run it. */
+  it('keeps an expired Banque Populaire row with its accounts and routes to its tab', async () => {
+    accountsFixture = [TR_ACCOUNT, BANQUE_POPULAIRE_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText('Banque Populaire')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=banque-populaire'))
+    expect(apiPost).not.toHaveBeenCalledWith('/banque-populaire/sync')
   })
 
   /** The backend refuses a dead CE session (`SESSION_EXPIRED`), so the batch must skip the row. */
