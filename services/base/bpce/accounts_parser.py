@@ -30,7 +30,7 @@ Facts deliberately NOT guessed (the fixtures and findings do not settle them):
   both its Livret A ("Livret A-Particuliers") and its Livret Jeune ("Livret
   Jeune") under `3/01` (observed live 2026-11-05). A label containing `JEUNE` is
   a Livret Jeune, one that looks like a LEP (`LEP`, `EPARGNE POPULAIRE`) is
-  unsupported rather than read as a Livret A, any other is a Livret A;
+  imported as a LEP rather than read as a Livret A, any other is a Livret A;
 * a card carries no currency of its own: its balance currency is its parent
   contract's;
 * whether `dueDate` can be null on real rows: it is treated as required;

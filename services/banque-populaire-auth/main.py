@@ -15,7 +15,9 @@ Safety rules, same as every sidecar:
   * every request but /health needs the shared key (`APP_SIDECAR_API_KEY`);
     the service refuses to start without one;
   * cookies, SAML payloads, authorization codes, tokens and authorize
-    parameters are never logged and never returned; the token stays in memory.
+    parameters are never logged. Only `/complete` returns cookies and authorize
+    parameters, inside `sessionState`, for the backend to encrypt; the token
+    stays in memory.
 
 Error codes (JSON `{"detail": CODE}`), those of caisse-epargne-auth:
   400 INVALID_SESSION_STATE   unusable request body or session state

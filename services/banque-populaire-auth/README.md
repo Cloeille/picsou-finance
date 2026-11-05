@@ -13,7 +13,7 @@ same here. This file lists what differs and what was, or was not, observed.
 Same routes, codes and bodies as `caisse-epargne-auth`, except `POST /initiate`:
 
 ```
-POST /initiate {"customerId": "<digits>", "region": "<code>"}
+POST /initiate {"customerId": "<ASCII letters and digits>", "region": "<code>"}
 ```
 
 The body is strict: an unknown field, a missing or unknown `region`, or a value of
