@@ -31,7 +31,7 @@ class RateLimitConfigBanquePopulaireTest {
 
         assertThat(probe.isConsumed()).isFalse();
         Duration wait = Duration.ofNanos(probe.getNanosToWaitForRefill());
-        assertThat(wait).isGreaterThan(Duration.ofMinutes(4)).isLessThanOrEqualTo(Duration.ofMinutes(15));
+        assertThat(wait).isGreaterThan(Duration.ofMinutes(14)).isLessThanOrEqualTo(Duration.ofMinutes(15));
     }
 
     @Test
