@@ -4,10 +4,12 @@ import com.picsou.dto.AccountResponse;
 import com.picsou.dto.DebtResponse;
 import com.picsou.dto.HoldingResponse;
 import com.picsou.dto.RealEstateMetadataResponse;
+import com.picsou.model.PeerLoanTerms;
 import com.picsou.model.PropertyValuation;
 import com.picsou.service.LoanAmortizationService;
 import com.picsou.service.LoanAmortizationService.LoanInstallment;
 import com.picsou.service.LoanAmortizationService.LoanSummary;
+import com.picsou.service.PeerLoanCalculator;
 import org.apache.poi.ss.usermodel.Sheet;
 
 import java.math.BigDecimal;
@@ -49,6 +51,9 @@ final class AccountSheetWriter {
         }
         if (data.account().debt() != null) {
             writeLoan(cursor, data.account().debt(), data.schedule());
+        }
+        if (data.peerLoan() != null) {
+            writePeerLoan(cursor, data.peerLoan());
         }
     }
 
@@ -235,6 +240,56 @@ final class AccountSheetWriter {
             row.money(i.insurance());
             row.money(i.totalPayment());
             row.money(i.remainingBalance());
+        }
+    }
+
+    /**
+     * The terms and the dated repayment journal of a peer loan. The rate is stored annualized
+     * as a ratio (0.05); the column says "(%)", so it goes out of 100 like every other rate.
+     */
+    private void writePeerLoan(SheetCursor cursor, PeerLoanExportData peer) {
+        PeerLoanTerms t = peer.terms();
+        cursor.blank();
+        cursor.title(label(PEER_LOAN));
+        cursor.field(label(BORROWER),
+            t.getCounterparty() == null ? null : t.getCounterparty().getName());
+        cursor.field(label(PRINCIPAL), t.getPrincipal());
+        cursor.field(label(LENT_AT), t.getLentAt());
+        cursor.field(label(EXPECTED_BACK), t.getExpectedBack());
+        cursor.fieldPercent(label(INTEREST_RATE),
+            t.getAnnualRate() == null ? null : t.getAnnualRate().multiply(HUNDRED));
+        cursor.field(label(RATE_PERIOD), t.getRatePeriod());
+        cursor.field(label(PLANNED_MONTHLY), t.getPlannedMonthlyAmount());
+        cursor.field(label(PLANNED_MONTHS), t.getPlannedMonths());
+        cursor.field(label(PLANNED_INTEREST), peer.plannedInterest());
+        cursor.field(label(CASH_ACCOUNT),
+            t.getLinkedAccount() == null ? null : t.getLinkedAccount().getName());
+        cursor.field(label(NOTE), t.getNote());
+        cursor.field(label(CLOSED_AT), t.getClosedAt());
+
+        PeerLoanCalculator.Computed c = peer.computed();
+        cursor.field(label(PRINCIPAL_REMAINING), c.principalRemaining());
+        cursor.field(label(INTEREST_ACCRUED), c.interestAccrued());
+        cursor.field(label(INTEREST_RECEIVED), c.interestReceived());
+        cursor.field(label(CAPITAL_REPAID), c.principalPaid());
+        cursor.field(label(WRITTEN_OFF), c.writtenOff());
+
+        if (peer.repayments().isEmpty()) return;
+
+        cursor.blank();
+        cursor.title(label(REPAYMENT_JOURNAL));
+        cursor.headerRow(List.of(
+            label(PAID_ON), label(AMOUNT), label(KIND),
+            label(INTEREST), label(CAPITAL), label(NOTE)
+        ));
+        for (PeerLoanExportData.RepaymentRow r : peer.repayments()) {
+            SheetCursor.RowCursor row = cursor.row();
+            row.date(r.paidOn());
+            row.money(r.amount());
+            row.text(r.kind() == null ? null : r.kind().name());
+            row.money(r.interestPart());
+            row.money(r.capitalPart());
+            row.text(r.note());
         }
     }
 

@@ -372,9 +372,8 @@ The `db` container has no host port: the database is only reachable by the test 
   delete the loss history through `ON DELETE CASCADE`.
 - **Deleting the closing write-off reopens the loan.** The marker is cleared when the
   recomputed capital is positive.
-- **The xlsx workbook does not include the repayments yet.** The GDPR export now ships
-  `peer_counterparties.csv`, `peer_loan_terms.csv` and `peer_loan_repayments.csv`; the
-  account workbook still lists the account without its peer-loan ledger.
+- **The borrower is the account name, not a `FamilyMember`.** `FamilyMember` is a Picsou
+  household user; the account page shows only that loan.
 - **Demo mode has no peer-loan account yet.** A placeholder handler keeps the route
   coverage test green, but the feature is invisible in the demo build until a fixture is
   added.
@@ -390,8 +389,6 @@ The `db` container has no host port: the database is only reachable by the test 
   transaction has `cash_leg_owned = false`: deleting the repayment only unlinks it, and
   editing it is refused (delete and re-assign). On a synced account the service writes no
   cash row at all, so the provider's movement is never doubled.
-- **The borrower is the account name, not a `FamilyMember`.** `FamilyMember` is a Picsou
-  household user; the account page shows only that loan.
 
 ## Not implemented yet (v2+)
 
@@ -403,7 +400,6 @@ The `db` container has no host port: the database is only reachable by the test 
 - MCP tools (read the detail, add a repayment).
 - The borrowed direction (`PEER_DEBT`).
 - Ownership shares on a peer-loan account (`AccountAccessResolver` scope).
-- xlsx ledger rows.
 
 ## Tests
 
@@ -416,6 +412,10 @@ The `db` container has no host port: the database is only reachable by the test 
   a manual one, closure write-off and zeroed balance, reopen on deleting the write-off,
   loan creation from an existing transaction, a repayment linked from an incoming
   transaction (no copy, not deleted), simulation input guard.
+- `DataExportServiceTest` — the three peer-loan CSV/JSON sections, including the borrower,
+  the plan and the journal's `cash_leg_owned` flag.
+- `AccountsWorkbookServiceTest` — the peer-loan block and its repayment journal, with the
+  rate written out of 100 and the planned interest.
 - `constants.test.ts` — the new account type has a label, is not a liability and is not a
   holdings type.
 
