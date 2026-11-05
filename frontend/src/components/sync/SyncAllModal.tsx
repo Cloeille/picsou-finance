@@ -71,6 +71,26 @@ import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 
 const REVOLUT_CONNECTION_ID = 'revolut'
 
+/**
+ * The provider labels the Banque Populaire sync stamps: the official name of the regional bank the
+ * session was opened at (`BanquePopulaireRegion.institutionName()` on the backend), one per region.
+ * The generic `Banque Populaire` label of the earliest imports is matched through `provider`.
+ */
+const BANQUE_POPULAIRE_PROVIDERS: ReadonlySet<string> = new Set([
+  'Banque Populaire Alsace Lorraine Champagne',
+  'Banque Populaire Aquitaine Centre Atlantique',
+  'Banque Populaire Auvergne Rhône Alpes',
+  'Banque Populaire Bourgogne Franche-Comté',
+  'BRED Banque Populaire',
+  'Banque Populaire Grand Ouest',
+  'Banque Populaire Méditerranée',
+  'Banque Populaire du Nord',
+  'Banque Populaire Occitane',
+  'Banque Populaire Rives de Paris',
+  'Banque Populaire du Sud',
+  'Banque Populaire Val de France',
+])
+
 type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
@@ -216,6 +236,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
    * already followed. `provider` is the exact string the connector stamps on the accounts it
    * creates (see each service's PROVIDER constant). CORUM and Sofidy also match an account
    * through its SCPI fund code: a manual SCPI they adopted keeps the provider the user typed.
+   * Banque Populaire stamps its regional bank's name, so it matches any of those labels.
    */
   const sessionProviders = useMemo(() => [
     {
@@ -240,6 +261,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     },
     {
       type: 'banque-populaire' as const, name: 'Banque Populaire', provider: 'Banque Populaire',
+      ownsAccount: (a: Account) => a.provider != null && BANQUE_POPULAIRE_PROVIDERS.has(a.provider),
       active: banquePopulaireStatus?.isActive ?? false, lastSyncedAt: banquePopulaireStatus?.lastSyncCompletedAt ?? null,
       failed: banquePopulaireStatus?.syncStatus === 'FAILED',
     },

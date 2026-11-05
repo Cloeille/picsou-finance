@@ -163,13 +163,13 @@ const CAISSE_EPARGNE_ACCOUNT = {
   provider: "Caisse d'Epargne",
 }
 
-/** A current account created by the Banque Populaire sidecar (provider label `Banque Populaire`). */
+/** A current account created by the Banque Populaire sidecar: its provider is the regional bank's name. */
 const BANQUE_POPULAIRE_ACCOUNT = {
   ...TR_ACCOUNT,
   id: 8,
   name: 'Compte courant',
   type: 'CHECKING',
-  provider: 'Banque Populaire',
+  provider: 'Banque Populaire Rives de Paris',
 }
 
 /** An account created by the Crédit Mutuel / CIC Épargne Salariale sidecar (`CmesSyncService.PROVIDER`). */
@@ -526,6 +526,37 @@ describe('SyncAllModal session providers', () => {
     fireEvent.click(within(row).getByRole('button'))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=banque-populaire'))
     expect(apiPost).not.toHaveBeenCalledWith('/banque-populaire/sync')
+  })
+
+  /** One label per `BanquePopulaireRegion.institutionName()`, plus the generic label of the first imports. */
+  it.each([
+    'Banque Populaire Alsace Lorraine Champagne',
+    'Banque Populaire Aquitaine Centre Atlantique',
+    'Banque Populaire Auvergne Rhône Alpes',
+    'Banque Populaire Bourgogne Franche-Comté',
+    'BRED Banque Populaire',
+    'Banque Populaire Grand Ouest',
+    'Banque Populaire Méditerranée',
+    'Banque Populaire du Nord',
+    'Banque Populaire Occitane',
+    'Banque Populaire Rives de Paris',
+    'Banque Populaire du Sud',
+    'Banque Populaire Val de France',
+    'Banque Populaire',
+  ])('keeps an expired Banque Populaire row for an account labelled %s', async (provider) => {
+    accountsFixture = [TR_ACCOUNT, { ...BANQUE_POPULAIRE_ACCOUNT, provider }]
+    renderModal()
+
+    const row = (await screen.findByText('Banque Populaire')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+  })
+
+  it('lists no Banque Populaire row for an account of another bank whose name merely mentions it', async () => {
+    accountsFixture = [TR_ACCOUNT, { ...BANQUE_POPULAIRE_ACCOUNT, provider: 'Banque Populaire Imaginaire' }]
+    renderModal()
+
+    await screen.findByText('Trade Republic')
+    expect(screen.queryByText('Banque Populaire')).not.toBeInTheDocument()
   })
 
   /** The backend refuses a dead CE session (`SESSION_EXPIRED`), so the batch must skip the row. */
