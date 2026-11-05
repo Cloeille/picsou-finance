@@ -519,6 +519,7 @@
       "planTitle": "Simulator",
       "scheduled": "Scheduled today",
       "actual": "Actual",
+      "plannedInterest": "Planned interest",
       "behind": "{{count}} installment behind",
       "behind_other": "{{count}} installments behind",
       "ahead": "{{count}} installment ahead",

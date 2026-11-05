@@ -508,6 +508,7 @@
       "planTitle": "Simulador",
       "scheduled": "Previsto a hoy",
       "actual": "Real",
+      "plannedInterest": "Intereses previstos",
       "behind": "{{count}} cuota de retraso",
       "behind_other": "{{count}} cuotas de retraso",
       "ahead": "{{count}} cuota de adelanto",

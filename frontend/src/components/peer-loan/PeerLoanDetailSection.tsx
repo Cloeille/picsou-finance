@@ -252,6 +252,18 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                     value={<CurrencyDisplay value={data.principalRemaining} />}
                   />
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Stat
+                    label={t('peerLoan.forecast.plannedInterest')}
+                    value={data.plannedInterestToDate != null
+                      ? <CurrencyDisplay value={data.plannedInterestToDate} />
+                      : '—'}
+                  />
+                  <Stat
+                    label={t('peerLoan.summary.interestCalculated')}
+                    value={<CurrencyDisplay value={data.interestAccrued + data.interestReceived} />}
+                  />
+                </div>
                 <p className="text-xs text-muted-foreground">
                   {data.installmentsBehind == null || data.installmentsBehind === 0
                     ? t('peerLoan.forecast.onTrack')

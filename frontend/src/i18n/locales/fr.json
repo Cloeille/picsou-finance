@@ -519,6 +519,7 @@
       "planTitle": "Simulateur",
       "scheduled": "Prévu à ce jour",
       "actual": "Réel",
+      "plannedInterest": "Intérêts prévus",
       "behind": "{{count}} échéance de retard",
       "behind_other": "{{count}} échéances de retard",
       "ahead": "{{count}} échéance d'avance",

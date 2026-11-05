@@ -646,6 +646,8 @@ export interface PeerLoanDetail {
   /** Forecast only; null without a plan. */
   scheduledRemaining?: number | null
   installmentsBehind?: number | null
+  /** Interest the plan expects to have been paid by today; null without a plan. */
+  plannedInterestToDate?: number | null
   repayments: PeerLoanRepayment[]
   /** Actual capital over time, plus the forecast when a plan exists. */
   curve: PeerLoanCurvePoint[]

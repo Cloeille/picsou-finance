@@ -508,6 +508,7 @@
       "planTitle": "Simulator",
       "scheduled": "Geplant bis heute",
       "actual": "Tatsächlich",
+      "plannedInterest": "Geplante Zinsen",
       "behind": "{{count}} Rate im Rückstand",
       "behind_other": "{{count}} Raten im Rückstand",
       "ahead": "{{count}} Rate im Voraus",
