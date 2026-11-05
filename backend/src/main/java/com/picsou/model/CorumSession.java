@@ -61,6 +61,11 @@ public class CorumSession extends AuditableEntity {
     @Column(name = "last_sync_error", length = 40)
     private CorumErrorCode lastSyncError;
 
+    /** CORUM Life contracts the last successful sync could not write: see {@code CorumLifeWriter}. */
+    @Column(name = "last_sync_life_ambiguous", nullable = false)
+    @Builder.Default
+    private int lastSyncLifeAmbiguous = 0;
+
     public static CorumSession create(
         FamilyMember member,
         String encryptedSessionState,
@@ -86,6 +91,7 @@ public class CorumSession extends AuditableEntity {
         lastSyncStartedAt = null;
         lastSyncCompletedAt = null;
         lastSyncError = null;
+        lastSyncLifeAmbiguous = 0;
     }
 
     public void markRunning(Instant startedAt) {
@@ -98,15 +104,19 @@ public class CorumSession extends AuditableEntity {
         lastSyncError = null;
     }
 
-    public void markSuccessful(Instant completedAt) {
+    public void markSuccessful(Instant completedAt, int lifeAmbiguous) {
         if (!active || syncStatus != CorumSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an active running CORUM session can succeed");
+        }
+        if (lifeAmbiguous < 0) {
+            throw new IllegalArgumentException("lifeAmbiguous must not be negative");
         }
         Instant completion = Objects.requireNonNull(completedAt, "completedAt");
         syncStatus = CorumSyncStatus.SUCCESS;
         lastValidatedAt = completion;
         lastSyncCompletedAt = completion;
         lastSyncError = null;
+        lastSyncLifeAmbiguous = lifeAmbiguous;
     }
 
     public void markFailed(CorumErrorCode errorCode, Instant completedAt) {

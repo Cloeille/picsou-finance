@@ -27,6 +27,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -34,6 +35,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
@@ -43,7 +45,8 @@ import static org.mockito.Mockito.when;
 @Testcontainers(disabledWithoutDocker = true)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({CorumSyncService.class, SofidySyncService.class, ScpiPositionService.class,
-    ScpiFundReconciler.class, ScpiFundService.class,
+    ScpiFundReconciler.class, ScpiFundService.class, CorumLifeWriter.class,
+    CorumLifeOperationWriter.class, com.picsou.service.budget.CategoryService.class,
     ScpiSyncSessionPostgresTest.Transactions.class})
 class ScpiSyncSessionPostgresTest {
     @Container
@@ -71,6 +74,10 @@ class ScpiSyncSessionPostgresTest {
     @MockitoBean CorumPort corumPort;
     @MockitoBean SofidyPort sofidyPort;
     @MockitoBean CryptoEncryption encryption;
+    @MockitoBean AccountService accountService;
+    @Autowired AccountHoldingRepository holdings;
+    @Autowired TransactionRepository transactions;
+    @Autowired CategoryRepository categories;
     FamilyMember member;
     Account account;
     ScpiPosition position;
@@ -99,11 +106,11 @@ class ScpiSyncSessionPostgresTest {
         CountDownLatch fetching = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         if (isCorum) {
-            when(corumPort.fetchSnapshot("old-state")).thenAnswer(inv -> {
+            when(corumPort.fetchPortfolio("old-state")).thenAnswer(inv -> {
                 awaitRelease(fetching, release);
-                return new CorumPort.Snapshot("contract", "PP", "EUR", new BigDecimal("600"), null,
-                    true, List.of(new CorumPort.Holding("FUND", "Fund", new BigDecimal("2"),
-                        new BigDecimal("300"), null, null, null)));
+                return new CorumPort.Portfolio(new CorumPort.Snapshot("contract", "PP", "EUR",
+                    new BigDecimal("600"), null, true, List.of(new CorumPort.Holding("FUND", "Fund",
+                        new BigDecimal("2"), new BigDecimal("300"), null, null, null))), List.of());
             });
         } else {
             when(sofidyPort.fetchSnapshot("old-state")).thenAnswer(inv -> {
@@ -175,9 +182,8 @@ class ScpiSyncSessionPostgresTest {
     @Test
     void corumSyncCreatesTheAccountOnceAndDoesNotRecreateADeletedOne() {
         FamilyMember fresh = members.saveAndFlush(FamilyMember.builder().displayName("SCPI auto").build());
-        when(corumPort.fetchSnapshot("auto-state")).thenReturn(new CorumPort.Snapshot("contract", "PP", "EUR",
-            new BigDecimal("1800"), null, true, List.of(new CorumPort.Holding("US", "CORUM USA",
-                new BigDecimal("10"), new BigDecimal("180"), null, new BigDecimal("1800"), null))));
+        when(corumPort.fetchPortfolio("auto-state")).thenReturn(new CorumPort.Portfolio(
+            corumUsa(), List.of()));
 
         corumSessions.saveAndFlush(CorumSession.create(fresh, "auto-state", Instant.now()));
         assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
@@ -209,6 +215,129 @@ class ScpiSyncSessionPostgresTest {
                 assertThat(f.isIgnored()).isTrue();
                 assertThat(f.getLastOutcome()).isEqualTo(ScpiFundOutcome.IGNORED);
             });
+    }
+
+    /** A CORUM Life contract end to end on the real schema: create once, re-sync, delete, not recreated. */
+    @Test
+    void corumLifeSyncCreatesTheAccountOnceAndDoesNotRecreateADeletedOne() {
+        FamilyMember fresh = members.saveAndFlush(FamilyMember.builder().displayName("CORUM Life").build());
+        when(corumPort.fetchPortfolio("life-state")).thenReturn(new CorumPort.Portfolio(
+            null, List.of(lifeContract("1001"))));
+
+        corumSessions.saveAndFlush(CorumSession.create(fresh, "life-state", Instant.now()));
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+
+        List<Account> created = accounts.findAllByMemberIdOrderByCreatedAtAsc(fresh.getId());
+        assertThat(created).singleElement().satisfies(a -> {
+            assertThat(a.getName()).isEqualTo("CORUM Life");
+            assertThat(a.getType()).isEqualTo(AccountType.ASSURANCE_VIE);
+            assertThat(a.getExternalAccountId()).isEqualTo("corum_life_1001");
+            assertThat(a.isManual()).isFalse();
+            assertThat(a.getCurrentBalance()).isEqualByComparingTo("1534.37");
+            assertThat(a.getCashBalance()).isEqualByComparingTo("0");
+            // The V123 columns, read back from PostgreSQL.
+            assertThat(a.getProviderInvestedEur()).isEqualByComparingTo("1480");
+            assertThat(a.getProviderPaidInEur()).isEqualByComparingTo("1500");
+            assertThat(a.getScheduledPaymentEur()).isEqualByComparingTo("50");
+            assertThat(a.getScheduledPaymentCadence()).isEqualTo(RecurringCadence.MONTHLY);
+            assertThat(a.getOpenedAt()).isEqualTo(LocalDate.of(2024, 1, 15));
+        });
+        assertThat(holdings.findByAccount_Id(created.get(0).getId()))
+            .extracting(AccountHolding::getTicker, AccountHolding::getProviderWealthTier)
+            .containsExactlyInAnyOrder(
+                tuple("CORUM-LIFE-XL", WealthTier.REAL_ESTATE),
+                tuple("CORUM-LIFE-FGCORUM", null));
+
+        Account doomed = created.get(0);
+        doomed.setDeletedAt(Instant.now());
+        accounts.saveAndFlush(doomed);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+
+        assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(fresh.getId())).isEmpty();
+    }
+
+    /** All-or-nothing: a life write the database refuses also undoes the SCPI funds written before it. */
+    @Test
+    void corumLifeWriteFailureRollsBackTheScpiFundsOfTheSameRun() {
+        FamilyMember fresh = members.saveAndFlush(FamilyMember.builder().displayName("CORUM rollback").build());
+        // external_account_id is VARCHAR(255): this contract passes validation, then fails on write.
+        when(corumPort.fetchPortfolio("rollback-state")).thenReturn(new CorumPort.Portfolio(
+            corumUsa(), List.of(lifeContract("9".repeat(300)))));
+
+        corumSessions.saveAndFlush(CorumSession.create(fresh, "rollback-state", Instant.now()));
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+
+        assertThat(accounts.findAllByMemberIdOrderByCreatedAtAsc(fresh.getId())).isEmpty();
+        assertThat(funds.findByMemberIdAndProviderAndFundCode(fresh.getId(), ScpiProvider.CORUM, "US")).isEmpty();
+    }
+
+    private static CorumPort.Snapshot corumUsa() {
+        return new CorumPort.Snapshot("contract", "PP", "EUR", new BigDecimal("1800"), null, true,
+            List.of(new CorumPort.Holding("US", "CORUM USA", new BigDecimal("10"), new BigDecimal("180"),
+                null, new BigDecimal("1800"), null)));
+    }
+
+    /** CORUM Life operations end to end on the real schema (V124, the external-id unique index). */
+    @Test
+    void corumLifeOperationsAreWrittenOnceAndKeptOutOfTheBudget() {
+        FamilyMember fresh = members.saveAndFlush(FamilyMember.builder().displayName("CORUM ops").build());
+        List<CorumPort.LifeOperation> operations = List.of(
+            new CorumPort.LifeOperation("10", "couponDetachment", "couponDetachment", LocalDate.of(2026, 10, 31),
+                new BigDecimal("3.21"), List.of("XL")),
+            new CorumPort.LifeOperation("9", "scheduledPayment", "progressiveSavings", LocalDate.of(2026, 10, 5),
+                new BigDecimal("50"), null),
+            // Two legs of one switch under one id: keyed by sign, both stored.
+            new CorumPort.LifeOperation("7", "arbitrage", "arbitrage", LocalDate.of(2026, 6, 15),
+                new BigDecimal("-100"), null),
+            new CorumPort.LifeOperation("7", "arbitrage", "arbitrage", LocalDate.of(2026, 6, 15),
+                new BigDecimal("100"), null));
+        CorumPort.LifeContract base = lifeContract("2002");
+        when(corumPort.fetchPortfolio("ops-state")).thenReturn(new CorumPort.Portfolio(null, List.of(
+            new CorumPort.LifeContract(base.contractCode(), base.currency(), base.totalValuationEur(),
+                base.valuationDate(), base.valuationLineCount(), base.netInvestedEur(), base.paidInEur(),
+                base.openedAt(), base.scheduledPayment(), true, base.holdings(), operations))));
+
+        corumSessions.saveAndFlush(CorumSession.create(fresh, "ops-state", Instant.now()));
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+
+        Account contract = accounts.findAllByMemberIdOrderByCreatedAtAsc(fresh.getId()).getFirst();
+        List<Transaction> rows = transactions.findByAccountIdOrderByDateDesc(contract.getId());
+        assertThat(rows).extracting(Transaction::getExternalId, Transaction::isBudgetNeutral, Transaction::getTxType)
+            .containsExactlyInAnyOrder(
+                tuple("corum:10", true, TransactionType.DIVIDEND),
+                tuple("corum:9", false, TransactionType.DEPOSIT),
+                tuple("corum:7:-", true, null),
+                tuple("corum:7:+", true, null));
+        Category investment = categories.findAllByMemberIdOrderBySortOrderAscIdAsc(fresh.getId()).stream()
+            .filter(c -> "investissement".equals(c.getSlug())).findFirst().orElseThrow();
+        Transaction payment = rows.stream().filter(r -> "corum:9".equals(r.getExternalId())).findFirst().orElseThrow();
+        assertThat(transactions.findById(payment.getId()).orElseThrow().getCategoryRef().getId())
+            .isEqualTo(investment.getId());
+
+        // Only the payment reaches the budget and the global list.
+        LocalDate from = LocalDate.of(2026, 1, 1);
+        LocalDate to = LocalDate.of(2026, 12, 31);
+        assertThat(transactions.searchByMember(fresh.getId(), from, to, null, null))
+            .extracting(Transaction::getExternalId).containsExactly("corum:9");
+        assertThat(transactions.searchByMember(fresh.getId(), from, to, contract.getId(), null))
+            .extracting(Transaction::getExternalId).containsExactly("corum:9");
+        assertThat(transactions.findByMemberIdAndDateBetween(fresh.getId(), from, to))
+            .extracting(Transaction::getExternalId).containsExactly("corum:9");
+        assertThat(transactions.findByMemberIdAndKindAndDateBetween(fresh.getId(), CategoryKind.TRANSFER, from, to))
+            .extracting(Transaction::getExternalId).containsExactly("corum:9");
+    }
+
+    private static CorumPort.LifeContract lifeContract(String code) {
+        return new CorumPort.LifeContract(code, "EUR", new BigDecimal("1534.37"), null, 3,
+            new BigDecimal("1480"), new BigDecimal("1500"), LocalDate.of(2024, 1, 15),
+            new CorumPort.ScheduledPayment(new BigDecimal("50"), "monthly"), true, List.of(
+            new CorumPort.LifeHolding("XL", "CORUM XL", new BigDecimal("2.65955"), new BigDecimal("195"),
+                new BigDecimal("518.61"), new BigDecimal("480"), null, false, "realEstate"),
+            new CorumPort.LifeHolding("FGCORUM", "CORUM EuroLife (fonds euros)", new BigDecimal("1015.76"),
+                BigDecimal.ONE, new BigDecimal("1015.76"), new BigDecimal("1000"), null, true, "euroLife")),
+            null);
     }
 
     private void awaitRelease(CountDownLatch fetching, CountDownLatch release) throws InterruptedException {

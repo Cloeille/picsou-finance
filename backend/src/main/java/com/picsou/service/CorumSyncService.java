@@ -22,26 +22,33 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.stream.Collectors;
 
 import static com.picsou.service.SyncValues.errorCode;
 import static com.picsou.service.SyncValues.requireTransactionResult;
 
 /**
- * Syncs a CORUM client-space portfolio into the SCPI accounts that are already
- * linked to its funds.
+ * Syncs a CORUM client-space portfolio: the funds of its real-estate contract
+ * onto SCPI accounts, and each CORUM Life (assurance-vie) contract onto its own
+ * account.
  *
  * <p>Shaped like {@link AmundiSyncService}: the browser work happens in a
  * sidecar and is slow, so authentication stores the session and queues the
  * import, and the import does its upstream I/O outside any transaction before
- * writing. Unlike Amundi this does not create accounts -- the manual model owns
- * that, one account per vehicle, and a CORUM contract simply maps its funds onto
- * accounts the user already created.
+ * writing. {@link ScpiFundReconciler} maps each real-estate fund onto one SCPI
+ * account, adopting or creating it; {@link CorumLifeWriter} does the same for a
+ * life contract. A login may hold either part or both, but not neither.
+ *
+ * <p>The two parts are validated before either is written, and both are written
+ * in one transaction: a refused life contract leaves the SCPI accounts as they
+ * were, and the reverse.
  *
  * <p>The balance written here is the withdrawal value, computed by
  * {@link ScpiPositionService}. This service never re-derives it and never falls
@@ -60,6 +67,7 @@ public class CorumSyncService {
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
     private final ScpiFundReconciler fundReconciler;
+    private final CorumLifeWriter lifeWriter;
 
     public CorumSyncService(
         CorumPort port,
@@ -68,7 +76,8 @@ public class CorumSyncService {
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         @Qualifier("corumSyncExecutor") Executor syncExecutor,
-        ScpiFundReconciler fundReconciler
+        ScpiFundReconciler fundReconciler,
+        CorumLifeWriter lifeWriter
     ) {
         this.port = port;
         this.sessionRepository = sessionRepository;
@@ -77,6 +86,7 @@ public class CorumSyncService {
         this.txTemplate = txTemplate;
         this.syncExecutor = syncExecutor;
         this.fundReconciler = fundReconciler;
+        this.lifeWriter = lifeWriter;
     }
 
     public SessionStatusResponse authenticate(String login, String password, Long memberId) {
@@ -172,8 +182,8 @@ public class CorumSyncService {
             return;
         }
         try {
-            CorumPort.Snapshot snapshot = port.fetchSnapshot(job.plainState());
-            commitSnapshot(job, snapshot);
+            CorumPort.Portfolio portfolio = port.fetchPortfolio(job.plainState());
+            commitPortfolio(job, portfolio);
         } catch (SyncException ex) {
             CorumErrorCode code = codeOf(ex);
             markFailed(job, code);
@@ -185,19 +195,30 @@ public class CorumSyncService {
     }
 
     /**
-     * Writes the snapshot onto the member's SCPI accounts.
-     *
-     * <p>A fund already linked to an account updates it. A fund seen for the first
-     * time adopts the one manual SCPI account named like it, or gets a new account;
-     * a fund the member ignored writes nothing. {@link ScpiFundReconciler} owns those
-     * rules, and the withdrawal-price rule stays in
-     * {@link ScpiPositionService#applySyncedPosition}: a holding whose withdrawal
-     * price is missing still updates the share count but leaves the balance alone.
+     * Refuses a portfolio that cannot be written as it is, before anything is.
+     * The real-estate part is optional, but when present it must hold at least
+     * one fund; the life part is validated by {@link CorumLifeWriter#validate}.
      */
-    private Map<String, ScpiFundOutcome> applySnapshot(
-        Long memberId, CorumPort.Snapshot snapshot, Instant syncedAt
-    ) {
-        if (snapshot == null || !snapshot.snapshotComplete()) {
+    private void validatePortfolio(CorumPort.Portfolio portfolio) {
+        if (portfolio == null) {
+            throw error(CorumErrorCode.PORTFOLIO_INCOMPLETE, "CORUM returned no portfolio", null);
+        }
+        lifeWriter.validate(portfolio.life());
+        if (portfolio.realEstate() == null) {
+            if (portfolio.life().isEmpty()) {
+                throw error(
+                    CorumErrorCode.PORTFOLIO_INCOMPLETE,
+                    "CORUM returned neither a real-estate nor a life contract",
+                    null
+                );
+            }
+            return;
+        }
+        validateRealEstate(portfolio.realEstate());
+    }
+
+    private void validateRealEstate(CorumPort.Snapshot snapshot) {
+        if (!snapshot.snapshotComplete()) {
             throw error(
                 CorumErrorCode.PORTFOLIO_INCOMPLETE,
                 "CORUM returned an incomplete portfolio",
@@ -232,7 +253,21 @@ public class CorumSyncService {
         if (!"EUR".equals(snapshot.currency())) {
             throw error(CorumErrorCode.INVALID_DATA, "CORUM returned a portfolio not in euros", null);
         }
+    }
 
+    /**
+     * Writes a validated real-estate contract onto the member's SCPI accounts.
+     *
+     * <p>A fund already linked to an account updates it. A fund seen for the first
+     * time adopts the one manual SCPI account named like it, or gets a new account;
+     * a fund the member ignored writes nothing. {@link ScpiFundReconciler} owns those
+     * rules, and the withdrawal-price rule stays in
+     * {@link ScpiPositionService#applySyncedPosition}: a holding whose withdrawal
+     * price is missing still updates the share count but leaves the balance alone.
+     */
+    private Map<String, ScpiFundOutcome> applyRealEstate(
+        Long memberId, CorumPort.Snapshot snapshot, Instant syncedAt
+    ) {
         List<ScpiFundReconciler.SyncedFund> funds = snapshot.holdings().stream()
             .map(holding -> new ScpiFundReconciler.SyncedFund(
                 holding.fundCode(),
@@ -303,7 +338,7 @@ public class CorumSyncService {
         }));
     }
 
-    private void commitSnapshot(SyncJob job, CorumPort.Snapshot snapshot) {
+    private void commitPortfolio(SyncJob job, CorumPort.Portfolio portfolio) {
         txTemplate.executeWithoutResult(status -> {
             lockMember(job.memberId());
             Optional<CorumSession> current = sessionRepository
@@ -312,11 +347,26 @@ public class CorumSyncService {
                     || current.get().getSyncStatus() != CorumSyncStatus.RUNNING) {
                 return;
             }
+            // Both parts are checked before either is written; a failure past this
+            // point rolls the whole transaction back, so the sync is all-or-nothing.
+            validatePortfolio(portfolio);
             Instant now = Instant.now();
-            Map<String, ScpiFundOutcome> outcomes = applySnapshot(job.memberId(), snapshot, now);
-            current.get().markSuccessful(now);
+            Map<String, ScpiFundOutcome> funds = portfolio.realEstate() == null
+                ? Map.of()
+                : applyRealEstate(job.memberId(), portfolio.realEstate(), now);
+            Map<String, CorumLifeWriter.Outcome> contracts =
+                lifeWriter.write(job.memberId(), portfolio.life(), now);
+            // Outcome counts only: the map is keyed by contract number, which stays out of the logs.
+            Map<CorumLifeWriter.Outcome, Long> lifeOutcomes = contracts.values().stream()
+                .collect(Collectors.groupingBy(o -> o,
+                    () -> new EnumMap<>(CorumLifeWriter.Outcome.class), Collectors.counting()));
+            // The panel reads this count, as it reads each SCPI fund's AMBIGUOUS outcome:
+            // a contract written nowhere must not show as a plain success.
+            current.get().markSuccessful(now,
+                lifeOutcomes.getOrDefault(CorumLifeWriter.Outcome.AMBIGUOUS, 0L).intValue());
             sessionRepository.save(current.get());
-            log.info("CORUM sync completed (member={}; funds={})", job.memberId(), outcomes);
+            log.info("CORUM sync completed (member={}; funds={}; lifeContracts={})",
+                job.memberId(), funds, lifeOutcomes);
         });
     }
 
@@ -343,7 +393,8 @@ public class CorumSyncService {
             session.getSyncStatus(),
             session.getLastSyncStartedAt(),
             session.getLastSyncCompletedAt(),
-            session.getLastSyncError()
+            session.getLastSyncError(),
+            session.getLastSyncLifeAmbiguous()
         );
     }
 
@@ -360,10 +411,12 @@ public class CorumSyncService {
         CorumSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        CorumErrorCode lastSyncError
+        CorumErrorCode lastSyncError,
+        /** CORUM Life contracts the last successful sync left unwritten (AMBIGUOUS). */
+        int lifeAmbiguousCount
     ) {
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, CorumSyncStatus.IDLE, null, null, null);
+            return new SessionStatusResponse(false, CorumSyncStatus.IDLE, null, null, null, 0);
         }
     }
 

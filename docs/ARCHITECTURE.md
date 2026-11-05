@@ -159,7 +159,9 @@ Encrypted session and job status live in `AmundiSession`. See the
 
 A SCPI share is not this, and it is not a house either. It is an `SCPI` account valued at
 the withdrawal price times the share count. See
-[SCPI shares](./features/scpi.md).
+[SCPI shares](./features/scpi.md). The same CORUM login also syncs CORUM Life
+(assurance-vie) contracts, one `ASSURANCE_VIE` account each with a holding per fund, in the
+same read and the same transaction. See [CORUM Life sync](./features/corum-life.md).
 
 ### 6. Fortuneo
 
@@ -284,6 +286,7 @@ Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month r
 | Amundi Épargne Salariale | PEE/PEG/PERCO/PER sync via internal Python sidecar | `AMUNDI_AUTH_URL` |
 | Fortuneo | Current accounts, PEA/PEA-PME/CTO and transaction history via internal Python sidecar | `FORTUNEO_AUTH_URL` |
 | BoursoBank | Current accounts, livrets and PEA/CTO sync via internal Python sidecar | `BOURSO_AUTH_URL` |
+| CORUM | SCPI shares and CORUM Life (assurance-vie) contracts via internal Python sidecar (`corum-auth`) | `CORUM_AUTH_URL` |
 | Caisse d'Epargne | Current account, Livret A and deferred-debit card read via internal Python sidecar, on demand, no in-app login yet | `CAISSE_EPARGNE_AUTH_URL` |
 | DEGIRO | Compte-titres sync via internal Python sidecar (`degiro-auth` in `docker/docker-compose.yml`) | `DEGIRO_AUTH_URL` |
 | Binance | Crypto exchange balances | Via CryptoExchangePort |

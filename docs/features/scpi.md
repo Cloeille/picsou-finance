@@ -1,6 +1,6 @@
 # Feature: SCPI shares
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-05
 
 ## Context
 
@@ -84,6 +84,10 @@ balance alone and reports `PRICE_INCOMPLETE`, exactly as a manual entry would.
 CORUM displays `quantity × subscription price`, which is not the withdrawal value. The
 sync never uses that figure for a balance — see the
 [CORUM sidecar ADR](../decisions/2026-09-26-corum-scpi-sidecar.md).
+
+The same login can hold CORUM Life (assurance-vie) contracts. The sync reads them in the same
+session and commits them with the SCPI funds, one `ASSURANCE_VIE` account per contract. That
+side is not a SCPI and is documented in [CORUM Life sync](./corum-life.md).
 
 ### Sofidy sync
 
@@ -250,5 +254,7 @@ Health checks produce no request log line.
 - Related ADR: [CORUM client space fills existing SCPI accounts through a browser sidecar](../decisions/2026-09-26-corum-scpi-sidecar.md)
 - Related ADR: [Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar](../decisions/2026-09-27-sofidy-scpi-sidecar.md)
 - Related ADR: [CORUM and Sofidy syncs create and link their SCPI accounts](../decisions/2026-10-16-scpi-sync-creates-accounts.md)
+- Related ADR: [CORUM Life contracts sync as one assurance-vie account each](../decisions/2026-11-05-corum-life-sync.md)
+- Related feature: [CORUM Life sync](./corum-life.md)
 - Ticket: https://github.com/Cloeille/picsou-finance/issues/157
 - Ticket: https://github.com/Cloeille/picsou-finance/issues/232

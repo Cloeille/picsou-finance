@@ -3,6 +3,7 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarErrorTranslator;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
+import com.picsou.exception.SyncException;
 import com.picsou.port.CorumErrorCode;
 import com.picsou.port.CorumPort;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,9 +19,9 @@ public class CorumAdapter implements CorumPort {
     /** CORUM asks for no second factor, so this is a single round-trip: the
      *  sidecar logs in, harvests the session cookie and hands it back. */
     private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(60);
-    /** One contract read plus one call per fund, so this scales with the
-     *  portfolio rather than being a single request. */
-    private static final Duration DEFAULT_POSITIONS_TIMEOUT = Duration.ofSeconds(90);
+    /** Every contract is read, plus one call per real-estate fund, so this
+     *  scales with the portfolio rather than being a single request. */
+    private static final Duration DEFAULT_POSITIONS_TIMEOUT = Duration.ofSeconds(120);
 
     private final SidecarErrorTranslator<CorumErrorCode> sidecar;
     private final Duration authTimeout;
@@ -72,11 +73,11 @@ public class CorumAdapter implements CorumPort {
     }
 
     @Override
-    public Snapshot fetchSnapshot(String sessionState) {
-        Snapshot snapshot = sidecar.post(
-            "/positions",
+    public Portfolio fetchPortfolio(String sessionState) {
+        Portfolio portfolio = sidecar.post(
+            "/portfolio",
             Map.of("sessionState", sessionState),
-            Snapshot.class,
+            Portfolio.class,
             positionsTimeout,
             "Could not fetch the CORUM portfolio",
             // A bare 401 on this endpoint can only mean the session died: the
@@ -86,18 +87,29 @@ public class CorumAdapter implements CorumPort {
             // reconnect.
             CorumErrorCode.SESSION_EXPIRED
         );
-        if (!snapshot.snapshotComplete()) {
-            // The sidecar refuses a portfolio whose funds do not add up to the
-            // contract, so an incomplete flag means the flag is not trustworthy
-            // either. Refuse rather than write a partial portfolio over a real
-            // balance.
-            throw sidecar.coded(
-                CorumErrorCode.PORTFOLIO_INCOMPLETE,
-                "CORUM returned an incomplete portfolio",
-                null
-            );
+        // The sidecar refuses a contract whose lines do not add up, so an
+        // incomplete flag means the flag is not trustworthy either. Refuse the
+        // whole read rather than write a partial portfolio over a real balance:
+        // one bad contract fails the sync, it never drops out of it silently.
+        if (portfolio.realEstate() != null && !portfolio.realEstate().snapshotComplete()) {
+            throw incomplete();
         }
-        return snapshot;
+        if (portfolio.life() != null) {
+            for (LifeContract contract : portfolio.life()) {
+                if (contract != null && !contract.snapshotComplete()) {
+                    throw incomplete();
+                }
+            }
+        }
+        return portfolio;
+    }
+
+    private SyncException incomplete() {
+        return sidecar.coded(
+            CorumErrorCode.PORTFOLIO_INCOMPLETE,
+            "CORUM returned an incomplete portfolio",
+            null
+        );
     }
 
     private static String friendlyMessage(CorumErrorCode code) {
