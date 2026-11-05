@@ -37,6 +37,7 @@ import {
 import { mockUpcomingDividends } from './data/dividends'
 import type { CashflowPeriod, CategorizeRequest } from '@/types/api'
 import { demoLoanSchedule } from './data/loans'
+import { demoPeerLoan, demoPeerLoansOpen } from './data/peer-loans'
 
 function randomDelay(): number {
   return 200 + Math.random() * 400
@@ -310,8 +311,9 @@ const demoExchangePositions = (() => {
 handlers.set(key('GET', '/accounts/6/positions'), () => demoExchangePositions)
 handlers.set(key('GET', '/accounts/:id/positions'), () => [])
 
-// Peer loans have no demo account yet, so this route is only here for the coverage guard:
-// its detail section never mounts because no demo account carries the type.
+// Peer loans: account 16 carries the configured fixture above. Every other id keeps the
+// unconfigured shape so the route still answers if a new PEER_LOAN is created.
+handlers.set(key('GET', '/accounts/16/peer-loan'), () => demoPeerLoan)
 handlers.set(key('GET', '/accounts/:id/peer-loan'), (_config, { id }) => ({
   accountId: Number(id),
   accountName: '',
@@ -326,7 +328,7 @@ handlers.set(key('GET', '/accounts/:id/peer-loan'), (_config, { id }) => ({
   repaidPct: 0,
   repayments: [],
 }))
-handlers.set(key('GET', '/peer-loans/open'), () => [])
+handlers.set(key('GET', '/peer-loans/open'), () => demoPeerLoansOpen)
 
 // Live quotes. The holdings fixtures win over the exchange positions for a ticker both carry, so
 // re-pricing a holdings table with these leaves its values exactly as the fixture states them.

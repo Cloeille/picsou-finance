@@ -374,9 +374,6 @@ The `db` container has no host port: the database is only reachable by the test 
   recomputed capital is positive.
 - **The borrower is the account name, not a `FamilyMember`.** `FamilyMember` is a Picsou
   household user; the account page shows only that loan.
-- **Demo mode has no peer-loan account yet.** A placeholder handler keeps the route
-  coverage test green, but the feature is invisible in the demo build until a fixture is
-  added.
 - **A linked cash account is required.** Without one, a repayment would reduce net worth
   with no cash counterpart. The terms request enforces it, and the dialog marks it.
 - **The principal and the linked account are frozen once the cash leg exists.** Changing
@@ -396,7 +393,6 @@ The `db` container has no host port: the database is only reachable by the test 
   member classifies it once).
 - A projected-vs-actual **chart** (v1 compares the figures textually).
 - A **borrower history** view across loans (kept out of the account page on purpose).
-- A demo peer-loan account and its fixtures.
 - MCP tools (read the detail, add a repayment).
 - The borrowed direction (`PEER_DEBT`).
 - Ownership shares on a peer-loan account (`AccountAccessResolver` scope).

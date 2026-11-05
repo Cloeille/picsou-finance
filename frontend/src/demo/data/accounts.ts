@@ -1,6 +1,7 @@
 import type { Account } from '@/types/api'
 import { daysFromToday, hoursAgo, monthStartFromToday } from './dates'
 import { holdingsValue } from './holdings'
+import { demoPeerLoan } from './peer-loans'
 
 export const mockAccounts: Account[] = [
   {
@@ -363,5 +364,24 @@ export const mockAccounts: Account[] = [
       insuranceMonthly: null,
       fileFees: null,
     },
+  },
+  {
+    // Money lent to a friend. The account name is the borrower, and the balance is the
+    // capital still owed -- derived from the terms and the dated ledger in peer-loans.ts.
+    id: 16,
+    name: 'Jean',
+    type: 'PEER_LOAN',
+    provider: null,
+    currency: 'EUR',
+    currentBalance: demoPeerLoan.principalRemaining,
+    currentBalanceEur: demoPeerLoan.principalRemaining,
+    lastSyncedAt: null,
+    isManual: true,
+    color: '#0d9488',
+    ticker: null,
+    logoUrl: null,
+    logoKey: null,
+    createdAt: `${monthStartFromToday(-10)}T08:00:00Z`,
+    hidden: false,
   },
 ]
