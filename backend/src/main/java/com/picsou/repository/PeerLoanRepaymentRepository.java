@@ -17,4 +17,7 @@ public interface PeerLoanRepaymentRepository extends JpaRepository<PeerLoanRepay
     Optional<PeerLoanRepayment> findByCashTransactionId(Long cashTransactionId);
 
     List<PeerLoanRepayment> findAllByAccountIdIn(Collection<Long> accountIds);
+
+    /** The GDPR export needs the whole journal of one member in date order. */
+    List<PeerLoanRepayment> findAllByAccountMemberIdOrderByPaidOnAscIdAsc(Long memberId);
 }

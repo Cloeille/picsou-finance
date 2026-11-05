@@ -12,6 +12,9 @@ import com.picsou.repository.GoalContributorRepository;
 import com.picsou.repository.GoalManualContributionRepository;
 import com.picsou.repository.GoalMonthOverrideRepository;
 import com.picsou.repository.GoalRepository;
+import com.picsou.repository.PeerCounterpartyRepository;
+import com.picsou.repository.PeerLoanRepaymentRepository;
+import com.picsou.repository.PeerLoanTermsRepository;
 import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.SharedResourceRepository;
 import com.picsou.repository.TransactionRepository;
@@ -52,6 +55,9 @@ class DataExportServiceTest {
     @Mock private TransactionRepository transactionRepository;
     @Mock private WalletAddressRepository walletAddressRepository;
     @Mock private BalanceSnapshotRepository balanceSnapshotRepository;
+    @Mock private PeerCounterpartyRepository peerCounterpartyRepository;
+    @Mock private PeerLoanTermsRepository peerLoanTermsRepository;
+    @Mock private PeerLoanRepaymentRepository peerLoanRepaymentRepository;
 
     private DataExportService service;
     private AppUser user;
@@ -94,10 +100,16 @@ class DataExportServiceTest {
         WalletAddressesExporter walletAddresses = new WalletAddressesExporter(walletAddressRepository);
         BalanceSnapshotsExporter balanceSnapshots =
             new BalanceSnapshotsExporter(accountRepository, balanceSnapshotRepository);
+        PeerCounterpartiesExporter peerCounterparties =
+            new PeerCounterpartiesExporter(peerCounterpartyRepository);
+        PeerLoanTermsExporter peerLoanTerms = new PeerLoanTermsExporter(peerLoanTermsRepository);
+        PeerLoanRepaymentsExporter peerLoanRepayments =
+            new PeerLoanRepaymentsExporter(peerLoanRepaymentRepository);
 
         service = new DataExportService(List.of(
             profile, accounts, holdings, bankConnections, debts, goals,
-            sharedResources, transactions, walletAddresses, balanceSnapshots
+            sharedResources, transactions, walletAddresses, balanceSnapshots,
+            peerCounterparties, peerLoanTerms, peerLoanRepayments
         ));
     }
 
@@ -186,6 +198,23 @@ class DataExportServiceTest {
             .date(LocalDate.of(2026, 1, 1))
             .balance(new BigDecimal("12345.67")).investedAmount(new BigDecimal("10000"))
             .build();
+        Account peerLoanAccount = Account.builder()
+            .id(110L).member(member).name("Marie").type(AccountType.PEER_LOAN)
+            .currency("EUR").currentBalance(new BigDecimal("1200"))
+            .isManual(true).build();
+        PeerCounterparty counterparty = PeerCounterparty.builder()
+            .id(410L).member(member).name("Marie").note("Sister").build();
+        PeerLoanTerms peerLoan = PeerLoanTerms.builder()
+            .id(420L).account(peerLoanAccount).counterparty(counterparty)
+            .principal(new BigDecimal("1500")).lentAt(LocalDate.of(2026, 1, 10))
+            .expectedBack(LocalDate.of(2026, 12, 10))
+            .annualRate(new BigDecimal("0.05")).ratePeriod(PeerLoanRatePeriod.ANNUAL)
+            .plannedMonthlyAmount(new BigDecimal("200")).plannedMonths(8)
+            .linkedAccount(a).lendingTransactionId(701L).note("Car loan").build();
+        PeerLoanRepayment peerRepayment = PeerLoanRepayment.builder()
+            .id(430L).account(peerLoanAccount).paidOn(LocalDate.of(2026, 3, 1))
+            .amount(new BigDecimal("300")).kind(PeerLoanRepaymentKind.PRINCIPAL)
+            .note("March").cashTransactionId(702L).cashLegOwned(false).build();
 
         when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L))
             .thenReturn(List.of(a));
@@ -201,6 +230,11 @@ class DataExportServiceTest {
         when(transactionRepository.findByAccountIdOrderByDateDesc(100L)).thenReturn(List.of(tx));
         when(walletAddressRepository.findAllByMemberId(42L)).thenReturn(List.of(wallet));
         when(balanceSnapshotRepository.findByAccountIdOrderByDateAsc(100L)).thenReturn(List.of(snapshot));
+        when(peerCounterpartyRepository.findAllByMemberIdOrderByNameAsc(42L)).thenReturn(List.of(counterparty));
+        when(peerLoanTermsRepository.findAllByAccountMemberIdOrderByLentAtAscIdAsc(42L))
+            .thenReturn(List.of(peerLoan));
+        when(peerLoanRepaymentRepository.findAllByAccountMemberIdOrderByPaidOnAscIdAsc(42L))
+            .thenReturn(List.of(peerRepayment));
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         // includeBalanceSnapshots=true so balance_snapshots.csv (gated) is in scope for the net too.
@@ -214,7 +248,8 @@ class DataExportServiceTest {
                 "profile.csv", "accounts.csv", "holdings.csv",
                 "bank_connections.csv", "debts.csv", "goals.csv",
                 "shared_resources.csv", "transactions.csv",
-                "wallet_addresses.csv", "balance_snapshots.csv"
+                "wallet_addresses.csv", "balance_snapshots.csv",
+                "peer_counterparties.csv", "peer_loan_terms.csv", "peer_loan_repayments.csv"
             );
 
         String json = new String(entries.get("data.json"));
@@ -239,9 +274,27 @@ class DataExportServiceTest {
         String holdingsCsv = new String(entries.get("holdings.csv"));
         assertThat(holdingsCsv).contains("USD").contains("30000").contains("15000");
 
+        assertThat(parsed.get("peer_counterparties")).hasSize(1);
+        assertThat(parsed.get("peer_counterparties").get(0).get("name").asText()).isEqualTo("Marie");
+        assertThat(parsed.get("peer_loan_terms")).hasSize(1);
+        assertThat(parsed.get("peer_loan_terms").get(0).get("annual_rate").decimalValue())
+            .isEqualByComparingTo("0.05");
+        assertThat(parsed.get("peer_loan_terms").get(0).get("rate_period").asText()).isEqualTo("ANNUAL");
+        assertThat(parsed.get("peer_loan_repayments")).hasSize(1);
+        assertThat(parsed.get("peer_loan_repayments").get(0).get("amount").decimalValue())
+            .isEqualByComparingTo("300");
+        assertThat(parsed.get("peer_loan_repayments").get(0).get("cash_leg_owned").asBoolean()).isFalse();
+
+        assertThat(new String(entries.get("peer_counterparties.csv")))
+            .contains("Marie").contains("Sister");
+        assertThat(new String(entries.get("peer_loan_terms.csv")))
+            .contains("1500").contains("0.05").contains("Car loan");
+        assertThat(new String(entries.get("peer_loan_repayments.csv")))
+            .contains("300").contains("PRINCIPAL").contains("false");
+
         // Whole-archive byte-grep: NONE of the known secret tokens may appear anywhere
         // (data.json, csv files, README, ZIP metadata) — this is the GDPR safety net.
-        // Covers all 10 exporters, matching production wiring (see setUp()).
+        // Covers all 13 exporters, matching production wiring (see setUp()).
         String archive = new String(zipBytes, java.nio.charset.StandardCharsets.ISO_8859_1);
         assertThat(archive).doesNotContain(SECRET_PASSWORD_HASH);
         assertThat(archive).doesNotContain(SECRET_TOTP);

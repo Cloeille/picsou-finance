@@ -372,8 +372,9 @@ The `db` container has no host port: the database is only reachable by the test 
   delete the loss history through `ON DELETE CASCADE`.
 - **Deleting the closing write-off reopens the loan.** The marker is cleared when the
   recomputed capital is positive.
-- **The GDPR export and the xlsx workbook do not include the repayments yet.** This is a
-  known v1 gap; the account export lists the account, not its peer-loan ledger.
+- **The xlsx workbook does not include the repayments yet.** The GDPR export now ships
+  `peer_counterparties.csv`, `peer_loan_terms.csv` and `peer_loan_repayments.csv`; the
+  account workbook still lists the account without its peer-loan ledger.
 - **Demo mode has no peer-loan account yet.** A placeholder handler keeps the route
   coverage test green, but the feature is invisible in the demo build until a fixture is
   added.
@@ -402,7 +403,7 @@ The `db` container has no host port: the database is only reachable by the test 
 - MCP tools (read the detail, add a repayment).
 - The borrowed direction (`PEER_DEBT`).
 - Ownership shares on a peer-loan account (`AccountAccessResolver` scope).
-- GDPR/xlsx ledger rows.
+- xlsx ledger rows.
 
 ## Tests
 
