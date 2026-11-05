@@ -956,18 +956,20 @@ handlers.set(key('DELETE', '/caisse-epargne/session'), () => ({
 // any region and identifier get the demo pad, and Sécur'Pass answers connected at once.
 // Completing the sign-in makes the session live but not yet synced; only the sync answers
 // SUCCESS, so the panel sees SUCCESS from its own sync and closes the add-account wizard.
-// Disconnecting resets it.
+// The sync stamps its time once and every status read repeats it: a fresh timestamp per read
+// would look like a new sync to useProviderStatus and refetch the account views forever.
+// Disconnecting resets both.
 let demoBanquePopulaireState: 'idle' | 'connected' | 'synced' = 'idle'
+let demoBanquePopulaireSyncedAt: string | null = null
 const demoBanquePopulaireStatus = () => {
   if (demoBanquePopulaireState === 'idle') return { ...demoCaisseEpargneStatus }
   if (demoBanquePopulaireState === 'connected') return { ...demoCaisseEpargneStatus, isActive: true }
-  const now = new Date().toISOString()
   return {
     ...demoCaisseEpargneStatus,
     isActive: true,
     syncStatus: 'SUCCESS',
-    lastSyncStartedAt: now,
-    lastSyncCompletedAt: now,
+    lastSyncStartedAt: demoBanquePopulaireSyncedAt,
+    lastSyncCompletedAt: demoBanquePopulaireSyncedAt,
   }
 }
 handlers.set(key('GET', '/banque-populaire/status'), () => demoBanquePopulaireStatus())
@@ -985,10 +987,12 @@ handlers.set(key('POST', '/banque-populaire/auth/complete'), () => {
 })
 handlers.set(key('POST', '/banque-populaire/sync'), () => {
   demoBanquePopulaireState = 'synced'
+  demoBanquePopulaireSyncedAt = new Date().toISOString()
   return demoBanquePopulaireStatus()
 })
 handlers.set(key('DELETE', '/banque-populaire/session'), () => {
   demoBanquePopulaireState = 'idle'
+  demoBanquePopulaireSyncedAt = null
   return { removed: true, bankSessionRevoked: false, message: '' }
 })
 
