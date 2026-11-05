@@ -456,6 +456,12 @@
     "editRepayment": "Editar devolución",
     "repaymentsTitle": "Devoluciones",
     "empty": "Aún no hay devoluciones registradas.",
+    "repaymentHint": {
+      "single": "Los intereses devengados se aplican primero; el resto reduce el capital."
+    },
+    "ledger": {
+      "interestPart": "de los cuales {{amount}} de intereses"
+    },
     "noPlan": "Sin previsión definida. Añade una duración o una cuota mensual para estimarla.",
     "closedHint": "Este préstamo está cerrado. Elimina la condonación para reabrirlo.",
     "cashflowHint": "Para que este préstamo no cuente como gasto, clasifica la transferencia bancaria correspondiente como «Transferencia interna».",
@@ -482,7 +488,7 @@
       "MONTHLY": "Mensual"
     },
     "kinds": {
-      "PRINCIPAL": "Capital",
+      "PRINCIPAL": "Devolución",
       "INTEREST": "Intereses",
       "WRITE_OFF": "Condonación"
     },
@@ -528,7 +534,6 @@
       "selectLoan": "Seleccionar un préstamo",
       "loanRequired": "Selecciona un préstamo.",
       "noLoans": "Ningún préstamo en curso.",
-      "kindHint": "Capital = transferencia, sin impacto en el presupuesto. Intereses = ingreso.",
       "confirm": "Asignar",
       "created": "Devolución registrada."
     },

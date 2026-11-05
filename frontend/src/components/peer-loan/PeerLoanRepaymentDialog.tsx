@@ -13,10 +13,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { DateInput } from '@/components/shared/DateInput'
-import { SELECT_CONTROL_CLASS } from '@/lib/constants'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { parseAmount } from '@/lib/utils'
-import type { PeerLoanRepayment, PeerLoanRepaymentKind, PeerLoanRepaymentRequest } from '@/types/api'
+import type { PeerLoanRepayment, PeerLoanRepaymentRequest } from '@/types/api'
 
 interface PeerLoanRepaymentDialogProps {
   open: boolean
@@ -28,12 +27,9 @@ interface PeerLoanRepaymentDialogProps {
   loading?: boolean
 }
 
-const KINDS: PeerLoanRepaymentKind[] = ['PRINCIPAL', 'INTEREST', 'WRITE_OFF']
-
 /**
- * One ledger row, one fact, one budget category. A capital repayment is a transfer;
- * interest is real income; a write-off carries no cash at all. Splitting them by hand
- * is what keeps the cashflow honest — the app never splits a payment implicitly.
+ * One repayment, one amount. The calculator applies the accrued interest first and the
+ * remainder to the capital; the ledger row shows that split without asking for it.
  */
 export function PeerLoanRepaymentDialog({
   open,
@@ -47,7 +43,6 @@ export function PeerLoanRepaymentDialog({
 
   const [paidOn, setPaidOn] = useState('')
   const [amount, setAmount] = useState('')
-  const [kind, setKind] = useState<PeerLoanRepaymentKind>('PRINCIPAL')
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [wasOpen, setWasOpen] = useState(open)
@@ -57,7 +52,6 @@ export function PeerLoanRepaymentDialog({
     if (open) {
       setPaidOn(initial?.paidOn ?? new Date().toISOString().slice(0, 10))
       setAmount(initial ? String(initial.amount) : '')
-      setKind(initial?.kind ?? 'PRINCIPAL')
       setNote(initial?.note ?? '')
       setError(null)
     }
@@ -78,7 +72,6 @@ export function PeerLoanRepaymentDialog({
       await onSubmit({
         paidOn,
         amount: amountValue,
-        kind,
         note: note.trim() || null,
       })
       onOpenChange(false)
@@ -94,28 +87,10 @@ export function PeerLoanRepaymentDialog({
           <DialogTitle>
             {initial ? t('peerLoan.editRepayment') : t('peerLoan.addRepayment')}
           </DialogTitle>
-          <DialogDescription>
-            {kind === 'PRINCIPAL' && t('peerLoan.repaymentHint.principal')}
-            {kind === 'INTEREST' && t('peerLoan.repaymentHint.interest')}
-            {kind === 'WRITE_OFF' && t('peerLoan.repaymentHint.writeOff')}
-          </DialogDescription>
+          <DialogDescription>{t('peerLoan.repaymentHint.single')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="peer-kind">{t('peerLoan.fields.kind')}</Label>
-            <select
-              id="peer-kind"
-              className={SELECT_CONTROL_CLASS}
-              value={kind}
-              onChange={(e) => setKind(e.target.value as PeerLoanRepaymentKind)}
-            >
-              {KINDS.map(value => (
-                <option key={value} value={value}>{t(`peerLoan.kinds.${value}`)}</option>
-              ))}
-            </select>
-          </div>
-
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="peer-paid-on">{t('peerLoan.fields.paidOn')}</Label>
@@ -127,7 +102,7 @@ export function PeerLoanRepaymentDialog({
             </div>
           </div>
 
-          {kind === 'INTEREST' && accruedInterest > 0 && (
+          {accruedInterest > 0 && (
             <p className="text-xs text-muted-foreground">
               {t('peerLoan.forecast.accruedHint')} <CurrencyDisplay value={accruedInterest} />
             </p>

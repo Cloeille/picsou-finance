@@ -291,6 +291,11 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                   <span className="text-sm text-muted-foreground">{formatLocalDate(repayment.paidOn)}</span>
                   <Badge variant={KIND_VARIANT[repayment.kind]}>{t(`peerLoan.kinds.${repayment.kind}`)}</Badge>
                   {repayment.note && <span className="truncate text-xs text-muted-foreground">{repayment.note}</span>}
+                  {repayment.interestPart != null && repayment.interestPart > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      {t('peerLoan.ledger.interestPart', { amount: money.amount(repayment.interestPart) })}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={repayment.kind === 'WRITE_OFF' ? 'text-red-500' : 'text-emerald-500'}>

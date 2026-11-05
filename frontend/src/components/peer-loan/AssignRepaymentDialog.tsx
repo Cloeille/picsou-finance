@@ -15,8 +15,6 @@ import { SELECT_CONTROL_CLASS } from '@/lib/constants'
 import { useMoney } from '@/hooks/use-money'
 import type { PeerLoanOpen, PeerLoanRepaymentFromTransactionRequest, Transaction } from '@/types/api'
 
-type Kind = 'PRINCIPAL' | 'INTEREST'
-
 interface AssignRepaymentDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -41,7 +39,6 @@ export function AssignRepaymentDialog({
   const { t } = useTranslation()
   const money = useMoney()
   const [loanId, setLoanId] = useState('')
-  const [kind, setKind] = useState<Kind>('PRINCIPAL')
   const [error, setError] = useState<string | null>(null)
   const [wasOpen, setWasOpen] = useState(open)
 
@@ -49,7 +46,6 @@ export function AssignRepaymentDialog({
     setWasOpen(open)
     if (open) {
       setLoanId('')
-      setKind('PRINCIPAL')
       setError(null)
     }
   }
@@ -63,7 +59,7 @@ export function AssignRepaymentDialog({
       return
     }
     try {
-      await onSubmit(Number(loanId), { transactionId: transaction!.id, kind })
+      await onSubmit(Number(loanId), { transactionId: transaction!.id })
       onOpenChange(false)
     } catch {
       // The parent surfaces the API error; the dialog stays open for a retry.
@@ -107,19 +103,7 @@ export function AssignRepaymentDialog({
             )}
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="assign-kind">{t('peerLoan.fields.kind')}</Label>
-            <select
-              id="assign-kind"
-              className={SELECT_CONTROL_CLASS}
-              value={kind}
-              onChange={(e) => setKind(e.target.value as Kind)}
-            >
-              <option value="PRINCIPAL">{t('peerLoan.kinds.PRINCIPAL')}</option>
-              <option value="INTEREST">{t('peerLoan.kinds.INTEREST')}</option>
-            </select>
-            <p className="text-xs text-muted-foreground">{t('peerLoan.assignRepayment.kindHint')}</p>
-          </div>
+          <p className="text-xs text-muted-foreground">{t('peerLoan.repaymentHint.single')}</p>
 
           {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
         </div>

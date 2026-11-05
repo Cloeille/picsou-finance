@@ -456,6 +456,12 @@
     "editRepayment": "Rückzahlung bearbeiten",
     "repaymentsTitle": "Rückzahlungen",
     "empty": "Noch keine Rückzahlung erfasst.",
+    "repaymentHint": {
+      "single": "Aufgelaufene Zinsen werden zuerst verrechnet, der Rest reduziert das Kapital."
+    },
+    "ledger": {
+      "interestPart": "davon {{amount}} Zinsen"
+    },
     "noPlan": "Keine Prognose festgelegt. Fügen Sie eine Laufzeit oder eine Monatsrate hinzu.",
     "closedHint": "Dieses Darlehen ist geschlossen. Löschen Sie den Forderungsverzicht, um es wieder zu öffnen.",
     "cashflowHint": "Damit dieses Darlehen nicht als Ausgabe zählt, ordnen Sie die passende Banküberweisung der Kategorie „Interner Transfer“ zu.",
@@ -482,7 +488,7 @@
       "MONTHLY": "Monatlich"
     },
     "kinds": {
-      "PRINCIPAL": "Kapital",
+      "PRINCIPAL": "Rückzahlung",
       "INTEREST": "Zinsen",
       "WRITE_OFF": "Forderungsverzicht"
     },
@@ -528,7 +534,6 @@
       "selectLoan": "Darlehen auswählen",
       "loanRequired": "Wählen Sie ein Darlehen.",
       "noLoans": "Kein offenes Darlehen.",
-      "kindHint": "Kapital = Transfer ohne Budgetwirkung. Zinsen = Ertrag.",
       "confirm": "Zuordnen",
       "created": "Rückzahlung erfasst."
     },

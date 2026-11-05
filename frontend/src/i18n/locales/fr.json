@@ -467,6 +467,12 @@
     "editRepayment": "Modifier le remboursement",
     "repaymentsTitle": "Remboursements",
     "empty": "Aucun remboursement enregistré.",
+    "repaymentHint": {
+      "single": "Les intérêts courus sont imputés en premier, le reste réduit le capital."
+    },
+    "ledger": {
+      "interestPart": "dont {{amount}} d'intérêts"
+    },
     "noPlan": "Aucune prévision définie. Ajoutez une durée ou une mensualité pour l'estimer.",
     "closedHint": "Ce prêt est clôturé. Supprimez l'abandon pour le rouvrir.",
     "cashflowHint": "Pour que ce prêt ne soit pas compté comme une dépense, classez le virement bancaire correspondant dans la catégorie « Virement interne ».",
@@ -493,7 +499,7 @@
       "MONTHLY": "Mensuel"
     },
     "kinds": {
-      "PRINCIPAL": "Capital",
+      "PRINCIPAL": "Remboursement",
       "INTEREST": "Intérêts",
       "WRITE_OFF": "Abandon"
     },
@@ -539,7 +545,6 @@
       "selectLoan": "Sélectionner un prêt",
       "loanRequired": "Sélectionnez un prêt.",
       "noLoans": "Aucun prêt en cours.",
-      "kindHint": "Capital = transfert, sans impact budget. Intérêts = revenu.",
       "confirm": "Assigner",
       "created": "Remboursement enregistré."
     },

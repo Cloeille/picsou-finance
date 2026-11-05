@@ -467,6 +467,12 @@
     "editRepayment": "Edit repayment",
     "repaymentsTitle": "Repayments",
     "empty": "No repayment recorded yet.",
+    "repaymentHint": {
+      "single": "Accrued interest is applied first; the rest reduces the capital."
+    },
+    "ledger": {
+      "interestPart": "of which {{amount}} interest"
+    },
     "noPlan": "No forecast set. Add a duration or a monthly payment to estimate one.",
     "closedHint": "This loan is closed. Delete its write-off to reopen it.",
     "cashflowHint": "So this loan is not counted as spending, categorise the matching bank transfer as 'Internal transfer'.",
@@ -493,7 +499,7 @@
       "MONTHLY": "Monthly"
     },
     "kinds": {
-      "PRINCIPAL": "Capital",
+      "PRINCIPAL": "Repayment",
       "INTEREST": "Interest",
       "WRITE_OFF": "Write-off"
     },
@@ -539,7 +545,6 @@
       "selectLoan": "Select a loan",
       "loanRequired": "Select a loan.",
       "noLoans": "No open loan.",
-      "kindHint": "Capital = transfer, no budget impact. Interest = income.",
       "confirm": "Assign",
       "created": "Repayment recorded."
     },

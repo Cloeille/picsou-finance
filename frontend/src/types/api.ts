@@ -546,6 +546,9 @@ export interface PeerLoanRepayment {
   amount: number
   kind: PeerLoanRepaymentKind
   note?: string | null
+  /** Interest applied by this row (interest first, then capital). */
+  interestPart?: number | null
+  capitalPart?: number | null
 }
 
 export type PeerLoanRatePeriod = 'ANNUAL' | 'MONTHLY'
@@ -574,7 +577,8 @@ export interface PeerLoanFromTransactionRequest {
 
 export interface PeerLoanRepaymentFromTransactionRequest {
   transactionId: number
-  kind: Exclude<PeerLoanRepaymentKind, 'WRITE_OFF'>
+  /** Omitted: a payment, interest first then capital. */
+  kind?: Exclude<PeerLoanRepaymentKind, 'WRITE_OFF'> | null
 }
 
 /** An open loan a received transaction can be assigned to. */
@@ -587,7 +591,8 @@ export interface PeerLoanOpen {
 export interface PeerLoanRepaymentRequest {
   paidOn: string
   amount: number
-  kind: PeerLoanRepaymentKind
+  /** Omitted: a payment, interest first then capital. */
+  kind?: PeerLoanRepaymentKind | null
   note?: string | null
 }
 
