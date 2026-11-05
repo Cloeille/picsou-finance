@@ -149,6 +149,12 @@ export function useInitiateTrAuth() {
   })
 }
 
+export function useReconnectTrAuth() {
+  return useMutation({
+    mutationFn: ({ pin }: { pin: string }) => trApi.reconnectAuth(pin),
+  })
+}
+
 export function useCompleteTrAuth() {
   return useInvalidatingMutation({
     // No `tan` for the in-app confirmation: the request stays open until the member confirms.

@@ -149,7 +149,7 @@ export function TradeRepublicTab() {
         <p className="text-sm text-muted-foreground">{t('sync.tr.staleAccounts')}</p>
       )}
 
-      {!isConnected && <TradeRepublicLogin variant="page" />}
+      {!isConnected && <TradeRepublicLogin variant="page" maskedPhone={sessionStatus?.maskedPhone ?? null} />}
     </div>
   )
 }

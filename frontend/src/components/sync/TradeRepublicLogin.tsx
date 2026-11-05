@@ -5,12 +5,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
-import { MaskedOTPSlot } from '@/components/sync/MaskedOTPSlot'
 import { AlertTriangle, Loader2, Lock, ShieldCheck, Smartphone } from 'lucide-react'
-import { useInitiateTrAuth, useCompleteTrAuth } from '@/features/sync/hooks'
+import { useInitiateTrAuth, useCompleteTrAuth, useReconnectTrAuth } from '@/features/sync/hooks'
 import { TrAppConfirmation } from '@/components/sync/TrAppConfirmation'
-import { formatTrAuthError, isTrAttemptOverError } from '@/lib/errors'
-import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
+import { formatTrAuthError, isTrAttemptOverError, isTrInvalidSessionStateError } from '@/lib/errors'
+import { TR_AUTHENTICATOR_CODE_LENGTH, TR_PIN_MAX_LENGTH, TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
+import type { TrAuthInitResponse } from '@/types/api'
 
 /** `AWAITING_APP` has no form: `auth/complete` stays open until the member confirms in the app. */
 type TrAuthState = 'IDLE' | 'AWAITING_APP' | 'AWAITING_TAN'
@@ -18,11 +18,17 @@ type TrAuthState = 'IDLE' | 'AWAITING_APP' | 'AWAITING_TAN'
 interface TradeRepublicLoginProps {
   /** Called once the login is confirmed (in the app or with the code). */
   onConnected?: () => void
-  /** `page`: Sync tab (cards, plain inputs). `modal`: add-account wizard (masked OTP PIN, spinners). */
+  /** `page`: Sync tab (cards, plain inputs). `modal`: add-account wizard / dialogs (spinners). */
   variant: 'page' | 'modal'
+  /**
+   * Masked phone stored with an expired session. When set, the form asks for the PIN or password
+   * only and reconnects through `auth/reconnect`; it falls back to the full form when the
+   * backend has no phone to reuse or the member picks another number.
+   */
+  maskedPhone?: string | null
 }
 
-export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginProps) {
+export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }: TradeRepublicLoginProps) {
   const { t } = useTranslation()
   const modal = variant === 'modal'
   const [authState, setAuthState] = useState<TrAuthState>('IDLE')
@@ -30,11 +36,16 @@ export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginP
   const [pin, setPin] = useState('')
   const [tan, setTan] = useState('')
   const [processId, setProcessId] = useState<string | null>(null)
+  const [codeLength, setCodeLength] = useState(TR_VERIFICATION_CODE_LENGTH)
+  const [authenticator, setAuthenticator] = useState(false)
+  const [reconnectDisabled, setReconnectDisabled] = useState(false)
   const [countdown, setCountdown] = useState(0)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   const initiateMutation = useInitiateTrAuth()
+  const reconnectMutation = useReconnectTrAuth()
   const completeMutation = useCompleteTrAuth()
+  const reconnecting = maskedPhone !== null && !reconnectDisabled
 
   function finishLogin() {
     setTan('')
@@ -67,38 +78,49 @@ export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginP
     )
   }
 
+  function startAuthStep(data: TrAuthInitResponse) {
+    setProcessId(data.processId)
+    setTan('')
+    setErrorMsg(null)
+    if (data.flow === 'confirmInApp') {
+      // Nothing to type: hold the completion request open while the member confirms in the app.
+      setCountdown(data.countdownInSeconds)
+      setAuthState('AWAITING_APP')
+      completeLogin(data.processId)
+      return
+    }
+    const isAuthenticator = data.flow === 'authenticator'
+    setAuthenticator(isAuthenticator)
+    setCodeLength(isAuthenticator ? TR_AUTHENTICATOR_CODE_LENGTH : TR_VERIFICATION_CODE_LENGTH)
+    setAuthState('AWAITING_TAN')
+  }
+
   function handleInitiate(e: React.FormEvent) {
     e.preventDefault()
     if (pin.length === 0) return
-    initiateMutation.mutate(
-      { phoneNumber: phone, pin },
-      {
-        onSuccess: (data) => {
-          setProcessId(data.processId)
-          setTan('')
+    const callbacks = {
+      onSuccess: startAuthStep,
+      onError: (err: unknown) => {
+        if (reconnecting && isTrInvalidSessionStateError(err)) {
+          // No phone stored server-side: ask for it with the full form.
+          setReconnectDisabled(true)
+          setPin('')
           setErrorMsg(null)
-          if (data.flow === 'confirmInApp') {
-            // Nothing to type: hold the completion request open while the member confirms in the app.
-            setCountdown(data.countdownInSeconds)
-            setAuthState('AWAITING_APP')
-            completeLogin(data.processId)
-            return
-          }
-          setAuthState('AWAITING_TAN')
-        },
-        onError: (err: unknown) => {
+        } else {
           setErrorMsg(formatTrAuthError(err, t))
-          setProcessId(null)
-          setTan('')
-          setAuthState('IDLE')
-        },
+        }
+        setProcessId(null)
+        setTan('')
+        setAuthState('IDLE')
       },
-    )
+    }
+    if (reconnecting) reconnectMutation.mutate({ pin }, callbacks)
+    else initiateMutation.mutate({ phoneNumber: phone, pin }, callbacks)
   }
 
   function handleTan(e: React.FormEvent) {
     e.preventDefault()
-    if (!processId || tan.length !== TR_VERIFICATION_CODE_LENGTH) return
+    if (!processId || tan.length !== codeLength) return
     completeLogin(processId, tan)
   }
 
@@ -109,7 +131,15 @@ export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginP
     setErrorMsg(null)
   }
 
-  const phoneField = (
+  const phoneField = reconnecting ? (
+    <div className="space-y-1">
+      <p className="text-sm text-muted-foreground">
+        <Smartphone className="size-4 inline-block mr-1" />
+        {t('sync.tr.reconnectPhone')}
+      </p>
+      <p className="font-mono text-sm" data-testid="tr-masked-phone">{maskedPhone}</p>
+    </div>
+  ) : (
     <div className="space-y-2">
       <Label htmlFor="tr-phone">
         <Smartphone className="size-4 inline-block mr-1" />
@@ -127,27 +157,22 @@ export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginP
     </div>
   )
 
-  const pinField = modal ? (
+  const pinField = (
     <div className="space-y-2">
       <Label htmlFor="tr-pin">
-        <ShieldCheck className="size-4 inline-block mr-1" />
+        {modal ? <ShieldCheck className="size-4 inline-block mr-1" /> : <Lock className="size-4 inline-block mr-1" />}
         {t('sync.tr.pin')}
       </Label>
-      <InputOTP maxLength={4} value={pin} onChange={setPin} autoFocus>
-        <InputOTPGroup>
-          {[0, 1, 2, 3].map((i) => (
-            <MaskedOTPSlot key={i} index={i} />
-          ))}
-        </InputOTPGroup>
-      </InputOTP>
-    </div>
-  ) : (
-    <div className="space-y-2">
-      <Label htmlFor="tr-pin">
-        <Lock className="size-4 inline-block mr-1" />
-        {t('sync.tr.pin')}
-      </Label>
-      <Input id="tr-pin" type="password" value={pin} onChange={(e) => setPin(e.target.value)} required />
+      <Input
+        id="tr-pin"
+        type="password"
+        value={pin}
+        onChange={(e) => setPin(e.target.value)}
+        maxLength={TR_PIN_MAX_LENGTH}
+        autoComplete="current-password"
+        required
+        autoFocus={modal && reconnecting}
+      />
     </div>
   )
 
@@ -155,17 +180,18 @@ export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginP
     <div className="space-y-2">
       <Label htmlFor="tr-tan">
         <ShieldCheck className="size-4 inline-block mr-1" />
-        {t('sync.tr.tan')}
+        {authenticator ? t('sync.tr.authenticatorCode') : t('sync.tr.tan')}
       </Label>
+      {authenticator && <p className="text-sm text-muted-foreground">{t('sync.tr.authenticatorPrompt')}</p>}
       <InputOTP
         id="tr-tan"
-        maxLength={TR_VERIFICATION_CODE_LENGTH}
+        maxLength={codeLength}
         value={tan}
-        onChange={(value) => setTan(value.replace(/\D/g, '').slice(0, TR_VERIFICATION_CODE_LENGTH))}
+        onChange={(value) => setTan(value.replace(/\D/g, '').slice(0, codeLength))}
         autoFocus
       >
         <InputOTPGroup>
-          {[0, 1, 2, 3].map((i) => (
+          {Array.from({ length: codeLength }, (_, i) => i).map((i) => (
             <InputOTPSlot key={i} index={i} />
           ))}
         </InputOTPGroup>
@@ -175,35 +201,53 @@ export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginP
     <div className="space-y-2">
       <Label htmlFor="tr-tan">
         <ShieldCheck className="size-4 inline-block mr-1" />
-        {t('sync.tr.tan')}
+        {authenticator ? t('sync.tr.authenticatorCode') : t('sync.tr.tan')}
       </Label>
+      {authenticator && <p className="text-sm text-muted-foreground">{t('sync.tr.authenticatorPrompt')}</p>}
       <Input
         id="tr-tan"
         value={tan}
-        onChange={(e) => setTan(e.target.value.replace(/\D/g, '').slice(0, TR_VERIFICATION_CODE_LENGTH))}
+        onChange={(e) => setTan(e.target.value.replace(/\D/g, '').slice(0, codeLength))}
         inputMode="numeric"
         autoComplete="one-time-code"
-        maxLength={TR_VERIFICATION_CODE_LENGTH}
+        maxLength={codeLength}
         required
         autoFocus
       />
     </div>
   )
 
+  const initiatePending = initiateMutation.isPending || reconnectMutation.isPending
   const initiateSubmit = (
-    <Button type="submit" disabled={initiateMutation.isPending} className="w-full">
-      {modal && initiateMutation.isPending && <Loader2 className="size-4 animate-spin" />}
+    <Button type="submit" disabled={initiatePending} className="w-full">
+      {modal && initiatePending && <Loader2 className="size-4 animate-spin" />}
       {t('sync.tr.connect')}
     </Button>
   )
   const tanSubmit = (
     <Button
       type="submit"
-      disabled={completeMutation.isPending || tan.length !== TR_VERIFICATION_CODE_LENGTH}
+      disabled={completeMutation.isPending || tan.length !== codeLength}
       className="w-full"
     >
       {modal && completeMutation.isPending && <Loader2 className="size-4 animate-spin" />}
       {t('sync.tr.connect')}
+    </Button>
+  )
+
+  const anotherNumber = reconnecting && (
+    <Button
+      type="button"
+      variant="link"
+      size="sm"
+      className="w-full"
+      onClick={() => {
+        setReconnectDisabled(true)
+        setPin('')
+        setErrorMsg(null)
+      }}
+    >
+      {t('sync.tr.useAnotherNumber')}
     </Button>
   )
 
@@ -266,6 +310,7 @@ export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginP
           {phoneField}
           {pinField}
           {initiateSubmit}
+          {anotherNumber}
         </>
       ) : (
         <Card size="sm">
@@ -273,6 +318,7 @@ export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginP
             {phoneField}
             {pinField}
             {initiateSubmit}
+            {anotherNumber}
           </CardContent>
         </Card>
       )}

@@ -120,6 +120,10 @@ export const trApi = {
       .post<TrAuthInitResponse>('/tr/auth/initiate', { phoneNumber, pin })
       .then(r => r.data),
 
+  /** Re-login with the phone stored in the session: only the PIN or password is sent. */
+  reconnectAuth: (pin: string) =>
+    api.post<TrAuthInitResponse>('/tr/auth/reconnect', { pin }).then(r => r.data),
+
   /**
    * With no `tan` the request stays open while the member confirms in the Trade Republic app
    * (up to ~150 s), hence the long timeout. With a `tan` it answers at once.

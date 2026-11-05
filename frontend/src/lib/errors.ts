@@ -171,6 +171,11 @@ export function isTrAttemptOverError(err: unknown): boolean {
   }
 }
 
+/** `auth/reconnect` answers this when no phone is stored: the member must use the full login form. */
+export function isTrInvalidSessionStateError(err: unknown): boolean {
+  return getErrorCode(err) === 'INVALID_SESSION_STATE'
+}
+
 /**
  * Maps Trade Republic auth errors (credentials initiation / TAN completion) to
  * translated messages. TR rejections are `SyncException`s, which the backend
