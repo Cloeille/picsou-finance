@@ -62,7 +62,6 @@ public class BoursoSyncService {
     private static final List<String> PROVIDER_FAMILY = List.of(PROVIDER, "Boursorama", "Boursorama Banque");
     private static final BigDecimal ABSOLUTE_RECONCILIATION_TOLERANCE = new BigDecimal("0.05");
     private static final BigDecimal RELATIVE_RECONCILIATION_TOLERANCE = new BigDecimal("0.001");
-    private static final BigDecimal PER_LINE_RECONCILIATION_TOLERANCE = new BigDecimal("0.01");
     private static final int MAX_TICKER_LENGTH = 30;
 
     /** The account types the sidecar is allowed to return; loans are out of scope. */
@@ -406,7 +405,7 @@ public class BoursoSyncService {
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
                 BigDecimal expectedValue = account.balanceEur().subtract(cashBalance);
                 boolean reconciled = account.type() == AccountType.ASSURANCE_VIE
-                    ? linesClose(positionValue, expectedValue, valuationLineCount(account))
+                    ? SyncValues.linesClose(positionValue, expectedValue, valuationLineCount(account))
                     : moneyClose(positionValue, expectedValue);
                 if (!reconciled) {
                     throw error(
@@ -929,18 +928,6 @@ public class BoursoSyncService {
             throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned no valid line count for an assurance vie", null);
         }
         return lines;
-    }
-
-    /**
-     * Whether {@code lines} amounts, each rounded to the cent, add up to {@code expected}.
-     * Unlike {@link #moneyClose}, the allowance never grows with the total, so a support
-     * missing from a large contract cannot hide inside a relative tolerance.
-     */
-    private boolean linesClose(BigDecimal actual, BigDecimal expected, int lines) {
-        BigDecimal tolerance = ABSOLUTE_RECONCILIATION_TOLERANCE.max(
-            PER_LINE_RECONCILIATION_TOLERANCE.multiply(BigDecimal.valueOf(lines))
-        );
-        return actual.subtract(expected).abs().compareTo(tolerance) <= 0;
     }
 
     private <T> T requireTransactionResult(T value) {

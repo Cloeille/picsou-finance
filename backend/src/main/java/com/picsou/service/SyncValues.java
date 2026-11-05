@@ -8,7 +8,7 @@ import java.util.Objects;
 
 /**
  * Value helpers shared by the browser-sidecar sync services (Amundi, Bourse
- * Direct): string normalization, cost-basis arithmetic over possibly-unknown
+ * Direct, BoursoBank, CORUM): string normalization, cost-basis arithmetic over possibly-unknown
  * figures, and the reconciliation tolerance that decides whether an upstream
  * total agrees with its own lines.
  *
@@ -22,6 +22,8 @@ public final class SyncValues {
     private static final BigDecimal ABSOLUTE_RECONCILIATION_TOLERANCE = new BigDecimal("0.05");
     /** Additional tolerance proportional to the expected amount (0.1%). */
     private static final BigDecimal RELATIVE_RECONCILIATION_TOLERANCE = new BigDecimal("0.001");
+    /** Rounding drift of one amount rounded to the cent on its own. */
+    private static final BigDecimal PER_LINE_RECONCILIATION_TOLERANCE = new BigDecimal("0.01");
     /** Scale of derived per-unit figures, matching {@code HoldingComputeService}. */
     private static final int UNIT_PRICE_SCALE = 8;
 
@@ -76,6 +78,18 @@ public final class SyncValues {
     public static boolean moneyClose(BigDecimal actual, BigDecimal expected) {
         BigDecimal tolerance = ABSOLUTE_RECONCILIATION_TOLERANCE.max(
             expected.abs().multiply(RELATIVE_RECONCILIATION_TOLERANCE)
+        );
+        return actual.subtract(expected).abs().compareTo(tolerance) <= 0;
+    }
+
+    /**
+     * Whether {@code lines} amounts, each rounded to the cent, add up to {@code expected}.
+     * Unlike {@link #moneyClose}, the allowance never grows with the total, so a support
+     * missing from a large contract cannot hide inside a relative tolerance.
+     */
+    public static boolean linesClose(BigDecimal actual, BigDecimal expected, int lines) {
+        BigDecimal tolerance = ABSOLUTE_RECONCILIATION_TOLERANCE.max(
+            PER_LINE_RECONCILIATION_TOLERANCE.multiply(BigDecimal.valueOf(lines))
         );
         return actual.subtract(expected).abs().compareTo(tolerance) <= 0;
     }
