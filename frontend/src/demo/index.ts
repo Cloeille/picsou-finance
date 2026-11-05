@@ -954,8 +954,19 @@ handlers.set(key('DELETE', '/caisse-epargne/session'), () => ({
 
 // Banque Populaire — the same BPCE login as Caisse d'Epargne, so the same shortcut:
 // any region and identifier get the demo pad, and Sécur'Pass answers connected at once.
-const demoBanquePopulaireStatus = { ...demoCaisseEpargneStatus }
-handlers.set(key('GET', '/banque-populaire/status'), () => demoBanquePopulaireStatus)
+// Completing the sign-in makes the session live and a sync answers SUCCESS, so the panel
+// reaches its connected state and the add-account wizard closes; disconnecting resets it.
+let demoBanquePopulaireConnected = false
+const demoBanquePopulaireStatus = () => demoBanquePopulaireConnected
+  ? {
+      ...demoCaisseEpargneStatus,
+      isActive: true,
+      syncStatus: 'SUCCESS',
+      lastSyncStartedAt: new Date().toISOString(),
+      lastSyncCompletedAt: new Date().toISOString(),
+    }
+  : { ...demoCaisseEpargneStatus }
+handlers.set(key('GET', '/banque-populaire/status'), () => demoBanquePopulaireStatus())
 handlers.set(key('POST', '/banque-populaire/auth/initiate'), () => ({
   processId: 'demo',
   keypad: { images: Array.from({ length: 10 }, () => DEMO_PAD_PNG), columns: 5 },
@@ -964,11 +975,15 @@ handlers.set(key('POST', '/banque-populaire/auth/initiate'), () => ({
 handlers.set(key('POST', '/banque-populaire/auth/keypad'), () => ({
   processId: 'demo', status: 'SECURPASS_PENDING',
 }))
-handlers.set(key('POST', '/banque-populaire/auth/complete'), () => ({ connected: true }))
-handlers.set(key('POST', '/banque-populaire/sync'), () => demoBanquePopulaireStatus)
-handlers.set(key('DELETE', '/banque-populaire/session'), () => ({
-  removed: true, bankSessionRevoked: false, message: '',
-}))
+handlers.set(key('POST', '/banque-populaire/auth/complete'), () => {
+  demoBanquePopulaireConnected = true
+  return { connected: true }
+})
+handlers.set(key('POST', '/banque-populaire/sync'), () => demoBanquePopulaireStatus())
+handlers.set(key('DELETE', '/banque-populaire/session'), () => {
+  demoBanquePopulaireConnected = false
+  return { removed: true, bankSessionRevoked: false, message: '' }
+})
 
 // Demo authentication bypasses the bank's mobile/SMS confirmation.
 const demoCicStatus: CicSessionStatus = {
