@@ -1,6 +1,6 @@
 # Feature: Dashboard Liabilities Card
 
-> Last updated: 2026-10-05
+> Last updated: 2026-11-05
 
 ## Context
 
@@ -40,7 +40,8 @@ BigDecimal totalMonthlyPayment  // null if no loan has a Debt row
 **New fields on each `LiabilityEntryDto`** (extends existing liability list entry):
 ```java
 BigDecimal monthlyPayment  // null if no Debt row
-Double percentPaid         // null if no Debt row — (borrowedAmount - abs(balance)) / borrowedAmount * 100
+Double percentPaid         // null if no Debt row — (weightedBorrowed - abs(balance)) / weightedBorrowed * 100,
+                           // weightedBorrowed = borrowedAmount weighted by the member's share (balance already is)
 BigDecimal paymentDueAmountEur  // CREDIT_CARD only: account.paymentDueAmount in EUR, weighted by the member's share
 LocalDate paymentDueDate        // CREDIT_CARD only: account.paymentDueDate
 ```
@@ -162,6 +163,7 @@ LiabilitiesCard renders if liabilities.length > 0
 ## Gotchas / Pitfalls
 
 - **`totalLiabilities` is already negative** in the existing DTO (loan balances are stored negative). `totalMonthlyPayment` is a positive absolute value (payment amount).
+- **`percentPaid` weighs both sides by the member's share.** `balanceEur` is already the member's part of the remaining capital, so `borrowedAmount` goes through `AccountAccessResolver.weigh` with the same share. Dividing a weighted balance by the full borrowed amount showed a half-owned loan with 25% repaid as 62.5%; with both sides weighted every co-owner sees the loan's own progress.
 - **`percentPaid` formula uses stored balance**, not the amortization schedule. For Finary loans with manually-updated balances this is accurate enough. For loans with a Debt row, the stored balance is the computed remaining capital (updated daily by the snapshot job), so the formula is consistent.
 - **Monthly payment may be stored or computed.** Check `debt.monthlyPayment != null` first; if null, apply `M = P·r / (1−(1+r)^-n)`. This mirrors `LoanAmortizationService` — do not duplicate, extract to a shared method or call the service's helper.
 - **Check nullable fields with `!= null`, never `!== null`.** The API omits null fields, so they arrive as `undefined`. A strict `!== null` once sent a credit card down the configured-loan branch and rendered `NaN% · NaN €/mo` (issue #197).
