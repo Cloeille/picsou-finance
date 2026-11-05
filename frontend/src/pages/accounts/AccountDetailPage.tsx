@@ -219,9 +219,9 @@ export function AccountDetailPage() {
             categories={categories}
             onCategorize={handleCategorize}
             onCreatePeerLoan={setPeerLoanTx}
-            canCreatePeerLoan={() => canStartPeerLoan}
             onAssignRepayment={setRepaymentTx}
             canAssignRepayment={(tx) => tx.amount > 0 && canStartPeerLoan}
+            canCreatePeerLoan={(tx) => tx.amount < 0 && canStartPeerLoan}
           />
         </>
       )}

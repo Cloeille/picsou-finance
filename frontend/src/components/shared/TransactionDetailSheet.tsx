@@ -68,14 +68,18 @@ export function TransactionDetailSheet({
   })
   if (tx !== derivedFrom.tx || categories !== derivedFrom.categories) {
     setDerivedFrom({ tx, categories })
-    const match = tx && categories ? categories.find(c => c.name === tx.category) : undefined
+    const match = tx && categories
+      ? categories.find(c => (tx.categoryId != null && c.id === tx.categoryId) || c.name === tx.category)
+      : undefined
     setPendingCategoryId(match ? match.id : '')
   }
 
   if (!tx) return null
 
   const label = tx.merchantLabel || transactionDescription(tx, t)
-  const canCategorize = !tx.isManual && !!onCategorize && !!categories
+  // The category is editable on any transaction, manual or synced: the endpoint stamps
+  // `category_manual`, so a re-sync or the categorizer never overwrites the choice.
+  const canCategorize = !!onCategorize && !!categories
   const canStartLoan = !!onCreatePeerLoan && (canCreatePeerLoan ? canCreatePeerLoan(tx) : tx.amount < 0)
   const canAssign = !!onAssignRepayment && (canAssignRepayment ? canAssignRepayment(tx) : tx.amount > 0)
 
