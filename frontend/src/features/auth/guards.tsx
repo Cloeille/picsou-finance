@@ -72,7 +72,8 @@ export function PublicOnly({
     authApi.refresh().then(
       (user) => {
         login(user)
-        window.location.assign(oauthTarget)
+        // replace(): Back must not return to this spent spinner.
+        window.location.replace(oauthTarget)
       },
       (err: unknown) => {
         if (getErrorCode(err) === 'SSO_REVALIDATE') markSsoRevalidate()

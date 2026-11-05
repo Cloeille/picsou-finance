@@ -52,17 +52,19 @@ function renderComplete(entry: string, opts: { strict?: boolean } = {}) {
   return queryClient
 }
 
-/** window.location.assign is not implemented by jsdom; swap in a spy, restore after. */
-function stubLocationAssign() {
+/** jsdom implements neither location.assign nor location.replace; swap in spies, restore after. */
+function stubLocationNavigation() {
   const assign = vi.fn()
+  const replace = vi.fn()
   const original = window.location
   Object.defineProperty(window, 'location', {
-    value: { assign, href: 'http://localhost/' },
+    value: { assign, replace, href: 'http://localhost/' },
     configurable: true,
     writable: true,
   })
   return {
     assign,
+    replace,
     restore: () => Object.defineProperty(window, 'location', { value: original, configurable: true }),
   }
 }
@@ -87,13 +89,15 @@ describe('SsoCompletePage', () => {
     expect(queryClient.getQueryData(['seed'])).toBeUndefined()
   })
 
-  it('hands an /oauth2/ target back to the backend with a full-page navigation', async () => {
+  it('hands an /oauth2/ target back to the backend with a full-page navigation that replaces this page', async () => {
     refresh.mockResolvedValue(USER)
-    const { assign, restore } = stubLocationAssign()
+    const { assign, replace, restore } = stubLocationNavigation()
     try {
       renderComplete('/login/sso-complete?redirect=%2Foauth2%2Fauthorize%3Fclient_id%3Dx')
 
-      await waitFor(() => expect(assign).toHaveBeenCalledWith('/oauth2/authorize?client_id=x'))
+      // Replaced, not pushed: Back must not return to the spent progress screen.
+      await waitFor(() => expect(replace).toHaveBeenCalledWith('/oauth2/authorize?client_id=x'))
+      expect(assign).not.toHaveBeenCalled()
       expect(refresh).toHaveBeenCalledTimes(1)
       expect(useAuthStore.getState().user).toEqual(USER)
       // No SPA navigation: the authorize endpoint is server-handled.

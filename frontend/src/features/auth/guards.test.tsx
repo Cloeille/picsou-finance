@@ -142,20 +142,23 @@ describe('PublicOnly OAuth authorize resume', () => {
     expect(consumeSsoRevalidate()).toBe(true)
   })
 
-  it('resumes the authorization with a full-page navigation when the refresh succeeds', async () => {
+  it('resumes the authorization with a full-page navigation that replaces this entry', async () => {
     useAuthStore.getState().login(USER)
     refresh.mockResolvedValue(USER)
     const assign = vi.fn()
+    const replace = vi.fn()
     const original = window.location
     Object.defineProperty(window, 'location', {
-      value: { assign, href: 'http://localhost/' },
+      value: { assign, replace, href: 'http://localhost/' },
       configurable: true,
       writable: true,
     })
     try {
       renderOAuth(OAUTH_ENTRY)
 
-      await waitFor(() => expect(assign).toHaveBeenCalledWith('/oauth2/authorize?client_id=x'))
+      // Replaced, not pushed: Back must not return to the spent spinner.
+      await waitFor(() => expect(replace).toHaveBeenCalledWith('/oauth2/authorize?client_id=x'))
+      expect(assign).not.toHaveBeenCalled()
       expect(refresh).toHaveBeenCalledTimes(1)
       // The spinner holds until the navigation: the login form never flashes.
       expect(screen.queryByText('login-form')).not.toBeInTheDocument()

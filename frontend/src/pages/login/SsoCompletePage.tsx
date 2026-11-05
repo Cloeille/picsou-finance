@@ -28,7 +28,8 @@ export function SsoCompletePage() {
     authApi.refresh().then(
       (user) => {
         login(user)
-        if (isOAuthAuthorizeRedirect(target)) window.location.assign(target)
+        // replace(): Back must not return to this spent progress screen.
+        if (isOAuthAuthorizeRedirect(target)) window.location.replace(target)
         else navigate(target, { replace: true })
       },
       () => {
