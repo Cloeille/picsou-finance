@@ -16,7 +16,8 @@ const root = document.getElementById('root')
 if (!root) throw new Error('Root element not found')
 
 // A non-default language arrives as its own chunk: render once it is there, so the first paint
-// is never raw keys. i18next resolves even when the fetch fails, and then renders in French.
+// is never raw keys. The boot indicator in index.html covers the wait; the first render replaces
+// it. i18next resolves even when the fetch fails, and then renders in French.
 i18nReady.then(() =>
   createRoot(root).render(
     <StrictMode>
