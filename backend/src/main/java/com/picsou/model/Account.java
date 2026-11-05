@@ -124,6 +124,27 @@ public class Account extends AuditableEntity {
     @Column(name = "opened_at")
     private LocalDate openedAt;
 
+    /**
+     * The contract's own net invested amount, as the provider reports it; null when no connector
+     * does. Set by {@link com.picsou.service.CorumLifeWriter}: CORUM's per-line costs leave out
+     * money switched between funds, so only this figure gives the contract's gain.
+     * {@code AccountService.valuation} honours it on provider-valued accounts only.
+     */
+    @Column(name = "provider_invested_eur", precision = 20, scale = 8)
+    private BigDecimal providerInvestedEur;
+
+    /** Gross amount paid into the contract, entry fees included, as the provider reports it. */
+    @Column(name = "provider_paid_in_eur", precision = 20, scale = 8)
+    private BigDecimal providerPaidInEur;
+
+    /** The programmed savings plan; set with {@link #scheduledPaymentCadence}, or both null. */
+    @Column(name = "scheduled_payment_eur", precision = 20, scale = 8)
+    private BigDecimal scheduledPaymentEur;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "scheduled_payment_cadence", length = 16)
+    private RecurringCadence scheduledPaymentCadence;
+
     @Column(name = "deleted_at")
     private Instant deletedAt;
 

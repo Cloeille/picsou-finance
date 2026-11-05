@@ -62,6 +62,13 @@ public class PortfolioDiversificationService {
         this.securityProfileService = securityProfileService;
     }
 
+    /** Same precedence as the wealth pyramid: the member's override, then the provider's tier. */
+    private static boolean isEquityLine(HoldingClassification override, WealthTier providerTier) {
+        WealthTier tier = override != null && override.getWealthTier() != null
+            ? override.getWealthTier() : providerTier;
+        return tier == null || tier == WealthTier.EQUITY;
+    }
+
     public DiversificationResponse diversification(Long memberId) {
         List<Account> accounts = accessResolver.readableAccounts(memberId);
         Map<Long, BigDecimal> shares = accessResolver.sharesFor(accounts, memberId);
@@ -89,6 +96,10 @@ public class PortfolioDiversificationService {
                 if (value.signum() == 0) continue;
                 // The same ticker held in two accounts is one position for this purpose.
                 String ticker = line.ticker().toUpperCase(Locale.ROOT);
+                // A line the member or the provider puts in another tier is not equity, whatever
+                // its wrapper: an SCPI unit inside a life-insurance contract would otherwise be
+                // listed as unclassified equity here while the pyramid counts it as property.
+                if (!isEquityLine(overrides.get(ticker), line.providerWealthTier())) continue;
                 valueByTicker.merge(ticker, value, BigDecimal::add);
                 originByTicker.putIfAbsent(ticker,
                     new HoldingOrigin(account.getId(), line.name()));

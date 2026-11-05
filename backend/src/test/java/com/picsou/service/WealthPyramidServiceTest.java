@@ -239,6 +239,43 @@ class WealthPyramidServiceTest {
         assertThat(tier(response, WealthTier.EQUITY).valueEur()).isEqualByComparingTo("0");
     }
 
+    /** CORUM's asset-class view puts an SCPI unit in property, inside a life-insurance contract. */
+    @Test
+    void theProvidersTierBeatsTheAccountType() {
+        Account life = cash(AccountType.ASSURANCE_VIE, "10000");
+        lenient().when(holdingRepository.existsForReadableAccount(life.getId(), MEMBER)).thenReturn(true);
+        lenient().when(accountService.getHoldings(life.getId(), MEMBER)).thenReturn(List.of(
+            providerLine("CORUM-LIFE-XL", "6000", WealthTier.REAL_ESTATE),
+            providerLine("CORUM-LIFE-CBEHY", "1000", null),
+            providerLine("CORUM-LIFE-FGCORUM", "3000", null)));
+
+        WealthPyramidResponse response = service.pyramid(MEMBER);
+
+        assertThat(tier(response, WealthTier.REAL_ESTATE).valueEur()).isEqualByComparingTo("6000");
+        // Bond funds and the euro fund keep the account's tier.
+        assertThat(tier(response, WealthTier.EQUITY).valueEur()).isEqualByComparingTo("4000");
+    }
+
+    @Test
+    void theMembersOverrideBeatsTheProvidersTier() {
+        Account life = cash(AccountType.ASSURANCE_VIE, "6000");
+        lenient().when(holdingRepository.existsForReadableAccount(life.getId(), MEMBER)).thenReturn(true);
+        lenient().when(accountService.getHoldings(life.getId(), MEMBER)).thenReturn(List.of(
+            providerLine("CORUM-LIFE-XL", "6000", WealthTier.REAL_ESTATE)));
+        when(classificationRepository.findByMemberId(MEMBER)).thenReturn(List.of(
+            HoldingClassification.builder().ticker("CORUM-LIFE-XL").wealthTier(WealthTier.ALTERNATIVE).build()));
+
+        WealthPyramidResponse response = service.pyramid(MEMBER);
+
+        assertThat(tier(response, WealthTier.ALTERNATIVE).valueEur()).isEqualByComparingTo("6000");
+        assertThat(tier(response, WealthTier.REAL_ESTATE).valueEur()).isEqualByComparingTo("0");
+    }
+
+    private static HoldingResponse providerLine(String ticker, String value, WealthTier providerTier) {
+        return new HoldingResponse(ticker, ticker, null, null, BigDecimal.ONE, null, null, "EUR",
+            new BigDecimal(value), null, null, null, null, null, false, providerTier);
+    }
+
     @Test
     void cashInsideAnEnvelopeStaysWithItsAccountTier() {
         // A life-insurance euro fund is not a line: without the residual it would vanish from the

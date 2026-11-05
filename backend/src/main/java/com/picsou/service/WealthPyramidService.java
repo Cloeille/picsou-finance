@@ -170,7 +170,7 @@ public class WealthPyramidService {
             for (HoldingResponse line : lines) {
                 if (line.currentValueEur() == null) continue;
                 BigDecimal value = AccountAccessResolver.weigh(line.currentValueEur(), share);
-                WealthTier tier = tierFor(line.ticker(), accountTier, overrides);
+                WealthTier tier = tierFor(line.ticker(), line.providerWealthTier(), accountTier, overrides);
                 perTier.merge(tier, value, BigDecimal::add);
                 linesTotal = linesTotal.add(value);
                 if (tier == WealthTier.CRYPTO) {
@@ -232,11 +232,17 @@ public class WealthPyramidService {
      * The tier a holding belongs to, cheapest test first and never a network call: this endpoint
      * renders a page, and {@code SecurityInsightService.classify()} is a Yahoo round trip per
      * ticker behind a cache that dies on restart.
+     *
+     * <p>The member's override, then what the provider's own asset-class view says (an SCPI unit
+     * inside a CORUM Life contract is property), then CoinGecko, then the account's tier. The
+     * sync never writes an override, so the member's verdict always survives it.
      */
-    private WealthTier tierFor(String ticker, WealthTier accountTier, Map<String, WealthTier> overrides) {
+    private WealthTier tierFor(String ticker, WealthTier providerTier, WealthTier accountTier,
+                               Map<String, WealthTier> overrides) {
         if (ticker == null || ticker.isBlank()) return accountTier;
         WealthTier override = overrides.get(ticker.toUpperCase(Locale.ROOT));
         if (override != null) return override;
+        if (providerTier != null) return providerTier;
         // An in-memory map lookup, and the same first test SecurityInsightService already uses.
         if (coinGecko.supports(ticker)) return WealthTier.CRYPTO;
         return accountTier;

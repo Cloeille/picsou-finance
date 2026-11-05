@@ -1,5 +1,7 @@
 package com.picsou.dto;
 
+import com.picsou.model.WealthTier;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -29,5 +31,17 @@ public record HoldingResponse(
     // figure either way and marks a stale one, so a provider outage degrades the price's age
     // instead of blanking the line.
     LocalDate priceAsOf,
-    boolean priceStale
-) {}
+    boolean priceStale,
+    // The tier the provider's own asset-class view gives the line (CORUM Life: SCPI units are
+    // REAL_ESTATE), or null. A member's classification override still wins over it.
+    WealthTier providerWealthTier
+) {
+    /** Pre-provider-tier shape, kept so existing callers need not name the new component. */
+    public HoldingResponse(String ticker, String name, String logoUrl, String logoUrlDark, BigDecimal quantity,
+        BigDecimal averageBuyIn, BigDecimal currentPrice, String quoteCurrency, BigDecimal currentValueEur,
+        BigDecimal costBasisEur, BigDecimal pnlEur, BigDecimal pnlPercent, Instant priceUpdatedAt,
+        LocalDate priceAsOf, boolean priceStale) {
+        this(ticker, name, logoUrl, logoUrlDark, quantity, averageBuyIn, currentPrice, quoteCurrency,
+            currentValueEur, costBasisEur, pnlEur, pnlPercent, priceUpdatedAt, priceAsOf, priceStale, null);
+    }
+}

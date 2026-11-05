@@ -12,6 +12,7 @@ import com.picsou.dto.HoldingResponse;
 import com.picsou.dto.RealEstateMetadataResponse;
 import com.picsou.dto.SnapshotRequest;
 import com.picsou.exception.ResourceNotFoundException;
+import com.picsou.model.ScpiProvider;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
@@ -21,6 +22,8 @@ import com.picsou.model.FamilyMember;
 import com.picsou.model.PropertyKind;
 import com.picsou.model.PropertyValuation;
 import com.picsou.model.RealEstateMetadata;
+import com.picsou.model.RecurringCadence;
+import com.picsou.model.WealthTier;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
@@ -961,6 +964,127 @@ class AccountServiceTest {
 
         // Fully priceable: live prices win over the stored broker total.
         assertThat(accountService.liveBalanceEur(account)).isEqualByComparingTo("1250");
+    }
+
+    @Test
+    void valuation_corumLife_usesCorumsOwnLineValuesWhenNoFeedQuotesItsUnits() {
+        // No market feed quotes a CORUM Life unit, so every line falls back to the value
+        // CORUM reported, the euro fund included at exactly its value (1 EUR units).
+        Account account = Account.builder().id(8L).name("CORUM Life")
+            .type(AccountType.ASSURANCE_VIE).provider(ScpiProvider.CORUM.displayName()).currency("EUR")
+            .isManual(false)
+            .currentBalance(new BigDecimal("1534.37")).cashBalance(BigDecimal.ZERO).build();
+        AccountHolding unitLinked = AccountHolding.builder()
+            .ticker("CORUM-LIFE-XL").quantity(new BigDecimal("2.65955"))
+            .currentPrice(new BigDecimal("195")).averageBuyIn(new BigDecimal("180"))
+            .providerValueEur(new BigDecimal("518.61")).build();
+        AccountHolding euroFund = AccountHolding.builder()
+            .ticker("CORUM-LIFE-FGCORUM").quantity(new BigDecimal("1015.76"))
+            .currentPrice(BigDecimal.ONE).averageBuyIn(BigDecimal.ONE)
+            .providerValueEur(new BigDecimal("1015.76")).build();
+        when(holdingRepository.findByAccount_Id(8L)).thenReturn(List.of(unitLinked, euroFund));
+        stubQuotes("CORUM-LIFE-XL", null, "CORUM-LIFE-FGCORUM", null);
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1534.37");
+        // 2.65955 x 180 + 1015.76 x 1
+        assertThat(valuation.investedEur()).isEqualByComparingTo("1494.479");
+        assertThat(valuation.anyPriced()).isTrue();
+    }
+
+    @Test
+    void valuation_manualAccountTypedCorum_doesNotTakeTheCorumLifeFallback() {
+        // "CORUM" typed by hand on a manual account is free text, not the CORUM Life sync:
+        // an unpriceable line is dropped as for any manual account, not replaced by the total.
+        Account account = Account.builder().id(9L).name("My CORUM")
+            .type(AccountType.ASSURANCE_VIE).provider(ScpiProvider.CORUM.displayName()).currency("EUR")
+            .isManual(true)
+            .currentBalance(new BigDecimal("5000")).cashBalance(BigDecimal.ZERO).build();
+        AccountHolding unpriced = AccountHolding.builder()
+            .ticker("NOQUOTE").quantity(BigDecimal.ONE).averageBuyIn(new BigDecimal("100")).build();
+        when(holdingRepository.findByAccount_Id(9L)).thenReturn(List.of(unpriced));
+        stubQuotes("NOQUOTE", null);
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("0");
+        assertThat(valuation.anyPriced()).isFalse();
+    }
+
+    /**
+     * CORUM's line costs leave out money switched between funds; the contract's own net
+     * invested amount is the only cost that matches the contract's value.
+     */
+    @Test
+    void valuation_corumLife_pairsTheContractValueWithTheContractCost() {
+        Account account = Account.builder().id(8L).name("CORUM Life")
+            .type(AccountType.ASSURANCE_VIE).provider(ScpiProvider.CORUM.displayName()).currency("EUR")
+            .isManual(false).providerInvestedEur(new BigDecimal("1580"))
+            .currentBalance(new BigDecimal("1534.37")).cashBalance(BigDecimal.ZERO).build();
+        AccountHolding unitLinked = AccountHolding.builder()
+            .ticker("CORUM-LIFE-XL").quantity(new BigDecimal("2.65955"))
+            .currentPrice(new BigDecimal("195"))
+            .providerValueEur(new BigDecimal("518.61")).build();
+        AccountHolding euroFund = AccountHolding.builder()
+            .ticker("CORUM-LIFE-FGCORUM").quantity(new BigDecimal("1015.76"))
+            .currentPrice(BigDecimal.ONE)
+            .providerValueEur(new BigDecimal("1015.76")).build();
+        when(holdingRepository.findByAccount_Id(8L)).thenReturn(List.of(unitLinked, euroFund));
+        stubQuotes("CORUM-LIFE-XL", null, "CORUM-LIFE-FGCORUM", null);
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1534.37");
+        assertThat(valuation.investedEur()).isEqualByComparingTo("1580");
+        assertThat(valuation.anyPriced()).isTrue();
+    }
+
+    @Test
+    void valuation_manualAccountWithAProviderCost_ignoresIt() {
+        // Only a provider-valued account is taken at the provider's word.
+        Account account = Account.builder().id(9L).name("My CORUM")
+            .type(AccountType.ASSURANCE_VIE).provider(ScpiProvider.CORUM.displayName()).currency("EUR")
+            .isManual(true).providerInvestedEur(new BigDecimal("1"))
+            .currentBalance(new BigDecimal("5000")).cashBalance(BigDecimal.ZERO).build();
+        AccountHolding priced = AccountHolding.builder()
+            .ticker("CW8.PA").quantity(BigDecimal.TEN).averageBuyIn(new BigDecimal("400")).build();
+        when(holdingRepository.findByAccount_Id(9L)).thenReturn(List.of(priced));
+        stubQuotes("CW8.PA", "500");
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("5000");
+        assertThat(valuation.investedEur()).isEqualByComparingTo("4000");
+    }
+
+    @Test
+    void getHoldings_carriesTheProviderWealthTier() {
+        when(accountRepository.findByIdAndMemberId(1L, 1L)).thenReturn(Optional.of(ownedAccount()));
+        AccountHolding holding = AccountHolding.builder()
+            .id(10L).ticker("CORUM-LIFE-XL").quantity(BigDecimal.ONE)
+            .providerValueEur(new BigDecimal("195")).providerWealthTier(WealthTier.REAL_ESTATE).build();
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(1L)).thenReturn(List.of(holding));
+        stubQuotes("CORUM-LIFE-XL", null);
+
+        HoldingResponse line = accountService.getHoldings(1L, 1L).get(0);
+
+        assertThat(line.providerWealthTier()).isEqualTo(WealthTier.REAL_ESTATE);
+    }
+
+    @Test
+    void response_carriesTheContractFactsOnlyWhenThereAreAny() {
+        Account plain = Account.builder().id(1L).name("Plain").type(AccountType.CHECKING).currency("EUR").build();
+        Account corum = Account.builder().id(2L).name("CORUM Life").type(AccountType.ASSURANCE_VIE)
+            .currency("EUR").providerInvestedEur(new BigDecimal("1480")).providerPaidInEur(new BigDecimal("1500"))
+            .scheduledPaymentEur(new BigDecimal("50")).scheduledPaymentCadence(RecurringCadence.MONTHLY).build();
+
+        assertThat(com.picsou.dto.AccountResponse.from(plain, BigDecimal.ZERO).contract()).isNull();
+        var contract = com.picsou.dto.AccountResponse.from(corum, BigDecimal.ZERO).contract();
+        assertThat(contract.netInvestedEur()).isEqualByComparingTo("1480");
+        assertThat(contract.paidInEur()).isEqualByComparingTo("1500");
+        assertThat(contract.scheduledPaymentEur()).isEqualByComparingTo("50");
+        assertThat(contract.scheduledPaymentCadence()).isEqualTo(RecurringCadence.MONTHLY);
     }
 
     @Test

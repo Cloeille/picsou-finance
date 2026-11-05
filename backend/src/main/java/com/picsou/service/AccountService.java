@@ -65,6 +65,8 @@ public class AccountService {
      * <p>BoursoBank belongs here for a different reason: its trading board
      * exposes only its own instrument symbol, so a line whose ISIN cannot be
      * resolved is unpriceable by construction rather than by accident.
+     *
+     * <p>CORUM is not in this set: see {@link #isProviderValued}.
      */
     private static final Set<String> PROVIDER_VALUED = Set.of(
         BourseDirectSyncService.PROVIDER,
@@ -665,6 +667,15 @@ public class AccountService {
             }
         }
 
+        // A provider that values the account itself and states the contract's own cost basis
+        // (CORUM Life) is taken at its word on both sides. Its per-line costs leave out money
+        // switched between funds, so summing them gives a cost the contract never had and a
+        // gain to match; the contract figures are the only pair that agree.
+        if (account.getProviderInvestedEur() != null && isProviderValued(account)) {
+            return new Valuation(account.getCurrentBalance(), account.getProviderInvestedEur(),
+                allHoldingsPriced, true, anyStale);
+        }
+
         // Some providers report an authoritative total in EUR. If Yahoo/OpenFIGI cannot
         // price even one instrument, prefer that last successful provider valuation over a
         // misleading partial total (cash + only the symbols Yahoo happened to resolve).
@@ -785,9 +796,22 @@ public class AccountService {
         return type == AccountType.CREDIT_CARD ? balance.abs().negate() : balance;
     }
 
-    /** Null-safe: {@code Set.of(...)} throws on a null lookup, and most accounts have no provider. */
+    /**
+     * Null-safe: {@code Set.of(...)} throws on a null lookup, and most accounts have no provider.
+     *
+     * <p>CORUM is provider-valued for the accounts CORUM Life sync writes only: no
+     * market feed quotes a CORUM Life unit. Those are the non-manual CORUM accounts. "CORUM"
+     * is also free text on a manual account, and the SCPI accounts its sync writes are
+     * manual, so neither takes the fallback.
+     */
     private boolean isProviderValued(Account account) {
-        return account.getProvider() != null && PROVIDER_VALUED.contains(account.getProvider());
+        if (account.getProvider() == null) {
+            return false;
+        }
+        if (ScpiProvider.CORUM.displayName().equals(account.getProvider())) {
+            return !account.isManual();
+        }
+        return PROVIDER_VALUED.contains(account.getProvider());
     }
 
     private boolean isCaisseEpargnePer(Account account) {
@@ -1133,7 +1157,8 @@ public class AccountService {
             pnlPercent,
             priceUpdatedAt,
             priceAsOf,
-            priceStale
+            priceStale,
+            holding.getProviderWealthTier()
         );
     }
 
