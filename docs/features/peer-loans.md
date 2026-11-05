@@ -418,7 +418,7 @@ The `db` container has no host port: the database is only reachable by the test 
 - `DataExportServiceTest` — the three peer-loan CSV/JSON sections, including the borrower,
   the plan and the journal's `cash_leg_owned` flag.
 - `AccountsWorkbookServiceTest` — the peer-loan block and its repayment journal, with the
-  rate written out of 100 and the planned interest.
+  rate expressed in the stated period and the planned interest.
 - `PeerLoanToolsTest` — both MCP tools delegate to `PeerLoanService`, validate their
   arguments, refuse a standalone write-off and require the `accounts:*` scope.
 - `constants.test.ts` — the new account type has a label, is not a liability and is not a

@@ -316,6 +316,27 @@ class AccountsWorkbookServiceTest {
         assertThat(row.getCell(5).getStringCellValue()).isEqualTo("March");
     }
 
+    @Test
+    void peerLoanBlock_expressesAMonthlyRatePerMonth() throws IOException {
+        stubAccount(bank(1L, "Jean", AccountType.PEER_LOAN));
+        PeerCounterparty borrower = PeerCounterparty.builder().name("Jean").build();
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .counterparty(borrower)
+            .principal(new BigDecimal("500"))
+            .lentAt(LocalDate.parse("2026-11-05"))
+            .annualRate(new BigDecimal("0.24")).ratePeriod(PeerLoanRatePeriod.MONTHLY)
+            .plannedMonthlyAmount(new BigDecimal("47.28")).plannedMonths(12)
+            .build();
+        when(peerLoanTermsRepository.findByAccountId(1L)).thenReturn(Optional.of(terms));
+        when(peerLoanRepaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(1L)).thenReturn(List.of());
+
+        Sheet sheet = export(List.of(1L)).getSheet("Jean");
+
+        // 0.24 annualized is 2 %/month; printing 24 next to "MONTHLY" would read as 24 %/month.
+        assertThat(numberBesideLabel(sheet, "Interest rate (%)")).isEqualTo(2.0);
+        assertThat(stringBesideLabel(sheet, "Rate period")).isEqualTo("MONTHLY");
+    }
+
     // ─── Labels ──────────────────────────────────────────────────────────────
 
     @Test

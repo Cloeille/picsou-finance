@@ -4,6 +4,7 @@ import com.picsou.dto.AccountResponse;
 import com.picsou.dto.DebtResponse;
 import com.picsou.dto.HoldingResponse;
 import com.picsou.dto.RealEstateMetadataResponse;
+import com.picsou.model.PeerLoanRatePeriod;
 import com.picsou.model.PeerLoanTerms;
 import com.picsou.model.PropertyValuation;
 import com.picsou.service.LoanAmortizationService;
@@ -13,6 +14,7 @@ import com.picsou.service.PeerLoanCalculator;
 import org.apache.poi.ss.usermodel.Sheet;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
 import static com.picsou.export.xlsx.LabelKey.*;
@@ -244,8 +246,9 @@ final class AccountSheetWriter {
     }
 
     /**
-     * The terms and the dated repayment journal of a peer loan. The rate is stored annualized
-     * as a ratio (0.05); the column says "(%)", so it goes out of 100 like every other rate.
+     * The terms and the dated repayment journal of a peer loan. The stored rate is annualized
+     * (0.24 for 2 %/month), so the sheet converts it back to the period the member stated --
+     * printing 24 "%" next to "MONTHLY" would read as a monthly 24 %.
      */
     private void writePeerLoan(SheetCursor cursor, PeerLoanExportData peer) {
         PeerLoanTerms t = peer.terms();
@@ -256,8 +259,7 @@ final class AccountSheetWriter {
         cursor.field(label(PRINCIPAL), t.getPrincipal());
         cursor.field(label(LENT_AT), t.getLentAt());
         cursor.field(label(EXPECTED_BACK), t.getExpectedBack());
-        cursor.fieldPercent(label(INTEREST_RATE),
-            t.getAnnualRate() == null ? null : t.getAnnualRate().multiply(HUNDRED));
+        cursor.fieldPercent(label(INTEREST_RATE), rateInStatedPeriod(t));
         cursor.field(label(RATE_PERIOD), t.getRatePeriod());
         cursor.field(label(PLANNED_MONTHLY), t.getPlannedMonthlyAmount());
         cursor.field(label(PLANNED_MONTHS), t.getPlannedMonths());
@@ -295,6 +297,14 @@ final class AccountSheetWriter {
 
     private String label(LabelKey key) {
         return labels.get(key);
+    }
+
+    /** Annualized ratio → the percentage the member typed, in their chosen period. */
+    private static BigDecimal rateInStatedPeriod(PeerLoanTerms terms) {
+        if (terms.getAnnualRate() == null) return null;
+        BigDecimal annualPercent = terms.getAnnualRate().multiply(HUNDRED);
+        if (terms.getRatePeriod() != PeerLoanRatePeriod.MONTHLY) return annualPercent;
+        return annualPercent.divide(BigDecimal.valueOf(12), 6, RoundingMode.HALF_UP);
     }
 
     private String bool(boolean value) {
