@@ -826,7 +826,7 @@
       "syncSuccess": "Letzte Synchronisierung erfolgreich.",
       "staleAccounts": "Deine Trade-Republic-Konten werden nicht mehr aktualisiert: Ihre Sitzung ist beendet. Melde dich unten erneut an, um die tägliche Synchronisierung fortzusetzen.",
       "authenticatorCode": "Authenticator-Code",
-      "authenticatorPrompt": "Gib den 6-stelligen Code aus deiner Authenticator-App ein.",
+      "authenticatorPrompt": "Gib den 6-stelligen Code aus deiner Authenticator-App ein und bestätige danach die Anmeldung in der Trade-Republic-App.",
       "reconnectPhone": "Telefonnummer",
       "useAnotherNumber": "Andere Nummer verwenden"
     },

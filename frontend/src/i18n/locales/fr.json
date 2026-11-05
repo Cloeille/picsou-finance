@@ -1102,7 +1102,7 @@
       "syncSuccess": "Dernière synchronisation réussie.",
       "staleAccounts": "Vos comptes Trade Republic ne sont plus mis à jour : leur session a pris fin. Reconnectez-vous ci-dessous pour reprendre la synchronisation quotidienne.",
       "authenticatorCode": "Code de l'application d'authentification",
-      "authenticatorPrompt": "Saisissez le code à 6 chiffres de votre application d'authentification.",
+      "authenticatorPrompt": "Saisissez le code à 6 chiffres de votre application d'authentification, puis confirmez la connexion dans l'app Trade Republic.",
       "reconnectPhone": "Numéro de téléphone",
       "useAnotherNumber": "Utiliser un autre numéro"
     },
