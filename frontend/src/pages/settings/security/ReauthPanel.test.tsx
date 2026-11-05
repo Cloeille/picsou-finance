@@ -190,4 +190,11 @@ describe('ReauthPanel', () => {
 
     expect(submitSsoStart).not.toHaveBeenCalled()
   })
+
+  it('explains that single sign-on is off instead of offering a confirmation that cannot work', async () => {
+    renderPanel({ hasPassword: false, ssoEnabled: false }, 'set-password')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(en.ssoErrors.SSO_DISABLED)
+    expect(screen.queryByRole('button', { name: 'Confirm with Zitadel' })).not.toBeInTheDocument()
+  })
 })

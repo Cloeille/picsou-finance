@@ -6,7 +6,7 @@ import { DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { authApi } from '@/features/auth/api'
-import { formatSsoApiError } from '@/features/sso/errors'
+import { formatSsoApiError, ssoErrorMessage } from '@/features/sso/errors'
 import { useReauth, useSignInMethods } from '@/features/sso/hooks'
 import { submitSsoStart } from '@/features/sso/start'
 import { useMounted } from '@/hooks/use-mounted'
@@ -43,11 +43,11 @@ export function ReauthPanel({ action, onConfirmed, expired = false }: ReauthPane
   if (!methods.data) return <PanelAlert message={formatSsoApiError(methods.error, t)} />
 
   const notice = expired ? t('reauth.expired') : null
-  return methods.data.hasPassword ? (
-    <PasswordConfirmation mfaEnabled={methods.data.mfaEnabled} notice={notice} onConfirmed={onConfirmed} />
-  ) : (
-    <ProviderConfirmation action={action} providerName={methods.data.providerName} notice={notice} />
-  )
+  if (methods.data.hasPassword) {
+    return <PasswordConfirmation mfaEnabled={methods.data.mfaEnabled} notice={notice} onConfirmed={onConfirmed} />
+  }
+  if (!methods.data.ssoEnabled) return <PanelAlert message={ssoErrorMessage(t, 'SSO_DISABLED')} />
+  return <ProviderConfirmation action={action} providerName={methods.data.providerName} notice={notice} />
 }
 
 function PanelAlert({ message }: { message: string | null }) {
