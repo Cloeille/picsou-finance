@@ -135,6 +135,14 @@ describe('SignInMethodsCard', () => {
     expect(screen.queryByText(text('unlinkHint'))).not.toBeInTheDocument()
   })
 
+  it('keeps the current-issuer identity of a password-less account but lets it drop a previous issuer\'s', async () => {
+    renderCard({ hasPassword: false, identities: [USED, { ...USED, id: 2, email: 'alice@old.example', currentIssuer: false }] })
+
+    const [current, previous] = await screen.findAllByRole('button', { name: text('unlink') })
+    expect(current).toBeDisabled()
+    expect(previous).toBeEnabled()
+  })
+
   it('notes that admin rights follow the IdP group when the instance manages them there', async () => {
     renderCard({ adminGroupManaged: true })
 

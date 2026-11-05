@@ -197,4 +197,18 @@ describe('ReauthPanel', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(en.ssoErrors.SSO_DISABLED)
     expect(screen.queryByRole('button', { name: 'Confirm with Zitadel' })).not.toBeInTheDocument()
   })
+
+  it('confirms only once the proof is minted', async () => {
+    let mintProof: (value: unknown) => void = () => {}
+    reauth.mockReturnValue(new Promise(resolve => { mintProof = resolve }))
+    const { onConfirmed } = renderPanel({ mfaEnabled: false }, 'export')
+
+    fireEvent.change(await screen.findByLabelText(en.settings.currentPassword), { target: { value: 's3cret' } })
+    fireEvent.click(screen.getByRole('button', { name: en.reauth.confirm }))
+    await waitFor(() => expect(reauth).toHaveBeenCalledTimes(1))
+
+    expect(onConfirmed).not.toHaveBeenCalled()
+    await act(async () => { mintProof({}) })
+    expect(onConfirmed).toHaveBeenCalledTimes(1)
+  })
 })

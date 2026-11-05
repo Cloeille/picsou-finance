@@ -88,6 +88,14 @@ describe('ActivationPage', () => {
     i18n.keysOnly = false
   })
 
+  it('shows the data access notice the acknowledgement refers to', async () => {
+    getInfo.mockResolvedValue(SSO_ON)
+    renderPage()
+
+    expect(await screen.findByText(en.activation.noticeTitle)).toBeInTheDocument()
+    expect(screen.getByText(en.activation.noticeBody)).toBeInTheDocument()
+  })
+
   it('keeps Activate with the provider disabled until the acknowledgement is ticked', async () => {
     getInfo.mockResolvedValue(SSO_ON)
     renderPage()
