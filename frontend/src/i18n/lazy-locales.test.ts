@@ -1,16 +1,26 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import i18n, { i18nReady } from './index'
-import de from './locales/de.json'
+import { describe, expect, it, vi } from 'vitest'
+import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from './locales'
+
+// Language detection reads localStorage first and navigator.language (en-US under jsdom) next.
+// Pin it to French before the module loads, so which bundles are present at boot is not left to
+// the test environment.
+vi.stubGlobal('localStorage', {
+  getItem: (key: string) => (key === 'picsou-locale' ? DEFAULT_LOCALE.code : null),
+  setItem: () => {},
+  removeItem: () => {},
+})
+
+const { default: i18n, i18nReady } = await import('./index')
+const { default: de } = await import('./locales/de.json')
+
+await i18nReady
+const loadedAtBoot = SUPPORTED_LOCALES.filter((l) => i18n.hasResourceBundle(l.code, 'translation')).map(
+  (l) => l.code,
+)
 
 describe('lazy locale bundles', () => {
-  beforeEach(async () => {
-    await i18nReady
-    await i18n.changeLanguage('fr')
-  })
-
   it('ships only French up front', () => {
-    expect(i18n.hasResourceBundle('fr', 'translation')).toBe(true)
-    expect(i18n.hasResourceBundle('es', 'translation')).toBe(false)
+    expect(loadedAtBoot).toEqual([DEFAULT_LOCALE.code])
   })
 
   it('switches only once the bundle is loaded, so no raw key renders', async () => {

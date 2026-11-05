@@ -29,11 +29,13 @@ const lazyLocaleBackend: BackendModule = {
   },
 }
 
-// Keep <html lang> in sync with the active language: accessibility, and
-// lib/utils.ts getLocale() reads it to pick the Intl locale for dates/numbers.
-function syncDocumentLanguage(language: string | undefined) {
-  if (typeof document === 'undefined' || !language) return
-  document.documentElement.lang = resolveLocale(language).code
+// Mirror the language actually rendered into <html lang>: accessibility, and lib/utils.ts
+// getLocale() reads it to pick the Intl locale for dates/numbers. `language` is the requested
+// one, `resolvedLanguage` the one whose strings loaded. When a bundle failed the UI shows
+// French, so dates and numbers must format as French too.
+function syncDocumentLanguage() {
+  if (typeof document === 'undefined') return
+  document.documentElement.lang = resolveLocale(i18n.resolvedLanguage ?? i18n.language).code
 }
 
 /** Resolves once the detected language's bundle is loaded. main.tsx renders after it. */
@@ -57,10 +59,8 @@ export const i18nReady = i18n
       lookupLocalStorage: 'picsou-locale',
     },
   })
-  .then(() => syncDocumentLanguage(i18n.resolvedLanguage ?? i18n.language))
+  .then(syncDocumentLanguage)
 
-i18n.on('languageChanged', (language) => {
-  syncDocumentLanguage(language)
-})
+i18n.on('languageChanged', syncDocumentLanguage)
 
 export default i18n
