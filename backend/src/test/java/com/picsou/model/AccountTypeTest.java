@@ -52,11 +52,12 @@ class AccountTypeTest {
 
     @Test
     void investmentAndValuedAccountsAreNotLedgers() {
-        // Positions price an investment account; a valuation prices the other three. Summing
-        // their transactions would replace that value.
+        // Positions price an investment account; a valuation prices the other three. A peer
+        // loan derives its value from its own terms and repayment ledger. Summing their
+        // transactions would replace that value.
         assertThat(Arrays.stream(AccountType.values()).filter(t -> !t.isLedger()))
             .containsExactlyInAnyOrder(AccountType.PEA, AccountType.COMPTE_TITRES, AccountType.CRYPTO,
                 AccountType.ASSURANCE_VIE, AccountType.PER, AccountType.EMPLOYEE_SAVINGS,
-                AccountType.REAL_ESTATE, AccountType.SCPI);
+                AccountType.REAL_ESTATE, AccountType.SCPI, AccountType.PEER_LOAN);
     }
 }
