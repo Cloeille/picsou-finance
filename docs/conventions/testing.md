@@ -119,7 +119,7 @@ Postgres container whenever DB fidelity — not just JPA mapping — is the poin
 > **Docker API floor.** docker-java (bundled with Testcontainers) defaults to Docker Engine API
 > `1.32`, which Docker Engine 25+ rejects. Surefire pins a safe floor via the `api.version` system
 > property (`<docker.api.version>`, default `1.44`, override with `-Ddocker.api.version=…`) so the
-> container tests work under `mvn test` on a modern daemon. With no Docker, the tests self-skip and
+> container tests work under `make test-backend` on a modern daemon. With no Docker, the tests self-skip and
 > the rest of the suite runs untouched.
 
 ### Testcontainers — only for real-PostgreSQL behaviour

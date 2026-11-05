@@ -481,9 +481,34 @@ Git has the images’ source, not the live install. Postgres lives in the `pgdat
 JWT / encryption / DB password live in `picsou_data` (`/data/.secrets/`). Copy **both**
 or Finary and bank secrets in the database will not decrypt. With the `tls` profile, also copy
 `caddy_data` and `docker/.env` (`PICSOU_DOMAIN`): the volume holds the internal CA's root key, and
-a new one makes every device that trusted the old root reject the certificate. Commands, volume names, and
-the “build this branch, do not `compose pull` GHCR `:latest`” warning are in the root
-[README — Another machine](../../README.md#another-machine).
+a new one makes every device that trusted the old root reject the certificate.
+
+The Compose project name must stay `docker` so the volumes keep their names (`docker_pgdata`,
+`docker_picsou_data`, `docker_caddy_data`). Run every command from the repository root.
+
+On the source machine:
+
+```bash
+docker compose -f docker/docker-compose.yml stop
+docker run --rm -v docker_pgdata:/from -v "$PWD:/to" alpine tar czf /to/pgdata.tar.gz -C /from .
+docker run --rm -v docker_picsou_data:/from -v "$PWD:/to" alpine tar czf /to/picsou_data.tar.gz -C /from .
+# TLS profile only: the internal CA's root key lives here
+docker run --rm -v docker_caddy_data:/from -v "$PWD:/to" alpine tar czf /to/caddy_data.tar.gz -C /from .
+```
+
+Copy the archives (plus `docker/.env` with the `tls` profile) to the target. Never commit them.
+On the target, after cloning and **before** the first `up`:
+
+```bash
+docker volume create docker_pgdata
+docker volume create docker_picsou_data
+docker run --rm -v docker_pgdata:/to -v "$PWD:/from" alpine tar xzf /from/pgdata.tar.gz -C /to
+docker run --rm -v docker_picsou_data:/to -v "$PWD:/from" alpine tar xzf /from/picsou_data.tar.gz -C /to
+# TLS profile only
+docker volume create docker_caddy_data
+docker run --rm -v docker_caddy_data:/to -v "$PWD:/from" alpine tar xzf /from/caddy_data.tar.gz -C /to
+docker compose -f docker/docker-compose.yml up -d
+```
 
 ### Building a release archive
 

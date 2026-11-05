@@ -21,8 +21,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * three JDBC tables that Spring Authorization Server's {@code Jdbc*} repositories
  * ({@code JdbcRegisteredClientRepository}, {@code JdbcOAuth2AuthorizationService},
  * {@code JdbcOAuth2AuthorizationConsentService}) expect at startup — before any later task wires
- * those repositories against this schema, per the Remote-MCP OAuth plan
- * ({@code docs/briefs/2026-07-12-remote-mcp-oauth-plan.md}, Task 1).
+ * those repositories against this schema (see
+ * {@code docs/decisions/2026-07-12-remote-mcp-oauth-authorization.md}).
  *
  * <p>Boots the full application context (so Flyway runs every migration in order, V1..V54) against
  * a real Postgres 16 via Testcontainers, mirroring {@code BudgetSeedWriteOnReadPostgresTest} — the

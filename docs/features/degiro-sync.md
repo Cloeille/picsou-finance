@@ -232,8 +232,8 @@ keeping an eye on across future syncs, especially the 2FA response shape.
   transition (asserted through `DegiroSessionStatusWriter`, since an
   in-transaction write would be rolled back by the rethrow), the non-expiry
   failure path leaving the status alone, and the status/clear endpoints. Run
-  with `mvn test -Dtest=DegiroSyncServiceTest` — 10/10 passing. The full
-  backend suite (`mvn test`) is the CI gate; no absolute count is recorded here
+  with `make test-backend TEST=DegiroSyncServiceTest` — 10/10 passing. The full
+  backend suite (`make test-backend`) is the CI gate; no absolute count is recorded here
   because it drifts with every unrelated PR.
 - Frontend: `tsc --noEmit` and `eslint .` both clean; no dedicated
   `DegiroTab.test.tsx` yet (matching `BoursoTab`'s own untested precedent).

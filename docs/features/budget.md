@@ -507,7 +507,7 @@ Enable Banking sync ─▶ SyncService.fetchTransactions ─▶ dedup ─▶ per
 - `MerchantLogoServiceTest` — per-brand TTL cache, hits/misses cached separately, opt-in gate lives
   in the controller (not the service), graceful empty on a failing provider
 - Frontend: `flow-utils.test.ts`, `MerchantAvatar.test.tsx`, `features/budget` hooks via
-  `bunx vitest run`
+  `make test-frontend`
 - **`BudgetSeedWriteOnReadPostgresTest`** — the one Testcontainers integration test (real Postgres
   16, self-skips without Docker): seeding/recategorizing from a read-only caller must escape via
   `REQUIRES_NEW`, a write-on-read trap H2 masks but Postgres rejects with SQLSTATE `25006`. See

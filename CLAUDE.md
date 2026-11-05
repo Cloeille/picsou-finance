@@ -4,7 +4,7 @@ Self-hosted personal-finance dashboard for an individual or a small family — b
 
 ## Stack
 
-- Backend: Java 21 / Spring Boot 3.4.9 / Maven
+- Backend: Java 21 / Spring Boot 3.5.16 / Maven
 - Frontend: React 19 / TypeScript 5.9 / Vite 7 / Tailwind v4
 - DB: PostgreSQL 16 / Flyway
 - Build: Maven (backend), bun (frontend)
