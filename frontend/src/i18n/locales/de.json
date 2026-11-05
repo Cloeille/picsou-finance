@@ -447,6 +447,9 @@
     "termsDescription": "Der verliehene Betrag, das Datum und optional ein Zinssatz und eine Prognose.",
     "borrowerHint": "Der Darlehensnehmer ist der Name des Kontos. Ein Konto, ein Darlehen.",
     "linkedAccountHint": "Erforderlich: das Konto, das die Rückzahlungen erhält, damit das Vermögen korrekt bleibt.",
+    "termsHint": {
+      "noCashLeg": "Der Geldabfluss ist bereits im Saldo des Zahlungskontos enthalten: Es wird keine Buchung erstellt."
+    },
     "setupHint": "Geben Sie den verliehenen Betrag und das Girokonto ein, um die Nachverfolgung zu starten.",
     "saved": "Bedingungen gespeichert.",
     "repaymentSaved": "Rückzahlung erfasst.",

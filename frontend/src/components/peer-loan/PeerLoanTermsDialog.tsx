@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { DateInput } from '@/components/shared/DateInput'
 import { SELECT_CONTROL_CLASS } from '@/lib/constants'
@@ -66,6 +67,7 @@ export function PeerLoanTermsDialog({
   const [monthly, setMonthly] = useState('')
   const [linkedAccountId, setLinkedAccountId] = useState('')
   const [note, setNote] = useState('')
+  const [withCashLeg, setWithCashLeg] = useState(true)
   const [simulation, setSimulation] = useState<PeerLoanSimulationResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [wasOpen, setWasOpen] = useState(open)
@@ -87,6 +89,7 @@ export function PeerLoanTermsDialog({
       setMonthly(text(initial?.plannedMonthlyAmount))
       setLinkedAccountId(text(initial?.linkedAccountId))
       setNote(initial?.note ?? '')
+      setWithCashLeg(true)
       setSimulation(null)
       setError(null)
     }
@@ -106,8 +109,7 @@ export function PeerLoanTermsDialog({
   }
 
   /** The backend only rejects a negative rate; short-term loans may carry high ones. */
-  function validateRate(annualRate: number): boolean {
-    if (annualRate < 0) {
+  function validateRate(annualRate: number): boolean {    if (annualRate < 0) {
       setError(t('peerLoan.validation.rateNegative'))
       return false
     }
@@ -193,6 +195,7 @@ export function PeerLoanTermsDialog({
         plannedMonths: monthCount,
         linkedAccountId: linkedValue,
         note: note.trim() || null,
+        withCashLeg,
       })
       onOpenChange(false)
     } catch {
@@ -293,6 +296,25 @@ export function PeerLoanTermsDialog({
             </select>
             <p className="text-xs text-muted-foreground">{t('peerLoan.linkedAccountHint')}</p>
           </div>
+
+          {/* Only a first configuration on a manual account can double-count the outflow:
+              the typed balance may already include a loan recorded after the fact. */}
+          {!initial?.configured
+            && cashAccounts.find(account => account.id === Number(linkedAccountId))?.isManual
+            && (
+              <div className="space-y-2 rounded-lg border border-border/60 p-3">
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={withCashLeg}
+                    onCheckedChange={(checked) => setWithCashLeg(checked === true)}
+                  />
+                  {t('peerLoan.withCashLeg')}
+                </label>
+                {!withCashLeg && (
+                  <p className="text-xs text-muted-foreground">{t('peerLoan.termsHint.noCashLeg')}</p>
+                )}
+              </div>
+            )}
 
           <div className="space-y-2">
             <Label htmlFor="peer-note">{t('peerLoan.fields.note')}</Label>

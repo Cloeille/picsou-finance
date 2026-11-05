@@ -234,6 +234,34 @@ class PeerLoanServiceTest {
     }
 
     @Test
+    void saveTermsWithoutTheLendingCashLegWritesNoTransaction() {
+        Account account = loanAccount("Jean");
+        Account linked = cashAccount(true);
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(accountRepository.findByIdAndMemberId(CASH_ID, MEMBER_ID)).thenReturn(Optional.of(linked));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.empty());
+        when(familyMemberRepository.getReferenceById(MEMBER_ID)).thenReturn(member());
+        when(counterpartyRepository.findByMemberIdAndNameIgnoreCase(MEMBER_ID, "Jean"))
+            .thenReturn(Optional.empty());
+        when(counterpartyRepository.save(any(PeerCounterparty.class))).thenAnswer(invocation -> {
+            PeerCounterparty saved = invocation.getArgument(0);
+            saved.setId(3L);
+            return saved;
+        });
+        when(termsRepository.save(any(PeerLoanTerms.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID)).thenReturn(List.of());
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PeerLoanDetailResponse response = service.saveTerms(ACCOUNT_ID, MEMBER_ID,
+            new PeerLoanTermsRequest(new BigDecimal("500"), LocalDate.parse("2026-01-01"), null,
+                BigDecimal.ZERO, null, null, null, CASH_ID, null, false));
+
+        // A loan recorded after the fact already shows in the typed balance: no second outflow.
+        verify(manualTransactionService, never()).addTransaction(anyLong(), anyLong(), any());
+        assertThat(response.principalRemaining()).isEqualByComparingTo("500.00");
+    }
+
+    @Test
     void saveTermsRejectsAHalfConfiguredPlan() {
         Account account = loanAccount("Jean");
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));

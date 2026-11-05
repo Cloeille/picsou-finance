@@ -29,5 +29,22 @@ public record PeerLoanTermsRequest(
     @DecimalMin("0") BigDecimal plannedMonthlyAmount,
     @Min(1) Integer plannedMonths,
     @NotNull Long linkedAccountId,
-    @Size(max = 500) String note
-) {}
+    @Size(max = 500) String note,
+    /**
+     * Whether Picsou writes the lending outflow on a manual linked account. Null or true
+     * keeps the historical behaviour. False is for a loan recorded after the fact, whose
+     * cash movement is already reflected in the account's typed balance; only the first
+     * configuration acts on it.
+     */
+    Boolean withCashLeg
+) {
+    /** Pre-cash-leg shape, kept so existing callers keep the historic behaviour. */
+    public PeerLoanTermsRequest(
+        BigDecimal principal, LocalDate lentAt, LocalDate expectedBack, BigDecimal annualRate,
+        PeerLoanRatePeriod ratePeriod, BigDecimal plannedMonthlyAmount, Integer plannedMonths,
+        Long linkedAccountId, String note
+    ) {
+        this(principal, lentAt, expectedBack, annualRate, ratePeriod, plannedMonthlyAmount,
+            plannedMonths, linkedAccountId, note, true);
+    }
+}

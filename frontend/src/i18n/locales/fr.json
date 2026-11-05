@@ -458,6 +458,9 @@
     "termsDescription": "Le montant prêté, la date, et si besoin un taux et une prévision.",
     "borrowerHint": "Le bénéficiaire est le nom du compte. Un compte = un prêt.",
     "linkedAccountHint": "Obligatoire : le compte qui reçoit les remboursements, pour que le patrimoine reste juste.",
+    "termsHint": {
+      "noCashLeg": "La sortie d'argent est déjà reflétée dans le solde du compte de trésorerie : aucune écriture ne sera créée."
+    },
     "setupHint": "Renseignez le montant prêté et le compte de trésorerie pour commencer le suivi.",
     "saved": "Conditions enregistrées.",
     "repaymentSaved": "Remboursement enregistré.",

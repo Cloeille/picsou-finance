@@ -327,6 +327,11 @@ public class PeerLoanService {
         PeerLoanTerms terms = termsRepository.findByAccountId(accountId).orElseGet(() -> PeerLoanTerms.builder()
             .account(account)
             .build());
+        // The lending outflow is only a first-configuration decision: a loan recorded after
+        // the fact may already be reflected in the cash account's balance, and writing the
+        // withdrawal again would double the outflow in net worth.
+        boolean firstConfiguration = terms.getId() == null;
+        boolean withCashLeg = request.withCashLeg() == null || request.withCashLeg();
         if (terms.getClosedAt() != null) {
             throw new IllegalArgumentException(
                 "This loan is closed. Delete its write-off to reopen it before editing the terms.");
@@ -370,7 +375,9 @@ public class PeerLoanService {
         // The principal and the ledger are EUR figures by construction. Keeping a USD
         // account here would convert them a second time in valuation().
         account.setCurrency("EUR");
-        syncLendingLeg(account, terms, linked, memberId);
+        if (firstConfiguration && withCashLeg) {
+            syncLendingLeg(account, terms, linked, memberId);
+        }
         termsRepository.save(terms);
 
         refreshBalance(account, terms);

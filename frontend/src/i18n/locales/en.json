@@ -458,6 +458,9 @@
     "termsDescription": "The amount lent, the date, and optionally a rate and a forecast.",
     "borrowerHint": "The borrower is the account's own name. One account, one loan.",
     "linkedAccountHint": "Required: the account that receives the repayments, so net worth stays correct.",
+    "termsHint": {
+      "noCashLeg": "The outflow is already reflected in the cash account balance: no entry will be created."
+    },
     "setupHint": "Enter the amount lent and the cash account to start tracking.",
     "saved": "Terms saved.",
     "repaymentSaved": "Repayment recorded.",

@@ -569,6 +569,11 @@ export interface PeerLoanTermsRequest {
   /** Required: the receivable must balance a real cash movement. */
   linkedAccountId: number
   note?: string | null
+  /**
+   * Whether Picsou writes the lending outflow on a manual linked account. False is for a
+   * loan recorded after the fact, already reflected in the account's typed balance.
+   */
+  withCashLeg?: boolean | null
 }
 
 export interface PeerLoanFromTransactionRequest {

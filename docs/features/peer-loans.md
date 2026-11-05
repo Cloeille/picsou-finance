@@ -232,7 +232,9 @@ not a side effect of a payment.
 - `PeerLoanTermsDialog.tsx` — terms plus the simulator (a duration fills the monthly
   amount, or a monthly amount fills the duration). The rate is entered per year or per
   month; switching the period converts the visible value. The linked cash account is
-  required; the borrower is the account name.
+  required; the borrower is the account name. **On the first configuration of a manual
+  cash account**, a checkbox can skip the lending outflow when the typed balance already
+  includes it (a loan recorded after the fact).
 - `PeerLoanRepaymentDialog.tsx` — one date and one amount; the calculator applies the
   accrued interest first and the ledger row shows the split. **"Create the cash movement"
   is on by default**; turning it off records a compensation (the receivable falls, no bank
@@ -297,6 +299,7 @@ Create a peer loan
    │
    ├─ Account(type=PEER_LOAN, isManual=true) created, its name is the borrower
    ├─ terms entered on the detail page (principal, dates, rate, linked cash account)
+   ├─ withCashLeg=false → no lending outflow (the cash balance already reflects it)
    └─ manual linked account → WITHDRAWAL of the principal (TRANSFER category)
 
 Create from a transaction
@@ -423,6 +426,10 @@ The `db` container has no host port: the database is only reachable by the test 
 - **The principal and the linked account are frozen once the cash leg exists.** Changing
   either would silently rewrite a real movement; deleting and recreating the loan is the
   honest path.
+- **A loan recorded after the fact can skip the lending leg.** `withCashLeg=false` on the
+  first configuration writes no withdrawal: the typed cash balance already includes the
+  money that left. The option is only offered for a manual linked account, and only before
+  a leg exists; writing it twice would double the outflow in net worth.
 - **A synced account's row is not categorised automatically.** The provider owns it, so
   the member classifies it once as "Internal transfer"; the detail keeps the hint while
   no link is set.
@@ -452,11 +459,12 @@ The `db` container has no host port: the database is only reachable by the test 
   short-term rate.
 - `PeerLoanServiceTest` — unconfigured detail, member scoping, wrong type, closed-loan
   guard, account name as the borrower, no leg on a synced account, the outflow written on
-  a manual one, a repayment with no cash leg, removing a cash leg on edit, closure
-  write-off and zeroed balance, the final repayment closing the loan by itself, reopen on
-  deleting the write-off, loan creation from an existing transaction, a repayment linked
-  from an incoming transaction (no copy, not deleted), simulation input guard, and the
-  member-wide overview (open/closed counts, totals, ordering, last payment, curve).
+  a manual one, a first configuration that deliberately skips the lending leg, a repayment
+  with no cash leg, removing a cash leg on edit, closure write-off and zeroed balance, the
+  final repayment closing the loan by itself, reopen on deleting the write-off, loan
+  creation from an existing transaction, a repayment linked from an incoming transaction
+  (no copy, not deleted), simulation input guard, and the member-wide overview (open/closed
+  counts, totals, ordering, last payment, curve).
 - `DataExportServiceTest` — the three peer-loan CSV/JSON sections, including the borrower,
   the plan and the journal's `cash_leg_owned` flag.
 - `AccountsWorkbookServiceTest` — the peer-loan block and its repayment journal, with the

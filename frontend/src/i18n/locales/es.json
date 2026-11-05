@@ -447,6 +447,9 @@
     "termsDescription": "El importe prestado, la fecha y, opcionalmente, un tipo de interés y una previsión.",
     "borrowerHint": "El destinatario es el nombre de la cuenta. Una cuenta, un préstamo.",
     "linkedAccountHint": "Obligatoria: la cuenta que recibe las devoluciones, para que el patrimonio sea correcto.",
+    "termsHint": {
+      "noCashLeg": "La salida ya está reflejada en el saldo de la cuenta de efectivo: no se creará ningún movimiento."
+    },
     "setupHint": "Introduce el importe prestado y la cuenta de tesorería para empezar el seguimiento.",
     "saved": "Condiciones guardadas.",
     "repaymentSaved": "Devolución registrada.",
