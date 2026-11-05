@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CORUM Life (assurance-vie) sync.** A CORUM login holding a CORUM Life contract no longer
+  fails with `PORTFOLIO_INCOMPLETE`: each contract becomes an assurance-vie account, synced with
+  the SCPI funds in one all-or-nothing run. Holdings are CORUM's funds (aggregated across
+  management pockets, euro fund included); performance uses the contract's net invested amount,
+  so it matches CORUM; the account page shows the opening date, 8-year tax date, payments and
+  scheduled payment; the contract's operations are imported as transactions (payments as
+  investment transfers, coupons as dividends, fees and switches marked "in the contract" and kept
+  out of the budget). SCPI units held in the policy count as real estate in the wealth pyramid.
+  An existing manual "CORUM Life" account is adopted, or reported instead of duplicated.
+  Migrations V122–V124. Deploy the `app` and `corum-auth` images together. See
+  [CORUM Life sync](docs/features/corum-life.md).
+
+- **Budget-neutral transactions.** Money moving inside an investment wrapper (coupons, fees,
+  switches) can be flagged `budget_neutral`: it stays on the account's ledger and export but is
+  left out of budget, cashflow, categorisation and the global transactions view.
+
 - **AI categorization over MCP.** `start_ai_categorization` starts the inbox's AI job and
   `get_ai_categorization_status` reports its progress as counters only, under a new
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
@@ -32,6 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [Loans](docs/features/loans.md).
 
 ### Changed
+
+- **Diversification leaves out lines classified outside equity.** A holding whose wealth tier
+  (your override, or the provider's) is not equity — for example a money-market ETF set to
+  safety net — is no longer counted in the sector and geography breakdown, matching the
+  wealth pyramid.
 
 - **Caisse d'Epargne: a failed account import says where it failed.** The sidecar's
   `accounts fetch failed` line now names the step (synthesis, transactions,
