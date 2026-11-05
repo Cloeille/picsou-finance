@@ -170,7 +170,10 @@ as paid and never drive the balance.
 The maths lives in `PeerLoanCalculator` and mirrors `LoanAmortizationService`'s annuity, so
 the forecast and the bank-loan schedule cannot disagree. The detail draws the actual
 capital as a solid step line and the plan as a dashed line, and reports the drift in
-installments. This is information, not a verdict: no automatic "late" state, no scoring.
+installments. The same card compares the interest the plan expected to have been paid by
+today (`plannedInterestToDate`) with the interest actually produced
+(`interestAccrued + interestReceived`). This is information, not a verdict: no automatic
+"late" state, no scoring.
 
 The rate can be entered **per year or per month**. `annual_rate` always stores the
 normalized annual fraction the calculator uses; `rate_period` only remembers how the
@@ -405,7 +408,8 @@ The `db` container has no host port: the database is only reachable by the test 
 
 - `PeerLoanCalculatorTest` — remaining capital, simple interest, payment below accrued
   interest, interest-first allocation of a payment, zero rate, write-off, overpayment
-  clamp, forecast drift, both simulation directions, high short-term rate.
+  clamp, forecast drift, planned interest to date, both simulation directions, high
+  short-term rate.
 - `PeerLoanServiceTest` — unconfigured detail, member scoping, wrong type, closed-loan
   guard, account name as the borrower, no leg on a synced account, the outflow written on
   a manual one, closure write-off and zeroed balance, reopen on deleting the write-off,

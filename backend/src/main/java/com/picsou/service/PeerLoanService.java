@@ -644,7 +644,7 @@ public class PeerLoanService {
                 .atZone(java.time.ZoneOffset.UTC).toLocalDate(),
             null, null, PeerLoanRatePeriod.ANNUAL, null, null, null, null, null, null,
             BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-            BigDecimal.ZERO, BigDecimal.ZERO, null, null,
+            BigDecimal.ZERO, BigDecimal.ZERO, null, null, null,
             List.of(), List.of());
     }
 
@@ -689,6 +689,7 @@ public class PeerLoanService {
             repaidPct,
             plan == null ? null : plan.scheduledRemaining(),
             plan == null ? null : plan.installmentsBehind(),
+            plan == null ? null : plan.plannedInterestToDate(),
             repayments.stream()
                 .map(repayment -> PeerLoanRepaymentResponse.from(repayment, splitsById.get(repayment.getId())))
                 .toList(),

@@ -53,7 +53,8 @@ public final class PeerLoanCalculator {
         BigDecimal writtenOff
     ) {}
 
-    public record Plan(BigDecimal scheduledRemaining, Integer installmentsBehind) {}
+    public record Plan(BigDecimal scheduledRemaining, Integer installmentsBehind,
+                       BigDecimal plannedInterestToDate) {}
 
     public record Simulation(BigDecimal monthlyPayment, int months,
                              BigDecimal totalInterest, BigDecimal totalCost) {}
@@ -173,6 +174,10 @@ public final class PeerLoanCalculator {
         }
         scheduled = scale(scheduled.max(BigDecimal.ZERO));
 
+        BigDecimal plannedPaid = monthly.multiply(BigDecimal.valueOf(paidMonths));
+        BigDecimal plannedCapital = principal.subtract(scheduled).max(BigDecimal.ZERO);
+        BigDecimal plannedInterest = plannedPaid.subtract(plannedCapital).max(BigDecimal.ZERO);
+
         Integer behind = null;
         if (monthly.signum() > 0) {
             behind = nonNull(actualRemaining)
@@ -180,7 +185,7 @@ public final class PeerLoanCalculator {
                 .divide(monthly, 0, RoundingMode.CEILING)
                 .intValue();
         }
-        return new Plan(scheduled, behind);
+        return new Plan(scheduled, behind, scale(plannedInterest));
     }
 
     /** Duration → monthly payment. The standard annuity, with a zero-rate shortcut. */
