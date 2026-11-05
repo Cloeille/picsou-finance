@@ -85,7 +85,7 @@ test-backend:
 	cd backend && mvn -B test $(if $(SOFIDY_PYTHON),-Dsofidy.contract.python=$(SOFIDY_PYTHON)) $(if $(TEST),-Dtest=$(TEST))
 
 test-frontend: | frontend/node_modules
-	cd frontend && bun run lint && bun run typecheck && bun run test
+	cd frontend && bun run lint --max-warnings=0 && bun run typecheck && bun run test
 
 # CI adds PLAYWRIGHT_DEPS=--with-deps: a fresh runner lacks Chromium's system libraries.
 test-e2e: | frontend/node_modules
@@ -128,8 +128,11 @@ build:
 # REMOTE is the repository that publishes (REMOTE=upstream from a fork).
 # Only a commit already on $(REMOTE)/main is tagged, so the tag never publishes
 # unreviewed work. A rerun after a failed push reuses the local tag if it is on HEAD.
+# Same rule as the chart step in docker.yml: no leading zero in a numeric identifier.
+SEMVER_N := (0|[1-9][0-9]*)
+SEMVER_PRE := ($(SEMVER_N)|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)
 release:
-	@echo "$(VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$$' \
+	@echo "$(VERSION)" | grep -Eq "^$(SEMVER_N)\.$(SEMVER_N)\.$(SEMVER_N)(-$(SEMVER_PRE)(\.$(SEMVER_PRE))*)?$$" \
 	  || { echo "usage: make release VERSION=x.y.z (no leading v)"; exit 1; }
 	@grep -q '^## \[$(VERSION)\]' CHANGELOG.md \
 	  || { echo "CHANGELOG.md has no '## [$(VERSION)]' section"; exit 1; }

@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **One command per task for contributors (#344).** A root `Makefile`: `make dev` starts
-  PostgreSQL, the backend and Vite, `make test` runs every suite CI runs, `make build`
+  PostgreSQL, the backend and Vite, `make test` runs the backend, frontend, e2e and sidecar suites, `make build`
   builds the images, `make release VERSION=x.y.z` checks the CHANGELOG and pushes the tag.
   CI calls the same targets, and `CONTRIBUTING.md` is the one place that lists commands.
 
