@@ -7,9 +7,11 @@ import { ErrorState } from '@/components/shared/ErrorState'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAllocationTargets, useDiversification, useWealthPyramid } from '@/features/analysis/hooks'
+import { usePeerLoansOverview } from '@/features/peer-loans/hooks'
 import { PyramidSection } from './PyramidSection'
 import { DiversificationSection } from './DiversificationSection'
 import { ProjectionSection } from './ProjectionSection'
+import { PeerLoansSection } from './PeerLoansSection'
 import { AllocationTargetsModal } from './AllocationTargetsModal'
 
 export function AnalysisPage() {
@@ -17,6 +19,7 @@ export function AnalysisPage() {
   const pyramid = useWealthPyramid()
   const targets = useAllocationTargets()
   const diversification = useDiversification()
+  const peerLoans = usePeerLoansOverview()
   const [editing, setEditing] = useState(false)
 
   const hasWealth = (pyramid.data?.totalAssetsEur ?? 0) !== 0
@@ -60,6 +63,9 @@ export function AnalysisPage() {
         <div className="space-y-4">
           <PyramidSection pyramid={pyramid.data} />
           {diversification.data && <DiversificationSection data={diversification.data} />}
+          {peerLoans.data && peerLoans.data.loans.length > 0 && (
+            <PeerLoansSection data={peerLoans.data} />
+          )}
           <ProjectionSection />
         </div>
       )}

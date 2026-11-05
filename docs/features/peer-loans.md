@@ -238,6 +238,11 @@ account scopes cover it and the consent surface does not change. The repayment t
 - `AccountForm` hides the balance, currency, bank, ticker and manual fields for a peer
   loan and labels the name "Borrower".
 - `AccountsPage` gains a `RECEIVABLES` filter.
+- `pages/analysis/PeerLoansSection.tsx` is the member-wide view: total outstanding, open
+  loans and accrued interest, the outstanding curve over 12 months, and one row per
+  borrower with the remaining capital, repayment percentage, plan drift, last payment and
+  expected return. A row opens the loan. It is facts only: a late badge counts the
+  instalments the plan says are missing, it does not score the borrower.
 - i18n keys in all four locales (`fr`, `en`, `de`, `es`).
 
 ### Key files
@@ -270,10 +275,11 @@ Frontend:
 - `frontend/src/features/peer-loans/{api,hooks}.ts`
 - `frontend/src/components/peer-loan/*` (detail, terms, repayment, create/assign dialogs,
   forecast chart)
+- `frontend/src/pages/analysis/PeerLoansSection.tsx` (the member-wide overview)
 - `frontend/src/pages/accounts/AccountDetailPage.tsx`,
   `frontend/src/pages/accounts/AccountsPage.tsx`
 - `frontend/src/components/shared/AccountForm.tsx`
-- `frontend/src/demo/index.ts` (route coverage placeholder)
+- `frontend/src/demo/index.ts` (the two demo loans and the overview handler)
 
 ### Flow
 
@@ -300,6 +306,11 @@ Daily snapshot
    │
    └─ AccountService.valuation() → PeerLoanCalculator.principalRemaining(...)
         → balance_snapshot stores the step-down (0 once closed)
+
+Analysis overview
+   │
+   └─ PeerLoanService.overview() → every configured loan + totals
+        └─ HistoryService on the same account ids → outstanding curve
 
 Close with a residual
    │
@@ -406,7 +417,6 @@ The `db` container has no host port: the database is only reachable by the test 
 - Automatic categorisation of the provider row on a synced linked account (today the
   member classifies it once).
 - A projected-vs-actual **chart** (v1 compares the figures textually).
-- A **borrower history** view across loans (kept out of the account page on purpose).
 - The borrowed direction (`PEER_DEBT`).
 - Ownership shares on a peer-loan account (`AccountAccessResolver` scope).
 
@@ -420,13 +430,16 @@ The `db` container has no host port: the database is only reachable by the test 
   guard, account name as the borrower, no leg on a synced account, the outflow written on
   a manual one, closure write-off and zeroed balance, reopen on deleting the write-off,
   loan creation from an existing transaction, a repayment linked from an incoming
-  transaction (no copy, not deleted), simulation input guard.
+  transaction (no copy, not deleted), simulation input guard, and the member-wide overview
+  (open/closed counts, totals, ordering, last payment, curve).
 - `DataExportServiceTest` — the three peer-loan CSV/JSON sections, including the borrower,
   the plan and the journal's `cash_leg_owned` flag.
 - `AccountsWorkbookServiceTest` — the peer-loan block and its repayment journal, with the
   rate expressed in the stated period and the planned interest.
 - `PeerLoanToolsTest` — both MCP tools delegate to `PeerLoanService`, validate their
   arguments, refuse a standalone write-off and require the `accounts:*` scope.
+- `PeerLoansSection.test.tsx` — totals and one row per borrower, the late/on-time/closed
+  badges, and opening a loan by click or keyboard.
 - `constants.test.ts` — the new account type has a label, is not a liability and is not a
   holdings type.
 

@@ -653,6 +653,40 @@ export interface PeerLoanDetail {
   curve: PeerLoanCurvePoint[]
 }
 
+/** One row of the member-wide peer-loan view. */
+export interface PeerLoanOverviewEntry {
+  accountId: number
+  name: string
+  principal: number
+  principalRemaining: number
+  repaidPct: number
+  interestAccrued: number
+  interestReceived: number
+  lentAt?: string | null
+  expectedBack?: string | null
+  /** Null without a plan; 0 or negative means on or ahead of schedule. */
+  installmentsBehind?: number | null
+  lastPaymentDate?: string | null
+  lastPaymentAmount?: number | null
+  closedAt?: string | null
+}
+
+export interface PeerLoanOverviewPoint {
+  date: string
+  outstanding: number
+}
+
+/** The member's peer loans as one view: who owes what, and the total over time. */
+export interface PeerLoansOverview {
+  totalOutstanding: number
+  openCount: number
+  closedCount: number
+  interestAccrued: number
+  /** Open loans first, then by name. */
+  loans: PeerLoanOverviewEntry[]
+  history: PeerLoanOverviewPoint[]
+}
+
 export interface BalanceSnapshot {
   id: number
   date: string

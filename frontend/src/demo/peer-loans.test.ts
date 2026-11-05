@@ -1,6 +1,6 @@
 import { AxiosHeaders } from 'axios'
 import { afterAll, describe, expect, it, vi } from 'vitest'
-import type { Account, PeerLoanDetail, PeerLoanOpen } from '@/types/api'
+import type { Account, PeerLoanDetail, PeerLoanOpen, PeerLoansOverview } from '@/types/api'
 
 // One instant for every fixture, before they load: the peer-loan terms and their ledger are
 // relative to today. Mid-month keeps the curve clear of a month boundary.
@@ -54,6 +54,19 @@ describe('demo peer loan', () => {
       name: account.name,
       remaining: detail.principalRemaining,
     })
+  })
+
+  it('summarises both loans and names the one behind', async () => {
+    const overview = await get<PeerLoansOverview>('/peer-loans/overview')
+
+    expect(overview.loans).toHaveLength(2)
+    expect(overview.openCount).toBe(2)
+    expect(overview.closedCount).toBe(0)
+    expect(overview.totalOutstanding).toBeCloseTo(
+      overview.loans.reduce((sum, loan) => sum + loan.principalRemaining, 0), 2)
+    expect(overview.loans.some((loan) => (loan.installmentsBehind ?? 0) > 0)).toBe(true)
+    expect(overview.history.length).toBeGreaterThan(1)
+    expect(overview.history.at(-1)?.outstanding).toBeCloseTo(overview.totalOutstanding, 2)
   })
 
   it('ends its history on the live balance and keeps the receivable out of invested and PnL', async () => {

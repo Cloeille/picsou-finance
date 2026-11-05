@@ -9,6 +9,7 @@ import type {
   PeerLoanSimulationRequest,
   PeerLoanSimulationResponse,
   PeerLoanTermsRequest,
+  PeerLoansOverview,
 } from '@/types/api'
 
 export const peerLoansApi = {
@@ -36,6 +37,8 @@ export const peerLoansApi = {
     api.post<PeerLoanDetail>('/peer-loans/from-transaction', data).then(r => r.data),
   openLoans: () =>
     api.get<PeerLoanOpen[]>('/peer-loans/open').then(r => r.data),
+  overview: (months = 12) =>
+    api.get<PeerLoansOverview>('/peer-loans/overview', { params: { months } }).then(r => r.data),
   addRepaymentFromTransaction: (accountId: number, data: PeerLoanRepaymentFromTransactionRequest) =>
     api.post<PeerLoanDetail>(`/accounts/${accountId}/peer-loan/repayments/from-transaction`, data)
       .then(r => r.data),

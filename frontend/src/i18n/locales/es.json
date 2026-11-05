@@ -518,6 +518,29 @@
       "simulationResult": "{{months}} meses · {{monthlyPayment}}/mes · {{interest}} de intereses",
       "accruedHint": "Intereses devengados:"
     },
+    "overview": {
+      "title": "Préstamos entre particulares",
+      "subtitle": "Quién debe qué y cómo van las devoluciones.",
+      "totalOutstanding": "Total pendiente",
+      "openLoans": "Préstamos en curso",
+      "interestAccrued": "Intereses devengados",
+      "curveTitle": "Pendiente total en 12 meses",
+      "columns": {
+        "borrower": "Prestatario",
+        "remaining": "Pendiente",
+        "repaid": "Devuelto",
+        "status": "Estado",
+        "lastPayment": "Último pago",
+        "expectedBack": "Devolución prevista"
+      },
+      "status": {
+        "closed": "Cerrado",
+        "behind_one": "{{count}} cuota de retraso",
+        "behind_other": "{{count}} cuotas de retraso",
+        "onTime": "Al día",
+        "noPlan": "Sin plan"
+      }
+    },
     "fromTransaction": {
       "action": "Crear un préstamo entre particulares",
       "title": "Crear un préstamo desde esta transacción",

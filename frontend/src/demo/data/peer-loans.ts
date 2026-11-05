@@ -8,7 +8,7 @@ import type {
 } from '@/types/api'
 import { isoDate, monthStartFromToday } from './dates'
 
-// One peer loan, derived the same way PeerLoanCalculator does it: simple interest on the
+// Peer loans are derived the same way PeerLoanCalculator does it: simple interest on the
 // remaining capital (actual/365), each payment applied to interest first and then capital.
 // The summary and the curve are computed from the terms and the ledger below, never typed
 // twice -- see docs/features/demo-mode.md.
@@ -36,27 +36,64 @@ interface LedgerRow {
   readonly note: string
 }
 
-const TERMS: Terms = {
-  principal: 2600,
-  lentAt: monthStartFromToday(-10),
-  expectedBack: monthStartFromToday(2),
-  annualRate: 0.02,
-  ratePeriod: 'ANNUAL',
-  plannedMonthlyAmount: 210,
-  plannedMonths: 13,
-  linkedAccountId: 4,
-  linkedAccountName: 'Compte Courant BNP',
-  note: 'Prêt pour la voiture',
+interface LoanFixture {
+  readonly accountId: number
+  readonly name: string
+  readonly terms: Terms
+  readonly ledger: LedgerRow[]
 }
 
 // Irregular on purpose: the feature exists because a friend does not pay on the 5th.
-const LEDGER: LedgerRow[] = [
-  { id: 1, paidOn: monthStartFromToday(-8), amount: 250, kind: 'PRINCIPAL', note: 'Premier remboursement' },
-  { id: 2, paidOn: monthStartFromToday(-6), amount: 200, kind: 'PRINCIPAL', note: '' },
-  { id: 3, paidOn: monthStartFromToday(-4), amount: 300, kind: 'PRINCIPAL', note: 'Après les vacances' },
-  { id: 4, paidOn: monthStartFromToday(-3), amount: 150, kind: 'PRINCIPAL', note: '' },
-  { id: 5, paidOn: monthStartFromToday(-1), amount: 250, kind: 'PRINCIPAL', note: '' },
-]
+const JEAN: LoanFixture = {
+  accountId: 16,
+  name: 'Jean',
+  terms: {
+    principal: 2600,
+    lentAt: monthStartFromToday(-10),
+    expectedBack: monthStartFromToday(2),
+    annualRate: 0.02,
+    ratePeriod: 'ANNUAL',
+    plannedMonthlyAmount: 210,
+    plannedMonths: 13,
+    linkedAccountId: 4,
+    linkedAccountName: 'Compte Courant BNP',
+    note: 'Prêt pour la voiture',
+  },
+  ledger: [
+    { id: 1, paidOn: monthStartFromToday(-8), amount: 250, kind: 'PRINCIPAL', note: 'Premier remboursement' },
+    { id: 2, paidOn: monthStartFromToday(-6), amount: 200, kind: 'PRINCIPAL', note: '' },
+    { id: 3, paidOn: monthStartFromToday(-4), amount: 300, kind: 'PRINCIPAL', note: 'Après les vacances' },
+    { id: 4, paidOn: monthStartFromToday(-3), amount: 150, kind: 'PRINCIPAL', note: '' },
+    { id: 5, paidOn: monthStartFromToday(-1), amount: 250, kind: 'PRINCIPAL', note: '' },
+  ],
+}
+
+// Stopped paying two months ago: the overview's "behind" state needs a real case in the demo.
+const SOPHIE: LoanFixture = {
+  accountId: 17,
+  name: 'Sophie',
+  terms: {
+    principal: 1800,
+    lentAt: monthStartFromToday(-8),
+    expectedBack: monthStartFromToday(4),
+    annualRate: 0.05,
+    ratePeriod: 'ANNUAL',
+    plannedMonthlyAmount: 160,
+    plannedMonths: 12,
+    linkedAccountId: 4,
+    linkedAccountName: 'Compte Courant BNP',
+    note: 'Prêt pour les études',
+  },
+  ledger: [
+    { id: 11, paidOn: monthStartFromToday(-6), amount: 160, kind: 'PRINCIPAL', note: '' },
+    { id: 12, paidOn: monthStartFromToday(-5), amount: 160, kind: 'PRINCIPAL', note: '' },
+    { id: 13, paidOn: monthStartFromToday(-4), amount: 160, kind: 'PRINCIPAL', note: '' },
+    { id: 14, paidOn: monthStartFromToday(-3), amount: 160, kind: 'PRINCIPAL', note: '' },
+    { id: 15, paidOn: monthStartFromToday(-2), amount: 160, kind: 'PRINCIPAL', note: '' },
+  ],
+}
+
+const FIXTURES: LoanFixture[] = [JEAN, SOPHIE]
 
 const r2 = (n: number): number => Math.round(n * 100) / 100
 const clamp = (n: number, min: number, max: number): number => Math.min(Math.max(n, min), max)
@@ -90,18 +127,19 @@ interface Snapshot {
   splits: Map<number, { interest: number; capital: number }>
 }
 
-function computeAt(asOf: string): Snapshot {
-  let remaining = TERMS.principal
+function computeAt(fixture: LoanFixture, asOf: string): Snapshot {
+  const { terms, ledger } = fixture
+  let remaining = terms.principal
   let accrued = 0
   let interestReceived = 0
   let principalPaid = 0
   let writtenOff = 0
-  let cursor = TERMS.lentAt
+  let cursor = terms.lentAt
   const splits = new Map<number, { interest: number; capital: number }>()
 
-  for (const row of LEDGER) {
+  for (const row of ledger) {
     if (row.paidOn > asOf) break
-    accrued += remaining * TERMS.annualRate * daysBetween(cursor, row.paidOn) / 365
+    accrued += remaining * terms.annualRate * daysBetween(cursor, row.paidOn) / 365
     let interest = 0
     let capital = 0
     if (row.kind === 'WRITE_OFF') {
@@ -118,29 +156,31 @@ function computeAt(asOf: string): Snapshot {
     splits.set(row.id, { interest, capital })
     cursor = row.paidOn
   }
-  accrued += remaining * TERMS.annualRate * daysBetween(cursor, asOf) / 365
+  accrued += remaining * terms.annualRate * daysBetween(cursor, asOf) / 365
   return { remaining, accrued, interestReceived, principalPaid, writtenOff, splits }
 }
 
 /** What the plan says should be left at {@code asOf}, using the same annuity as the backend. */
-function scheduledRemaining(asOf: string): number {
-  const monthlyRate = TERMS.annualRate / 12
-  const paid = clamp(monthsBetween(TERMS.lentAt, asOf), 0, TERMS.plannedMonths)
+function scheduledRemaining(fixture: LoanFixture, asOf: string): number {
+  const { terms } = fixture
+  const monthlyRate = terms.annualRate / 12
+  const paid = clamp(monthsBetween(terms.lentAt, asOf), 0, terms.plannedMonths)
   const growth = (1 + monthlyRate) ** paid
   const scheduled = monthlyRate === 0
-    ? TERMS.principal - TERMS.plannedMonthlyAmount * paid
-    : TERMS.principal * growth
-      - TERMS.plannedMonthlyAmount * (growth - 1) / monthlyRate
+    ? terms.principal - terms.plannedMonthlyAmount * paid
+    : terms.principal * growth
+      - terms.plannedMonthlyAmount * (growth - 1) / monthlyRate
   return Math.max(0, scheduled)
 }
 
-function planInterest(): number {
-  return Math.max(0, TERMS.plannedMonthlyAmount * TERMS.plannedMonths - TERMS.principal)
+function planInterest(fixture: LoanFixture): number {
+  const { terms } = fixture
+  return Math.max(0, terms.plannedMonthlyAmount * terms.plannedMonths - terms.principal)
 }
 
-function repayments(asOf: string): PeerLoanRepayment[] {
-  const { splits } = computeAt(asOf)
-  return LEDGER
+function repayments(fixture: LoanFixture, asOf: string): PeerLoanRepayment[] {
+  const { splits } = computeAt(fixture, asOf)
+  return fixture.ledger
     .filter((row) => row.paidOn <= asOf)
     .map((row) => ({
       id: row.id,
@@ -153,10 +193,10 @@ function repayments(asOf: string): PeerLoanRepayment[] {
     }))
 }
 
-function curve(asOf: string): PeerLoanCurvePoint[] {
-  const end = addMonths(TERMS.lentAt, TERMS.plannedMonths)
+function curve(fixture: LoanFixture, asOf: string): PeerLoanCurvePoint[] {
+  const end = addMonths(fixture.terms.lentAt, fixture.terms.plannedMonths)
   const dates: string[] = []
-  for (let date = TERMS.lentAt; date <= end; date = addMonths(date, 1)) {
+  for (let date = fixture.terms.lentAt; date <= end; date = addMonths(date, 1)) {
     dates.push(date)
   }
   if (!dates.includes(asOf)) {
@@ -165,36 +205,30 @@ function curve(asOf: string): PeerLoanCurvePoint[] {
   }
   return dates.map((date) => ({
     date,
-    actual: r2(computeAt(date).remaining),
-    scheduled: r2(scheduledRemaining(date)),
+    actual: r2(computeAt(fixture, date).remaining),
+    scheduled: r2(scheduledRemaining(fixture, date)),
   }))
 }
 
-/** The remaining capital on a given day, for the account's balance history. */
-export function demoPeerLoanBalanceAt(asOf: string): number {
-  return r2(computeAt(asOf).remaining)
-}
-
-/** The loan the demo account 16 carries. */
-export const demoPeerLoan: PeerLoanDetail = (() => {
-  const asOf = isoDate(new Date())
-  const snapshot = computeAt(asOf)
-  const scheduled = scheduledRemaining(asOf)
-  const repaidPct = TERMS.principal === 0 ? 0 : snapshot.principalPaid * 100 / TERMS.principal
+function buildPeerLoan(fixture: LoanFixture, asOf: string): PeerLoanDetail {
+  const { accountId, name, terms } = fixture
+  const snapshot = computeAt(fixture, asOf)
+  const scheduled = scheduledRemaining(fixture, asOf)
+  const repaidPct = terms.principal === 0 ? 0 : snapshot.principalPaid * 100 / terms.principal
   return {
-    accountId: 16,
-    accountName: 'Jean',
+    accountId,
+    accountName: name,
     configured: true,
-    principal: TERMS.principal,
-    lentAt: TERMS.lentAt,
-    expectedBack: TERMS.expectedBack,
-    annualRate: TERMS.annualRate,
-    ratePeriod: TERMS.ratePeriod,
-    plannedMonthlyAmount: TERMS.plannedMonthlyAmount,
-    plannedMonths: TERMS.plannedMonths,
-    linkedAccountId: TERMS.linkedAccountId,
-    linkedAccountName: TERMS.linkedAccountName,
-    note: TERMS.note,
+    principal: terms.principal,
+    lentAt: terms.lentAt,
+    expectedBack: terms.expectedBack,
+    annualRate: terms.annualRate,
+    ratePeriod: terms.ratePeriod,
+    plannedMonthlyAmount: terms.plannedMonthlyAmount,
+    plannedMonths: terms.plannedMonths,
+    linkedAccountId: terms.linkedAccountId,
+    linkedAccountName: terms.linkedAccountName,
+    note: terms.note,
     closedAt: null,
     principalRemaining: r2(snapshot.remaining),
     interestAccrued: r2(snapshot.accrued),
@@ -204,15 +238,29 @@ export const demoPeerLoan: PeerLoanDetail = (() => {
     writtenOff: r2(snapshot.writtenOff),
     repaidPct: r2(repaidPct),
     scheduledRemaining: r2(scheduled),
-    installmentsBehind: TERMS.plannedMonthlyAmount > 0
-      ? Math.ceil((snapshot.remaining - scheduled) / TERMS.plannedMonthlyAmount)
+    installmentsBehind: terms.plannedMonthlyAmount > 0
+      ? Math.ceil((snapshot.remaining - scheduled) / terms.plannedMonthlyAmount)
       : null,
-    plannedInterest: r2(planInterest()),
-    repayments: repayments(asOf),
-    curve: curve(asOf),
+    plannedInterest: r2(planInterest(fixture)),
+    repayments: repayments(fixture, asOf),
+    curve: curve(fixture, asOf),
   }
-})()
+}
 
-export const demoPeerLoansOpen: PeerLoanOpen[] = [
-  { accountId: 16, name: 'Jean', remaining: demoPeerLoan.principalRemaining },
-]
+const TODAY = isoDate(new Date())
+
+/** Every peer loan of the demo, computed against today. */
+export const demoPeerLoans: PeerLoanDetail[] = FIXTURES.map((fixture) => buildPeerLoan(fixture, TODAY))
+
+/** The loan the demo account 16 carries (kept for the account fixture). */
+export const demoPeerLoan: PeerLoanDetail = demoPeerLoans[0]
+
+export const demoPeerLoansOpen: PeerLoanOpen[] = demoPeerLoans
+  .filter((loan) => !loan.closedAt)
+  .map((loan) => ({ accountId: loan.accountId, name: loan.accountName, remaining: loan.principalRemaining }))
+
+/** The remaining capital of one demo loan on a given day, for the account's history. */
+export function demoPeerLoanBalanceAt(accountId: number, asOf: string): number {
+  const fixture = FIXTURES.find((candidate) => candidate.accountId === accountId)
+  return fixture ? r2(computeAt(fixture, asOf).remaining) : 0
+}

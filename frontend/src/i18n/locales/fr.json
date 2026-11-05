@@ -529,6 +529,29 @@
       "simulationResult": "{{months}} mois · {{monthlyPayment}}/mois · {{interest}} d'intérêts",
       "accruedHint": "Intérêts courus à ce jour :"
     },
+    "overview": {
+      "title": "Prêts entre particuliers",
+      "subtitle": "Qui doit quoi, et où en sont les remboursements.",
+      "totalOutstanding": "Total restant dû",
+      "openLoans": "Prêts en cours",
+      "interestAccrued": "Intérêts courus",
+      "curveTitle": "Encours total sur 12 mois",
+      "columns": {
+        "borrower": "Emprunteur",
+        "remaining": "Restant dû",
+        "repaid": "Remboursé",
+        "status": "Statut",
+        "lastPayment": "Dernier paiement",
+        "expectedBack": "Retour prévu"
+      },
+      "status": {
+        "closed": "Clôturé",
+        "behind_one": "{{count}} échéance de retard",
+        "behind_other": "{{count}} échéances de retard",
+        "onTime": "À jour",
+        "noPlan": "Sans plan"
+      }
+    },
     "fromTransaction": {
       "action": "Créer un prêt entre particuliers",
       "title": "Créer un prêt depuis cette transaction",

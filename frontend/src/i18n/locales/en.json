@@ -529,6 +529,29 @@
       "simulationResult": "{{months}} months · {{monthlyPayment}}/month · {{interest}} of interest",
       "accruedHint": "Interest accrued so far:"
     },
+    "overview": {
+      "title": "Peer loans",
+      "subtitle": "Who owes what, and where the repayments stand.",
+      "totalOutstanding": "Total outstanding",
+      "openLoans": "Open loans",
+      "interestAccrued": "Interest accrued",
+      "curveTitle": "Outstanding over 12 months",
+      "columns": {
+        "borrower": "Borrower",
+        "remaining": "Remaining",
+        "repaid": "Repaid",
+        "status": "Status",
+        "lastPayment": "Last payment",
+        "expectedBack": "Expected back"
+      },
+      "status": {
+        "closed": "Closed",
+        "behind_one": "{{count}} instalment behind",
+        "behind_other": "{{count}} instalments behind",
+        "onTime": "On time",
+        "noPlan": "No plan"
+      }
+    },
     "fromTransaction": {
       "action": "Create a peer loan",
       "title": "Create a loan from this transaction",

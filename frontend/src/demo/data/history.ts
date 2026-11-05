@@ -39,8 +39,9 @@ export const mockBalanceHistory: Record<number, number[]> = {
   12: [-640, -910, -720, -1050, -830, -1180, -760, -990, -1120, -870, -1030.5, -1284.6],
   // SCPI: withdrawal price easing
   13: [9100, 9100, 9050, 9050, 9000, 9000, 8950, 8950, 8900, 8900, 8850, 8800],
-  // Peer loan: capital still owed, stepping down with each repayment.
-  16: Array.from({ length: 12 }, (_, i) => demoPeerLoanBalanceAt(monthStartFromToday(i - 11))),
+  // Peer loans: capital still owed, stepping down with each repayment.
+  16: Array.from({ length: 12 }, (_, i) => demoPeerLoanBalanceAt(16, monthStartFromToday(i - 11))),
+  17: Array.from({ length: 12 }, (_, i) => demoPeerLoanBalanceAt(17, monthStartFromToday(i - 11))),
   ...Object.fromEntries(mockAccounts.filter((account) => account.type === 'LOAN').map((account) => [
     account.id,
     Array.from({ length: 12 }, (_, i) =>

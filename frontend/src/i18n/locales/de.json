@@ -518,6 +518,29 @@
       "simulationResult": "{{months}} Monate · {{monthlyPayment}}/Monat · {{interest}} Zinsen",
       "accruedHint": "Bisher aufgelaufene Zinsen:"
     },
+    "overview": {
+      "title": "Privatdarlehen",
+      "subtitle": "Wer was schuldet und wie es mit den Rückzahlungen steht.",
+      "totalOutstanding": "Offener Gesamtbetrag",
+      "openLoans": "Laufende Darlehen",
+      "interestAccrued": "Aufgelaufene Zinsen",
+      "curveTitle": "Offener Betrag über 12 Monate",
+      "columns": {
+        "borrower": "Kreditnehmer",
+        "remaining": "Offen",
+        "repaid": "Zurückgezahlt",
+        "status": "Status",
+        "lastPayment": "Letzte Zahlung",
+        "expectedBack": "Rückzahlung erwartet"
+      },
+      "status": {
+        "closed": "Geschlossen",
+        "behind_one": "{{count}} Rate im Rückstand",
+        "behind_other": "{{count}} Raten im Rückstand",
+        "onTime": "Aktuell",
+        "noPlan": "Kein Plan"
+      }
+    },
     "fromTransaction": {
       "action": "Privatdarlehen erstellen",
       "title": "Darlehen aus dieser Buchung erstellen",

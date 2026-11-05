@@ -37,7 +37,7 @@ import {
 import { mockUpcomingDividends } from './data/dividends'
 import type { CashflowPeriod, CategorizeRequest } from '@/types/api'
 import { demoLoanSchedule } from './data/loans'
-import { demoPeerLoan, demoPeerLoansOpen } from './data/peer-loans'
+import { demoPeerLoan, demoPeerLoans, demoPeerLoansOpen } from './data/peer-loans'
 
 function randomDelay(): number {
   return 200 + Math.random() * 400
@@ -311,9 +311,10 @@ const demoExchangePositions = (() => {
 handlers.set(key('GET', '/accounts/6/positions'), () => demoExchangePositions)
 handlers.set(key('GET', '/accounts/:id/positions'), () => [])
 
-// Peer loans: account 16 carries the configured fixture above. Every other id keeps the
+// Peer loans: accounts 16 and 17 carry the configured fixtures. Every other id keeps the
 // unconfigured shape so the route still answers if a new PEER_LOAN is created.
 handlers.set(key('GET', '/accounts/16/peer-loan'), () => demoPeerLoan)
+handlers.set(key('GET', '/accounts/17/peer-loan'), () => demoPeerLoans[1])
 handlers.set(key('GET', '/accounts/:id/peer-loan'), (_config, { id }) => ({
   accountId: Number(id),
   accountName: '',
@@ -329,6 +330,44 @@ handlers.set(key('GET', '/accounts/:id/peer-loan'), (_config, { id }) => ({
   repayments: [],
 }))
 handlers.set(key('GET', '/peer-loans/open'), () => demoPeerLoansOpen)
+handlers.set(key('GET', '/peer-loans/overview'), () => {
+  const loans = demoPeerLoans.map((loan) => ({
+    accountId: loan.accountId,
+    name: loan.accountName,
+    principal: loan.principal,
+    principalRemaining: loan.principalRemaining,
+    repaidPct: loan.repaidPct,
+    interestAccrued: loan.interestAccrued,
+    interestReceived: loan.interestReceived,
+    lentAt: loan.lentAt,
+    expectedBack: loan.expectedBack,
+    installmentsBehind: loan.installmentsBehind,
+    lastPaymentDate: loan.repayments.at(-1)?.paidOn ?? null,
+    lastPaymentAmount: loan.repayments.at(-1)?.amount ?? null,
+    closedAt: loan.closedAt,
+  })).sort((left, right) =>
+    Number(left.closedAt != null) - Number(right.closedAt != null)
+    || left.name.localeCompare(right.name))
+
+  const peerAccounts = mockAccounts.filter((account) => account.type === 'PEER_LOAN')
+  const dates = peerAccounts.length > 0 ? accountBalanceHistory(peerAccounts[0]) : []
+  const history = dates.map((point, index) => ({
+    date: point.date,
+    outstanding: Math.round(peerAccounts.reduce(
+      (sum, account) => sum + (accountBalanceHistory(account)[index]?.balance ?? 0), 0) * 100) / 100,
+  }))
+
+  return {
+    totalOutstanding: Math.round(loans
+      .filter((loan) => loan.closedAt == null)
+      .reduce((sum, loan) => sum + loan.principalRemaining, 0) * 100) / 100,
+    openCount: loans.filter((loan) => loan.closedAt == null).length,
+    closedCount: loans.filter((loan) => loan.closedAt != null).length,
+    interestAccrued: Math.round(loans.reduce((sum, loan) => sum + loan.interestAccrued, 0) * 100) / 100,
+    loans,
+    history,
+  }
+})
 
 // Live quotes. The holdings fixtures win over the exchange positions for a ticker both carry, so
 // re-pricing a holdings table with these leaves its values exactly as the fixture states them.

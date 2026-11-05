@@ -1,7 +1,7 @@
 import type { Account } from '@/types/api'
 import { daysFromToday, hoursAgo, monthStartFromToday } from './dates'
 import { holdingsValue } from './holdings'
-import { demoPeerLoan } from './peer-loans'
+import { demoPeerLoan, demoPeerLoans } from './peer-loans'
 
 export const mockAccounts: Account[] = [
   {
@@ -382,6 +382,24 @@ export const mockAccounts: Account[] = [
     logoUrl: null,
     logoKey: null,
     createdAt: `${monthStartFromToday(-10)}T08:00:00Z`,
+    hidden: false,
+  },
+  {
+    // A second receivable, behind schedule: the global overview needs a late case to show.
+    id: 17,
+    name: 'Sophie',
+    type: 'PEER_LOAN',
+    provider: null,
+    currency: 'EUR',
+    currentBalance: demoPeerLoans[1].principalRemaining,
+    currentBalanceEur: demoPeerLoans[1].principalRemaining,
+    lastSyncedAt: null,
+    isManual: true,
+    color: '#0d9488',
+    ticker: null,
+    logoUrl: null,
+    logoKey: null,
+    createdAt: `${monthStartFromToday(-8)}T08:00:00Z`,
     hidden: false,
   },
 ]

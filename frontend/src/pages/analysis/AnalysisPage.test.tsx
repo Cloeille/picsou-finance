@@ -18,6 +18,10 @@ vi.mock('@/features/analysis/hooks', () => ({
   useSaveAllocationTargets: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
+vi.mock('@/features/peer-loans/hooks', () => ({
+  usePeerLoansOverview: () => ({ data: undefined }),
+}))
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) =>

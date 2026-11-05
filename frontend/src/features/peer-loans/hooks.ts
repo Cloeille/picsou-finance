@@ -103,6 +103,15 @@ export function useOpenPeerLoans(enabled = true) {
   })
 }
 
+/** The member-wide view: totals, one row per loan and the outstanding curve. */
+export function usePeerLoansOverview(months = 12) {
+  return useQuery({
+    queryKey: ['peer-loans', 'overview', months],
+    queryFn: () => peerLoansApi.overview(months),
+    staleTime: QUERY_STALE_TIMES.accountDetail,
+  })
+}
+
 /**
  * Links an existing incoming transaction to a repayment. The loan id comes from the
  * dialog, so the hook is not bound to one account; the invalidation is.
