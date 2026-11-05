@@ -122,6 +122,23 @@ class CaisseEpargneSyncServiceTest {
     }
 
     @Test
+    void queueSync_mapsALepToItsOwnType() {
+        Fixture f = new Fixture();
+        CaisseEpargnePort.AccountData lep = f.with(f.withName(f.withKind(f.livret(), "LEP"), " "),
+            List.of(f.tx("l1", "2026-10-01", "25.00", "VIREMENT RECU")));
+        arrangeCommittableSync(lep);
+
+        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        verify(accountRepository).save(accountCaptor.capture());
+        Account saved = accountCaptor.getValue();
+        assertThat(saved.getType()).isEqualTo(AccountType.LEP);
+        assertThat(saved.getName()).isEqualTo("LEP");
+        assertThat(saved.getColor()).isEqualTo("#f59e0b");
+    }
+
+    @Test
     void queueSync_mapsALivretJeuneToItsOwnTypeWithItsTransactions() {
         Fixture f = new Fixture();
         CaisseEpargnePort.AccountData jeune = f.with(f.withName(f.withKind(f.livret(), "LIVRET_JEUNE"), " "),

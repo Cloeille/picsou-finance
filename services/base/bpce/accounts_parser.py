@@ -63,7 +63,6 @@ LIVRET_A_LABEL = "LIVRET A"
 # Observed live 2026-10-13: `productFamilyPFM.code` / `subProductFamilyPFM.code`.
 # Any other pair (insurance `5`, other sub codes) is unsupported, never fatal.
 _KINDS_BY_FAMILY = {
-    (FAMILY_SAVINGS_AVAILABLE, "01"): "LIVRET_A",
     (FAMILY_SAVINGS_AVAILABLE, "28"): "LDDS",
     ("4", "05"): "PER",
     ("6", "12"): "LOAN",
@@ -75,9 +74,10 @@ LOAN_PRODUCTS = {("6", "12"): "PERSONAL", ("6", "13"): "HOME"}
 # `3/01` covers more than the Livret A: the product label tells them apart.
 LIVRET_A_FAMILY = (FAMILY_SAVINGS_AVAILABLE, "01")
 _LEP_LABEL_RE = re.compile(r"\bLEP\b|\bEPARGNE POPULAIRE\b")
+_JEUNE_LABEL_RE = re.compile(r"\bJEUNES?\b")
 # Kinds with PFM transactions, keyed by `contractPfmId`. PER and loan contracts
 # carry a null `contractPfmId` and are keyed by `contract:<contractId.id>`.
-PFM_KINDS = frozenset({"CURRENT_ACCOUNT", "LIVRET_A", "LIVRET_JEUNE", "LDDS"})
+PFM_KINDS = frozenset({"CURRENT_ACCOUNT", "LIVRET_A", "LIVRET_JEUNE", "LEP", "LDDS"})
 CONTRACT_ID_PREFIX = "contract:"
 
 # Observed live 2026-10-07: transaction dates carry a time part
@@ -212,11 +212,16 @@ def _folded(label: str) -> str:
 
 
 def _regulated_savings_kind(label: Any) -> Optional[str]:
-    """The kind of a `3/01` contract from its `productLabel`; None for a LEP lookalike."""
+    """The kind of a `3/01` contract from its `productLabel`.
+
+    The code covers several regulated books (Livret A and Livret Jeune observed live
+    2026-11-05 on Banque Populaire). A LEP label is imported as a LEP rather than left
+    out: an account already imported as a Livret A must keep being updated.
+    """
     folded = _folded(label) if isinstance(label, str) else ""
     if _LEP_LABEL_RE.search(folded):
-        return None  # never read as a Livret A: its own product, not observed
-    if "JEUNE" in folded:
+        return "LEP"
+    if _JEUNE_LABEL_RE.search(folded):
         return "LIVRET_JEUNE"
     return "LIVRET_A"
 

@@ -134,10 +134,15 @@ class RegulatedSavingsKindTest(unittest.TestCase):
             with self.subTest(label=label):
                 self.assertEqual(kinds([contract(1, "3", "01", label)]), ([("1", kind)], []))
 
-    def test_a_lep_lookalike_is_unsupported_never_a_livret_a(self):
+    def test_a_lep_label_is_imported_as_a_lep_never_a_livret_a(self):
+        # Imported, not left out: an account `main` imported as a Livret A keeps updating.
         for label in ("LEP", "Lep Particuliers", "Livret d'Épargne Populaire", "LIVRET EPARGNE POPULAIRE"):
             with self.subTest(label=label):
-                self.assertEqual(kinds([contract(7, "3", "01", label)]), ([], [{"externalId": "7", "familyCode": "3"}]))
+                self.assertEqual(kinds([contract(7, "3", "01", label)]), ([("7", "LEP")], []))
+
+    def test_jeune_is_matched_as_a_word(self):
+        self.assertEqual(kinds([contract(1, "3", "01", "Livret A Jeunesse")]), ([("1", "LIVRET_A")], []))
+        self.assertEqual(kinds([contract(2, "3", "01", "Livret Jeunes")]), ([("2", "LIVRET_JEUNE")], []))
 
     def test_lep_is_matched_as_a_word(self):
         self.assertEqual(kinds([contract(1, "3", "01", "Livret A Sleptique")]), ([("1", "LIVRET_A")], []))

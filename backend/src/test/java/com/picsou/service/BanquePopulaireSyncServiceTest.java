@@ -220,7 +220,7 @@ class BanquePopulaireSyncServiceTest {
 
     @Test
     void anUnknownKindRefusesTheWholeSnapshot() {
-        BanquePopulaireSession session = arrangeCommittableSync(current(), account("1009", "LEP", "LEP", "1.00"));
+        BanquePopulaireSession session = arrangeCommittableSync(current(), account("1009", "PEA", "PEA", "1.00"));
 
         service.queueSync(7L);
 
