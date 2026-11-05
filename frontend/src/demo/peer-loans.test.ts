@@ -21,17 +21,24 @@ async function get<T>(url: string, params?: Record<string, unknown>): Promise<T>
 describe('demo peer loan', () => {
   it('exposes a configured loan whose figures agree with its ledger', async () => {
     const accounts = await get<Account[]>('/accounts')
-    const account = accounts.find((a) => a.type === 'PEER_LOAN')
-    expect(account, 'a demo account carries the PEER_LOAN type').toBeDefined()
+    const account = accounts.find((a) => a.type === 'PEER_LOAN' && a.name === 'Jean')
+    expect(account, 'the Jean demo account carries the PEER_LOAN type').toBeDefined()
 
     const detail = await get<PeerLoanDetail>(`/accounts/${account!.id}/peer-loan`)
 
     expect(detail.configured).toBe(true)
     expect(detail.accountId).toBe(account!.id)
-    expect(detail.accountName).toBe(account!.name)
+    expect(detail.accountName).toBe('Jean')
     expect(detail.repayments.length).toBeGreaterThan(0)
     expect(detail.curve.length).toBeGreaterThan(1)
     expect(detail.curve.some((point) => point.date === '2026-06-15')).toBe(true)
+
+    // Dated figures pinned from Jean's ledger at 2026-06-15: the identities below cannot
+    // catch a dropped accrual or a zeroed interest split, these exact values can.
+    expect(detail.principalRemaining).toBeCloseTo(1482.58, 2)
+    expect(detail.interestAccrued).toBeCloseTo(3.66, 2)
+    expect(detail.interestReceived).toBeCloseTo(32.58, 2)
+    expect(detail.principalRepaid).toBeCloseTo(1117.42, 2)
 
     // The summary is derived from the same rows the journal shows.
     expect(detail.principalRepaid).toBeCloseTo(detail.principal - detail.principalRemaining, 2)
