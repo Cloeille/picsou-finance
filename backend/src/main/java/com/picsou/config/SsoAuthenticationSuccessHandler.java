@@ -209,7 +209,7 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
                 AppUser linked = ssoAccountService.link(intent.userId(), identity);
                 ssoRoleSyncService.sync(linked, identity.groups(), request);
                 auditService.record("sso.identity.linked", linked.getUsername(), request, "");
-                yield intent.redirect() + (intent.redirect().contains("?") ? "&" : "?") + "sso=linked";
+                yield SsoIntent.withQueryParameter(intent.redirect(), "sso=linked");
             }
             case LOGIN, ACTIVATE, SETUP -> throw new IllegalStateException("Not a signed-in intent");
         };

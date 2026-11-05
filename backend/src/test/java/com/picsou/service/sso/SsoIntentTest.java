@@ -17,6 +17,8 @@ class SsoIntentTest {
             Arguments.of(SsoIntent.Kind.LINK, "/settings?tab=security", null, "/settings?tab=security&ssoError=IDP_ERROR"),
             Arguments.of(SsoIntent.Kind.REAUTH, "/settings", null, "/settings?ssoError=IDP_ERROR"),
             Arguments.of(SsoIntent.Kind.REAUTH, "/settings?resume=export", null, "/settings?resume=export&ssoError=IDP_ERROR"),
+            Arguments.of(SsoIntent.Kind.LINK, "/settings#security", null, "/settings?ssoError=IDP_ERROR#security"),
+            Arguments.of(SsoIntent.Kind.REAUTH, "/settings?resume=export#security", null, "/settings?resume=export&ssoError=IDP_ERROR#security"),
             Arguments.of(SsoIntent.Kind.ACTIVATE, "/", "a/b?c", "/activate/a%2Fb%3Fc?ssoError=IDP_ERROR"),
             Arguments.of(SsoIntent.Kind.SETUP, "/", null, "/setup/admin?ssoError=IDP_ERROR"));
     }

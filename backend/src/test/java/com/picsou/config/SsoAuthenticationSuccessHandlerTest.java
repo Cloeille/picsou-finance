@@ -396,7 +396,8 @@ class SsoAuthenticationSuccessHandlerTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"/settings,/settings?sso=linked", "/settings?tab=security,/settings?tab=security&sso=linked"})
+    @CsvSource({"/settings,/settings?sso=linked", "/settings?tab=security,/settings?tab=security&sso=linked",
+        "/settings#security,/settings?sso=linked#security"})
     void linkSyncsRoleAndAuditsWithoutIssuingSessionOrTouchingLogin(String redirect, String expected) throws Exception {
         var intent = new SsoIntent(SsoIntent.Kind.LINK, redirect, false, 1L, null, NOW);
         var request = requestWith(intent);
