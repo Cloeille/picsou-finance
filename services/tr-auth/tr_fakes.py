@@ -61,6 +61,7 @@ V2_LOGIN = ("POST", "/api/v2/auth/web/login")
 V1_LOGIN = ("POST", "/api/v1/auth/web/login")
 V2_POLL = ("GET", f"/api/v2/auth/web/login/processes/{PROCESS_ID}")
 V1_CODE = ("POST", f"/api/v1/auth/web/login/{PROCESS_ID}/1234")
+V2_AUTHENTICATOR = ("POST", f"/api/v2/auth/web/login/processes/{PROCESS_ID}/authenticator-verification")
 SESSION_ROUTE = ("POST", "/api/v2/auth/web/session")
 EXPORT_REQUEST = ("POST", "/api/v1/portfolio-analytics/transactions/export/request")
 EXPORT_STATUS = ("GET", "/api/v1/portfolio-analytics/transactions/export/status")
@@ -76,6 +77,11 @@ def confirmed(status: str = "CONFIRMED") -> httpx.Response:
 
 def pending() -> httpx.Response:
     return reply(200, {"status": "PENDING", "requiredAction": "CONFIRM_IN_APP", "expiresAt": None, "claims": None})
+
+
+def authenticator_pending() -> httpx.Response:
+    return reply(200, {"status": "PENDING", "requiredAction": "AUTHENTICATOR_VERIFICATION",
+                       "expiresAt": None, "claims": None})
 
 
 def export_job(status: str = "PENDING", http_status: int = 200, seconds: int = 0) -> httpx.Response:
