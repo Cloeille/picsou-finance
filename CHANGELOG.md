@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **La Banque Postale replacement connector (in progress).** A dedicated sidecar
+  will read the current account and the savings products Enable Banking cannot
+  reach (Livret A, LDDS, LEP, Compte sur Livret, Livret Jeune), then replace the
+  Enable Banking connection for this bank. The design is recorded; the connector
+  is not usable until a live session is captured. See
+  [La Banque Postale](docs/features/la-banque-postale.md).
+
 - **AI categorization over MCP.** `start_ai_categorization` starts the inbox's AI job and
   `get_ai_categorization_status` reports its progress as counters only, under a new
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a

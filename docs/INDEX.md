@@ -85,6 +85,7 @@
 | 2026-10-31 | [Trusted proxy client addresses](./decisions/2026-10-31-trusted-proxy-client-address.md) | Active |
 | 2026-10-31 | [Helm chart in the repository, published by CI next to the images](./decisions/2026-10-31-helm-chart-published-from-ci.md) | Active |
 | 2026-11-01 | [Sidecars share one Python package for their plumbing](./decisions/2026-11-01-shared-sidecar-package.md) | Active |
+| 2026-11-05 | [La Banque Postale through a dedicated sidecar, replacing Enable Banking](./decisions/2026-11-05-la-banque-postale-sidecar.md) | 🟡 Proposed |
 
 ## Feature notes
 
@@ -136,6 +137,7 @@
 | Realized P&L on closed positions | 2026-07-11 | [realized-pnl.md](./features/realized-pnl.md) |
 | BoursoBank sync | 2026-09-28 | [bourso-bank.md](./features/bourso-bank.md) |
 | Caisse d'Epargne sync (sidecar and on-demand backend, no login yet) | 2026-10-07 | [caisse-epargne.md](./features/caisse-epargne.md) |
+| La Banque Postale sync (sidecar replacing Enable Banking, recon pending) | 2026-11-05 | [la-banque-postale.md](./features/la-banque-postale.md) |
 | Accounts overview (PnL chart + summary card + filters + card anatomy + sortable positions) | 2026-08-19 | [accounts-overview.md](./features/accounts-overview.md) |
 | Savings livrets (classification + projected interest) | 2026-06-28 | [savings-livrets.md](./features/savings-livrets.md) |
 | Logos on account cards (catalog-resolved, bundled, wallet picker, property kind) | 2026-08-13 | [bank-logos.md](./features/bank-logos.md) |
