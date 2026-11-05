@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URL;
+import java.nio.file.FileSystems;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -74,11 +75,21 @@ public class SpaWebConfig implements WebMvcConfigurer {
             return;
         }
         registry.addResourceHandler("/**")
-            // A Resource, not a "file:" URL string: a '#' in the path would start a URL fragment.
-            .addResourceLocations(new FileSystemResource(location.endsWith("/") ? location : location + "/"))
+            .addResourceLocations(siteLocation(location))
             .setEtagGenerator(SpaWebConfig::etag)
             .resourceChain(false)
             .addResolver(new SpaResourceResolver());
+    }
+
+    /**
+     * A Resource, not a "file:" URL string: a '#' in the path would start a URL fragment. Built
+     * with the file system overload because it cleans and normalizes the path: {@code
+     * createRelative("../secret.txt")} then resolves outside the location and {@code
+     * PathResourceResolver.checkResource} refuses it, where the {@code String} constructor keeps
+     * {@code site/../secret.txt} and passes the check.
+     */
+    static Resource siteLocation(String location) {
+        return new FileSystemResource(FileSystems.getDefault(), location.endsWith("/") ? location : location + "/");
     }
 
     /**
