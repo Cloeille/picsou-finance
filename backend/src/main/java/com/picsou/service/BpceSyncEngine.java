@@ -1077,6 +1077,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         return switch (kind) {
             case "CURRENT_ACCOUNT" -> AccountType.CHECKING;
             case "LIVRET_A" -> AccountType.LIVRET_A;
+            case "LIVRET_JEUNE" -> AccountType.LIVRET_JEUNE;
             case "LDDS" -> AccountType.LDDS;
             case "PER" -> AccountType.PER;
             case "LOAN" -> AccountType.LOAN;
@@ -1090,6 +1091,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         return switch (type) {
             case CREDIT_CARD -> bank.cardName();
             case LIVRET_A -> "Livret A";
+            case LIVRET_JEUNE -> "Livret Jeune";
             case LDDS -> "LDDS";
             case PER -> "PER";
             case LOAN -> bank.loanName();
@@ -1100,7 +1102,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
     private static String colorFor(AccountType type) {
         return switch (type) {
             // Same colour for every regulated savings book, as the Bourso connector does.
-            case LIVRET_A, LDDS -> "#f59e0b";
+            case LIVRET_A, LIVRET_JEUNE, LDDS -> "#f59e0b";
             case PER -> "#8b5cf6";
             case LOAN -> "#64748b";
             case CREDIT_CARD -> "#2563eb";

@@ -122,6 +122,29 @@ class CaisseEpargneSyncServiceTest {
     }
 
     @Test
+    void queueSync_mapsALivretJeuneToItsOwnTypeWithItsTransactions() {
+        Fixture f = new Fixture();
+        CaisseEpargnePort.AccountData jeune = f.with(f.withName(f.withKind(f.livret(), "LIVRET_JEUNE"), " "),
+            List.of(f.tx("j1", "2026-10-01", "25.00", "VIREMENT RECU")));
+        arrangeCommittableSync(jeune);
+
+        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        verify(accountRepository).save(accountCaptor.capture());
+        Account saved = accountCaptor.getValue();
+        assertThat(saved.getType()).isEqualTo(AccountType.LIVRET_JEUNE);
+        assertThat(saved.getName()).isEqualTo("Livret Jeune");
+        assertThat(saved.getExternalAccountId()).isEqualTo("ce_1002");
+        assertThat(saved.getColor()).isEqualTo("#f59e0b");
+        verify(transactionRepository).saveAllAndFlush(transactionsCaptor.capture());
+        assertThat(transactionsCaptor.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.getExternalId()).isEqualTo("ce_j1");
+            assertThat(row.getAmount()).isEqualByComparingTo("25.00");
+        });
+    }
+
+    @Test
     void queueSync_mapsLddsPerAndLoanToTheirPicsouAccountTypes() {
         Fixture f = new Fixture();
         arrangeCommittableSync(f.ldds(), f.per(), f.loan());
