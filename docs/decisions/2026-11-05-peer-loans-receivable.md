@@ -235,7 +235,8 @@ a cousin does nothing.
   refuses to use a new enum value in the transaction that added it, as `V69`, `V79`,
   `V100` and `V112` already document), `V123` creates the three tables, `V124` adds the
   two cash-leg links, `V125` the `cash_leg_owned` flag, `V126` the `rate_period` and
-  `V127` widens `annual_rate` for high short-term rates.
+  `V127` widens `annual_rate` for high short-term rates and `V128` drops the
+  100 % check constraint so the widened column is actually usable.
 - `AccountType.isLedger()` must return **false** for `PEER_LOAN`: its balance derives from
   the principal and the ledger, not from transactions. The frontend mirror
   `NON_LEDGER_ACCOUNT_TYPES` follows.

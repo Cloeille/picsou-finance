@@ -244,7 +244,8 @@ Backend:
 - `backend/.../model/AssetClass.java`, `WealthTier.java` — exhaustive switches
 - `backend/.../db/migration/V122__account_type_peer_loan.sql`,
   `V123__peer_loans.sql`, `V124__peer_loan_cash_leg.sql`,
-  `V125__peer_loan_linked_repayment.sql`, `V126__peer_loan_rate_period.sql`
+  `V125__peer_loan_linked_repayment.sql`, `V126__peer_loan_rate_period.sql`,
+  `V127__widen_peer_loan_rate.sql`, `V128__peer_loan_rate_no_upper_bound.sql`
 
 Frontend:
 
