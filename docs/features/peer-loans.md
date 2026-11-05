@@ -276,15 +276,19 @@ The image is built from the working tree, so it includes uncommitted changes. Fi
 runs the setup wizard: create the admin and skip the integration steps — no sidecar runs in
 this stack. Then:
 
-1. **Accounts → Add account**, pick "Peer loan": the name is the borrower ("Jean"), save.
-2. Open the account and click **Set up the loan**: amount, date, **linked cash account**
-   (required), optional rate. On a manual cash account the outflow is written immediately.
-3. Add a **capital** repayment, then an **interest** payment: the remaining capital, the
+1. **Create the cash account first.** Add a manual "Compte courant" and record an
+   **opening deposit** for the cash it holds: a manual account's balance is the sum of its
+   transactions, so the "Solde" typed at creation is only a snapshot and is replaced by the
+   first ledger row. The loan draws from that ledger.
+2. **Accounts → Add account**, pick "Peer loan": the name is the borrower ("Jean"), save.
+3. Open the account and click **Set up the loan**: amount, date, **linked cash account**
+   (required), optional rate. On the manual cash account the outflow is written immediately.
+4. Add a **capital** repayment, then an **interest** payment: the remaining capital, the
    progress and the forecast card move, and the cash account receives the matching
    deposit (green, prefixed `+`). A write-off shows in red, prefixed `−`.
-4. **Close the loan**: the residual is written off and the account is worth zero from
+5. **Close the loan**: the residual is written off and the account is worth zero from
    today; the loss is in the history.
-5. To test the transaction flow, open a cash account's **Transactions**, click an outgoing
+6. To test the transaction flow, open a cash account's **Transactions**, click an outgoing
    row, then **Create a peer loan**. The transaction is linked, not copied.
 
 ```bash
