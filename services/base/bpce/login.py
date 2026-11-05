@@ -65,7 +65,10 @@ KEY_SELECTOR = ".keyboard-button"
 # banners, and a false INVALID_CREDENTIALS makes the user retype (bank lock risk).
 # It is read on the identifier page (refusal of the identifier, nothing sent yet)
 # and on the password page right after Valider, never while waiting for Sécur'Pass.
-ERROR_SELECTOR = ".alert-danger, .error-message"
+# Observed live 2026-11-05 on Banque Populaire: a wrong identifier or password opens a
+# modal titled "Identifiant ou mot de passe erroné" (Réessayer / Annuler) over the
+# keypad page. Matched on that wording only, never a generic dialog.
+ERROR_SELECTOR = '.alert-danger, .error-message, :text-matches("mot de passe erron", "i")'
 SECURPASS_SELECTOR = 'text=/S[ée]cur.?Pass/i'
 # Observed live on Banque Populaire 2026-11-05, before the identifier field: a
 # `neo-select-simple` "Sélectionnez votre établissement bancaire" whose trigger is a
@@ -266,6 +269,15 @@ def _is_digits(value: object, min_length: int, max_length: int) -> bool:
     return all("0" <= char <= "9" for char in value)
 
 
+def _is_identifier(site: Site, value: object) -> bool:
+    """1 to 20 ASCII digits, or ASCII letters and digits on a site whose identifiers have letters."""
+    if not isinstance(value, str) or not (1 <= len(value) <= CUSTOMER_ID_MAX_LENGTH):
+        return False
+    if not site.alphanumeric_identifier:
+        return _is_digits(value, 1, CUSTOMER_ID_MAX_LENGTH)
+    return all(char.isascii() and char.isalnum() for char in value)
+
+
 def valid_positions(value: object) -> bool:
     """`[int]` of 6..12 key positions in 0..9. `bool` and `float` are not ints here."""
     if not isinstance(value, list):
@@ -365,7 +377,7 @@ async def initiate(site: Site, customer_id: str, *, region: str | None = None) -
     if (region_label is None) if site.regions else (region is not None):
         raise LoginError(400, "INVALID_REQUEST")
     # A shape the bank would refuse is refused here, before any browser work.
-    if not _is_digits(customer_id, 1, CUSTOMER_ID_MAX_LENGTH):
+    if not _is_identifier(site, customer_id):
         raise LoginError(401, "INVALID_CREDENTIALS")
 
     await cleanup_expired()

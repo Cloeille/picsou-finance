@@ -24,6 +24,7 @@ Banque Populaire runs the BPCE platform that Caisse d'Epargne runs, so this conn
 | `POST /api/banque-populaire/auth/keypad` | `{processId, positions}` | `{processId}` |
 | `POST /api/banque-populaire/auth/complete` | `{processId}` | `{connected: true}` |
 
+- `customerId` is 1 to 20 ASCII letters and digits: a Banque Populaire identifier starts with a letter (observed live), so the UI keeps letters and only drops spaces and symbols. Caisse d'Epargne identifiers stay digits only. Dropping the letter would send another identifier to the bank, which still shows a keypad for it and then refuses the password: an attempt counted against someone else's identifier.
 - `region` is one of the 12 regional banks offered on the bank's identifier page: `ALSACE_LORRAINE_CHAMPAGNE`, `AQUITAINE_CENTRE_ATLANTIQUE`, `AUVERGNE_RHONE_ALPES`, `BOURGOGNE_FRANCHE_COMTE`, `BRED`, `GRAND_OUEST`, `MEDITERRANEE`, `NORD`, `OCCITANE`, `RIVES_DE_PARIS`, `SUD`, `VAL_DE_FRANCE`. A missing or unknown value is refused before the sidecar is called. The region is only used to pick the option on the bank's page and is never stored.
 - The sidecar opens `https://www.icgauth.banquepopulaire.fr/se-connecter/sso?service=cyber`. The `service=dei` entry used for Caisse d'Epargne lands on `/se-connecter/erreur` for Banque Populaire. It dismisses the consent banner if one shows, picks the region in the establishment combobox and checks that the combobox shows it. The rest is the Caisse d'Epargne flow: identifier, keypad, Sécur'Pass.
 - Rate limits per IP use separate buckets from Caisse d'Epargne: `/auth/initiate` 3 per 15 minutes (`banquePopulaireAuthBuckets`), `/auth/keypad` 5 per 15 minutes (`banquePopulaireKeypadBuckets`).
@@ -46,6 +47,10 @@ Table `banque_populaire_session` (migration `V122`) has the Caisse d'Epargne tab
 | `6/12`, `6/13` loans, `4/05` PER, `2/11` revolving credit, anything else | listed in `unsupported`, never fetched, never fatal | revolving credit seen ("Credit Renouvelable Facelia", no balance) |
 
 Loans and the PER read their detail through separate OAuth clients on Caisse d'Epargne. Their Banque Populaire equivalents were never observed, so this version does not guess them.
+
+### Wrong identifier or password
+
+The bank answers a wrong identifier or password with a modal titled "Identifiant ou mot de passe erroné" over the keypad page (observed live 2026-11-05). The sidecar reads it as `INVALID_CREDENTIALS` (`ERROR_SELECTOR` matches that wording), so the UI says the credentials were refused and warns about the lock risk instead of reporting a format change.
 
 ## Technical choices
 

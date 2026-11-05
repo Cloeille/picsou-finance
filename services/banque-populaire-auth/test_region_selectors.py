@@ -95,3 +95,37 @@ class RegionSelectorTest(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+REFUSAL_PAGE = """
+<h1>Entrez votre mot de passe</h1>
+<button type="button">Mot de passe oublié ?</button>
+<div role="dialog"><h2>Identifiant ou mot de passe erroné</h2>
+  <button type="button">Réessayer</button><button type="button">Annuler</button></div>
+"""
+PASSWORD_PAGE = """
+<h1>Entrez votre mot de passe</h1>
+<button type="button">Mot de passe oublié ?</button>
+<button type="submit">Valider</button>
+"""
+
+
+class RefusalSelectorTest(unittest.IsolatedAsyncioTestCase):
+    """The bank's refusal modal (observed live 2026-11-05) reads as a refusal, the plain page does not."""
+
+    async def asyncSetUp(self):
+        self.playwright = await async_playwright().start()
+        self.browser = await self.playwright.chromium.launch(headless=True)
+        self.page = await self.browser.new_page()
+
+    async def asyncTearDown(self):
+        await self.browser.close()
+        await self.playwright.stop()
+
+    async def test_the_refusal_modal_is_seen_as_an_error(self):
+        await self.page.set_content(REFUSAL_PAGE)
+        self.assertTrue(await self.page.locator(login.ERROR_SELECTOR).first.is_visible())
+
+    async def test_the_password_page_with_its_forgotten_link_is_not_an_error(self):
+        await self.page.set_content(PASSWORD_PAGE)
+        self.assertEqual(await self.page.locator(login.ERROR_SELECTOR).count(), 0)
