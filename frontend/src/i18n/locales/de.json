@@ -262,6 +262,7 @@
       "DEBTS": "Schulden"
     },
     "showClosedLoans": "Geschlossene Darlehen anzeigen",
+    "hideClosedLoans": "Geschlossene Darlehen ausblenden",
     "fees": "Gebühren",
     "export": {
       "button": "Daten exportieren",
@@ -455,13 +456,16 @@
     "editTerms": "Bedingungen bearbeiten",
     "addRepayment": "Rückzahlung hinzufügen",
     "editRepayment": "Rückzahlung bearbeiten",
+    "withCashLeg": "Zahlungsbewegung erstellen",
     "repaymentsTitle": "Rückzahlungen",
     "empty": "Noch keine Rückzahlung erfasst.",
     "repaymentHint": {
-      "single": "Aufgelaufene Zinsen werden zuerst verrechnet, der Rest reduziert das Kapital."
+      "single": "Aufgelaufene Zinsen werden zuerst verrechnet, der Rest reduziert das Kapital.",
+      "noCashLeg": "Das Kapital sinkt ohne Bankeingang: für eine Verrechnung oder eine bereits erfasste Zahlung."
     },
     "ledger": {
-      "interestPart": "davon {{amount}} Zinsen"
+      "interestPart": "davon {{amount}} Zinsen",
+      "noCashLeg": "Ohne Zahlungsbewegung"
     },
     "noPlan": "Keine Prognose festgelegt. Fügen Sie eine Laufzeit oder eine Monatsrate hinzu.",
     "closedHint": "Dieses Darlehen ist geschlossen. Löschen Sie den Forderungsverzicht, um es wieder zu öffnen.",

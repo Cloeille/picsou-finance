@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { DateInput } from '@/components/shared/DateInput'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
@@ -44,6 +45,7 @@ export function PeerLoanRepaymentDialog({
   const [paidOn, setPaidOn] = useState('')
   const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
+  const [withCashLeg, setWithCashLeg] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [wasOpen, setWasOpen] = useState(open)
 
@@ -53,6 +55,7 @@ export function PeerLoanRepaymentDialog({
       setPaidOn(initial?.paidOn ?? new Date().toISOString().slice(0, 10))
       setAmount(initial ? String(initial.amount) : '')
       setNote(initial?.note ?? '')
+      setWithCashLeg(initial?.hasCashLeg ?? true)
       setError(null)
     }
   }
@@ -73,6 +76,7 @@ export function PeerLoanRepaymentDialog({
         paidOn,
         amount: amountValue,
         note: note.trim() || null,
+        withCashLeg,
       })
       onOpenChange(false)
     } catch {
@@ -116,6 +120,21 @@ export function PeerLoanRepaymentDialog({
               onChange={(e) => setNote(e.target.value)}
               maxLength={255}
             />
+          </div>
+
+          <div className="space-y-2 rounded-lg border border-border/60 p-3">
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <Checkbox
+                checked={withCashLeg}
+                onCheckedChange={(checked) => setWithCashLeg(checked === true)}
+              />
+              {t('peerLoan.withCashLeg')}
+            </label>
+            {!withCashLeg && (
+              <p className="text-xs text-muted-foreground">
+                {t('peerLoan.repaymentHint.noCashLeg')}
+              </p>
+            )}
           </div>
 
           {error && <p className="text-sm text-destructive" role="alert">{error}</p>}

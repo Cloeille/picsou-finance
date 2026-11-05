@@ -209,7 +209,8 @@ Unconfigured accounts are left out: they have no terms to describe.
 
 `get_peer_loan` (`accounts:read`) returns the same detail as the REST `GET`, and
 `add_peer_loan_repayment` (`accounts:write`) records one repayment through the same service,
-including the cash leg on a manual linked account. `get_peer_loans_overview`
+including the cash leg on a manual linked account; `withCashLeg=false` records a compensation
+with no bank movement. `get_peer_loans_overview`
 (`accounts:read`) returns every configured loan, **closed ones included**, with its last
 payment and plan drift: the full history an advisor needs. `close_peer_loan`
 (`accounts:write`) writes off the residual on a date and closes the loan. A loan is a
@@ -233,7 +234,9 @@ not a side effect of a payment.
   month; switching the period converts the visible value. The linked cash account is
   required; the borrower is the account name.
 - `PeerLoanRepaymentDialog.tsx` — one date and one amount; the calculator applies the
-  accrued interest first and the ledger row shows the split.
+  accrued interest first and the ledger row shows the split. **"Create the cash movement"
+  is on by default**; turning it off records a compensation (the receivable falls, no bank
+  deposit) and the ledger marks the row "No cash movement".
 - `CreatePeerLoanDialog.tsx` — opened from an outgoing transaction's detail sheet;
   prefills the borrower from the merchant label and links the transaction as the lending
   leg.
@@ -242,13 +245,13 @@ not a side effect of a payment.
 - `AccountForm` hides the balance, currency, bank, ticker and manual fields for a peer
   loan and labels the name "Borrower".
 - `AccountsPage` gains a `RECEIVABLES` filter.
-- `pages/analysis/PeerLoansSection.tsx` is the member-wide view: total outstanding, open
-  loans and accrued interest, the outstanding curve over 12 months, and one row per
-  borrower with the remaining capital, repayment percentage, plan drift, last payment and
-  expected return. A row opens the loan. Closed loans stay in the table with a "Closed"
-  badge and a muted row, so their ledger and their deletion remain reachable. It is facts
-  only: a late badge counts the instalments the plan says are missing, it does not score
-  the borrower.
+- `components/peer-loan/PeerLoansOverviewCard.tsx` is the member-wide view: total
+  outstanding, open loans and accrued interest, the outstanding curve over 12 months, and
+  one row per borrower with the remaining capital, repayment percentage, plan drift, last
+  payment and expected return. It is shown above the cards in **Accounts → Créances**; a
+  row opens the loan. Closed loans stay in the table with a "Closed" badge and a muted row,
+  so their ledger and their deletion remain reachable. It is facts only: a late badge
+  counts the instalments the plan says are missing, it does not score the borrower.
 - i18n keys in all four locales (`fr`, `en`, `de`, `es`).
 
 ### Key files
@@ -281,7 +284,7 @@ Frontend:
 - `frontend/src/features/peer-loans/{api,hooks}.ts`
 - `frontend/src/components/peer-loan/*` (detail, terms, repayment, create/assign dialogs,
   forecast chart)
-- `frontend/src/pages/analysis/PeerLoansSection.tsx` (the member-wide overview)
+- `frontend/src/components/peer-loan/PeerLoansOverviewCard.tsx` (the member-wide overview)
 - `frontend/src/pages/accounts/AccountDetailPage.tsx`,
   `frontend/src/pages/accounts/AccountsPage.tsx`
 - `frontend/src/components/shared/AccountForm.tsx`
@@ -304,6 +307,7 @@ Create from a transaction
 Add a repayment
    │
    ├─ peer_loan_repayment row (PRINCIPAL | INTEREST | WRITE_OFF)
+   ├─ withCashLeg=false → no cash row, the receivable steps down (compensation)
    ├─ manual linked account → DEPOSIT (TRANSFER for capital, uncategorised income
    │  for interest)
    └─ account.current_balance = remaining; today's snapshot upserted
@@ -313,7 +317,7 @@ Daily snapshot
    └─ AccountService.valuation() → PeerLoanCalculator.principalRemaining(...)
         → balance_snapshot stores the step-down (0 once closed)
 
-Analysis overview
+Overview in Accounts → Créances
    │
    └─ PeerLoanService.overview() → every configured loan + totals
         └─ HistoryService on the same account ids → outstanding curve
@@ -406,11 +410,11 @@ The `db` container has no host port: the database is only reachable by the test 
   dashboard. The explicit close action remains for the other case: abandoning a residual
   that will not be repaid.
 - **A closed loan leaves the current totals, not the record.** It is absent from the
-  dashboard's asset distribution, but it stays in the Analysis table with a "Closed" badge
-  (so its ledger and its deletion remain reachable) and in the net-worth history, which
-  keeps the write-off. In Accounts it is hidden from the default list and from the
-  Receivables filter until "Show closed loans" is ticked, then it appears with the same
-  badge and the usual delete action.
+  dashboard's asset distribution, but it stays in the Créances overview with a "Closed"
+  badge (so its ledger and its deletion remain reachable) and in the net-worth history,
+  which keeps the write-off. In Accounts it is hidden from the default list and from the
+  Créances filter until the "Show closed loans" header toggle is pressed, then it appears
+  with the same badge and the usual delete action.
 - **Deleting the closing write-off reopens the loan.** The marker is cleared when the
   recomputed capital is positive.
 - **The borrower is the account name, not a `FamilyMember`.** `FamilyMember` is a Picsou
@@ -423,6 +427,11 @@ The `db` container has no host port: the database is only reachable by the test 
 - **A synced account's row is not categorised automatically.** The provider owns it, so
   the member classifies it once as "Internal transfer"; the detail keeps the hint while
   no link is set.
+- **A repayment can skip the cash leg.** `withCashLeg=false` records a compensation (a
+  netting, or a payment already booked elsewhere): the receivable falls and no deposit is
+  written. The row stays editable and deletable, and the ledger badges it "No cash
+  movement". Use it only when the cash account genuinely must not move; otherwise the
+  default keeps net worth honest.
 - **A linked row is never duplicated or deleted.** A repayment added from an incoming
   transaction has `cash_leg_owned = false`: deleting the repayment only unlinks it, and
   editing it is refused (delete and re-assign). On a synced account the service writes no
@@ -444,19 +453,19 @@ The `db` container has no host port: the database is only reachable by the test 
   short-term rate.
 - `PeerLoanServiceTest` — unconfigured detail, member scoping, wrong type, closed-loan
   guard, account name as the borrower, no leg on a synced account, the outflow written on
-  a manual one, closure write-off and zeroed balance, the final repayment closing the loan
-  by itself, reopen on deleting the write-off, loan creation from an existing transaction,
-  a repayment linked from an incoming transaction (no copy, not deleted), simulation input
-  guard, and the member-wide overview (open/closed counts, totals, ordering, last payment,
-  curve).
+  a manual one, a repayment with no cash leg, removing a cash leg on edit, closure
+  write-off and zeroed balance, the final repayment closing the loan by itself, reopen on
+  deleting the write-off, loan creation from an existing transaction, a repayment linked
+  from an incoming transaction (no copy, not deleted), simulation input guard, and the
+  member-wide overview (open/closed counts, totals, ordering, last payment, curve).
 - `DataExportServiceTest` — the three peer-loan CSV/JSON sections, including the borrower,
   the plan and the journal's `cash_leg_owned` flag.
 - `AccountsWorkbookServiceTest` — the peer-loan block and its repayment journal, with the
   rate expressed in the stated period and the planned interest.
 - `PeerLoanToolsTest` — all four MCP tools delegate to `PeerLoanService`, validate their
   arguments, refuse a standalone write-off and require the `accounts:*` scope.
-- `PeerLoansSection.test.tsx` — totals and one row per borrower, the late/on-time/closed
-  badges, and opening a loan by click or keyboard.
+- `PeerLoansOverviewCard.test.tsx` — totals and one row per borrower, the
+  late/on-time/closed badges, and opening a loan by click or keyboard.
 - `constants.test.ts` — the new account type has a label, is not a liability and is not a
   holdings type.
 

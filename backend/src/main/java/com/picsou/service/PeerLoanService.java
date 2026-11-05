@@ -395,8 +395,12 @@ public class PeerLoanService {
             .build();
         repaymentRepository.save(repayment);
 
-        syncRepaymentLeg(terms, repayment, memberId);
-        repaymentRepository.save(repayment);
+        // A compensation or an already-booked payment leaves the cash account alone.
+        boolean withCashLeg = request.withCashLeg() == null || request.withCashLeg();
+        if (withCashLeg) {
+            syncRepaymentLeg(terms, repayment, memberId);
+            repaymentRepository.save(repayment);
+        }
 
         refreshBalance(account, terms);
         return PeerLoanRepaymentResponse.from(repayment);
@@ -485,9 +489,11 @@ public class PeerLoanService {
         repayment.setAmount(request.amount());
         repayment.setKind(request.kind());
         repayment.setNote(request.note());
-        repaymentRepository.save(repayment);
-
-        syncRepaymentLeg(terms, repayment, memberId);
+        repayment.setCashTransactionId(null);
+        repayment.setCashLegOwned(true);
+        if (request.withCashLeg() == null || request.withCashLeg()) {
+            syncRepaymentLeg(terms, repayment, memberId);
+        }
         repaymentRepository.save(repayment);
 
         refreshBalance(account, terms);

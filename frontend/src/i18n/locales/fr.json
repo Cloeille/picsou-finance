@@ -283,6 +283,7 @@
       "DEBTS": "Dettes"
     },
     "showClosedLoans": "Afficher les prêts clôturés",
+    "hideClosedLoans": "Masquer les prêts clôturés",
     "fees": "Frais",
     "export": {
       "button": "Exporter des données",
@@ -466,13 +467,16 @@
     "editTerms": "Modifier les conditions",
     "addRepayment": "Ajouter un remboursement",
     "editRepayment": "Modifier le remboursement",
+    "withCashLeg": "Créer le mouvement de trésorerie",
     "repaymentsTitle": "Remboursements",
     "empty": "Aucun remboursement enregistré.",
     "repaymentHint": {
-      "single": "Les intérêts courus sont imputés en premier, le reste réduit le capital."
+      "single": "Les intérêts courus sont imputés en premier, le reste réduit le capital.",
+      "noCashLeg": "Le capital baisse sans dépôt bancaire : utile pour une compensation ou un paiement déjà enregistré ailleurs."
     },
     "ledger": {
-      "interestPart": "dont {{amount}} d'intérêts"
+      "interestPart": "dont {{amount}} d'intérêts",
+      "noCashLeg": "Hors trésorerie"
     },
     "noPlan": "Aucune prévision définie. Ajoutez une durée ou une mensualité pour l'estimer.",
     "closedHint": "Ce prêt est clôturé. Supprimez l'abandon pour le rouvrir.",

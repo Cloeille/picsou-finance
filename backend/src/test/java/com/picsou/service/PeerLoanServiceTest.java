@@ -3,6 +3,7 @@ package com.picsou.service;
 import com.picsou.dto.PeerLoanDetailResponse;
 import com.picsou.dto.PeerLoanFromTransactionRequest;
 import com.picsou.dto.PeerLoanRepaymentRequest;
+import com.picsou.dto.PeerLoanRepaymentResponse;
 import com.picsou.dto.PeerLoanRepaymentFromTransactionRequest;
 import com.picsou.dto.PeerLoanSimulationRequest;
 import com.picsou.dto.PeerLoanTermsRequest;
@@ -276,6 +277,67 @@ class PeerLoanServiceTest {
 
         // The provider owns the row; writing one would double it in the cashflow.
         verify(manualTransactionService, never()).addTransaction(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void addRepaymentWithoutCashLegWritesNoTransaction() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("500")).lentAt(LocalDate.now().minusDays(10))
+            .annualRate(BigDecimal.ZERO).linkedAccount(cashAccount(true))
+            .build();
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        List<PeerLoanRepayment> ledger = new ArrayList<>();
+        when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
+            PeerLoanRepayment saved = invocation.getArgument(0);
+            saved.setId(11L);
+            ledger.add(saved);
+            return saved;
+        });
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenAnswer(invocation -> ledger);
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PeerLoanRepaymentResponse response = service.addRepayment(ACCOUNT_ID, MEMBER_ID,
+            new PeerLoanRepaymentRequest(LocalDate.now(), new BigDecimal("50"),
+                PeerLoanRepaymentKind.PRINCIPAL, "Compensation", false));
+
+        // A compensation reduces the receivable without inventing a bank deposit.
+        verify(manualTransactionService, never()).addTransaction(anyLong(), anyLong(), any());
+        assertThat(response.hasCashLeg()).isFalse();
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("450");
+    }
+
+    @Test
+    void updatingARepaymentCanRemoveItsCashLeg() {
+        Account account = loanAccount("Jean");
+        Account linked = cashAccount(true);
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("500")).lentAt(LocalDate.now().minusDays(10))
+            .annualRate(BigDecimal.ZERO).linkedAccount(linked)
+            .build();
+        PeerLoanRepayment repayment = PeerLoanRepayment.builder()
+            .id(11L).account(account).paidOn(LocalDate.now().minusDays(2))
+            .amount(new BigDecimal("100")).kind(PeerLoanRepaymentKind.PRINCIPAL)
+            .cashTransactionId(60L).cashLegOwned(true).build();
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.findByIdAndAccountId(11L, ACCOUNT_ID)).thenReturn(Optional.of(repayment));
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenReturn(List.of(repayment));
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PeerLoanRepaymentResponse response = service.updateRepayment(ACCOUNT_ID, 11L, MEMBER_ID,
+            new PeerLoanRepaymentRequest(LocalDate.now(), new BigDecimal("100"),
+                PeerLoanRepaymentKind.PRINCIPAL, "Compensation", false));
+
+        verify(manualTransactionService).deleteTransaction(CASH_ID, 60L, MEMBER_ID);
+        verify(manualTransactionService, never()).addTransaction(anyLong(), anyLong(), any());
+        assertThat(repayment.getCashTransactionId()).isNull();
+        assertThat(response.hasCashLeg()).isFalse();
     }
 
     @Test

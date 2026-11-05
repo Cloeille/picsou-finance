@@ -283,6 +283,7 @@
       "DEBTS": "Debts"
     },
     "showClosedLoans": "Show closed loans",
+    "hideClosedLoans": "Hide closed loans",
     "fees": "Fees",
     "export": {
       "button": "Export data",
@@ -466,13 +467,16 @@
     "editTerms": "Edit terms",
     "addRepayment": "Add a repayment",
     "editRepayment": "Edit repayment",
+    "withCashLeg": "Create the cash movement",
     "repaymentsTitle": "Repayments",
     "empty": "No repayment recorded yet.",
     "repaymentHint": {
-      "single": "Accrued interest is applied first; the rest reduces the capital."
+      "single": "Accrued interest is applied first; the rest reduces the capital.",
+      "noCashLeg": "The capital falls with no bank deposit: use it for a compensation or a payment already booked elsewhere."
     },
     "ledger": {
-      "interestPart": "of which {{amount}} interest"
+      "interestPart": "of which {{amount}} interest",
+      "noCashLeg": "No cash movement"
     },
     "noPlan": "No forecast set. Add a duration or a monthly payment to estimate one.",
     "closedHint": "This loan is closed. Delete its write-off to reopen it.",

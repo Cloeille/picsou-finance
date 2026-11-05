@@ -76,7 +76,7 @@ class PeerLoanToolsTest {
             .thenReturn(row);
 
         PeerLoanRepaymentResponse result = tools.addPeerLoanRepayment(12L, LocalDate.parse("2026-11-05"),
-            new BigDecimal("250"), PeerLoanRepaymentKind.INTEREST, "November");
+            new BigDecimal("250"), PeerLoanRepaymentKind.INTEREST, "November", null);
 
         assertThat(result).isSameAs(row);
         ArgumentCaptor<PeerLoanRepaymentRequest> sent = ArgumentCaptor.forClass(PeerLoanRepaymentRequest.class);
@@ -108,8 +108,9 @@ class PeerLoanToolsTest {
     }
 
     @Test
-    void addPeerLoanRepayment_refusesAWriteOff() {        assertThatThrownBy(() -> tools.addPeerLoanRepayment(12L, LocalDate.now(), BigDecimal.TEN,
-            PeerLoanRepaymentKind.WRITE_OFF, null))
+    void addPeerLoanRepayment_refusesAWriteOff() {
+        assertThatThrownBy(() -> tools.addPeerLoanRepayment(12L, LocalDate.now(), BigDecimal.TEN,
+            PeerLoanRepaymentKind.WRITE_OFF, null, null))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("close the loan instead");
 
@@ -121,9 +122,9 @@ class PeerLoanToolsTest {
         PeerLoanTools real = withRealValidator();
 
         assertThatThrownBy(() -> real.addPeerLoanRepayment(12L, LocalDate.parse("2026-11-05"),
-            BigDecimal.ZERO, null, null))
+            BigDecimal.ZERO, null, null, null))
             .isInstanceOf(ConstraintViolationException.class);
-        assertThatThrownBy(() -> real.addPeerLoanRepayment(12L, null, BigDecimal.TEN, null, null))
+        assertThatThrownBy(() -> real.addPeerLoanRepayment(12L, null, BigDecimal.TEN, null, null, null))
             .isInstanceOf(ConstraintViolationException.class);
 
         verifyNoInteractions(peerLoanService);
@@ -134,7 +135,7 @@ class PeerLoanToolsTest {
         PeerLoanTools real = withRealValidator();
 
         assertThatThrownBy(() -> real.addPeerLoanRepayment(12L, LocalDate.parse("2026-11-05"),
-            BigDecimal.TEN, null, "x".repeat(256)))
+            BigDecimal.TEN, null, "x".repeat(256), null))
             .isInstanceOf(ConstraintViolationException.class);
     }
 

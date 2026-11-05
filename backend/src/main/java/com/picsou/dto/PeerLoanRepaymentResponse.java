@@ -19,7 +19,9 @@ public record PeerLoanRepaymentResponse(
     PeerLoanRepaymentKind kind,
     String note,
     BigDecimal interestPart,
-    BigDecimal capitalPart
+    BigDecimal capitalPart,
+    /** True when this row has a cash movement in a linked account (written or linked). */
+    boolean hasCashLeg
 ) {
     public static PeerLoanRepaymentResponse from(PeerLoanRepayment repayment) {
         return from(repayment, null);
@@ -35,7 +37,8 @@ public record PeerLoanRepaymentResponse(
             repayment.getKind(),
             repayment.getNote(),
             split == null ? null : split.interest(),
-            split == null ? null : split.capital()
+            split == null ? null : split.capital(),
+            repayment.getCashTransactionId() != null
         );
     }
 }

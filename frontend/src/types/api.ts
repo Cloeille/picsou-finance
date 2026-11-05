@@ -549,6 +549,8 @@ export interface PeerLoanRepayment {
   /** Interest applied by this row (interest first, then capital). */
   interestPart?: number | null
   capitalPart?: number | null
+  /** True when this row has a cash movement in a linked account. */
+  hasCashLeg?: boolean
 }
 
 export type PeerLoanRatePeriod = 'ANNUAL' | 'MONTHLY'
@@ -594,6 +596,11 @@ export interface PeerLoanRepaymentRequest {
   /** Omitted: a payment, interest first then capital. */
   kind?: PeerLoanRepaymentKind | null
   note?: string | null
+  /**
+   * Whether Picsou writes the matching cash movement on a manual linked account.
+   * False records a compensation: the receivable falls, the cash account is untouched.
+   */
+  withCashLeg?: boolean | null
 }
 
 export interface PeerLoanSimulationRequest {

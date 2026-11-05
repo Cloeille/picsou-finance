@@ -62,13 +62,17 @@ public class PeerLoanTools {
         @ToolParam(description = "Amount received, greater than zero") BigDecimal amount,
         @ToolParam(description = "PRINCIPAL (default) or INTEREST; both allocate interest first, then capital",
             required = false) PeerLoanRepaymentKind kind,
-        @ToolParam(description = "Optional note, at most 255 characters", required = false) String note) {
+        @ToolParam(description = "Optional note, at most 255 characters", required = false) String note,
+        @ToolParam(description = "Set false to record a compensation/netting with no bank movement "
+            + "(the receivable falls, the cash account is untouched); defaults to true",
+            required = false) Boolean withCashLeg) {
         // A write-off through this tool would zero the capital without stamping the closure, the
         // half-closed state the REST path reserves for close(). Closing stays a deliberate act.
         if (kind == PeerLoanRepaymentKind.WRITE_OFF) {
             throw new IllegalArgumentException("WRITE_OFF is not available through this tool; close the loan instead");
         }
-        PeerLoanRepaymentRequest request = validated(new PeerLoanRepaymentRequest(paidOn, amount, kind, note));
+        PeerLoanRepaymentRequest request =
+            validated(new PeerLoanRepaymentRequest(paidOn, amount, kind, note, withCashLeg));
         return peerLoanService.addRepayment(accountId, userContext.currentMemberId(), request);
     }
 

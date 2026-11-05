@@ -262,6 +262,7 @@
       "DEBTS": "Deudas"
     },
     "showClosedLoans": "Mostrar préstamos cerrados",
+    "hideClosedLoans": "Ocultar préstamos cerrados",
     "fees": "Comisiones",
     "export": {
       "button": "Exportar datos",
@@ -455,13 +456,16 @@
     "editTerms": "Editar condiciones",
     "addRepayment": "Añadir una devolución",
     "editRepayment": "Editar devolución",
+    "withCashLeg": "Crear el movimiento de efectivo",
     "repaymentsTitle": "Devoluciones",
     "empty": "Aún no hay devoluciones registradas.",
     "repaymentHint": {
-      "single": "Los intereses devengados se aplican primero; el resto reduce el capital."
+      "single": "Los intereses devengados se aplican primero; el resto reduce el capital.",
+      "noCashLeg": "El capital baja sin ingreso bancario: útil para una compensación o un pago ya registrado en otro sitio."
     },
     "ledger": {
-      "interestPart": "de los cuales {{amount}} de intereses"
+      "interestPart": "de los cuales {{amount}} de intereses",
+      "noCashLeg": "Sin movimiento de efectivo"
     },
     "noPlan": "Sin previsión definida. Añade una duración o una cuota mensual para estimarla.",
     "closedHint": "Este préstamo está cerrado. Elimina la condonación para reabrirlo.",
