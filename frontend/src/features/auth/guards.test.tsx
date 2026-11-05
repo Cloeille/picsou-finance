@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 function memoryStorage(): Storage {
@@ -199,6 +199,40 @@ describe('PublicOnly OAuth authorize resume', () => {
     await waitFor(() => expect(screen.getByText('login-form')).toBeInTheDocument())
     expect(consumeSsoRevalidate()).toBe(false)
     expect(sessionStorage.getItem('picsou_user')).toBeNull()
+  })
+})
+
+describe('RequireAuth without a session', () => {
+  beforeEach(() => {
+    refresh.mockReset()
+    useAuthStore.setState({ user: null, isAuthenticated: false })
+    useAppStore.setState({ demoMode: false })
+  })
+
+  function LoginLocation() {
+    const location = useLocation()
+    return <div>{`login ${location.search}`}</div>
+  }
+
+  it.each([
+    ['/accounts?x=1', 'login ?redirect=%2Faccounts%3Fx%3D1'],
+    ['/', 'login '],
+  ])('sends %s to /login and keeps it as the redirect target', async (entry, expected) => {
+    refresh.mockRejectedValue(new Error('401'))
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={[entry]}>
+          <Routes>
+            <Route path="/login" element={<LoginLocation />} />
+            <Route path="*" element={<RequireAuth><div>app</div></RequireAuth>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect((await screen.findByText(/^login/)).textContent).toBe(expected)
   })
 })
 

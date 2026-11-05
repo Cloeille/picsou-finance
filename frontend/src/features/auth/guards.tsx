@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Navigate, useSearchParams } from 'react-router'
+import { Navigate, useLocation, useSearchParams } from 'react-router'
 import { useAuthStore } from '@/stores/auth-store'
 import { useAppStore } from '@/stores/app-store'
 import { RouteSpinner } from '@/components/shared/RouteFallback'
@@ -13,6 +13,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore(s => s.isAuthenticated)
   const login = useAuthStore(s => s.login)
   const demoMode = useAppStore(s => s.demoMode)
+  const location = useLocation()
 
   // Demo mode probes too: its adapter answers /auth/refresh with the demo user, which is how
   // pages reading the signed-in user (Settings, RequireAdmin) get one.
@@ -25,7 +26,8 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   if (demoMode || isAuthenticated) return <>{children}</>
   if (probe.isPending || probe.isSuccess) return <RouteSpinner />
 
-  return <Navigate to="/login" replace />
+  const requested = location.pathname + location.search
+  return <Navigate to={requested === '/' ? '/login' : `/login?redirect=${encodeURIComponent(requested)}`} replace />
 }
 
 export function PublicOnly({
