@@ -4,9 +4,12 @@ import com.picsou.repository.AppUserRepository;
 import org.springframework.stereotype.Component;
 
 import java.text.Normalizer;
+import java.util.Locale;
 
 @Component
 public class UsernameDeriver {
+
+    private static final int USERNAME_COLUMN_LENGTH = 50;
 
     private final AppUserRepository userRepository;
 
@@ -24,7 +27,7 @@ public class UsernameDeriver {
         String base = Normalizer
             .normalize(displayName == null ? "" : displayName, Normalizer.Form.NFD)
             .replaceAll("\\p{M}+", "")        // strip accent marks
-            .toLowerCase()
+            .toLowerCase(Locale.ROOT)
             .replaceAll("[^a-z0-9]+", ".")     // any separator run -> single dot
             .replaceAll("^\\.+|\\.+$", "");    // trim leading/trailing dots
         if (base.isBlank()) {
@@ -36,7 +39,8 @@ public class UsernameDeriver {
         String candidate = base;
         int n = 2;
         while (userRepository.existsByUsername(candidate)) {
-            candidate = base + "." + n++;
+            String suffix = "." + n++;
+            candidate = base.substring(0, Math.min(base.length(), USERNAME_COLUMN_LENGTH - suffix.length())) + suffix;
         }
         return candidate;
     }
