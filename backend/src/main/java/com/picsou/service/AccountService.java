@@ -552,13 +552,16 @@ public class AccountService {
 
         List<AccountHolding> holdings = holdingRepository.findByAccount_Id(account.getId());
         if (holdings.isEmpty()) {
+            // A CORUM Life contract keeps its own cost basis without lines too (the last one
+            // deleted by hand): pairing the total with itself would report a zero gain. Both
+            // figures are the EUR amounts CORUM reported, so an edited account currency must
+            // not convert one of them.
+            if (account.getProviderInvestedEur() != null && isSyncedCorumLife(account)) {
+                return new Valuation(account.getCurrentBalance(), account.getProviderInvestedEur(),
+                    true, true, false);
+            }
             BigDecimal cash = priceService.toEur(
                 account.getCurrentBalance(), account.getCurrency(), account.getTicker());
-            // A CORUM Life contract keeps its own cost basis without lines too (the last one
-            // deleted by hand): pairing the total with itself would report a zero gain.
-            if (account.getProviderInvestedEur() != null && isSyncedCorumLife(account)) {
-                return new Valuation(cash, account.getProviderInvestedEur(), true, true, false);
-            }
             // Cash costs what it is worth, in the same currency on both sides: returning the
             // stored balance as the cost basis paired a converted value with an unconverted
             // cost, so a USD or GBP account reported the FX rate as a gain or a loss.

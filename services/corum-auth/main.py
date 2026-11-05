@@ -605,9 +605,9 @@ def _select_contracts(active: Any, *, reads_life: bool = False) -> tuple[str | N
 
     Returns the real-estate contract code, if any, and every CORUM Life code
     as listed; `/portfolio` refuses a duplicate code, `/positions` never reads them.
-    With `reads_life` (`/portfolio`), a Life entry without a usable code is
-    refused rather than skipped: skipping it would report a successful sync
-    that silently left that contract stale.
+    With `reads_life` (`/portfolio`), a Life or real-estate entry without a
+    usable code is refused rather than skipped: skipping it would report a
+    successful sync that silently left that contract (or the SCPI funds) stale.
     PER and capitalisation are still left out: they are insurance this service
     has no parser for, and folding them in would invent positions.
     """
@@ -622,7 +622,7 @@ def _select_contracts(active: Any, *, reads_life: bool = False) -> tuple[str | N
         if not isinstance(contract_type, str):
             continue
         if not (isinstance(code, str) and code):
-            if reads_life and contract_type.casefold() == "life":
+            if reads_life and contract_type.casefold() in ("life", "real_estate"):
                 raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
             continue
         if contract_type.casefold() == "real_estate":

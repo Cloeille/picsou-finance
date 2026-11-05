@@ -1068,12 +1068,28 @@ class AccountServiceTest {
             .isManual(false).externalAccountId("corum_life_1001").providerInvestedEur(new BigDecimal("1580"))
             .currentBalance(new BigDecimal("1534.37")).cashBalance(BigDecimal.ZERO).build();
         when(holdingRepository.findByAccount_Id(8L)).thenReturn(List.of());
-        when(priceService.toEur(new BigDecimal("1534.37"), "EUR", null)).thenReturn(new BigDecimal("1534.37"));
 
         AccountService.Valuation valuation = accountService.valuation(account);
 
         assertThat(valuation.liveEur()).isEqualByComparingTo("1534.37");
         assertThat(valuation.investedEur()).isEqualByComparingTo("1580");
+    }
+
+    @Test
+    void valuation_corumLifeWithoutHoldings_ignoresAnEditedCurrency() {
+        // CORUM reports both figures in EUR: a currency edited to USD must not convert the
+        // balance while the contract cost stays in EUR, which would invent an FX gain.
+        Account account = Account.builder().id(10L).name("CORUM Life")
+            .type(AccountType.ASSURANCE_VIE).provider(ScpiProvider.CORUM.displayName()).currency("USD")
+            .isManual(false).externalAccountId("corum_life_1001").providerInvestedEur(new BigDecimal("1580"))
+            .currentBalance(new BigDecimal("1534.37")).cashBalance(BigDecimal.ZERO).build();
+        when(holdingRepository.findByAccount_Id(10L)).thenReturn(List.of());
+
+        AccountService.Valuation valuation = accountService.valuation(account);
+
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1534.37");
+        assertThat(valuation.investedEur()).isEqualByComparingTo("1580");
+        verify(priceService, never()).toEur(any(), any(), any());
     }
 
     @Test

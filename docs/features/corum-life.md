@@ -161,7 +161,10 @@ Every in-page read (`_get_json`) aborts its `fetch` (body included) through an `
 after `READ_TIMEOUT_SECONDS` (20 s, below the 30 s navigation bound), and the evaluation itself is
 bounded `READ_EVALUATE_GRACE_SECONDS` (5 s) later for a wedged page. Either is
 `UPSTREAM_UNAVAILABLE`; the raise reaches `_read_in_portal`'s `finally`, which frees the browser
-slot.
+slot. The one exception is the operations read: `_read_operations` catches its timeout (like any
+other failure of that read), so the sync goes on with `operations: null` and the stored rows are
+kept. A contract whose operations stop updating while its valuation does is diagnosed from the
+sidecar log line `CORUM Life operations not read (code=UPSTREAM_UNAVAILABLE)`.
 
 ### Writing (`CorumLifeWriter`)
 

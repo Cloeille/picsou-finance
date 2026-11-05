@@ -347,6 +347,15 @@ class SelectsContractsTest(unittest.TestCase):
             self.assertEqual(caught.exception.status_code, 502)
             self.assertEqual(caught.exception.detail, "UPSTREAM_FORMAT_CHANGED")
 
+    def test_a_real_estate_entry_without_a_usable_code_is_refused_when_life_is_read(self):
+        for code in (None, "", 123, ["RE-2"]):
+            with self.subTest(code=code), self.assertRaises(HTTPException) as caught:
+                main._select_contracts([
+                    {"contractCode": "LIFE-1", "contractType": "LIFE"},
+                    {"contractCode": code, "contractType": "real_estate"},
+                ], reads_life=True)
+            self.assertEqual(caught.exception.detail, "UPSTREAM_FORMAT_CHANGED")
+
     def test_a_life_entry_without_a_usable_code_is_skipped_by_the_scpi_read(self):
         selected = main._select_contracts([
             {"contractCode": "RE-1", "contractType": "real_estate"},
@@ -605,16 +614,17 @@ class ReadsTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["contractCode"], "RE-1")
 
-    async def test_portfolio_skips_an_active_total_whose_code_is_not_a_string(self):
+    async def test_portfolio_refuses_a_real_estate_entry_whose_code_is_not_a_string(self):
+        # Skipping it would commit the Life part and leave the SCPI funds stale, silently.
         active = [
             {"contractCode": ["RE-1"], "contractType": "real_estate", "valuationAmount": 1.0},
             {"contractCode": LIFE_CODE, "contractType": "LIFE", "valuationAmount": 3506.56},
         ]
         with self._serve(active):
-            result = await main._read_portfolio(object())
+            with self.assertRaises(HTTPException) as caught:
+                await main._read_portfolio(object())
 
-        self.assertIsNone(result["realEstate"])
-        self.assertEqual([c["contractCode"] for c in result["life"]], [LIFE_CODE])
+        self.assertEqual(caught.exception.detail, "UPSTREAM_FORMAT_CHANGED")
 
     async def test_portfolio_refuses_a_life_entry_without_a_code(self):
         active = [
