@@ -508,9 +508,9 @@ class CaisseEpargneSyncServiceTest {
 
         verify(accountRepository, times(1)).save(any(Account.class));
         assertThat(result.unsupportedCount()).isEqualTo(2);
-        assertThat(result.unsupported()).extracting(CaisseEpargneSyncService.UnsupportedContract::externalId)
+        assertThat(result.unsupported()).extracting(BpceSyncEngine.UnsupportedContract::externalId)
             .containsExactly("9001", "9002");
-        assertThat(result.unsupported()).extracting(CaisseEpargneSyncService.UnsupportedContract::familyCode)
+        assertThat(result.unsupported()).extracting(BpceSyncEngine.UnsupportedContract::familyCode)
             .containsExactly("7", "17");
         assertThat(service.getStatus(7L).unsupportedCount()).isEqualTo(2);
     }

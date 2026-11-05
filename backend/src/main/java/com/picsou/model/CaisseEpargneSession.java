@@ -18,7 +18,7 @@ import java.util.Objects;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder
-public class CaisseEpargneSession extends AuditableEntity {
+public class CaisseEpargneSession extends AuditableEntity implements BpceSession<CaisseEpargneErrorCode> {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -134,6 +134,17 @@ public class CaisseEpargneSession extends AuditableEntity {
         }
     }
 
+    @Override
+    public boolean isQueued() {
+        return syncStatus == CaisseEpargneSyncStatus.QUEUED;
+    }
+
+    @Override
+    public boolean isRunning() {
+        return syncStatus == CaisseEpargneSyncStatus.RUNNING;
+    }
+
+    @Override
     public boolean isSyncInFlight() {
         return syncStatus == CaisseEpargneSyncStatus.QUEUED || syncStatus == CaisseEpargneSyncStatus.RUNNING;
     }

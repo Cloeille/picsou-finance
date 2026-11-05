@@ -111,7 +111,7 @@ class CaisseEpargneSyncServiceAuthTest {
     void initiateAuth_returnsTheKeypadAndStoresNothing() {
         challenge("proc-1", 90);
 
-        CaisseEpargneSyncService.InitiateResponse response = service.initiateAuth(CUSTOMER_ID, 7L);
+        BpceSyncEngine.InitiateResponse response = service.initiateAuth(CUSTOMER_ID, 7L);
 
         assertThat(response.processId()).isEqualTo("proc-1");
         assertThat(response.keypad().images()).hasSize(10).allMatch(IMAGE::equals);
