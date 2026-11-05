@@ -1,9 +1,11 @@
 # Feature: Caisse d'Epargne sync
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-05
 > Status: sidecar, backend and frontend are in the codebase. `docker/docker-compose.yml` runs the `caisse-epargne-auth` sidecar; `application.yml` gives the backend its URL. The user connects from the Sync page (Caisse d'Epargne tab) or the add-account modal: a pop-up shows the bank's virtual keypad, the user clicks his own digits, then approves in Sécur'Pass. There is no keypad table: the sidecar never maps a key image to a digit. Sync is on demand only. Tested offline only: no test covers a full login against the real bank, and the card-transaction `accountIds` is still unverified live (see the sidecar README).
 
 ## Context
+
+The sidecar logic lives in the shared `services/base/bpce` package and the sync logic in `BpceSyncEngine`; Banque Populaire uses both with its own `Site` and bank descriptor ([ADR](../decisions/2026-11-05-bpce-shared-sidecar-and-engine.md), [banque-populaire.md](banque-populaire.md)). This connector keeps its table, `ce_` prefix and REST paths. The shared code logs under the `bpce` logger name.
 
 The `caisse-epargne-auth` sidecar drives the browser login (`POST /initiate`, `POST /keypad`, `POST /complete`), then replays the stored bank session to a bearer token and reads accounts and transactions (`POST /token-check`, `POST /accounts`). The backend stores that session encrypted, calls the sidecar on demand and writes the result. It mirrors the BoursoBank connector with the differences below.
 
@@ -31,6 +33,7 @@ Table `caisse_epargne_session` (migration `V109`) is `bourso_session` without `e
 
 - **Current account** (`CURRENT_ACCOUNT` → `CHECKING`), with its transactions.
 - **Livret A** (`LIVRET_A` → `LIVRET_A`), with its transactions.
+- **Livret Jeune** (`LIVRET_JEUNE` → `LIVRET_JEUNE`), with its transactions. The bank files it under the Livret A's code (`3/01`); the product label tells them apart (`JEUNE` in the label). A `3/01` product labelled like a LEP (`LEP`, `EPARGNE POPULAIRE`, whole words) is listed in `unsupported`, never imported as a Livret A.
 - **LDDS** (`LDDS` → `LDDS`), with its transactions. It is a product of its own: it shares the Livret A's regulated rate, never its ceiling. The bank sends each account's own ceiling (`ceiling` in the sidecar contract); nothing hardcodes an LDDS ceiling or reuses the Livret A's.
 - **PER** (`PER` → `PER`): owned unit-linked positions (ISIN, quantity, bank NAV, NAV date and line value) and the separate euro-fund pocket when complete insurer details are available. EUR market quotes update each resolved line between bank syncs; other lines retain their bank value, marked stale with the bank NAV date. The euro fund stays fixed until another sync. No transactions are read, no IBAN. Negative or unreconciled details refuse the sync. Legacy payloads without PER details preserve existing positions rather than clearing them.
 - **Personal loan and home loan** (`LOAN` → `LOAN`; sub codes `12` and `13`): the bank shows the outstanding capital as a figure <= 0; Picsou stores it positive (like any `LOAN`) and applies the liability sign itself. A positive outstanding refuses the sync. No transactions are read on the loan itself. See "Personal loan" below.

@@ -9,11 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Banque Populaire sync.** A new Sync tab connects a Banque Populaire account: pick your
+  regional bank, type your identifier, click your digits on the bank's keypad and approve in
+  Sécur'Pass. Imports the current account, Livret A, Livret Jeune, LDDS and card with their
+  transactions, on demand. It shares the Caisse d'Epargne code through the BPCE platform; loans,
+  PER and revolving credit are not imported yet. Enable the `banque-populaire` Compose profile.
+  See [Banque Populaire sync](docs/features/banque-populaire.md).
+
 - **AI categorization over MCP.** `start_ai_categorization` starts the inbox's AI job and
   `get_ai_categorization_status` reports its progress as counters only, under a new
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
   browser session. See [Budget + OAuth2 tools in MCP](docs/features/mcp-budget-oauth2.md).
 ### Fixed
+
+- **Caisse d'Epargne: a Livret Jeune is imported as a Livret Jeune.** The BPCE product code it
+  shares with the Livret A made it show up as a Livret A; the product label now tells them apart.
+  A LEP-looking product with that code is listed as unsupported instead of guessed.
 
 - **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar
   read the whole transaction history and refused it past 1,000 rows (`UPSTREAM_FORMAT_CHANGED`).
