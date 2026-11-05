@@ -74,7 +74,7 @@ class McpToolCatalogTest {
         "list_accounts", "get_account", "get_account_holdings", "get_account_balance_history", "get_account_deletion_impact",
         "create_manual_account", "update_account", "delete_account", "add_balance_snapshot",
         "upsert_holding", "delete_holding", "set_scpi_position",
-        "get_peer_loan", "add_peer_loan_repayment",
+        "get_peer_loan", "add_peer_loan_repayment", "get_peer_loans_overview", "close_peer_loan",
         // transactions:read / transactions:write
         "list_account_transactions", "add_transaction", "update_transaction", "delete_transaction",
         // goals:read / goals:write

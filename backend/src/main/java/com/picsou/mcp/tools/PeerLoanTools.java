@@ -3,6 +3,7 @@ package com.picsou.mcp.tools;
 import com.picsou.dto.PeerLoanDetailResponse;
 import com.picsou.dto.PeerLoanRepaymentRequest;
 import com.picsou.dto.PeerLoanRepaymentResponse;
+import com.picsou.dto.PeerLoansOverviewResponse;
 import com.picsou.mcp.RequiresScope;
 import com.picsou.mcp.Scopes;
 import com.picsou.model.PeerLoanRepaymentKind;
@@ -69,6 +70,31 @@ public class PeerLoanTools {
         }
         PeerLoanRepaymentRequest request = validated(new PeerLoanRepaymentRequest(paidOn, amount, kind, note));
         return peerLoanService.addRepayment(accountId, userContext.currentMemberId(), request);
+    }
+
+    @Tool(name = "get_peer_loans_overview",
+        description = "Get every configured peer loan of the authenticated member as one view: total "
+            + "outstanding, open and closed counts, accrued interest, the outstanding curve, and one "
+            + "row per loan with remaining capital, repayment percentage, plan drift, last payment and "
+            + "closure date. Closed loans are included, so an advisor can reason from the full history.")
+    @RequiresScope(Scopes.ACCOUNTS_READ)
+    public PeerLoansOverviewResponse getPeerLoansOverview(
+        @ToolParam(description = "History window in months, 1 to 24; defaults to 12", required = false)
+        Integer months) {
+        return peerLoanService.overview(
+            userContext.currentMemberId(), months == null ? 12 : months);
+    }
+
+    @Tool(name = "close_peer_loan",
+        description = "Close a peer loan of the authenticated member: writes off the remaining capital "
+            + "on the given date, if any, and marks the loan closed. Idempotent on an already-closed "
+            + "loan. Returns the updated detail; call get_peer_loans_overview for the new totals.")
+    @RequiresScope(Scopes.ACCOUNTS_WRITE)
+    public PeerLoanDetailResponse closePeerLoan(
+        @ToolParam(description = "The peer-loan account id") Long accountId,
+        @ToolParam(description = "Closure date, ISO yyyy-MM-dd; defaults to today", required = false)
+        LocalDate closedAt) {
+        return peerLoanService.close(accountId, userContext.currentMemberId(), closedAt);
     }
 
     /** The bean validation the REST controller gets from {@code @Valid}; tool arguments bypass it. */

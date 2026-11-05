@@ -209,9 +209,13 @@ Unconfigured accounts are left out: they have no terms to describe.
 
 `get_peer_loan` (`accounts:read`) returns the same detail as the REST `GET`, and
 `add_peer_loan_repayment` (`accounts:write`) records one repayment through the same service,
-including the cash leg on a manual linked account. A loan is a `PEER_LOAN` account, so the
-account scopes cover it and the consent surface does not change. The repayment tool refuses
-`WRITE_OFF`: closing a loan stays an explicit action, not a side effect of a payment.
+including the cash leg on a manual linked account. `get_peer_loans_overview`
+(`accounts:read`) returns every configured loan, **closed ones included**, with its last
+payment and plan drift: the full history an advisor needs. `close_peer_loan`
+(`accounts:write`) writes off the residual on a date and closes the loan. A loan is a
+`PEER_LOAN` account, so the account scopes cover all four and the consent surface does not
+change. The repayment tool refuses `WRITE_OFF`: closing a loan stays an explicit action,
+not a side effect of a payment.
 
 ### Frontend
 
@@ -449,7 +453,7 @@ The `db` container has no host port: the database is only reachable by the test 
   the plan and the journal's `cash_leg_owned` flag.
 - `AccountsWorkbookServiceTest` — the peer-loan block and its repayment journal, with the
   rate expressed in the stated period and the planned interest.
-- `PeerLoanToolsTest` — both MCP tools delegate to `PeerLoanService`, validate their
+- `PeerLoanToolsTest` — all four MCP tools delegate to `PeerLoanService`, validate their
   arguments, refuse a standalone write-off and require the `accounts:*` scope.
 - `PeerLoansSection.test.tsx` — totals and one row per borrower, the late/on-time/closed
   badges, and opening a loan by click or keyboard.

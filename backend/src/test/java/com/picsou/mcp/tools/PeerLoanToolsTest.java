@@ -3,6 +3,7 @@ package com.picsou.mcp.tools;
 import com.picsou.dto.PeerLoanDetailResponse;
 import com.picsou.dto.PeerLoanRepaymentRequest;
 import com.picsou.dto.PeerLoanRepaymentResponse;
+import com.picsou.dto.PeerLoansOverviewResponse;
 import com.picsou.exception.MissingScopeException;
 import com.picsou.mcp.RequiresScope;
 import com.picsou.mcp.ScopeEnforcementAspect;
@@ -88,8 +89,26 @@ class PeerLoanToolsTest {
     }
 
     @Test
-    void addPeerLoanRepayment_refusesAWriteOff() {
-        assertThatThrownBy(() -> tools.addPeerLoanRepayment(12L, LocalDate.now(), BigDecimal.TEN,
+    void getPeerLoansOverview_defaultsToTwelveMonthsAndDelegates() {
+        PeerLoansOverviewResponse overview = org.mockito.Mockito.mock(PeerLoansOverviewResponse.class);
+        when(userContext.currentMemberId()).thenReturn(MID);
+        when(peerLoanService.overview(MID, 12)).thenReturn(overview);
+
+        assertThat(tools.getPeerLoansOverview(null)).isSameAs(overview);
+    }
+
+    @Test
+    void closePeerLoan_delegatesWithTheOptionalDate() {
+        PeerLoanDetailResponse detail = org.mockito.Mockito.mock(PeerLoanDetailResponse.class);
+        LocalDate closedAt = LocalDate.parse("2026-11-05");
+        when(userContext.currentMemberId()).thenReturn(MID);
+        when(peerLoanService.close(12L, MID, closedAt)).thenReturn(detail);
+
+        assertThat(tools.closePeerLoan(12L, closedAt)).isSameAs(detail);
+    }
+
+    @Test
+    void addPeerLoanRepayment_refusesAWriteOff() {        assertThatThrownBy(() -> tools.addPeerLoanRepayment(12L, LocalDate.now(), BigDecimal.TEN,
             PeerLoanRepaymentKind.WRITE_OFF, null))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("close the loan instead");
@@ -129,7 +148,9 @@ class PeerLoanToolsTest {
 
         assertThat(scopeByTool).isEqualTo(Map.of(
             "get_peer_loan", Scopes.ACCOUNTS_READ,
-            "add_peer_loan_repayment", Scopes.ACCOUNTS_WRITE));
+            "add_peer_loan_repayment", Scopes.ACCOUNTS_WRITE,
+            "get_peer_loans_overview", Scopes.ACCOUNTS_READ,
+            "close_peer_loan", Scopes.ACCOUNTS_WRITE));
     }
 
     @Test

@@ -160,7 +160,7 @@ by `delete_account`.
 
 | Scope | Tools |
 |-------|-------|
-| `accounts:read` | `list_accounts`, `get_account`, `get_account_holdings`, `get_account_balance_history`, `get_account_deletion_impact`, `get_savings_interest`, `get_property_valuations`, `get_loan_summary`, `get_realized_pnl`, `get_exchange_positions`, `get_peer_loan` |
+| `accounts:read` | `list_accounts`, `get_account`, `get_account_holdings`, `get_account_balance_history`, `get_account_deletion_impact`, `get_savings_interest`, `get_property_valuations`, `get_loan_summary`, `get_realized_pnl`, `get_exchange_positions`, `get_peer_loan`, `get_peer_loans_overview` |
 | `transactions:read` | `list_account_transactions` |
 | `goals:read` | `list_goals`, `get_goal`, `get_goal_monthly_entries` |
 | `dashboard:read` | `get_dashboard`, `get_net_worth_history`, `get_profit_and_loss` |
@@ -168,7 +168,7 @@ by `delete_account`.
 | `analysis:read` | `get_allocation`, `get_wealth_pyramid`, `get_portfolio_diversification`, `get_wealth_projection`, `get_allocation_targets`, `get_essential_expense_estimate`, `get_savings_suggestions`, `get_real_estate_summary` |
 | `sync:read` | `get_sync_status` |
 | `prices:read` | `get_price`, `get_security_insight` |
-| `accounts:write` | `create_manual_account`, `update_account`, `delete_account`, `add_balance_snapshot`, `upsert_holding`, `delete_holding`, `set_scpi_position`, `add_peer_loan_repayment` |
+| `accounts:write` | `create_manual_account`, `update_account`, `delete_account`, `add_balance_snapshot`, `upsert_holding`, `delete_holding`, `set_scpi_position`, `add_peer_loan_repayment`, `close_peer_loan` |
 | `transactions:write` | `add_transaction`, `update_transaction`, `delete_transaction` |
 | `goals:write` | `create_goal`, `update_goal`, `delete_goal`, `set_goal_month_contribution` |
 | `sync:trigger` | `trigger_full_sync`, `trigger_bank_sync`, `trigger_broker_sync`, `trigger_crypto_exchange_sync`, `trigger_crypto_wallet_sync` |
