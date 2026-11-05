@@ -110,6 +110,25 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-IP La Banque Postale login rate limiter: 3 attempts per 15 minutes. Stricter on
+     * purpose: a wrong password consumes a bank attempt and the bank can lock the account. Only
+     * {@code /auth/initiate} draws from it; the post-initiate steps have their own bucket.
+     */
+    @Bean("lbpAuthBuckets")
+    public Map<String, Bucket> lbpAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
+     * Per-IP La Banque Postale keypad and one-time-code limiter: 5 per 15 minutes. Kept apart
+     * from the login bucket so a keypad or code call never eats one of the 3 login attempts.
+     */
+    @Bean("lbpKeypadBuckets")
+    public Map<String, Bucket> lbpKeypadBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-IP Revolut enrolment rate limiter: 5 attempts per 15 minutes.
      * The sidecar's own login is already rate-limited by Revolut itself (spec §3.5: repeated
      * WEB logins trigger captchas/throttling within hours), but this endpoint just receives a
@@ -424,6 +443,24 @@ public class RateLimitConfig {
     }
 
     public static Bucket createCaisseEpargneKeypadBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createLbpAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(3)
+                .refillIntervally(3, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createLbpKeypadBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(5)
