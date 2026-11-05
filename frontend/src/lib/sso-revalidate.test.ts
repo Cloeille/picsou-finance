@@ -1,10 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  consumeSsoRevalidate,
-  markSsoRevalidate,
-  rememberSsoPreference,
-  ssoRememberPreference,
-} from './sso-revalidate'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 function memoryStorage(): Storage {
   const data = new Map<string, string>()
@@ -17,6 +11,19 @@ function memoryStorage(): Storage {
     setItem: (k, v) => { data.set(k, String(v)) },
   }
 }
+
+// The auth store reads sessionStorage when it loads, so the storages exist before the import.
+vi.stubGlobal('sessionStorage', memoryStorage())
+vi.stubGlobal('localStorage', memoryStorage())
+
+const {
+  consumeSsoRevalidate,
+  markSsoRevalidate,
+  rememberSsoPreference,
+  restartSsoRevalidation,
+  ssoRememberPreference,
+} = await import('./sso-revalidate')
+const { useAuthStore } = await import('@/stores/auth-store')
 
 beforeEach(() => {
   Object.defineProperty(globalThis, 'sessionStorage', { value: memoryStorage(), configurable: true })
@@ -52,5 +59,28 @@ describe('sso remember preference', () => {
     Object.defineProperty(globalThis, 'localStorage', { value: refusing, configurable: true })
 
     expect(() => rememberSsoPreference(true)).not.toThrow()
+  })
+})
+
+describe('restartSsoRevalidation', () => {
+  let original: Location
+
+  beforeEach(() => {
+    original = window.location
+    Object.defineProperty(window, 'location', { value: { assign: vi.fn() }, configurable: true, writable: true })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(window, 'location', { value: original, configurable: true })
+  })
+
+  it('signs out locally, marks the flag and lets /login restart SSO back to the page', () => {
+    useAuthStore.getState().login({ username: 'alice', role: 'MEMBER', memberId: 1, displayName: 'Alice' })
+
+    restartSsoRevalidation('/settings')
+
+    expect(window.location.assign).toHaveBeenCalledWith('/login?redirect=%2Fsettings')
+    expect(useAuthStore.getState().isAuthenticated).toBe(false)
+    expect(consumeSsoRevalidate()).toBe(true)
   })
 })

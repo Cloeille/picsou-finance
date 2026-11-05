@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth-store'
+
 const REVALIDATE_KEY = 'picsou_sso_revalidate'
 const REMEMBER_KEY = 'picsou_sso_remember'
 
@@ -22,4 +24,12 @@ export function rememberSsoPreference(rememberMe: boolean): void {
 
 export function ssoRememberPreference(): boolean {
   return localStorage.getItem(REMEMBER_KEY) === '1'
+}
+
+/** Sends the session back through the IdP: /login restarts the round trip, then returns to `redirect`. */
+export function restartSsoRevalidation(redirect: string): void {
+  markSsoRevalidate()
+  // A stale "signed in" flag would make /login bounce to "/" instead of restarting SSO.
+  useAuthStore.getState().logout()
+  window.location.assign('/login?redirect=' + encodeURIComponent(redirect))
 }

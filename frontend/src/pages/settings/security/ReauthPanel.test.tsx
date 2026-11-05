@@ -43,6 +43,7 @@ vi.mock('@/features/auth/api', () => ({ authApi: { refresh } }))
 vi.mock('@/features/sso/start', () => ({ submitSsoStart }))
 
 const { ReauthPanel } = await import('./ReauthPanel')
+const { consumeSsoRevalidate } = await import('@/lib/sso-revalidate')
 
 const METHODS = {
   hasPassword: true,
@@ -57,12 +58,12 @@ function renderPanel(methods: Partial<typeof METHODS>, action: Parameters<typeof
   getSignInMethods.mockResolvedValue({ ...METHODS, ...methods })
   const onConfirmed = vi.fn()
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  render(
+  const { unmount } = render(
     <QueryClientProvider client={queryClient}>
       <ReauthPanel action={action} onConfirmed={onConfirmed} />
     </QueryClientProvider>,
   )
-  return { onConfirmed }
+  return { onConfirmed, unmount }
 }
 
 function apiError(status: number, code?: string) {
@@ -150,12 +151,43 @@ describe('ReauthPanel', () => {
   })
 
   it('never starts the round trip when the session refresh fails', async () => {
-    refresh.mockRejectedValue(apiError(401, 'SSO_REVALIDATE'))
+    refresh.mockRejectedValue(apiError(401, 'SESSION_EXPIRED'))
     renderPanel({ hasPassword: false }, 'export')
 
     fireEvent.click(await screen.findByRole('button', { name: 'Confirm with Zitadel' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(en.ssoErrors.SSO_REVALIDATE)
+    expect(await screen.findByRole('alert')).toHaveTextContent(en.ssoErrors.SESSION_EXPIRED)
+    expect(submitSsoStart).not.toHaveBeenCalled()
+  })
+
+  it('sends the session back through the IdP when the refresh asks for re-validation', async () => {
+    const original = window.location
+    const assign = vi.fn()
+    Object.defineProperty(window, 'location', { value: { assign }, configurable: true, writable: true })
+    try {
+      refresh.mockRejectedValue(apiError(401, 'SSO_REVALIDATE'))
+      renderPanel({ hasPassword: false }, 'export')
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Confirm with Zitadel' }))
+
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/login?redirect=%2Fsettings'))
+      expect(consumeSsoRevalidate()).toBe(true)
+      expect(submitSsoStart).not.toHaveBeenCalled()
+    } finally {
+      Object.defineProperty(window, 'location', { value: original, configurable: true })
+    }
+  })
+
+  it('stays put when the dialog closes while the session refresh runs', async () => {
+    let finishRefresh: (value: unknown) => void = () => {}
+    refresh.mockReturnValue(new Promise(resolve => { finishRefresh = resolve }))
+    const { unmount } = renderPanel({ hasPassword: false }, 'export')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm with Zitadel' }))
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+    unmount()
+    await act(async () => { finishRefresh({ username: 'alice' }) })
+
     expect(submitSsoStart).not.toHaveBeenCalled()
   })
 })

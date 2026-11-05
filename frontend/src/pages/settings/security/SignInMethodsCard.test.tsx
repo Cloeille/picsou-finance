@@ -41,6 +41,7 @@ vi.mock('@/features/sso/start', () => ({ submitSsoStart: vi.fn() }))
 const { LinkIdentityDialog, SignInMethodsCard } = await import('./SignInMethodsCard')
 const { ssoKeys } = await import('@/features/sso/hooks')
 const { submitSsoStart } = await import('@/features/sso/start')
+const { authApi } = await import('@/features/auth/api')
 
 // The server omits null fields: an identity that never signed in arrives without `lastLoginAt`.
 const NEVER_USED: LinkedIdentity = {
@@ -169,5 +170,24 @@ describe('LinkIdentityDialog', () => {
 
     expect(screen.queryByText(en.auth.sso.redirecting)).not.toBeInTheDocument()
     expect(await screen.findByLabelText(en.settings.currentPassword)).toBeInTheDocument()
+  })
+
+  it('does not leave for the IdP when the dialog closes while the session refresh runs', async () => {
+    getSignInMethods.mockResolvedValue(METHODS)
+    vi.mocked(submitSsoStart).mockClear()
+    let finishRefresh: (user: Awaited<ReturnType<typeof authApi.refresh>>) => void = () => {}
+    vi.mocked(authApi.refresh).mockReset().mockReturnValue(new Promise(resolve => { finishRefresh = resolve }))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { unmount } = render(
+      <QueryClientProvider client={queryClient}>
+        <LinkIdentityDialog open resumed onOpenChange={() => {}} providerName="Zitadel" />
+      </QueryClientProvider>,
+    )
+    await waitFor(() => expect(authApi.refresh).toHaveBeenCalledTimes(1))
+
+    unmount()
+    await act(async () => { finishRefresh({ username: 'alice', role: 'MEMBER', memberId: 1, displayName: 'Alice' }) })
+
+    expect(submitSsoStart).not.toHaveBeenCalled()
   })
 })

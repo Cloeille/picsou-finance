@@ -9,6 +9,9 @@ import { authApi } from '@/features/auth/api'
 import { formatSsoApiError } from '@/features/sso/errors'
 import { useReauth, useSignInMethods } from '@/features/sso/hooks'
 import { submitSsoStart } from '@/features/sso/start'
+import { useMounted } from '@/hooks/use-mounted'
+import { getErrorCode } from '@/lib/errors'
+import { restartSsoRevalidation } from '@/lib/sso-revalidate'
 
 /** The action a confirmation unlocks. It is also the `resume` value an IdP round trip returns with. */
 export type ReauthAction = 'export' | 'remove-password' | 'set-password' | 'link' | `unlink-${number}`
@@ -139,6 +142,7 @@ function ProviderConfirmation({
   const { t } = useTranslation()
   const [redirecting, setRedirecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const mounted = useMounted()
 
   // Back from the IdP can restore this page from the back/forward cache, spinner included.
   useEffect(() => {
@@ -155,8 +159,12 @@ function ProviderConfirmation({
     try {
       // A fresh access token keeps the start guard and the IdP callback authenticated.
       await authApi.refresh()
-      submitSsoStart({ intent: 'reauth', redirect: `/settings?resume=${action}` })
+      if (mounted.current) submitSsoStart({ intent: 'reauth', redirect: `/settings?resume=${action}` })
     } catch (err: unknown) {
+      if (getErrorCode(err) === 'SSO_REVALIDATE') {
+        restartSsoRevalidation('/settings')
+        return
+      }
       setRedirecting(false)
       setError(formatSsoApiError(err, t))
     }

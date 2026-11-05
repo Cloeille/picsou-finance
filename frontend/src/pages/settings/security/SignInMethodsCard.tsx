@@ -8,6 +8,9 @@ import type { LinkedIdentity } from '@/features/sso/api'
 import { formatSsoApiError } from '@/features/sso/errors'
 import { useSignInMethods } from '@/features/sso/hooks'
 import { submitSsoStart } from '@/features/sso/start'
+import { useMounted } from '@/hooks/use-mounted'
+import { getErrorCode } from '@/lib/errors'
+import { restartSsoRevalidation } from '@/lib/sso-revalidate'
 import { formatDateTime } from '@/lib/utils'
 import { ReauthPanel, type ReauthAction } from './ReauthPanel'
 
@@ -165,6 +168,7 @@ function LinkSteps({ resumed }: { resumed: boolean }) {
   const [redirecting, setRedirecting] = useState(resumed)
   const [error, setError] = useState<string | null>(null)
   const resumeHandled = useRef(false)
+  const mounted = useMounted()
 
   const startLink = async () => {
     setRedirecting(true)
@@ -172,8 +176,12 @@ function LinkSteps({ resumed }: { resumed: boolean }) {
     try {
       // A fresh access token keeps the start guard and the IdP callback authenticated.
       await authApi.refresh()
-      submitSsoStart({ intent: 'link', redirect: '/settings' })
+      if (mounted.current) submitSsoStart({ intent: 'link', redirect: '/settings' })
     } catch (err: unknown) {
+      if (getErrorCode(err) === 'SSO_REVALIDATE') {
+        restartSsoRevalidation('/settings')
+        return
+      }
       setRedirecting(false)
       setError(formatSsoApiError(err, t))
     }
