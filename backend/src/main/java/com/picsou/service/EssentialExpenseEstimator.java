@@ -102,6 +102,9 @@ public class EssentialExpenseEstimator {
         Map<Long, List<Transaction>> creditsByCents = new HashMap<>();
         Map<String, List<Transaction>> creditsByExternalId = new HashMap<>();
         for (Transaction t : all) {
+            // A budget-neutral credit (a coupon reinvested inside a life contract) never left a
+            // current account, so it is no transfer's other leg: matching it would hide real spending.
+            if (t.isBudgetNeutral()) continue;
             if (t.getAmount() != null && t.getAmount().signum() > 0) {
                 creditsByCents.computeIfAbsent(cents(t.getAmount()), k -> new ArrayList<>()).add(t);
                 if (t.getExternalId() != null && !t.getExternalId().isBlank()) {

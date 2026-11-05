@@ -30,6 +30,14 @@ aggregations over the `transaction` table sliced by the **pay cycle** and the ca
    global brand KB and a member's own categories.
 4. **The UI is a nested-route section** (`/budget/*`) instead of one tabbed page.
 
+**Budget-neutral rows** (`transaction.budget_neutral`, V124) are left out of every budget,
+cashflow, allocation, recurring-detection and categorisation query in `TransactionRepository`,
+like hidden accounts, and the essential-expense estimator never matches one as the other leg of
+a transfer (it reads every row of the window itself, so it skips them explicitly). They move money inside an investment wrapper (a CORUM Life coupon, fee or
+switch, see [CORUM Life](./corum-life.md#operations)) and show on their account page only. A
+CORUM Life *payment* is not neutral: it is a `TRANSFER` (`investissement`) row and counts as a
+contribution.
+
 ### Information architecture (`/budget/*`)
 
 A single `BudgetLayout` (segmented sub-nav on desktop, bottom bar on mobile — same pattern as

@@ -1,6 +1,6 @@
 # Feature: Dividend forecast
 
-> Last updated: 2026-10-29
+> Last updated: 2026-11-05
 
 ## Context
 
@@ -92,7 +92,8 @@ the row as something other than a credit or names another instrument. The automa
 1. Owned accounts only. Categories are member-scoped, so a co-owned row is classified by its owner.
 2. Credits of the last 45 days: amount > 0, category not set manually (`categoryManual`, which
    an explicit category on a manual transaction now sets, or any hand-entered row that already
-   has a category), type empty, `DEPOSIT` or `DIVIDEND`,
+   has a category), not budget-neutral (a CORUM Life row, see
+   [CORUM Life](./corum-life.md#operations)), type empty, `DEPOSIT` or `DIVIDEND`,
    category empty or of kind INCOME, and not a Trade Republic `TRADING` row. A TRANSFER or EXPENSE
    auto category marks a trade leg (TR books the BUY investment leg and the SELL cash leg as
    positive `DEPOSIT`s), so such a row is never retyped.
@@ -128,6 +129,8 @@ id `HOLDING:accountId::tx<id>`. `accountId`,
 `accountType` and `countsInBudget` are those of the account holding the line: a Trade Republic
 dividend credited to "TR Cash" for a PEA line reports the PEA, like the forecast does. With no
 readable holder of that ticker, or several of the same provider, the credited account is kept.
+A CORUM Life coupon (ticker `CORUM-LIFE-<CODE>`, budget-neutral) is listed too, with
+`countsInBudget` false like every assurance-vie dividend.
 
 ### API
 

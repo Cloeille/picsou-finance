@@ -86,6 +86,43 @@ class DividendReceiptServiceTest {
         verify(transactions).saveAll(List.of(tx));
     }
 
+    /** A budget-neutral row (a CORUM Life coupon) is already typed by its importer and stays out of the budget. */
+    @Test
+    void aBudgetNeutralCreditIsNeverClassified() {
+        Account cto = account(12L, "CTO", AccountType.COMPTE_TITRES, null);
+        Transaction tx = credit(1L, cto, "2026-10-10", "59.50", "DIVIDENDE TOTALENERGIES");
+        tx.setBudgetNeutral(true);
+        stage(List.of(cto), List.of(tx), List.of(line(cto, "TTE.PA", "TotalEnergies", "100")),
+            source("TTE.PA", "EUR", event("2026-10-01", "0.85", "0.85", null)));
+
+        assertThat(service.classifyRecent(MEMBER, TODAY)).isZero();
+
+        assertThat(tx.getCategoryRef()).isNull();
+        assertThat(tx.getTxType()).isNull();
+        verify(transactions, never()).saveAll(any());
+    }
+
+    /** U1: a CORUM Life coupon is listed with the dividends received, flagged out of the budget. */
+    @Test
+    void aCorumLifeCouponIsListedAsReceivedOutsideTheBudget() {
+        Account life = account(30L, "CORUM Life", AccountType.ASSURANCE_VIE, "CORUM");
+        Transaction coupon = credit(9L, life, "2026-10-31", "3.21", "Coupon");
+        coupon.setTxType(TransactionType.DIVIDEND);
+        coupon.setTicker("CORUM-LIFE-CC");
+        coupon.setName("CORUM Origin");
+        coupon.setBudgetNeutral(true);
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(life));
+        when(transactions.findByAccountIdInAndDateBetweenOrderByDateAsc(anyCollection(), any(), any()))
+            .thenReturn(List.of(coupon));
+        when(sources.findAllWithEventsByTickerIn(anyCollection())).thenReturn(List.of());
+
+        assertThat(service.received(MEMBER, TODAY, 30)).singleElement().satisfies(line -> {
+            assertThat(line.ticker()).isEqualTo("CORUM-LIFE-CC");
+            assertThat(line.amount()).isEqualByComparingTo("3.21");
+            assertThat(line.countsInBudget()).isFalse();
+        });
+    }
+
     @Test
     void aSecondRunChangesNothing() {
         Account cto = account(12L, "CTO", AccountType.COMPTE_TITRES, null);

@@ -256,8 +256,10 @@ public class DividendReceiptService {
         // A TRANSFER or EXPENSE auto category marks a trade leg (Trade Republic books a BUY
         // investment leg and a SELL cash leg as positive DEPOSITs): never a dividend.
         // A hand-entered row saved with a category before categoryManual was set on it carries
-        // the user's choice all the same.
+        // the user's choice all the same. A budget-neutral row stays out of every budget
+        // category, this one included: its importer already typed it.
         return tx.getAmount() != null && tx.getAmount().signum() > 0
+            && !tx.isBudgetNeutral()
             && !tx.isCategoryManual()
             && !(tx.isManual() && tx.getCategoryRef() != null)
             && replaceable(tx.getCategoryRef())

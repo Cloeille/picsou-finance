@@ -31,7 +31,9 @@ public record TransactionResponse(
     Integer aiConfidence,
     Long accountId,
     String accountName,
-    BigDecimal fees
+    BigDecimal fees,
+    /** Moves money inside the wrapper only; never part of the budget (see {@code Transaction}). */
+    boolean budgetNeutral
 ) {
     public static TransactionResponse from(Transaction t) {
         return new TransactionResponse(
@@ -58,7 +60,8 @@ public record TransactionResponse(
             t.getAiConfidence(),
             t.getAccount().getId(),
             t.getAccount().getName(),
-            t.getFees()
+            t.getFees(),
+            t.isBudgetNeutral()
         );
     }
 }

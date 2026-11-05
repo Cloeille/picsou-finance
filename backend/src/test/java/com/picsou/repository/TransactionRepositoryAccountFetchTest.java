@@ -102,13 +102,59 @@ class TransactionRepositoryAccountFetchTest {
             .extracting(Transaction::getDescription).containsExactly("hidden-copy");
     }
 
+    /** A budget-neutral row (money moving inside a wrapper) stays on its account's ledger only. */
+    @Test
+    @Sql("classpath:sql/transaction-repository-account-fetch.sql")
+    void budgetQueriesSkipBudgetNeutralRows() {
+        LocalDate from = LocalDate.of(2026, 6, 1);
+        LocalDate to = LocalDate.of(2026, 6, 30);
+        persist(1L, 10L, LocalDate.of(2026, 6, 10), "payment");
+        persist(1L, 10L, LocalDate.of(2026, 6, 11), "switch-leg", true);
+        persist(1L, 11L, LocalDate.of(2026, 6, 12), "fees", true);
+        transactionRepository.save(Transaction.builder()
+            .account(testEntityManager.getEntityManager().getReference(Account.class, 1L))
+            .date(LocalDate.of(2026, 6, 13)).description("uncategorized-coupon")
+            .amount(BigDecimal.ONE).budgetNeutral(true).build());
+        testEntityManager.flush();
+        testEntityManager.clear();
+
+        assertThat(transactionRepository.findByMemberIdAndDateBetween(1L, from, to))
+            .extracting(Transaction::getDescription).containsExactly("payment");
+        assertThat(transactionRepository.searchByMember(1L, from, to, null, null))
+            .extracting(Transaction::getDescription).containsExactly("payment");
+        // Not even when the account is asked for by id: the global list never shows them.
+        assertThat(transactionRepository.searchByMember(1L, from, to, 1L, null))
+            .extracting(Transaction::getDescription).containsExactly("payment");
+        assertThat(transactionRepository.findByMemberIdAndKindAndDateBetween(1L, CategoryKind.TRANSFER, from, to))
+            .extracting(Transaction::getDescription).containsExactly("payment");
+        assertThat(transactionRepository.findByMemberIdAndCategoryIdAndDateBetween(1L, 11L, from, to)).isEmpty();
+        assertThat(transactionRepository.findByMemberIdAndCategoryIdInAndDateBetween(1L, List.of(10L, 11L), from, to))
+            .extracting(Transaction::getDescription).containsExactly("payment");
+        assertThat(transactionRepository.sumByCategoryIdAndDateBetween(10L, from, to))
+            .isEqualByComparingTo(BigDecimal.ONE);
+        assertThat(transactionRepository.sumByCategoryIdInAndDateBetween(List.of(10L, 11L), from, to))
+            .isEqualByComparingTo(BigDecimal.ONE);
+        assertThat(transactionRepository.sumByMemberIdAndKindAndDateBetween(1L, CategoryKind.EXPENSE, from, to))
+            .isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(transactionRepository.findUncategorizedByMemberId(1L)).isEmpty();
+        assertThat(transactionRepository.findChangeable(1L))
+            .extracting(Transaction::getDescription).containsExactly("payment");
+        // The account page still lists every row.
+        assertThat(transactionRepository.findByAccountIdOrderByDateDesc(1L)).hasSize(4);
+    }
+
     private void persist(long accountId, long categoryId, LocalDate date, String description) {
+        persist(accountId, categoryId, date, description, false);
+    }
+
+    private void persist(long accountId, long categoryId, LocalDate date, String description, boolean neutral) {
         Transaction transaction = Transaction.builder()
             .account(testEntityManager.getEntityManager().getReference(Account.class, accountId))
             .categoryRef(testEntityManager.getEntityManager().getReference(Category.class, categoryId))
             .date(date)
             .description(description)
             .amount(BigDecimal.ONE)
+            .budgetNeutral(neutral)
             .build();
         transactionRepository.save(transaction);
     }

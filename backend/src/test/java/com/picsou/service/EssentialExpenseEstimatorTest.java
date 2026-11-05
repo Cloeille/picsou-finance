@@ -155,6 +155,20 @@ class EssentialExpenseEstimatorTest {
     }
 
     @Test
+    void aBudgetNeutralCreditIsNeverTakenForTheOtherLegOfATransfer() {
+        Account lifeContract = account(3L, AccountType.ASSURANCE_VIE);
+        tx(current, 1, 5, "-1000");
+        tx(current, 1, 10, "-3");          // real spending of the same amount...
+        Transaction coupon = tx(lifeContract, 1, 10, "3");   // ...as a coupon reinvested in the contract
+        coupon.setBudgetNeutral(true);
+
+        EssentialExpenseEstimateResponse response = estimator.estimate(MEMBER);
+
+        assertThat(response.excludedTransferCount()).isZero();
+        assertThat(response.estimate()).isEqualByComparingTo("1003.00");
+    }
+
+    @Test
     void anExchangeBetweenOwnPocketsIsExcludedThroughItsSharedId() {
         Account cryptoPocket = account(3L, AccountType.CHECKING);
         current.setProvider("Revolut");
