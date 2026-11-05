@@ -236,7 +236,7 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
           <CardContent className="space-y-2">
             {data.plannedMonthlyAmount != null && data.plannedMonths != null ? (
               <>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                   <Stat
                     label={t('peerLoan.fields.plannedMonthly')}
                     value={<CurrencyDisplay value={data.plannedMonthlyAmount} />}
@@ -251,8 +251,6 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                     label={t('peerLoan.forecast.actual')}
                     value={<CurrencyDisplay value={data.principalRemaining} />}
                   />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
                   <Stat
                     label={t('peerLoan.forecast.plannedInterest')}
                     value={data.plannedInterest != null
