@@ -126,6 +126,13 @@ class RegionPickerTest(BanquePopulaireLoginTest):
         await self.initiate()
         self.assertEqual(self.world.region_option_clicks, [LABEL])
 
+    async def test_an_option_with_a_decomposed_accent_or_odd_spacing_still_matches(self):
+        label = "BOURGOGNE FRANCHE-COMTÉ"
+        rendered = "BOURGOGNE\u00a0 FRANCHE-COMTE\u0301"
+        self.world.region_options = [rendered if option == label else option for option in LABELS]
+        await self.initiate(region="BOURGOGNE_FRANCHE_COMTE")
+        self.assertEqual(self.world.region_option_clicks, [rendered])
+
     async def test_a_missing_option_is_a_format_change_and_nothing_else_is_picked(self):
         self.world.region_options = [label for label in LABELS if label != LABEL]
         await self.assertFails(502, "UPSTREAM_FORMAT_CHANGED", self.initiate())

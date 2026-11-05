@@ -29,6 +29,7 @@ import asyncio
 import json
 import logging
 import time
+import unicodedata
 import urllib.parse
 import uuid
 from dataclasses import dataclass, field
@@ -434,12 +435,43 @@ async def _dismiss_cookie_banner(site: Site, page: Any) -> None:
         await page.click(site.cookie_banner_button, timeout=STEP_TIMEOUT_SECONDS * 1000)
 
 
+def _region_text(text: str) -> str:
+    """Option text with its Unicode form and spacing made canonical, nothing else.
+
+    `BOURGOGNE FRANCHE-COMTÉ` can come with a decomposed accent or a non-breaking
+    space depending on how the page is rendered: neither names another bank. Case
+    and accents still count.
+    """
+    return " ".join(unicodedata.normalize("NFC", text).split())
+
+
 def _shows(text: object, label: str) -> bool:
-    return isinstance(text, str) and label in (line.strip() for line in text.splitlines())
+    wanted = _region_text(label)
+    return isinstance(text, str) and wanted in (_region_text(line) for line in text.splitlines())
+
+
+async def _matching_options(options: Any, label: str, timeout_ms: float) -> tuple[int, list[int]]:
+    """Re-read the option list until exactly one option names `label` or the step times out.
+
+    A list that renders progressively is read again rather than judged on its first
+    option; it never settles for a near match.
+    """
+    wanted = _region_text(label)
+    deadline = time.monotonic() + STEP_TIMEOUT_SECONDS
+    while True:
+        count = await options.count()
+        matches = [
+            index
+            for index in range(count)
+            if _region_text(await options.nth(index).inner_text(timeout=timeout_ms)) == wanted
+        ]
+        if len(matches) == 1 or time.monotonic() >= deadline:
+            return count, matches
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
 
 async def _select_region(site: Site, page: Any, label: str) -> None:
-    """Pick the establishment whose option text is exactly `label`, then check it took.
+    """Pick the establishment whose option text is `label` (Unicode form and spacing aside), then check it took.
 
     A missing picker, no option or several with that exact text, or a picker that
     does not show the choice afterwards is a page this module does not know: it stops
@@ -454,12 +486,7 @@ async def _select_region(site: Site, page: Any, label: str) -> None:
     await trigger.first.click(timeout=timeout_ms)
 
     options = page.locator(REGION_OPTION)
-    count = await _wait_for_count(options)
-    matches = [
-        index
-        for index in range(count)
-        if (await options.nth(index).inner_text(timeout=timeout_ms)).strip() == label
-    ]
+    count, matches = await _matching_options(options, label, timeout_ms)
     if len(matches) != 1:
         log.warning("Region option not found (options=%d, matching=%d)", count, len(matches))
         raise LoginError(502, "UPSTREAM_FORMAT_CHANGED")
