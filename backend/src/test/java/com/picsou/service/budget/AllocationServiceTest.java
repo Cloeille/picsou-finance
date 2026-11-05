@@ -10,6 +10,8 @@ import com.picsou.model.CategoryKind;
 import com.picsou.model.Transaction;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.AccountService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -23,6 +25,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,8 +36,16 @@ class AllocationServiceTest {
     @Mock AccountRepository accountRepository;
     @Mock TransactionRepository transactionRepository;
     @Mock BudgetSettingsService budgetSettingsService;
+    @Mock AccountService accountService;
 
     @InjectMocks AllocationService service;
+
+    /** EUR accounts without holdings: the live EUR value is the stored balance. */
+    @BeforeEach
+    void eurAccountsAreWorthTheirBalance() {
+        lenient().when(accountService.liveBalanceEur(any()))
+            .thenAnswer(inv -> inv.<Account>getArgument(0).getCurrentBalance());
+    }
 
     private static final Long MEMBER_ID = 4L;
     private static final LocalDate TODAY = LocalDate.of(2026, 6, 15);
@@ -80,6 +91,120 @@ class AllocationServiceTest {
             .filter(s -> s.assetClass() == AssetClass.SAVINGS).findFirst().orElseThrow();
         assertThat(savings.amount()).isEqualByComparingTo("7000.00");
         assertThat(savings.percent()).isEqualByComparingTo("70.00");
+    }
+
+    @Test
+    void compute_stockIsValuedInEur_notInTheAccountsOwnUnit() {
+        // A USD current account and a crypto account whose balance is a coin quantity: the
+        // stock must use the EUR value the dashboard shows, not the stored number.
+        Account usd = account(1L, "Wise USD", AccountType.CHECKING, "1000.00");
+        usd.setCurrency("USD");
+        Account btc = account(2L, "Bitcoin", AccountType.CRYPTO, "0.50000000");
+        btc.setTicker("BTC");
+        Account livret = account(3L, "Livret A", AccountType.LIVRET_A, "5000.00");
+
+        when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID))
+            .thenReturn(List.of(usd, btc, livret));
+        when(accountService.liveBalanceEur(usd)).thenReturn(new BigDecimal("920.00"));
+        when(accountService.liveBalanceEur(btc)).thenReturn(new BigDecimal("40000.00"));
+        when(transactionRepository.findByMemberIdAndKindAndDateBetween(eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
+            .thenReturn(List.of());
+
+        AllocationResponse r = service.compute(MEMBER_ID, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(r.totalStock()).isEqualByComparingTo("45920.00");
+        AllocationResponse.AllocationStock current = r.stock().stream()
+            .filter(s -> s.assetClass() == AssetClass.CURRENT).findFirst().orElseThrow();
+        assertThat(current.amount()).isEqualByComparingTo("920.00");
+        AllocationResponse.AllocationStock investment = r.stock().stream()
+            .filter(s -> s.assetClass() == AssetClass.INVESTMENT).findFirst().orElseThrow();
+        assertThat(investment.amount()).isEqualByComparingTo("40000.00");
+    }
+
+    @Test
+    void compute_stockCountsPocketsOnlyOnce() {
+        Account wallet = account(1L, "Revolut Wallet", AccountType.CHECKING, "5000.00");
+        Account pocket = account(10L, "Pocket", AccountType.CHECKING, "666.00");
+        pocket.setParentAccountId(1L);
+
+        when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID))
+            .thenReturn(List.of(wallet, pocket));
+        when(transactionRepository.findByMemberIdAndKindAndDateBetween(eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
+            .thenReturn(List.of());
+
+        AllocationResponse r = service.compute(MEMBER_ID, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(r.totalStock()).isEqualByComparingTo("5000.00");
+    }
+
+    @Test
+    void compute_moneyBoxCountsAsSavings_andLeavesItsWalletTotal() {
+        // Revolut: the wallet's balance is the sum of its children, so a money-box is both inside
+        // the wallet (CURRENT) and its own SAVINGS account. It belongs to SAVINGS only.
+        Account wallet = account(1L, "Revolut Wallet", AccountType.CHECKING, "5000.00");
+        Account moneyBox = account(11L, "Money-box", AccountType.SAVINGS, "1200.00");
+        moneyBox.setParentAccountId(1L);
+
+        when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID))
+            .thenReturn(List.of(wallet, moneyBox));
+        when(transactionRepository.findByMemberIdAndKindAndDateBetween(eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
+            .thenReturn(List.of());
+
+        AllocationResponse r = service.compute(MEMBER_ID, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(r.totalStock()).isEqualByComparingTo("5000.00");
+        AllocationResponse.AllocationStock current = r.stock().stream()
+            .filter(s -> s.assetClass() == AssetClass.CURRENT).findFirst().orElseThrow();
+        assertThat(current.amount()).isEqualByComparingTo("3800.00");
+        AllocationResponse.AllocationStock savings = r.stock().stream()
+            .filter(s -> s.assetClass() == AssetClass.SAVINGS).findFirst().orElseThrow();
+        assertThat(savings.amount()).isEqualByComparingTo("1200.00");
+    }
+
+    @Test
+    void compute_subAccountAboveItsWallet_movesAtMostTheWalletBalance() {
+        // An unselected money-box keeps its last balance while the wallet is refreshed, so the
+        // sub-accounts can add up to more than the wallet. The total stays the wallet's and no
+        // class goes below zero.
+        Account wallet = account(1L, "Revolut Wallet", AccountType.CHECKING, "1000.00");
+        Account moneyBox = account(11L, "Money-box", AccountType.SAVINGS, "800.00");
+        moneyBox.setParentAccountId(1L);
+        Account staleBox = account(12L, "Old money-box", AccountType.SAVINGS, "700.00");
+        staleBox.setParentAccountId(1L);
+
+        when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID))
+            .thenReturn(List.of(wallet, moneyBox, staleBox));
+        when(transactionRepository.findByMemberIdAndKindAndDateBetween(eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
+            .thenReturn(List.of());
+
+        AllocationResponse r = service.compute(MEMBER_ID, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(r.totalStock()).isEqualByComparingTo("1000.00");
+        assertThat(r.stock()).allMatch(s -> s.amount().signum() >= 0);
+        AllocationResponse.AllocationStock savings = r.stock().stream()
+            .filter(s -> s.assetClass() == AssetClass.SAVINGS).findFirst().orElseThrow();
+        assertThat(savings.amount()).isEqualByComparingTo("1000.00");
+    }
+
+    @Test
+    void compute_subAccountWithMissingParent_isSkipped() {
+        Account moneyBox = account(11L, "Money-box", AccountType.SAVINGS, "1200.00");
+        moneyBox.setParentAccountId(99L);
+
+        when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID))
+            .thenReturn(List.of(moneyBox));
+        when(transactionRepository.findByMemberIdAndKindAndDateBetween(eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
+            .thenReturn(List.of());
+
+        AllocationResponse r = service.compute(MEMBER_ID, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(r.totalStock()).isEqualByComparingTo("0");
+        assertThat(r.stock()).noneMatch(s -> s.assetClass() == AssetClass.SAVINGS);
     }
 
     @Test

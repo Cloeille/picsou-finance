@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   browser session. See [Budget + OAuth2 tools in MCP](docs/features/mcp-budget-oauth2.md).
 ### Fixed
 
+- **Budget: the allocation stock is valued in euros.** The stock donut and the Overview total
+  added each account's stored balance as if it were euros: a USD account counted its dollars, an
+  account with a ticker its coin quantity, and an account with holdings the last stored figure
+  rather than the live value of its holdings. Revolut pockets and money-boxes were also counted on
+  top of their wallet, whose balance already includes them. `AllocationService` now uses the same
+  EUR valuation as the dashboard (`liveBalanceEur`); a sub-account is counted in its own class and
+  the same amount, at most what is left of the wallet, is taken out of its wallet's, so a money-box
+  shows as savings and nothing is counted twice. Contributions are unchanged.
+
 - **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar
   read the whole transaction history and refused it past 1,000 rows (`UPSTREAM_FORMAT_CHANGED`).
   It now asks for rows ordered by date and stops paging past the last 365 days when they come

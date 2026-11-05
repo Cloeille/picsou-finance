@@ -10,6 +10,7 @@ import com.picsou.model.CategoryKind;
 import com.picsou.model.Transaction;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.AccountService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +20,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,15 +43,18 @@ public class AllocationService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final BudgetSettingsService budgetSettingsService;
+    private final AccountService accountService;
 
     public AllocationService(
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
-        BudgetSettingsService budgetSettingsService
+        BudgetSettingsService budgetSettingsService,
+        AccountService accountService
     ) {
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.budgetSettingsService = budgetSettingsService;
+        this.accountService = accountService;
     }
 
     public AllocationResponse compute(Long memberId, CashflowPeriod period, LocalDate today) {
@@ -81,12 +86,45 @@ public class AllocationService {
 
     private List<AllocationStock> buildStock(Long memberId) {
         Map<AssetClass, BigDecimal> byClass = new EnumMap<>(AssetClass.class);
-        for (Account account : accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(memberId)) {
+        List<Account> accounts = accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(memberId);
+        Map<Long, Account> byId = new HashMap<>();
+        // The stored balance is a USD amount for a USD account, a coin quantity for an account
+        // with a ticker, and the last stored figure for an account with holdings. Value each
+        // account with the same EUR valuation as the dashboard (liveBalanceEur).
+        Map<Long, BigDecimal> valueById = new HashMap<>();
+        for (Account account : accounts) {
+            byId.put(account.getId(), account);
+            if (AssetClass.of(account.getType()) != AssetClass.OTHER) {
+                valueById.put(account.getId(), accountService.liveBalanceEur(account));
+            }
+        }
+        // What is left of each parent wallet after the sub-accounts taken out of it so far.
+        Map<Long, BigDecimal> parentLeft = new HashMap<>();
+        for (Account account : accounts) {
             AssetClass assetClass = AssetClass.of(account.getType());
             if (assetClass == AssetClass.OTHER) {
                 continue; // not part of cash allocation
             }
-            byClass.merge(assetClass, account.getCurrentBalance(), BigDecimal::add);
+            BigDecimal value = valueById.get(account.getId());
+            if (account.getParentAccountId() != null) {
+                // Pocket / money-box sub-account: the parent wallet's balance already includes it,
+                // and the dashboard counts only the parent. Count it in its own class and take the
+                // same amount out of the parent's, so the total is unchanged but a money-box shows
+                // as savings. A sub-account whose parent is not listed is skipped, as on the
+                // dashboard. A sub-account's stored balance can be older than its wallet's (an
+                // unselected Revolut pocket keeps its last balance, an Enable Banking sync rewrites
+                // the wallet's), so move at most what is left of the wallet.
+                Account parent = byId.get(account.getParentAccountId());
+                AssetClass parentClass = parent == null ? AssetClass.OTHER : AssetClass.of(parent.getType());
+                if (parentClass == AssetClass.OTHER) {
+                    continue;
+                }
+                BigDecimal left = parentLeft.computeIfAbsent(parent.getId(), valueById::get);
+                value = value.min(left.max(BigDecimal.ZERO));
+                parentLeft.put(parent.getId(), left.subtract(value));
+                byClass.merge(parentClass, value.negate(), BigDecimal::add);
+            }
+            byClass.merge(assetClass, value, BigDecimal::add);
         }
 
         BigDecimal total = byClass.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);

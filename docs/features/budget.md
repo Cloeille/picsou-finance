@@ -452,6 +452,13 @@ Enable Banking sync ─▶ SyncService.fetchTransactions ─▶ dedup ─▶ per
   sub-brand (`uber eats`) outranks its parent (`uber`).
 - **Transfers are excluded** from cashflow/flow/envelopes but **feed allocation** — a transfer is a
   move between your own accounts, not spending.
+- **Allocation stock uses the same EUR valuation as the dashboard (`liveBalanceEur`)**: FX, ticker
+  price, live holdings. A sub-account (`parentAccountId != null`: Revolut pocket or money-box) is
+  already inside its parent wallet's balance, so it is counted in its own class and the same amount
+  is taken out of the parent's, never more than is left of the parent (a sub-account's stored
+  balance can be older than its wallet's); a sub-account whose parent is not listed is skipped, as
+  on the dashboard. Summing `currentBalance` directly mixed currencies, coin quantities and stale
+  holding totals.
 - The cycle is **not** the calendar month; `cycleStartDay` 28 clamps to a short month's last day.
 - Recurring detection needs **≥3 regular occurrences** with a stable amount; auto-confirm
   additionally requires a **FIXED** amount class and **confidence ≥ 0.80**. Identity is the
