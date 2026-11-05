@@ -87,6 +87,11 @@ public class DashboardService {
             .collect(Collectors.toSet());
         List<Account> distributable = accounts.stream()
             .filter(account -> !closedPeerLoanIds.contains(account.getId()))
+            // A 0 EUR receivable has nothing to show in the pie either: an unconfigured
+            // account, or a closed one whose write-off has already zeroed it.
+            .filter(account -> account.getType() != AccountType.PEER_LOAN
+                || account.getCurrentBalance() == null
+                || account.getCurrentBalance().signum() != 0)
             .toList();
 
         // Pre-load all holdings and group by account

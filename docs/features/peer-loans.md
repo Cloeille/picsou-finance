@@ -402,8 +402,9 @@ The `db` container has no host port: the database is only reachable by the test 
   that will not be repaid.
 - **A closed loan leaves the current views, not the record.** It is absent from the
   dashboard's asset distribution and from the Analysis table (which states how many are
-  closed), but the account stays in Accounts with its badge and the net-worth history keeps
-  the write-off. Hiding it from the history would erase the loss.
+  closed), and the default Accounts list hides it; the **Receivables** filter still shows
+  it with a "Closed" badge. The account, its ledger and the net-worth history keep the
+  write-off. Hiding it from the history would erase the loss.
 - **Deleting the closing write-off reopens the loan.** The marker is cleared when the
   recomputed capital is positive.
 - **The borrower is the account name, not a `FamilyMember`.** `FamilyMember` is a Picsou

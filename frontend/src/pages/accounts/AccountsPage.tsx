@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useAccounts, useAccountTree, useAccountDeletionImpact, useUpdateAccount, useDeleteAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
 import { useHistory } from '@/features/history/hooks'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
+import { usePeerLoansOverview } from '@/features/peer-loans/hooks'
 import { AccountForm } from '@/components/shared/AccountForm'
 import { AddAccountModal } from '@/components/shared/AddAccountModal'
 import { AddPropertyModal } from '@/components/property/AddPropertyModal'
@@ -153,6 +154,20 @@ export function AccountsPage() {
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [filter, setFilter] = useState<AssetFilter>('ALL')
 
+  // A closed peer loan is a 0 EUR receivable. It stays reachable under the Receivables
+  // filter, but it is not an "active" account on the default list.
+  const peerLoansOverview = usePeerLoansOverview()
+  const closedPeerLoanIds = useMemo(
+    () => new Set((peerLoansOverview.data?.loans ?? [])
+      .filter((loan) => loan.closedAt)
+      .map((loan) => loan.accountId)),
+    [peerLoansOverview.data],
+  )
+  const visibleAccounts = useMemo(() => {
+    if (!accounts || filter !== 'ALL') return accounts
+    return accounts.filter((account) => !closedPeerLoanIds.has(account.id))
+  }, [accounts, filter, closedPeerLoanIds])
+
   // ── Pocket grouping ──────────────────────────────────────────────────────────
   //
   // Pockets (accounts with parentAccountId set) are excluded from the flat list
@@ -161,7 +176,7 @@ export function AccountsPage() {
   // fallback (parent wallet soft-deleted) that keeps such a pocket from vanishing.
 
   const { nonPocketAccounts, walletGroups: allWalletGroups, standaloneAccounts: allStandaloneAccounts } =
-    useAccountTree(accounts)
+    useAccountTree(visibleAccounts)
 
   // Deleting the last account on a connection removes that connection too, and a bank one
   // costs a full OAuth re-authorisation to get back -- so the dialog names it first.
@@ -569,6 +584,7 @@ export function AccountsPage() {
               <div className="relative group">
                 <AccountCard
                   account={wallet}
+                  closed={closedPeerLoanIds.has(wallet.id)}
                   onClick={() => navigate(`/accounts/${wallet.id}`)}
                 />
                 <div className={CARD_ACTIONS_CLASS}>
@@ -639,6 +655,7 @@ export function AccountsPage() {
                 <div key={account.id} className="relative group">
                   <AccountCard
                     account={account}
+                    closed={closedPeerLoanIds.has(account.id)}
                     onClick={() => navigate(`/accounts/${account.id}`)}
                   />
                   <div className={CARD_ACTIONS_CLASS}>

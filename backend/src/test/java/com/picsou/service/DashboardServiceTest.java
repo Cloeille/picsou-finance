@@ -288,14 +288,17 @@ class DashboardServiceTest {
     void getDashboard_keepsClosedPeerLoansOutOfTheDistribution() {
         Account open = peerLoanAccount(20L, "Marie", "1000");
         Account closed = peerLoanAccount(21L, "Jean", "0");
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(open, closed));
+        Account unconfigured = peerLoanAccount(22L, "Sans conditions", "0");
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L))
+            .thenReturn(List.of(open, closed, unconfigured));
         when(holdingRepository.findByAccount_Id(20L)).thenReturn(List.of());
         when(holdingRepository.findByAccount_Id(21L)).thenReturn(List.of());
+        when(holdingRepository.findByAccount_Id(22L)).thenReturn(List.of());
         when(priceService.toEur(any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
         when(peerLoanTermsRepository.findAllByAccountMemberIdOrderByLentAtAscIdAsc(42L)).thenReturn(List.of(
             peerLoanTerms(open, null),
             peerLoanTerms(closed, LocalDate.parse("2026-01-01"))));
-        when(historyService.buildHistory(List.of(20L, 21L), 12, 42L)).thenReturn(List.of());
+        when(historyService.buildHistory(List.of(20L, 21L, 22L), 12, 42L)).thenReturn(List.of());
         when(goalRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of());
 
         DashboardResponse response = dashboardService.getDashboard(42L, "1Y");
