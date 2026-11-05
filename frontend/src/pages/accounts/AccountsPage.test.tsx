@@ -290,15 +290,19 @@ describe('AccountsPage - closed peer loans', () => {
 
     render(<AccountsPage />)
 
-    // Not an active account: absent from the default view.
+    // Not an active card, and the Créances overview is not on screen yet.
     expect(screen.queryByText('Sfd')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'accounts.filters.RECEIVABLES' }))
-    expect(screen.queryByText('Sfd')).not.toBeInTheDocument()
+    // The overview table lists it even before the toggle: only the cards are filtered.
+    expect(screen.getAllByText('Sfd')).toHaveLength(1)
+    expect(screen.getAllByText('peerLoan.overview.status.closed')).toHaveLength(1)
+    expect(screen.queryByText('peerLoan.summary.closed')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'accounts.showClosedLoans' }))
     // The closed loan now appears both in the overview table and on its account card.
-    expect(screen.getAllByText('Sfd').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('peerLoan.summary.closed').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Sfd')).toHaveLength(2)
+    expect(screen.getAllByText('peerLoan.overview.status.closed')).toHaveLength(1)
+    expect(screen.getAllByText('peerLoan.summary.closed')).toHaveLength(1)
   })
 })

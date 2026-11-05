@@ -172,13 +172,11 @@ export function AccountsPage() {
     return hideClosed ? accounts.filter((account) => !closedPeerLoanIds.has(account.id)) : accounts
   }, [accounts, filter, showClosed, closedPeerLoanIds])
 
-  // The Créances tab shows the member-wide overview in place of the generic summary:
-  // the closed toggle hides those rows here too, so the table and the cards agree.
-  const visibleOverview = useMemo(() => {
-    const data = peerLoansOverview.data
-    if (!data) return undefined
-    return showClosed ? data : { ...data, loans: data.loans.filter((loan) => !loan.closedAt) }
-  }, [peerLoansOverview.data, showClosed])
+  // The Créances tab shows the member-wide overview in place of the generic summary. The
+  // closed toggle only filters the cards: the table keeps every loan so its history stays
+  // readable, and the chart always reflects the full ledger.
+  const showsReceivablesOverview = filter === 'RECEIVABLES'
+    && (peerLoansOverview.data?.loans.length ?? 0) > 0
 
   // ── Pocket grouping ──────────────────────────────────────────────────────────
   //
@@ -540,8 +538,8 @@ export function AccountsPage() {
             </div>
           </ScrollStrip>
 
-          {filter === 'RECEIVABLES' && visibleOverview && visibleOverview.loans.length > 0 && (
-            <PeerLoansOverviewCard data={visibleOverview} />
+          {showsReceivablesOverview && peerLoansOverview.data && (
+            <PeerLoansOverviewCard data={peerLoansOverview.data} />
           )}
 
           {/* Summary card */}
@@ -594,7 +592,7 @@ export function AccountsPage() {
             <Skeleton key={i} className="h-32 w-full rounded-xl" />
           ))}
         </div>
-      ) : filteredNonPockets.length === 0 ? (
+      ) : filteredNonPockets.length === 0 && !showsReceivablesOverview ? (
         <EmptyState
           className="min-h-[calc(100vh-14rem)]"
           icon={<Wallet className="size-12" />}

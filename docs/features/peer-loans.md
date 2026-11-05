@@ -410,11 +410,10 @@ The `db` container has no host port: the database is only reachable by the test 
   dashboard. The explicit close action remains for the other case: abandoning a residual
   that will not be repaid.
 - **A closed loan leaves the current totals, not the record.** It is absent from the
-  dashboard's asset distribution, but it stays in the Créances overview with a "Closed"
-  badge (so its ledger and its deletion remain reachable) and in the net-worth history,
-  which keeps the write-off. In Accounts it is hidden from the default list and from the
-  Créances filter until the "Show closed loans" header toggle is pressed, then it appears
-  with the same badge and the usual delete action.
+  dashboard's asset distribution, but the Créances overview always shows it with a "Closed"
+  badge (so its ledger and its deletion remain reachable), and the net-worth history keeps
+  the write-off. In Accounts, the "Show closed loans" header toggle only controls the
+  cards: the overview table keeps every loan either way.
 - **Deleting the closing write-off reopens the loan.** The marker is cleared when the
   recomputed capital is positive.
 - **The borrower is the account name, not a `FamilyMember`.** `FamilyMember` is a Picsou
