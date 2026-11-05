@@ -18,6 +18,7 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { ScrollStrip } from '@/components/shared/ScrollStrip'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown, Download } from 'lucide-react'
@@ -153,6 +154,7 @@ export function AccountsPage() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [filter, setFilter] = useState<AssetFilter>('ALL')
+  const [showClosed, setShowClosed] = useState(false)
 
   // A closed peer loan is a 0 EUR receivable. It stays reachable under the Receivables
   // filter, but it is not an "active" account on the default list.
@@ -164,9 +166,11 @@ export function AccountsPage() {
     [peerLoansOverview.data],
   )
   const visibleAccounts = useMemo(() => {
-    if (!accounts || filter !== 'ALL') return accounts
-    return accounts.filter((account) => !closedPeerLoanIds.has(account.id))
-  }, [accounts, filter, closedPeerLoanIds])
+    if (!accounts) return accounts
+    const hideClosed = closedPeerLoanIds.size > 0
+      && (filter === 'ALL' || (filter === 'RECEIVABLES' && !showClosed))
+    return hideClosed ? accounts.filter((account) => !closedPeerLoanIds.has(account.id)) : accounts
+  }, [accounts, filter, showClosed, closedPeerLoanIds])
 
   // ── Pocket grouping ──────────────────────────────────────────────────────────
   //
@@ -516,6 +520,16 @@ export function AccountsPage() {
               ))}
             </div>
           </ScrollStrip>
+
+          {filter === 'RECEIVABLES' && closedPeerLoanIds.size > 0 && (
+            <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+              <Checkbox
+                checked={showClosed}
+                onCheckedChange={(checked) => setShowClosed(checked === true)}
+              />
+              {t('accounts.showClosedLoans')}
+            </label>
+          )}
 
           {/* Summary card */}
           <Card>

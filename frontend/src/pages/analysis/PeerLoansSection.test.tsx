@@ -82,9 +82,9 @@ describe('PeerLoansSection', () => {
     expect(screen.getByText('peerLoan.overview.interestAccrued')).toBeInTheDocument()
     expect(screen.getByText('Jean')).toBeInTheDocument()
     expect(screen.getByText('Sophie')).toBeInTheDocument()
-    // A closed loan is not a 0 EUR row in the current view.
-    expect(screen.queryByText('Paul')).not.toBeInTheDocument()
-    expect(screen.getByText('peerLoan.overview.closedNote:1')).toBeInTheDocument()
+    // Closed loans stay in the analysis, at the bottom, so their ledger remains reachable.
+    expect(screen.getByText('Paul')).toBeInTheDocument()
+    expect(screen.getByText('peerLoan.overview.status.closed')).toBeInTheDocument()
   })
 
   it('states a late instalment count and an on-time plan as facts', () => {

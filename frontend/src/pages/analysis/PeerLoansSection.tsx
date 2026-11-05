@@ -61,8 +61,6 @@ export function PeerLoansSection({ data }: { data: PeerLoansOverview }) {
   }
 
   const yWidth = yAxisWidth(data.history.map((point) => point.outstanding), money.tick)
-  // A closed loan is history: keep it in Accounts and in the curve, not as a 0 EUR row here.
-  const openLoans = data.loans.filter((loan) => !loan.closedAt)
 
   return (
     <Card>
@@ -143,11 +141,11 @@ export function PeerLoansSection({ data }: { data: PeerLoansOverview }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {openLoans.map((loan) => (
+            {data.loans.map((loan) => (
               <TableRow
                 key={loan.accountId}
                 tabIndex={0}
-                className="cursor-pointer"
+                className={`cursor-pointer ${loan.closedAt ? 'opacity-70' : ''}`}
                 onClick={() => open(loan.accountId)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
@@ -182,12 +180,6 @@ export function PeerLoansSection({ data }: { data: PeerLoansOverview }) {
             ))}
           </TableBody>
         </Table>
-
-        {data.closedCount > 0 && (
-          <p className="text-xs text-muted-foreground">
-            {t('peerLoan.overview.closedNote', { count: data.closedCount })}
-          </p>
-        )}
       </CardContent>
     </Card>
   )

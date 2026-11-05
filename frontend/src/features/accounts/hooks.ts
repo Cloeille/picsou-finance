@@ -458,7 +458,7 @@ export function useCreateAccount() {
 export function useUpdateAccount() {
   return useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: number; data: AccountRequest }) => accountsApi.update(id, data),
-    invalidates: (_data, variables) => [['accounts'], ['dashboard'], ['accounts', variables.id]],
+    invalidates: (_data, variables) => [['accounts'], ['dashboard'], ['accounts', variables.id], ['peer-loans', 'overview']],
   })
 }
 
@@ -479,7 +479,7 @@ export function useAccountDeletionImpact(accountId: number | null) {
 export function useDeleteAccount() {
   return useInvalidatingMutation({
     mutationFn: (id: number) => accountsApi.delete(id),
-    invalidates: [['accounts'], ['dashboard'], ['goals']],
+    invalidates: [['accounts'], ['dashboard'], ['goals'], ['peer-loans', 'overview']],
   })
 }
 

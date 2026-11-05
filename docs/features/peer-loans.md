@@ -241,9 +241,10 @@ account scopes cover it and the consent surface does not change. The repayment t
 - `pages/analysis/PeerLoansSection.tsx` is the member-wide view: total outstanding, open
   loans and accrued interest, the outstanding curve over 12 months, and one row per
   borrower with the remaining capital, repayment percentage, plan drift, last payment and
-  expected return. A row opens the loan. Closed loans are left out of the table (the card
-  still states how many there are). It is facts only: a late badge counts the instalments
-  the plan says are missing, it does not score the borrower.
+  expected return. A row opens the loan. Closed loans stay in the table with a "Closed"
+  badge and a muted row, so their ledger and their deletion remain reachable. It is facts
+  only: a late badge counts the instalments the plan says are missing, it does not score
+  the borrower.
 - i18n keys in all four locales (`fr`, `en`, `de`, `es`).
 
 ### Key files
@@ -400,11 +401,12 @@ The `db` container has no host port: the database is only reachable by the test 
   capital stamps `closed_at` on its own date, so a 0 EUR receivable never lingers on the
   dashboard. The explicit close action remains for the other case: abandoning a residual
   that will not be repaid.
-- **A closed loan leaves the current views, not the record.** It is absent from the
-  dashboard's asset distribution and from the Analysis table (which states how many are
-  closed), and the default Accounts list hides it; the **Receivables** filter still shows
-  it with a "Closed" badge. The account, its ledger and the net-worth history keep the
-  write-off. Hiding it from the history would erase the loss.
+- **A closed loan leaves the current totals, not the record.** It is absent from the
+  dashboard's asset distribution, but it stays in the Analysis table with a "Closed" badge
+  (so its ledger and its deletion remain reachable) and in the net-worth history, which
+  keeps the write-off. In Accounts it is hidden from the default list and from the
+  Receivables filter until "Show closed loans" is ticked, then it appears with the same
+  badge and the usual delete action.
 - **Deleting the closing write-off reopens the loan.** The marker is cleared when the
   recomputed capital is positive.
 - **The borrower is the account name, not a `FamilyMember`.** `FamilyMember` is a Picsou

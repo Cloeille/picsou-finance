@@ -63,7 +63,7 @@ export function AnalysisPage() {
         <div className="space-y-4">
           <PyramidSection pyramid={pyramid.data} />
           {diversification.data && <DiversificationSection data={diversification.data} />}
-          {peerLoans.data && peerLoans.data.openCount > 0 && (
+          {peerLoans.data && peerLoans.data.loans.length > 0 && (
             <PeerLoansSection data={peerLoans.data} />
           )}
           <ProjectionSection />

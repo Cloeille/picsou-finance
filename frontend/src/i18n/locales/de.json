@@ -261,6 +261,7 @@
       "RECEIVABLES": "Forderungen",
       "DEBTS": "Schulden"
     },
+    "showClosedLoans": "Geschlossene Darlehen anzeigen",
     "fees": "Gebühren",
     "export": {
       "button": "Daten exportieren",
@@ -539,9 +540,7 @@
         "behind_other": "{{count}} Raten im Rückstand",
         "onTime": "Aktuell",
         "noPlan": "Kein Plan"
-      },
-      "closedNote_one": "{{count}} geschlossenes Darlehen bleibt unter Konten sichtbar.",
-      "closedNote_other": "{{count}} geschlossene Darlehen bleiben unter Konten sichtbar."
+      }
     },
     "fromTransaction": {
       "action": "Privatdarlehen erstellen",
