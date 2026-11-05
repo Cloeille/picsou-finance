@@ -848,20 +848,25 @@ export interface DashboardLiability {
   paymentDueDate?: string | null
 }
 
+export interface DashboardDistributionItem {
+  accountId: number
+  name: string
+  color: string
+  balanceEur: number
+  percentage: number
+  accountType: AccountType
+  hasHoldings: boolean
+}
+
 export interface DashboardData {
   totalNetWorth: number
   totalLiabilities: number
   totalMonthlyPayment?: number | null
   netWorthHistory: { date: string; total: number; invested: number | null; pnl: number | null }[]
-  distribution: {
-    accountId: number
-    name: string
-    color: string
-    balanceEur: number
-    percentage: number
-    accountType: AccountType
-    hasHoldings: boolean
-  }[]
+  /** The allocation donut: investments and cash, never a receivable. */
+  distribution: DashboardDistributionItem[]
+  /** Every asset, receivables included: the wealth modes and history build on it. */
+  assets: DashboardDistributionItem[]
   liabilities: DashboardLiability[]
   goalSummaries: GoalProgress[]
 }

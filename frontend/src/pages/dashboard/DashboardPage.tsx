@@ -63,16 +63,16 @@ export function DashboardPage() {
     if (!data) return []
     switch (wealthMode) {
       case 'gross':
-        // Assets only (no liabilities)
-        return data.distribution.map(d => d.accountId)
+        // Assets only (no liabilities), receivables included
+        return data.assets.map(d => d.accountId)
       case 'financial':
-        // Financial assets: drop checking and any loan that slipped into distribution
-        return data.distribution
+        // Financial assets: drop checking and any loan that slipped into assets
+        return data.assets
           .filter(d => !EXCLUDED_FINANCIAL.has(d.accountType))
           .map(d => d.accountId)
       default:
-        // Net worth: all accounts including liabilities
-        return [...data.distribution.map(d => d.accountId), ...data.liabilities.map(l => l.accountId)]
+        // Net worth: all accounts including liabilities and receivables
+        return [...data.assets.map(d => d.accountId), ...data.liabilities.map(l => l.accountId)]
     }
   }, [data, wealthMode])
   // Accounts that actually have holdings/tickers — used for PnL only.
@@ -80,7 +80,7 @@ export function DashboardPage() {
   // (in practice CHECKING/LOAN don't carry holdings, so this is a no-op safety net).
   const investmentAccountIds = useMemo(() => {
     if (!data) return []
-    return data.distribution
+    return data.assets
       .filter(d => d.hasHoldings)
       .filter(d => wealthMode !== 'financial' || !EXCLUDED_FINANCIAL.has(d.accountType))
       .map(d => d.accountId)
@@ -116,16 +116,16 @@ export function DashboardPage() {
   // Compute wealth value based on selected mode
   const wealthValue = useMemo(() => {
     if (!data) return 0
-    const sumAccounts = (items: typeof data.distribution, exclude?: Set<string>) =>
+    const sumAccounts = (items: typeof data.assets, exclude?: Set<string>) =>
       items
         .filter(d => !exclude || !exclude.has(d.accountType))
         .reduce((s, d) => s + d.balanceEur, 0)
 
     switch (wealthMode) {
       case 'gross':
-        return sumAccounts(data.distribution)
+        return sumAccounts(data.assets)
       case 'financial':
-        return sumAccounts(data.distribution, EXCLUDED_FINANCIAL)
+        return sumAccounts(data.assets, EXCLUDED_FINANCIAL)
       default:
         return data.totalNetWorth
     }
