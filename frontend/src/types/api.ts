@@ -1030,6 +1030,9 @@ export type BanquePopulaireRegion =
   | 'VAL_DE_FRANCE'
 export type BanquePopulaireErrorCode = CaisseEpargneErrorCode
 export type BanquePopulaireSessionStatus = CaisseEpargneSessionStatus
+/** The BPCE platform's login and status payloads, shared by Caisse d'Epargne and Banque Populaire. */
+export type BpceAuthInitResponse = CaisseEpargneAuthInitResponse
+export type BpceSessionStatus = CaisseEpargneSessionStatus
 export type BanquePopulaireAuthInitResponse = CaisseEpargneAuthInitResponse
 export type BanquePopulaireAuthKeypadResponse = CaisseEpargneAuthKeypadResponse
 export type BanquePopulaireAuthCompleteResponse = CaisseEpargneAuthCompleteResponse

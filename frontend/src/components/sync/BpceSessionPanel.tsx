@@ -29,7 +29,7 @@ import {
   useProviderSync,
 } from "@/features/sync/hooks"
 import { getErrorCode, getErrorDetail, getErrorStatus } from "@/lib/errors"
-import type { CaisseEpargneAuthInitResponse, CaisseEpargneSessionStatus } from "@/types/api"
+import type { BpceAuthInitResponse, BpceSessionStatus } from "@/types/api"
 
 /**
  * `KEYPAD` is a pop-up showing the bank's virtual keypad: the user reads the
@@ -140,9 +140,9 @@ export type BpceProviderId = "caisseEpargne" | "banquePopulaire"
  * linger in any cache. `region` is the empty string for a bank without a region step.
  */
 export interface BpceLoginApi {
-  initiateAuth: (customerId: string, region: string) => Promise<CaisseEpargneAuthInitResponse>
+  initiateAuth: (customerId: string, region: string) => Promise<BpceAuthInitResponse>
   sendKeypad: (processId: string, positions: number[]) => Promise<unknown>
-  getStatusWithin: (timeoutMs: number) => Promise<CaisseEpargneSessionStatus>
+  getStatusWithin: (timeoutMs: number) => Promise<BpceSessionStatus>
 }
 
 /** One choice of the region step: the code sent to the backend and its display name. */
