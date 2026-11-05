@@ -13,6 +13,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.GoalRepository;
+import com.picsou.repository.PeerLoanTermsRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -40,6 +41,7 @@ public class DashboardService {
     private final LoanAmortizationService loanAmortizationService;
     private final AccountService accountService;
     private final AccountAccessResolver accessResolver;
+    private final PeerLoanTermsRepository peerLoanTermsRepository;
 
     public DashboardService(
         AccountRepository accountRepository,
@@ -51,7 +53,8 @@ public class DashboardService {
         DebtRepository debtRepository,
         LoanAmortizationService loanAmortizationService,
         AccountService accountService,
-        AccountAccessResolver accessResolver
+        AccountAccessResolver accessResolver,
+        PeerLoanTermsRepository peerLoanTermsRepository
     ) {
         this.accountRepository = accountRepository;
         this.goalService = goalService;
@@ -63,6 +66,7 @@ public class DashboardService {
         this.loanAmortizationService = loanAmortizationService;
         this.accountService = accountService;
         this.accessResolver = accessResolver;
+        this.peerLoanTermsRepository = peerLoanTermsRepository;
     }
 
     public DashboardResponse getDashboard(Long memberId, String range) {
@@ -72,6 +76,18 @@ public class DashboardService {
             .filter(a -> !a.isHidden())
             .toList();
         Map<Long, BigDecimal> shares = accessResolver.sharesFor(accounts, memberId);
+
+        // A closed peer loan is history: its residual was written off, the account stays for
+        // the ledger, and the net-worth curve keeps the loss. A 0 EUR line in the asset
+        // distribution would just accumulate over the years.
+        Set<Long> closedPeerLoanIds = peerLoanTermsRepository
+            .findAllByAccountMemberIdOrderByLentAtAscIdAsc(memberId).stream()
+            .filter(terms -> terms.getClosedAt() != null && terms.getAccount() != null)
+            .map(terms -> terms.getAccount().getId())
+            .collect(Collectors.toSet());
+        List<Account> distributable = accounts.stream()
+            .filter(account -> !closedPeerLoanIds.contains(account.getId()))
+            .toList();
 
         // Pre-load all holdings and group by account
         Map<Long, List<AccountHolding>> holdingsByAccount = new HashMap<>();
@@ -162,9 +178,9 @@ public class DashboardService {
         // Percentages are shares of their own side of the balance sheet:
         // assets divide by totalAssets, liabilities by totalLiabilities (issue #18).
         List<DistributionItem> distribution = buildDistribution(
-            accounts, totalAssets, holdingsByAccount, accountValues, false);
+            distributable, totalAssets, holdingsByAccount, accountValues, false);
         List<DistributionItem> rawLiabilities = buildDistribution(
-            accounts, totalLiabilities, holdingsByAccount, accountValues, true);
+            distributable, totalLiabilities, holdingsByAccount, accountValues, true);
 
         // Enrich liabilities with loan parameters in one query
         List<Long> liabilityIds = rawLiabilities.stream().map(DistributionItem::accountId).toList();

@@ -33,6 +33,7 @@ class DashboardServiceLiabilityTest {
     @Mock LoanAmortizationService loanAmortizationService;
     @Mock AccountService accountService;
     @Mock AccountAccessResolver accessResolver;
+    @Mock PeerLoanTermsRepository peerLoanTermsRepository;
 
     DashboardService dashboardService;
 
@@ -42,7 +43,7 @@ class DashboardServiceLiabilityTest {
             accountRepository, goalService, goalRepository,
             priceService, holdingRepository, historyService,
             debtRepository, loanAmortizationService, accountService,
-            accessResolver
+            accessResolver, peerLoanTermsRepository
         );
         // Fixtures own their accounts outright, so readableAccounts mirrors the repository
         // and every share is 100% -- weighting becomes the identity.

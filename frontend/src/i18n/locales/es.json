@@ -539,7 +539,9 @@
         "behind_other": "{{count}} cuotas de retraso",
         "onTime": "Al día",
         "noPlan": "Sin plan"
-      }
+      },
+      "closedNote_one": "{{count}} préstamo cerrado sigue visible en Cuentas.",
+      "closedNote_other": "{{count}} préstamos cerrados siguen visibles en Cuentas."
     },
     "fromTransaction": {
       "action": "Crear un préstamo entre particulares",

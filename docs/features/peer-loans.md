@@ -241,8 +241,9 @@ account scopes cover it and the consent surface does not change. The repayment t
 - `pages/analysis/PeerLoansSection.tsx` is the member-wide view: total outstanding, open
   loans and accrued interest, the outstanding curve over 12 months, and one row per
   borrower with the remaining capital, repayment percentage, plan drift, last payment and
-  expected return. A row opens the loan. It is facts only: a late badge counts the
-  instalments the plan says are missing, it does not score the borrower.
+  expected return. A row opens the loan. Closed loans are left out of the table (the card
+  still states how many there are). It is facts only: a late badge counts the instalments
+  the plan says are missing, it does not score the borrower.
 - i18n keys in all four locales (`fr`, `en`, `de`, `es`).
 
 ### Key files
@@ -395,6 +396,10 @@ The `db` container has no host port: the database is only reachable by the test 
   a fact.
 - **Closing is not deleting.** The account stays with a badge; deleting it would also
   delete the loss history through `ON DELETE CASCADE`.
+- **A closed loan leaves the current views, not the record.** It is absent from the
+  dashboard's asset distribution and from the Analysis table (which states how many are
+  closed), but the account stays in Accounts with its badge and the net-worth history keeps
+  the write-off. Hiding it from the history would erase the loss.
 - **Deleting the closing write-off reopens the loan.** The marker is cleared when the
   recomputed capital is positive.
 - **The borrower is the account name, not a `FamilyMember`.** `FamilyMember` is a Picsou

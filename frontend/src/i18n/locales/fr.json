@@ -550,7 +550,9 @@
         "behind_other": "{{count}} échéances de retard",
         "onTime": "À jour",
         "noPlan": "Sans plan"
-      }
+      },
+      "closedNote_one": "{{count}} prêt clôturé reste visible dans Comptes.",
+      "closedNote_other": "{{count}} prêts clôturés restent visibles dans Comptes."
     },
     "fromTransaction": {
       "action": "Créer un prêt entre particuliers",

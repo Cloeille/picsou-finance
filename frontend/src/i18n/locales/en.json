@@ -550,7 +550,9 @@
         "behind_other": "{{count}} instalments behind",
         "onTime": "On time",
         "noPlan": "No plan"
-      }
+      },
+      "closedNote_one": "{{count}} closed loan stays in Accounts.",
+      "closedNote_other": "{{count}} closed loans stay in Accounts."
     },
     "fromTransaction": {
       "action": "Create a peer loan",

@@ -82,15 +82,16 @@ describe('PeerLoansSection', () => {
     expect(screen.getByText('peerLoan.overview.interestAccrued')).toBeInTheDocument()
     expect(screen.getByText('Jean')).toBeInTheDocument()
     expect(screen.getByText('Sophie')).toBeInTheDocument()
-    expect(screen.getByText('Paul')).toBeInTheDocument()
+    // A closed loan is not a 0 EUR row in the current view.
+    expect(screen.queryByText('Paul')).not.toBeInTheDocument()
+    expect(screen.getByText('peerLoan.overview.closedNote:1')).toBeInTheDocument()
   })
 
-  it('states a late instalment count and a closure as facts', () => {
+  it('states a late instalment count and an on-time plan as facts', () => {
     render(<PeerLoansSection data={overview} />)
 
     expect(screen.getByText('peerLoan.overview.status.behind:2')).toBeInTheDocument()
     expect(screen.getByText('peerLoan.overview.status.onTime')).toBeInTheDocument()
-    expect(screen.getByText('peerLoan.overview.status.closed')).toBeInTheDocument()
   })
 
   it('opens the loan when its row is clicked or activated by keyboard', () => {

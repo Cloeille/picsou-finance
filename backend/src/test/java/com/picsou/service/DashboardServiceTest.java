@@ -4,10 +4,12 @@ import com.picsou.dto.DashboardResponse;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
+import com.picsou.model.PeerLoanTerms;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.GoalRepository;
+import com.picsou.repository.PeerLoanTermsRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,6 +41,7 @@ class DashboardServiceTest {
     @Mock AccountService accountService;
 
     @Mock AccountAccessResolver accessResolver;
+    @Mock PeerLoanTermsRepository peerLoanTermsRepository;
 
     @InjectMocks DashboardService dashboardService;
 
@@ -280,6 +284,29 @@ class DashboardServiceTest {
         verify(historyService).buildHistory(List.of(1L), 3, 42L);
     }
 
+    @Test
+    void getDashboard_keepsClosedPeerLoansOutOfTheDistribution() {
+        Account open = peerLoanAccount(20L, "Marie", "1000");
+        Account closed = peerLoanAccount(21L, "Jean", "0");
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(open, closed));
+        when(holdingRepository.findByAccount_Id(20L)).thenReturn(List.of());
+        when(holdingRepository.findByAccount_Id(21L)).thenReturn(List.of());
+        when(priceService.toEur(any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(peerLoanTermsRepository.findAllByAccountMemberIdOrderByLentAtAscIdAsc(42L)).thenReturn(List.of(
+            peerLoanTerms(open, null),
+            peerLoanTerms(closed, LocalDate.parse("2026-01-01"))));
+        when(historyService.buildHistory(List.of(20L, 21L), 12, 42L)).thenReturn(List.of());
+        when(goalRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of());
+
+        DashboardResponse response = dashboardService.getDashboard(42L, "1Y");
+
+        // The closed loan keeps its ledger and its place in the net-worth history, but a
+        // 0 EUR receivable has nothing to say in today's asset distribution.
+        assertThat(response.distribution()).extracting(DashboardResponse.DistributionItem::name)
+            .containsExactly("Marie");
+        assertThat(response.totalNetWorth()).isEqualByComparingTo("1000");
+    }
+
     /** LOAN 10000 EUR (id 10) + CHECKING 2000 EUR (id 1), no holdings, toEur pass-through. */
     private void stubLoanAndCashFixture() {
         Account loanAcc = loanAccount();
@@ -326,5 +353,20 @@ class DashboardServiceTest {
             .currentBalance(new BigDecimal("5000"))
             .color("#6366f1")
             .build();
+    }
+
+    private Account peerLoanAccount(Long id, String name, String balance) {
+        return Account.builder()
+            .id(id)
+            .name(name)
+            .type(AccountType.PEER_LOAN)
+            .currency("EUR")
+            .currentBalance(new BigDecimal(balance))
+            .color("#0d9488")
+            .build();
+    }
+
+    private PeerLoanTerms peerLoanTerms(Account account, LocalDate closedAt) {
+        return PeerLoanTerms.builder().account(account).closedAt(closedAt).build();
     }
 }
