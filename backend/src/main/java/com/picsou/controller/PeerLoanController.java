@@ -2,6 +2,8 @@ package com.picsou.controller;
 
 import com.picsou.dto.PeerLoanDetailResponse;
 import com.picsou.dto.PeerLoanFromTransactionRequest;
+import com.picsou.dto.PeerLoanOpenResponse;
+import com.picsou.dto.PeerLoanRepaymentFromTransactionRequest;
 import com.picsou.dto.PeerLoanRepaymentRequest;
 import com.picsou.dto.PeerLoanRepaymentResponse;
 import com.picsou.dto.PeerLoanSimulationRequest;
@@ -15,6 +17,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 
 /**
  * Peer loans (receivables between individuals).
@@ -57,6 +60,18 @@ public class PeerLoanController {
         return peerLoanService.addRepayment(id, userContext.currentMemberId(), request);
     }
 
+    /**
+     * Links an existing incoming transaction as a repayment. The transaction is not
+     * copied: a synced account already has the row, and a second one would double it.
+     */
+    @PostMapping("/accounts/{id}/peer-loan/repayments/from-transaction")
+    public PeerLoanDetailResponse addRepaymentFromTransaction(
+        @PathVariable Long id,
+        @Valid @RequestBody PeerLoanRepaymentFromTransactionRequest request
+    ) {
+        return peerLoanService.addRepaymentFromTransaction(id, userContext.currentMemberId(), request);
+    }
+
     @PutMapping("/accounts/{id}/peer-loan/repayments/{repaymentId}")
     public PeerLoanRepaymentResponse updateRepayment(
         @PathVariable Long id,
@@ -88,6 +103,12 @@ public class PeerLoanController {
     @PostMapping("/peer-loans/simulate")
     public PeerLoanSimulationResponse simulate(@Valid @RequestBody PeerLoanSimulationRequest request) {
         return peerLoanService.simulate(request);
+    }
+
+    /** Open loans a received transaction can be assigned to. */
+    @GetMapping("/peer-loans/open")
+    public List<PeerLoanOpenResponse> openLoans() {
+        return peerLoanService.openLoans(userContext.currentMemberId());
     }
 
     /**

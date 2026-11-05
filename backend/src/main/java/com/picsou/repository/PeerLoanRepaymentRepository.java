@@ -13,5 +13,8 @@ public interface PeerLoanRepaymentRepository extends JpaRepository<PeerLoanRepay
 
     Optional<PeerLoanRepayment> findByIdAndAccountId(Long id, Long accountId);
 
+    /** Guards against assigning the same incoming transaction to two repayments. */
+    Optional<PeerLoanRepayment> findByCashTransactionId(Long cashTransactionId);
+
     List<PeerLoanRepayment> findAllByAccountIdIn(Collection<Long> accountIds);
 }

@@ -2,6 +2,8 @@ package com.picsou.service;
 
 import com.picsou.dto.PeerLoanDetailResponse;
 import com.picsou.dto.PeerLoanFromTransactionRequest;
+import com.picsou.dto.PeerLoanOpenResponse;
+import com.picsou.dto.PeerLoanRepaymentFromTransactionRequest;
 import com.picsou.dto.PeerLoanRepaymentRequest;
 import com.picsou.dto.PeerLoanRepaymentResponse;
 import com.picsou.dto.PeerLoanSimulationRequest;
@@ -34,7 +36,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Peer loans: money lent to a person, tracked as a receivable.
@@ -123,6 +128,28 @@ public class PeerLoanService {
             ? PeerLoanCalculator.simulateByMonths(request.principal(), request.annualRate(), request.months())
             : PeerLoanCalculator.simulateByPayment(request.principal(), request.annualRate(), request.monthlyPayment());
         return PeerLoanSimulationResponse.from(simulation);
+    }
+
+    /** The open loans a received transaction can be assigned to. */
+    @Transactional(readOnly = true)
+    public List<PeerLoanOpenResponse> openLoans(Long memberId) {
+        List<PeerLoanOpenResponse> result = new ArrayList<>();
+        for (Account account : accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId)) {
+            if (account.getType() != AccountType.PEER_LOAN) {
+                continue;
+            }
+            Optional<PeerLoanTerms> terms = termsRepository.findByAccountId(account.getId());
+            if (terms.isEmpty() || terms.get().getClosedAt() != null) {
+                continue;
+            }
+            BigDecimal remaining = PeerLoanCalculator.compute(
+                terms.get(),
+                repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(account.getId()),
+                LocalDate.now()).principalRemaining();
+            result.add(new PeerLoanOpenResponse(account.getId(), account.getName(), remaining));
+        }
+        result.sort(Comparator.comparing(PeerLoanOpenResponse::name, String.CASE_INSENSITIVE_ORDER));
+        return result;
     }
 
     // --- Creation from an existing movement ---
@@ -271,6 +298,64 @@ public class PeerLoanService {
         return PeerLoanRepaymentResponse.from(repayment);
     }
 
+    /**
+     * Links an existing incoming transaction as a repayment. The transaction is the cash
+     * row: writing another one would double the money, which is exactly what a synced
+     * account must never see.
+     */
+    @Transactional
+    public PeerLoanDetailResponse addRepaymentFromTransaction(
+        Long accountId, Long memberId, PeerLoanRepaymentFromTransactionRequest request
+    ) {
+        Account account = requireAccount(accountId, memberId);
+        requireType(account);
+        PeerLoanTerms terms = requireConfiguredTerms(accountId);
+        requireOpen(terms);
+        if (request.kind() == PeerLoanRepaymentKind.WRITE_OFF) {
+            throw new IllegalArgumentException("A received transaction cannot be a write-off");
+        }
+
+        Transaction transaction = transactionRepository.findById(request.transactionId())
+            .orElseThrow(() -> ResourceNotFoundException.transaction(request.transactionId()));
+        if (transaction.getAccount() == null
+            || transaction.getAccount().getMember() == null
+            || !memberId.equals(transaction.getAccount().getMember().getId())) {
+            throw ResourceNotFoundException.transaction(request.transactionId());
+        }
+        if (transaction.getAmount() == null || transaction.getAmount().signum() <= 0) {
+            throw new IllegalArgumentException("Only an incoming transaction can repay a peer loan");
+        }
+        if (!CASH_TYPES.contains(transaction.getAccount().getType())) {
+            throw new IllegalArgumentException("Only a cash movement can repay a peer loan");
+        }
+        if (repaymentRepository.findByCashTransactionId(transaction.getId()).isPresent()) {
+            throw new IllegalArgumentException("This transaction is already linked to a repayment");
+        }
+        if (termsRepository.findByLendingTransactionId(transaction.getId()).isPresent()) {
+            throw new IllegalArgumentException("This transaction is already linked to a peer loan");
+        }
+
+        PeerLoanRepayment repayment = repaymentRepository.save(PeerLoanRepayment.builder()
+            .account(account)
+            .paidOn(transaction.getDate())
+            .amount(transaction.getAmount())
+            .kind(request.kind())
+            .cashTransactionId(transaction.getId())
+            .cashLegOwned(false)
+            .build());
+
+        // Capital is a transfer; interest keeps whatever category it has (uncategorised
+        // counts by sign as income). Overriding interest here would hide real income.
+        if (request.kind() == PeerLoanRepaymentKind.PRINCIPAL) {
+            transaction.setCategoryRef(transferCategory(memberId));
+            transaction.setCategoryManual(true);
+            transactionRepository.save(transaction);
+        }
+
+        refreshBalance(account, terms);
+        return build(account, terms, LocalDate.now());
+    }
+
     @Transactional
     public PeerLoanRepaymentResponse updateRepayment(
         Long accountId, Long repaymentId, Long memberId, PeerLoanRepaymentRequest request
@@ -282,6 +367,11 @@ public class PeerLoanService {
 
         PeerLoanRepayment repayment = repaymentRepository.findByIdAndAccountId(repaymentId, accountId)
             .orElseThrow(() -> new ResourceNotFoundException("Repayment not found"));
+        if (!repayment.isCashLegOwned()) {
+            throw new IllegalArgumentException(
+                "This repayment is linked to an existing transaction. Delete it and assign the "
+                    + "transaction again to change it.");
+        }
 
         deleteCashLeg(terms, repayment, memberId);
         repayment.setPaidOn(request.paidOn());
@@ -405,14 +495,21 @@ public class PeerLoanService {
         if (repayment.getCashTransactionId() == null) {
             TransactionResponse created = manualTransactionService.addTransaction(linked.getId(), memberId, leg);
             repayment.setCashTransactionId(created.id());
+            repayment.setCashLegOwned(true);
         } else {
             manualTransactionService.updateTransaction(linked.getId(), repayment.getCashTransactionId(), memberId, leg);
         }
     }
 
-    /** Removes a leg this service owns. A provider row is never deleted. */
+    /** Removes a leg this service owns. A linked transaction is only unlinked. */
     private void deleteCashLeg(PeerLoanTerms terms, PeerLoanRepayment repayment, Long memberId) {
         if (repayment.getCashTransactionId() == null) {
+            return;
+        }
+        if (!repayment.isCashLegOwned()) {
+            // The transaction belongs to the member or the provider: never delete it,
+            // only forget the link.
+            repayment.setCashTransactionId(null);
             return;
         }
         Account linked = terms.getLinkedAccount();

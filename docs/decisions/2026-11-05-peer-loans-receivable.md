@@ -133,7 +133,10 @@ account is required, and the service applies one rule:
 
 An interest repayment is a `DEPOSIT` left uncategorised, so the cashflow counts it by
 sign as income. Creating a loan from an existing transaction links that row as the lending
-leg instead of copying it, which is the same rule applied to money that already moved.
+leg instead of copying it, which is the same rule applied to money that already moved. In
+the other direction, an incoming transaction can be linked as a repayment: it carries
+`cash_leg_owned = false`, so deleting the repayment only unlinks it and the member's or
+provider's row is never deleted or duplicated.
 
 Once `lending_transaction_id` exists, the principal and the linked account are frozen:
 the cash movement is a fact, and changing it silently would rewrite history.
@@ -225,7 +228,7 @@ a cousin does nothing.
 - New `AccountType.PEER_LOAN`; migration `V122` adds the enum value alone (PostgreSQL
   refuses to use a new enum value in the transaction that added it, as `V69`, `V79`,
   `V100` and `V112` already document), `V123` creates the three tables, `V124` adds the
-  two cash-leg links.
+  two cash-leg links and `V125` the `cash_leg_owned` flag.
 - `AccountType.isLedger()` must return **false** for `PEER_LOAN`: its balance derives from
   the principal and the ledger, not from transactions. The frontend mirror
   `NON_LEDGER_ACCOUNT_TYPES` follows.

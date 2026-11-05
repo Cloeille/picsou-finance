@@ -46,4 +46,13 @@ public class PeerLoanRepayment extends AuditableEntity {
     /** The cash movement this row created on a manual linked account (null otherwise). */
     @Column(name = "cash_transaction_id")
     private Long cashTransactionId;
+
+    /**
+     * True when this service wrote the cash row and may update or delete it. False when
+     * the repayment was linked from an existing incoming transaction: that row belongs to
+     * the member (or the provider) and must never be duplicated or removed here.
+     */
+    @Column(name = "cash_leg_owned", nullable = false)
+    @Builder.Default
+    private boolean cashLegOwned = true;
 }

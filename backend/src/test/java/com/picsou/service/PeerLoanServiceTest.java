@@ -3,6 +3,7 @@ package com.picsou.service;
 import com.picsou.dto.PeerLoanDetailResponse;
 import com.picsou.dto.PeerLoanFromTransactionRequest;
 import com.picsou.dto.PeerLoanRepaymentRequest;
+import com.picsou.dto.PeerLoanRepaymentFromTransactionRequest;
 import com.picsou.dto.PeerLoanSimulationRequest;
 import com.picsou.dto.PeerLoanTermsRequest;
 import com.picsou.dto.TransactionRequest;
@@ -248,6 +249,95 @@ class PeerLoanServiceTest {
             LocalDate.parse("2026-07-01"), new BigDecimal("50"), PeerLoanRepaymentKind.PRINCIPAL, null)))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("closed");
+    }
+
+    @Test
+    void addRepaymentOnASyncedAccountWritesNoCashLeg() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("500")).lentAt(LocalDate.parse("2026-01-01"))
+            .annualRate(BigDecimal.ZERO).linkedAccount(cashAccount(false))
+            .build();
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID)).thenReturn(List.of());
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addRepayment(ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentRequest(
+            LocalDate.parse("2026-07-01"), new BigDecimal("50"), PeerLoanRepaymentKind.PRINCIPAL, null));
+
+        // The provider owns the row; writing one would double it in the cashflow.
+        verify(manualTransactionService, never()).addTransaction(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void addRepaymentFromTransactionLinksTheRowWithoutCopyingIt() {
+        Account account = loanAccount("Jean");
+        Account cash = cashAccount(false);
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("500")).lentAt(LocalDate.parse("2026-01-01"))
+            .annualRate(BigDecimal.ZERO).linkedAccount(cash)
+            .build();
+        Transaction transaction = Transaction.builder()
+            .id(60L).account(cash).date(LocalDate.parse("2026-02-01"))
+            .description("Virement reçu").merchantLabel("Jean")
+            .amount(new BigDecimal("100")).build();
+        List<PeerLoanRepayment> ledger = new ArrayList<>();
+
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(transactionRepository.findById(60L)).thenReturn(Optional.of(transaction));
+        when(repaymentRepository.findByCashTransactionId(60L)).thenReturn(Optional.empty());
+        when(termsRepository.findByLendingTransactionId(60L)).thenReturn(Optional.empty());
+        when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
+            PeerLoanRepayment saved = invocation.getArgument(0);
+            saved.setId(11L);
+            ledger.add(saved);
+            return saved;
+        });
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenAnswer(invocation -> List.copyOf(ledger));
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(categorizationService.categoriesBySlug(MEMBER_ID))
+            .thenReturn(Map.of(PeerLoanService.TRANSFER_SLUG, transferCategory()));
+
+        PeerLoanDetailResponse response = service.addRepaymentFromTransaction(
+            ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentFromTransactionRequest(60L, PeerLoanRepaymentKind.PRINCIPAL));
+
+        assertThat(response.principalRemaining()).isEqualByComparingTo("400.00");
+        assertThat(ledger).hasSize(1);
+        assertThat(ledger.getFirst().getCashTransactionId()).isEqualTo(60L);
+        assertThat(ledger.getFirst().isCashLegOwned()).isFalse();
+        assertThat(transaction.getCategoryRef().getId()).isEqualTo(TRANSFER_CATEGORY_ID);
+        assertThat(transaction.isCategoryManual()).isTrue();
+        verify(manualTransactionService, never()).addTransaction(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void deletingALinkedRepaymentDoesNotDeleteItsTransaction() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("500")).lentAt(LocalDate.parse("2026-01-01"))
+            .annualRate(BigDecimal.ZERO).linkedAccount(cashAccount(true))
+            .build();
+        PeerLoanRepayment repayment = PeerLoanRepayment.builder()
+            .id(11L).account(account).paidOn(LocalDate.parse("2026-02-01"))
+            .amount(new BigDecimal("100")).kind(PeerLoanRepaymentKind.PRINCIPAL)
+            .cashTransactionId(60L).cashLegOwned(false).build();
+
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.findByIdAndAccountId(11L, ACCOUNT_ID)).thenReturn(Optional.of(repayment));
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID)).thenReturn(List.of());
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.deleteRepayment(ACCOUNT_ID, 11L, MEMBER_ID);
+
+        verify(manualTransactionService, never()).deleteTransaction(anyLong(), anyLong(), anyLong());
     }
 
     @Test

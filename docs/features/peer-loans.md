@@ -37,7 +37,7 @@ page, the way a `SCPI` position is.
 
 ```sql
 -- V122: ALTER TYPE account_type ADD VALUE 'PEER_LOAN' BEFORE 'OTHER';
--- V123: tables below.  V124: the two cash-leg links.
+-- V123: tables below.  V124: the two cash-leg links.  V125: cash_leg_owned.
 
 peer_counterparty (id, member_id, name, note)
     UNIQUE (member_id, lower(name))
@@ -53,7 +53,8 @@ peer_loan_terms (
 peer_loan_repayment (
     id, account_id, paid_on, amount,
     kind,                                     -- PRINCIPAL | INTEREST | WRITE_OFF
-    note, cash_transaction_id                 -- the inflow we created (manual accounts only)
+    note, cash_transaction_id,
+    cash_leg_owned                            -- false when linked from an existing row
 )
 ```
 
@@ -138,6 +139,12 @@ one rule:
 An interest repayment is a `DEPOSIT` left uncategorised: a positive amount counts as
 income in the cashflow, which is correct — interest is real income, not a transfer.
 
+An incoming transaction can be **assigned** to an open loan instead of typing a
+repayment. It is linked (`cash_transaction_id`, `cash_leg_owned = false`) and never
+copied, so a synced account never receives a second row. Deleting that repayment only
+unlinks the transaction; the member's or provider's row stays. Editing a linked
+repayment is refused for the same reason: delete it and assign the transaction again.
+
 The principal and the linked account cannot change once `lending_transaction_id` exists:
 the cash movement is a fact. Deleting and recreating the loan is the honest path.
 
@@ -165,10 +172,12 @@ information, not a verdict: no automatic "late" state, no scoring.
 | `GET` | `/api/accounts/{id}/peer-loan` | detail: terms, summary, ledger |
 | `PUT` | `/api/accounts/{id}/peer-loan` | upsert the terms (and the forecast plan) |
 | `POST` | `/api/accounts/{id}/peer-loan/repayments` | add a repayment (201) |
+| `POST` | `/api/accounts/{id}/peer-loan/repayments/from-transaction` | link an incoming transaction |
 | `PUT` | `/api/accounts/{id}/peer-loan/repayments/{repaymentId}` | edit |
 | `DELETE` | `/api/accounts/{id}/peer-loan/repayments/{repaymentId}` | delete (204) |
 | `POST` | `/api/accounts/{id}/peer-loan/close?date=` | write off the residual and close |
 | `POST` | `/api/peer-loans/simulate` | duration ↔ monthly payment preview |
+| `GET` | `/api/peer-loans/open` | open loans, for the repayment picker |
 | `POST` | `/api/peer-loans/from-transaction` | create a loan from an existing outflow |
 
 Every account-scoped route resolves the account with `findByIdAndMemberId` before touching
@@ -190,6 +199,9 @@ a child row: the ledger is scoped through its account, never through an unvalida
 - `CreatePeerLoanDialog.tsx` — opened from an outgoing transaction's detail sheet;
   prefills the borrower from the merchant label and links the transaction as the lending
   leg.
+- `AssignRepaymentDialog.tsx` — opened from an incoming transaction; picks an open loan
+  and whether the amount is capital or interest, then links the transaction as the
+  repayment's cash leg.
 - `AccountForm` hides the balance, currency, bank, ticker and manual fields for a peer
   loan and labels the name "Borrower".
 - `AccountsPage` gains a `RECEIVABLES` filter.
@@ -215,7 +227,8 @@ Backend:
 - `backend/.../service/WealthPyramidService.java` — receivable skipped
 - `backend/.../model/AssetClass.java`, `WealthTier.java` — exhaustive switches
 - `backend/.../db/migration/V122__account_type_peer_loan.sql`,
-  `V123__peer_loans.sql`, `V124__peer_loan_cash_leg.sql`
+  `V123__peer_loans.sql`, `V124__peer_loan_cash_leg.sql`,
+  `V125__peer_loan_linked_repayment.sql`
 
 Frontend:
 
@@ -290,6 +303,9 @@ this stack. Then:
    today; the loss is in the history.
 6. To test the transaction flow, open a cash account's **Transactions**, click an outgoing
    row, then **Create a peer loan**. The transaction is linked, not copied.
+7. Click an incoming row instead, then **Assign to a repayment**, pick the loan and whether
+   the amount is capital or interest. The transaction is linked, not copied, so the cash
+   account gets no second line.
 
 ```bash
 docker compose -f docker/docker-compose.peer-loans-test.yml logs -f app
@@ -348,9 +364,10 @@ The `db` container has no host port: the database is only reachable by the test 
 - **A synced account's row is not categorised automatically.** The provider owns it, so
   the member classifies it once as "Internal transfer"; the detail keeps the hint while
   no link is set.
-- **A provider row is never deleted with the loan.** Only a leg this service created on a
-  manual account is updated or deleted; a row linked from a transaction belongs to the
-  bank (`ON DELETE SET NULL` on the link column).
+- **A linked row is never duplicated or deleted.** A repayment added from an incoming
+  transaction has `cash_leg_owned = false`: deleting the repayment only unlinks it, and
+  editing it is refused (delete and re-assign). On a synced account the service writes no
+  cash row at all, so the provider's movement is never doubled.
 - **The borrower is the account name, not a `FamilyMember`.** `FamilyMember` is a Picsou
   household user; the account page shows only that loan.
 
@@ -374,7 +391,8 @@ The `db` container has no host port: the database is only reachable by the test 
 - `PeerLoanServiceTest` — unconfigured detail, member scoping, wrong type, closed-loan
   guard, account name as the borrower, no leg on a synced account, the outflow written on
   a manual one, closure write-off and zeroed balance, reopen on deleting the write-off,
-  loan creation from an existing transaction, simulation input guard.
+  loan creation from an existing transaction, a repayment linked from an incoming
+  transaction (no copy, not deleted), simulation input guard.
 - `constants.test.ts` — the new account type has a label, is not a liability and is not a
   holdings type.
 
