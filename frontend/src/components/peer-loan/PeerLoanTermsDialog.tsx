@@ -225,15 +225,19 @@ export function PeerLoanTermsDialog({
                   value={ratePct}
                   onChange={(e) => setRatePct(e.target.value)}
                 />
-                <select
-                  aria-label={t('peerLoan.fields.ratePeriod')}
-                  className={`${SELECT_CONTROL_CLASS} w-28 shrink-0`}
-                  value={ratePeriod}
-                  onChange={(e) => handlePeriodChange(e.target.value as PeerLoanRatePeriod)}
-                >
-                  <option value="ANNUAL">{t('peerLoan.ratePeriod.ANNUAL')}</option>
-                  <option value="MONTHLY">{t('peerLoan.ratePeriod.MONTHLY')}</option>
-                </select>
+                {/* SELECT_CONTROL_CLASS carries w-full, so the wrapper — not the
+                    select — is what holds the 7rem width. */}
+                <div className="w-28 shrink-0">
+                  <select
+                    aria-label={t('peerLoan.fields.ratePeriod')}
+                    className={SELECT_CONTROL_CLASS}
+                    value={ratePeriod}
+                    onChange={(e) => handlePeriodChange(e.target.value as PeerLoanRatePeriod)}
+                  >
+                    <option value="ANNUAL">{t('peerLoan.ratePeriod.ANNUAL')}</option>
+                    <option value="MONTHLY">{t('peerLoan.ratePeriod.MONTHLY')}</option>
+                  </select>
+                </div>
               </div>
             </div>
             <div className="space-y-2">
