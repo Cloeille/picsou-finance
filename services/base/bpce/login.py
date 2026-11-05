@@ -447,6 +447,20 @@ async def _dismiss_cookie_banner(site: Site, page: Any) -> None:
         await page.click(site.cookie_banner_button, timeout=STEP_TIMEOUT_SECONDS * 1000)
 
 
+async def _click_past_banner(site: Site, page: Any, target: Any, timeout_ms: float) -> None:
+    """Click `target`; if the consent banner showed up since it was checked and blocks
+    the click, refuse the banner and click once more. No other retry: this only runs
+    before the identifier is typed, so nothing reaches the bank twice.
+    """
+    try:
+        await target.click(timeout=timeout_ms)
+    except PlaywrightTimeoutError:
+        if site.cookie_banner_button is None or not await _visible(page, site.cookie_banner_button):
+            raise
+        await _dismiss_cookie_banner(site, page)
+        await target.click(timeout=timeout_ms)
+
+
 def _region_text(text: str) -> str:
     """Option text with its Unicode form and spacing made canonical, nothing else.
 
@@ -495,14 +509,14 @@ async def _select_region(site: Site, page: Any, label: str) -> None:
         log.warning("Region picker not found")
         raise LoginError(502, "UPSTREAM_FORMAT_CHANGED")
     await _dismiss_cookie_banner(site, page)
-    await trigger.first.click(timeout=timeout_ms)
+    await _click_past_banner(site, page, trigger.first, timeout_ms)
 
     options = page.locator(REGION_OPTION)
     count, matches = await _matching_options(options, label, timeout_ms)
     if len(matches) != 1:
         log.warning("Region option not found (options=%d, matching=%d)", count, len(matches))
         raise LoginError(502, "UPSTREAM_FORMAT_CHANGED")
-    await options.nth(matches[0]).click(timeout=timeout_ms)
+    await _click_past_banner(site, page, options.nth(matches[0]), timeout_ms)
 
     deadline = time.monotonic() + STEP_TIMEOUT_SECONDS
     while not _shows(await trigger.first.inner_text(timeout=timeout_ms), label):

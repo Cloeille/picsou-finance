@@ -67,6 +67,23 @@ class RegionSelectorTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.page.locator("#banner").count(), 0)
         self.assertEqual(await self.page.inner_text("#value"), "RIVES DE PARIS")
 
+    async def test_a_banner_that_appears_after_the_check_is_refused_and_the_picker_clicked_again(self):
+        # Hidden when the banner is checked, shown right after: it covers the picker
+        # when the first click lands.
+        late = PAGE.replace(
+            '<div id="banner" style="',
+            '<div id="banner" style="display:none;',
+        ).replace(
+            "<script>",
+            "<script>setTimeout(() => document.getElementById('banner').style.display = 'block', 50);",
+        )
+        await self.page.set_content(late)
+
+        await login._select_region(main.SITE, self.page, "RIVES DE PARIS")
+
+        self.assertEqual(await self.page.locator("#banner").count(), 0)
+        self.assertEqual(await self.page.inner_text("#value"), "RIVES DE PARIS")
+
     async def test_an_accented_label_is_matched_exactly(self):
         await self.page.set_content(PAGE)
 
@@ -92,9 +109,6 @@ class RegionSelectorTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.page.locator(login.REGION_TRIGGER).get_attribute("id"), "neo-input-2")
         self.assertEqual(await self.page.locator(login.NEXT_BUTTON).count(), 1)
 
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 REFUSAL_PAGE = """
@@ -129,3 +143,7 @@ class RefusalSelectorTest(unittest.IsolatedAsyncioTestCase):
     async def test_the_password_page_with_its_forgotten_link_is_not_an_error(self):
         await self.page.set_content(PASSWORD_PAGE)
         self.assertEqual(await self.page.locator(login.ERROR_SELECTOR).count(), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

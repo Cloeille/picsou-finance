@@ -291,9 +291,6 @@ class NavigationAllowListTest(BanquePopulaireLoginTest):
         self.assertTrue((await context.open_web_socket("wss://www.caisse-epargne.fr/ws")).closed)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class IdentifierShapeTest(BanquePopulaireLoginTest):
     async def test_a_letter_and_digits_identifier_is_typed_as_is(self):
@@ -307,3 +304,7 @@ class IdentifierShapeTest(BanquePopulaireLoginTest):
                 await self.assertFails(401, "INVALID_CREDENTIALS", self.initiate(customer_id=customer_id))
         self.assertEqual(self.world.launches, 0)
         self.assertClean()
+
+
+if __name__ == "__main__":
+    unittest.main()
