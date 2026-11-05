@@ -5,7 +5,7 @@
 
 ## Context
 
-Banque Populaire runs the BPCE platform that Caisse d'Epargne runs, so this connector is the Caisse d'Epargne one with a different `Site` and bank descriptor. The shared code and the reasons for sharing it are in the ADR [2026-11-05-bpce-shared-sidecar-and-engine](../decisions/2026-11-05-bpce-shared-sidecar-and-engine.md). Everything [caisse-epargne.md](caisse-epargne.md) says about sessions, sync atomicity, card settlement tagging, error codes, timeouts, the no-retry rule and the recovery of a lost completion applies here. This note lists only the differences.
+Banque Populaire runs the BPCE platform that Caisse d'Epargne runs, so this connector is the Caisse d'Epargne one with a different `Site` and bank descriptor. Unlike Caisse d'Epargne, it does not import cards. The shared code and the reasons for sharing it are in the ADR [2026-11-05-bpce-shared-sidecar-and-engine](../decisions/2026-11-05-bpce-shared-sidecar-and-engine.md). Everything [caisse-epargne.md](caisse-epargne.md) says about sessions, sync atomicity, card settlement tagging, error codes, timeouts, the no-retry rule and the recovery of a lost completion applies here. This note lists only the differences.
 
 ## How it works
 
@@ -39,7 +39,7 @@ Table `banque_populaire_session` (migration `V122`) has the Caisse d'Epargne tab
 | BPCE family / sub | Picsou type | Observed live |
 |---|---|---|
 | `1` current account | `CHECKING`, with transactions | yes ("Compte De Cheques") |
-| card in `augmentedCards` | `CREDIT_CARD` (liability) | yes (immediate-debit Visa Premier) |
+| card in `augmentedCards` | not imported (`Site.cards=False`): never an account, its operations never read, not listed in `unsupported` (a card is not a contract) | yes (Visa Premier, reported with `cardCreditIndicator=true`) |
 | `3/01` labelled Livret A | `LIVRET_A`, with transactions | yes ("Livret A-Particuliers") |
 | `3/01` labelled Livret Jeune | `LIVRET_JEUNE`, with transactions | yes ("Livret Jeune") |
 | `3/01` labelled LEP | `LEP`, with transactions | no |
@@ -75,6 +75,6 @@ The bank answers a wrong identifier or password with a modal titled "Identifiant
 
 ## Verification boundaries
 
-Run live end to end on 2026-11-05 with a Rives de Paris account, through the dev stack (sidecar, backend, frontend): region picker, identifier with its letter, keypad, Sécur'Pass approval, session stored, first sync `SUCCESS`. It imported a current account, a Livret A and a Livret Jeune with their transactions (several hundred rows on the current account, paged within the 365-day window) and a card account, all with the `bp_` prefix; the revolving credit was listed in `unsupported` (family `2`). The card, an immediate-debit Visa Premier, is stored with nature `CREDIT` because the bank reports `cardCreditIndicator=true`; it had no operations in the window. A wrong identifier was also seen live: the bank still shows a keypad, then the refusal modal.
+Run live end to end on 2026-11-05 with a Rives de Paris account, through the dev stack (sidecar, backend, frontend): region picker, identifier with its letter, keypad, Sécur'Pass approval, session stored, first sync `SUCCESS`. It imported a current account, a Livret A and a Livret Jeune with their transactions (several hundred rows on the current account, paged within the 365-day window) all with the `bp_` prefix; the revolving credit was listed in `unsupported` (family `2`). That run also imported the Visa Premier as a `CREDIT` card (the bank reports `cardCreditIndicator=true`) with no operations; cards were taken out of the Banque Populaire scope afterwards and are no longer imported. A wrong identifier was also seen live: the bank still shows a keypad, then the refusal modal.
 
-Not observed: card operations, LDDS, LEP, loan, PER and revolving-credit detail.
+Not observed: LDDS, LEP, loan, PER and revolving-credit detail.

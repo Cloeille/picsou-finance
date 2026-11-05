@@ -47,9 +47,9 @@ the login state machine.
    `BanquePopulairePanel` wrap it with their own API, translation prefix and,
    for BP, the region select.
 4. **Scope of the first BP version: only what was observed live.** BP imports the
-   current account, Livret A, Livret Jeune, LDDS and card. Loans, PER and the
-   revolving credit are listed as unsupported, because their OAuth clients and
-   hosts on BP were never observed.
+   current account, Livret A, Livret Jeune and LDDS. Loans, PER and the revolving
+   credit are listed as unsupported, because their OAuth clients and hosts on BP
+   were never observed. Cards are not imported for BP (`Site.cards=False`).
 
 ## Alternatives considered
 
