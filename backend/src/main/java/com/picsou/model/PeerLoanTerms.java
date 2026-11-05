@@ -62,6 +62,14 @@ public class PeerLoanTerms extends AuditableEntity {
     @JoinColumn(name = "linked_account_id")
     private Account linkedAccount;
 
+    /**
+     * The cash movement this loan created on a manual linked account, or the provider
+     * transaction it was created from. Never deleted when it belongs to a synced account:
+     * the bank owns that row.
+     */
+    @Column(name = "lending_transaction_id")
+    private Long lendingTransactionId;
+
     @Column(length = 500)
     private String note;
 

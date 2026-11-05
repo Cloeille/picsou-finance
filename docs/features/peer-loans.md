@@ -37,7 +37,7 @@ page, the way a `SCPI` position is.
 
 ```sql
 -- V122: ALTER TYPE account_type ADD VALUE 'PEER_LOAN' BEFORE 'OTHER';
--- V123: tables below.
+-- V123: tables below.  V124: the two cash-leg links.
 
 peer_counterparty (id, member_id, name, note)
     UNIQUE (member_id, lower(name))
@@ -46,19 +46,27 @@ peer_loan_terms (
     id, account_id UNIQUE, counterparty_id,
     principal, lent_at, expected_back, annual_rate,
     planned_monthly_amount, planned_months,   -- forecast only, both or neither
-    linked_account_id, note, closed_at
+    linked_account_id, note, closed_at,
+    lending_transaction_id                    -- the outflow we own or linked
 )
 
 peer_loan_repayment (
     id, account_id, paid_on, amount,
     kind,                                     -- PRINCIPAL | INTEREST | WRITE_OFF
-    note
+    note, cash_transaction_id                 -- the inflow we created (manual accounts only)
 )
 ```
 
-Only facts are stored. Remaining capital, accrued interest, delays and the borrower
-history are derived on read, following
-[ADR 2026-04-26](../decisions/2026-04-26-loan-amortization-on-the-fly.md).
+Only facts are stored. Remaining capital and accrued interest are derived on read,
+following [ADR 2026-04-26](../decisions/2026-04-26-loan-amortization-on-the-fly.md).
+
+### One account, one loan
+
+The account's own name **is** the borrower. There is no second "counterparty" field:
+the `peer_counterparty` row is created from the account name so the future borrower
+grouping has a stable key, but the account page never aggregates another loan's figures.
+Two loans to the same person are two accounts ("Jean — voiture", "Jean — caution"), each
+with its own summary and ledger.
 
 ### Derivation
 
@@ -113,14 +121,25 @@ ledger.
 transaction counts as an expense — which is why the loan detail shows a hint to categorise
 the matching bank transfer when no linked account is set.
 
-### Cash-flow neutrality (v1: manual)
+### Cash-flow neutrality
 
-The receivable only balances the cash outflow if the cash movement exists exactly once.
-v1 stores the optional `linked_account_id` and displays the hint; it does not create the
-cash row. Automating it is deferred: on a synced account the provider already imported the
-movement, and writing a second row would double it in both the cashflow and the allocation
-view. The v2 rule is: write the cash leg only when the linked account is manual, never when
-it is synced.
+The receivable only balances the cash movement if that movement exists exactly once.
+The linked cash account is **required** when the terms are saved, and the service applies
+one rule:
+
+- **manual linked account** → the service writes the leg: `WITHDRAWAL` of the principal
+  when the terms are saved, `DEPOSIT` for each capital repayment, both under the
+  `virement-interne` TRANSFER category. Net worth is neutral immediately.
+- **synced linked account** → the service writes nothing. The provider already imported
+  the row; the member categorises it once as "Internal transfer".
+- **no linked account** → the request is refused, because a repayment would otherwise
+  reduce net worth with no cash counterpart.
+
+An interest repayment is a `DEPOSIT` left uncategorised: a positive amount counts as
+income in the cashflow, which is correct — interest is real income, not a transfer.
+
+The principal and the linked account cannot change once `lending_transaction_id` exists:
+the cash movement is a fact. Deleting and recreating the loan is the honest path.
 
 ### Forecast (editable, non-binding)
 
@@ -139,24 +158,18 @@ the forecast and the bank-loan schedule cannot disagree. The detail card compare
 scheduled remaining with the actual capital and reports the drift in installments. This is
 information, not a verdict: no automatic "late" state, no scoring.
 
-### Borrower history
-
-Facts only, aggregated per `peer_counterparty`: number of loans (open / closed), total
-lent, total recovered (capital + interest), total written off, total interest received,
-average delay at closure against `expected_back`, current open exposure, and the list of
-loans. No score, no percentage, no badge that predicts anything.
-
 ### REST endpoints
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/accounts/{id}/peer-loan` | detail: terms, summary, ledger, borrower history |
+| `GET` | `/api/accounts/{id}/peer-loan` | detail: terms, summary, ledger |
 | `PUT` | `/api/accounts/{id}/peer-loan` | upsert the terms (and the forecast plan) |
 | `POST` | `/api/accounts/{id}/peer-loan/repayments` | add a repayment (201) |
 | `PUT` | `/api/accounts/{id}/peer-loan/repayments/{repaymentId}` | edit |
 | `DELETE` | `/api/accounts/{id}/peer-loan/repayments/{repaymentId}` | delete (204) |
 | `POST` | `/api/accounts/{id}/peer-loan/close?date=` | write off the residual and close |
 | `POST` | `/api/peer-loans/simulate` | duration ↔ monthly payment preview |
+| `POST` | `/api/peer-loans/from-transaction` | create a loan from an existing outflow |
 
 Every account-scoped route resolves the account with `findByIdAndMemberId` before touching
 a child row: the ledger is scoped through its account, never through an unvalidated id.
@@ -167,12 +180,18 @@ a child row: the ledger is scoped through its account, never through an unvalida
   `LoanDetailSection` does for `LOAN`:
   - summary: lent / repaid (%) / remaining / accrued interest / written off;
   - forecast card with the scheduled-vs-actual comparison and the drift;
-  - repayment ledger with the kind badge, add / edit / delete;
-  - "close the loan" action with the residual amount in the confirmation;
-  - the borrower history.
+  - repayment ledger with the kind badge, add / edit / delete; capital and interest
+    amounts are green and prefixed `+`, a write-off is red and prefixed `−`;
+  - "close the loan" action with the residual amount in the confirmation.
 - `PeerLoanTermsDialog.tsx` — terms plus the simulator (a duration fills the monthly
-  amount, or a monthly amount fills the duration).
+  amount, or a monthly amount fills the duration). The linked cash account is required;
+  the borrower is the account name.
 - `PeerLoanRepaymentDialog.tsx` — one dated row, one kind, one budget category.
+- `CreatePeerLoanDialog.tsx` — opened from an outgoing transaction's detail sheet;
+  prefills the borrower from the merchant label and links the transaction as the lending
+  leg.
+- `AccountForm` hides the balance, currency, bank, ticker and manual fields for a peer
+  loan and labels the name "Borrower".
 - `AccountsPage` gains a `RECEIVABLES` filter.
 - i18n keys in all four locales (`fr`, `en`, `de`, `es`).
 
@@ -187,7 +206,8 @@ Backend:
   `PeerLoanRepaymentRepository.java`
 - `backend/.../service/PeerLoanCalculator.java` — pure arithmetic (remaining, interest,
   plan, simulation)
-- `backend/.../service/PeerLoanService.java` — terms, ledger, closure, history
+- `backend/.../service/PeerLoanService.java` — terms, ledger, closure, cash legs,
+  creation from a transaction
 - `backend/.../controller/PeerLoanController.java`
 - `backend/.../dto/PeerLoan*.java`
 - `backend/.../service/AccountService.java` — `valuation()` branch
@@ -195,7 +215,7 @@ Backend:
 - `backend/.../service/WealthPyramidService.java` — receivable skipped
 - `backend/.../model/AssetClass.java`, `WealthTier.java` — exhaustive switches
 - `backend/.../db/migration/V122__account_type_peer_loan.sql`,
-  `V123__peer_loans.sql`
+  `V123__peer_loans.sql`, `V124__peer_loan_cash_leg.sql`
 
 Frontend:
 
@@ -212,12 +232,20 @@ Frontend:
 ```
 Create a peer loan
    │
-   ├─ Account(type=PEER_LOAN, isManual=true) created
-   └─ terms entered on the detail page (principal, borrower, rate, optional plan)
+   ├─ Account(type=PEER_LOAN, isManual=true) created, its name is the borrower
+   ├─ terms entered on the detail page (principal, dates, rate, linked cash account)
+   └─ manual linked account → WITHDRAWAL of the principal (TRANSFER category)
+
+Create from a transaction
+   │
+   ├─ the outgoing transaction is linked, not copied
+   └─ it is categorised as TRANSFER; the loan adds the matching receivable
 
 Add a repayment
    │
    ├─ peer_loan_repayment row (PRINCIPAL | INTEREST | WRITE_OFF)
+   ├─ manual linked account → DEPOSIT (TRANSFER for capital, uncategorised income
+   │  for interest)
    └─ account.current_balance = remaining; today's snapshot upserted
 
 Daily snapshot
@@ -248,12 +276,16 @@ The image is built from the working tree, so it includes uncommitted changes. Fi
 runs the setup wizard: create the admin and skip the integration steps — no sidecar runs in
 this stack. Then:
 
-1. **Accounts → Add account**, pick "Peer loan", name it, save.
-2. Open the account and click **Set up the loan**: borrower, amount, date, optional rate.
+1. **Accounts → Add account**, pick "Peer loan": the name is the borrower ("Jean"), save.
+2. Open the account and click **Set up the loan**: amount, date, **linked cash account**
+   (required), optional rate. On a manual cash account the outflow is written immediately.
 3. Add a **capital** repayment, then an **interest** payment: the remaining capital, the
-   progress and the forecast card move, and the account's history gets today's snapshot.
+   progress and the forecast card move, and the cash account receives the matching
+   deposit (green, prefixed `+`). A write-off shows in red, prefixed `−`.
 4. **Close the loan**: the residual is written off and the account is worth zero from
    today; the loss is in the history.
+5. To test the transaction flow, open a cash account's **Transactions**, click an outgoing
+   row, then **Create a peer loan**. The transaction is linked, not copied.
 
 ```bash
 docker compose -f docker/docker-compose.peer-loans-test.yml logs -f app
@@ -304,15 +336,26 @@ The `db` container has no host port: the database is only reachable by the test 
 - **Demo mode has no peer-loan account yet.** A placeholder handler keeps the route
   coverage test green, but the feature is invisible in the demo build until a fixture is
   added.
-- **The cash leg is manual in v1.** The detail shows the "Internal transfer" hint; the
-  member categorises the bank movement. See the ADR.
-- **The counterparty is not a `FamilyMember`.** `FamilyMember` is a Picsou household user;
-  the borrower is an external person.
+- **A linked cash account is required.** Without one, a repayment would reduce net worth
+  with no cash counterpart. The terms request enforces it, and the dialog marks it.
+- **The principal and the linked account are frozen once the cash leg exists.** Changing
+  either would silently rewrite a real movement; deleting and recreating the loan is the
+  honest path.
+- **A synced account's row is not categorised automatically.** The provider owns it, so
+  the member classifies it once as "Internal transfer"; the detail keeps the hint while
+  no link is set.
+- **A provider row is never deleted with the loan.** Only a leg this service created on a
+  manual account is updated or deleted; a row linked from a transaction belongs to the
+  bank (`ON DELETE SET NULL` on the link column).
+- **The borrower is the account name, not a `FamilyMember`.** `FamilyMember` is a Picsou
+  household user; the account page shows only that loan.
 
 ## Not implemented yet (v2+)
 
-- Automatic cash leg (`TRANSFER` on a linked manual account, category only on a synced one).
+- Automatic categorisation of the provider row on a synced linked account (today the
+  member classifies it once).
 - A projected-vs-actual **chart** (v1 compares the figures textually).
+- A **borrower history** view across loans (kept out of the account page on purpose).
 - A demo peer-loan account and its fixtures.
 - MCP tools (read the detail, add a repayment).
 - The borrowed direction (`PEER_DEBT`).
@@ -325,8 +368,9 @@ The `db` container has no host port: the database is only reachable by the test 
   interest, zero rate, write-off, overpayment clamp, forecast drift, both simulation
   directions.
 - `PeerLoanServiceTest` — unconfigured detail, member scoping, wrong type, closed-loan
-  guard, counterparty creation, closure write-off and zeroed balance, reopen on deleting
-  the write-off, simulation input guard.
+  guard, account name as the borrower, no leg on a synced account, the outflow written on
+  a manual one, closure write-off and zeroed balance, reopen on deleting the write-off,
+  loan creation from an existing transaction, simulation input guard.
 - `constants.test.ts` — the new account type has a label, is not a liability and is not a
   holdings type.
 

@@ -1,6 +1,7 @@
 package com.picsou.controller;
 
 import com.picsou.dto.PeerLoanDetailResponse;
+import com.picsou.dto.PeerLoanFromTransactionRequest;
 import com.picsou.dto.PeerLoanRepaymentRequest;
 import com.picsou.dto.PeerLoanRepaymentResponse;
 import com.picsou.dto.PeerLoanSimulationRequest;
@@ -87,5 +88,17 @@ public class PeerLoanController {
     @PostMapping("/peer-loans/simulate")
     public PeerLoanSimulationResponse simulate(@Valid @RequestBody PeerLoanSimulationRequest request) {
         return peerLoanService.simulate(request);
+    }
+
+    /**
+     * Turns an existing outgoing transaction into a new loan, linking it as the lending
+     * leg instead of copying it.
+     */
+    @PostMapping("/peer-loans/from-transaction")
+    @ResponseStatus(HttpStatus.CREATED)
+    public PeerLoanDetailResponse createFromTransaction(
+        @Valid @RequestBody PeerLoanFromTransactionRequest request
+    ) {
+        return peerLoanService.createFromTransaction(userContext.currentMemberId(), request);
     }
 }

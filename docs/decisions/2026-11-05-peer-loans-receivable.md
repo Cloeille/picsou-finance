@@ -32,6 +32,10 @@ the xlsx export. The remaining capital is derived, never typed.
 A future `PEER_DEBT` (money borrowed from a person) is the symmetric type, and is the only
 one that would be negated there.
 
+**One account is one loan, and the account's name is the borrower.** There is no second
+"counterparty" field to enter, and an account page never aggregates another loan's
+figures. Two loans to the same person are two accounts, each with its own ledger.
+
 ### 2. Facts are persisted; everything else is derived
 
 Two tables, and no derived column:
@@ -42,15 +46,16 @@ peer_loan_terms (
     account_id, counterparty_id, principal, lent_at, expected_back,
     annual_rate,                          -- 0 = interest-free (the common case)
     planned_monthly_amount, planned_months, -- forecast, nullable
-    linked_account_id, note, closed_at
+    linked_account_id, note, closed_at,
+    lending_transaction_id                -- the cash movement we own or linked
 )
-peer_loan_repayment (account_id, paid_on, amount, kind, note)
+peer_loan_repayment (account_id, paid_on, amount, kind, note, cash_transaction_id)
 -- kind: PRINCIPAL | INTEREST | WRITE_OFF
 ```
 
-Remaining capital, accrued interest, repayment percentages, delays and the counterparty
-history are recomputed on read, the way the bank-loan schedule already is. The ledger is
-the only source of truth; `account.current_balance` is a cache refreshed on every write.
+Remaining capital, accrued interest and repayment percentages are recomputed on read, the
+way the bank-loan schedule already is. The ledger is the only source of truth;
+`account.current_balance` is a cache refreshed on every write.
 
 ### 3. Risk is observed, never predicted
 
@@ -113,22 +118,25 @@ The annuity maths is shared with `LoanAmortizationService` rather than duplicate
 private `computeMonthlyPayment` becomes reusable, and the reverse direction
 (monthly → duration) is added beside it.
 
-### 7. One cash leg, never two (automation deferred to v2)
+### 7. One cash leg, never two
 
-The cash movement must exist for the asset swap to hold, but exactly once. v1 stores the
-optional `linked_account_id` and tells the member which category to use; it does not write
-the cash row yet. The rule the automation must follow when it lands:
+The cash movement must exist for the asset swap to hold, but exactly once. The linked cash
+account is required, and the service applies one rule:
 
 - **linked manual cash account** → the service writes the cash leg
   (`WITHDRAWAL` on lending, `DEPOSIT` on each principal repayment), both under a
-  `TRANSFER` category.
+  `TRANSFER` category. Net worth is neutral immediately.
 - **linked synced cash account** → the service writes nothing. The provider already
-  imported the row; the category is set to the `TRANSFER` category instead. Writing a
-  second row would double the movement.
+  imported the row; writing a second one would double the movement.
+- **no linked account** → the terms are refused, because a repayment would otherwise
+  reduce net worth with no cash counterpart.
 
-Automating it in v1 would have meant writing a transaction on a partner account while the
-provider may import the same movement — the exact double count this rule forbids. The
-manual step is the safe half, and the category hint is in the loan detail.
+An interest repayment is a `DEPOSIT` left uncategorised, so the cashflow counts it by
+sign as income. Creating a loan from an existing transaction links that row as the lending
+leg instead of copying it, which is the same rule applied to money that already moved.
+
+Once `lending_transaction_id` exists, the principal and the linked account are frozen:
+the cash movement is a fact, and changing it silently would rewrite history.
 
 ## Alternatives considered
 
@@ -216,7 +224,8 @@ a cousin does nothing.
 
 - New `AccountType.PEER_LOAN`; migration `V122` adds the enum value alone (PostgreSQL
   refuses to use a new enum value in the transaction that added it, as `V69`, `V79`,
-  `V100` and `V112` already document), `V123` creates the three tables.
+  `V100` and `V112` already document), `V123` creates the three tables, `V124` adds the
+  two cash-leg links.
 - `AccountType.isLedger()` must return **false** for `PEER_LOAN`: its balance derives from
   the principal and the ledger, not from transactions. The frontend mirror
   `NON_LEDGER_ACCOUNT_TYPES` follows.
@@ -230,6 +239,7 @@ a cousin does nothing.
 - `HistoryService` gains a receivable branch next to its liability branches, so the
   receivable never leaks into the invested/PnL series.
 - New `PeerLoanService`, `PeerLoanController` routes under
-  `/api/accounts/{id}/peer-loan`, and a `peer-loan` feature slice in the frontend.
+  `/api/accounts/{id}/peer-loan`, `POST /api/peer-loans/from-transaction`, and a
+  `peer-loan` feature slice in the frontend.
 - The GDPR export and the xlsx workbook must include the repayments, or financial data
   leaves the instance without a trace.

@@ -42,4 +42,8 @@ public class PeerLoanRepayment extends AuditableEntity {
 
     @Column(length = 255)
     private String note;
+
+    /** The cash movement this row created on a manual linked account (null otherwise). */
+    @Column(name = "cash_transaction_id")
+    private Long cashTransactionId;
 }

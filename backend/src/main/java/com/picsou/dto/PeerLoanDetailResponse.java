@@ -18,8 +18,6 @@ public record PeerLoanDetailResponse(
     Long accountId,
     String accountName,
     boolean configured,
-    Long counterpartyId,
-    String counterpartyName,
     BigDecimal principal,
     LocalDate lentAt,
     LocalDate expectedBack,
@@ -39,31 +37,5 @@ public record PeerLoanDetailResponse(
     BigDecimal repaidPct,
     BigDecimal scheduledRemaining,
     Integer installmentsBehind,
-    List<PeerLoanRepaymentResponse> repayments,
-    PeerCounterpartyHistory counterpartyHistory
-) {
-    /** Facts only: no score, no predicted risk. */
-    public record PeerCounterpartyHistory(
-        Long id,
-        String name,
-        int loanCount,
-        int openLoans,
-        int closedLoans,
-        BigDecimal totalLent,
-        BigDecimal totalRecovered,
-        BigDecimal totalWrittenOff,
-        BigDecimal totalInterestReceived,
-        Long averageClosureDelayDays,
-        BigDecimal openExposure,
-        List<LoanBrief> loans
-    ) {}
-
-    public record LoanBrief(
-        Long accountId,
-        String accountName,
-        BigDecimal principal,
-        BigDecimal remaining,
-        LocalDate lentAt,
-        LocalDate closedAt
-    ) {}
-}
+    List<PeerLoanRepaymentResponse> repayments
+) {}
