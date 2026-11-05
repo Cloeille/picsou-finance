@@ -459,7 +459,8 @@
     "borrowerHint": "The borrower is the account's own name. One account, one loan.",
     "linkedAccountHint": "Required: the account that receives the repayments, so net worth stays correct.",
     "termsHint": {
-      "noCashLeg": "The outflow is already reflected in the cash account balance: no entry will be created."
+      "noCashLeg": "The outflow is already reflected in the cash account balance: no entry will be created.",
+      "syncedAccount": "Synced account: Picsou writes no bank movement."
     },
     "setupHint": "Enter the amount lent and the cash account to start tracking.",
     "saved": "Terms saved.",
@@ -497,6 +498,7 @@
       "plannedMonths": "Planned duration (months)",
       "plannedMonthly": "Planned monthly payment",
       "linkedAccount": "Linked cash account",
+      "outflowAlreadyBooked": "The outflow is already in the account balance",
       "selectLinkedAccount": "Select an account",
       "note": "Note",
       "paidOn": "Date",

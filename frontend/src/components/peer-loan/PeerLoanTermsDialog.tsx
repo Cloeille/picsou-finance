@@ -67,7 +67,7 @@ export function PeerLoanTermsDialog({
   const [monthly, setMonthly] = useState('')
   const [linkedAccountId, setLinkedAccountId] = useState('')
   const [note, setNote] = useState('')
-  const [withCashLeg, setWithCashLeg] = useState(true)
+  const [alreadyBooked, setAlreadyBooked] = useState(false)
   const [simulation, setSimulation] = useState<PeerLoanSimulationResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [wasOpen, setWasOpen] = useState(open)
@@ -89,7 +89,7 @@ export function PeerLoanTermsDialog({
       setMonthly(text(initial?.plannedMonthlyAmount))
       setLinkedAccountId(text(initial?.linkedAccountId))
       setNote(initial?.note ?? '')
-      setWithCashLeg(true)
+      setAlreadyBooked(false)
       setSimulation(null)
       setError(null)
     }
@@ -101,6 +101,10 @@ export function PeerLoanTermsDialog({
     const parsed = parseAmount(trimmed)
     return Number.isFinite(parsed) ? parsed : null
   }
+
+  const selectedCashAccount = cashAccounts.find(
+    account => account.id === Number(linkedAccountId),
+  )
 
   /** The normalized annual fraction, whatever period the field is displayed in. */
   const annualRateFromInput = (): number => {
@@ -195,7 +199,7 @@ export function PeerLoanTermsDialog({
         plannedMonths: monthCount,
         linkedAccountId: linkedValue,
         note: note.trim() || null,
-        withCashLeg,
+        withCashLeg: !alreadyBooked,
       })
       onOpenChange(false)
     } catch {
@@ -297,24 +301,26 @@ export function PeerLoanTermsDialog({
             <p className="text-xs text-muted-foreground">{t('peerLoan.linkedAccountHint')}</p>
           </div>
 
-          {/* Only a first configuration on a manual account can double-count the outflow:
-              the typed balance may already include a loan recorded after the fact. */}
-          {!initial?.configured
-            && cashAccounts.find(account => account.id === Number(linkedAccountId))?.isManual
-            && (
-              <div className="space-y-2 rounded-lg border border-border/60 p-3">
-                <label className="flex cursor-pointer items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={withCashLeg}
-                    onCheckedChange={(checked) => setWithCashLeg(checked === true)}
-                  />
-                  {t('peerLoan.withCashLeg')}
-                </label>
-                {!withCashLeg && (
-                  <p className="text-xs text-muted-foreground">{t('peerLoan.termsHint.noCashLeg')}</p>
-                )}
-              </div>
-            )}
+          {/* A first configuration on a manual account can double-count the outflow:
+              the typed balance may already include a loan recorded after the fact. The
+              option is visible before an account is picked, so it is discoverable. */}
+          {!initial?.configured && (
+            <div className="space-y-2 rounded-lg border border-border/60 p-3">
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  checked={alreadyBooked}
+                  disabled={selectedCashAccount?.isManual === false}
+                  onCheckedChange={(checked) => setAlreadyBooked(checked === true)}
+                />
+                {t('peerLoan.fields.outflowAlreadyBooked')}
+              </label>
+              {selectedCashAccount?.isManual === false ? (
+                <p className="text-xs text-muted-foreground">{t('peerLoan.termsHint.syncedAccount')}</p>
+              ) : alreadyBooked ? (
+                <p className="text-xs text-muted-foreground">{t('peerLoan.termsHint.noCashLeg')}</p>
+              ) : null}
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="peer-note">{t('peerLoan.fields.note')}</Label>

@@ -448,7 +448,8 @@
     "borrowerHint": "Der Darlehensnehmer ist der Name des Kontos. Ein Konto, ein Darlehen.",
     "linkedAccountHint": "Erforderlich: das Konto, das die Rückzahlungen erhält, damit das Vermögen korrekt bleibt.",
     "termsHint": {
-      "noCashLeg": "Der Geldabfluss ist bereits im Saldo des Zahlungskontos enthalten: Es wird keine Buchung erstellt."
+      "noCashLeg": "Der Geldabfluss ist bereits im Saldo des Zahlungskontos enthalten: Es wird keine Buchung erstellt.",
+      "syncedAccount": "Synchronisiertes Konto: Picsou schreibt keine Zahlungsbewegung."
     },
     "setupHint": "Geben Sie den verliehenen Betrag und das Girokonto ein, um die Nachverfolgung zu starten.",
     "saved": "Bedingungen gespeichert.",
@@ -486,6 +487,7 @@
       "plannedMonths": "Geplante Laufzeit (Monate)",
       "plannedMonthly": "Geplante Monatsrate",
       "linkedAccount": "Verknüpftes Girokonto",
+      "outflowAlreadyBooked": "Der Geldabfluss ist bereits im Kontosaldo enthalten",
       "selectLinkedAccount": "Konto auswählen",
       "note": "Notiz",
       "paidOn": "Datum",

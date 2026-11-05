@@ -459,7 +459,8 @@
     "borrowerHint": "Le bénéficiaire est le nom du compte. Un compte = un prêt.",
     "linkedAccountHint": "Obligatoire : le compte qui reçoit les remboursements, pour que le patrimoine reste juste.",
     "termsHint": {
-      "noCashLeg": "La sortie d'argent est déjà reflétée dans le solde du compte de trésorerie : aucune écriture ne sera créée."
+      "noCashLeg": "La sortie d'argent est déjà reflétée dans le solde du compte de trésorerie : aucune écriture ne sera créée.",
+      "syncedAccount": "Compte synchronisé : Picsou n'écrit aucun mouvement bancaire."
     },
     "setupHint": "Renseignez le montant prêté et le compte de trésorerie pour commencer le suivi.",
     "saved": "Conditions enregistrées.",
@@ -497,6 +498,7 @@
       "plannedMonths": "Durée prévue (mois)",
       "plannedMonthly": "Mensualité prévue",
       "linkedAccount": "Compte de trésorerie lié",
+      "outflowAlreadyBooked": "La sortie d'argent est déjà dans le solde du compte",
       "selectLinkedAccount": "Sélectionner un compte",
       "note": "Note",
       "paidOn": "Date",
