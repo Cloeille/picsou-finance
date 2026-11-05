@@ -119,7 +119,9 @@ another type is one entry in `OPENING_DATE_TYPES`.
 
 ### Créances tab
 
-When the **RECEIVABLES** filter is active, the generic summary card is replaced by the
+When the **RECEIVABLES** filter is active, the header also offers **"Create a loan"**: it
+opens the manual form with the peer-loan type preselected, then lands on the account detail
+where "Configure the loan" is waiting. The generic summary card is replaced by the
 peer-loans overview (`components/peer-loan/PeerLoansOverviewCard.tsx`): total outstanding,
 open loans and accrued interest, the 12-month outstanding curve, and one row per borrower.
 The **"Show closed loans"** header toggle reveals closed loans in the cards; the overview

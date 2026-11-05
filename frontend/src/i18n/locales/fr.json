@@ -467,6 +467,7 @@
     "repaymentDeleted": "Remboursement supprimé.",
     "closed": "Prêt clôturé.",
     "configure": "Configurer le prêt",
+    "create": "Créer un prêt",
     "editTerms": "Modifier les conditions",
     "addRepayment": "Ajouter un remboursement",
     "editRepayment": "Modifier le remboursement",

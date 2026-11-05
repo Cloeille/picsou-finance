@@ -147,6 +147,7 @@ export function AccountsPage() {
   const hasSavingsSuggestions = Array.isArray(savingsSuggestions) && savingsSuggestions.length > 0
 
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createType, setCreateType] = useState<AccountType | undefined>()
   const [showPropertyModal, setShowPropertyModal] = useState(false)
   const [showExportModal, setShowExportModal] = useState(false)
   const [showScpiModal, setShowScpiModal] = useState(false)
@@ -354,11 +355,12 @@ export function AccountsPage() {
   // so the primary action goes straight to the guided flow instead of the generic picker.
   const addingProperty = filter === 'REAL_ESTATE'
 
-  function handleOpenCreate() {
-    if (addingProperty) {
+  function handleOpenCreate(type?: AccountType) {
+    if (!type && addingProperty) {
       setShowPropertyModal(true)
       return
     }
+    setCreateType(type)
     setShowCreateModal(true)
   }
 
@@ -474,10 +476,20 @@ export function AccountsPage() {
                 {t('accounts.export.button')}
               </Button>
             )}
-            <Button onClick={handleOpenCreate} size="sm">
+            <Button onClick={() => handleOpenCreate()} size="sm">
               <Plus className="size-4" />
               {addingProperty ? t('property.add.action') : t('accounts.addAccount')}
             </Button>
+            {filter === 'RECEIVABLES' && (
+              <Button
+                onClick={() => handleOpenCreate('PEER_LOAN')}
+                size="sm"
+                variant="outline"
+              >
+                <Plus className="size-4" />
+                {t('peerLoan.create')}
+              </Button>
+            )}
             {addingProperty && (
               <Button onClick={() => setShowScpiModal(true)} size="sm" variant="outline">
                 <Plus className="size-4" />
@@ -599,7 +611,7 @@ export function AccountsPage() {
           title={t('accounts.noAccounts')}
           action={{
             label: addingProperty ? t('property.add.action') : t('accounts.addAccount'),
-            onClick: handleOpenCreate,
+            onClick: () => handleOpenCreate(),
           }}
         />
       ) : (
@@ -735,6 +747,12 @@ export function AccountsPage() {
       <AddAccountModal
         open={showCreateModal}
         onOpenChange={setShowCreateModal}
+        defaultType={createType}
+        onCreated={(created) => {
+          if (created.type === 'PEER_LOAN') {
+            navigate(`/accounts/${created.id}`)
+          }
+        }}
       />
 
       <AccountForm

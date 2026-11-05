@@ -246,7 +246,10 @@ not a side effect of a payment.
   then links the transaction as the repayment's cash leg (interest first, capital next).
 - `AccountForm` hides the balance, currency, bank, ticker and manual fields for a peer
   loan and labels the name "Borrower".
-- `AccountsPage` gains a `RECEIVABLES` filter.
+- `AccountsPage` gains a `RECEIVABLES` filter and a **"Create a loan"** header action:
+  it opens the manual form with the peer-loan type already selected, then lands on the
+  account detail where **"Configure the loan"** is waiting. A loan recorded after the fact
+  can skip the lending outflow there.
 - `components/peer-loan/PeerLoansOverviewCard.tsx` is the member-wide view: total
   outstanding, open loans and accrued interest, the outstanding curve over 12 months, and
   one row per borrower with the remaining capital, repayment percentage, plan drift, last
