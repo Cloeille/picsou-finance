@@ -108,7 +108,7 @@ services:
   # `--build` builds them before the sidecars (Compose v2.33+).
   sidecar-python:
     image: ghcr.io/cloeille/picsou-finance/sidecar-python:latest
-    profiles: ["bourso", "cic", "cmes", "degiro", "sofidy", "all-connectors"]
+    profiles: ["bourso", "cic", "cmes", "degiro", "lbp", "sofidy", "all-connectors"]
     build:
       context: ../services/base
       target: python
@@ -184,6 +184,20 @@ services:
         SIDECAR_BASE: sidecar-chromium
       additional_contexts:
         sidecar-chromium: service:sidecar-chromium
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+
+  lbp-auth:
+    image: ghcr.io/cloeille/picsou-finance/lbp-auth:latest
+    profiles: ["lbp", "all-connectors"]
+    build:
+      context: ../services/lbp-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}

@@ -287,6 +287,10 @@ sidecars:
     enabled: true
     urlEnv: CAISSE_EPARGNE_AUTH_URL
     port: 8001
+  lbp-auth:
+    enabled: true
+    urlEnv: LBP_AUTH_URL
+    port: 8001
   bourse-direct-auth:
     enabled: true
     urlEnv: BOURSE_DIRECT_AUTH_URL

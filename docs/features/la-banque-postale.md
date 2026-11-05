@@ -1,10 +1,11 @@
 # Feature: La Banque Postale sync (sidecar, replaces Enable Banking)
 
 > Last updated: 2026-11-05
-> Status: 🟡 **Proposed** — backend contract and storage are being built; no live
-> bank call has been made yet. The login flow, the data endpoints and the
-> anti-bot posture are unverified. Do not present this connector as usable
-> until the recon described below is done.
+> Status: 🟡 **Proposed** — the backend contract, storage, adapter, sync service
+> and REST endpoints are in place, and `services/lbp-auth` exposes the same
+> contract with a stub bank layer. **No live bank call has been made yet:** the
+> login flow, the data endpoints and the anti-bot posture are unverified. Do not
+> present this connector as usable until the recon described below is done.
 
 ## Context
 
@@ -164,12 +165,44 @@ The answers choose between an `httpx` sidecar (light, replay only) and a
 Camoufox sidecar (drives the login itself). The rest of the design does not
 change.
 
+## State of the implementation (2026-11-05)
+
+**Backend**
+
+- `port/LbpPort.java` — normalized snapshot and the keypad + Certicode login.
+- `port/LbpErrorCode.java`, `model/LbpSession.java`, `model/LbpSyncStatus.java`,
+  `repository/LbpSessionRepository.java`, `config/LbpSyncConfig.java`,
+  `config/LbpSyncRecovery.java`, migration `V122__lbp_session.sql`.
+- `adapter/LbpAdapter.java` — sidecar client, no retry, redacted request bodies.
+- `service/LbpSyncService.java` — validates the whole snapshot, then writes every
+  account and its transactions in one transaction; maps `kind` to
+  `AccountType` directly.
+- `controller/LbpController.java` — `/api/lbp/auth/{initiate,keypad,otp}`,
+  `/sync`, `/status`, `/session`, with strict bodies and per-IP buckets.
+- Tests: `LbpSessionTest`, `LbpAdapterTest`, `LbpControllerTest`,
+  `V122LbpSessionMigrationTest`.
+
+**Sidecar**
+
+- `services/lbp-auth/main.py` implements the contract and its validation.
+- `services/lbp-auth/bank.py` is a stub: every bank call answers
+  `503 BANK_FLOW_UNVERIFIED` until the recon. Replacing `UnverifiedBankClient`
+  is the only code change the live connector needs.
+- Tests: the shared key contract and the request/response contract (with a fake
+  client), run in the published image like every other sidecar.
+- Wired into Compose (`lbp` profile, `sidecar-python` base) and the Helm chart.
+
+**Verification** — 21 backend tests and 12 sidecar tests pass offline. The full
+backend suite has one unrelated, date-dependent failure in
+`DividendControllerAuthorizationTest` (its dividend events are all before the
+current date).
+
 ## Not in this slice
 
 - Any live bank call: the connector has never authenticated against La Banque
   Postale.
 - A frontend tab and login panel.
-- Card, loan, life-insurance and PER parsing.
+- Loan, life-insurance and PER parsing.
 - Scheduled sync and automatic re-authentication.
 - Enable Banking adoption/deduplication by IBAN.
 - Health check and sync-status feeds (`SyncStatusService`, `MemberSyncService`,
