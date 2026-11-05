@@ -4,7 +4,7 @@ import { Landmark } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from '@/components/shared/BankCountrySelect'
-import { useSearchInstitutions } from '@/features/sync/hooks'
+import { useBankCountries, useSearchInstitutions } from '@/features/sync/hooks'
 
 interface BankPickerProps {
   id?: string
@@ -38,6 +38,11 @@ export function BankPicker({ id, value, placeholder, onChange }: BankPickerProps
 
   const { data: institutions } = useSearchInstitutions(value.trim(), country)
   const suggestions = showSuggestions ? (institutions ?? []) : []
+  // The country only narrows the catalog search. Without a catalog (Enable Banking not
+  // configured, or the request failed) it is noise -- and its "France only" fallback error
+  // is irrelevant here, where the bank name is free text anyway.
+  const { data: countries } = useBankCountries()
+  const hasCatalog = (countries?.length ?? 0) > 0
 
   return (
     <div className="space-y-2">
@@ -54,7 +59,7 @@ export function BankPicker({ id, value, placeholder, onChange }: BankPickerProps
             onChange(e.target.value, undefined)
           }}
         />
-        <BankCountrySelect value={country} onChange={setCountry} />
+        {hasCatalog && <BankCountrySelect value={country} onChange={setCountry} />}
       </div>
 
       {suggestions.length > 0 && (

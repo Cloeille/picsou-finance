@@ -43,7 +43,9 @@ The backfill is bounded to a single attempt per requisition via `Requisition.log
 A hand-entered account has no connector behind it, so the only thing that can identify its bank
 is the name in its form. `BankPicker` (`frontend/src/components/shared/BankPicker.tsx`) turns that
 field into free text that also searches the institution catalog as you type, reusing the same
-`useSearchInstitutions` hook and `BankCountrySelect` as the bank wizard.
+`useSearchInstitutions` hook and `BankCountrySelect` as the bank wizard. The country picker
+only appears when the catalog is actually available: without it, the form stays a plain
+bank-name field rather than showing a France-only fallback and its error.
 
 1. Picking a bank from the list sets the form's `provider` to the institution's **name** and
    remembers its **id** (`"BankName::FR::personal"`). Typing after a pick clears that id — the
