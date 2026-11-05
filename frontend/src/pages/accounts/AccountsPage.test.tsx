@@ -296,8 +296,9 @@ describe('AccountsPage - closed peer loans', () => {
     fireEvent.click(screen.getByRole('button', { name: 'accounts.filters.RECEIVABLES' }))
     expect(screen.queryByText('Sfd')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'accounts.showClosedLoans' }))
-    expect(screen.getByText('Sfd')).toBeInTheDocument()
-    expect(screen.getByText('peerLoan.summary.closed')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'accounts.showClosedLoans' }))
+    // The closed loan now appears both in the overview table and on its account card.
+    expect(screen.getAllByText('Sfd').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('peerLoan.summary.closed').length).toBeGreaterThan(0)
   })
 })

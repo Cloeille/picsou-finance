@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import { describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
-import { PeerLoansSection } from './PeerLoansSection'
+import { PeerLoansOverviewCard } from './PeerLoansOverviewCard'
 import type { PeerLoansOverview } from '@/types/api'
 
 const navigate = vi.fn()
@@ -73,9 +73,9 @@ const overview: PeerLoansOverview = {
   ],
 }
 
-describe('PeerLoansSection', () => {
+describe('PeerLoansOverviewCard', () => {
   it('shows the totals and one row per borrower', () => {
-    render(<PeerLoansSection data={overview} />)
+    render(<PeerLoansOverviewCard data={overview} />)
 
     expect(screen.getByText('peerLoan.overview.totalOutstanding')).toBeInTheDocument()
     expect(screen.getByText('peerLoan.overview.openLoans')).toBeInTheDocument()
@@ -88,14 +88,14 @@ describe('PeerLoansSection', () => {
   })
 
   it('states a late instalment count and an on-time plan as facts', () => {
-    render(<PeerLoansSection data={overview} />)
+    render(<PeerLoansOverviewCard data={overview} />)
 
     expect(screen.getByText('peerLoan.overview.status.behind:2')).toBeInTheDocument()
     expect(screen.getByText('peerLoan.overview.status.onTime')).toBeInTheDocument()
   })
 
   it('opens the loan when its row is clicked or activated by keyboard', () => {
-    render(<PeerLoansSection data={overview} />)
+    render(<PeerLoansOverviewCard data={overview} />)
 
     fireEvent.click(screen.getByText('Sophie'))
     expect(navigate).toHaveBeenCalledWith('/accounts/17')

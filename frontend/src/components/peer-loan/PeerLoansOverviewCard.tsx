@@ -29,7 +29,7 @@ function Stat({ label, value }: { label: string; value: ReactNode }) {
  * total outstanding moved. Facts only -- the badge reports the plan's drift, it does not
  * score the borrower.
  */
-export function PeerLoansSection({ data }: { data: PeerLoansOverview }) {
+export function PeerLoansOverviewCard({ data }: { data: PeerLoansOverview }) {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const money = useMoney()

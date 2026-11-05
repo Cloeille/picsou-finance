@@ -5,6 +5,7 @@ import { useAccounts, useAccountTree, useAccountDeletionImpact, useUpdateAccount
 import { useHistory } from '@/features/history/hooks'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
 import { usePeerLoansOverview } from '@/features/peer-loans/hooks'
+import { PeerLoansOverviewCard } from '@/components/peer-loan/PeerLoansOverviewCard'
 import { AccountForm } from '@/components/shared/AccountForm'
 import { AddAccountModal } from '@/components/shared/AddAccountModal'
 import { AddPropertyModal } from '@/components/property/AddPropertyModal'
@@ -18,10 +19,9 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { ScrollStrip } from '@/components/shared/ScrollStrip'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown, Download } from 'lucide-react'
+import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown, Download, Eye, EyeOff } from 'lucide-react'
 import { cn, formatPercent } from '@/lib/utils'
 import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
 import { accountInvestedAt, accountPnlAt, hasMeasurableGain } from '@/features/accounts/pnl'
@@ -171,6 +171,14 @@ export function AccountsPage() {
       && (filter === 'ALL' || (filter === 'RECEIVABLES' && !showClosed))
     return hideClosed ? accounts.filter((account) => !closedPeerLoanIds.has(account.id)) : accounts
   }, [accounts, filter, showClosed, closedPeerLoanIds])
+
+  // The Créances tab shows the member-wide overview in place of the generic summary:
+  // the closed toggle hides those rows here too, so the table and the cards agree.
+  const visibleOverview = useMemo(() => {
+    const data = peerLoansOverview.data
+    if (!data) return undefined
+    return showClosed ? data : { ...data, loans: data.loans.filter((loan) => !loan.closedAt) }
+  }, [peerLoansOverview.data, showClosed])
 
   // ── Pocket grouping ──────────────────────────────────────────────────────────
   //
@@ -478,6 +486,17 @@ export function AccountsPage() {
                 {t('scpi.add.action')}
               </Button>
             )}
+            {filter === 'RECEIVABLES' && closedPeerLoanIds.size > 0 && (
+              <Button
+                onClick={() => setShowClosed((value) => !value)}
+                size="sm"
+                variant={showClosed ? 'default' : 'outline'}
+                aria-pressed={showClosed}
+              >
+                {showClosed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                {t(showClosed ? 'accounts.hideClosedLoans' : 'accounts.showClosedLoans')}
+              </Button>
+            )}
           </div>
         }
       />
@@ -521,17 +540,12 @@ export function AccountsPage() {
             </div>
           </ScrollStrip>
 
-          {filter === 'RECEIVABLES' && closedPeerLoanIds.size > 0 && (
-            <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-muted-foreground">
-              <Checkbox
-                checked={showClosed}
-                onCheckedChange={(checked) => setShowClosed(checked === true)}
-              />
-              {t('accounts.showClosedLoans')}
-            </label>
+          {filter === 'RECEIVABLES' && visibleOverview && visibleOverview.loans.length > 0 && (
+            <PeerLoansOverviewCard data={visibleOverview} />
           )}
 
           {/* Summary card */}
+          {filter !== 'RECEIVABLES' && (
           <Card>
             <CardContent>
               <CardTitle>{t('accounts.total')}</CardTitle>
@@ -554,6 +568,7 @@ export function AccountsPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
           {/* PnL chart */}
           {hasPnl && (

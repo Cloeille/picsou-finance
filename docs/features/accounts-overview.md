@@ -117,6 +117,16 @@ The column is deliberately general rather than `pea_opened_at`: a PER, a PEA-PME
 assurance-vie all have the same shape of rule at different thresholds. Extending the field to
 another type is one entry in `OPENING_DATE_TYPES`.
 
+### Créances tab
+
+When the **RECEIVABLES** filter is active, the generic summary card is replaced by the
+peer-loans overview (`components/peer-loan/PeerLoansOverviewCard.tsx`): total outstanding,
+open loans and accrued interest, the 12-month outstanding curve, and one row per borrower.
+The **"Show closed loans"** header toggle reveals closed loans in both the table and the
+cards; they keep a "Closed" badge and the usual delete action. The overview is deliberately
+here rather than on the Dashboard or Analysis: it is an operational "who owes what" view,
+not a wealth-allocation one.
+
 ### Summary card
 
 A `Card` at the top of the page shows the total balance for the filtered accounts. When the filter
