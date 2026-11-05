@@ -16,6 +16,7 @@ import { AddPropertyModal } from '@/components/property/AddPropertyModal'
 import { BourseDirectPanel } from '@/components/sync/BourseDirectPanel'
 import { BoursoPanel } from '@/components/sync/BoursoPanel'
 import { CaisseEpargnePanel } from '@/components/sync/CaisseEpargnePanel'
+import { BanquePopulairePanel } from '@/components/sync/BanquePopulairePanel'
 import { DegiroPanel } from '@/components/sync/DegiroPanel'
 import { AmundiPanel } from '@/components/sync/AmundiPanel'
 import { FortuneoPanel } from '@/components/sync/FortuneoPanel'
@@ -52,7 +53,7 @@ interface AddAccountModalProps {
 }
 
 type WizardStep =
-  | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso' | 'caisseEpargne'
+  | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso' | 'caisseEpargne' | 'banquePopulaire'
   | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'amundi' | 'fortuneo' | 'amex' | 'corum' | 'sofidy'
   | 'finary' | 'property' | 'manual'
 
@@ -68,6 +69,7 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
   { key: 'revolut', icon: CreditCard, labelKey: 'sync.revolut.title', descKey: 'addAccount.desc.revolut' },
   { key: 'bourso', icon: Landmark, labelKey: 'sync.bourso.title', descKey: 'addAccount.desc.bourso' },
   { key: 'caisseEpargne', icon: Landmark, labelKey: 'sync.caisseEpargne.title', descKey: 'addAccount.desc.caisseEpargne' },
+  { key: 'banquePopulaire', icon: Landmark, labelKey: 'sync.banquePopulaire.title', descKey: 'addAccount.desc.banquePopulaire' },
   { key: 'bourseDirect', icon: BriefcaseBusiness, labelKey: 'sync.bourseDirect.title', descKey: 'addAccount.desc.bourseDirect' },
   { key: 'degiro', icon: TrendingUp, labelKey: 'sync.degiro.title', descKey: 'addAccount.desc.degiro' },
   { key: 'ibkr', icon: BriefcaseBusiness, labelKey: 'sync.ibkr.title', descKey: 'addAccount.desc.ibkr' },
@@ -86,6 +88,7 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
 const PANEL_STEPS: Partial<Record<WizardStep, ComponentType<{ onConnected?: () => void }>>> = {
   bourso: BoursoPanel,
   caisseEpargne: CaisseEpargnePanel,
+  banquePopulaire: BanquePopulairePanel,
   bourseDirect: BourseDirectPanel,
   degiro: DegiroPanel,
   ibkr: IbkrPanel,

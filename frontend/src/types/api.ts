@@ -1011,6 +1011,30 @@ export interface CaisseEpargneDeleteResponse {
   message: string
 }
 
+/**
+ * Banque Populaire runs on the same BPCE platform as Caisse d'Epargne: same login,
+ * keypad, Sécur'Pass, payloads and error codes. Only the login adds the regional bank.
+ */
+export type BanquePopulaireRegion =
+  | 'ALSACE_LORRAINE_CHAMPAGNE'
+  | 'AQUITAINE_CENTRE_ATLANTIQUE'
+  | 'AUVERGNE_RHONE_ALPES'
+  | 'BOURGOGNE_FRANCHE_COMTE'
+  | 'BRED'
+  | 'GRAND_OUEST'
+  | 'MEDITERRANEE'
+  | 'NORD'
+  | 'OCCITANE'
+  | 'RIVES_DE_PARIS'
+  | 'SUD'
+  | 'VAL_DE_FRANCE'
+export type BanquePopulaireErrorCode = CaisseEpargneErrorCode
+export type BanquePopulaireSessionStatus = CaisseEpargneSessionStatus
+export type BanquePopulaireAuthInitResponse = CaisseEpargneAuthInitResponse
+export type BanquePopulaireAuthKeypadResponse = CaisseEpargneAuthKeypadResponse
+export type BanquePopulaireAuthCompleteResponse = CaisseEpargneAuthCompleteResponse
+export type BanquePopulaireDeleteResponse = CaisseEpargneDeleteResponse
+
 export type DegiroSessionStatusValue = 'ACTIVE' | 'REAUTH_REQUIRED' | 'FAILED'
 
 export interface DegiroSessionStatus {

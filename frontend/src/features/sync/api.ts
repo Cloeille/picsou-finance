@@ -20,6 +20,11 @@ import type {
   CaisseEpargneAuthKeypadResponse,
   CaisseEpargneAuthCompleteResponse,
   CaisseEpargneDeleteResponse,
+  BanquePopulaireSessionStatus,
+  BanquePopulaireAuthInitResponse,
+  BanquePopulaireAuthKeypadResponse,
+  BanquePopulaireAuthCompleteResponse,
+  BanquePopulaireDeleteResponse,
   RevolutSessionStatus,
   SyncProgress,
   BourseDirectSessionStatus,
@@ -240,6 +245,48 @@ export const caisseEpargneApi = {
 
   clearSession: () =>
     api.delete<CaisseEpargneDeleteResponse>('/caisse-epargne/session').then(r => r.data),
+}
+
+// --- Banque Populaire ---
+
+// Same BPCE platform and the same rules as Caisse d'Epargne above: one attempt only,
+// key positions never digits, a long Sécur'Pass completion. The login adds the regional
+// bank (`BanquePopulaireRegion`) the bank's page asks for before the identifier.
+export const banquePopulaireApi = {
+  initiateAuth: (customerId: string, region: string) =>
+    api
+      .post<BanquePopulaireAuthInitResponse>('/banque-populaire/auth/initiate', { customerId, region })
+      .then(r => r.data),
+
+  sendKeypad: (processId: string, positions: number[]) =>
+    api
+      .post<BanquePopulaireAuthKeypadResponse>('/banque-populaire/auth/keypad', { processId, positions })
+      .then(r => r.data),
+
+  completeAuth: (processId: string) =>
+    api
+      .post<BanquePopulaireAuthCompleteResponse>('/banque-populaire/auth/complete', { processId }, { timeout: 180_000 })
+      .then(r => r.data),
+
+  sync: () =>
+    api.post<BanquePopulaireSessionStatus>('/banque-populaire/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<BanquePopulaireSessionStatus>('/banque-populaire/status', { skipGlobalErrorRedirect: true })
+      .then(r => r.data),
+
+  /** One status read that gives up after `timeoutMs`, outside the query cache. */
+  getStatusWithin: (timeoutMs: number) =>
+    api
+      .get<BanquePopulaireSessionStatus>('/banque-populaire/status', {
+        skipGlobalErrorRedirect: true,
+        timeout: timeoutMs,
+      })
+      .then(r => r.data),
+
+  clearSession: () =>
+    api.delete<BanquePopulaireDeleteResponse>('/banque-populaire/session').then(r => r.data),
 }
 
 // --- Revolut ---

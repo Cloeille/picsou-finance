@@ -952,6 +952,24 @@ handlers.set(key('DELETE', '/caisse-epargne/session'), () => ({
   removed: true, bankSessionRevoked: false, message: '',
 }))
 
+// Banque Populaire — the same BPCE login as Caisse d'Epargne, so the same shortcut:
+// any region and identifier get the demo pad, and Sécur'Pass answers connected at once.
+const demoBanquePopulaireStatus = { ...demoCaisseEpargneStatus }
+handlers.set(key('GET', '/banque-populaire/status'), () => demoBanquePopulaireStatus)
+handlers.set(key('POST', '/banque-populaire/auth/initiate'), () => ({
+  processId: 'demo',
+  keypad: { images: Array.from({ length: 10 }, () => DEMO_PAD_PNG), columns: 5 },
+  expiresInSeconds: 90,
+}))
+handlers.set(key('POST', '/banque-populaire/auth/keypad'), () => ({
+  processId: 'demo', status: 'SECURPASS_PENDING',
+}))
+handlers.set(key('POST', '/banque-populaire/auth/complete'), () => ({ connected: true }))
+handlers.set(key('POST', '/banque-populaire/sync'), () => demoBanquePopulaireStatus)
+handlers.set(key('DELETE', '/banque-populaire/session'), () => ({
+  removed: true, bankSessionRevoked: false, message: '',
+}))
+
 // Demo authentication bypasses the bank's mobile/SMS confirmation.
 const demoCicStatus: CicSessionStatus = {
   isActive: false,

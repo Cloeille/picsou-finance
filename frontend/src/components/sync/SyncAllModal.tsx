@@ -75,7 +75,7 @@ type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
     | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin'
-    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'cmes' | 'cic'
+    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'banque-populaire' | 'cmes' | 'cic'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -105,6 +105,7 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   corum: Building2,
   sofidy: Building2,
   'caisse-epargne': Landmark,
+  'banque-populaire': Landmark,
   cmes: PiggyBank,
   cic: PiggyBank,
 }
@@ -122,6 +123,7 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   corum: 'corum',
   sofidy: 'sofidy',
   'caisse-epargne': 'caisse-epargne',
+  'banque-populaire': 'banque-populaire',
   cmes: 'cmes',
   cic: 'cic',
   finary: 'finary',
@@ -178,6 +180,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: trStatus } = useTrSessionStatus()
   const { data: boursoStatus } = useProviderStatus("bourso")
   const { data: caisseEpargneStatus } = useProviderStatus("caisseEpargne")
+  const { data: banquePopulaireStatus } = useProviderStatus("banquePopulaire")
   const { data: revolutStatus } = useRevolutStatus()
   const { data: finaryStatus } = useFinaryConnectionStatus()
   const { data: amundiStatus } = useProviderStatus("amundi")
@@ -236,6 +239,11 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       failed: caisseEpargneStatus?.syncStatus === 'FAILED',
     },
     {
+      type: 'banque-populaire' as const, name: 'Banque Populaire', provider: 'Banque Populaire',
+      active: banquePopulaireStatus?.isActive ?? false, lastSyncedAt: banquePopulaireStatus?.lastSyncCompletedAt ?? null,
+      failed: banquePopulaireStatus?.syncStatus === 'FAILED',
+    },
+    {
       type: 'bourse-direct' as const, name: 'Bourse Direct', provider: 'Bourse Direct',
       active: bourseDirectStatus?.isActive ?? false, lastSyncedAt: bourseDirectStatus?.lastSyncCompletedAt ?? null,
       failed: bourseDirectStatus?.syncStatus === 'FAILED',
@@ -291,7 +299,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       failed: cicStatus?.syncStatus === 'FAILED',
       canReconnect: cicStatus?.canReconnect === true,
     },
-  ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
+  ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, banquePopulaireStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -302,6 +310,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const completeTrMutation   = useCompleteTrAuth()
   const syncBoursoMutation   = useProviderSync("bourso")
   const syncCaisseEpargneMutation = useProviderSync("caisseEpargne")
+  const syncBanquePopulaireMutation = useProviderSync("banquePopulaire")
   const syncAmundiMutation       = useProviderSync("amundi")
   const syncFortuneoMutation     = useProviderSync("fortuneo")
   const syncBourseDirectMutation = useProviderSync("bourseDirect")
@@ -494,6 +503,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'caisse-epargne':
         syncCaisseEpargneMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'banque-populaire':
+        syncBanquePopulaireMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'amundi':
         syncAmundiMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
@@ -560,6 +572,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncTrMutation,
     syncBoursoMutation,
     syncCaisseEpargneMutation,
+    syncBanquePopulaireMutation,
     syncAmundiMutation,
     syncFortuneoMutation,
     syncBourseDirectMutation,

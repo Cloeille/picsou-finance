@@ -132,7 +132,7 @@ function formatCountdown(totalSeconds: number): string {
 }
 
 /** The banks of the BPCE platform: same login, keypad, Sécur'Pass and payloads. */
-export type BpceProviderId = "caisseEpargne"
+export type BpceProviderId = "caisseEpargne" | "banquePopulaire"
 
 /**
  * The calls the panel makes itself, outside the mutation cache: `initiateAuth` and
