@@ -105,14 +105,17 @@ describe('SsoCompletePage', () => {
     }
   })
 
-  it('lands on /login with SESSION_EXPIRED and drops a stale session flag when the probe fails', async () => {
+  it.each([
+    ['%2Fsettings', '?ssoError=SESSION_EXPIRED&redirect=%2Fsettings'],
+    ['%2Foauth2%2Fauthorize%3Fclient_id%3Dx', '?ssoError=SESSION_EXPIRED&redirect=%2Foauth2%2Fauthorize%3Fclient_id%3Dx'],
+    ['', '?ssoError=SESSION_EXPIRED'],
+  ])('lands on /login with SESSION_EXPIRED, keeping the target %s, when the probe fails', async (redirect, search) => {
     useAuthStore.getState().login(USER)
     refresh.mockRejectedValue(new Error('401'))
 
-    renderComplete('/login/sso-complete?redirect=%2Fsettings')
+    renderComplete(`/login/sso-complete${redirect ? `?redirect=${redirect}` : ''}`)
 
-    expect(await screen.findByText(/login-page/)).toBeInTheDocument()
-    expect(screen.getByText(/ssoError=SESSION_EXPIRED/)).toBeInTheDocument()
+    expect((await screen.findByText(/login-page/)).textContent).toBe(`login-page ${search}`)
     expect(useAuthStore.getState().user).toBeNull()
     expect(sessionStorage.getItem('picsou_user')).toBeNull()
   })

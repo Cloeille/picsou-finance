@@ -34,7 +34,8 @@ export function SsoCompletePage() {
       () => {
         // A stale "signed in" flag would make /login bounce to "/" and hide the error.
         useAuthStore.getState().logout()
-        navigate('/login?ssoError=SESSION_EXPIRED', { replace: true })
+        const keepTarget = target === '/' ? '' : `&redirect=${encodeURIComponent(target)}`
+        navigate(`/login?ssoError=SESSION_EXPIRED${keepTarget}`, { replace: true })
       },
     )
   }, [queryClient, login, navigate, target])
