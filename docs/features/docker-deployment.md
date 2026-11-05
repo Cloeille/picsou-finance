@@ -480,34 +480,45 @@ docker compose -f docker/docker-compose.yml up        # COMPOSE_PROFILES selects
 Git has the images’ source, not the live install. Postgres lives in the `pgdata` volume;
 JWT / encryption / DB password live in `picsou_data` (`/data/.secrets/`). Copy **both**
 or Finary and bank secrets in the database will not decrypt. With the `tls` profile, also copy
-`caddy_data` and `docker/.env` (`PICSOU_DOMAIN`): the volume holds the internal CA's root key, and
-a new one makes every device that trusted the old root reject the certificate.
+`caddy_data`: it holds the internal CA's root key, and a new one makes every device that trusted
+the old root reject the certificate.
 
-The Compose project name must stay `docker` so the volumes keep their names (`docker_pgdata`,
-`docker_picsou_data`, `docker_caddy_data`). Run every command from the repository root.
+Always copy `docker/.env` too. Postgres applies `POSTGRES_USER`, `POSTGRES_DB` and
+`POSTGRES_PASSWORD` only when it initialises an empty volume, so a restored volume keeps the
+source's values, and `COMPOSE_PROFILES` and `APP_SIDECAR_API_KEY` decide which connectors start.
 
-On the source machine:
+Volume names are prefixed with the Compose project name: `docker` by default when you run from
+the repository root, or the value you pass with `-p` (an install started with `-p picsou_prod`
+uses `picsou_prod_pgdata`). Set `PROJECT` to that name on both machines. `docker run -v` creates
+a missing volume empty, so the backup checks each one first. The archives hold the database, the
+encryption key and the CA key: they are created owner-only (`umask 077`, owned by you rather than the container's root),
+and must never be committed.
+
+On the source machine, from the repository root:
 
 ```bash
-docker compose -f docker/docker-compose.yml stop
-docker run --rm -v docker_pgdata:/from -v "$PWD:/to" alpine tar czf /to/pgdata.tar.gz -C /from .
-docker run --rm -v docker_picsou_data:/from -v "$PWD:/to" alpine tar czf /to/picsou_data.tar.gz -C /from .
-# TLS profile only: the internal CA's root key lives here
-docker run --rm -v docker_caddy_data:/from -v "$PWD:/to" alpine tar czf /to/caddy_data.tar.gz -C /from .
+PROJECT=docker
+VOLUMES="pgdata picsou_data"   # add caddy_data with the tls profile
+docker compose -p "$PROJECT" -f docker/docker-compose.yml stop
+for v in $VOLUMES; do
+  docker volume inspect "${PROJECT}_$v" >/dev/null && rm -f "$v.tar.gz" &&
+    docker run --rm -v "${PROJECT}_$v:/from:ro" -v "$PWD:/to" alpine \
+      sh -c "umask 077 && tar czf /to/$v.tar.gz -C /from . && chown $(id -u):$(id -g) /to/$v.tar.gz"
+done
+ls -l ./*.tar.gz   # one owner-only archive per volume; a missing one was reported above
 ```
 
-Copy the archives (plus `docker/.env` with the `tls` profile) to the target. Never commit them.
-On the target, after cloning and **before** the first `up`:
+Copy the archives and `docker/.env` to the target. On the target, after cloning, put
+`docker/.env` in place and restore the volumes **before** the first `up`:
 
 ```bash
-docker volume create docker_pgdata
-docker volume create docker_picsou_data
-docker run --rm -v docker_pgdata:/to -v "$PWD:/from" alpine tar xzf /from/pgdata.tar.gz -C /to
-docker run --rm -v docker_picsou_data:/to -v "$PWD:/from" alpine tar xzf /from/picsou_data.tar.gz -C /to
-# TLS profile only
-docker volume create docker_caddy_data
-docker run --rm -v docker_caddy_data:/to -v "$PWD:/from" alpine tar xzf /from/caddy_data.tar.gz -C /to
-docker compose -f docker/docker-compose.yml up -d
+PROJECT=docker
+VOLUMES="pgdata picsou_data"   # add caddy_data with the tls profile
+for v in $VOLUMES; do
+  docker volume create "${PROJECT}_$v"
+  docker run --rm -v "${PROJECT}_$v:/to" -v "$PWD:/from:ro" alpine tar xzf "/from/$v.tar.gz" -C /to
+done
+docker compose -p "$PROJECT" -f docker/docker-compose.yml up -d
 ```
 
 ### Building a release archive
