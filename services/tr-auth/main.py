@@ -69,8 +69,9 @@ MAX_PENDING = 16
 APP_VALIDATION_TIMEOUT_SECONDS = 120
 APP_VALIDATION_POLL_SECONDS = 2.0
 AUTHENTICATOR_COUNTDOWN_SECONDS = 120
-# After TR accepts an authenticator code the process is read until it is done.
-AUTHENTICATOR_CONFIRM_TIMEOUT_SECONDS = 30
+# After TR accepts an authenticator code it still asks for the in-app confirmation
+# (measured live), so the process gets the same human budget as confirmInApp.
+AUTHENTICATOR_CONFIRM_TIMEOUT_SECONDS = APP_VALIDATION_TIMEOUT_SECONDS
 # v1 says nothing about the code's lifetime; the countdown only paces the UI.
 OTP_COUNTDOWN_SECONDS = 30
 

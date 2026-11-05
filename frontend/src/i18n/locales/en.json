@@ -1287,7 +1287,7 @@
       "syncSuccess": "Last sync succeeded.",
       "staleAccounts": "Your Trade Republic accounts are no longer updated: their session has ended. Sign in again below to resume the daily sync.",
       "authenticatorCode": "Authenticator code",
-      "authenticatorPrompt": "Enter the 6-digit code from your authenticator app.",
+      "authenticatorPrompt": "Enter the 6-digit code from your authenticator app, then confirm the sign-in in the Trade Republic app.",
       "reconnectPhone": "Phone number",
       "useAnotherNumber": "Use another number"
     },
