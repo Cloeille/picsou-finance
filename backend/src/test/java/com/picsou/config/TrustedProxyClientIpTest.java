@@ -22,6 +22,7 @@ import org.springframework.boot.autoconfigure.web.embedded.TomcatWebServerFactor
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.mock.env.MockEnvironment;
@@ -104,7 +105,7 @@ class TrustedProxyClientIpTest {
     @Test
     void audit_usesTheSameResolvedAddressAsRateLimiters() throws Exception {
         SetupAuditRepository repository = mock(SetupAuditRepository.class);
-        SetupAuditService audit = new SetupAuditService(repository);
+        SetupAuditService audit = new SetupAuditService(repository, mock(PlatformTransactionManager.class));
         throughValve("127.0.0.1", Map.of(
             "X-Forwarded-For", "2001:db8::10",
             "X-Real-IP", "203.0.113.99"), request -> {

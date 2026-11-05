@@ -187,7 +187,10 @@ Application ID and PEM form remains possible follow-up work.
   to `/setup`) and 410 (redirect to `/`).
 - **`SetupAuditService.record()` swallows its own exceptions**. A DB hiccup during
   audit must never block the controller response — audit is observability, not
-  correctness.
+  correctness. It writes in a transaction of its own (`REQUIRES_NEW`) and catches outside
+  it: a failed insert inside the caller's transaction would otherwise mark that
+  transaction rollback-only, and an activation or role change would roll back with it.
+  The flip side: an audit row commits even if the caller's transaction fails afterwards.
 - **The EB keypair endpoint is idempotent but the underlying file is the source of
   truth.** Deleting `/data/keys/enablebanking-private.pem` out-of-band and re-running
   the wizard will hand the user a new public PEM and invalidate what they uploaded to
