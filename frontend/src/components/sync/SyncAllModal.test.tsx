@@ -528,7 +528,7 @@ describe('SyncAllModal session providers', () => {
     expect(apiPost).not.toHaveBeenCalledWith('/banque-populaire/sync')
   })
 
-  /** One label per `BanquePopulaireRegion.institutionName()`, plus the generic label of the first imports. */
+  /** One label per `BanquePopulaireRegion.institutionName()`. */
   it.each([
     'Banque Populaire Alsace Lorraine Champagne',
     'Banque Populaire Aquitaine Centre Atlantique',
@@ -542,7 +542,6 @@ describe('SyncAllModal session providers', () => {
     'Banque Populaire Rives de Paris',
     'Banque Populaire du Sud',
     'Banque Populaire Val de France',
-    'Banque Populaire',
   ])('keeps an expired Banque Populaire row for an account labelled %s', async (provider) => {
     accountsFixture = [TR_ACCOUNT, { ...BANQUE_POPULAIRE_ACCOUNT, provider }]
     renderModal()
@@ -551,14 +550,17 @@ describe('SyncAllModal session providers', () => {
     expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
   })
 
-  it('lists no Banque Populaire row for a manual account picked from the bank catalog', async () => {
-    // Same regional label as a synced account, but nothing ever connected it.
-    accountsFixture = [TR_ACCOUNT, { ...BANQUE_POPULAIRE_ACCOUNT, isManual: true }]
-    renderModal()
+  it.each(['Banque Populaire Rives de Paris', 'Banque Populaire'])(
+    'lists no Banque Populaire row for a manual account labelled %s',
+    async (provider) => {
+      // Picked from the bank catalog or typed: nothing ever connected it.
+      accountsFixture = [TR_ACCOUNT, { ...BANQUE_POPULAIRE_ACCOUNT, provider, isManual: true }]
+      renderModal()
 
-    await screen.findByText('Trade Republic')
-    expect(screen.queryByText('Banque Populaire')).not.toBeInTheDocument()
-  })
+      await screen.findByText('Trade Republic')
+      expect(screen.queryByText('Banque Populaire')).not.toBeInTheDocument()
+    },
+  )
 
   it('lists no Banque Populaire row for an account of another bank whose name merely mentions it', async () => {
     accountsFixture = [TR_ACCOUNT, { ...BANQUE_POPULAIRE_ACCOUNT, provider: 'Banque Populaire Imaginaire' }]

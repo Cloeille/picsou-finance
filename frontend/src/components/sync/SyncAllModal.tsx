@@ -74,7 +74,6 @@ const REVOLUT_CONNECTION_ID = 'revolut'
 /**
  * The provider labels the Banque Populaire sync stamps: the official name of the regional bank the
  * session was opened at (`BanquePopulaireRegion.institutionName()` on the backend), one per region.
- * The generic `Banque Populaire` label of the earliest imports is matched through `provider`.
  */
 const BANQUE_POPULAIRE_PROVIDERS: ReadonlySet<string> = new Set([
   'Banque Populaire Alsace Lorraine Champagne',
@@ -260,9 +259,10 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       failed: caisseEpargneStatus?.syncStatus === 'FAILED',
     },
     {
-      type: 'banque-populaire' as const, name: 'Banque Populaire', provider: 'Banque Populaire',
-      // A manual account picked from the bank catalog can carry the same regional label:
-      // it was never synced by this connector, so it must not show a session row.
+      // No exact `provider`: every Banque Populaire label goes through `ownsAccount`, so a
+      // manual account carrying one (picked from the bank catalog or typed) never shows a
+      // session row: this connector never synced it.
+      type: 'banque-populaire' as const, name: 'Banque Populaire', provider: undefined,
       ownsAccount: (a: Account) =>
         !a.isManual && a.provider != null && BANQUE_POPULAIRE_PROVIDERS.has(a.provider),
       active: banquePopulaireStatus?.isActive ?? false, lastSyncedAt: banquePopulaireStatus?.lastSyncCompletedAt ?? null,
