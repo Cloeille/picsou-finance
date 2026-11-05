@@ -508,7 +508,7 @@
       "ahead_other": "{{count}} cuotas de adelanto",
       "onTrack": "Al día",
       "disclaimer": "Previsión orientativa, nunca contractual.",
-      "simulationResult": "{{months}} meses · {{monthlyPayment}} €/mes · {{interest}} € de intereses",
+      "simulationResult": "{{months}} meses · {{monthlyPayment}}/mes · {{interest}} de intereses",
       "accruedHint": "Intereses devengados:"
     },
     "fromTransaction": {

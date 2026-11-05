@@ -508,7 +508,7 @@
       "ahead_other": "{{count}} Raten im Voraus",
       "onTrack": "Im Plan",
       "disclaimer": "Unverbindliche Prognose.",
-      "simulationResult": "{{months}} Monate · {{monthlyPayment}} €/Monat · {{interest}} € Zinsen",
+      "simulationResult": "{{months}} Monate · {{monthlyPayment}}/Monat · {{interest}} Zinsen",
       "accruedHint": "Bisher aufgelaufene Zinsen:"
     },
     "fromTransaction": {

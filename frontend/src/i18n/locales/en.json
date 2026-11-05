@@ -519,7 +519,7 @@
       "ahead_other": "{{count}} installments ahead",
       "onTrack": "On schedule",
       "disclaimer": "Indicative forecast, never contractual.",
-      "simulationResult": "{{months}} months · {{monthlyPayment}} €/month · {{interest}} € of interest",
+      "simulationResult": "{{months}} months · {{monthlyPayment}}/month · {{interest}} of interest",
       "accruedHint": "Interest accrued so far:"
     },
     "fromTransaction": {
