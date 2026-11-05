@@ -142,6 +142,22 @@ describe('MembersSection sign-in methods', () => {
     expect(adminUnlinkIdentities).not.toHaveBeenCalled()
   })
 
+  it('holds the confirmation while the unlink runs: no second request, no dismissal', async () => {
+    adminUnlinkIdentities.mockReturnValue(new Promise(() => {}))
+    renderSection()
+    const dialog = await openUnlink('Dora')
+    const confirm = within(dialog).getByRole('button', { name: en.admin.members.unlinkSso })
+
+    fireEvent.click(confirm)
+    await waitFor(() => expect(confirm).toBeDisabled())
+    fireEvent.click(confirm)
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+
+    expect(within(dialog).getByRole('button', { name: en.common.cancel })).toBeDisabled()
+    expect(adminUnlinkIdentities).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
   it('keeps the confirmation open with the error when the unlink fails', async () => {
     adminUnlinkIdentities.mockRejectedValue({ response: { status: 500, data: {} } })
     renderSection()

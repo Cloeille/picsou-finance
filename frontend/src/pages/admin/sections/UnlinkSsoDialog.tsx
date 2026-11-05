@@ -19,7 +19,8 @@ export function UnlinkSsoDialog({ member, onClose }: UnlinkSsoDialogProps) {
   if (member && member !== shown) setShown(member)
 
   const handleOpenChange = (open: boolean) => {
-    if (open) return
+    // Escape or a click outside must not reset an unlink in flight, nor allow a second one.
+    if (open || unlink.isPending) return
     onClose()
     unlink.reset()
   }
