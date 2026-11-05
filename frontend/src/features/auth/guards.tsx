@@ -26,7 +26,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   if (demoMode || isAuthenticated) return <>{children}</>
   if (probe.isPending || probe.isSuccess) return <RouteSpinner />
 
-  const requested = location.pathname + location.search
+  const requested = location.pathname + location.search + location.hash
   return <Navigate to={requested === '/' ? '/login' : `/login?redirect=${encodeURIComponent(requested)}`} replace />
 }
 

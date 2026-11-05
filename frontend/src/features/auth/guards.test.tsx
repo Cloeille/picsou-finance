@@ -216,6 +216,7 @@ describe('RequireAuth without a session', () => {
 
   it.each([
     ['/accounts?x=1', 'login ?redirect=%2Faccounts%3Fx%3D1'],
+    ['/settings#security', 'login ?redirect=%2Fsettings%23security'],
     ['/', 'login '],
   ])('sends %s to /login and keeps it as the redirect target', async (entry, expected) => {
     refresh.mockRejectedValue(new Error('401'))
