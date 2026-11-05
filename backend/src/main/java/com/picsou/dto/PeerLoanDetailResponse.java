@@ -39,8 +39,8 @@ public record PeerLoanDetailResponse(
     BigDecimal repaidPct,
     BigDecimal scheduledRemaining,
     Integer installmentsBehind,
-    /** Interest the plan expects to have been paid by today; null without a plan. */
-    BigDecimal plannedInterestToDate,
+    /** Total interest the plan implies over its whole duration; null without a plan. */
+    BigDecimal plannedInterest,
     List<PeerLoanRepaymentResponse> repayments,
     /** Actual capital over time, and the forecast when a plan exists. */
     List<CurvePoint> curve

@@ -135,25 +135,24 @@ class PeerLoanCalculatorTest {
 
         assertThat(plan.scheduledRemaining()).isEqualByComparingTo("600.00");
         assertThat(plan.installmentsBehind()).isEqualTo(-1);
-        assertThat(plan.plannedInterestToDate()).isEqualByComparingTo("0.00");
+        assertThat(plan.plannedInterest()).isEqualByComparingTo("0.00");
     }
 
     @Test
-    void planInterestToDateIsTheInterestThePlanSaysIsPaid() {
-        // 1200 over 12 months at 12 %/year (1 %/month), 106.62/month, 6 months elapsed.
+    void plannedInterestIsTheTotalInterestOfTheWholePlan() {
+        // 10 000 € at 12 %/month over one month → 11 200 € paid, so 1 200 € of interest.
         PeerLoanTerms terms = PeerLoanTerms.builder()
-            .principal(new BigDecimal("1200"))
-            .annualRate(new BigDecimal("0.12"))
-            .lentAt(LocalDate.parse("2026-01-01"))
-            .plannedMonthlyAmount(new BigDecimal("106.62"))
-            .plannedMonths(12)
+            .principal(new BigDecimal("10000"))
+            .annualRate(new BigDecimal("1.44"))
+            .lentAt(LocalDate.parse("2026-11-05"))
+            .plannedMonthlyAmount(new BigDecimal("11200"))
+            .plannedMonths(1)
             .build();
 
         PeerLoanCalculator.Plan plan = PeerLoanCalculator.plan(
-            terms, new BigDecimal("1200"), LocalDate.parse("2026-07-15"));
+            terms, new BigDecimal("10000"), LocalDate.parse("2026-11-05"));
 
-        assertThat(plan.plannedInterestToDate().doubleValue())
-            .isCloseTo(57.62, org.assertj.core.api.Assertions.within(1.0));
+        assertThat(plan.plannedInterest()).isEqualByComparingTo("1200.00");
     }
 
     @Test

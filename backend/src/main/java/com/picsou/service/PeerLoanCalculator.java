@@ -54,7 +54,7 @@ public final class PeerLoanCalculator {
     ) {}
 
     public record Plan(BigDecimal scheduledRemaining, Integer installmentsBehind,
-                       BigDecimal plannedInterestToDate) {}
+                       BigDecimal plannedInterest) {}
 
     public record Simulation(BigDecimal monthlyPayment, int months,
                              BigDecimal totalInterest, BigDecimal totalCost) {}
@@ -174,9 +174,11 @@ public final class PeerLoanCalculator {
         }
         scheduled = scale(scheduled.max(BigDecimal.ZERO));
 
-        BigDecimal plannedPaid = monthly.multiply(BigDecimal.valueOf(paidMonths));
-        BigDecimal plannedCapital = principal.subtract(scheduled).max(BigDecimal.ZERO);
-        BigDecimal plannedInterest = plannedPaid.subtract(plannedCapital).max(BigDecimal.ZERO);
+        // The total interest the whole plan implies, not the part accrued so far: a
+        // one-month plan at 12 %/month on 10 000 € answers 1 200 € immediately.
+        BigDecimal plannedInterest = monthly.multiply(BigDecimal.valueOf(totalMonths))
+            .subtract(principal)
+            .max(BigDecimal.ZERO);
 
         Integer behind = null;
         if (monthly.signum() > 0) {

@@ -255,8 +255,8 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                 <div className="grid grid-cols-2 gap-3">
                   <Stat
                     label={t('peerLoan.forecast.plannedInterest')}
-                    value={data.plannedInterestToDate != null
-                      ? <CurrencyDisplay value={data.plannedInterestToDate} />
+                    value={data.plannedInterest != null
+                      ? <CurrencyDisplay value={data.plannedInterest} />
                       : '—'}
                   />
                   <Stat

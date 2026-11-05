@@ -689,7 +689,7 @@ public class PeerLoanService {
             repaidPct,
             plan == null ? null : plan.scheduledRemaining(),
             plan == null ? null : plan.installmentsBehind(),
-            plan == null ? null : plan.plannedInterestToDate(),
+            plan == null ? null : plan.plannedInterest(),
             repayments.stream()
                 .map(repayment -> PeerLoanRepaymentResponse.from(repayment, splitsById.get(repayment.getId())))
                 .toList(),
