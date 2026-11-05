@@ -42,11 +42,13 @@ describe('demo Banque Populaire session contracts', () => {
     expect(response.data).toEqual(expected)
   })
 
-  it('makes the session live once sign-in completes, and idle again after disconnect', async () => {
+  it('reports SUCCESS only after the first sync, and idle again after disconnect', async () => {
     const call = (method: string, url: string) =>
       adapter({ method, url, headers: new AxiosHeaders() }).then((response) => response.data)
 
     await call('POST', '/banque-populaire/auth/complete')
+    // Live but not synced yet: a status read before the sync never shows SUCCESS.
+    expect(await call('GET', '/banque-populaire/status')).toMatchObject({ isActive: true, syncStatus: 'IDLE' })
     const synced = await call('POST', '/banque-populaire/sync')
     expect(synced).toMatchObject({ isActive: true, syncStatus: 'SUCCESS', lastSyncError: null })
     expect(await call('GET', '/banque-populaire/status')).toMatchObject({ isActive: true, syncStatus: 'SUCCESS' })

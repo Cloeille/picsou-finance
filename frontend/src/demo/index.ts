@@ -954,18 +954,22 @@ handlers.set(key('DELETE', '/caisse-epargne/session'), () => ({
 
 // Banque Populaire — the same BPCE login as Caisse d'Epargne, so the same shortcut:
 // any region and identifier get the demo pad, and Sécur'Pass answers connected at once.
-// Completing the sign-in makes the session live and a sync answers SUCCESS, so the panel
-// reaches its connected state and the add-account wizard closes; disconnecting resets it.
-let demoBanquePopulaireConnected = false
-const demoBanquePopulaireStatus = () => demoBanquePopulaireConnected
-  ? {
-      ...demoCaisseEpargneStatus,
-      isActive: true,
-      syncStatus: 'SUCCESS',
-      lastSyncStartedAt: new Date().toISOString(),
-      lastSyncCompletedAt: new Date().toISOString(),
-    }
-  : { ...demoCaisseEpargneStatus }
+// Completing the sign-in makes the session live but not yet synced; only the sync answers
+// SUCCESS, so the panel sees SUCCESS from its own sync and closes the add-account wizard.
+// Disconnecting resets it.
+let demoBanquePopulaireState: 'idle' | 'connected' | 'synced' = 'idle'
+const demoBanquePopulaireStatus = () => {
+  if (demoBanquePopulaireState === 'idle') return { ...demoCaisseEpargneStatus }
+  if (demoBanquePopulaireState === 'connected') return { ...demoCaisseEpargneStatus, isActive: true }
+  const now = new Date().toISOString()
+  return {
+    ...demoCaisseEpargneStatus,
+    isActive: true,
+    syncStatus: 'SUCCESS',
+    lastSyncStartedAt: now,
+    lastSyncCompletedAt: now,
+  }
+}
 handlers.set(key('GET', '/banque-populaire/status'), () => demoBanquePopulaireStatus())
 handlers.set(key('POST', '/banque-populaire/auth/initiate'), () => ({
   processId: 'demo',
@@ -976,12 +980,15 @@ handlers.set(key('POST', '/banque-populaire/auth/keypad'), () => ({
   processId: 'demo', status: 'SECURPASS_PENDING',
 }))
 handlers.set(key('POST', '/banque-populaire/auth/complete'), () => {
-  demoBanquePopulaireConnected = true
+  demoBanquePopulaireState = 'connected'
   return { connected: true }
 })
-handlers.set(key('POST', '/banque-populaire/sync'), () => demoBanquePopulaireStatus())
+handlers.set(key('POST', '/banque-populaire/sync'), () => {
+  demoBanquePopulaireState = 'synced'
+  return demoBanquePopulaireStatus()
+})
 handlers.set(key('DELETE', '/banque-populaire/session'), () => {
-  demoBanquePopulaireConnected = false
+  demoBanquePopulaireState = 'idle'
   return { removed: true, bankSessionRevoked: false, message: '' }
 })
 
