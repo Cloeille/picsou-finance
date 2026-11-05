@@ -23,6 +23,7 @@ import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -358,9 +359,9 @@ class SecretBootstrapTest {
             "POSTGRES_PASSWORD", "irrelevant", "SPRING_DATASOURCE_PASSWORD", password))).isEqualTo(password);
         assertThat(datasourcePassword(variables("SPRING_DATASOURCE_PASSWORD", password))).isEqualTo(password);
         assertThat(datasourcePassword(variables("POSTGRES_PASSWORD", password))).isEqualTo(password);
-        // The same rule for the app's own secrets. environment.getProperty resolves placeholders in
-        // whatever it returns, so the raw storage is what must hold the value; a consumer reading
-        // ${JWT_SECRET} gets it verbatim, since a substituted value is not scanned again.
+        // The same rule for the app's own secrets: this processor stores the raw value and never
+        // expands it. A consumer reading ${app.jwt.secret} still goes through Spring's resolver,
+        // which fails on an unresolvable ${nope}, as it does without this processor.
         MockEnvironment environment = run("JWT_SECRET", "a${nope}b");
         assertThat(environment.getPropertySources().get(SecretBootstrap.SOURCE_NAME).getProperty("JWT_SECRET"))
             .isEqualTo("a${nope}b");
@@ -645,37 +646,117 @@ class SecretBootstrapTest {
 
     // ─── filesystem without hard links ────────────────────────────────────
 
-    @Test
-    void createExclusively_neverReplacesAFileThatAppearedFirst() throws IOException {
-        seed("jwt_secret", "created-by-another-process");
-
-        boolean created = bootstrap.createExclusively(secretsDir().resolve("jwt_secret"), "ours");
-
-        assertThat(created).isFalse();
-        assertThat(read("jwt_secret")).isEqualTo("created-by-another-process");
-        try (var entries = Files.list(secretsDir())) {
-            assertThat(entries.count()).isEqualTo(1);
-        }
+    private Path tempWith(String value) throws IOException {
+        Files.createDirectories(secretsDir());
+        Path temp = Files.createTempFile(secretsDir(), ".secret-", ".tmp");
+        Files.writeString(temp, value);
+        return temp;
     }
 
     @Test
-    void createExclusively_writesTheValueWithOwnerOnlyMode() throws IOException {
-        Files.createDirectories(secretsDir());
-        Path file = secretsDir().resolve("jwt_secret");
+    void publishUnderLock_neverReplacesAFileThatAppearedFirst() throws IOException {
+        seed("jwt_secret", "created-by-another-process");
+        Path temp = tempWith("ours");
 
-        // Even when the later chmod cannot run, the file is created owner-only.
-        SecretBootstrap chmodFails = new SecretBootstrap(supplier -> supplier.get()) {
+        boolean published = bootstrap.publishUnderLock(secretsDir().resolve("jwt_secret"), temp);
+
+        assertThat(published).isFalse();
+        assertThat(read("jwt_secret")).isEqualTo("created-by-another-process");
+        assertThat(secretsDir().resolve("jwt_secret.lock")).doesNotExist();
+    }
+
+    @Test
+    void publishUnderLock_movesTheCompleteValueIntoPlace_andReleasesTheLock() throws IOException {
+        Path temp = tempWith("ours \u00e9");
+        Path file = secretsDir().resolve("crypto_key");
+
+        boolean published = bootstrap.publishUnderLock(file, temp);
+
+        assertThat(published).isTrue();
+        assertThat(Files.readAllBytes(file)).isEqualTo("ours \u00e9".getBytes(StandardCharsets.UTF_8));
+        assertThat(secretsDirEntries()).containsExactly("crypto_key");
+    }
+
+    /**
+     * The fallback the CodeRabbit review flagged: the final name used to appear empty and fill up
+     * while a concurrent start could read it, and a 32-character prefix of a crypto_key decodes to
+     * a valid AES-192 key. Another publisher's lock now means waiting for its whole file.
+     */
+    @Test
+    void publishUnderLock_whileAnotherStartHoldsTheLock_waitsForItsWholeFile() throws Exception {
+        Path file = secretsDir().resolve("crypto_key");
+        Path lock = secretsDir().resolve("crypto_key.lock");
+        Path ours = tempWith("ours");
+        Files.createFile(lock);
+        String theirs = Base64.getEncoder().encodeToString(new byte[32]);
+        Path theirTemp = tempWith(theirs);
+
+        Thread other = new Thread(() -> {
+            try {
+                Thread.sleep(200);
+                Files.move(theirTemp, file);
+                Files.delete(lock);
+            } catch (Exception ex) {
+                throw new IllegalStateException(ex);
+            }
+        });
+        other.start();
+        boolean published = bootstrap.publishUnderLock(file, ours);
+        other.join();
+
+        assertThat(published).isFalse();
+        assertThat(Files.readString(file)).isEqualTo(theirs);
+    }
+
+    @Test
+    void publishUnderLock_aStaleLockWithoutItsFile_refusesToStart_namingTheLock() throws IOException {
+        SecretBootstrap noWait = new SecretBootstrap(supplier -> supplier.get()) {
             @Override
-            void setPermissions(Path path, String permissions) throws IOException {
-                throw new IOException("chmod refused");
+            Duration lockWait() {
+                return Duration.ZERO;
             }
         };
+        Path file = secretsDir().resolve("crypto_key");
+        Path temp = tempWith("ours");
+        Files.createFile(secretsDir().resolve("crypto_key.lock"));
 
-        boolean created = chmodFails.createExclusively(file, "ours \u00e9");
+        assertThatThrownBy(() -> noWait.publishUnderLock(file, temp))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("crypto_key.lock")
+            .hasMessageNotContaining("ours");
+        assertThat(file).doesNotExist();
+    }
 
-        assertThat(created).isTrue();
-        assertThat(Files.readAllBytes(file)).isEqualTo("ours \u00e9".getBytes(StandardCharsets.UTF_8));
-        assertThat(Files.getPosixFilePermissions(file)).isEqualTo(PosixFilePermissions.fromString("rw-------"));
+    /**
+     * Without hard links, every chmod the write performs looks at the final name: it must be absent
+     * or complete. The earlier fallback created it empty and chmodded it before writing a byte.
+     */
+    @Test
+    void writeIfAbsent_withoutHardLinks_neverShowsTheFinalNameBeforeItsLastByte() throws IOException {
+        String value = Base64.getEncoder().encodeToString(new byte[32]);
+        Path file = secretsDir().resolve("crypto_key");
+        List<String> seen = new ArrayList<>();
+        SecretBootstrap withoutHardLinks = new SecretBootstrap(supplier -> supplier.get()) {
+            @Override
+            void link(Path target, Path temp) throws IOException {
+                throw new FileSystemException(target.toString(), temp.toString(), "Operation not permitted");
+            }
+
+            @Override
+            void setPermissions(Path path, String permissions) throws IOException {
+                if (Files.exists(file)) {
+                    seen.add(Files.readString(file));
+                }
+                super.setPermissions(path, permissions);
+            }
+        };
+        Files.createDirectories(secretsDir());
+
+        boolean written = withoutHardLinks.writeIfAbsent(file, value);
+
+        assertThat(written).isTrue();
+        assertThat(seen).allSatisfy(content -> assertThat(content).isEqualTo(value));
+        assertThat(Files.readString(file)).isEqualTo(value);
     }
 
     static List<Exception> hardLinkFailures() {
@@ -685,7 +766,7 @@ class SecretBootstrapTest {
 
     @ParameterizedTest
     @MethodSource("hardLinkFailures")
-    void writeIfAbsent_withoutHardLinks_createsTheFileExclusively(Exception failure) throws IOException {
+    void writeIfAbsent_withoutHardLinks_publishesTheFileUnderALock(Exception failure) throws IOException {
         SecretBootstrap withoutHardLinks = new SecretBootstrap(supplier -> supplier.get()) {
             @Override
             void link(Path file, Path temp) throws IOException {
@@ -707,10 +788,10 @@ class SecretBootstrapTest {
     }
 
     @Test
-    void createExclusively_failsWithoutLeavingAFileWhenTheDirectoryIsMissing() {
+    void writeIfAbsent_failsWithoutLeavingAFileWhenTheDirectoryIsMissing() {
         Path file = secretsDir().resolve("jwt_secret");
 
-        assertThatThrownBy(() -> bootstrap.createExclusively(file, "ours")).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> bootstrap.writeIfAbsent(file, "ours")).isInstanceOf(IllegalStateException.class);
         assertThat(file).doesNotExist();
     }
 

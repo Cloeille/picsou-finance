@@ -15,26 +15,29 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Resolves the install secrets before any bean exists, so {@link JwtUtil},
  * {@link CryptoEncryption} and the datasource keep reading plain properties.
  *
  * <p>Active only when {@code PICSOU_SECRETS_DIR} (property {@code picsou.secrets-dir}) is set.
- * For each secret an explicit value wins (and is persisted when its file is missing), then the
- * file in that directory. {@code JWT_SECRET} and {@code CRYPTO_ENCRYPTION_KEY} are otherwise
+ * For {@code JWT_SECRET} and {@code CRYPTO_ENCRYPTION_KEY} an explicit value wins (and is
+ * persisted when its file is missing), then the file in that directory; otherwise a value is
  * generated and persisted there. A secret is never regenerated once its file exists: doing so
  * would log every user out and make every stored API secret undecryptable.
  *
@@ -42,9 +45,10 @@ import java.util.Set;
  * database's password, so a generated or stale one could only mismatch it. Compose and the Helm
  * chart always supply it, and a file an earlier version wrote is still read.
  *
- * <p>Secret values are read <em>raw</em>, straight from the property sources: a password holding
- * {@code ${...}} keeps its characters instead of being expanded as a placeholder (which would
- * throw, or write the expanded value to the log).
+ * <p>Secret values are read <em>raw</em>, straight from the property sources, so this processor
+ * never expands a {@code ${...}} itself (which would throw, or write the expanded value to the
+ * log). Consumers still read them through Spring: a {@code JWT_SECRET} holding an unresolvable
+ * {@code ${...}} fails at {@code ${app.jwt.secret}}, as it did before this class existed.
  *
  * <p>An empty {@code SPRING_DATASOURCE_PASSWORD} or {@code POSTGRES_PASSWORD} is what a
  * Compose-style file gives for an unset variable, while Spring's relaxed binding and
@@ -105,11 +109,11 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
         Path dir = StringUtils.hasText(configured) ? Path.of(configured) : null;
         Map<String, Object> resolved = new LinkedHashMap<>();
         if (hasAnEmptyPasswordVariable(environment)) {
-            // application.yml reads SPRING_DATASOURCE_PASSWORD, then POSTGRES_PASSWORD. Publishing
-            // both names, rather than spring.datasource.password itself, keeps that template in
-            // charge: a value substituted into it is not scanned for placeholders again, so a
-            // password holding ${...} survives, while a password published as the template's own
-            // value would be expanded.
+            // application.yml reads SPRING_DATASOURCE_PASSWORD, then POSTGRES_PASSWORD. Both names
+            // are published, rather than spring.datasource.password itself, so that template stays
+            // in charge of the precedence. Spring still resolves placeholders inside the value it
+            // substitutes: ${HOME} in a password is expanded, and an unresolvable ${nope} survives
+            // only because the datasource binder ignores unresolvable placeholders.
             String fallback = fallbackDatasourcePassword(environment, dir);
             resolved.put(DATASOURCE_PASSWORD_ENV, fallback);
             resolved.put(POSTGRES_PASSWORD, fallback);
@@ -291,9 +295,9 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
      * Writes {@code value} to {@code file} unless it already exists, and never replaces a file.
      * Returns {@code false} when the file was already there.
      *
-     * <p>The value is written to a temp file and hard-linked into place, so the final name never
-     * shows a partial write. A filesystem without hard links (some NAS mounts) falls back to
-     * {@link #createExclusively}, where the final file is visible while its bytes are still landing.
+     * <p>The value is written and synced to a temp file, then hard-linked into place, so the final
+     * name never shows a partial write. A filesystem without hard links (some NAS mounts) falls back
+     * to {@link #publishUnderLock}, which renames the complete temp file into place instead.
      */
     boolean writeIfAbsent(Path file, String value) {
         if (Files.exists(file)) {
@@ -302,15 +306,15 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
         Path temp = null;
         try {
             temp = Files.createTempFile(file.getParent(), ".secret-", ".tmp");
-            Files.writeString(temp, value, StandardCharsets.UTF_8);
             tryChmod(temp, "rw-------");
+            writeAndSync(temp, value);
             try {
                 // A hard link fails when the target exists, unlike a rename, which would replace it.
                 link(file, temp);
             } catch (FileAlreadyExistsException ex) {
                 return false;
             } catch (UnsupportedOperationException | IOException ex) {
-                return createExclusively(file, value);
+                return publishUnderLock(file, temp);
             }
             return true;
         } catch (IOException ex) {
@@ -332,41 +336,68 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
     }
 
     /**
-     * Creates {@code file} with {@code CREATE_NEW} ({@code O_EXCL}), which fails atomically when
-     * it exists, then writes and syncs the value. Unlike a rename it can not replace a file another
-     * process created in the meantime. A reader that opens the file before the bytes land finds it
-     * empty, and {@link #read} refuses to start on an empty file, so that window fails closed.
-     * The mode is restricted before the value is written, and a failed write removes the file this
-     * call created, so no truncated secret is left behind to be reused.
+     * Moves the complete {@code temp} file to {@code file} on a filesystem without hard links.
+     * A rename replaces an existing target, so publishers take turns through {@code <file>.lock},
+     * created with {@code CREATE_NEW} ({@code O_EXCL}): the holder checks the name is still free,
+     * renames, then removes the lock. The final name only ever appears with its whole value, so a
+     * concurrent reader can not take a prefix of a key for a shorter, valid one.
+     *
+     * <p>A start that finds the lock waits up to {@link #lockWait()} for the holder's file, then
+     * uses it. A lock with no file after that wait is left by a crashed start: the app refuses to
+     * start and names the lock to delete, rather than guess whether another instance is writing.
      */
-    boolean createExclusively(Path file, String value) throws IOException {
-        FileChannel channel;
+    boolean publishUnderLock(Path file, Path temp) throws IOException {
+        Path lock = file.resolveSibling(file.getFileName() + ".lock");
         try {
-            channel = openOwnerOnly(file);
+            Files.createFile(lock);
         } catch (FileAlreadyExistsException ex) {
+            awaitPublication(file, lock);
             return false;
         }
-        try (channel) {
-            tryChmod(file, "rw-------");
+        try {
+            if (Files.exists(file, LinkOption.NOFOLLOW_LINKS)) {
+                return false;
+            }
+            try {
+                Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException ex) {
+                // Same directory: still a rename, and the lock keeps other publishers out.
+                Files.move(temp, file);
+            }
+            return true;
+        } finally {
+            Files.deleteIfExists(lock);
+        }
+    }
+
+    private void awaitPublication(Path file, Path lock) {
+        long deadline = System.nanoTime() + lockWait().toNanos();
+        while (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) {
+            if (System.nanoTime() - deadline >= 0) {
+                throw new IllegalStateException("Secret file " + file + " is still being created behind "
+                    + lock + ". Delete " + lock + " if no other Picsou instance is starting.");
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while waiting for " + file, ex);
+            }
+        }
+    }
+
+    /** How long a start waits for another publisher's file; overridable so tests do not wait. */
+    Duration lockWait() {
+        return Duration.ofSeconds(10);
+    }
+
+    private static void writeAndSync(Path path, String value) throws IOException {
+        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
             ByteBuffer bytes = ByteBuffer.wrap(value.getBytes(StandardCharsets.UTF_8));
             while (bytes.hasRemaining()) {
                 channel.write(bytes);
             }
             channel.force(true);
-        } catch (IOException ex) {
-            Files.deleteIfExists(file);
-            throw ex;
-        }
-        return true;
-    }
-
-    /** {@code CREATE_NEW} with mode {@code 0600} from creation; without it on a filesystem that has no POSIX modes. */
-    private static FileChannel openOwnerOnly(Path file) throws IOException {
-        try {
-            return FileChannel.open(file, Set.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE),
-                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
-        } catch (UnsupportedOperationException noPosixModes) {
-            return FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
         }
     }
 

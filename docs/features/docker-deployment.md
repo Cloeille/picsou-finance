@@ -264,11 +264,11 @@ that directory (mounted named volume) on first boot:
 
 `POSTGRES_PASSWORD` (`postgres_password`) is never generated: the app cannot set the
 database's password, so a generated one could only mismatch it. It comes from the
-`POSTGRES_PASSWORD` variable, else from an existing `postgres_password` file (written by an
-earlier version, or from the variable on a previous start); with neither, `SecretBootstrap`
-publishes nothing and `application.yml`'s default `picsou` applies.
+`POSTGRES_PASSWORD` variable, else from an existing `postgres_password` file written by an
+earlier version. The app never writes that file. With neither, `SecretBootstrap` publishes
+nothing and `application.yml`'s default `picsou` applies.
 
-On subsequent boots, re-reads from the files. If the env var is already set by the operator, it is respected and written to the file for consistency (an existing file is never overwritten). Secrets are **never** regenerated once created: doing so would invalidate JWTs and corrupt all encrypted data in the DB. An empty secret file stops the app, naming the file and the variable, when the variable is unset. A set variable is used and the empty file is left as is, so the next start without it fails: delete the empty file to let the value be copied again. Files are written through a temp file and a hard link, mode `0600` in a `0700` directory, so the final name never shows a partial value and an existing file is never replaced. A filesystem without hard links (some NAS mounts) falls back to creating the final file exclusively (`CREATE_NEW`): it still never replaces a file another process created first, but a reader that opens it before the bytes land finds it empty, and an empty file stops the app instead of being used. A filesystem that cannot apply the modes only logs a warning. Without `PICSOU_SECRETS_DIR`, nothing is generated.
+On subsequent boots, re-reads from the files. If `JWT_SECRET` or `CRYPTO_ENCRYPTION_KEY` is already set by the operator, it is respected and written to the file for consistency (an existing file is never overwritten). Secrets are **never** regenerated once created: doing so would invalidate JWTs and corrupt all encrypted data in the DB. An empty secret file stops the app, naming the file and the variable, when the variable is unset. A set variable is used and the empty file is left as is, so the next start without it fails: delete the empty file to let the value be copied again. Files are written through a temp file and a hard link, mode `0600` in a `0700` directory, so the final name never shows a partial value and an existing file is never replaced. A filesystem without hard links (some NAS mounts) falls back to renaming the complete temp file into place under a `<file>.lock` created with `CREATE_NEW`: the final name still never shows a partial value and never replaces a file another process created first. A start that finds the lock waits up to 10 seconds for the other start's file; a lock left by a crashed start stops the app and names the lock to delete. A filesystem that cannot apply the modes only logs a warning. Without `PICSOU_SECRETS_DIR`, nothing is generated.
 
 `TrustedProxyBootstrap`, a second `EnvironmentPostProcessor` registered next to it, turns `PICSOU_PROXY_IP` into `server.tomcat.remoteip.internal-proxies`, the only peer Tomcat takes the client address from. Unset or empty, the expression matches nothing. Anything but one plain IPv4 address (no leading zeros, octets up to 255) stops startup with `PICSOU_PROXY_IP must be one plain IPv4 address.`, without echoing the value; this check runs whenever the variable is set. **An explicitly configured `server.tomcat.remoteip.internal-proxies` wins** (`SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES`, `-D`, the command line, `SPRING_APPLICATION_JSON`): `PICSOU_PROXY_IP` is then ignored for the expression. Compose always sets `PICSOU_PROXY_IP` (default `172.30.253.2`), which is why the explicit property has to outrank it.
 
@@ -278,10 +278,11 @@ publishes the supplied or persisted `POSTGRES_PASSWORD`, so it feeds that
 placeholder instead of the literal `picsou` fallback, and `--spring.datasource.password`,
 `-Dspring.datasource.password`, `SPRING_APPLICATION_JSON` and a non-empty
 `SPRING_DATASOURCE_PASSWORD` all outrank it. An empty `SPRING_DATASOURCE_PASSWORD` or
-`POSTGRES_PASSWORD` (what a Compose-style file gives for an unset variable) is dropped from the
-environment, with or without `PICSOU_SECRETS_DIR`, so it behaves exactly as unset: a
-`spring.datasource.password` from any source wins, a config file included, then the resolved
-PostgreSQL password, then `picsou`. Without `PICSOU_SECRETS_DIR`, `POSTGRES_PASSWORD` in the
+`POSTGRES_PASSWORD` (what a Compose-style file gives for an unset variable) behaves as unset,
+with or without `PICSOU_SECRETS_DIR`: `SecretBootstrap` publishes both names, in a source ahead
+of the environment, with the fallback password. That fallback is a `spring.datasource.password`
+from any source, a config file included, then a non-empty `POSTGRES_PASSWORD`, then the legacy
+`postgres_password` file, then `picsou`. Without `PICSOU_SECRETS_DIR`, `POSTGRES_PASSWORD` in the
 environment also reaches the datasource; with neither variable the password is still `picsou`.
 
 The Helm migration hook does not start Spring's environment: it maps `SPRING_DATASOURCE_PASSWORD`
