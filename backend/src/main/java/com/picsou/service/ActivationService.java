@@ -7,6 +7,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.util.Optional;
+
 /**
  * The shared sink of new-member activation, admin-initiated password reset and admin-recovery
  * completion. The password and SSO activation paths both end here so they cannot drift.
@@ -14,30 +17,39 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ActivationService {
 
+    public enum InvitationResult { ACTIVATED, UNKNOWN, EXPIRED }
+
     private final AppUserRepository userRepository;
     private final PersistentSessionService persistentSessionService;
     private final SetupAuditService auditService;
+    private final Clock clock;
 
     public ActivationService(AppUserRepository userRepository,
                              PersistentSessionService persistentSessionService,
-                             SetupAuditService auditService) {
+                             SetupAuditService auditService,
+                             Clock clock) {
         this.userRepository = userRepository;
         this.persistentSessionService = persistentSessionService;
         this.auditService = auditService;
+        this.clock = clock;
     }
 
     /**
-     * Completes an invitation while holding its row lock. A token that a concurrent activation
-     * already used no longer matches, so this one reports false instead of overwriting it.
+     * Completes an invitation while holding its row lock, checking the token on the locked row:
+     * one that a concurrent activation already used is UNKNOWN, one that expired meanwhile EXPIRED.
      */
     @Transactional
-    public boolean completeInvitation(String token, String newPasswordHash, HttpServletRequest request) {
-        return userRepository.findByActivationTokenForUpdate(token)
-            .map(user -> {
-                complete(user, newPasswordHash, request);
-                return true;
-            })
-            .orElse(false);
+    public InvitationResult completeInvitation(String token, String newPasswordHash, HttpServletRequest request) {
+        Optional<AppUser> invited = userRepository.findByActivationTokenForUpdate(token);
+        if (invited.isEmpty()) {
+            return InvitationResult.UNKNOWN;
+        }
+        AppUser user = invited.get();
+        if (user.getActivationTokenExpires() != null && user.getActivationTokenExpires().isBefore(clock.instant())) {
+            return InvitationResult.EXPIRED;
+        }
+        complete(user, newPasswordHash, request);
+        return InvitationResult.ACTIVATED;
     }
 
     @Transactional

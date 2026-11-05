@@ -476,11 +476,12 @@ public class AuthController {
                 .body(Map.of("error", "You must acknowledge the data access warning"));
         }
 
-        if (!activationService.completeInvitation(token, passwordEncoder.encode(req.password()), httpReq)) {
-            throw new BadCredentialsException("Invalid activation token");
-        }
-
-        return ResponseEntity.ok(Map.of("message", "Account activated successfully"));
+        return switch (activationService.completeInvitation(token, passwordEncoder.encode(req.password()), httpReq)) {
+            case ACTIVATED -> ResponseEntity.ok(Map.of("message", "Account activated successfully"));
+            case EXPIRED -> ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("error", "Activation token has expired"));
+            case UNKNOWN -> throw new BadCredentialsException("Invalid activation token");
+        };
     }
 
     // ─── Session helpers ──────────────────────────────────────────────────────

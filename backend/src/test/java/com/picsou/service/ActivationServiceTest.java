@@ -10,7 +10,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,10 +30,13 @@ class ActivationServiceTest {
     @Mock PersistentSessionService persistentSessionService;
     @Mock SetupAuditService auditService;
 
+    // The invitations below expire at 2026-11-05T00:00:00Z.
+    private static final Instant NOW = Instant.parse("2026-11-04T12:00:00Z");
+
     private final MockHttpServletRequest request = new MockHttpServletRequest();
 
     private ActivationService service() {
-        return new ActivationService(userRepository, persistentSessionService, auditService);
+        return new ActivationService(userRepository, persistentSessionService, auditService, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private static AppUser invited(UserRole role) {
@@ -72,7 +77,8 @@ class ActivationServiceTest {
         AppUser user = invited(UserRole.MEMBER);
         when(userRepository.findByActivationTokenForUpdate("tok")).thenReturn(Optional.of(user));
 
-        assertThat(service().completeInvitation("tok", "new-hash", request)).isTrue();
+        assertThat(service().completeInvitation("tok", "new-hash", request))
+            .isEqualTo(ActivationService.InvitationResult.ACTIVATED);
 
         assertThat(user.getPasswordHash()).isEqualTo("new-hash");
         assertThat(user.getActivationToken()).isNull();
@@ -83,8 +89,23 @@ class ActivationServiceTest {
     void completeInvitationReportsATokenAlreadyUsedAndWritesNothing() {
         when(userRepository.findByActivationTokenForUpdate("tok")).thenReturn(Optional.empty());
 
-        assertThat(service().completeInvitation("tok", "new-hash", request)).isFalse();
+        assertThat(service().completeInvitation("tok", "new-hash", request))
+            .isEqualTo(ActivationService.InvitationResult.UNKNOWN);
 
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(persistentSessionService, auditService);
+    }
+
+    @Test
+    void completeInvitationChecksTheExpiryOnTheLockedRow() {
+        AppUser user = invited(UserRole.MEMBER);
+        user.setActivationTokenExpires(NOW.minusSeconds(1));
+        when(userRepository.findByActivationTokenForUpdate("tok")).thenReturn(Optional.of(user));
+
+        assertThat(service().completeInvitation("tok", "new-hash", request))
+            .isEqualTo(ActivationService.InvitationResult.EXPIRED);
+
+        assertThat(user.isActivated()).isFalse();
         verify(userRepository, never()).save(any());
         verifyNoInteractions(persistentSessionService, auditService);
     }
