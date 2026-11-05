@@ -12,6 +12,7 @@ public record PeerLoanRepaymentRequest(
     @NotNull LocalDate paidOn,
     @NotNull @DecimalMin(value = "0.01", message = "Amount must be greater than zero")
     BigDecimal amount,
-    @NotNull PeerLoanRepaymentKind kind,
+    /** Null defaults to a payment (interest first, then capital). */
+    PeerLoanRepaymentKind kind,
     @Size(max = 255) String note
 ) {}

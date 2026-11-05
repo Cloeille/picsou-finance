@@ -71,6 +71,21 @@ class PeerLoanCalculatorTest {
     }
 
     @Test
+    void principalPaymentIsAllocatedInterestFirst() {
+        PeerLoanCalculator.Computed out = PeerLoanCalculator.compute(
+            terms("1000", "0.10", "2026-01-01"),
+            List.of(repayment("2026-01-11", "10", PeerLoanRepaymentKind.PRINCIPAL)),
+            LocalDate.parse("2026-01-11"));
+
+        assertThat(out.interestReceived()).isEqualByComparingTo("2.74");
+        assertThat(out.principalPaid()).isEqualByComparingTo("7.26");
+        assertThat(out.principalRemaining()).isEqualByComparingTo("992.74");
+        assertThat(out.splits()).hasSize(1);
+        assertThat(out.splits().getFirst().interest()).isEqualByComparingTo("2.74");
+        assertThat(out.splits().getFirst().capital()).isEqualByComparingTo("7.26");
+    }
+
+    @Test
     void paymentSmallerThanAccruedInterestDoesNotAmortise() {
         PeerLoanCalculator.Computed out = PeerLoanCalculator.compute(
             terms("1000", "0.10", "2026-01-01"),

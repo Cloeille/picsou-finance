@@ -40,7 +40,9 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -292,7 +294,7 @@ public class PeerLoanService {
             .account(account)
             .paidOn(request.paidOn())
             .amount(request.amount())
-            .kind(request.kind())
+            .kind(request.kind() != null ? request.kind() : PeerLoanRepaymentKind.PRINCIPAL)
             .note(request.note())
             .build();
         repaymentRepository.save(repayment);
@@ -317,7 +319,10 @@ public class PeerLoanService {
         requireType(account);
         PeerLoanTerms terms = requireConfiguredTerms(accountId);
         requireOpen(terms);
-        if (request.kind() == PeerLoanRepaymentKind.WRITE_OFF) {
+        PeerLoanRepaymentKind kind = request.kind() != null
+            ? request.kind()
+            : PeerLoanRepaymentKind.PRINCIPAL;
+        if (kind == PeerLoanRepaymentKind.WRITE_OFF) {
             throw new IllegalArgumentException("A received transaction cannot be a write-off");
         }
 
@@ -345,14 +350,14 @@ public class PeerLoanService {
             .account(account)
             .paidOn(transaction.getDate())
             .amount(transaction.getAmount())
-            .kind(request.kind())
+            .kind(kind)
             .cashTransactionId(transaction.getId())
             .cashLegOwned(false)
             .build());
 
-        // Capital is a transfer; interest keeps whatever category it has (uncategorised
-        // counts by sign as income). Overriding interest here would hide real income.
-        if (request.kind() == PeerLoanRepaymentKind.PRINCIPAL) {
+        // The whole received movement is one transfer; the interest part is tracked in
+        // the loan ledger, not booked as budget income (one row, one category).
+        if (kind == PeerLoanRepaymentKind.PRINCIPAL) {
             transaction.setCategoryRef(transferCategory(memberId));
             transaction.setCategoryManual(true);
             transactionRepository.save(transaction);
@@ -653,6 +658,13 @@ public class PeerLoanService {
         BigDecimal repaidPct = PeerLoanCalculator.repaidPct(principal, computed.principalPaid());
         PeerLoanCalculator.Plan plan = PeerLoanCalculator.plan(terms, computed.principalRemaining(), asOf);
 
+        Map<Long, PeerLoanCalculator.PaymentSplit> splitsById = new HashMap<>();
+        for (PeerLoanCalculator.PaymentSplit split : computed.splits()) {
+            if (split.repaymentId() != null) {
+                splitsById.put(split.repaymentId(), split);
+            }
+        }
+
         return new PeerLoanDetailResponse(
             account.getId(),
             account.getName(),
@@ -677,7 +689,9 @@ public class PeerLoanService {
             repaidPct,
             plan == null ? null : plan.scheduledRemaining(),
             plan == null ? null : plan.installmentsBehind(),
-            repayments.stream().map(PeerLoanRepaymentResponse::from).toList(),
+            repayments.stream()
+                .map(repayment -> PeerLoanRepaymentResponse.from(repayment, splitsById.get(repayment.getId())))
+                .toList(),
             buildCurve(terms, repayments, asOf)
         );
     }

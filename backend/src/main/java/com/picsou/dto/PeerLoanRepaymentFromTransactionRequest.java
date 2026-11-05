@@ -9,5 +9,6 @@ import jakarta.validation.constraints.NotNull;
  */
 public record PeerLoanRepaymentFromTransactionRequest(
     @NotNull Long transactionId,
-    @NotNull PeerLoanRepaymentKind kind
+    /** Null defaults to a payment (interest first, then capital). */
+    PeerLoanRepaymentKind kind
 ) {}

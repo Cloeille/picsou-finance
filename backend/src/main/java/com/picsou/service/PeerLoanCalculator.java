@@ -10,6 +10,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
@@ -40,6 +41,15 @@ public final class PeerLoanCalculator {
         BigDecimal interestAccrued,
         BigDecimal interestReceived,
         BigDecimal principalPaid,
+        BigDecimal writtenOff,
+        List<PaymentSplit> splits
+    ) {}
+
+    /** How one ledger row was applied: interest first, then capital (or a write-off). */
+    public record PaymentSplit(
+        Long repaymentId,
+        BigDecimal interest,
+        BigDecimal capital,
         BigDecimal writtenOff
     ) {}
 
@@ -64,6 +74,8 @@ public final class PeerLoanCalculator {
                 .thenComparing(r -> r.getId() == null ? 0L : r.getId()))
             .toList();
 
+        List<PaymentSplit> splits = new ArrayList<>(ordered.size());
+
         for (PeerLoanRepayment repayment : ordered) {
             LocalDate eventDate = repayment.getPaidOn() == null ? cursor : repayment.getPaidOn();
             if (cursor != null && eventDate.isBefore(cursor)) {
@@ -77,26 +89,31 @@ public final class PeerLoanCalculator {
                 : repayment.getKind();
 
             switch (kind) {
-                case PRINCIPAL -> {
-                    BigDecimal toPrincipal = amount.min(outstanding);
-                    outstanding = outstanding.subtract(toPrincipal);
-                    principalPaid = principalPaid.add(toPrincipal);
-                }
-                case INTEREST -> {
+                case PRINCIPAL, INTEREST -> {
+                    // One payment, whatever its label: the accrued interest is paid first,
+                    // then the remainder reduces the capital. This is the banking convention
+                    // and the single-amount entry the UI now offers.
                     BigDecimal toInterest = amount.min(accrued);
                     accrued = accrued.subtract(toInterest);
                     interestReceived = interestReceived.add(toInterest);
-                    // An interest-tagged payment larger than what accrued is still money
-                    // received: the excess reduces the capital rather than being trapped.
-                    BigDecimal excess = amount.subtract(toInterest);
-                    BigDecimal toPrincipal = excess.min(outstanding);
+                    BigDecimal toPrincipal = amount.subtract(toInterest).min(outstanding);
                     outstanding = outstanding.subtract(toPrincipal);
                     principalPaid = principalPaid.add(toPrincipal);
+                    splits.add(new PaymentSplit(
+                        repayment.getId(),
+                        scale(toInterest),
+                        scale(toPrincipal),
+                        BigDecimal.ZERO.setScale(MONEY_SCALE)));
                 }
                 case WRITE_OFF -> {
                     BigDecimal toWriteOff = amount.min(outstanding);
                     outstanding = outstanding.subtract(toWriteOff);
                     writtenOff = writtenOff.add(toWriteOff);
+                    splits.add(new PaymentSplit(
+                        repayment.getId(),
+                        BigDecimal.ZERO.setScale(MONEY_SCALE),
+                        BigDecimal.ZERO.setScale(MONEY_SCALE),
+                        scale(toWriteOff)));
                 }
             }
 
@@ -112,7 +129,8 @@ public final class PeerLoanCalculator {
             scale(accrued.max(BigDecimal.ZERO)),
             scale(interestReceived),
             scale(principalPaid),
-            scale(writtenOff)
+            scale(writtenOff),
+            List.copyOf(splits)
         );
     }
 

@@ -79,15 +79,20 @@ with its own summary and ledger.
 2. For each event in date order:
    - accrue simple interest on `outstanding` from the previous event date,
      `outstanding × annual_rate × days / 365`, `actual/365`;
-   - `PRINCIPAL` reduces the capital;
-   - `INTEREST` pays accrued interest; any excess is applied to capital rather than
-     trapped;
+   - `PRINCIPAL` and `INTEREST` are payments: the accrued interest is paid first, then
+     the remainder reduces the capital (the banking convention);
    - `WRITE_OFF` reduces the capital only — it is a decision, not a payment.
 3. Accrue to `asOf` and return the computed figures.
 
-Payments are **not split implicitly**. One cash movement carries one budget category, so
-a mixed payment is recorded as two rows (interest, then capital). The repayment dialog
-shows the accrued interest to make that split a two-line entry rather than a guess.
+A payment is **one amount**. The split is derived, not entered: the calculator returns
+`interestPart` and `capitalPart` for each row, so the ledger can show "dont X € d'intérêts"
+while the dialog asks for a single amount. `kind` now only distinguishes a write-off (and
+an explicit interest-only entry remains possible through the API).
+
+Because the cash leg is one movement with one budget category, the interest part is tracked
+in the loan ledger but not booked as budget income. That is the deliberate trade-off for a
+single repayment entry: the budget stays a transfer, the loan knows how much of it was
+interest.
 
 Edge cases:
 
@@ -116,8 +121,8 @@ ledger.
 | Movement | `kind` | Budget category | Effect |
 |---|---|---|---|
 | Money lent (cash out) | — | `TRANSFER` | none |
-| Capital repaid (cash in) | `PRINCIPAL` | `TRANSFER` | none |
-| Interest received (cash in) | `INTEREST` | `INCOME` | counts as income |
+| Payment (cash in) | `PRINCIPAL` | `TRANSFER` | none; the interest part is in the ledger, not the budget |
+| Explicit interest-only entry (API) | `INTEREST` | `INCOME` | counts as income |
 | Write-off | `WRITE_OFF` | none | net worth only |
 
 `CategoryKind.TRANSFER` is already excluded from cashflow, and an **uncategorised**
@@ -198,20 +203,21 @@ a child row: the ledger is scoped through its account, never through an unvalida
   - summary: lent / repaid (%) / remaining / accrued interest / written off;
   - forecast card with the scheduled-vs-actual figures, the drift, and the
     actual-vs-scheduled chart (`PeerLoanForecastChart`);
-  - repayment ledger with the kind badge, add / edit / delete; capital and interest
-    amounts are green and prefixed `+`, a write-off is red and prefixed `−`;
+  - repayment ledger with the kind badge, the "dont X € d'intérêts" split, add / edit /
+    delete; capital and interest amounts are green and prefixed `+`, a write-off is red
+    and prefixed `−`;
   - "close the loan" action with the residual amount in the confirmation.
 - `PeerLoanTermsDialog.tsx` — terms plus the simulator (a duration fills the monthly
   amount, or a monthly amount fills the duration). The rate is entered per year or per
   month; switching the period converts the visible value. The linked cash account is
   required; the borrower is the account name.
-- `PeerLoanRepaymentDialog.tsx` — one dated row, one kind, one budget category.
+- `PeerLoanRepaymentDialog.tsx` — one date and one amount; the calculator applies the
+  accrued interest first and the ledger row shows the split.
 - `CreatePeerLoanDialog.tsx` — opened from an outgoing transaction's detail sheet;
   prefills the borrower from the merchant label and links the transaction as the lending
   leg.
-- `AssignRepaymentDialog.tsx` — opened from an incoming transaction; picks an open loan
-  and whether the amount is capital or interest, then links the transaction as the
-  repayment's cash leg.
+- `AssignRepaymentDialog.tsx` — opened from an incoming transaction; picks an open loan,
+  then links the transaction as the repayment's cash leg (interest first, capital next).
 - `AccountForm` hides the balance, currency, bank, ticker and manual fields for a peer
   loan and labels the name "Borrower".
 - `AccountsPage` gains a `RECEIVABLES` filter.
@@ -334,7 +340,7 @@ The `db` container has no host port: the database is only reachable by the test 
 | Dedicated ledger table | The repayment kind is a fact; a bank-feed table cannot express `WRITE_OFF` | `transaction` rows (fights `ManualTransactionService`'s balance recomputation) |
 | No risk score, no provision | A guessed percentage puts a false number in net worth | Expected-loss haircut, scored counterparty |
 | Dated `WRITE_OFF` at closure | The loss is an event; history is not rewritten | Retroactive revaluation, automatic aging rule |
-| Explicit repayment kinds | One cash movement, one budget category | Implicit interest-first split (a synced row cannot be half income) |
+| Single payment, interest first | One amount to enter; the split is derived and shown on the row | Explicit Capital/Intérêts rows (two entries for one movement) |
 | Simple interest, `actual/365` | Matches how a private loan is actually computed | Compounded interest, 30/360 |
 | Derived schedule, never persisted | Same principle as the bank-loan ADR | Persisted installments, paid counter |
 | Plan stored as a forecast | Editing it must not alter the balance | Treating the plan as the contract |
@@ -397,8 +403,8 @@ The `db` container has no host port: the database is only reachable by the test 
 ## Tests
 
 - `PeerLoanCalculatorTest` — remaining capital, simple interest, payment below accrued
-  interest, zero rate, write-off, overpayment clamp, forecast drift, both simulation
-  directions.
+  interest, interest-first allocation of a payment, zero rate, write-off, overpayment
+  clamp, forecast drift, both simulation directions, high short-term rate.
 - `PeerLoanServiceTest` — unconfigured detail, member scoping, wrong type, closed-loan
   guard, account name as the borrower, no leg on a synced account, the outflow written on
   a manual one, closure write-off and zeroed balance, reopen on deleting the write-off,

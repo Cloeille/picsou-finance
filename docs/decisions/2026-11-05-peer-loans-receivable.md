@@ -90,11 +90,11 @@ Interest accrues on the outstanding capital at `actual/365`:
 accrued = Σ (outstanding capital × annual rate × days / 365)
 ```
 
-A ledger row states what it is and is applied to its own bucket: `PRINCIPAL` reduces
-capital, `INTEREST` pays accrued interest, `WRITE_OFF` reduces capital. The split is not
-derived, because one cash movement carries one budget category: a synced bank row cannot
-be half a transfer and half income. The UI shows the accrued interest so the member can
-record the two rows a mixed payment needs.
+A ledger row states one amount. `PRINCIPAL` and `INTEREST` are payments: the accrued
+interest is paid first, then the remainder reduces the capital, and the split is returned
+per row so the UI can show it. `WRITE_OFF` reduces capital only. Because the cash leg is
+one movement with one budget category, the interest part is tracked in the loan ledger but
+not booked as budget income — the deliberate trade-off for a single repayment entry.
 
 The rate can be stated **monthly or annually**. `annual_rate` always holds the normalized
 annual fraction the calculator uses; `rate_period` only remembers the unit the member
@@ -105,9 +105,10 @@ Accrued but unpaid interest is **displayed, never counted in net worth**. Counti
 that has not been received would reintroduce the optimism this ADR rejects. At closure,
 unpaid accrued interest simply disappears.
 
-Principal repayments are `CategoryKind.TRANSFER` (an asset swap, excluded from the budget).
-Interest received is `CategoryKind.INCOME` (real, taxable income). This split is why the
-repayment kind is a fact stored on the row rather than something inferred later.
+A repayment's cash leg is `CategoryKind.TRANSFER` (an asset swap, excluded from the
+budget). The interest part is tracked in the ledger but not booked as income: one cash
+movement carries one category. An explicit interest-only API entry still uses
+`CategoryKind.INCOME`.
 
 ### 6. The plan is a forecast, explicitly non-binding
 
@@ -169,8 +170,8 @@ the cash movement is a fact, and changing it silently would rewrite history.
 - **Pros**: repayments would appear in the global transaction view for free.
 - **Cons**: `ManualTransactionService` recomputes a cash account's balance from the sum of
   its transactions for ledger accounts. That would fight the `principal − repayments`
-  formula. An explicit ledger also keeps the repayment kind (`INTEREST` vs `WRITE_OFF`)
-  and the counterparty history out of a table designed for bank feeds.
+  formula. An explicit ledger also keeps the write-off kind and the per-row interest split
+  out of a table designed for bank feeds.
 
 ### A provision percentage, or an expected-loss haircut
 

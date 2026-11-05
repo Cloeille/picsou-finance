@@ -3,10 +3,10 @@ package com.picsou.model;
 /**
  * What a ledger row records.
  *
- * <p>{@code PRINCIPAL} and {@code INTEREST} are cash received and must be recorded
- * separately: the principal is an asset swap (a {@code TRANSFER}, excluded from the
- * budget) while the interest is real income (an {@code INCOME}). Folding them into one
- * row would make one of the two wrong in the cashflow.
+ * <p>{@code PRINCIPAL} and {@code INTEREST} are payments: both are allocated interest
+ * first, then capital, so the UI can ask for a single amount. The label no longer changes
+ * the arithmetic; it is kept so an explicit interest-only entry remains expressible
+ * through the API.
  *
  * <p>{@code WRITE_OFF} is not a payment. It reduces the nominal capital because the
  * member decided the rest will not come back, and it carries no cash movement.
