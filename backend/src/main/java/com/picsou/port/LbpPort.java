@@ -11,9 +11,9 @@ import java.util.List;
  *
  * <p>Login is three calls and the password never reaches Picsou: {@link #initiateAuth}
  * returns the bank's keypad, the user clicks his digits in his browser,
- * {@link #submitKeypad} forwards only the key positions, and {@link #submitOtp} carries
- * the Certicode code the user received. None of them is ever retried: a wrong password or
- * code consumes a bank attempt and can lock the account.
+ * {@link #submitKeypad} forwards only the key positions, and {@link #completeAuth} waits
+ * for the human to approve the sign-in from the bank's mobile app. None of them is ever
+ * retried: a wrong password consumes a bank attempt and can lock the account.
  *
  * <p>The exact login page has not been observed live yet. The keypad shape is deliberately
  * the same as Caisse d'Epargne's so the backend and the UI do not change if the recon shows
@@ -32,10 +32,11 @@ public interface LbpPort {
     void submitKeypad(String processId, List<Integer> positions);
 
     /**
-     * {@code POST /otp}: submits the Certicode code and returns the opaque session state.
-     * Single use, no retry; the code is never logged.
+     * {@code POST /complete}: blocks until the human approved the sign-in in the bank's
+     * mobile app (the sidecar waits up to 150 s) and returns the opaque session state.
+     * Single use, no retry.
      */
-    String submitOtp(String processId, String code);
+    String completeAuth(String processId);
 
     /**
      * Replays the stored session without reading any data ({@code /token-check}).

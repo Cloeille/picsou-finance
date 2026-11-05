@@ -30,9 +30,9 @@ import java.util.regex.Pattern;
 
 /**
  * La Banque Postale endpoints. Login is three calls ({@code /auth/initiate},
- * {@code /auth/keypad}, {@code /auth/otp}); no password ever reaches Picsou:
+ * {@code /auth/keypad}, {@code /auth/complete}); no password ever reaches Picsou:
  * {@code /auth/initiate} answers with the bank's keypad, the user clicks his digits in his
- * browser, then types the Certicode code. The sync is on demand only.
+ * browser, then approves the sign-in in the bank's mobile app. The sync is on demand only.
  */
 @RestController
 @RequestMapping("/api/lbp")
@@ -47,7 +47,6 @@ public class LbpController {
      * typo from spending a sign-in attempt without assuming every account uses the same width.
      */
     static final Pattern CUSTOMER_ID = Pattern.compile("\\d{6,12}");
-    static final Pattern OTP_CODE = Pattern.compile("\\d{6,8}");
     static final int POSITIONS_MIN = 6;
     static final int POSITIONS_MAX = 12;
     static final int PAD_SIZE = 10;
@@ -95,7 +94,7 @@ public class LbpController {
     }
 
     /**
-     * Clicks the digits the user chose, then waits for the bank to ask for the Certicode code.
+     * Clicks the digits the user chose, then leaves the attempt waiting for the mobile approval.
      * The body is validated first: a malformed request spends nothing. Its own bucket, so it can
      * never eat one of the 3 login attempts.
      */
@@ -118,27 +117,19 @@ public class LbpController {
     }
 
     /**
-     * Submits the Certicode code and stores the session. Takes no password and does not draw
-     * from the login bucket: the initiation already bounded the attempts. Its own bucket bounds
-     * wrong-code retries, because a refused code is a bank attempt too.
+     * Blocks while the customer approves the sign-in in the bank's mobile app (up to 150 s on
+     * the sidecar), then stores the session. Takes no password and does not draw from the login
+     * bucket: it cannot spend a bank attempt.
      */
-    @PostMapping("/auth/otp")
-    public ResponseEntity<?> otp(@RequestBody JsonNode body, HttpServletRequest request) {
-        requireOnlyFields(body, "processId", "code");
+    @PostMapping("/auth/complete")
+    public ResponseEntity<?> complete(@RequestBody JsonNode body) {
+        requireOnlyFields(body, "processId");
         String processId = text(body, "processId");
         if (processId.isBlank() || processId.length() > PROCESS_ID_MAX) {
             throw invalidBody();
         }
-        String code = text(body, "code");
-        if (!OTP_CODE.matcher(code).matches()) {
-            throw invalidBody();
-        }
-        ConsumptionProbe probe = consumeToken(stepBuckets, RateLimitConfig::createLbpKeypadBucket, request);
-        if (!probe.isConsumed()) {
-            return otpRateLimited(probe);
-        }
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store")
-            .body(service.submitOtp(processId, code, userContext.currentMemberId()));
+            .body(service.completeAuth(processId, userContext.currentMemberId()));
     }
 
     /**
@@ -235,10 +226,6 @@ public class LbpController {
         return tooMany(probe, "Too many La Banque Postale keypad requests. Please wait before retrying.");
     }
 
-    private ResponseEntity<ProblemDetail> otpRateLimited(ConsumptionProbe probe) {
-        return tooMany(probe, "Too many La Banque Postale code attempts. Please wait before retrying.");
-    }
-
     private ResponseEntity<ProblemDetail> tooMany(ConsumptionProbe probe, String message) {
         long seconds = Math.max(1, Duration.ofNanos(probe.getNanosToWaitForRefill()).plusMillis(999).toSeconds());
         ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
@@ -276,17 +263,11 @@ public class LbpController {
 
     record KeypadResponse(String processId, String status) {
         KeypadResponse(String processId) {
-            this(processId, "OTP_PENDING");
+            this(processId, "APPROVAL_PENDING");
         }
     }
 
-    /** The one-time code is a bank secret: redacted from {@code toString}. */
-    record OtpRequest(String processId, String code) {
-        @Override
-        public String toString() {
-            return "OtpRequest[processId=" + processId + ", code=***]";
-        }
-    }
+    record CompleteRequest(String processId) {}
 
     record DeleteResponse(boolean removed, boolean bankSessionRevoked, String message) {}
 }

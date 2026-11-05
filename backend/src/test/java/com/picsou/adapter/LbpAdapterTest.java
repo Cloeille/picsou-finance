@@ -23,8 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The login half of the sidecar contract: {@code /initiate}, {@code /keypad}, {@code /otp}.
- * One attempt only: a wrong password or code burns a bank attempt, so nothing here may replay.
+ * The login half of the sidecar contract: {@code /initiate}, {@code /keypad}, {@code /complete}.
+ * One attempt only: a wrong password burns a bank attempt, so nothing here may replay a call.
  */
 class LbpAdapterTest {
 
@@ -32,8 +32,8 @@ class LbpAdapterTest {
     private static final List<Integer> POSITIONS = List.of(7, 3, 0, 9, 4, 1);
     private static final String IMAGE = "data:image/png;base64,iVBORw0KGgo=";
     private static final String INITIATE_OK = initiateJson("proc-1", 5, 90);
-    private static final String KEYPAD_OK = "{\"processId\":\"proc-1\",\"status\":\"OTP_PENDING\"}";
-    private static final String OTP_OK = "{\"sessionState\":\"opaque-cookie-jar\"}";
+    private static final String KEYPAD_OK = "{\"processId\":\"proc-1\",\"status\":\"APPROVAL_PENDING\"}";
+    private static final String COMPLETE_OK = "{\"sessionState\":\"opaque-cookie-jar\"}";
 
     private static String initiateJson(String processId, int columns, int expiresIn) {
         String images = String.join(",", Collections.nCopies(10, "\"" + IMAGE + "\""));
@@ -61,7 +61,7 @@ class LbpAdapterTest {
     }
 
     @Test
-    void submitKeypad_postsTheProcessIdAndPositionsAndExpectsOtpPending() {
+    void submitKeypad_postsTheProcessIdAndPositionsAndExpectsApprovalPending() {
         List<Call> calls = new ArrayList<>();
         LbpAdapter adapter = recording(calls, HttpStatus.OK, KEYPAD_OK);
 
@@ -74,7 +74,7 @@ class LbpAdapterTest {
     }
 
     @Test
-    void submitKeypad_refusesAnAnswerThatIsNotOtpPending() {
+    void submitKeypad_refusesAnAnswerThatIsNotApprovalPending() {
         for (String body : List.of("{\"processId\":\"proc-1\",\"status\":\"DONE\"}",
             "{\"processId\":\"proc-1\"}", "")) {
             LbpAdapter adapter = returning(HttpStatus.OK, body);
@@ -88,15 +88,15 @@ class LbpAdapterTest {
     }
 
     @Test
-    void submitOtp_postsTheProcessIdAndCodeAndMapsTheSession() {
+    void completeAuth_postsOnlyTheProcessIdAndMapsTheSession() {
         List<Call> calls = new ArrayList<>();
-        LbpAdapter adapter = recording(calls, HttpStatus.OK, OTP_OK);
+        LbpAdapter adapter = recording(calls, HttpStatus.OK, COMPLETE_OK);
 
-        assertThat(adapter.submitOtp("proc-1", "123456")).isEqualTo("opaque-cookie-jar");
+        assertThat(adapter.completeAuth("proc-1")).isEqualTo("opaque-cookie-jar");
 
         assertThat(calls).singleElement().satisfies(call -> {
-            assertThat(call.path()).isEqualTo("/otp");
-            assertThat(call.body()).isEqualTo("{\"processId\":\"proc-1\",\"code\":\"123456\"}");
+            assertThat(call.path()).isEqualTo("/complete");
+            assertThat(call.body()).isEqualTo("{\"processId\":\"proc-1\"}");
         });
     }
 
@@ -118,16 +118,13 @@ class LbpAdapterTest {
     }
 
     @Test
-    void otpMaps408ToExpiredAnd422ToInvalid() {
-        assertThatThrownBy(() -> returning(HttpStatus.REQUEST_TIMEOUT, "").submitOtp("proc-1", "123456"))
+    void completeMaps408ToAnApprovalTimeoutAndABare401ToInvalidCredentials() {
+        assertThatThrownBy(() -> returning(HttpStatus.REQUEST_TIMEOUT, "").completeAuth("proc-1"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(LbpErrorCode.OTP_EXPIRED.name()));
-        assertThatThrownBy(() -> returning(HttpStatus.UNPROCESSABLE_ENTITY, "").submitOtp("proc-1", "123456"))
+                assertThat(error.getCode()).isEqualTo(LbpErrorCode.APP_VALIDATION_TIMEOUT.name()));
+        assertThatThrownBy(() -> returning(HttpStatus.UNAUTHORIZED, "").completeAuth("proc-1"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(LbpErrorCode.OTP_INVALID.name()));
-        assertThatThrownBy(() -> returning(HttpStatus.UNAUTHORIZED, "").submitOtp("proc-1", "123456"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(LbpErrorCode.OTP_INVALID.name()));
+                assertThat(error.getCode()).isEqualTo(LbpErrorCode.INVALID_CREDENTIALS.name()));
     }
 
     @Test
@@ -149,7 +146,7 @@ class LbpAdapterTest {
 
             assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID)).isInstanceOf(SyncException.class);
             assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS)).isInstanceOf(SyncException.class);
-            assertThatThrownBy(() -> adapter.submitOtp("proc-1", "123456")).isInstanceOf(SyncException.class);
+            assertThatThrownBy(() -> adapter.completeAuth("proc-1")).isInstanceOf(SyncException.class);
 
             assertThat(requests).as(status.toString()).hasValue(3);
         }
@@ -159,7 +156,8 @@ class LbpAdapterTest {
     void theAuthCallsHaveTheirOwnTimeouts() {
         assertThat(LbpAdapter.INITIATE_TIMEOUT).isEqualTo(Duration.ofSeconds(90));
         assertThat(LbpAdapter.KEYPAD_TIMEOUT).isEqualTo(Duration.ofSeconds(70));
-        assertThat(LbpAdapter.OTP_TIMEOUT).isEqualTo(Duration.ofSeconds(90));
+        // longer than the sidecar's 150 s wait for the human to approve on the phone
+        assertThat(LbpAdapter.COMPLETE_TIMEOUT).isEqualTo(Duration.ofSeconds(170));
     }
 
     @Test
@@ -174,14 +172,13 @@ class LbpAdapterTest {
                 assertThat(error.getCode()).isEqualTo(LbpErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getMessage()).contains("too long").doesNotContain(CUSTOMER_ID);
             });
-        assertThatThrownBy(() -> adapter.submitOtp("proc-1", "123456")).isInstanceOf(SyncException.class);
+        assertThatThrownBy(() -> adapter.completeAuth("proc-1")).isInstanceOf(SyncException.class);
     }
 
     @Test
-    void theIdentifierThePositionsAndTheCodeNeverReachToString() throws Exception {
+    void theIdentifierAndThePositionsNeverReachToString() throws Exception {
         assertRedacted("InitiateBody", CUSTOMER_ID);
         assertRedacted("KeypadBody", "7,3,0,9,4,1");
-        assertRedacted("OtpBody", "123456");
     }
 
     private static void assertRedacted(String simpleName, String secret) throws Exception {
@@ -189,14 +186,9 @@ class LbpAdapterTest {
             .filter(c -> c.getSimpleName().equals(simpleName)).findFirst().orElseThrow();
         var constructor = type.getDeclaredConstructors()[0];
         constructor.setAccessible(true);
-        Object instance;
-        if (simpleName.equals("InitiateBody")) {
-            instance = constructor.newInstance((Object) secret);
-        } else if (simpleName.equals("KeypadBody")) {
-            instance = constructor.newInstance("proc-1", POSITIONS);
-        } else {
-            instance = constructor.newInstance("proc-1", secret);
-        }
+        Object instance = simpleName.equals("InitiateBody")
+            ? constructor.newInstance((Object) secret)
+            : constructor.newInstance("proc-1", POSITIONS);
         assertThat(instance.toString()).doesNotContain(secret);
     }
 

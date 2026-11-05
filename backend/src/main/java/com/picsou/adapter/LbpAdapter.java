@@ -21,8 +21,7 @@ import java.util.Map;
 /**
  * Sidecar client. The three login calls are deliberately plain single-shot requests: there is
  * no retry filter on the {@link WebClient}, none is added here, and a failure is translated,
- * never replayed, because a wrong password or one-time code consumes a bank attempt and can
- * lock the account.
+ * never replayed, because a wrong password consumes a bank attempt and can lock the account.
  */
 @Component
 public class LbpAdapter implements LbpPort {
@@ -31,9 +30,10 @@ public class LbpAdapter implements LbpPort {
     private static final Duration DEFAULT_ACCOUNTS_TIMEOUT = Duration.ofSeconds(120);
 
     static final Duration INITIATE_TIMEOUT = Duration.ofSeconds(90);
+    /** The sidecar gives /keypad 60 s (clicks, Valider, the mobile-approval page): stay above it. */
     static final Duration KEYPAD_TIMEOUT = Duration.ofSeconds(70);
-    /** The sidecar loads the Certicode page and submits the code; stay below nginx's 90 s. */
-    static final Duration OTP_TIMEOUT = Duration.ofSeconds(90);
+    /** The sidecar waits up to 150 s for the human to approve on the phone: stay above it. */
+    static final Duration COMPLETE_TIMEOUT = Duration.ofSeconds(170);
 
     private final WebClient client;
     private final SidecarErrorTranslator<LbpErrorCode> sidecar;
@@ -43,7 +43,7 @@ public class LbpAdapter implements LbpPort {
     private final Duration accountsTimeout;
     private final Duration initiateTimeout;
     private final Duration keypadTimeout;
-    private final Duration otpTimeout;
+    private final Duration completeTimeout;
 
     @Autowired
     public LbpAdapter(
@@ -77,7 +77,7 @@ public class LbpAdapter implements LbpPort {
     }
 
     LbpAdapter(WebClient client, ObjectMapper objectMapper, Duration checkTimeout, Duration accountsTimeout) {
-        this(client, objectMapper, checkTimeout, accountsTimeout, INITIATE_TIMEOUT, KEYPAD_TIMEOUT, OTP_TIMEOUT);
+        this(client, objectMapper, checkTimeout, accountsTimeout, INITIATE_TIMEOUT, KEYPAD_TIMEOUT, COMPLETE_TIMEOUT);
     }
 
     LbpAdapter(
@@ -87,7 +87,7 @@ public class LbpAdapter implements LbpPort {
         Duration accountsTimeout,
         Duration initiateTimeout,
         Duration keypadTimeout,
-        Duration otpTimeout
+        Duration completeTimeout
     ) {
         this.client = client;
         this.sidecar = translator(client, objectMapper, LbpErrorCode.SESSION_EXPIRED);
@@ -96,7 +96,7 @@ public class LbpAdapter implements LbpPort {
         this.accountsTimeout = accountsTimeout;
         this.initiateTimeout = initiateTimeout;
         this.keypadTimeout = keypadTimeout;
-        this.otpTimeout = otpTimeout;
+        this.completeTimeout = completeTimeout;
     }
 
     private static SidecarErrorTranslator<LbpErrorCode> translator(
@@ -139,23 +139,23 @@ public class LbpAdapter implements LbpPort {
             LbpErrorCode.KEYPAD_EXPIRED,
             LbpErrorCode.INVALID_POSITIONS
         );
-        if (!"OTP_PENDING".equals(ack.status())) {
+        if (!"APPROVAL_PENDING".equals(ack.status())) {
             throw authSidecar.coded(LbpErrorCode.UPSTREAM_FORMAT_CHANGED,
                 friendlyMessage(LbpErrorCode.UPSTREAM_FORMAT_CHANGED), null);
         }
     }
 
     @Override
-    public String submitOtp(String processId, String code) {
+    public String completeAuth(String processId) {
         SessionBody body = authPost(
-            "/otp",
-            new OtpBody(processId, code),
+            "/complete",
+            new CompleteBody(processId),
             SessionBody.class,
-            otpTimeout,
+            completeTimeout,
             "Could not finish the La Banque Postale login",
-            LbpErrorCode.OTP_INVALID,
-            LbpErrorCode.OTP_EXPIRED,
-            LbpErrorCode.OTP_INVALID
+            LbpErrorCode.INVALID_CREDENTIALS,
+            LbpErrorCode.APP_VALIDATION_TIMEOUT,
+            null
         );
         return body.sessionState();
     }
@@ -165,7 +165,7 @@ public class LbpAdapter implements LbpPort {
      * are resolved here; everything else goes through the shared translator. No request body,
      * header or response body is ever logged or put in a message.
      *
-     * @param timeoutCode       what a 408 means on this call (keypad expired, OTP expired)
+     * @param timeoutCode       what a 408 means on this call (keypad expired, approval timed out)
      * @param unprocessableCode what a 422 means on this call, or null when it carries no such meaning
      */
     private <T> T authPost(
@@ -227,13 +227,7 @@ public class LbpAdapter implements LbpPort {
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     private record KeypadAck(String processId, String status) {}
 
-    /** The one-time code is a bank secret: redacted from {@code toString}. */
-    private record OtpBody(String processId, String code) {
-        @Override
-        public String toString() {
-            return "OtpBody[processId=" + processId + ", code=***]";
-        }
-    }
+    private record CompleteBody(String processId) {}
 
     /** The state is a cookie jar: redacted from {@code toString}. */
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
@@ -276,9 +270,7 @@ public class LbpAdapter implements LbpPort {
             case KEYPAD_EXPIRED -> "The La Banque Postale keypad expired. Start again.";
             case INVALID_POSITIONS -> "The keypad choice is not valid. Start again.";
             case KEYPAD_CHANGED -> "La Banque Postale changed its login page. Nothing was sent.";
-            case OTP_INVALID -> "La Banque Postale refused the one-time code. Start again.";
-            case OTP_EXPIRED -> "The one-time code was not entered in time. Start again.";
-            case APP_VALIDATION_TIMEOUT -> "The sign-in was not approved in time";
+            case APP_VALIDATION_TIMEOUT -> "The sign-in was not approved in the mobile app in time";
             case AUTH_ATTEMPT_EXPIRED -> "This La Banque Postale sign-in attempt expired. Start again.";
             case UPSTREAM_FORMAT_CHANGED -> "The La Banque Postale data format changed";
             case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "La Banque Postale is temporarily unavailable";

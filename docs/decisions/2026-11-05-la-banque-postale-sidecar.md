@@ -41,13 +41,12 @@ whether the account data is JSON or server-rendered HTML are all unverified.
    `AccountType` directly. Livrets are not guessed from their name, unlike the
    Enable Banking path.
 4. **Cookies only, encrypted.** The backend stores the session state through
-   `CryptoEncryption`; the password, the second factor and the bank's device
-   certificate, when one exists, are never stored. A rejected session becomes
-   inactive and can only be renewed by the user.
+   `CryptoEncryption`; the password and the mobile approval are never stored.
+   A rejected session becomes inactive and can only be renewed by the user.
 5. **On-demand sync only.** No scheduler, no startup sync, no auto-resync hook
-   initially: if Certicode is required on every login, a scheduled sync cannot
-   run unattended. A scheduled sync is reconsidered only after the session
-   lifetime has been measured.
+   initially: if the bank asks for a mobile approval on every login, a scheduled
+   sync cannot run unattended. A scheduled sync is reconsidered only after the
+   session lifetime has been measured.
 6. **The login layer is chosen from the recon, not guessed.** The sidecar's
    backend-facing contract (a normalized account snapshot) does not depend on
    it. If the web client can be replayed with cookies, the transport is
@@ -105,8 +104,8 @@ account never sits in the `CHECKING` bucket waiting for the name-based detector.
 - **Unofficial integration.** It breaks when La Banque Postale changes its web
   client, and the current account breaks with it — the sidecar is not limited
   to the savings products.
-- **Human presence at login** if Certicode is required every time. The sync
-  stays on demand.
+- **Human presence at login** if the bank asks for a mobile approval every time.
+  The sync stays on demand.
 - **No PSD2 guarantee.** The bank may rate-limit, challenge or block automated
   access. Failures must be typed so they are diagnosable.
 - **A live recon is still required.** No endpoint, selector or payload is
@@ -129,8 +128,9 @@ account never sits in the `CHECKING` bucket waiting for the name-based detector.
 
 1. Is the password entered on a virtual keypad (as at Caisse d'Epargne) or in a
    text field? Are the key images shuffled per connection?
-2. Is Certicode requested on every login, only on a new device, or only for
-   sensitive operations? Is there a "trusted device" cookie?
+2. Is a mobile approval requested on every login, only on a new device, or only
+   for sensitive operations? Is there a "trusted device" cookie? Does the bank
+   still fall back to an SMS code (Certicode) for some accounts?
 3. Is the account data fetched as JSON XHR or rendered server-side?
 4. Is there an anti-bot layer (TLS fingerprint, JavaScript challenge, CAPTCHA)?
 5. How long does a session stay usable, and can it be refreshed without the

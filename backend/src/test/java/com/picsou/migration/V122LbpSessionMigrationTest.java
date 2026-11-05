@@ -104,7 +104,7 @@ class V122LbpSessionMigrationTest {
             .contains("member_id", "session_state", "is_active", "sync_status", "last_sync_error")
             .doesNotContain("encrypted_credentials")
             .noneMatch(name -> name.contains("password") || name.contains("credential")
-                || name.contains("otp"));
+                || name.contains("keypad"));
     }
 
     @Test

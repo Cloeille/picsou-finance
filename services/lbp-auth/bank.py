@@ -9,7 +9,7 @@ To implement it, provide an object with the five async methods below and bind it
 to `main.bank_client` (or replace `UnverifiedBankClient`). The methods must
 return the normalized shapes documented in the README and must raise the typed
 errors `main` maps to the backend's codes. Never log a password, a keypad
-position, a one-time code, a cookie or a raw bank payload.
+position, a cookie or a raw bank payload.
 """
 
 from typing import Any, Protocol
@@ -24,10 +24,10 @@ class BankClient(Protocol):
         """Start a login and return {processId, keypad: {images, columns}, expiresInSeconds}."""
 
     async def keypad(self, process_id: str, positions: list[int]) -> None:
-        """Submit the clicked key positions and leave the attempt waiting for the OTP."""
+        """Submit the clicked key positions and leave the attempt waiting for the mobile approval."""
 
-    async def otp(self, process_id: str, code: str) -> str:
-        """Submit the one-time code and return the opaque session state."""
+    async def complete(self, process_id: str) -> str:
+        """Wait for the mobile approval (up to 150 s) and return the opaque session state."""
 
     async def check(self, session_state: str) -> int:
         """Replay the session and return how many seconds it stays usable."""
@@ -45,7 +45,7 @@ class UnverifiedBankClient:
     async def keypad(self, process_id: str, positions: list[int]) -> None:
         raise BankFlowUnverified()
 
-    async def otp(self, process_id: str, code: str) -> str:
+    async def complete(self, process_id: str) -> str:
         raise BankFlowUnverified()
 
     async def check(self, session_state: str) -> int:

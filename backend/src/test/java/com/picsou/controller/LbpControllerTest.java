@@ -130,7 +130,7 @@ class LbpControllerTest {
             .andExpect(status().isOk())
             .andExpect(header().string("Cache-Control", "no-store"))
             .andExpect(jsonPath("$.processId").value("proc-1"))
-            .andExpect(jsonPath("$.status").value("OTP_PENDING"));
+            .andExpect(jsonPath("$.status").value("APPROVAL_PENDING"));
 
         verify(service).submitKeypad("proc-1", List.of(7, 3, 0, 9, 4, 1), MEMBER_ID);
     }
@@ -151,12 +151,12 @@ class LbpControllerTest {
     }
 
     @Test
-    void otpStoresTheSessionAndAnswersTheStatus() throws Exception {
-        when(service.submitOtp("proc-1", "123456", MEMBER_ID)).thenReturn(statusOf(LbpSyncStatus.IDLE));
+    void completeStoresTheSessionAndAnswersTheStatus() throws Exception {
+        when(service.completeAuth("proc-1", MEMBER_ID)).thenReturn(statusOf(LbpSyncStatus.IDLE));
 
-        mockMvc.perform(post("/api/lbp/auth/otp")
+        mockMvc.perform(post("/api/lbp/auth/complete")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"processId\":\"proc-1\",\"code\":\"123456\"}"))
+                .content("{\"processId\":\"proc-1\"}"))
             .andExpect(status().isOk())
             .andExpect(header().string("Cache-Control", "no-store"))
             .andExpect(jsonPath("$.isActive").value(true))
@@ -164,17 +164,17 @@ class LbpControllerTest {
     }
 
     @Test
-    void otpRefusesANonNumericCodeAndAnUnexpectedField() throws Exception {
+    void completeRefusesAnUnexpectedFieldAndAMissingProcessId() throws Exception {
         for (String body : List.of(
-            "{\"processId\":\"proc-1\",\"code\":\"abcdef\"}",
-            "{\"processId\":\"proc-1\",\"code\":\"123456\",\"password\":\"x\"}",
-            "{\"processId\":\"proc-1\",\"code\":\"123\"}")) {
-            mockMvc.perform(post("/api/lbp/auth/otp")
+            "{\"processId\":\"proc-1\",\"code\":\"123456\"}",
+            "{\"processId\":\"proc-1\",\"password\":\"x\"}",
+            "{}")) {
+            mockMvc.perform(post("/api/lbp/auth/complete")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(body))
                 .andExpect(status().isBadRequest());
         }
-        verify(service, never()).submitOtp(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), anyLong());
+        verify(service, never()).completeAuth(org.mockito.ArgumentMatchers.any(), anyLong());
     }
 
     @Test

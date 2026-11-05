@@ -69,8 +69,8 @@ public class LbpSyncService {
     /** A key image is a small PNG. Bigger is not a key image. */
     private static final int KEYPAD_MAX_IMAGE_LENGTH = 16 * 1024;
     private static final String KEYPAD_IMAGE_PREFIX = "data:image/png;base64,";
-    /** How long the user has to type the Certicode code once the keypad was submitted. */
-    private static final int OTP_WINDOW_SECONDS = 180;
+    /** How long the user has to approve on the phone once the keypad was submitted. */
+    private static final int APPROVAL_WINDOW_SECONDS = 180;
     private static final java.util.regex.Pattern BASE64 = java.util.regex.Pattern.compile("[A-Za-z0-9+/]+={0,2}");
 
     private final LbpPort port;
@@ -84,9 +84,9 @@ public class LbpSyncService {
     private final Executor syncExecutor;
     private final Clock clock;
     /**
-     * Logins waiting for the Certicode code. Holds the process id, the member and a deadline:
-     * never the identifier, the password or the code. Process-local on purpose, a restart drops
-     * the attempt and the user starts again.
+     * Logins waiting for the mobile approval. Holds the process id, the member and a deadline:
+     * never the identifier or the password. Process-local on purpose, a restart drops the
+     * attempt and the user starts again.
      */
     private final Map<String, PendingLogin> pendingLogins = new ConcurrentHashMap<>();
 
@@ -194,7 +194,7 @@ public class LbpSyncService {
      */
     public void submitKeypad(String processId, List<Integer> positions, Long memberId) {
         PendingLogin pending = takePending(processId, memberId);
-        if (pending.otpExpiresAt() != null) {
+        if (pending.approvalExpiresAt() != null) {
             // The digits were already sent for this process: nothing more to click.
             throw error(LbpErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This La Banque Postale sign-in attempt expired. Please start again.", null);
@@ -206,21 +206,22 @@ public class LbpSyncService {
         }
         port.submitKeypad(processId, positions);
         pendingLogins.put(processId, new PendingLogin(memberId, null,
-            clock.instant().plusSeconds(OTP_WINDOW_SECONDS)));
+            clock.instant().plusSeconds(APPROVAL_WINDOW_SECONDS)));
     }
 
     /**
-     * Submits the Certicode code, then stores the encrypted session through
-     * {@link #storeSession}. A process id is single use: it is taken out of the map before the
-     * sidecar is called, so a failure cannot be replayed from here.
+     * Finishes a login the user approved in the bank's mobile app, then stores the encrypted
+     * session through {@link #storeSession}. A process id is single use: it is taken out of the
+     * map before the sidecar is called, so a failure cannot be replayed from here.
      */
-    public SessionStatusResponse submitOtp(String processId, String code, Long memberId) {
+    public SessionStatusResponse completeAuth(String processId, Long memberId) {
         PendingLogin pending = takePending(processId, memberId);
-        if (pending.otpExpiresAt() == null || !pending.otpExpiresAt().isAfter(clock.instant())) {
-            throw error(LbpErrorCode.OTP_EXPIRED,
-                "The one-time code was not entered in time. Start again.", null);
+        // The keypad must have been submitted: without it there is no approval to wait for.
+        if (pending.approvalExpiresAt() == null || !pending.approvalExpiresAt().isAfter(clock.instant())) {
+            throw error(LbpErrorCode.AUTH_ATTEMPT_EXPIRED,
+                "This La Banque Postale sign-in attempt expired. Please start again.", null);
         }
-        String plainState = port.submitOtp(processId, code);
+        String plainState = port.completeAuth(processId);
         if (plainState == null || plainState.isBlank()) {
             throw error(LbpErrorCode.UPSTREAM_FORMAT_CHANGED,
                 "La Banque Postale did not return a session", null);
@@ -754,11 +755,11 @@ public class LbpSyncService {
 
     /**
      * A login in flight. Only one of the two deadlines is set: the keypad's while the user
-     * clicks, the OTP window's once the digits were sent.
+     * clicks, the approval window's once the digits were sent.
      */
-    private record PendingLogin(Long memberId, Instant keypadExpiresAt, Instant otpExpiresAt) {
+    private record PendingLogin(Long memberId, Instant keypadExpiresAt, Instant approvalExpiresAt) {
         Instant deadline() {
-            return otpExpiresAt != null ? otpExpiresAt : keypadExpiresAt;
+            return approvalExpiresAt != null ? approvalExpiresAt : keypadExpiresAt;
         }
     }
 

@@ -30,11 +30,11 @@ class LbpSessionTest {
 
     @Test
     void neverStoresCredentials() {
-        // The password, the keypad positions and the Certicode code never reach Picsou.
+        // The password and the keypad positions never reach Picsou.
         assertThat(Arrays.stream(LbpSession.class.getDeclaredFields()).map(Field::getName))
             .noneMatch(name -> name.toLowerCase().contains("credential")
                 || name.toLowerCase().contains("password")
-                || name.toLowerCase().contains("otp"));
+                || name.toLowerCase().contains("keypad"));
     }
 
     @Test
@@ -144,7 +144,6 @@ class LbpSessionTest {
         for (LbpErrorCode code : new LbpErrorCode[] {
             LbpErrorCode.INVALID_CREDENTIALS, LbpErrorCode.KEYPAD_CHANGED,
             LbpErrorCode.KEYPAD_EXPIRED, LbpErrorCode.INVALID_POSITIONS,
-            LbpErrorCode.OTP_INVALID, LbpErrorCode.OTP_EXPIRED,
             LbpErrorCode.APP_VALIDATION_TIMEOUT, LbpErrorCode.AUTH_ATTEMPT_EXPIRED}) {
             LbpSession session = session();
             session.markQueued();

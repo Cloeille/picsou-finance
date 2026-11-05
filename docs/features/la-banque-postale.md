@@ -43,11 +43,11 @@ duplicate current account. See
 
 ```
 Sync page (La Banque Postale tab)
-  │  user connects: identifier → keypad/OTP → session
+  │  user connects: identifier → keypad → mobile approval → session
   ▼
 POST /api/lbp/auth/initiate ──► lbp-auth /initiate ──► bank login page
 POST /api/lbp/auth/keypad   ──► lbp-auth /keypad   ──► clicked positions only
-POST /api/lbp/auth/otp      ──► lbp-auth /otp      ──► Certicode code
+POST /api/lbp/auth/complete ──► lbp-auth /complete ──► wait for the mobile approval
                                      │
                                      ▼
                               encrypted session cookies
@@ -85,21 +85,26 @@ bank-specific.
 
 ### Login (provisional — to be confirmed by recon)
 
-The flow below is the Caisse d'Epargne-shaped assumption: a virtual keypad for
-the password, then a human-entered Certicode code. It will be adjusted to the
-observed bank page; nothing in the backend depends on the keypad specifically.
+The flow is the Caisse d'Epargne shape: a virtual keypad for the password, then
+the human approves the sign-in in the bank's **mobile app** (a push, not a code
+to type). It will be adjusted to the observed bank page; nothing in the backend
+depends on the keypad specifically. Certicode is no longer the flow for a
+modern account, but a bank may still fall back to an SMS code for some
+customers — if the recon shows one, an additive `/otp` step can be added
+without changing the rest of the contract.
 
 | Endpoint | Body | Answer |
 |---|---|---|
 | `POST /initiate` | `{customerId}` | `{processId, keypad: {images[10], columns}, expiresInSeconds}` |
-| `POST /keypad` | `{processId, positions}` | `{processId, status: "OTP_PENDING"}` |
-| `POST /otp` | `{processId, code}` | `{sessionState}` |
+| `POST /keypad` | `{processId, positions}` | `{processId, status: "APPROVAL_PENDING"}` |
+| `POST /complete` | `{processId}` | `{sessionState}` |
 | `POST /token-check` | `{sessionState}` | `{ok, expiresIn}` |
 | `POST /accounts` | `{sessionState}` | `{accounts, unsupported}` |
 
-- A password never reaches Picsou: only clicked key positions, then the OTP.
-- The OTP and the positions are never logged, echoed or stored.
-- No login step is retried: a wrong password or OTP can lock the bank account.
+- A password never reaches Picsou: only clicked key positions.
+- The positions are never logged, echoed or stored; the approval carries no
+  secret at all.
+- No login step is retried: a wrong password can lock the bank account.
 - An unknown, used, expired or other-member `processId` is refused before the
   sidecar is called.
 - Pending logins live in memory only; a restart drops the attempt.
@@ -142,7 +147,7 @@ shared sidecar key and URL validation come from `SidecarWebClientFactory`.
 `SESSION_EXPIRED`, `UPSTREAM_UNAVAILABLE`, `UPSTREAM_FORMAT_CHANGED`,
 `INVALID_SESSION_STATE`, `INTERNAL_ERROR`, plus the login codes
 `INVALID_CREDENTIALS`, `KEYPAD_CHANGED`, `KEYPAD_EXPIRED`, `INVALID_POSITIONS`,
-`OTP_INVALID`, `OTP_EXPIRED`, `APP_VALIDATION_TIMEOUT`, `AUTH_ATTEMPT_EXPIRED`.
+`APP_VALIDATION_TIMEOUT`, `AUTH_ATTEMPT_EXPIRED`.
 The `last_sync_error` CHECK enumerates them; adding one needs a migration.
 
 ## Recon checklist (blocking)
@@ -152,8 +157,9 @@ and note:
 
 1. **Password entry** — virtual keypad or text field? Are key images shuffled?
    Is the keypad value computed by page JavaScript?
-2. **Certicode** — requested on every login, only on a new device, or only for
-   sensitive operations? Is there a trusted-device cookie?
+2. **Mobile approval** — requested on every login, only on a new device, or
+   only for sensitive operations? Is there a trusted-device cookie? Does the
+   bank still fall back to an SMS code (Certicode) for some accounts?
 3. **Account data** — JSON XHR or server-rendered HTML? Which calls return the
    account list, a livret's balance and its transactions?
 4. **Anti-bot** — TLS fingerprint, JavaScript challenge, CAPTCHA, rate limiting?
@@ -169,7 +175,7 @@ change.
 
 **Backend**
 
-- `port/LbpPort.java` — normalized snapshot and the keypad + Certicode login.
+- `port/LbpPort.java` — normalized snapshot and the keypad + mobile-approval login.
 - `port/LbpErrorCode.java`, `model/LbpSession.java`, `model/LbpSyncStatus.java`,
   `repository/LbpSessionRepository.java`, `config/LbpSyncConfig.java`,
   `config/LbpSyncRecovery.java`, migration `V122__lbp_session.sql`.
@@ -177,7 +183,7 @@ change.
 - `service/LbpSyncService.java` — validates the whole snapshot, then writes every
   account and its transactions in one transaction; maps `kind` to
   `AccountType` directly.
-- `controller/LbpController.java` — `/api/lbp/auth/{initiate,keypad,otp}`,
+- `controller/LbpController.java` — `/api/lbp/auth/{initiate,keypad,complete}`,
   `/sync`, `/status`, `/session`, with strict bodies and per-IP buckets.
 - Tests: `LbpSessionTest`, `LbpAdapterTest`, `LbpControllerTest`,
   `V122LbpSessionMigrationTest`.

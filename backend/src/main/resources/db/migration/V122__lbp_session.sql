@@ -39,8 +39,6 @@ CREATE TABLE lbp_session (
                 'KEYPAD_CHANGED',
                 'KEYPAD_EXPIRED',
                 'INVALID_POSITIONS',
-                'OTP_INVALID',
-                'OTP_EXPIRED',
                 'APP_VALIDATION_TIMEOUT',
                 'AUTH_ATTEMPT_EXPIRED'
             )

@@ -24,11 +24,7 @@ public enum LbpErrorCode {
     KEYPAD_EXPIRED,
     /** The clicked positions are not a valid choice on a ten-key pad (length or range). */
     INVALID_POSITIONS,
-    /** The bank refused the one-time code. One attempt was spent: never retry. */
-    OTP_INVALID,
-    /** Nobody entered the one-time code before the login attempt expired. */
-    OTP_EXPIRED,
-    /** The human did not approve the sign-in on the bank's device in time. */
+    /** The human did not approve the sign-in in the bank's mobile app in time. */
     APP_VALIDATION_TIMEOUT,
     /** The pending login is unknown, used, expired or belongs to someone else. */
     AUTH_ATTEMPT_EXPIRED

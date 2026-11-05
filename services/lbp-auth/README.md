@@ -4,6 +4,10 @@
 > bank-specific layer (`bank.py`) is a stub: every call answers
 > `503 {"detail": "BANK_FLOW_UNVERIFIED"}` until a live session has been
 > captured. No request has ever reached La Banque Postale from this service.
+>
+> Sign-in is identifier → virtual keypad → **approval in the bank's mobile app**
+> (`/complete` waits for the human, like Caisse d'Epargne's Sécur'Pass). There is
+> no one-time code in the flow: Certicode is no longer used by a modern account.
 
 ## Why this exists
 
@@ -22,8 +26,8 @@ beside it, so one source owns every account of the bank. See
 | Endpoint | Body | Answer |
 |---|---|---|
 | `POST /initiate` | `{customerId}` | `{processId, keypad: {images[10], columns}, expiresInSeconds}` |
-| `POST /keypad` | `{processId, positions}` | `{processId, status: "OTP_PENDING"}` |
-| `POST /otp` | `{processId, code}` | `{sessionState}` |
+| `POST /keypad` | `{processId, positions}` | `{processId, status: "APPROVAL_PENDING"}` |
+| `POST /complete` | `{processId}` | `{sessionState}` |
 | `POST /token-check` | `{sessionState}` | `{ok, expiresIn}` |
 | `POST /accounts` | `{sessionState}` | `{accounts, unsupported}` |
 | `GET /health` | — | `{status: "ok", base?}` |
@@ -81,8 +85,8 @@ signatures; the routes and the backend do not change.
 
 - Every request but `/health` requires `APP_SIDECAR_API_KEY`, sent as
   `X-Picsou-Sidecar-Key`. The service refuses to start without one.
-- The identifier, the keypad positions, the one-time code, cookies, tokens and
-  raw bank payloads are **never logged, echoed or stored**.
+- The identifier, the keypad positions, cookies, tokens and raw bank payloads
+  are **never logged, echoed or stored**.
 - No login step is retried: a wrong password or code can lock the bank account.
 - Pending login state, when implemented, lives in memory only. A restart drops
   it and the user starts again.
@@ -94,8 +98,9 @@ and answer:
 
 1. Is the password entered on a virtual keypad or in a text field? Are the key
    images shuffled per connection? Is the keypad value computed by JavaScript?
-2. Is Certicode requested on every login, only on a new device, or only for
-   sensitive operations? Is there a trusted-device cookie?
+2. Is the sign-in approved in the bank's mobile app on every login, or only on a
+   new device? Is there a trusted-device cookie? Does the bank still fall back
+   to an SMS code for some accounts (Certicode)?
 3. Is account data fetched as JSON XHR or rendered server-side? Which calls
    return the account list, a livret's balance and its transactions?
 4. Is there an anti-bot layer (TLS fingerprint, JavaScript challenge, CAPTCHA,

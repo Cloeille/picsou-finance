@@ -26,7 +26,7 @@ class FakeBank:
     async def keypad(self, process_id, positions):
         return None
 
-    async def otp(self, process_id, code):
+    async def complete(self, process_id):
         return "opaque-cookie-jar"
 
     async def check(self, session_state):
@@ -55,7 +55,7 @@ class LbpSidecarContractTest(unittest.TestCase):
         calls = [
             ("/initiate", {"customerId": "1234567890"}),
             ("/keypad", {"processId": "proc-1", "positions": [7, 3, 0, 9, 4, 1]}),
-            ("/otp", {"processId": "proc-1", "code": "123456"}),
+            ("/complete", {"processId": "proc-1"}),
             ("/token-check", {"sessionState": "opaque"}),
             ("/accounts", {"sessionState": "opaque"}),
         ]
@@ -76,9 +76,11 @@ class LbpSidecarContractTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"detail": "INVALID_REQUEST"})
 
-    def test_the_otp_is_never_echoed(self):
-        response = self.post("/otp", {"processId": "proc-1", "code": "987654"})
-        self.assertEqual(response.status_code, 503)
+    def test_complete_refuses_a_code_field(self):
+        # Certicode is not part of the flow: a caller that still sends a code is refused.
+        response = self.post("/complete", {"processId": "proc-1", "code": "987654"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"detail": "INVALID_REQUEST"})
         self.assertNotIn("987654", response.text)
 
     def test_a_session_body_is_read_strictly(self):
@@ -96,11 +98,11 @@ class LbpSidecarContractTest(unittest.TestCase):
 
             keypad = self.post("/keypad", {"processId": "proc-1", "positions": [7, 3, 0, 9, 4, 1]})
             self.assertEqual(keypad.status_code, 200)
-            self.assertEqual(keypad.json(), {"processId": "proc-1", "status": "OTP_PENDING"})
+            self.assertEqual(keypad.json(), {"processId": "proc-1", "status": "APPROVAL_PENDING"})
 
-            otp = self.post("/otp", {"processId": "proc-1", "code": "123456"})
-            self.assertEqual(otp.status_code, 200)
-            self.assertEqual(otp.json(), {"sessionState": "opaque-cookie-jar"})
+            completed = self.post("/complete", {"processId": "proc-1"})
+            self.assertEqual(completed.status_code, 200)
+            self.assertEqual(completed.json(), {"sessionState": "opaque-cookie-jar"})
 
             check = self.post("/token-check", {"sessionState": "opaque"})
             self.assertEqual(check.status_code, 200)

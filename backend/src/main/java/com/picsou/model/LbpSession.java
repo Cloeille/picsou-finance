@@ -10,8 +10,8 @@ import java.util.Objects;
 
 /**
  * One La Banque Postale session per member. Holds the encrypted session state only:
- * there is deliberately no credentials field — the password, the keypad positions and the
- * Certicode code are never stored.
+ * there is deliberately no credentials field - the password and the keypad positions are
+ * never stored.
  */
 @Entity
 @Table(name = "lbp_session")

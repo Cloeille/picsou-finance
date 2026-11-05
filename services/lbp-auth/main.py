@@ -5,21 +5,25 @@ bank-specific layer (`bank.py`) is a stub that answers 503
 `BANK_FLOW_UNVERIFIED` until a live session has been captured. No request has
 ever reached La Banque Postale from this service.
 
+Sign-in is identifier → virtual keypad → **approval in the bank's mobile app**
+(Certicode is no longer the flow for a modern account). There is no code to
+type, so `/complete` waits for the human, like Caisse d'Epargne's Sécur'Pass.
+
 The backend-facing contract is deliberately shaped like the Caisse d'Epargne
 sidecar's:
 
   POST /initiate    {customerId}            → {processId, keypad, expiresInSeconds}
-  POST /keypad      {processId, positions}  → {processId, status: "OTP_PENDING"}
-  POST /otp         {processId, code}       → {sessionState}
+  POST /keypad      {processId, positions}  → {processId, status: "APPROVAL_PENDING"}
+  POST /complete    {processId}             → {sessionState}
   POST /token-check {sessionState}          → {ok, expiresIn}
   POST /accounts    {sessionState}          → {accounts, unsupported}
 
 Safety rules, same as the other bank sidecars:
   * every request but /health needs the shared key (`APP_SIDECAR_API_KEY`);
     the service refuses to start without one;
-  * the identifier, the keypad positions, the one-time code, cookies, tokens
-    and raw bank payloads are never logged and never returned;
-  * no login step is retried: a wrong password or code can lock the account.
+  * the identifier, the keypad positions, cookies, tokens and raw bank payloads
+    are never logged and never returned;
+  * no login step is retried: a wrong password can lock the account.
 """
 
 from typing import Any
@@ -35,7 +39,7 @@ log = configure_logging("lbp-auth", quiet=("httpx", "httpcore"))
 # Test seam: tests bind a fake client. The production binding stays unverified.
 bank_client: bank.BankClient = bank.UnverifiedBankClient()
 
-LOGIN_PATHS = {"/initiate", "/keypad", "/otp"}
+LOGIN_PATHS = {"/initiate", "/keypad", "/complete"}
 
 
 def _validation_detail(request: Request, _) -> str:
@@ -67,12 +71,10 @@ class KeypadRequest(BaseModel):
     positions: list[StrictInt] = Field(min_length=1, max_length=200)
 
 
-class OtpRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", repr=False)
+class CompleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
     processId: str = Field(min_length=1, max_length=200)
-    # The one-time code is a bank secret: it is never logged or echoed.
-    code: str = Field(min_length=1, max_length=32)
 
 
 class TokenCheckRequest(BaseModel):
@@ -121,7 +123,7 @@ async def keypad(req: KeypadRequest) -> dict[str, Any]:
     try:
         await bank_client.keypad(req.processId, req.positions)
         # The positions are never echoed back, here or in an error.
-        return {"processId": req.processId, "status": "OTP_PENDING"}
+        return {"processId": req.processId, "status": "APPROVAL_PENDING"}
     except bank.BankFlowUnverified:
         raise _unverified() from None
     except HTTPException:
@@ -131,16 +133,16 @@ async def keypad(req: KeypadRequest) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from None
 
 
-@app.post("/otp")
-async def otp(req: OtpRequest) -> dict[str, Any]:
+@app.post("/complete")
+async def complete(req: CompleteRequest) -> dict[str, Any]:
     try:
-        return {"sessionState": await bank_client.otp(req.processId, req.code)}
+        return {"sessionState": await bank_client.complete(req.processId)}
     except bank.BankFlowUnverified:
         raise _unverified() from None
     except HTTPException:
         raise
     except Exception:  # pragma: no cover
-        log.error("otp failed unexpectedly")
+        log.error("complete failed unexpectedly")
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from None
 
 
