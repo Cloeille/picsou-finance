@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `get_ai_categorization_status` reports its progress as counters only, under a new
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
   browser session. See [Budget + OAuth2 tools in MCP](docs/features/mcp-budget-oauth2.md).
+
+- **Peer loans (receivables between individuals).** A new "peer loan" account type tracks
+  money lent to a person as an asset: nominal capital, dated repayments, simple interest,
+  an editable forecast and a dated write-off when the loan is closed. It counts in net
+  worth but never as an investment, and the borrower history is facts only — no risk
+  score. The bank movement stays a `TRANSFER` so it does not enter the budget. See
+  [Peer loans](docs/features/peer-loans.md).
 ### Fixed
 
 - **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar

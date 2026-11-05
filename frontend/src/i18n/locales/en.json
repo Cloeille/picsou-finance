@@ -276,6 +276,7 @@
       "CHECKING": "Current accounts",
       "CRYPTO": "Crypto",
       "REAL_ESTATE": "Real estate",
+      "RECEIVABLES": "Receivables",
       "DEBTS": "Debts"
     },
     "fees": "Fees",
@@ -445,7 +446,97 @@
     "assuranceVie": "Life insurance",
     "per": "PER (retirement savings)",
     "scpi": "SCPI",
-    "creditCard": "Credit card"
+    "creditCard": "Credit card",
+    "peerLoan": "Peer loan"
+  },
+  "peerLoan": {
+    "termsDescription": "The amount lent, the person, and optionally a rate and a forecast.",
+    "setupHint": "Enter the amount lent and the borrower to start tracking.",
+    "saved": "Terms saved.",
+    "repaymentSaved": "Repayment recorded.",
+    "repaymentDeleted": "Repayment deleted.",
+    "closed": "Loan closed.",
+    "configure": "Set up the loan",
+    "editTerms": "Edit terms",
+    "addRepayment": "Add a repayment",
+    "editRepayment": "Edit repayment",
+    "repaymentsTitle": "Repayments",
+    "empty": "No repayment recorded yet.",
+    "noPlan": "No forecast set. Add a duration or a monthly payment to estimate one.",
+    "closedHint": "This loan is closed. Delete its write-off to reopen it.",
+    "cashflowHint": "So this loan is not counted as spending, categorise the matching bank transfer as 'Internal transfer'.",
+    "fields": {
+      "counterparty": "Borrower",
+      "counterpartyPlaceholder": "Marie, Paul…",
+      "principal": "Amount lent",
+      "lentAt": "Lending date",
+      "expectedBack": "Expected return",
+      "annualRatePct": "Annual rate (%)",
+      "plannedMonths": "Planned duration (months)",
+      "plannedMonthly": "Planned monthly payment",
+      "linkedAccount": "Linked cash account",
+      "noLinkedAccount": "None",
+      "note": "Note",
+      "paidOn": "Date",
+      "amount": "Amount",
+      "kind": "Kind"
+    },
+    "kinds": {
+      "PRINCIPAL": "Capital",
+      "INTEREST": "Interest",
+      "WRITE_OFF": "Write-off"
+    },
+    "summary": {
+      "open": "Open",
+      "closed": "Closed",
+      "lent": "Lent",
+      "remaining": "Remaining",
+      "repaid": "Repaid",
+      "interestAccrued": "Interest accrued",
+      "interestReceived": "Interest received",
+      "principalRepaid": "Capital repaid",
+      "writtenOff": "Written off"
+    },
+    "forecast": {
+      "title": "Forecast",
+      "planTitle": "Simulator",
+      "scheduled": "Scheduled today",
+      "actual": "Actual",
+      "behind": "{{count}} installment behind",
+      "behind_other": "{{count}} installments behind",
+      "ahead": "{{count}} installment ahead",
+      "ahead_other": "{{count}} installments ahead",
+      "onTrack": "On schedule",
+      "disclaimer": "Indicative forecast, never contractual.",
+      "simulationResult": "{{months}} months · {{monthlyPayment}} €/month · {{interest}} € of interest",
+      "accruedHint": "Interest accrued so far:"
+    },
+    "history": {
+      "title": "History — {{name}}",
+      "loans": "Loans",
+      "totalLent": "Total lent",
+      "recovered": "Recovered",
+      "averageDelay": "Average delay",
+      "days": "{{count}} d"
+    },
+    "actions": {
+      "close": "Close the loan",
+      "simulate": "Calculate"
+    },
+    "close": {
+      "title": "Close the loan",
+      "description": "The remaining balance ({{amount}}) will be written off and removed from net worth today.",
+      "confirm": "Close"
+    },
+    "validation": {
+      "principal": "The amount lent must be greater than zero.",
+      "counterparty": "The borrower is required.",
+      "lentAt": "The lending date is required.",
+      "plan": "Provide a duration or a monthly payment, but not both.",
+      "simulation": "This forecast could not be computed.",
+      "amount": "The amount must be greater than zero.",
+      "paidOn": "The date is required."
+    }
   },
   "scpi": {
     "add": {

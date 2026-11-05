@@ -26,9 +26,9 @@ import { accountInvestedAt, accountPnlAt, hasMeasurableGain } from '@/features/a
 import { useAppStore } from '@/stores/app-store'
 import type { Account, AccountRequest, AccountType } from '@/types/api'
 
-type AssetFilter = 'ALL' | 'STOCKS' | 'METALS' | 'SAVINGS' | 'CHECKING' | 'CRYPTO' | 'REAL_ESTATE' | 'DEBTS'
+type AssetFilter = 'ALL' | 'STOCKS' | 'METALS' | 'SAVINGS' | 'CHECKING' | 'CRYPTO' | 'REAL_ESTATE' | 'RECEIVABLES' | 'DEBTS'
 
-const FILTER_KEYS: AssetFilter[] = ['ALL', 'STOCKS', 'METALS', 'SAVINGS', 'CHECKING', 'CRYPTO', 'REAL_ESTATE', 'DEBTS']
+const FILTER_KEYS: AssetFilter[] = ['ALL', 'STOCKS', 'METALS', 'SAVINGS', 'CHECKING', 'CRYPTO', 'REAL_ESTATE', 'RECEIVABLES', 'DEBTS']
 
 const ASSET_FILTER_MAP: Record<AssetFilter, AccountType[] | null> = {
   ALL: null,
@@ -38,6 +38,7 @@ const ASSET_FILTER_MAP: Record<AssetFilter, AccountType[] | null> = {
   CHECKING: ['CHECKING'],
   CRYPTO: ['CRYPTO'],
   REAL_ESTATE: ['REAL_ESTATE', 'SCPI'],
+  RECEIVABLES: ['PEER_LOAN'],
   DEBTS: LIABILITY_ACCOUNT_TYPES,
 }
 
@@ -48,6 +49,7 @@ const TYPE_GROUP_META: Record<string, { key: string; labelKey: string; color: st
   CHECKING:    { key: 'CHECKING',    labelKey: 'accounts.filters.CHECKING',    color: '#0ea5e9' },
   CRYPTO:      { key: 'CRYPTO',      labelKey: 'accounts.filters.CRYPTO',      color: '#f97316' },
   REAL_ESTATE: { key: 'REAL_ESTATE', labelKey: 'accounts.filters.REAL_ESTATE', color: '#a855f7' },
+  RECEIVABLES: { key: 'RECEIVABLES', labelKey: 'accounts.filters.RECEIVABLES', color: '#0d9488' },
   DEBTS:       { key: 'DEBTS',       labelKey: 'accounts.filters.DEBTS',       color: '#ef4444' },
 }
 
@@ -69,6 +71,7 @@ const TYPE_TO_GROUP: Record<AccountType, string> = {
   CRYPTO: 'CRYPTO',
   REAL_ESTATE: 'REAL_ESTATE',
   SCPI: 'REAL_ESTATE',
+  PEER_LOAN: 'RECEIVABLES',
   LOAN: 'DEBTS',
   CREDIT_CARD: 'DEBTS',
 }

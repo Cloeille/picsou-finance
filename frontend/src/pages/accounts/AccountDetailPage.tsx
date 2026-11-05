@@ -25,6 +25,7 @@ import { AccountTypeBadge } from '@/components/shared/AccountTypeBadge'
 import { CardNatureField } from '@/components/shared/CardNatureField'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { LoanDetailSection } from '@/components/loan/LoanDetailSection'
+import { PeerLoanDetailSection } from '@/components/peer-loan/PeerLoanDetailSection'
 import { SavingsConfigSection } from '@/features/savings/SavingsConfigSection'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
 import { PropertyDetailSection } from '@/components/property/PropertyDetailSection'
@@ -113,6 +114,10 @@ export function AccountDetailPage() {
 
   const chartData = (history ?? []).map(s => ({ date: s.date, balance: s.balance }))
   const isLoan = account?.type === 'LOAN'
+  // A peer loan is a receivable: its own section replaces the transaction ledger and the
+  // snapshot list, exactly as a LOAN's amortization view does.
+  const isPeerLoan = account?.type === 'PEER_LOAN'
+  const hidesLedger = isLoan || isPeerLoan
   // A freshly bank-synced livret is typed CHECKING until configured, so also surface the
   // section when it already has a config or the detector flagged it as a savings candidate.
   const savingsSuggestion = Array.isArray(savingsSuggestions)
@@ -145,7 +150,7 @@ export function AccountDetailPage() {
   const overviewSections = (
     <>
       {/* History chart */}
-      {!isLoan && showHoldings && pnlData && pnlData.length > 1 ? (
+      {!hidesLedger && showHoldings && pnlData && pnlData.length > 1 ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t('accounts.valueAndInvested')}</CardTitle>
@@ -154,7 +159,7 @@ export function AccountDetailPage() {
             <NetWorthChart data={pnlData} range={range} onRangeChange={setRange} />
           </CardContent>
         </Card>
-      ) : !isLoan && chartData.length > 1 ? (
+      ) : !hidesLedger && chartData.length > 1 ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t('accounts.history')}</CardTitle>
@@ -168,7 +173,7 @@ export function AccountDetailPage() {
       {/* Holdings and realized P&L are rendered once, above, outside this fragment. */}
 
       {/* Transactions */}
-      {!isLoan && transactions && (
+      {!hidesLedger && transactions && (
         <>
           <input
             type="file"
@@ -204,7 +209,7 @@ export function AccountDetailPage() {
       )}
 
       {/* Snapshot list */}
-      {!isLoan && recentSnapshots.length > 0 && (
+      {!hidesLedger && recentSnapshots.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t('accounts.snapshots')}</CardTitle>
@@ -335,6 +340,9 @@ export function AccountDetailPage() {
 
       {/* Loan detail */}
       {isLoan && account && <LoanDetailSection accountId={account.id} />}
+
+      {/* Peer loan detail: nominal receivable, dated ledger, forecast and closure */}
+      {isPeerLoan && account && <PeerLoanDetailSection accountId={account.id} />}
 
       {/* Property detail: description, valuation, financing and ownership split */}
       {isRealEstate && account && <PropertyDetailSection account={account} />}

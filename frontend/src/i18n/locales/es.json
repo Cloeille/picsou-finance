@@ -255,6 +255,7 @@
       "CHECKING": "Cuentas corrientes",
       "CRYPTO": "Cripto",
       "REAL_ESTATE": "Inmobiliario",
+      "RECEIVABLES": "Créditos",
       "DEBTS": "Deudas"
     },
     "fees": "Comisiones",
@@ -434,7 +435,97 @@
     "assuranceVie": "Seguro de vida",
     "per": "PER (ahorro para la jubilación)",
     "scpi": "SCPI",
-    "creditCard": "Tarjeta de crédito"
+    "creditCard": "Tarjeta de crédito",
+    "peerLoan": "Préstamo entre particulares"
+  },
+  "peerLoan": {
+    "termsDescription": "El importe prestado, la persona y, opcionalmente, un tipo de interés y una previsión.",
+    "setupHint": "Introduce el importe prestado y el destinatario para empezar el seguimiento.",
+    "saved": "Condiciones guardadas.",
+    "repaymentSaved": "Devolución registrada.",
+    "repaymentDeleted": "Devolución eliminada.",
+    "closed": "Préstamo cerrado.",
+    "configure": "Configurar el préstamo",
+    "editTerms": "Editar condiciones",
+    "addRepayment": "Añadir una devolución",
+    "editRepayment": "Editar devolución",
+    "repaymentsTitle": "Devoluciones",
+    "empty": "Aún no hay devoluciones registradas.",
+    "noPlan": "Sin previsión definida. Añade una duración o una cuota mensual para estimarla.",
+    "closedHint": "Este préstamo está cerrado. Elimina la condonación para reabrirlo.",
+    "cashflowHint": "Para que este préstamo no cuente como gasto, clasifica la transferencia bancaria correspondiente como «Transferencia interna».",
+    "fields": {
+      "counterparty": "Destinatario",
+      "counterpartyPlaceholder": "Marie, Paul…",
+      "principal": "Importe prestado",
+      "lentAt": "Fecha del préstamo",
+      "expectedBack": "Devolución prevista",
+      "annualRatePct": "Tipo anual (%)",
+      "plannedMonths": "Duración prevista (meses)",
+      "plannedMonthly": "Cuota mensual prevista",
+      "linkedAccount": "Cuenta de tesorería vinculada",
+      "noLinkedAccount": "Ninguna",
+      "note": "Nota",
+      "paidOn": "Fecha",
+      "amount": "Importe",
+      "kind": "Naturaleza"
+    },
+    "kinds": {
+      "PRINCIPAL": "Capital",
+      "INTEREST": "Intereses",
+      "WRITE_OFF": "Condonación"
+    },
+    "summary": {
+      "open": "En curso",
+      "closed": "Cerrado",
+      "lent": "Prestado",
+      "remaining": "Pendiente",
+      "repaid": "Devuelto",
+      "interestAccrued": "Intereses devengados",
+      "interestReceived": "Intereses recibidos",
+      "principalRepaid": "Capital devuelto",
+      "writtenOff": "Condonado"
+    },
+    "forecast": {
+      "title": "Previsión",
+      "planTitle": "Simulador",
+      "scheduled": "Previsto a hoy",
+      "actual": "Real",
+      "behind": "{{count}} cuota de retraso",
+      "behind_other": "{{count}} cuotas de retraso",
+      "ahead": "{{count}} cuota de adelanto",
+      "ahead_other": "{{count}} cuotas de adelanto",
+      "onTrack": "Al día",
+      "disclaimer": "Previsión orientativa, nunca contractual.",
+      "simulationResult": "{{months}} meses · {{monthlyPayment}} €/mes · {{interest}} € de intereses",
+      "accruedHint": "Intereses devengados:"
+    },
+    "history": {
+      "title": "Historial — {{name}}",
+      "loans": "Préstamos",
+      "totalLent": "Total prestado",
+      "recovered": "Recuperado",
+      "averageDelay": "Retraso medio",
+      "days": "{{count}} d"
+    },
+    "actions": {
+      "close": "Cerrar el préstamo",
+      "simulate": "Calcular"
+    },
+    "close": {
+      "title": "Cerrar el préstamo",
+      "description": "El saldo restante ({{amount}}) se condonará y se retirará del patrimonio hoy.",
+      "confirm": "Cerrar"
+    },
+    "validation": {
+      "principal": "El importe prestado debe ser mayor que cero.",
+      "counterparty": "El destinatario es obligatorio.",
+      "lentAt": "La fecha del préstamo es obligatoria.",
+      "plan": "Indica una duración o una cuota, pero no ambas.",
+      "simulation": "No se pudo calcular esta previsión.",
+      "amount": "El importe debe ser mayor que cero.",
+      "paidOn": "La fecha es obligatoria."
+    }
   },
   "scpi": {
     "add": {

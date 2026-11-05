@@ -1,0 +1,235 @@
+# ADR: Peer loans as a receivable account with a dated repayment ledger
+
+> Date: 2026-11-05
+> Status: ✅ Active (v1)
+
+## Context
+
+Picsou models bank debt as a `LOAN` account paired with a `Debt` row, and derives an
+amortization schedule from the borrowed amount, the rate and the term
+([ADR 2026-04-26](./2026-04-26-loan-amortization-on-the-fly.md)). That model assumes a
+contract: a fixed installment, a fixed term, and payments that happen on schedule.
+
+Money lent to family or friends has none of those properties. It is irregular
+(three payments this winter, nothing for six months), often interest-free, sometimes
+abandoned, and there is no lender, no contract and no provider to sync it from. It is also
+the **opposite** direction: lending money creates an asset (a receivable), while `LOAN`
+models a liability.
+
+Users asked to track these loans: how much is still owed, what has been repaid, what has
+been given up, and whether this person repaid the previous loans before deciding to lend
+again.
+
+## Decision
+
+### 1. A peer loan is an account of a new type, `PEER_LOAN`, and it is an asset
+
+The account carries the receivable into everything the app already does with accounts:
+net worth, balance snapshots and history, the accounts list, visibility, GDPR export and
+the xlsx export. The remaining capital is derived, never typed.
+
+`PEER_LOAN` is **not** a liability: it stays positive in `AccountService.signedLiveBalanceEur`.
+A future `PEER_DEBT` (money borrowed from a person) is the symmetric type, and is the only
+one that would be negated there.
+
+### 2. Facts are persisted; everything else is derived
+
+Two tables, and no derived column:
+
+```sql
+peer_counterparty (id, member_id, name, note)
+peer_loan_terms (
+    account_id, counterparty_id, principal, lent_at, expected_back,
+    annual_rate,                          -- 0 = interest-free (the common case)
+    planned_monthly_amount, planned_months, -- forecast, nullable
+    linked_account_id, note, closed_at
+)
+peer_loan_repayment (account_id, paid_on, amount, kind, note)
+-- kind: PRINCIPAL | INTEREST | WRITE_OFF
+```
+
+Remaining capital, accrued interest, repayment percentages, delays and the counterparty
+history are recomputed on read, the way the bank-loan schedule already is. The ledger is
+the only source of truth; `account.current_balance` is a cache refreshed on every write.
+
+### 3. Risk is observed, never predicted
+
+There is no `risk_score` and no provision percentage. A human cannot estimate the
+probability that a relative repays, and an invented percentage would put a false number in
+net worth.
+
+What the app can show is what happened: per counterparty, the number of loans, the total
+lent, the total recovered, the total written off, the average delay against
+`expected_back`, and the current open exposure. Facts to inform the next decision, not a
+verdict.
+
+### 4. An unrecovered balance is a dated event, not a valuation
+
+While the loan is open, the receivable is carried at its nominal remaining capital. When
+the user concludes that the rest will not come back, they **close** the loan: the residual
+is written off as a `WRITE_OFF` row and the account is valued at zero from that date on.
+
+The loss therefore appears in the net-worth history on the closure date — never as a
+retroactive rewrite of the past. It is not a cash transaction and does not enter the budget
+monthly cashflow; it is surfaced in the analysis as a realised loss so it does not silently
+vanish.
+
+A write-off can also be partial: forgiving 100 € while still tracking the remaining 100 €
+needs no special case, because a write-off only reduces the nominal.
+
+### 5. Interest is simple, accrued, and computed on the fly
+
+Interest accrues on the outstanding capital at `actual/365`:
+
+```
+accrued = Σ (outstanding capital × annual rate × days / 365)
+```
+
+A ledger row states what it is and is applied to its own bucket: `PRINCIPAL` reduces
+capital, `INTEREST` pays accrued interest, `WRITE_OFF` reduces capital. The split is not
+derived, because one cash movement carries one budget category: a synced bank row cannot
+be half a transfer and half income. The UI shows the accrued interest so the member can
+record the two rows a mixed payment needs.
+
+Accrued but unpaid interest is **displayed, never counted in net worth**. Counting money
+that has not been received would reintroduce the optimism this ADR rejects. At closure,
+unpaid accrued interest simply disappears.
+
+Principal repayments are `CategoryKind.TRANSFER` (an asset swap, excluded from the budget).
+Interest received is `CategoryKind.INCOME` (real, taxable income). This split is why the
+repayment kind is a fact stored on the row rather than something inferred later.
+
+### 6. The plan is a forecast, explicitly non-binding
+
+`planned_monthly_amount` / `planned_months` let the user simulate "500 € over 12 months at
+2 % → 42.08 €/month, 5 € of interest" and compare the theoretical curve with the real one.
+The plan is **editable at any time** and recomputed on read.
+
+It never generates repayments, never marks anything as paid, and never drives the balance.
+Only the ledger does. This is the deliberate difference with the bank-loan schedule, where
+`paidInstallments` is derived from today's date because the contract says payments happen.
+
+The annuity maths is shared with `LoanAmortizationService` rather than duplicated: the
+private `computeMonthlyPayment` becomes reusable, and the reverse direction
+(monthly → duration) is added beside it.
+
+### 7. One cash leg, never two (automation deferred to v2)
+
+The cash movement must exist for the asset swap to hold, but exactly once. v1 stores the
+optional `linked_account_id` and tells the member which category to use; it does not write
+the cash row yet. The rule the automation must follow when it lands:
+
+- **linked manual cash account** → the service writes the cash leg
+  (`WITHDRAWAL` on lending, `DEPOSIT` on each principal repayment), both under a
+  `TRANSFER` category.
+- **linked synced cash account** → the service writes nothing. The provider already
+  imported the row; the category is set to the `TRANSFER` category instead. Writing a
+  second row would double the movement.
+
+Automating it in v1 would have meant writing a transaction on a partner account while the
+provider may import the same movement — the exact double count this rule forbids. The
+manual step is the safe half, and the category hint is in the loan detail.
+
+## Alternatives considered
+
+### Reuse `LOAN`
+
+- **Pros**: no new type, the detail page and dashboard already exist.
+- **Cons**: `LOAN` is a liability. Its balance is negated in `signedLiveBalanceEur`, its
+  `Debt` row is read as a bank contract by the dashboard, the GDPR debt exporter and the
+  xlsx schedule, and the amortization service would compute an instalment plan that does
+  not exist. Using it would mean teaching every one of those call sites about a second
+  meaning.
+
+### Reuse the `Debt` table for the terms
+
+- **Pros**: one loan-parameters table, and `Debt` already holds a principal and dates.
+- **Cons**: `DebtRepository` feeds the liabilities card, `DebtsExporter` and the xlsx
+  amortization sheet. A peer loan would be exported and rendered as a bank loan, and
+  `hasSchedule` would return true, letting `computeRemainingBalance` answer an annuity.
+
+### Reuse `transaction` instead of a dedicated ledger
+
+- **Pros**: repayments would appear in the global transaction view for free.
+- **Cons**: `ManualTransactionService` recomputes a cash account's balance from the sum of
+  its transactions for ledger accounts. That would fight the `principal − repayments`
+  formula. An explicit ledger also keeps the repayment kind (`INTEREST` vs `WRITE_OFF`)
+  and the counterparty history out of a table designed for bank feeds.
+
+### A provision percentage, or an expected-loss haircut
+
+- **Pros**: net worth would look prudent before the loss is confirmed.
+- **Cons**: the percentage is pure invention, it moves the patrimoine on no event, and it
+  must be maintained by hand as the capital shrinks. Rejected: a dated write-off is a fact,
+  a provision is a guess.
+
+### A predicted risk score per counterparty
+
+- **Pros**: a single number to decide.
+- **Cons**: no data supports it, and a score built from three loans would be noise
+  presented as insight. The factual history gives the same help without pretending.
+
+### A standalone module outside accounts
+
+- **Pros**: no `AccountType` change, no compiler-guided sweep.
+- **Cons**: snapshots, history, net worth, exports, visibility, sharing and the MCP tools
+  would all have to be re-implemented for a second kind of financial object.
+
+### Free-text counterparty
+
+- **Pros**: no table, no form.
+- **Cons**: "Marie", "marie" and "Marie D." become three histories, which defeats the only
+  feature that helps the next decision.
+
+## Reasoning
+
+Two principles drove the design.
+
+The first is that **only facts belong in the database**. The bank-loan ADR already made the
+case for deriving a schedule rather than persisting it; the same argument holds more
+strongly here, because a peer loan has no contract to derive from. Persisting a provision,
+a risk score or a paid-installment counter would each create a value that the real world
+can contradict without any event recording it. A dated ledger can always be replayed, and
+the closure is the one event that changes the valuation.
+
+The second is that **a receivable is a real asset, but not an investment**. It belongs in
+net worth (the cash left, and something replaced it) but not in the allocation donut, the
+wealth pyramid or the PnL, which all answer "what is this money doing for me?". A loan to
+a cousin does nothing.
+
+## Trade-offs accepted
+
+- **Net worth is optimistic while the loan is open.** The nominal is counted until the
+  closure decides otherwise. Accepted: the alternative is a guessed haircut.
+- **No multi-currency.** The principal and the payments are EUR; FX conversion would add a
+  rate source for an amount that is usually small and fixed.
+- **No automatic schedule enforcement.** A payment is never "late" in the balance; the
+  delay is only displayed against `expected_back`.
+- **The cash link can be left empty**, in which case the user categorises the bank rows by
+  hand. The UI must warn when a loan has no linked account and no matching transfer.
+- **The counterparty roster is per member.** A loan shared with the household still
+  belongs to one member; extending it to co-ownership is a follow-up, not an oversight.
+- **Interest compounds nowhere.** A loan that capitalises unpaid interest is not
+  representable; the user records the capitalisation as a new principal instead.
+
+## Consequences
+
+- New `AccountType.PEER_LOAN`; migration `V122` adds the enum value alone (PostgreSQL
+  refuses to use a new enum value in the transaction that added it, as `V69`, `V79`,
+  `V100` and `V112` already document), `V123` creates the three tables.
+- `AccountType.isLedger()` must return **false** for `PEER_LOAN`: its balance derives from
+  the principal and the ledger, not from transactions. The frontend mirror
+  `NON_LEDGER_ACCOUNT_TYPES` follows.
+- `AccountService.valuation()` gains a `PEER_LOAN` branch returning the remaining capital
+  (zero when closed). The daily snapshot job then records the step-down — and the closure
+  step — with no extra plumbing.
+- `AssetClass.of()` and `WealthTier.of()` are exhaustive switches: they will fail to
+  compile until `PEER_LOAN` is mapped. It maps to `OTHER` (outside the allocation donut)
+  and must be skipped explicitly in `WealthPyramidService`, which today only skips
+  liabilities.
+- `HistoryService` gains a receivable branch next to its liability branches, so the
+  receivable never leaks into the invested/PnL series.
+- New `PeerLoanService`, `PeerLoanController` routes under
+  `/api/accounts/{id}/peer-loan`, and a `peer-loan` feature slice in the frontend.
+- The GDPR export and the xlsx workbook must include the repayments, or financial data
+  leaves the instance without a trace.

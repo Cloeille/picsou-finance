@@ -1,0 +1,261 @@
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { NumericInput } from '@/components/shared/NumericInput'
+import { DateInput } from '@/components/shared/DateInput'
+import { SELECT_CONTROL_CLASS } from '@/lib/constants'
+import { parseAmount } from '@/lib/utils'
+import { useMoney } from '@/hooks/use-money'
+import { usePeerLoanSimulation } from '@/features/peer-loans/hooks'
+import type { Account, PeerLoanDetail, PeerLoanSimulationResponse, PeerLoanTermsRequest } from '@/types/api'
+
+interface PeerLoanTermsDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  initial?: PeerLoanDetail | null
+  /** Cash accounts offered as the optional "linked account" (bank movement reconciliation). */
+  cashAccounts: Account[]
+  onSubmit: (data: PeerLoanTermsRequest) => Promise<void> | void
+  loading?: boolean
+}
+
+function text(value: number | null | undefined): string {
+  return value == null ? '' : String(value)
+}
+
+/**
+ * The loan's conditions plus the forecast calculator. Both directions of the annuity
+ * are available: a duration fills the monthly amount, a monthly amount fills the
+ * duration. The result is a forecast only — it never creates a repayment.
+ */
+export function PeerLoanTermsDialog({
+  open,
+  onOpenChange,
+  initial,
+  cashAccounts,
+  onSubmit,
+  loading,
+}: PeerLoanTermsDialogProps) {
+  const { t } = useTranslation()
+  const money = useMoney()
+  const simulate = usePeerLoanSimulation()
+
+  const [counterparty, setCounterparty] = useState('')
+  const [principal, setPrincipal] = useState('')
+  const [lentAt, setLentAt] = useState('')
+  const [expectedBack, setExpectedBack] = useState('')
+  const [ratePct, setRatePct] = useState('')
+  const [months, setMonths] = useState('')
+  const [monthly, setMonthly] = useState('')
+  const [linkedAccountId, setLinkedAccountId] = useState('')
+  const [note, setNote] = useState('')
+  const [simulation, setSimulation] = useState<PeerLoanSimulationResponse | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [wasOpen, setWasOpen] = useState(open)
+
+  // Seed the fields each time the dialog opens, during render (the pattern ConfirmDialog
+  // already uses). An effect would set state synchronously and cascade a second render.
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setCounterparty(initial?.counterpartyName ?? '')
+      setPrincipal(text(initial?.principal))
+      setLentAt(initial?.lentAt ?? new Date().toISOString().slice(0, 10))
+      setExpectedBack(initial?.expectedBack ?? '')
+      setRatePct(initial?.annualRate != null ? String(initial.annualRate * 100) : '')
+      setMonths(text(initial?.plannedMonths))
+      setMonthly(text(initial?.plannedMonthlyAmount))
+      setLinkedAccountId(text(initial?.linkedAccountId))
+      setNote(initial?.note ?? '')
+      setSimulation(null)
+      setError(null)
+    }
+  }
+
+  const numberOrNull = (value: string): number | null => {
+    const trimmed = value.trim()
+    if (trimmed === '') return null
+    const parsed = parseAmount(trimmed)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  async function handleSimulate() {
+    setError(null)
+    const principalValue = numberOrNull(principal)
+    if (principalValue == null || principalValue <= 0) {
+      setError(t('peerLoan.validation.principal'))
+      return
+    }
+    const annualRate = (numberOrNull(ratePct) ?? 0) / 100
+    const monthCount = numberOrNull(months)
+    const monthlyValue = numberOrNull(monthly)
+    try {
+      if (monthCount != null && monthCount > 0) {
+        const result = await simulate.mutateAsync({ principal: principalValue, annualRate, months: monthCount })
+        setMonthly(String(result.monthlyPayment))
+        setSimulation(result)
+      } else if (monthlyValue != null && monthlyValue > 0) {
+        const result = await simulate.mutateAsync({
+          principal: principalValue, annualRate, monthlyPayment: monthlyValue,
+        })
+        setMonths(String(result.months))
+        setSimulation(result)
+      } else {
+        setError(t('peerLoan.validation.plan'))
+      }
+    } catch {
+      setError(t('peerLoan.validation.simulation'))
+    }
+  }
+
+  async function handleSubmit() {
+    setError(null)
+    const principalValue = numberOrNull(principal)
+    if (principalValue == null || principalValue <= 0) {
+      setError(t('peerLoan.validation.principal'))
+      return
+    }
+    if (!counterparty.trim()) {
+      setError(t('peerLoan.validation.counterparty'))
+      return
+    }
+    if (!lentAt) {
+      setError(t('peerLoan.validation.lentAt'))
+      return
+    }
+    const monthCount = numberOrNull(months)
+    const monthlyValue = numberOrNull(monthly)
+    if ((monthCount == null) !== (monthlyValue == null)) {
+      setError(t('peerLoan.validation.plan'))
+      return
+    }
+    try {
+      await onSubmit({
+        principal: principalValue,
+        counterpartyName: counterparty.trim(),
+        lentAt,
+        expectedBack: expectedBack || null,
+        annualRate: (numberOrNull(ratePct) ?? 0) / 100,
+        plannedMonthlyAmount: monthlyValue,
+        plannedMonths: monthCount,
+        linkedAccountId: numberOrNull(linkedAccountId),
+        note: note.trim() || null,
+      })
+      onOpenChange(false)
+    } catch {
+      // The parent shows the API error; the dialog stays open for a retry.
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{initial?.configured ? t('peerLoan.editTerms') : t('peerLoan.configure')}</DialogTitle>
+          <DialogDescription>{t('peerLoan.termsDescription')}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="peer-counterparty">{t('peerLoan.fields.counterparty')}</Label>
+            <Input
+              id="peer-counterparty"
+              value={counterparty}
+              onChange={(e) => setCounterparty(e.target.value)}
+              maxLength={120}
+              placeholder={t('peerLoan.fields.counterpartyPlaceholder')}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="peer-principal">{t('peerLoan.fields.principal')}</Label>
+              <NumericInput id="peer-principal" value={principal} onChange={(e) => setPrincipal(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="peer-rate">{t('peerLoan.fields.annualRatePct')}</Label>
+              <NumericInput id="peer-rate" value={ratePct} onChange={(e) => setRatePct(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="peer-lent-at">{t('peerLoan.fields.lentAt')}</Label>
+              <DateInput id="peer-lent-at" value={lentAt} onChange={setLentAt} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="peer-expected-back">{t('peerLoan.fields.expectedBack')}</Label>
+              <DateInput id="peer-expected-back" value={expectedBack} onChange={setExpectedBack} />
+            </div>
+          </div>
+
+          <div className="rounded-lg border p-3 space-y-3">
+            <p className="text-sm font-medium">{t('peerLoan.forecast.planTitle')}</p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="peer-months">{t('peerLoan.fields.plannedMonths')}</Label>
+                <NumericInput id="peer-months" value={months} onChange={(e) => setMonths(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="peer-monthly">{t('peerLoan.fields.plannedMonthly')}</Label>
+                <NumericInput id="peer-monthly" value={monthly} onChange={(e) => setMonthly(e.target.value)} />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={handleSimulate} disabled={simulate.isPending}>
+                {simulate.isPending ? t('common.loading') : t('peerLoan.actions.simulate')}
+              </Button>
+              {simulation && (
+                <span className="text-xs text-muted-foreground">
+                  {t('peerLoan.forecast.simulationResult', {
+                    months: simulation.months,
+                    monthlyPayment: money.amount(simulation.monthlyPayment),
+                    interest: money.amount(simulation.totalInterest),
+                  })}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="peer-linked">{t('peerLoan.fields.linkedAccount')}</Label>
+            <select
+              id="peer-linked"
+              className={SELECT_CONTROL_CLASS}
+              value={linkedAccountId}
+              onChange={(e) => setLinkedAccountId(e.target.value)}
+            >
+              <option value="">{t('peerLoan.fields.noLinkedAccount')}</option>
+              {cashAccounts.map(account => (
+                <option key={account.id} value={account.id}>{account.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="peer-note">{t('peerLoan.fields.note')}</Label>
+            <Input id="peer-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
+          </div>
+
+          {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+            {t('common.cancel')}
+          </Button>
+          <Button onClick={handleSubmit} disabled={loading}>
+            {t('common.save')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}

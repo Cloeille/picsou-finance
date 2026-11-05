@@ -1,7 +1,7 @@
 export type AccountType =
   | 'LEP' | 'LIVRET_A' | 'LDDS' | 'LIVRET_JEUNE' | 'PEL' | 'CEL'
   | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
-  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'PER' | 'OTHER'
+  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'PEER_LOAN' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'PER' | 'OTHER'
 
 export type PropertyKind = 'HOUSE' | 'APARTMENT' | 'BUILDING' | 'LAND' | 'PARKING' | 'COMMERCIAL'
 
@@ -534,6 +534,109 @@ export interface LoanSummary {
 export interface LoanScheduleResponse {
   summary: LoanSummary
   schedule: LoanInstallment[]
+}
+
+// ─── Peer loans (receivables between individuals) ─────────────────────────────
+
+export type PeerLoanRepaymentKind = 'PRINCIPAL' | 'INTEREST' | 'WRITE_OFF'
+
+export interface PeerLoanRepayment {
+  id: number
+  paidOn: string
+  amount: number
+  kind: PeerLoanRepaymentKind
+  note?: string | null
+}
+
+export interface PeerLoanTermsRequest {
+  principal: number
+  counterpartyName: string
+  lentAt: string
+  expectedBack?: string | null
+  /** Annual rate as a fraction (0.02 = 2 %). Null/absent = interest-free. */
+  annualRate?: number | null
+  /** Forecast only: both fields go together, or neither. */
+  plannedMonthlyAmount?: number | null
+  plannedMonths?: number | null
+  linkedAccountId?: number | null
+  note?: string | null
+}
+
+export interface PeerLoanRepaymentRequest {
+  paidOn: string
+  amount: number
+  kind: PeerLoanRepaymentKind
+  note?: string | null
+}
+
+export interface PeerLoanSimulationRequest {
+  principal: number
+  annualRate?: number | null
+  months?: number | null
+  monthlyPayment?: number | null
+}
+
+export interface PeerLoanSimulationResponse {
+  monthlyPayment: number
+  months: number
+  totalInterest: number
+  totalCost: number
+}
+
+export interface PeerLoanBrief {
+  accountId: number
+  accountName: string
+  principal: number
+  remaining: number
+  lentAt?: string | null
+  closedAt?: string | null
+}
+
+/** Facts only: no score, no predicted risk. */
+export interface PeerCounterpartyHistory {
+  id: number
+  name?: string | null
+  loanCount: number
+  openLoans: number
+  closedLoans: number
+  totalLent: number
+  totalRecovered: number
+  totalWrittenOff: number
+  totalInterestReceived: number
+  averageClosureDelayDays?: number | null
+  openExposure: number
+  loans: PeerLoanBrief[]
+}
+
+export interface PeerLoanDetail {
+  accountId: number
+  accountName: string
+  /** False while the account exists without terms yet. */
+  configured: boolean
+  counterpartyId?: number | null
+  counterpartyName?: string | null
+  principal: number
+  lentAt?: string | null
+  expectedBack?: string | null
+  annualRate?: number | null
+  plannedMonthlyAmount?: number | null
+  plannedMonths?: number | null
+  linkedAccountId?: number | null
+  linkedAccountName?: string | null
+  note?: string | null
+  closedAt?: string | null
+  principalRemaining: number
+  interestAccrued: number
+  interestReceived: number
+  principalRepaid: number
+  totalRepaid: number
+  writtenOff: number
+  repaidPct: number
+  /** Forecast only; null without a plan. */
+  scheduledRemaining?: number | null
+  installmentsBehind?: number | null
+  repayments: PeerLoanRepayment[]
+  counterpartyHistory?: PeerCounterpartyHistory | null
 }
 
 export interface BalanceSnapshot {

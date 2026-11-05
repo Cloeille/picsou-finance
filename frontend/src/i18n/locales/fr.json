@@ -276,6 +276,7 @@
       "CHECKING": "Comptes courants",
       "CRYPTO": "Crypto",
       "REAL_ESTATE": "Immobilier",
+      "RECEIVABLES": "Créances",
       "DEBTS": "Dettes"
     },
     "fees": "Frais",
@@ -445,7 +446,97 @@
     "assuranceVie": "Assurance vie",
     "per": "PER (épargne retraite)",
     "scpi": "SCPI",
-    "creditCard": "Carte de crédit"
+    "creditCard": "Carte de crédit",
+    "peerLoan": "Prêt entre particuliers"
+  },
+  "peerLoan": {
+    "termsDescription": "Le montant prêté, la personne, et si besoin un taux et une prévision.",
+    "setupHint": "Renseignez le montant prêté et le destinataire pour commencer le suivi.",
+    "saved": "Conditions enregistrées.",
+    "repaymentSaved": "Remboursement enregistré.",
+    "repaymentDeleted": "Remboursement supprimé.",
+    "closed": "Prêt clôturé.",
+    "configure": "Configurer le prêt",
+    "editTerms": "Modifier les conditions",
+    "addRepayment": "Ajouter un remboursement",
+    "editRepayment": "Modifier le remboursement",
+    "repaymentsTitle": "Remboursements",
+    "empty": "Aucun remboursement enregistré.",
+    "noPlan": "Aucune prévision définie. Ajoutez une durée ou une mensualité pour l'estimer.",
+    "closedHint": "Ce prêt est clôturé. Supprimez l'abandon pour le rouvrir.",
+    "cashflowHint": "Pour que ce prêt ne soit pas compté comme une dépense, classez le virement bancaire correspondant dans la catégorie « Virement interne ».",
+    "fields": {
+      "counterparty": "Destinataire",
+      "counterpartyPlaceholder": "Marie, Paul…",
+      "principal": "Montant prêté",
+      "lentAt": "Date du prêt",
+      "expectedBack": "Retour prévu",
+      "annualRatePct": "Taux annuel (%)",
+      "plannedMonths": "Durée prévue (mois)",
+      "plannedMonthly": "Mensualité prévue",
+      "linkedAccount": "Compte de trésorerie lié",
+      "noLinkedAccount": "Aucun",
+      "note": "Note",
+      "paidOn": "Date",
+      "amount": "Montant",
+      "kind": "Nature"
+    },
+    "kinds": {
+      "PRINCIPAL": "Capital",
+      "INTEREST": "Intérêts",
+      "WRITE_OFF": "Abandon"
+    },
+    "summary": {
+      "open": "En cours",
+      "closed": "Clôturé",
+      "lent": "Prêté",
+      "remaining": "Reste dû",
+      "repaid": "Remboursé",
+      "interestAccrued": "Intérêts courus",
+      "interestReceived": "Intérêts reçus",
+      "principalRepaid": "Capital remboursé",
+      "writtenOff": "Abandonné"
+    },
+    "forecast": {
+      "title": "Prévision",
+      "planTitle": "Simulateur",
+      "scheduled": "Prévu à ce jour",
+      "actual": "Réel",
+      "behind": "{{count}} échéance de retard",
+      "behind_other": "{{count}} échéances de retard",
+      "ahead": "{{count}} échéance d'avance",
+      "ahead_other": "{{count}} échéances d'avance",
+      "onTrack": "Dans les temps",
+      "disclaimer": "Prévision indicative, jamais contractuelle.",
+      "simulationResult": "{{months}} mois · {{monthlyPayment}} €/mois · {{interest}} € d'intérêts",
+      "accruedHint": "Intérêts courus à ce jour :"
+    },
+    "history": {
+      "title": "Historique — {{name}}",
+      "loans": "Prêts",
+      "totalLent": "Total prêté",
+      "recovered": "Récupéré",
+      "averageDelay": "Retard moyen",
+      "days": "{{count}} j"
+    },
+    "actions": {
+      "close": "Clôturer le prêt",
+      "simulate": "Calculer"
+    },
+    "close": {
+      "title": "Clôturer le prêt",
+      "description": "Le solde restant ({{amount}}) sera abandonné et retiré du patrimoine aujourd'hui.",
+      "confirm": "Clôturer"
+    },
+    "validation": {
+      "principal": "Le montant prêté doit être supérieur à zéro.",
+      "counterparty": "Le destinataire est requis.",
+      "lentAt": "La date du prêt est requise.",
+      "plan": "Renseignez une durée ou une mensualité, mais pas les deux.",
+      "simulation": "Impossible de calculer cette prévision.",
+      "amount": "Le montant doit être supérieur à zéro.",
+      "paidOn": "La date est requise."
+    }
   },
   "scpi": {
     "add": {

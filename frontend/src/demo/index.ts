@@ -310,6 +310,23 @@ const demoExchangePositions = (() => {
 handlers.set(key('GET', '/accounts/6/positions'), () => demoExchangePositions)
 handlers.set(key('GET', '/accounts/:id/positions'), () => [])
 
+// Peer loans have no demo account yet, so this route is only here for the coverage guard:
+// its detail section never mounts because no demo account carries the type.
+handlers.set(key('GET', '/accounts/:id/peer-loan'), (_config, { id }) => ({
+  accountId: Number(id),
+  accountName: '',
+  configured: false,
+  principal: 0,
+  principalRemaining: 0,
+  interestAccrued: 0,
+  interestReceived: 0,
+  principalRepaid: 0,
+  totalRepaid: 0,
+  writtenOff: 0,
+  repaidPct: 0,
+  repayments: [],
+}))
+
 // Live quotes. The holdings fixtures win over the exchange positions for a ticker both carry, so
 // re-pricing a holdings table with these leaves its values exactly as the fixture states them.
 const demoPrices: Record<string, number> = {}

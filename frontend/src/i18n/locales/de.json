@@ -255,6 +255,7 @@
       "CHECKING": "Girokonten",
       "CRYPTO": "Krypto",
       "REAL_ESTATE": "Immobilien",
+      "RECEIVABLES": "Forderungen",
       "DEBTS": "Schulden"
     },
     "fees": "Gebühren",
@@ -434,7 +435,97 @@
     "assuranceVie": "Lebensversicherung",
     "per": "PER (Altersvorsorge)",
     "scpi": "SCPI",
-    "creditCard": "Kreditkarte"
+    "creditCard": "Kreditkarte",
+    "peerLoan": "Privatdarlehen"
+  },
+  "peerLoan": {
+    "termsDescription": "Der verliehene Betrag, die Person und optional ein Zinssatz und eine Prognose.",
+    "setupHint": "Geben Sie den verliehenen Betrag und den Schuldner ein, um die Nachverfolgung zu starten.",
+    "saved": "Bedingungen gespeichert.",
+    "repaymentSaved": "Rückzahlung erfasst.",
+    "repaymentDeleted": "Rückzahlung gelöscht.",
+    "closed": "Darlehen geschlossen.",
+    "configure": "Darlehen einrichten",
+    "editTerms": "Bedingungen bearbeiten",
+    "addRepayment": "Rückzahlung hinzufügen",
+    "editRepayment": "Rückzahlung bearbeiten",
+    "repaymentsTitle": "Rückzahlungen",
+    "empty": "Noch keine Rückzahlung erfasst.",
+    "noPlan": "Keine Prognose festgelegt. Fügen Sie eine Laufzeit oder eine Monatsrate hinzu.",
+    "closedHint": "Dieses Darlehen ist geschlossen. Löschen Sie den Forderungsverzicht, um es wieder zu öffnen.",
+    "cashflowHint": "Damit dieses Darlehen nicht als Ausgabe zählt, ordnen Sie die passende Banküberweisung der Kategorie „Interner Transfer“ zu.",
+    "fields": {
+      "counterparty": "Darlehensnehmer",
+      "counterpartyPlaceholder": "Marie, Paul…",
+      "principal": "Verliehener Betrag",
+      "lentAt": "Datum des Darlehens",
+      "expectedBack": "Erwartete Rückzahlung",
+      "annualRatePct": "Jahreszins (%)",
+      "plannedMonths": "Geplante Laufzeit (Monate)",
+      "plannedMonthly": "Geplante Monatsrate",
+      "linkedAccount": "Verknüpftes Girokonto",
+      "noLinkedAccount": "Keins",
+      "note": "Notiz",
+      "paidOn": "Datum",
+      "amount": "Betrag",
+      "kind": "Art"
+    },
+    "kinds": {
+      "PRINCIPAL": "Kapital",
+      "INTEREST": "Zinsen",
+      "WRITE_OFF": "Forderungsverzicht"
+    },
+    "summary": {
+      "open": "Offen",
+      "closed": "Geschlossen",
+      "lent": "Verliehen",
+      "remaining": "Restschuld",
+      "repaid": "Zurückgezahlt",
+      "interestAccrued": "Aufgelaufene Zinsen",
+      "interestReceived": "Erhaltene Zinsen",
+      "principalRepaid": "Kapital zurückgezahlt",
+      "writtenOff": "Abgeschrieben"
+    },
+    "forecast": {
+      "title": "Prognose",
+      "planTitle": "Simulator",
+      "scheduled": "Geplant bis heute",
+      "actual": "Tatsächlich",
+      "behind": "{{count}} Rate im Rückstand",
+      "behind_other": "{{count}} Raten im Rückstand",
+      "ahead": "{{count}} Rate im Voraus",
+      "ahead_other": "{{count}} Raten im Voraus",
+      "onTrack": "Im Plan",
+      "disclaimer": "Unverbindliche Prognose.",
+      "simulationResult": "{{months}} Monate · {{monthlyPayment}} €/Monat · {{interest}} € Zinsen",
+      "accruedHint": "Bisher aufgelaufene Zinsen:"
+    },
+    "history": {
+      "title": "Historie — {{name}}",
+      "loans": "Darlehen",
+      "totalLent": "Gesamt verliehen",
+      "recovered": "Zurückerhalten",
+      "averageDelay": "Durchschnittliche Verzögerung",
+      "days": "{{count}} T"
+    },
+    "actions": {
+      "close": "Darlehen schließen",
+      "simulate": "Berechnen"
+    },
+    "close": {
+      "title": "Darlehen schließen",
+      "description": "Der Restbetrag ({{amount}}) wird abgeschrieben und heute aus dem Vermögen entfernt.",
+      "confirm": "Schließen"
+    },
+    "validation": {
+      "principal": "Der verliehene Betrag muss größer als null sein.",
+      "counterparty": "Der Darlehensnehmer ist erforderlich.",
+      "lentAt": "Das Datum des Darlehens ist erforderlich.",
+      "plan": "Geben Sie eine Laufzeit oder eine Monatsrate an, nicht beides.",
+      "simulation": "Diese Prognose konnte nicht berechnet werden.",
+      "amount": "Der Betrag muss größer als null sein.",
+      "paidOn": "Das Datum ist erforderlich."
+    }
   },
   "scpi": {
     "add": {

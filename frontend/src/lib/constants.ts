@@ -19,6 +19,7 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
   { value: 'EMPLOYEE_SAVINGS', labelKey: 'accountTypes.employeeSavings' },
   { value: 'LOAN', labelKey: 'accountTypes.loan' },
   { value: 'CREDIT_CARD', labelKey: 'accountTypes.creditCard' },
+  { value: 'PEER_LOAN', labelKey: 'accountTypes.peerLoan' },
   { value: 'OTHER', labelKey: 'accountTypes.other' },
 ]
 
@@ -28,7 +29,7 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
  * A ledger import cannot target them, and a manual transaction never rewrites their balance.
  */
 export const NON_LEDGER_ACCOUNT_TYPES: AccountType[] = [
-  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI',
+  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI', 'PEER_LOAN',
 ]
 
 /**
