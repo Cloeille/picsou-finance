@@ -35,6 +35,11 @@ interface TransactionDetailSheetProps {
   accountProvider?: string | null
 }
 
+/**
+ * One transaction in detail: a bottom sheet on mobile, a dialog elsewhere. Categorize applies to
+ * synced rows only, edit and delete to manual rows only, and each shows only when the caller
+ * passes its handler. The heading is the merchant label, else the displayed description.
+ */
 export function TransactionDetailSheet({
   transaction: tx,
   open,

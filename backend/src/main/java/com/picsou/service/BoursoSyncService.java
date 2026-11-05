@@ -355,6 +355,11 @@ public class BoursoSyncService {
         }));
     }
 
+    /**
+     * Validates the sidecar's accounts before anything is written: a missing, incomplete, duplicate
+     * or unsupported account refuses the whole sync, and a securities account must reconcile with its
+     * balance so a truncated position list never overwrites a correct portfolio.
+     */
     private List<PreparedAccount> prepareAccounts(List<BoursoPort.AccountData> fetched) {
         if (fetched == null || fetched.isEmpty()) {
             throw error(

@@ -30,6 +30,7 @@ function anniversary(date: string, years: number): string | null {
   return `${year}-${m[2]}-${day}`
 }
 
+/** One label/value pair of the contract's definition list. */
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>

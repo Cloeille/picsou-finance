@@ -24,6 +24,11 @@ interface TransactionsListProps {
   accountProvider?: string | null
 }
 
+/**
+ * A card of transactions grouped by day. The search matches the label a row displays as well as
+ * the raw description and the merchant label, so what the user reads is what they can find. A row
+ * opens its detail sheet.
+ */
 export function TransactionsList({
   transactions,
   onDelete,

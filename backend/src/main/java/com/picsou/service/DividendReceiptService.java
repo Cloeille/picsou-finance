@@ -253,6 +253,10 @@ public class DividendReceiptService {
         return sameProvider.size() == 1 ? sameProvider.getFirst() : credited;
     }
 
+    /**
+     * Whether a credit may be reclassified as a dividend: a positive row that is neither
+     * budget-neutral, nor a trade leg, nor a category the user chose.
+     */
     private static boolean isClassifiable(Transaction tx) {
         // A TRANSFER or EXPENSE auto category marks a trade leg (Trade Republic books a BUY
         // investment leg and a SELL cash leg as positive DEPOSITs): never a dividend.

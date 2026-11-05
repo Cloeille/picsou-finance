@@ -35,6 +35,7 @@ public record TransactionResponse(
     /** Moves money inside the wrapper only; never part of the budget (see {@code Transaction}). */
     boolean budgetNeutral
 ) {
+    /** Maps a transaction to its API shape, flattening the category and account to ids and names. */
     public static TransactionResponse from(Transaction t) {
         return new TransactionResponse(
             t.getId(),

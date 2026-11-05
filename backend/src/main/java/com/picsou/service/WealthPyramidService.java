@@ -99,6 +99,11 @@ public class WealthPyramidService {
         this.coinGecko = coinGecko;
     }
 
+    /**
+     * The member's wealth split across the pyramid tiers: line by line where positions are known,
+     * by the account's own tier otherwise. Both are reconciled against the account valuation so
+     * the total stays equal to the dashboard's; liabilities are left out.
+     */
     public WealthPyramidResponse pyramid(Long memberId) {
         List<Account> accounts = accessResolver.readableAccounts(memberId);
         Map<Long, BigDecimal> shares = accessResolver.sharesFor(accounts, memberId);

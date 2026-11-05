@@ -34,6 +34,7 @@ class TransactionRepositoryAccountFetchTest {
     @Autowired
     TestEntityManager testEntityManager;
 
+    /** The kind query fetches the account eagerly and keeps its member, kind and date filters. */
     @Test
     @Sql("classpath:sql/transaction-repository-account-fetch.sql")
     void kindAndDateQueryFetchesAccountAndPreservesFilters() {
@@ -65,6 +66,10 @@ class TransactionRepositoryAccountFetchTest {
             assertThat(persistenceUnitUtil.isLoaded(transaction, "account")).isTrue());
     }
 
+    /**
+     * Every budget query skips hidden accounts, so a bank synced twice is not counted twice;
+     * only an explicit account id still lists them.
+     */
     @Test
     @Sql(scripts = "classpath:sql/transaction-repository-account-fetch.sql",
         statements = "INSERT INTO account (id, is_manual, hidden) VALUES (4, FALSE, TRUE)")
@@ -156,6 +161,7 @@ class TransactionRepositoryAccountFetchTest {
         assertThat(transactionRepository.findByAccountIdOrderByDateDesc(1L)).hasSize(6);
     }
 
+    /** The synced rows of an account are read for its owner only; typed rows and other members get nothing. */
     @Test
     @Sql("classpath:sql/transaction-repository-account-fetch.sql")
     void syncedRowsOfAnAccountAreReadForItsOwnerOnly() {
@@ -172,10 +178,12 @@ class TransactionRepositoryAccountFetchTest {
         assertThat(transactionRepository.findByAccountIdAndAccountMemberIdAndIsManualFalse(2L, 99L)).isEmpty();
     }
 
+    /** Persists an ordinary (budget-counted) row of one euro. */
     private void persist(long accountId, long categoryId, LocalDate date, String description) {
         persist(accountId, categoryId, date, description, false);
     }
 
+    /** Persists a one-euro row, flagged budget-neutral when {@code neutral} is set. */
     private void persist(long accountId, long categoryId, LocalDate date, String description, boolean neutral) {
         Transaction transaction = Transaction.builder()
             .account(testEntityManager.getEntityManager().getReference(Account.class, accountId))

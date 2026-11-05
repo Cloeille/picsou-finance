@@ -286,6 +286,7 @@ class ScpiSyncSessionPostgresTest {
         assertThat(funds.findByMemberIdAndProviderAndFundCode(fresh.getId(), ScpiProvider.CORUM, "US")).isEmpty();
     }
 
+    /** A complete CORUM snapshot holding one fund (US, 10 units at 180 EUR). */
     private static CorumPort.Snapshot corumUsa() {
         return new CorumPort.Snapshot("contract", "PP", "EUR", new BigDecimal("1800"), null, true,
             List.of(new CorumPort.Holding("US", "CORUM USA", new BigDecimal("10"), new BigDecimal("180"),
@@ -343,6 +344,10 @@ class ScpiSyncSessionPostgresTest {
             .extracting(Transaction::getExternalId).containsExactly("corum:9");
     }
 
+    /**
+     * A complete CORUM Life contract worth 1534.37 EUR: one SCPI unit line (realEstate) and the euro
+     * fund (euroLife).
+     */
     private static CorumPort.LifeContract lifeContract(String code) {
         return new CorumPort.LifeContract(code, "EUR", new BigDecimal("1534.37"), null, 3,
             new BigDecimal("1480"), new BigDecimal("1500"), LocalDate.of(2024, 1, 15),

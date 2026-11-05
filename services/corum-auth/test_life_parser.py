@@ -15,11 +15,13 @@ from positions_parser import PositionsFormatError
 
 class ParseLifeTest(unittest.TestCase):
     def assertRefused(self, payload, code):
+        """Assert `payload` is refused with exactly this error code."""
         with self.assertRaises(PositionsFormatError) as caught:
             parse_life(payload)
         self.assertEqual(caught.exception.code, code)
 
     def by_code(self, snapshot):
+        """Index a snapshot's holdings by product code."""
         return {h["productCode"]: h for h in snapshot["holdings"]}
 
     def test_contract_envelope(self):
@@ -73,12 +75,14 @@ class ParseLifeTest(unittest.TestCase):
         self.assertIsNone(euro["valuationDate"])
 
     def test_unit_linked_holdings_are_not_flagged_euro_fund(self):
+        """Only the euro fund carries `euroFund`; a unit-linked fund never does."""
         holdings = self.by_code(parse_life(life_payload()))
 
         for code, holding in holdings.items():
             self.assertIs(holding["euroFund"], code == "FGCORUM", code)
 
     def test_holdings_give_back_the_contract(self):
+        """The holdings add back to the contract total: nothing dropped or counted twice."""
         snapshot = parse_life(life_payload())
 
         held = sum(h["valueEur"] for h in snapshot["holdings"])
@@ -103,6 +107,7 @@ class ParseLifeTest(unittest.TestCase):
         self.assertEqual(snapshot["valuationLineCount"], 11)
 
     def test_figures_are_decimals_not_floats(self):
+        """Every figure is a Decimal, so no float rounding reaches the backend."""
         snapshot = parse_life(life_payload())
 
         for holding in snapshot["holdings"]:
@@ -159,6 +164,7 @@ class ParseLifeTest(unittest.TestCase):
         self.assertEqual(holdings["XL"]["valuationDate"], "2026-11-03")
 
     def test_two_prices_for_a_fund_with_no_unit_keep_the_first_price(self):
+        """With no units to weigh by, the first price seen stands instead of an average."""
         payload = life_payload()
         for pocket_name, price in (("Gestion libre", 190.0), ("Corum Life Horizon", 191.0)):
             xl = line(payload, pocket_name, "XL")
@@ -179,9 +185,10 @@ class ParseLifeTest(unittest.TestCase):
         self.assertRefused(payload, "UPSTREAM_FORMAT_CHANGED")
 
     def test_without_the_euro_life_section_the_euro_fund_is_refused(self):
-        # Its int quantity is 0 against a positive amount: read as a unit line
-        # it is a half-written position, so the contract is refused, not
-        # written with a made-up unit count.
+        """Without `euroLife` the euro fund reads as a unit line.
+
+        Its int quantity is 0 against a positive amount, a half-written position, so
+        the contract is refused, not written with a made-up unit count."""
         payload = life_payload()
         payload["contractProfile"]["chartSections"] = [
             s for s in payload["contractProfile"]["chartSections"]
@@ -244,6 +251,7 @@ class ParseLifeTest(unittest.TestCase):
         self.assertRefused(payload, "UPSTREAM_FORMAT_CHANGED")
 
     def test_an_amount_that_is_not_a_json_number_is_refused(self):
+        """A string, bool, null, NaN or infinity is never an amount: the format moved."""
         for bad in ("100.0", True, None, float("nan"), float("inf")):
             with self.subTest(amount=bad):
                 payload = life_payload()
@@ -257,6 +265,7 @@ class ParseLifeTest(unittest.TestCase):
         self.assertRefused(payload, "UPSTREAM_FORMAT_CHANGED")
 
     def test_a_string_quantity_or_price_is_refused(self):
+        """Quantity and unit price must be JSON numbers too; a string is not coerced."""
         for field in ("quantity", "unitPrice"):
             with self.subTest(field=field):
                 payload = life_payload()
@@ -276,6 +285,8 @@ class ParseLifeTest(unittest.TestCase):
         self.assertRefused(payload, "PORTFOLIO_INCOMPLETE")
 
     def test_a_reshaped_payload_is_refused(self):
+        """Each way the envelope can be reshaped (wrong type, missing section, no code,
+        other contract type) is refused."""
         cases = {
             "not a dict": lambda p: [p],
             "no profile": lambda p: {**p, "contractProfile": None},
@@ -318,8 +329,10 @@ class ParseLifeTest(unittest.TestCase):
         )
 
     def test_a_switch_leaves_the_lines_short_of_the_contract_cost(self):
-        # The euro fund switched 100 EUR into CBEHY: the lines' own costs leave
-        # it out, so only the contract figure is a cost basis.
+        """A switch leaves the lines' own costs short of the contract's.
+
+        The euro fund switched 100 EUR into CBEHY and the lines leave it out, so only
+        the contract figure is a cost basis."""
         snapshot = parse_life(life_payload())
         holdings = self.by_code(snapshot)
 
@@ -330,6 +343,7 @@ class ParseLifeTest(unittest.TestCase):
         self.assertEqual(holdings["CBEHY"]["netInvestedEur"], Decimal("0.0"))
 
     def test_the_contract_cost_is_required(self):
+        """The contract's net invested amount must be a JSON number: it is the only cost basis."""
         for bad in (None, "3480.0", True):
             with self.subTest(net=bad):
                 payload = life_payload()
@@ -377,6 +391,7 @@ class ParseLifeTest(unittest.TestCase):
         self.assertRefused(payload, "UPSTREAM_FORMAT_CHANGED")
 
     def test_an_unreadable_opening_date_is_dropped(self):
+        """A creation date that is not a real `DD/MM/YYYY` leaves `openedAt` empty, not guessed."""
         for bad in (None, "2024-01-15", 20240115, "31/02/2024"):
             with self.subTest(date=bad):
                 payload = life_payload()
@@ -384,6 +399,7 @@ class ParseLifeTest(unittest.TestCase):
                 self.assertIsNone(parse_life(payload)["openedAt"])
 
     def test_an_odd_savings_plan_is_dropped_not_refused(self):
+        """The savings plan is informational, so a malformed one never refuses the contract."""
         cases = (
             None,
             {"amount": 50},
@@ -416,6 +432,7 @@ class ParseLifeTest(unittest.TestCase):
         self.assertEqual(holdings["FGCORUM"]["assetClass"], "euroLife")
 
     def test_a_code_missing_from_the_asset_class_view_has_none(self):
+        """A code absent from the asset-class view gets a null class, not a guess."""
         payload = life_payload()
         payload["contractProfile"]["chartSections"][0]["sectionProduct"] = [
             p for p in payload["contractProfile"]["chartSections"][0]["sectionProduct"]
@@ -451,22 +468,26 @@ class ParseLifeTest(unittest.TestCase):
 
 class ParseOperationsTest(unittest.TestCase):
     def ops(self, payload=None):
+        """Operations of the Life contract, from `payload` or the default fixture."""
         return parse_operations(
             operations_payload() if payload is None else payload, [LIFE_CODE]
         )[LIFE_CODE]
 
     def life_years(self, payload):
+        """The `yearData` entries of the Life contract in an operations payload."""
         for contract in payload:
             if contract["contractCode"] == LIFE_CODE:
                 return contract["yearData"]
         raise KeyError(LIFE_CODE)
 
     def assertRefused(self, payload):
+        """Assert the operations payload is refused as an upstream format change."""
         with self.assertRaises(PositionsFormatError) as caught:
             parse_operations(payload, [LIFE_CODE])
         self.assertEqual(caught.exception.code, "UPSTREAM_FORMAT_CHANGED")
 
     def test_every_year_is_flattened_in_payload_order(self):
+        """Years are concatenated in the order the payload lists them, never re-sorted."""
         ops = self.ops()
 
         self.assertEqual(
@@ -487,6 +508,7 @@ class ParseOperationsTest(unittest.TestCase):
         })
 
     def test_amounts_keep_their_sign(self):
+        """Fees and the outgoing leg of a switch stay negative, as CORUM shows them."""
         by_id = {op["operationId"]: op for op in self.ops()}
 
         self.assertEqual(by_id["700008"]["amountEur"], Decimal("-1.42"))
@@ -494,6 +516,7 @@ class ParseOperationsTest(unittest.TestCase):
         self.assertEqual(by_id["700006"]["amountEur"], Decimal("100.0"))
 
     def test_fund_codes_are_split_and_upper_cased(self):
+        """`"EU, XL"` becomes `["EU", "XL"]`; a null list stays None."""
         by_id = {op["operationId"]: op for op in self.ops()}
 
         self.assertEqual(by_id["700004"]["fundCodes"], ["EU", "XL"])
@@ -517,6 +540,7 @@ class ParseOperationsTest(unittest.TestCase):
         self.assertEqual(len(result[LIFE_CODE]), 8)
 
     def test_a_contract_without_operations_is_an_empty_list(self):
+        """A listed contract with no operations reports `[]`, distinct from "not reported" (None)."""
         payload = operations_payload()
         for year in self.life_years(payload):
             year["operations"] = []
@@ -536,7 +560,9 @@ class ParseOperationsTest(unittest.TestCase):
         self.assertRefused(payload)
 
     def test_an_unreadable_date_is_refused(self):
-        # 31/02 passes a per-field range check but is not a calendar date.
+        """A date that is not a real `DD/MM/YYYY` is refused.
+
+        31/02 passes a per-field range check but is not on the calendar."""
         for date in (None, "2026-10-31", "31/13/2026", "", "31/02/2026"):
             payload = operations_payload()
             self.life_years(payload)[0]["operations"][0]["date"] = date
@@ -550,6 +576,7 @@ class ParseOperationsTest(unittest.TestCase):
         self.assertRefused(payload)
 
     def test_the_two_legs_of_a_switch_may_share_an_id(self):
+        """The two legs of a switch share an id and are told apart by sign, so both are kept."""
         payload = operations_payload()
         # 700007 (-100) and 700006 (+100) are the two legs of one switch.
         self.life_years(payload)[0]["operations"][4]["operationIds"] = ["700007"]
@@ -569,6 +596,7 @@ class ParseOperationsTest(unittest.TestCase):
         self.assertNotIn("700010", "".join(logs.output))
 
     def test_a_digit_string_or_integer_id_is_kept_as_its_digits(self):
+        """An id sent as a digit string or a bare integer reads to the same digits."""
         for raw in ("700010", 700010):
             payload = operations_payload()
             self.life_years(payload)[0]["operations"][0]["operationIds"] = [raw]
@@ -576,6 +604,7 @@ class ParseOperationsTest(unittest.TestCase):
                 self.assertEqual(self.ops(payload)[0]["operationId"], "700010")
 
     def test_a_non_integer_id_is_refused(self):
+        """An id that is empty, signed, spaced, fractional, boolean or missing is refused."""
         for ids in ([], ["70a010"], ["-1"], [" 7"], [1.5], [True], None):
             payload = operations_payload()
             self.life_years(payload)[0]["operations"][0]["operationIds"] = ids

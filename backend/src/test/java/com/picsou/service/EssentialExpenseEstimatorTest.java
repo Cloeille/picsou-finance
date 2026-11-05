@@ -154,6 +154,10 @@ class EssentialExpenseEstimatorTest {
         assertThat(response.estimate()).isEqualByComparingTo("1000.00");
     }
 
+    /**
+     * A coupon reinvested inside a life contract never left a current account, so it cannot excuse a
+     * real debit of the same amount as an internal transfer.
+     */
     @Test
     void aBudgetNeutralCreditIsNeverTakenForTheOtherLegOfATransfer() {
         Account lifeContract = account(3L, AccountType.ASSURANCE_VIE);
@@ -168,9 +172,12 @@ class EssentialExpenseEstimatorTest {
         assertThat(response.estimate()).isEqualByComparingTo("1003.00");
     }
 
+    /**
+     * A CORUM Life contract retyped to CHECKING keeps its neutral fee and switch-out rows; they never
+     * left the member's money, so they are not spending.
+     */
     @Test
     void aBudgetNeutralDebitIsNeverCountedAsSpending() {
-        // A CORUM Life contract retyped to CHECKING keeps its neutral fee and switch-out rows.
         tx(current, 1, 5, "-1000");
         Transaction fee = tx(current, 1, 10, "-12");
         fee.setBudgetNeutral(true);

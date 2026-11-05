@@ -76,22 +76,28 @@ def _number(value: Any) -> Decimal:
 
 
 def _optional_number(value: Any) -> Decimal | None:
+    """A JSON number, or None when the field is absent or null."""
     return None if value is None else _number(value)
 
 
 def _list(value: Any) -> list[Any]:
+    """`value` itself when it is a list; anything else means the format moved."""
     if not isinstance(value, list):
         raise _format_changed()
     return value
 
 
 def _dict(value: Any) -> dict[str, Any]:
+    """`value` itself when it is an object; anything else means the format moved."""
     if not isinstance(value, dict):
         raise _format_changed()
     return value
 
 
 def _code(product: dict[str, Any]) -> str:
+    """A product's `productName`, the only identifier the payload carries.
+
+    A blank or non-string name is a format change, not a line to skip."""
     code = product.get("productName")
     if not isinstance(code, str) or not code:
         raise _format_changed()
@@ -106,6 +112,9 @@ def _tolerance(line_count: int) -> Decimal:
 
 
 def _reconcile(values: list[Decimal], total: Decimal, line_count: int) -> None:
+    """Refuse the contract when its lines do not add up to `total`.
+
+    A missing line would otherwise be written as a smaller portfolio."""
     if abs(sum(values, Decimal("0")) - total) > _tolerance(line_count):
         raise PositionsFormatError("PORTFOLIO_INCOMPLETE")
 
@@ -349,6 +358,9 @@ def _fund_codes(raw: Any) -> list[str] | None:
 
 
 def _operation(raw: Any) -> dict[str, Any]:
+    """One operation row, normalised for the backend.
+
+    A bad type, category, id, date or amount refuses the whole payload."""
     raw = _dict(raw)
     op_type = raw.get("operationType")
     if not isinstance(op_type, str) or not op_type.strip() or len(op_type.strip()) > OPERATION_TYPE_MAX:

@@ -20,6 +20,7 @@ const CONTRACT: LifeContract = {
   scheduledPaymentCadence: 'MONTHLY',
 }
 
+/** A synced assurance-vie carrying a full contract block, which each case overrides. */
 function account(overrides: Partial<Account> = {}): Account {
   return {
     id: 7,

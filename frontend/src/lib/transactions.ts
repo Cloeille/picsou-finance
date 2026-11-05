@@ -41,6 +41,11 @@ export function isCorumLifeOperation(transaction: Transaction, accountProvider?:
       && transaction.type != null && CORUM_LIFE_PAYMENT_TYPES.includes(transaction.type))
 }
 
+/**
+ * The label of a CORUM Life operation: its own translated type name, `unknown` for a type the
+ * app has no wording for yet, and for a coupon the fund it detached from, so two coupons of one
+ * date can be told apart.
+ */
 function corumLifeOperationLabel(transaction: Transaction, translate: (key: string) => string): string {
   const known = transaction.type != null && CORUM_LIFE_OPERATION_TYPES.includes(transaction.type)
   const label = translate(`accounts.corumLifeOperation.${known ? transaction.type : 'unknown'}`)

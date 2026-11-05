@@ -42,6 +42,10 @@ import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import type { HoldingResponse, Transaction } from '@/types/api'
 
 
+/**
+ * One account's page: value history, holdings and positions, transactions, and the sections that
+ * only apply to its type (property, SCPI, a synced CORUM Life contract, dividends).
+ */
 export function AccountDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()

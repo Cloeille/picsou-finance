@@ -77,6 +77,11 @@ public class EssentialExpenseEstimator {
         this.priceService = priceService;
     }
 
+    /**
+     * Average monthly spending on the member's current accounts over the last complete months,
+     * weighted by their share. Internal transfers, investment legs and budget-neutral rows are not
+     * spending and are left out; the divisor counts only months that fed the total.
+     */
     public EssentialExpenseEstimateResponse estimate(Long memberId) {
         List<Account> readable = accessResolver.readableAccounts(memberId);
         if (readable.isEmpty()) {

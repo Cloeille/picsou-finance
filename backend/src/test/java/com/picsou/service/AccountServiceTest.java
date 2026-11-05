@@ -966,10 +966,12 @@ class AccountServiceTest {
         assertThat(accountService.liveBalanceEur(account)).isEqualByComparingTo("1250");
     }
 
+    /**
+     * No market feed quotes a CORUM Life unit, so every line falls back to the value CORUM reported,
+     * the euro fund included at exactly its value (1 EUR units).
+     */
     @Test
     void valuation_corumLife_usesCorumsOwnLineValuesWhenNoFeedQuotesItsUnits() {
-        // No market feed quotes a CORUM Life unit, so every line falls back to the value
-        // CORUM reported, the euro fund included at exactly its value (1 EUR units).
         Account account = Account.builder().id(8L).name("CORUM Life")
             .type(AccountType.ASSURANCE_VIE).provider(ScpiProvider.CORUM.displayName()).currency("EUR")
             .isManual(false).externalAccountId("corum_life_1001")
@@ -993,10 +995,12 @@ class AccountServiceTest {
         assertThat(valuation.anyPriced()).isTrue();
     }
 
+    /**
+     * "CORUM" typed by hand on a manual account is free text, not the CORUM Life sync: an unpriceable
+     * line is dropped as for any manual account, not replaced by the total.
+     */
     @Test
     void valuation_manualAccountTypedCorum_doesNotTakeTheCorumLifeFallback() {
-        // "CORUM" typed by hand on a manual account is free text, not the CORUM Life sync:
-        // an unpriceable line is dropped as for any manual account, not replaced by the total.
         Account account = Account.builder().id(9L).name("My CORUM")
             .type(AccountType.ASSURANCE_VIE).provider(ScpiProvider.CORUM.displayName()).currency("EUR")
             .isManual(true)
@@ -1040,9 +1044,9 @@ class AccountServiceTest {
         assertThat(valuation.anyPriced()).isTrue();
     }
 
+    /** The provider string is editable; the synced contract is what the external id says. */
     @Test
     void valuation_corumLife_keepsTheContractCostWhenTheProviderIsRenamed() {
-        // The provider string is editable; the synced contract is what the external id says.
         Account account = Account.builder().id(8L).name("CORUM Life")
             .type(AccountType.ASSURANCE_VIE).provider("My insurer").currency("EUR")
             .isManual(false).externalAccountId("corum_life_1001").providerInvestedEur(new BigDecimal("1580"))
@@ -1060,9 +1064,9 @@ class AccountServiceTest {
         assertThat(valuation.anyPriced()).isTrue();
     }
 
+    /** The last line deleted by hand: the contract's own cost still pairs with its total. */
     @Test
     void valuation_corumLifeWithoutHoldings_keepsTheContractCost() {
-        // The last line deleted by hand: the contract's own cost still pairs with its total.
         Account account = Account.builder().id(8L).name("CORUM Life")
             .type(AccountType.ASSURANCE_VIE).provider(ScpiProvider.CORUM.displayName()).currency("EUR")
             .isManual(false).externalAccountId("corum_life_1001").providerInvestedEur(new BigDecimal("1580"))
@@ -1075,10 +1079,12 @@ class AccountServiceTest {
         assertThat(valuation.investedEur()).isEqualByComparingTo("1580");
     }
 
+    /**
+     * CORUM reports both figures in EUR: a currency edited to USD must not convert the balance while
+     * the contract cost stays in EUR, which would invent an FX gain.
+     */
     @Test
     void valuation_corumLifeWithoutHoldings_ignoresAnEditedCurrency() {
-        // CORUM reports both figures in EUR: a currency edited to USD must not convert the
-        // balance while the contract cost stays in EUR, which would invent an FX gain.
         Account account = Account.builder().id(10L).name("CORUM Life")
             .type(AccountType.ASSURANCE_VIE).provider(ScpiProvider.CORUM.displayName()).currency("USD")
             .isManual(false).externalAccountId("corum_life_1001").providerInvestedEur(new BigDecimal("1580"))
@@ -1092,9 +1098,9 @@ class AccountServiceTest {
         verify(priceService, never()).toEur(any(), any(), any());
     }
 
+    /** A provider string alone does not make a CORUM Life contract. */
     @Test
     void valuation_nonManualCorumWithoutTheLifeExternalId_isNotProviderValued() {
-        // A provider string alone does not make a CORUM Life contract.
         Account account = Account.builder().id(9L).name("CORUM")
             .type(AccountType.ASSURANCE_VIE).provider(ScpiProvider.CORUM.displayName()).currency("EUR")
             .isManual(false).externalAccountId("other_1").providerInvestedEur(new BigDecimal("1"))
@@ -1110,9 +1116,9 @@ class AccountServiceTest {
         assertThat(valuation.investedEur()).isEqualByComparingTo("4000");
     }
 
+    /** Only a provider-valued account is taken at the provider's word. */
     @Test
     void valuation_manualAccountWithAProviderCost_ignoresIt() {
-        // Only a provider-valued account is taken at the provider's word.
         Account account = Account.builder().id(9L).name("My CORUM")
             .type(AccountType.ASSURANCE_VIE).provider(ScpiProvider.CORUM.displayName()).currency("EUR")
             .isManual(true).providerInvestedEur(new BigDecimal("1"))
@@ -1128,6 +1134,10 @@ class AccountServiceTest {
         assertThat(valuation.investedEur()).isEqualByComparingTo("4000");
     }
 
+    /**
+     * The provider's own asset class (an SCPI unit in a life contract is property) reaches the holding
+     * response, for the wealth pyramid to use.
+     */
     @Test
     void getHoldings_carriesTheProviderWealthTier() {
         when(accountRepository.findByIdAndMemberId(1L, 1L)).thenReturn(Optional.of(ownedAccount()));
@@ -1142,6 +1152,10 @@ class AccountServiceTest {
         assertThat(line.providerWealthTier()).isEqualTo(WealthTier.REAL_ESTATE);
     }
 
+    /**
+     * A plain account has no contract block; one with provider facts exposes its net invested, paid-in
+     * and scheduled payment.
+     */
     @Test
     void response_carriesTheContractFactsOnlyWhenThereAreAny() {
         Account plain = Account.builder().id(1L).name("Plain").type(AccountType.CHECKING).currency("EUR").build();
@@ -1598,10 +1612,12 @@ class AccountServiceTest {
         assertThat(result).isEqualByComparingTo("2500");
     }
 
+    /**
+     * No feed quotes a CORUM Life unit: clearing the reported value would leave the line unvalued
+     * until the next sync. The P&L goes so the buy-in becomes the cost basis.
+     */
     @Test
     void updateHolding_corumLife_keepsTheLineValueAndAppliesTheEditedBuyIn() {
-        // No feed quotes a CORUM Life unit: clearing the reported value would leave the line
-        // unvalued until the next sync. The P&L goes so the buy-in becomes the cost basis.
         Account life = Account.builder().id(1L).type(AccountType.ASSURANCE_VIE).currency("EUR")
             .provider(ScpiProvider.CORUM.displayName()).isManual(false).externalAccountId("corum_life_1001").build();
         AccountHolding h = AccountHolding.builder()

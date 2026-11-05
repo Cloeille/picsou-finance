@@ -176,6 +176,11 @@ interface SyncAllModalProps {
   onOpenChange: (open: boolean) => void
 }
 
+/**
+ * Every provider connection with its status, synced in place from one dialog. A row that needs its
+ * own form (Finary, an expired session, Revolut without remembered credentials) opens its Sync
+ * tab instead, and a row spins while its server-side job is queued or running.
+ */
 export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()

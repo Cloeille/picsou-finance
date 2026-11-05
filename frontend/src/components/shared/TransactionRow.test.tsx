@@ -40,6 +40,7 @@ describe('TransactionRow amount sign', () => {
 })
 
 describe('TransactionRow CORUM Life operations', () => {
+  /** A budget-neutral CORUM Life row, the default shape every case below varies from. */
   const corum = (overrides: Partial<Transaction>): Transaction => ({
     ...tx(100), description: 'RAW CORUM', merchantLabel: null, budgetNeutral: true, ...overrides,
   })

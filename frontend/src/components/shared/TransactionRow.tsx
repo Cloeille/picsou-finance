@@ -15,6 +15,10 @@ interface TransactionRowProps {
   accountProvider?: string | null
 }
 
+/**
+ * One ledger row. A CORUM Life operation shows its own label even when a merchant label exists;
+ * a budget-neutral row carries an "in contract" badge to say it stays out of the budget.
+ */
 export function TransactionRow({ transaction: tx, logoUrlFor, onClick, index = 0, accountProvider }: TransactionRowProps) {
   const { t } = useTranslation()
   const label = isCorumLifeOperation(tx, accountProvider)

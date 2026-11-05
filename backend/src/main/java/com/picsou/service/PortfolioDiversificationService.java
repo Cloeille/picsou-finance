@@ -69,6 +69,11 @@ public class PortfolioDiversificationService {
         return tier == null || tier == WealthTier.EQUITY;
     }
 
+    /**
+     * Sector and country breakdown of the member's equity lines, one position per ticker across
+     * accounts. A line that the member or the provider puts in another tier is not equity and is
+     * left out, so this view agrees with the wealth pyramid.
+     */
     public DiversificationResponse diversification(Long memberId) {
         List<Account> accounts = accessResolver.readableAccounts(memberId);
         Map<Long, BigDecimal> shares = accessResolver.sharesFor(accounts, memberId);
