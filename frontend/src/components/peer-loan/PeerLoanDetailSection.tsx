@@ -326,11 +326,11 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                       {t('common.edit')}
                     </Button>
                   )}
-                  {(!data.closedAt || repayment.kind === 'WRITE_OFF') && (
-                    <Button size="sm" variant="ghost" onClick={() => handleDeleteRepayment(repayment)}>
-                      {t('common.delete')}
-                    </Button>
-                  )}
+                  {/* Deletion stays available after closure: a loan auto-closed by its final
+                      repayment has no write-off, and the member must still be able to fix it. */}
+                  <Button size="sm" variant="ghost" onClick={() => handleDeleteRepayment(repayment)}>
+                    {t('common.delete')}
+                  </Button>
                 </div>
               </div>
             ))
