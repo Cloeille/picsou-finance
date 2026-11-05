@@ -163,8 +163,8 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                   value={formatPercent(pct, { fractionDigits: 1 }, locale)}
                 />
                 <Stat
-                  label={t('peerLoan.summary.interestAccrued')}
-                  value={<CurrencyDisplay value={data.interestAccrued} />}
+                  label={t('peerLoan.summary.interestCalculated')}
+                  value={<CurrencyDisplay value={data.interestAccrued + data.interestReceived} />}
                 />
               </div>
 
@@ -174,9 +174,11 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                   <span className="text-emerald-500">
                     {t('peerLoan.summary.principalRepaid')} <CurrencyDisplay value={data.principalRepaid} />
                   </span>
-                  <span className="text-emerald-500">
-                    {t('peerLoan.summary.interestReceived')} <CurrencyDisplay value={data.interestReceived} />
-                  </span>
+                  {!data.closedAt && data.interestAccrued > 0 && (
+                    <span className="text-foreground">
+                      {t('peerLoan.summary.interestDue')} <CurrencyDisplay value={data.interestAccrued} />
+                    </span>
+                  )}
                   {data.writtenOff > 0 && (
                     <span className="text-red-500">
                       {t('peerLoan.summary.writtenOff')} <CurrencyDisplay value={data.writtenOff} />

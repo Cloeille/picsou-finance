@@ -498,8 +498,8 @@
       "lent": "Prestado",
       "remaining": "Pendiente",
       "repaid": "Devuelto",
-      "interestAccrued": "Intereses devengados",
-      "interestReceived": "Intereses recibidos",
+      "interestCalculated": "Intereses calculados",
+      "interestDue": "Intereses pendientes",
       "principalRepaid": "Capital devuelto",
       "writtenOff": "Condonado"
     },

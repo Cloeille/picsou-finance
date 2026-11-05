@@ -509,8 +509,8 @@
       "lent": "Lent",
       "remaining": "Remaining",
       "repaid": "Repaid",
-      "interestAccrued": "Interest accrued",
-      "interestReceived": "Interest received",
+      "interestCalculated": "Interest calculated",
+      "interestDue": "Interest due",
       "principalRepaid": "Capital repaid",
       "writtenOff": "Written off"
     },

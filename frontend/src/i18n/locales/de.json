@@ -498,8 +498,8 @@
       "lent": "Verliehen",
       "remaining": "Restschuld",
       "repaid": "Zurückgezahlt",
-      "interestAccrued": "Aufgelaufene Zinsen",
-      "interestReceived": "Erhaltene Zinsen",
+      "interestCalculated": "Berechnete Zinsen",
+      "interestDue": "Fällige Zinsen",
       "principalRepaid": "Kapital zurückgezahlt",
       "writtenOff": "Abgeschrieben"
     },

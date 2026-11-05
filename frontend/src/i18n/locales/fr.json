@@ -509,8 +509,8 @@
       "lent": "Prêté",
       "remaining": "Reste dû",
       "repaid": "Remboursé",
-      "interestAccrued": "Intérêts courus",
-      "interestReceived": "Intérêts reçus",
+      "interestCalculated": "Intérêts calculés",
+      "interestDue": "Intérêts dus",
       "principalRepaid": "Capital remboursé",
       "writtenOff": "Abandonné"
     },
