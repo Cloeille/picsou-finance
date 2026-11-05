@@ -51,6 +51,11 @@ public class PeerLoanTerms extends AuditableEntity {
     @Column(name = "annual_rate", precision = 5, scale = 4)
     private BigDecimal annualRate;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "rate_period", nullable = false, length = 10)
+    @Builder.Default
+    private PeerLoanRatePeriod ratePeriod = PeerLoanRatePeriod.ANNUAL;
+
     @Column(name = "planned_monthly_amount", precision = 20, scale = 8)
     private BigDecimal plannedMonthlyAmount;
 

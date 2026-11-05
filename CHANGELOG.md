@@ -16,8 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Peer loans (receivables between individuals).** A new "peer loan" account type tracks
   money lent to a person as an asset: nominal capital, dated repayments, simple interest,
-  an editable forecast and a dated write-off when the loan is closed. One account is one
-  loan, identified by its name. A manual cash account linked to it receives the matching
+  an editable forecast and a dated write-off when the loan is closed. The rate can be
+  entered monthly or annually, and the detail draws the actual capital against the
+  forecast. One account is one loan, identified by its name. A manual cash account linked to it receives the matching
   transfer automatically, so a repayment never reduces net worth; a synced account relies
   on the bank row. A loan can also be created from an existing outgoing transaction, and
   an incoming transaction can be assigned to a repayment. It counts in net worth but never

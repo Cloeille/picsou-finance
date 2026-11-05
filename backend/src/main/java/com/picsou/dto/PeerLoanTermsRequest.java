@@ -1,5 +1,6 @@
 package com.picsou.dto;
 
+import com.picsou.model.PeerLoanRatePeriod;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
@@ -24,6 +25,8 @@ public record PeerLoanTermsRequest(
     @NotNull LocalDate lentAt,
     LocalDate expectedBack,
     @DecimalMin("0") @DecimalMax("1") BigDecimal annualRate,
+    /** How the rate was stated; it defaults to annual. The stored rate is annual either way. */
+    PeerLoanRatePeriod ratePeriod,
     @DecimalMin("0") BigDecimal plannedMonthlyAmount,
     @Min(1) Integer plannedMonths,
     @NotNull Long linkedAccountId,

@@ -38,6 +38,7 @@ page, the way a `SCPI` position is.
 ```sql
 -- V122: ALTER TYPE account_type ADD VALUE 'PEER_LOAN' BEFORE 'OTHER';
 -- V123: tables below.  V124: the two cash-leg links.  V125: cash_leg_owned.
+-- V126: rate_period.
 
 peer_counterparty (id, member_id, name, note)
     UNIQUE (member_id, lower(name))
@@ -45,6 +46,7 @@ peer_counterparty (id, member_id, name, note)
 peer_loan_terms (
     id, account_id UNIQUE, counterparty_id,
     principal, lent_at, expected_back, annual_rate,
+    rate_period,                              -- ANNUAL | MONTHLY, display only
     planned_monthly_amount, planned_months,   -- forecast only, both or neither
     linked_account_id, note, closed_at,
     lending_transaction_id                    -- the outflow we own or linked
@@ -161,9 +163,13 @@ as paid and never drive the balance.
   (the payment never amortises).
 
 The maths lives in `PeerLoanCalculator` and mirrors `LoanAmortizationService`'s annuity, so
-the forecast and the bank-loan schedule cannot disagree. The detail card compares the
-scheduled remaining with the actual capital and reports the drift in installments. This is
-information, not a verdict: no automatic "late" state, no scoring.
+the forecast and the bank-loan schedule cannot disagree. The detail draws the actual
+capital as a solid step line and the plan as a dashed line, and reports the drift in
+installments. This is information, not a verdict: no automatic "late" state, no scoring.
+
+The rate can be entered **per year or per month**. `annual_rate` always stores the
+normalized annual fraction the calculator uses; `rate_period` only remembers how the
+member stated it, so a loan agreed at 0.5 %/month reopens as 0.5 %/month rather than 6 %/year.
 
 ### REST endpoints
 
@@ -188,13 +194,15 @@ a child row: the ledger is scoped through its account, never through an unvalida
 - `components/peer-loan/PeerLoanDetailSection.tsx` renders in `AccountDetailPage` where
   `LoanDetailSection` does for `LOAN`:
   - summary: lent / repaid (%) / remaining / accrued interest / written off;
-  - forecast card with the scheduled-vs-actual comparison and the drift;
+  - forecast card with the scheduled-vs-actual figures, the drift, and the
+    actual-vs-scheduled chart (`PeerLoanForecastChart`);
   - repayment ledger with the kind badge, add / edit / delete; capital and interest
     amounts are green and prefixed `+`, a write-off is red and prefixed `−`;
   - "close the loan" action with the residual amount in the confirmation.
 - `PeerLoanTermsDialog.tsx` — terms plus the simulator (a duration fills the monthly
-  amount, or a monthly amount fills the duration). The linked cash account is required;
-  the borrower is the account name.
+  amount, or a monthly amount fills the duration). The rate is entered per year or per
+  month; switching the period converts the visible value. The linked cash account is
+  required; the borrower is the account name.
 - `PeerLoanRepaymentDialog.tsx` — one dated row, one kind, one budget category.
 - `CreatePeerLoanDialog.tsx` — opened from an outgoing transaction's detail sheet;
   prefills the borrower from the merchant label and links the transaction as the lending
@@ -213,7 +221,7 @@ Backend:
 
 - `backend/.../model/AccountType.java` — `PEER_LOAN`, `isLedger()` exclusion
 - `backend/.../model/PeerCounterparty.java`, `PeerLoanTerms.java`, `PeerLoanRepayment.java`,
-  `PeerLoanRepaymentKind.java`
+  `PeerLoanRepaymentKind.java`, `PeerLoanRatePeriod.java`
 - `backend/.../repository/PeerCounterpartyRepository.java`, `PeerLoanTermsRepository.java`,
   `PeerLoanRepaymentRepository.java`
 - `backend/.../service/PeerLoanCalculator.java` — pure arithmetic (remaining, interest,
@@ -228,13 +236,14 @@ Backend:
 - `backend/.../model/AssetClass.java`, `WealthTier.java` — exhaustive switches
 - `backend/.../db/migration/V122__account_type_peer_loan.sql`,
   `V123__peer_loans.sql`, `V124__peer_loan_cash_leg.sql`,
-  `V125__peer_loan_linked_repayment.sql`
+  `V125__peer_loan_linked_repayment.sql`, `V126__peer_loan_rate_period.sql`
 
 Frontend:
 
 - `frontend/src/types/api.ts`, `frontend/src/lib/constants.ts`
 - `frontend/src/features/peer-loans/{api,hooks}.ts`
-- `frontend/src/components/peer-loan/*`
+- `frontend/src/components/peer-loan/*` (detail, terms, repayment, create/assign dialogs,
+  forecast chart)
 - `frontend/src/pages/accounts/AccountDetailPage.tsx`,
   `frontend/src/pages/accounts/AccountsPage.tsx`
 - `frontend/src/components/shared/AccountForm.tsx`

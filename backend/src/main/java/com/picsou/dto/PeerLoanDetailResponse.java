@@ -1,5 +1,6 @@
 package com.picsou.dto;
 
+import com.picsou.model.PeerLoanRatePeriod;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -22,6 +23,7 @@ public record PeerLoanDetailResponse(
     LocalDate lentAt,
     LocalDate expectedBack,
     BigDecimal annualRate,
+    PeerLoanRatePeriod ratePeriod,
     BigDecimal plannedMonthlyAmount,
     Integer plannedMonths,
     Long linkedAccountId,
@@ -37,5 +39,9 @@ public record PeerLoanDetailResponse(
     BigDecimal repaidPct,
     BigDecimal scheduledRemaining,
     Integer installmentsBehind,
-    List<PeerLoanRepaymentResponse> repayments
-) {}
+    List<PeerLoanRepaymentResponse> repayments,
+    /** Actual capital over time, and the forecast when a plan exists. */
+    List<CurvePoint> curve
+) {
+    public record CurvePoint(LocalDate date, BigDecimal actual, BigDecimal scheduled) {}
+}

@@ -17,6 +17,7 @@ import com.picsou.model.AccountType;
 import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
 import com.picsou.model.PeerCounterparty;
+import com.picsou.model.PeerLoanRatePeriod;
 import com.picsou.model.PeerLoanRepayment;
 import com.picsou.model.PeerLoanRepaymentKind;
 import com.picsou.model.PeerLoanTerms;
@@ -36,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -197,6 +199,7 @@ public class PeerLoanService {
             .principal(principal)
             .lentAt(transaction.getDate())
             .annualRate(BigDecimal.ZERO)
+            .ratePeriod(PeerLoanRatePeriod.ANNUAL)
             .linkedAccount(transaction.getAccount())
             .lendingTransactionId(transaction.getId())
             .build());
@@ -257,6 +260,9 @@ public class PeerLoanService {
         terms.setLentAt(request.lentAt());
         terms.setExpectedBack(request.expectedBack());
         terms.setAnnualRate(request.annualRate());
+        terms.setRatePeriod(request.ratePeriod() != null
+            ? request.ratePeriod()
+            : PeerLoanRatePeriod.ANNUAL);
         terms.setPlannedMonthlyAmount(request.plannedMonthlyAmount());
         terms.setPlannedMonths(request.plannedMonths());
         terms.setLinkedAccount(linked);
@@ -631,10 +637,10 @@ public class PeerLoanService {
             principal,
             account.getCreatedAt() == null ? null : account.getCreatedAt()
                 .atZone(java.time.ZoneOffset.UTC).toLocalDate(),
-            null, null, null, null, null, null, null, null,
+            null, null, PeerLoanRatePeriod.ANNUAL, null, null, null, null, null, null,
             BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
             BigDecimal.ZERO, BigDecimal.ZERO, null, null,
-            List.of());
+            List.of(), List.of());
     }
 
     private PeerLoanDetailResponse build(Account account, PeerLoanTerms terms, LocalDate asOf) {
@@ -655,6 +661,7 @@ public class PeerLoanService {
             terms.getLentAt(),
             terms.getExpectedBack(),
             terms.getAnnualRate(),
+            terms.getRatePeriod(),
             terms.getPlannedMonthlyAmount(),
             terms.getPlannedMonths(),
             terms.getLinkedAccount() == null ? null : terms.getLinkedAccount().getId(),
@@ -670,7 +677,56 @@ public class PeerLoanService {
             repaidPct,
             plan == null ? null : plan.scheduledRemaining(),
             plan == null ? null : plan.installmentsBehind(),
-            repayments.stream().map(PeerLoanRepaymentResponse::from).toList()
+            repayments.stream().map(PeerLoanRepaymentResponse::from).toList(),
+            buildCurve(terms, repayments, asOf)
         );
+    }
+
+    /**
+     * Monthly points from the lending date to today (or the planned end, whichever is
+     * later). The actual line steps down with the repayments; the scheduled line is the
+     * forecast, and stays null without a plan.
+     */
+    private List<PeerLoanDetailResponse.CurvePoint> buildCurve(
+        PeerLoanTerms terms, List<PeerLoanRepayment> repayments, LocalDate asOf
+    ) {
+        LocalDate start = terms.getLentAt();
+        if (start == null) {
+            return List.of();
+        }
+        LocalDate end = asOf;
+        if (terms.getPlannedMonths() != null && terms.getPlannedMonths() > 0) {
+            LocalDate plannedEnd = start.plusMonths(terms.getPlannedMonths());
+            if (plannedEnd.isAfter(end)) {
+                end = plannedEnd;
+            }
+        }
+
+        List<PeerLoanDetailResponse.CurvePoint> points = new ArrayList<>();
+        YearMonth month = YearMonth.from(start);
+        YearMonth lastMonth = YearMonth.from(end);
+        while (!month.isAfter(lastMonth)) {
+            LocalDate date = month.atDay(1);
+            if (date.isBefore(start)) {
+                date = start;
+            }
+            points.add(curvePoint(terms, repayments, date));
+            month = month.plusMonths(1);
+        }
+        if (points.isEmpty() || points.getLast().date().isBefore(asOf)) {
+            points.add(curvePoint(terms, repayments, asOf));
+        }
+        return points;
+    }
+
+    private static PeerLoanDetailResponse.CurvePoint curvePoint(
+        PeerLoanTerms terms, List<PeerLoanRepayment> repayments, LocalDate date
+    ) {
+        PeerLoanCalculator.Computed computed = PeerLoanCalculator.compute(terms, repayments, date);
+        PeerLoanCalculator.Plan plan = PeerLoanCalculator.plan(terms, computed.principalRemaining(), date);
+        return new PeerLoanDetailResponse.CurvePoint(
+            date,
+            computed.principalRemaining(),
+            plan == null ? null : plan.scheduledRemaining());
     }
 }

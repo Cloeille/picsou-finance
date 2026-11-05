@@ -128,7 +128,7 @@ class PeerLoanServiceTest {
 
     private static PeerLoanTermsRequest termsRequest(BigDecimal principal, Long linkedAccountId) {
         return new PeerLoanTermsRequest(
-            principal, LocalDate.parse("2026-01-01"), null, BigDecimal.ZERO, null, null,
+            principal, LocalDate.parse("2026-01-01"), null, BigDecimal.ZERO, null, null, null,
             linkedAccountId, null);
     }
 
@@ -232,7 +232,7 @@ class PeerLoanServiceTest {
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
 
         assertThatThrownBy(() -> service.saveTerms(ACCOUNT_ID, MEMBER_ID, new PeerLoanTermsRequest(
-            new BigDecimal("500"), LocalDate.parse("2026-01-01"), null, BigDecimal.ZERO,
+            new BigDecimal("500"), LocalDate.parse("2026-01-01"), null, BigDecimal.ZERO, null,
             new BigDecimal("100"), null, CASH_ID, null)))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("both");

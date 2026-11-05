@@ -96,6 +96,10 @@ derived, because one cash movement carries one budget category: a synced bank ro
 be half a transfer and half income. The UI shows the accrued interest so the member can
 record the two rows a mixed payment needs.
 
+The rate can be stated **monthly or annually**. `annual_rate` always holds the normalized
+annual fraction the calculator uses; `rate_period` only remembers the unit the member
+typed, so the form reopens as it was filled.
+
 Accrued but unpaid interest is **displayed, never counted in net worth**. Counting money
 that has not been received would reintroduce the optimism this ADR rejects. At closure,
 unpaid accrued interest simply disappears.
@@ -228,7 +232,7 @@ a cousin does nothing.
 - New `AccountType.PEER_LOAN`; migration `V122` adds the enum value alone (PostgreSQL
   refuses to use a new enum value in the transaction that added it, as `V69`, `V79`,
   `V100` and `V112` already document), `V123` creates the three tables, `V124` adds the
-  two cash-leg links and `V125` the `cash_leg_owned` flag.
+  two cash-leg links, `V125` the `cash_leg_owned` flag and `V126` the `rate_period`.
 - `AccountType.isLedger()` must return **false** for `PEER_LOAN`: its balance derives from
   the principal and the ledger, not from transactions. The frontend mirror
   `NON_LEDGER_ACCOUNT_TYPES` follows.
