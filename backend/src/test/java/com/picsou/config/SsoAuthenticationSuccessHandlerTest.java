@@ -33,6 +33,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -49,6 +50,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -244,6 +246,22 @@ class SsoAuthenticationSuccessHandlerTest {
         handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
 
         verify(sessionIssuer).issue(alice, rememberMe, false, NOW, request, response);
+    }
+
+    @Test
+    void provisioningThatLostAUniqueRaceIsRetriedOnceAndSignsIn() throws Exception {
+        var request = requestWith(loginIntent("/accounts", false));
+        var response = new MockHttpServletResponse();
+        AppUser alice = user(1, "alice.2", UserRole.ADMIN, true);
+        when(ssoAccountService.resolveLogin(any(), eq(request)))
+            .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"))
+            .thenReturn(new SsoAccountService.LoginOutcome.Resolved(alice, true));
+
+        handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
+
+        verify(ssoAccountService, times(2)).resolveLogin(any(), eq(request));
+        verify(sessionIssuer).issue(alice, false, false, NOW, request, response);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/login/sso-complete?redirect=%2Faccounts");
     }
 
     @Test

@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.dao.ConcurrencyFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
@@ -112,7 +113,7 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
     private String login(HttpServletRequest request, HttpServletResponse response,
                          Authentication authentication, SsoIntent intent) {
         SsoIdentity identity = SsoIdentity.from((OidcUser) authentication.getPrincipal(), ssoProperties.groupsClaim());
-        return switch (ssoAccountService.resolveLogin(identity, request)) {
+        return switch (resolveLogin(identity, request)) {
             case SsoAccountService.LoginOutcome.Refused refused -> intent.errorRedirect(refused.code());
             case SsoAccountService.LoginOutcome.Resolved resolved -> {
                 AppUser user = resolved.user();
@@ -129,6 +130,19 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
                     : COMPLETE_TARGET + URLEncoder.encode(redirect, StandardCharsets.UTF_8);
             }
         };
+    }
+
+    /**
+     * A first sign-in that provisions an account can lose a race on the username or the identity to
+     * a concurrent one. Its transaction rolled back, so a second attempt sees the winner: it derives
+     * the next free username, or finds the identity already linked.
+     */
+    private SsoAccountService.LoginOutcome resolveLogin(SsoIdentity identity, HttpServletRequest request) {
+        try {
+            return ssoAccountService.resolveLogin(identity, request);
+        } catch (DataIntegrityViolationException e) {
+            return ssoAccountService.resolveLogin(identity, request);
+        }
     }
 
     private String activate(HttpServletRequest request, HttpServletResponse response,
