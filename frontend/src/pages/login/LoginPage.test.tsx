@@ -134,7 +134,7 @@ describe('LoginPage SSO', () => {
     const view = renderLogin()
     fireEvent.click(screen.getByRole('button', { name: en.common.retry }))
 
-    expect(screen.getByText(en.auth.sso.infoError)).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(en.auth.sso.infoError)
     expect(refetch).toHaveBeenCalledTimes(1)
     useSsoInfo.mockReturnValue(SSO_ENABLED)
     view.rerenderSame()

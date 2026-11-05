@@ -126,6 +126,7 @@ export function LoginPage() {
             {!demoMode && ssoInfo.isError && (
               <AlertBanner
                 variant="roomy"
+                role="alert"
                 className="mb-6"
                 action={
                   <Button type="button" variant="outline" size="sm" onClick={() => void ssoInfo.refetch()}>

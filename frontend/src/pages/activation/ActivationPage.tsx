@@ -116,6 +116,7 @@ export function ActivationPage() {
             {ssoInfo.isError && (
               <AlertBanner
                 variant="roomy"
+                role="alert"
                 action={
                   <Button type="button" variant="outline" size="sm" onClick={() => void ssoInfo.refetch()}>
                     {t('common.retry')}

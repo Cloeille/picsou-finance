@@ -100,7 +100,7 @@ describe('ActivationPage', () => {
     getInfo.mockRejectedValueOnce(new Error('network down')).mockResolvedValue(SSO_ON)
     renderPage()
 
-    expect(await screen.findByText(en.auth.sso.infoError)).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent(en.auth.sso.infoError)
     expect(screen.queryByRole('button', { name: 'Activate with Zitadel' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: en.common.retry }))
 
