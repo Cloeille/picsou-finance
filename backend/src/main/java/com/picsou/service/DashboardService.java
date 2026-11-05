@@ -74,9 +74,12 @@ public class DashboardService {
         Map<Long, BigDecimal> shares = accessResolver.sharesFor(accounts, memberId);
 
         // A peer loan is a receivable, not an allocation asset: the ADR keeps it out of the
-        // donut and the pyramid. It stays in net worth through the unfiltered accounts list,
-        // so an open loan still counts, it just does not claim a slice of "what my money does".
-        List<Account> distributable = accounts.stream()
+        // donut and the pyramid. It is still an asset for wealth and history, so the response
+        // carries the full asset list separately (see `assets` below).
+        List<Account> assetAccounts = accounts.stream()
+            .filter(account -> !account.getType().isLiability())
+            .toList();
+        List<Account> distributable = assetAccounts.stream()
             .filter(account -> account.getType() != AccountType.PEER_LOAN)
             .toList();
 
@@ -166,12 +169,21 @@ public class DashboardService {
         };
         List<NetWorthPoint> updatedHistory = historyService.buildHistory(allAccountIds, months, memberId);
 
+        // The donut's slices must add up to 100 % of what the donut shows, so its divisor is
+        // the included assets only -- not totalAssets, which still counts the receivable.
+        BigDecimal distributableTotal = distributable.stream()
+            .map(account -> accountValues.getOrDefault(account.getId(), BigDecimal.ZERO))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
         // Percentages are shares of their own side of the balance sheet:
-        // assets divide by totalAssets, liabilities by totalLiabilities (issue #18).
+        // assets divide by their own total, liabilities by totalLiabilities (issue #18).
         List<DistributionItem> distribution = buildDistribution(
-            distributable, totalAssets, holdingsByAccount, accountValues, false);
+            distributable, distributableTotal, holdingsByAccount, accountValues, false);
+        // Wealth modes and the history curve need the receivable too, so they get the
+        // unfiltered asset list rather than the donut's slice of it.
+        List<DistributionItem> assets = buildDistribution(
+            accounts, totalAssets, holdingsByAccount, accountValues, false);
         List<DistributionItem> rawLiabilities = buildDistribution(
-            distributable, totalLiabilities, holdingsByAccount, accountValues, true);
+            accounts, totalLiabilities, holdingsByAccount, accountValues, true);
 
         // Enrich liabilities with loan parameters in one query
         List<Long> liabilityIds = rawLiabilities.stream().map(DistributionItem::accountId).toList();
@@ -231,7 +243,7 @@ public class DashboardService {
             .toList();
 
         return new DashboardResponse(totalNetWorth, totalLiabilities, totalMonthlyPayment,
-            updatedHistory, distribution, liabilities, goals);
+            updatedHistory, distribution, assets, liabilities, goals);
     }
 
     private List<DistributionItem> buildDistribution(List<Account> accounts, BigDecimal divisor,

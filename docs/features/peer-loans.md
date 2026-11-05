@@ -294,8 +294,9 @@ Backend:
 - `backend/.../service/AccountService.java` — `valuation()` branch
 - `backend/.../service/HistoryService.java` — receivable excluded from invested/PnL
 - `backend/.../service/WealthPyramidService.java` - receivable skipped
-- `backend/.../service/DashboardService.java` - receivable excluded from the distribution
-  (assets and liabilities lists), kept in net worth through the unfiltered accounts
+- `backend/.../service/DashboardService.java` - receivable excluded from the allocation
+  distribution; the response also carries an `assets` list (receivable included) that the
+  wealth modes, history and gross figure use
 - `backend/.../model/AssetClass.java`, `WealthTier.java` — exhaustive switches
 - `backend/.../db/migration/V122__account_type_peer_loan.sql`,
   `V123__peer_loans.sql`, `V124__peer_loan_cash_leg.sql`,
