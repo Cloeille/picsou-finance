@@ -232,6 +232,37 @@ Close with a residual
    └─ analysis shows the loss; cashflow and budget unchanged
 ```
 
+## Testing it locally (isolated stack)
+
+`docker/docker-compose.peer-loans-test.yml` starts a disposable instance that shares
+nothing with production: its own Compose project (`picsou-peer-loans-test`), its own image
+tag, volumes, database and host port (`127.0.0.1:18080`). It never reads `docker/.env`, so
+the production secrets are out of reach.
+
+```bash
+docker compose -f docker/docker-compose.peer-loans-test.yml up -d --build
+# open http://localhost:18080
+```
+
+The image is built from the working tree, so it includes uncommitted changes. First launch
+runs the setup wizard: create the admin and skip the integration steps — no sidecar runs in
+this stack. Then:
+
+1. **Accounts → Add account**, pick "Peer loan", name it, save.
+2. Open the account and click **Set up the loan**: borrower, amount, date, optional rate.
+3. Add a **capital** repayment, then an **interest** payment: the remaining capital, the
+   progress and the forecast card move, and the account's history gets today's snapshot.
+4. **Close the loan**: the residual is written off and the account is worth zero from
+   today; the loss is in the history.
+
+```bash
+docker compose -f docker/docker-compose.peer-loans-test.yml logs -f app
+docker compose -f docker/docker-compose.peer-loans-test.yml down      # keep the test data
+docker compose -f docker/docker-compose.peer-loans-test.yml down -v   # wipe it
+```
+
+The `db` container has no host port: the database is only reachable by the test app.
+
 ## Technical choices
 
 | Choice | Why | Rejected alternative |
