@@ -234,6 +234,16 @@ The client secret is never set in `app.env`: use `secrets.ssoClientSecret`, or t
 `sso-client-secret` key of `secrets.existingSecret`. The pod reads it as optional,
 so omitting the key is fine. Like other secret changes, it needs an app rollout.
 
+Clearing `secrets.ssoClientSecret` does not remove a stored key: like every inline
+secret, a blank value keeps the one already in the Secret, so the app keeps sending
+it. To turn an existing install into a public client, delete the key from the
+chart's Secret, then roll out the app:
+
+```sh
+kubectl patch secret <secret-name> --type=json \
+  -p '[{"op":"remove","path":"/data/sso-client-secret"}]'
+```
+
 Register at the IdP the redirect URI `https://<host>/login/sso/callback` and, only
 with `SSO_IDP_LOGOUT=true`, the post-logout URI `https://<host>/login`. See
 [`docs/features/sso-login.md`](../../docs/features/sso-login.md) in the repository

@@ -31,7 +31,8 @@ global:
 #   crypto-encryption-key  CRYPTO_ENCRYPTION_KEY (openssl rand -base64 32)
 #
 # One more is optional, for single sign-on (see the README, "Single sign-on (OIDC)"):
-#   sso-client-secret      SSO_CLIENT_SECRET     (absent means a public client, PKCE only)
+#   sso-client-secret      SSO_CLIENT_SECRET     (absent means a public client, PKCE only;
+#                          a blank ssoClientSecret keeps a stored key, see the README)
 #
 # Losing crypto-encryption-key makes every stored API secret and bank session
 # token unreadable: back up the /data volume, or provide the key yourself.
