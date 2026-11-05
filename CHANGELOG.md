@@ -44,6 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Existing Windows checkouts must refresh the Docker entrypoint after upgrading.**
+  `.gitattributes` now forces LF on `*.sh`, but Git only rewrites files it checks out. On a
+  checkout created before this change, run `git checkout -- docker/entrypoint.sh` once;
+  otherwise the CRLF shebang still makes the container fail at exec with
+  `no such file or directory`.
+
 - **Caisse d'Epargne: a failed account import says where it failed.** The sidecar's
   `accounts fetch failed` line now names the step (synthesis, transactions,
   serialisation) and the cause (the bank's HTTP status, an oversized answer, or the

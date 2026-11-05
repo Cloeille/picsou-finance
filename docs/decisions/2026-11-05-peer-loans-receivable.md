@@ -144,8 +144,9 @@ the other direction, an incoming transaction can be linked as a repayment: it ca
 `cash_leg_owned = false`, so deleting the repayment only unlinks it and the member's or
 provider's row is never deleted or duplicated.
 
-Once `lending_transaction_id` exists, the principal and the linked account are frozen:
-the cash movement is a fact, and changing it silently would rewrite history.
+Once `lending_transaction_id` exists, the principal, the lending date and the linked
+account are frozen: the cash movement is a fact, and changing it silently would rewrite
+history.
 
 ## Alternatives considered
 
@@ -222,8 +223,6 @@ a cousin does nothing.
   rate source for an amount that is usually small and fixed.
 - **No automatic schedule enforcement.** A payment is never "late" in the balance; the
   delay is only displayed against `expected_back`.
-- **The cash link can be left empty**, in which case the user categorises the bank rows by
-  hand. The UI must warn when a loan has no linked account and no matching transfer.
 - **The counterparty roster is per member.** A loan shared with the household still
   belongs to one member; extending it to co-ownership is a follow-up, not an oversight.
 - **Interest compounds nowhere.** A loan that capitalises unpaid interest is not

@@ -117,7 +117,7 @@ The column is deliberately general rather than `pea_opened_at`: a PER, a PEA-PME
 assurance-vie all have the same shape of rule at different thresholds. Extending the field to
 another type is one entry in `OPENING_DATE_TYPES`.
 
-### Créances tab
+### Receivables tab
 
 When the **RECEIVABLES** filter is active, the header also offers **"Create a loan"**: it
 opens the manual form with the peer-loan type preselected, then lands on the account detail

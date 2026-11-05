@@ -99,7 +99,11 @@ Edge cases:
 - a payment smaller than the accrued interest amortises nothing; the dialog shows the
   accrued figure so the user sees why;
 - an overpayment is clamped to zero capital for the balance, but the amount stays recorded;
-- a zero rate short-circuits the interest branch and the whole payment amortises.
+- an explicit `INTEREST` repayment cannot exceed the interest accrued at its own date: the
+  excess would be labelled as income while the ledger has nothing to pay;
+- a zero rate short-circuits the interest branch and the whole payment amortises;
+- the linked cash account must be in EUR, because the principal and the ledger are EUR
+  figures that are never converted a second time.
 
 ### Closure
 
@@ -112,6 +116,9 @@ Closing writes a `WRITE_OFF` row for the residual (if any) and stamps `closed_at
   budget (there is no cash movement and it is not consumption);
 - unpaid accrued interest is dropped: it was never received, so it was never counted.
 
+The closure date cannot precede the lending date or be in the future: a future write-off
+would claim a loss before it happened.
+
 Deleting the closing write-off reopens the loan automatically: the marker is cleared when
 the recomputed capital is positive again. No separate "reopen" action can drift from the
 ledger.
@@ -122,12 +129,12 @@ ledger.
 |---|---|---|---|
 | Money lent (cash out) | — | `TRANSFER` | none |
 | Payment (cash in) | `PRINCIPAL` | `TRANSFER` | none; the interest part is in the ledger, not the budget |
-| Explicit interest-only entry (API) | `INTEREST` | `INCOME` | counts as income |
+| Explicit interest-only entry (API) | `INTEREST` | uncategorised | counts as income by sign |
 | Write-off | `WRITE_OFF` | none | net worth only |
 
-`CategoryKind.TRANSFER` is already excluded from cashflow, and an **uncategorised**
-transaction counts as an expense — which is why the loan detail shows a hint to categorise
-the matching bank transfer when no linked account is set.
+`CategoryKind.TRANSFER` is already excluded from cashflow. An **uncategorised** `DEPOSIT`
+counts as income by its sign, which is why an explicit interest payment is deliberately left
+uncategorised: interest is real income, not a transfer.
 
 ### Cash-flow neutrality
 
@@ -166,6 +173,13 @@ as paid and never drive the balance.
 - duration → monthly payment: `M = P·i / (1 − (1+i)^−n)`, `i = rate/12`, `P/n` at zero rate;
 - monthly payment → duration: `n = −ln(1 − P·i/M) / ln(1+i)`, refused when `M ≤ P·i`
   (the payment never amortises).
+
+Both answers compute `totalCost` and `totalInterest` from the schedule they describe: the
+last instalment clears the remaining balance (plus its interest) instead of repeating a
+full monthly payment, so a payment-driven simulation does not overstate the cost.
+
+`planned_months` is capped at **1 200** (a century): the forecast curve draws one point per
+month, and an unbounded count would let one request build an arbitrary array.
 
 The maths lives in `PeerLoanCalculator` and mirrors `LoanAmortizationService`'s annuity, so
 the forecast and the bank-loan schedule cannot disagree. The detail draws the actual
@@ -227,7 +241,8 @@ not a side effect of a payment.
     actual-vs-scheduled chart (`PeerLoanForecastChart`);
   - repayment ledger with the kind badge, the "dont X € d'intérêts" split, add / edit /
     delete; capital and interest amounts are green and prefixed `+`, a write-off is red
-    and prefixed `−`;
+    and prefixed `−`. Editing is hidden once the loan is closed, but the write-off stays
+    deletable: removing it is how the loan is reopened;
   - "close the loan" action with the residual amount in the confirmation.
 - `PeerLoanTermsDialog.tsx` — terms plus the simulator (a duration fills the monthly
   amount, or a monthly amount fills the duration). The rate is entered per year or per
@@ -316,7 +331,7 @@ Add a repayment
    ├─ withCashLeg=false → no cash row, the receivable steps down (compensation)
    ├─ manual linked account → DEPOSIT (TRANSFER for capital, uncategorised income
    │  for interest)
-   └─ account.current_balance = remaining; today's snapshot upserted
+   └─ account.current_balance = remaining; a snapshot is upserted on the event date
 
 Daily snapshot
    │
@@ -358,16 +373,17 @@ this stack. Then:
 2. **Accounts → Add account**, pick "Peer loan": the name is the borrower ("Jean"), save.
 3. Open the account and click **Set up the loan**: amount, date, **linked cash account**
    (required), optional rate. On the manual cash account the outflow is written immediately.
-4. Add a **capital** repayment, then an **interest** payment: the remaining capital, the
-   progress and the forecast card move, and the cash account receives the matching
-   deposit (green, prefixed `+`). A write-off shows in red, prefixed `−`.
+4. Add a **repayment** with one amount: the accrued interest is applied first, then the
+   rest reduces the capital. The remaining capital, the progress and the forecast card
+   move, and the cash account receives the matching deposit (green, prefixed `+`). A
+   write-off shows in red, prefixed `−`.
 5. **Close the loan**: the residual is written off and the account is worth zero from
    today; the loss is in the history.
 6. To test the transaction flow, open a cash account's **Transactions**, click an outgoing
    row, then **Create a peer loan**. The transaction is linked, not copied.
-7. Click an incoming row instead, then **Assign to a repayment**, pick the loan and whether
-   the amount is capital or interest. The transaction is linked, not copied, so the cash
-   account gets no second line.
+7. Click an incoming row instead, then **Assign to a repayment** and pick the loan. The
+   amount is applied interest first, then capital, with no kind to choose. The transaction
+   is linked, not copied, so the cash account gets no second line.
 
 ```bash
 docker compose -f docker/docker-compose.peer-loans-test.yml logs -f app
@@ -452,7 +468,6 @@ The `db` container has no host port: the database is only reachable by the test 
 
 - Automatic categorisation of the provider row on a synced linked account (today the
   member classifies it once).
-- A projected-vs-actual **chart** (v1 compares the figures textually).
 - The borrowed direction (`PEER_DEBT`).
 - Ownership shares on a peer-loan account (`AccountAccessResolver` scope).
 

@@ -41,7 +41,7 @@ Register handlers only for supported backend routes, using their response shapes
 - `frontend/src/demo/data/history.ts` — twelve month-start balances per account plus today's live one, the one source for account charts, `/history`, the dashboard and the goal calendars. The dates and past balances are fixed at load. Aggregate history receives the editable accounts, so an SCPI edit updates the live point in account history, aggregate history, P&L and the intraday series
 - `frontend/src/demo/data/dashboard.ts` — builds each dashboard response from the editable accounts, including net worth, distribution percentages, liabilities and history
 - `frontend/src/demo/data/loans.ts` — the amortization calculation shared by loan summaries and historical outstanding balances
-- `frontend/src/demo/data/peer-loans.ts` — the two peer-loan fixtures (one on time, one behind): terms plus dated ledgers, with the summary and curve derived the way `PeerLoanCalculator` does it
+- `frontend/src/demo/data/peer-loans.ts` — the two peer-loan fixtures (both behind schedule, with different payment histories): terms plus dated ledgers, with the summary and curve derived the way `PeerLoanCalculator` does it
 - `frontend/src/demo/data/dates.ts` — local-date helpers; every fixture date is relative to today
 - `frontend/src/stores/app-store.ts` — `demoMode` state, not persisted
 - `frontend/src/features/auth/guards.tsx` — auth bypass in demo mode
