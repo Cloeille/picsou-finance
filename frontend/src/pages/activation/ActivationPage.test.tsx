@@ -96,6 +96,19 @@ describe('ActivationPage', () => {
     expect(screen.getByText(en.activation.noticeBody)).toBeInTheDocument()
   })
 
+  it('says when the sign-in options fail to load and retries on request', async () => {
+    getInfo.mockRejectedValueOnce(new Error('network down')).mockResolvedValue(SSO_ON)
+    renderPage()
+
+    expect(await screen.findByText(en.auth.sso.infoError)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Activate with Zitadel' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: en.common.retry }))
+
+    expect(await screen.findByRole('button', { name: 'Activate with Zitadel' })).toBeInTheDocument()
+    expect(screen.queryByText(en.auth.sso.infoError)).not.toBeInTheDocument()
+    expect(getInfo).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps Activate with the provider disabled until the acknowledgement is ticked', async () => {
     getInfo.mockResolvedValue(SSO_ON)
     renderPage()

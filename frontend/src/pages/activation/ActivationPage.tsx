@@ -7,6 +7,7 @@ import { ssoErrorMessage } from '@/features/sso/errors'
 import { useSsoInfo } from '@/features/sso/hooks'
 import { submitSsoStart } from '@/features/sso/start'
 import { formatApiError, getErrorStatus } from '@/lib/errors'
+import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,8 +19,8 @@ export function ActivationPage() {
   const { token } = useParams<{ token: string }>()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { data: ssoInfo } = useSsoInfo()
-  const sso = ssoInfo?.enabled ? ssoInfo : null
+  const ssoInfo = useSsoInfo()
+  const sso = ssoInfo.data?.enabled ? ssoInfo.data : null
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [acknowledged, setAcknowledged] = useState(false)
@@ -111,6 +112,19 @@ export function ActivationPage() {
                 {t('activation.acknowledge')}
               </Label>
             </div>
+
+            {ssoInfo.isError && (
+              <AlertBanner
+                variant="roomy"
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={() => void ssoInfo.refetch()}>
+                    {t('common.retry')}
+                  </Button>
+                }
+              >
+                {t('auth.sso.infoError')}
+              </AlertBanner>
+            )}
 
             {sso && (
               <>
