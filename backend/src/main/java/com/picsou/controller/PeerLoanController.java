@@ -9,6 +9,7 @@ import com.picsou.dto.PeerLoanRepaymentResponse;
 import com.picsou.dto.PeerLoanSimulationRequest;
 import com.picsou.dto.PeerLoanSimulationResponse;
 import com.picsou.dto.PeerLoanTermsRequest;
+import com.picsou.dto.PeerLoansOverviewResponse;
 import com.picsou.service.PeerLoanService;
 import com.picsou.service.UserContext;
 import jakarta.validation.Valid;
@@ -109,6 +110,15 @@ public class PeerLoanController {
     @GetMapping("/peer-loans/open")
     public List<PeerLoanOpenResponse> openLoans() {
         return peerLoanService.openLoans(userContext.currentMemberId());
+    }
+
+    /**
+     * The member's peer loans as one view: who still owes what, the repayment status and
+     * the total outstanding over the last {@code months} months.
+     */
+    @GetMapping("/peer-loans/overview")
+    public PeerLoansOverviewResponse overview(@RequestParam(defaultValue = "12") int months) {
+        return peerLoanService.overview(userContext.currentMemberId(), months);
     }
 
     /**

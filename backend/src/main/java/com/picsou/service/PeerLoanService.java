@@ -9,6 +9,8 @@ import com.picsou.dto.PeerLoanRepaymentResponse;
 import com.picsou.dto.PeerLoanSimulationRequest;
 import com.picsou.dto.PeerLoanSimulationResponse;
 import com.picsou.dto.PeerLoanTermsRequest;
+import com.picsou.dto.PeerLoansOverviewResponse;
+import com.picsou.dto.DashboardResponse;
 import com.picsou.dto.TransactionRequest;
 import com.picsou.dto.TransactionResponse;
 import com.picsou.exception.ResourceNotFoundException;
@@ -85,6 +87,7 @@ public class PeerLoanService {
     private final AccountService accountService;
     private final ManualTransactionService manualTransactionService;
     private final CategorizationService categorizationService;
+    private final HistoryService historyService;
 
     public PeerLoanService(
         AccountRepository accountRepository,
@@ -96,7 +99,8 @@ public class PeerLoanService {
         CategoryRepository categoryRepository,
         AccountService accountService,
         ManualTransactionService manualTransactionService,
-        CategorizationService categorizationService
+        CategorizationService categorizationService,
+        HistoryService historyService
     ) {
         this.accountRepository = accountRepository;
         this.familyMemberRepository = familyMemberRepository;
@@ -108,6 +112,7 @@ public class PeerLoanService {
         this.accountService = accountService;
         this.manualTransactionService = manualTransactionService;
         this.categorizationService = categorizationService;
+        this.historyService = historyService;
     }
 
     // --- Reads ---
@@ -154,6 +159,97 @@ public class PeerLoanService {
         }
         result.sort(Comparator.comparing(PeerLoanOpenResponse::name, String.CASE_INSENSITIVE_ORDER));
         return result;
+    }
+
+    /**
+     * Every configured peer loan as one readable view: the total still owed, the open and
+     * closed counts, and the total outstanding on each history point.
+     *
+     * <p>The curve reuses {@link HistoryService} on the same accounts, so the section and the
+     * net-worth chart cannot disagree about a loan's balance. Unconfigured accounts are left
+     * out: they have no terms to describe and no ledger to summarise.
+     */
+    @Transactional(readOnly = true)
+    public PeerLoansOverviewResponse overview(Long memberId, int months) {
+        LocalDate today = LocalDate.now();
+        BigDecimal totalOutstanding = BigDecimal.ZERO;
+        BigDecimal interestAccrued = BigDecimal.ZERO;
+        int openCount = 0;
+        int closedCount = 0;
+        List<PeerLoansOverviewResponse.LoanEntry> loans = new ArrayList<>();
+        List<Long> configuredIds = new ArrayList<>();
+
+        for (Account account : accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId)) {
+            if (account.getType() != AccountType.PEER_LOAN) {
+                continue;
+            }
+            Optional<PeerLoanTerms> terms = termsRepository.findByAccountId(account.getId());
+            if (terms.isEmpty()) {
+                continue;
+            }
+            PeerLoanTerms loan = terms.get();
+            List<PeerLoanRepayment> repayments =
+                repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(account.getId());
+            PeerLoanCalculator.Computed computed = PeerLoanCalculator.compute(loan, repayments, today);
+            PeerLoanCalculator.Plan plan =
+                PeerLoanCalculator.plan(loan, computed.principalRemaining(), today);
+
+            if (loan.getClosedAt() == null) {
+                openCount++;
+                totalOutstanding = totalOutstanding.add(computed.principalRemaining());
+            } else {
+                closedCount++;
+            }
+            interestAccrued = interestAccrued.add(computed.interestAccrued());
+
+            PeerLoanRepayment last = repayments.isEmpty() ? null : repayments.getLast();
+            loans.add(new PeerLoansOverviewResponse.LoanEntry(
+                account.getId(),
+                account.getName(),
+                loan.getPrincipal(),
+                computed.principalRemaining(),
+                PeerLoanCalculator.repaidPct(loan.getPrincipal(), computed.principalPaid()),
+                computed.interestAccrued(),
+                computed.interestReceived(),
+                loan.getLentAt(),
+                loan.getExpectedBack(),
+                plan == null ? null : plan.installmentsBehind(),
+                last == null ? null : last.getPaidOn(),
+                last == null ? null : last.getAmount(),
+                loan.getClosedAt()));
+            configuredIds.add(account.getId());
+        }
+
+        // Open loans first, then alphabetical: the one still running is what the reader
+        // came for, and a closed loan is history that stays available below.
+        loans.sort(Comparator.comparing((PeerLoansOverviewResponse.LoanEntry entry) -> entry.closedAt() != null)
+            .thenComparing(PeerLoansOverviewResponse.LoanEntry::name, String.CASE_INSENSITIVE_ORDER));
+
+        return new PeerLoansOverviewResponse(
+            totalOutstanding, openCount, closedCount, interestAccrued, loans,
+            overviewHistory(configuredIds, months, memberId));
+    }
+
+    private List<PeerLoansOverviewResponse.Point> overviewHistory(
+        List<Long> accountIds, int months, Long memberId
+    ) {
+        if (accountIds.isEmpty()) {
+            return List.of();
+        }
+        List<PeerLoansOverviewResponse.Point> points = new ArrayList<>();
+        for (DashboardResponse.NetWorthPoint point
+            : historyService.buildHistory(accountIds, Math.clamp(months, 1, 24), true, memberId)) {
+            BigDecimal outstanding = BigDecimal.ZERO;
+            for (Long accountId : accountIds) {
+                DashboardResponse.AccountPoint accountPoint =
+                    point.accounts() == null ? null : point.accounts().get(accountId);
+                if (accountPoint != null) {
+                    outstanding = outstanding.add(accountPoint.total());
+                }
+            }
+            points.add(new PeerLoansOverviewResponse.Point(point.date(), outstanding));
+        }
+        return points;
     }
 
     // --- Creation from an existing movement ---

@@ -194,10 +194,16 @@ There is **no annual cap**: a short-term loan may carry a high nominal rate (10 
 | `POST` | `/api/accounts/{id}/peer-loan/close?date=` | write off the residual and close |
 | `POST` | `/api/peer-loans/simulate` | duration ↔ monthly payment preview |
 | `GET` | `/api/peer-loans/open` | open loans, for the repayment picker |
+| `GET` | `/api/peer-loans/overview?months=12` | every configured loan, the totals and the outstanding curve |
 | `POST` | `/api/peer-loans/from-transaction` | create a loan from an existing outflow |
 
 Every account-scoped route resolves the account with `findByIdAndMemberId` before touching
 a child row: the ledger is scoped through its account, never through an unvalidated id.
+
+The overview reads every configured loan of the member, including closed ones, and derives
+the same figures as the detail one loan at a time. Its curve reuses `HistoryService` on the
+same accounts, so it cannot disagree with the net-worth chart about a loan's balance.
+Unconfigured accounts are left out: they have no terms to describe.
 
 ### MCP tools
 

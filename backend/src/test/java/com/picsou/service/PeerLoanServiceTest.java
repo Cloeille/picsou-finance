@@ -6,8 +6,10 @@ import com.picsou.dto.PeerLoanRepaymentRequest;
 import com.picsou.dto.PeerLoanRepaymentFromTransactionRequest;
 import com.picsou.dto.PeerLoanSimulationRequest;
 import com.picsou.dto.PeerLoanTermsRequest;
+import com.picsou.dto.PeerLoansOverviewResponse;
 import com.picsou.dto.TransactionRequest;
 import com.picsou.dto.TransactionResponse;
+import com.picsou.dto.DashboardResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
@@ -45,6 +47,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -70,6 +75,7 @@ class PeerLoanServiceTest {
     @Mock AccountService accountService;
     @Mock ManualTransactionService manualTransactionService;
     @Mock CategorizationService categorizationService;
+    @Mock HistoryService historyService;
 
     @InjectMocks PeerLoanService service;
 
@@ -453,5 +459,89 @@ class PeerLoanServiceTest {
             new BigDecimal("1000"), BigDecimal.ZERO, null, null)))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("exactly one");
+    }
+
+    @Test
+    void overviewSummarisesTheLoansAndBuildsTheOutstandingCurve() {
+        LocalDate today = LocalDate.now();
+        Account open = Account.builder().id(5L).name("Marie").type(AccountType.PEER_LOAN)
+            .member(member()).currency("EUR").isManual(true).currentBalance(BigDecimal.ZERO).build();
+        Account closed = Account.builder().id(6L).name("Jean").type(AccountType.PEER_LOAN)
+            .member(member()).currency("EUR").isManual(true).currentBalance(BigDecimal.ZERO).build();
+        Account unconfigured = Account.builder().id(7L).name("Sans conditions").type(AccountType.PEER_LOAN)
+            .member(member()).currency("EUR").isManual(true).currentBalance(BigDecimal.ZERO).build();
+        Account checking = cashAccount(true);
+
+        PeerLoanTerms openTerms = PeerLoanTerms.builder()
+            .id(10L).account(open).counterparty(counterparty())
+            .principal(new BigDecimal("1000")).lentAt(today.minusMonths(3))
+            .annualRate(BigDecimal.ZERO)
+            .plannedMonthlyAmount(new BigDecimal("300")).plannedMonths(4)
+            .build();
+        PeerLoanTerms closedTerms = PeerLoanTerms.builder()
+            .id(11L).account(closed).counterparty(counterparty())
+            .principal(new BigDecimal("500")).lentAt(today.minusMonths(6))
+            .annualRate(BigDecimal.ZERO).closedAt(today.minusMonths(1))
+            .build();
+        PeerLoanRepayment openPayment = PeerLoanRepayment.builder()
+            .id(20L).account(open).paidOn(today.minusMonths(2))
+            .amount(new BigDecimal("300")).kind(PeerLoanRepaymentKind.PRINCIPAL).build();
+        PeerLoanRepayment closedPayment = PeerLoanRepayment.builder()
+            .id(21L).account(closed).paidOn(today.minusMonths(3))
+            .amount(new BigDecimal("250")).kind(PeerLoanRepaymentKind.PRINCIPAL).build();
+        PeerLoanRepayment closedPayment2 = PeerLoanRepayment.builder()
+            .id(22L).account(closed).paidOn(today.minusMonths(2))
+            .amount(new BigDecimal("250")).kind(PeerLoanRepaymentKind.PRINCIPAL).build();
+
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID))
+            .thenReturn(List.of(open, closed, unconfigured, checking));
+        when(termsRepository.findByAccountId(5L)).thenReturn(Optional.of(openTerms));
+        when(termsRepository.findByAccountId(6L)).thenReturn(Optional.of(closedTerms));
+        when(termsRepository.findByAccountId(7L)).thenReturn(Optional.empty());
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(5L)).thenReturn(List.of(openPayment));
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(6L))
+            .thenReturn(List.of(closedPayment, closedPayment2));
+
+        Map<Long, DashboardResponse.AccountPoint> first = Map.of(
+            5L, new DashboardResponse.AccountPoint(new BigDecimal("1000"), BigDecimal.ZERO, BigDecimal.ZERO),
+            6L, new DashboardResponse.AccountPoint(new BigDecimal("500"), BigDecimal.ZERO, BigDecimal.ZERO));
+        Map<Long, DashboardResponse.AccountPoint> last = Map.of(
+            5L, new DashboardResponse.AccountPoint(new BigDecimal("700"), BigDecimal.ZERO, BigDecimal.ZERO),
+            6L, new DashboardResponse.AccountPoint(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+        when(historyService.buildHistory(List.of(5L, 6L), 12, true, MEMBER_ID)).thenReturn(List.of(
+            new DashboardResponse.NetWorthPoint(today.minusMonths(1), BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, first),
+            new DashboardResponse.NetWorthPoint(today, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, last)));
+
+        PeerLoansOverviewResponse overview = service.overview(MEMBER_ID, 12);
+
+        assertThat(overview.openCount()).isEqualTo(1);
+        assertThat(overview.closedCount()).isEqualTo(1);
+        assertThat(overview.totalOutstanding()).isEqualByComparingTo("700");
+        assertThat(overview.interestAccrued()).isEqualByComparingTo("0");
+        assertThat(overview.loans()).extracting(PeerLoansOverviewResponse.LoanEntry::name)
+            .containsExactly("Marie", "Jean");
+        PeerLoansOverviewResponse.LoanEntry marie = overview.loans().getFirst();
+        assertThat(marie.principalRemaining()).isEqualByComparingTo("700");
+        assertThat(marie.repaidPct()).isEqualByComparingTo("30");
+        assertThat(marie.installmentsBehind()).isEqualTo(2);
+        assertThat(marie.lastPaymentDate()).isEqualTo(today.minusMonths(2));
+        assertThat(marie.lastPaymentAmount()).isEqualByComparingTo("300");
+        assertThat(overview.history()).extracting(PeerLoansOverviewResponse.Point::outstanding)
+            .containsExactly(new BigDecimal("1500"), new BigDecimal("700"));
+    }
+
+    @Test
+    void overviewHasNoHistoryWhenNoLoanIsConfigured() {
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID))
+            .thenReturn(List.of(loanAccount("Sans conditions")));
+
+        PeerLoansOverviewResponse overview = service.overview(MEMBER_ID, 12);
+
+        assertThat(overview.loans()).isEmpty();
+        assertThat(overview.totalOutstanding()).isEqualByComparingTo("0");
+        assertThat(overview.history()).isEmpty();
+        verify(historyService, never()).buildHistory(anyList(), anyInt(), anyBoolean(), anyLong());
     }
 }
