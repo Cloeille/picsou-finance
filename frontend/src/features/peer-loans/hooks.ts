@@ -26,6 +26,8 @@ const invalidatesFor = (accountId: number) => [
   ['dashboard'],
   ['history'],
   ['net-worth-intraday'],
+  // The cash leg is a budget transaction: the transaction list and cashflow follow it.
+  ['budget'],
 ]
 
 export function usePeerLoan(accountId: number, enabled = true) {
@@ -90,7 +92,15 @@ export function usePeerLoanSimulation() {
 export function useCreatePeerLoanFromTransaction() {
   return useInvalidatingMutation({
     mutationFn: (data: PeerLoanFromTransactionRequest) => peerLoansApi.createFromTransaction(data),
-    invalidates: [['accounts'], ['dashboard'], ['history'], ['net-worth-intraday'], ['peer-loans', 'open']],
+    invalidates: [
+      ['accounts'],
+      ['dashboard'],
+      ['history'],
+      ['net-worth-intraday'],
+      ['budget'],
+      ['peer-loans', 'open'],
+      ['peer-loans', 'overview'],
+    ],
   })
 }
 

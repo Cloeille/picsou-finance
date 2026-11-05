@@ -136,7 +136,7 @@ export function AccountsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
 
-  const { data: accounts, isLoading } = useAccounts()
+  const { data: accounts, isLoading: isAccountsLoading } = useAccounts()
   // The demo adapter has no handler for the export route, and an unhandled route resolves to
   // {} -- which here would download a corrupt workbook instead of failing visibly.
   const demoMode = useAppStore(state => state.demoMode)
@@ -160,6 +160,9 @@ export function AccountsPage() {
   // A closed peer loan is a 0 EUR receivable. It stays reachable under the Receivables
   // filter, but it is not an "active" account on the default list.
   const peerLoansOverview = usePeerLoansOverview()
+  // Closed loans are filtered out with the overview response, so wait for it before
+  // painting the list: otherwise a closed (0 EUR) loan flashes for a frame before vanishing.
+  const isLoading = isAccountsLoading || peerLoansOverview.isLoading
   const closedPeerLoanIds = useMemo(
     () => new Set((peerLoansOverview.data?.loans ?? [])
       .filter((loan) => loan.closedAt)
