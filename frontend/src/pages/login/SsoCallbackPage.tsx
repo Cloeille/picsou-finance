@@ -28,7 +28,8 @@ export function SsoCallbackPage() {
       return
     }
     window.history.replaceState(null, '', '/login/sso/callback')
-    formRef.current?.requestSubmit()
+    // Every callback parameter becomes a named input, and one named `requestSubmit` would shadow the method.
+    if (formRef.current) HTMLFormElement.prototype.requestSubmit.call(formRef.current)
   }, [hasResult, navigate])
 
   return (
