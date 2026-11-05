@@ -543,6 +543,8 @@
     },
     "validation": {
       "principal": "Der verliehene Betrag muss größer als null sein.",
+      "rateTooHigh": "Der entsprechende Jahreszins übersteigt 100 %. Prüfen Sie den gewählten Zeitraum.",
+      "rateNegative": "Der Zinssatz darf nicht negativ sein.",
       "linkedAccount": "Das Girokonto ist erforderlich.",
       "lentAt": "Das Datum des Darlehens ist erforderlich.",
       "plan": "Geben Sie eine Laufzeit oder eine Monatsrate an, nicht beides.",

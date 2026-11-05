@@ -15,6 +15,7 @@ import { NumericInput } from '@/components/shared/NumericInput'
 import { DateInput } from '@/components/shared/DateInput'
 import { SELECT_CONTROL_CLASS } from '@/lib/constants'
 import { parseAmount } from '@/lib/utils'
+import { extractErrorMessage } from '@/lib/errors'
 import { useMoney } from '@/hooks/use-money'
 import { usePeerLoanSimulation } from '@/features/peer-loans/hooks'
 import type {
@@ -104,6 +105,19 @@ export function PeerLoanTermsDialog({
     return (ratePeriod === 'MONTHLY' ? pct * 12 : pct) / 100
   }
 
+  /** The backend stores an annual fraction in [0, 1]; say why instead of a generic failure. */
+  function validateRate(annualRate: number): boolean {
+    if (annualRate < 0) {
+      setError(t('peerLoan.validation.rateNegative'))
+      return false
+    }
+    if (annualRate > 1) {
+      setError(t('peerLoan.validation.rateTooHigh'))
+      return false
+    }
+    return true
+  }
+
   /** Converts the visible value when the member switches period, so 6 %/yr reads 0.5 %/mo. */
   function handlePeriodChange(next: PeerLoanRatePeriod) {
     const value = numberOrNull(ratePct)
@@ -122,6 +136,9 @@ export function PeerLoanTermsDialog({
       return
     }
     const annualRate = annualRateFromInput()
+    if (!validateRate(annualRate)) {
+      return
+    }
     const monthCount = numberOrNull(months)
     const monthlyValue = numberOrNull(monthly)
     try {
@@ -138,8 +155,8 @@ export function PeerLoanTermsDialog({
       } else {
         setError(t('peerLoan.validation.plan'))
       }
-    } catch {
-      setError(t('peerLoan.validation.simulation'))
+    } catch (err) {
+      setError(extractErrorMessage(err, t('peerLoan.validation.simulation')))
     }
   }
 
@@ -165,12 +182,16 @@ export function PeerLoanTermsDialog({
       setError(t('peerLoan.validation.plan'))
       return
     }
+    const annualRate = annualRateFromInput()
+    if (!validateRate(annualRate)) {
+      return
+    }
     try {
       await onSubmit({
         principal: principalValue,
         lentAt,
         expectedBack: expectedBack || null,
-        annualRate: annualRateFromInput(),
+        annualRate,
         ratePeriod,
         plannedMonthlyAmount: monthlyValue,
         plannedMonths: monthCount,
@@ -185,7 +206,7 @@ export function PeerLoanTermsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{initial?.configured ? t('peerLoan.editTerms') : t('peerLoan.configure')}</DialogTitle>
           <DialogDescription>{t('peerLoan.termsDescription')}</DialogDescription>
@@ -201,16 +222,16 @@ export function PeerLoanTermsDialog({
             </div>
             <div className="space-y-2">
               <Label htmlFor="peer-rate">{t('peerLoan.fields.ratePct')}</Label>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <NumericInput
                   id="peer-rate"
-                  className="flex-1"
+                  className="min-w-0 flex-1"
                   value={ratePct}
                   onChange={(e) => setRatePct(e.target.value)}
                 />
                 <select
                   aria-label={t('peerLoan.fields.ratePeriod')}
-                  className={`${SELECT_CONTROL_CLASS} w-32`}
+                  className={`${SELECT_CONTROL_CLASS} w-28 shrink-0`}
                   value={ratePeriod}
                   onChange={(e) => handlePeriodChange(e.target.value as PeerLoanRatePeriod)}
                 >
