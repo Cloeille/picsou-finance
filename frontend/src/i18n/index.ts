@@ -22,9 +22,12 @@ const lazyLocaleBackend: BackendModule = {
       callback(new Error(`No translation bundle for "${language}"`), false)
       return
     }
+    // A truthy second argument on error marks it retryable (the i18next-http-backend convention):
+    // the connector retries `maxRetries` times, then leaves the language loadable, so a later
+    // changeLanguage fetches it again. With `false` the language would stay unloadable until reload.
     load().then(
       (bundle) => callback(null, bundle.default),
-      (error: Error) => callback(error, false),
+      (error: Error) => callback(error, true),
     )
   },
 }
@@ -46,6 +49,9 @@ export const i18nReady = i18n
   .init({
     resources: { [DEFAULT_LOCALE.code]: { translation: fr } },
     partialBundledLanguages: true,
+    // One quick retry (350 ms) of a failed chunk keeps a persistent failure from delaying the
+    // French fallback at boot by more than that; i18next's default is 5 with backoff.
+    maxRetries: 1,
     fallbackLng: DEFAULT_LOCALE.code,
     supportedLngs: SUPPORTED_LOCALES.map((l) => l.code),
     ns: ['translation'],
