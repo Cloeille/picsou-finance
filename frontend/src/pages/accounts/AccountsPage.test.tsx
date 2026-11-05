@@ -28,6 +28,11 @@ vi.mock('@/features/history/hooks', () => ({
   useHistory: () => useHistory(),
 }))
 
+// The closed-loan filter is a query of its own; it has nothing to say about gain/loss.
+vi.mock('@/features/peer-loans/hooks', () => ({
+  usePeerLoansOverview: () => ({ data: undefined }),
+}))
+
 // The form and the two add-account modals drag in zod and the whole connector catalog. They
 // are never opened here, so stubbing them keeps this suite about the summary card.
 vi.mock('@/components/shared/AccountForm', () => ({ AccountForm: () => null }))
