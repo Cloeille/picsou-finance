@@ -1,4 +1,4 @@
-"""Parse Caisse d'Epargne PER detail without transport or side effects.
+"""Parse BPCE (Caisse d'Epargne) PER detail without transport or side effects.
 
 The meaning of mixed ``familleFondsGeneraux`` classifications is inferred:
 ``True`` denotes euro funds and ``False`` unit-linked funds. Mixed lines are
@@ -12,7 +12,7 @@ import math
 import re
 from typing import Any, NoReturn
 
-from accounts_parser import ParseError
+from .accounts_parser import ParseError
 
 
 INVALID_PER_DETAIL = "INVALID_PER_DETAIL"

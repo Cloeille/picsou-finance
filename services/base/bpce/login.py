@@ -1,9 +1,10 @@
-"""Browser login for the Caisse d'Epargne sidecar (option B).
+"""Browser login for the BPCE sidecars (Caisse d'Epargne, Banque Populaire).
 
 The login page computes the `password` it posts from the keypad clicks with its
 own script, so this module drives the real page. It is split in two calls:
 
-  * `/initiate` types the identifier, waits for the 10-key pad and returns the key
+  * `/initiate` picks the establishment when the site has a picker (Banque
+    Populaire), types the identifier, waits for the 10-key pad and returns the key
     images to the UI. It never clicks the pad.
   * `/keypad` clicks the positions the USER chose in the pop-up, then Valider, then
     waits for the Sécur'Pass approval page (which the human approves on the phone,
@@ -19,6 +20,9 @@ Rules (see the README):
     and any difference stops the typing at once (`KEYPAD_CHANGED`);
   * Sécur'Pass is human only: `complete` waits and never clicks anything;
   * errors carry a code only, logs carry fixed text, counts and exception TYPES.
+
+The hosts, the region picker and the cookie domain come from the `Site` handed to
+`initiate`, pinned on the pending login for `/keypad` and `/complete`.
 """
 
 import asyncio
@@ -34,16 +38,13 @@ from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
-import keypad_table
-import replay
+from . import keypad_table, replay
+from .site import Site
 
-log = logging.getLogger("caisse-epargne-auth.login")
+log = logging.getLogger("bpce.login")
 
-LOGIN_URL = "https://www.icgauth.caisse-epargne.fr/se-connecter/sso?service=dei"
 KEYS_PATH = "/se-connecter/icg/mot-de-passe"
 SECURPASS_URL_MARKER = "(modal:icg/cloudcard)"
-CLIENT_HOST = "www.caisse-epargne.fr"
-CLIENT_PATH_PREFIX = "/espace-client/"
 ERROR_PATH_PREFIX = "/erreur"
 AUTHORIZE_PATH = "/api/oauth/v2/authorize"
 DROPPED_AUTHORIZE_PARAMS = ("code_challenge", "code_challenge_method", "nonce")
@@ -65,6 +66,12 @@ KEY_SELECTOR = ".keyboard-button"
 # and on the password page right after Valider, never while waiting for Sécur'Pass.
 ERROR_SELECTOR = ".alert-danger, .error-message"
 SECURPASS_SELECTOR = 'text=/S[ée]cur.?Pass/i'
+# Observed live on Banque Populaire 2026-11-05, before the identifier field: a
+# `neo-select-simple` "Sélectionnez votre établissement bancaire" whose trigger is a
+# combobox button (`#neo-input-2` that day: never matched by its numbered id) and
+# whose options carry the establishment names as their exact text.
+REGION_TRIGGER = 'neo-select-simple button[role="combobox"]'
+REGION_OPTION = 'neo-select-simple-option[role="option"]'
 _BACKGROUND_JS = "element => getComputedStyle(element).backgroundImage"
 
 MAX_CONCURRENT_BROWSERS = 2
@@ -107,6 +114,7 @@ class LoginError(Exception):
 @dataclass
 class _Session:
     created_at: float
+    site: Site = field(repr=False)
     playwright: Any = None
     browser: Any = None
     context: Any = None
@@ -284,12 +292,15 @@ def _to_login_error(exc: Exception) -> LoginError:
     return LoginError(500, "INTERNAL_ERROR")
 
 
-async def _route_guard(route: Any) -> None:
-    url = route.request.url
-    if replay.is_allowed_url(url) or url.startswith("data:"):
-        await route.continue_()
-    else:
-        await route.abort()
+def _route_guard(site: Site):
+    async def guard(route: Any) -> None:
+        url = route.request.url
+        if replay.is_allowed_url(site, url) or url.startswith("data:"):
+            await route.continue_()
+        else:
+            await route.abort()
+
+    return guard
 
 
 def _ws_as_https(url: str) -> str:
@@ -297,12 +308,15 @@ def _ws_as_https(url: str) -> str:
     return "https://" + url[len("wss://"):] if url.startswith("wss://") else url
 
 
-async def _websocket_guard(ws: Any) -> None:
-    """Connect a WebSocket to the real server only if its host is allow-listed."""
-    if replay.is_allowed_url(_ws_as_https(ws.url)):
-        ws.connect_to_server()
-    else:
-        await ws.close()
+def _websocket_guard(site: Site):
+    async def guard(ws: Any) -> None:
+        """Connect a WebSocket to the real server only if its host is allow-listed."""
+        if replay.is_allowed_url(site, _ws_as_https(ws.url)):
+            ws.connect_to_server()
+        else:
+            await ws.close()
+
+    return guard
 
 
 async def _visible(page: Any, selector: str) -> bool:
@@ -314,20 +328,25 @@ def _url_parts(url: str) -> tuple[str, str]:
     return (parts.hostname or "").lower(), parts.path
 
 
-def _on_client_space(url: str) -> bool:
+def _on_client_space(site: Site, url: str) -> bool:
     host, path = _url_parts(url)
-    return host == CLIENT_HOST and path.startswith(CLIENT_PATH_PREFIX)
+    return host == site.client_host and path.startswith(site.client_path_prefix)
 
 
 def _watch_authorize(session: _Session, page: Any) -> None:
-    """Record authorize requests made while the page is in the client space."""
+    """Record authorize requests made while the page is in the client space.
+
+    The login pages call authorize too (another client, observed on both banks):
+    those are made from the login host, never from the client space, and are ignored.
+    """
+    site = session.site
 
     def on_request(request: Any) -> None:
         url = request.url
         if (
-            replay.is_allowed_url(url)
+            replay.is_allowed_url(site, url)
             and urllib.parse.urlsplit(url).path == AUTHORIZE_PATH
-            and _on_client_space(page.url)
+            and _on_client_space(site, page.url)
         ):
             session.authorize_requests.append(url)
 
@@ -337,14 +356,20 @@ def _watch_authorize(session: _Session, page: Any) -> None:
 # --- /initiate -----------------------------------------------------------------
 
 
-async def initiate(customer_id: str) -> dict[str, Any]:
+async def initiate(site: Site, customer_id: str, *, region: str | None = None) -> dict[str, Any]:
+    """`region` is one of `site.regions`' codes on a site with a picker, else None."""
+    # A region the site does not list (or one for a site without a picker) is a
+    # caller bug: refused before anything else, like an invalid body.
+    region_label = site.region_label(region)
+    if (region_label is None) if site.regions else (region is not None):
+        raise LoginError(400, "INVALID_REQUEST")
     # A shape the bank would refuse is refused here, before any browser work.
     if not _is_digits(customer_id, 1, CUSTOMER_ID_MAX_LENGTH):
         raise LoginError(401, "INVALID_CREDENTIALS")
 
     await cleanup_expired()
     _acquire_slot()
-    session = _Session(created_at=time.monotonic())
+    session = _Session(created_at=time.monotonic(), site=site)
     try:
         # Overall deadline (backend gives 90 s): on expiry the browser is closed and
         # the slot released below, so no half-open login is left behind.
@@ -357,12 +382,14 @@ async def initiate(customer_id: str) -> dict[str, Any]:
             session.context = await session.browser.new_context(
                 locale="fr-FR", service_workers="block"
             )
-            await session.context.route("**/*", _route_guard)
-            await session.context.route_web_socket("**/*", _websocket_guard)
+            await session.context.route("**/*", _route_guard(site))
+            await session.context.route_web_socket("**/*", _websocket_guard(site))
             session.page = await session.context.new_page()
             _watch_authorize(session, session.page)
 
-            await _open_identifier_page(session.page)
+            await _open_identifier_page(site, session.page)
+            if region_label is not None:
+                await _select_region(site, session.page, region_label)
             await _submit_identifier(session.page, customer_id)
             images, digests = await _read_pad(session.page)
 
@@ -382,13 +409,68 @@ async def initiate(customer_id: str) -> dict[str, Any]:
         raise _to_login_error(exc) from None
 
 
-async def _open_identifier_page(page: Any) -> None:
+async def _open_identifier_page(site: Site, page: Any) -> None:
     try:
         await page.goto(
-            LOGIN_URL, wait_until="domcontentloaded", timeout=STEP_TIMEOUT_SECONDS * 1000
+            site.login_url, wait_until="domcontentloaded", timeout=STEP_TIMEOUT_SECONDS * 1000
         )
     except PlaywrightTimeoutError:
         raise LoginError(502, "UPSTREAM_UNAVAILABLE") from None
+
+
+async def _wait_for_count(locator: Any) -> int:
+    """The locator's match count once it is non-zero, or 0 after the step timeout."""
+    deadline = time.monotonic() + STEP_TIMEOUT_SECONDS
+    while True:
+        count = await locator.count()
+        if count or time.monotonic() >= deadline:
+            return count
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+
+async def _dismiss_cookie_banner(site: Site, page: Any) -> None:
+    """Refuse the consent banner if it covers the page; its absence is fine."""
+    if site.cookie_banner_button is not None and await _visible(page, site.cookie_banner_button):
+        await page.click(site.cookie_banner_button, timeout=STEP_TIMEOUT_SECONDS * 1000)
+
+
+def _shows(text: object, label: str) -> bool:
+    return isinstance(text, str) and label in (line.strip() for line in text.splitlines())
+
+
+async def _select_region(site: Site, page: Any, label: str) -> None:
+    """Pick the establishment whose option text is exactly `label`, then check it took.
+
+    A missing picker, no option or several with that exact text, or a picker that
+    does not show the choice afterwards is a page this module does not know: it stops
+    with UPSTREAM_FORMAT_CHANGED and never picks another establishment.
+    """
+    timeout_ms = STEP_TIMEOUT_SECONDS * 1000
+    trigger = page.locator(REGION_TRIGGER)
+    if await _wait_for_count(trigger) != 1:
+        log.warning("Region picker not found")
+        raise LoginError(502, "UPSTREAM_FORMAT_CHANGED")
+    await _dismiss_cookie_banner(site, page)
+    await trigger.first.click(timeout=timeout_ms)
+
+    options = page.locator(REGION_OPTION)
+    count = await _wait_for_count(options)
+    matches = [
+        index
+        for index in range(count)
+        if (await options.nth(index).inner_text(timeout=timeout_ms)).strip() == label
+    ]
+    if len(matches) != 1:
+        log.warning("Region option not found (options=%d, matching=%d)", count, len(matches))
+        raise LoginError(502, "UPSTREAM_FORMAT_CHANGED")
+    await options.nth(matches[0]).click(timeout=timeout_ms)
+
+    deadline = time.monotonic() + STEP_TIMEOUT_SECONDS
+    while not _shows(await trigger.first.inner_text(timeout=timeout_ms), label):
+        if time.monotonic() >= deadline:
+            log.warning("Region choice not shown by the picker")
+            raise LoginError(502, "UPSTREAM_FORMAT_CHANGED")
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
 
 async def _submit_identifier(page: Any, customer_id: str) -> None:
@@ -561,7 +643,7 @@ async def complete(process_id: str) -> str:
         # Overall deadline (backend gives 170 s) around the human wait AND the
         # authorize capture/reload that follows it.
         async with asyncio.timeout(COMPLETE_DEADLINE_SECONDS) as deadline:
-            await _wait_for_client_space(session.page)
+            await _wait_for_client_space(session.site, session.page)
             human_wait_over = True
             return await _collect_session_state(session, started + COMPLETE_DEADLINE_SECONDS)
     except Exception as exc:
@@ -572,14 +654,14 @@ async def complete(process_id: str) -> str:
         await _dispose(session)
 
 
-async def _wait_for_client_space(page: Any) -> None:
+async def _wait_for_client_space(site: Site, page: Any) -> None:
     deadline = time.monotonic() + COMPLETE_WAIT_SECONDS
     while True:
         url = page.url
         host, path = _url_parts(url)
-        if _on_client_space(url):
+        if _on_client_space(site, url):
             return
-        if host == CLIENT_HOST and path.startswith(ERROR_PATH_PREFIX):
+        if host == site.client_host and path.startswith(ERROR_PATH_PREFIX):
             raise LoginError(502, "UPSTREAM_FORMAT_CHANGED")
         # No error-banner check here, on purpose: only the client-space URL or the
         # timeout decide while the human approves (see ERROR_SELECTOR).
@@ -633,7 +715,7 @@ async def _collect_session_state(session: _Session, deadline_at: float) -> str:
             "path": cookie.get("path") or "/",
         }
         for cookie in await session.context.cookies()
-        if _is_caisse_epargne_domain(cookie.get("domain", ""))
+        if _is_site_domain(session.site, cookie.get("domain", ""))
     ]
     state = json.dumps({"cookies": cookies, "authorizeParams": params})
     try:
@@ -643,6 +725,6 @@ async def _collect_session_state(session: _Session, deadline_at: float) -> str:
     return state
 
 
-def _is_caisse_epargne_domain(domain: str) -> bool:
+def _is_site_domain(site: Site, domain: str) -> bool:
     bare = domain.lstrip(".").lower()
-    return bare == "caisse-epargne.fr" or bare.endswith(".caisse-epargne.fr")
+    return bare == site.domain or bare.endswith("." + site.domain)

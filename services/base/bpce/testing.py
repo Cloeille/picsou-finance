@@ -1,7 +1,10 @@
-"""Test double for the Playwright objects `login.py` drives. Test-only module.
+"""Test double for the Playwright objects `bpce.login` drives. Test-only module.
 
-Plays the Caisse d'Epargne login page: identifier step, a 10-key image keypad
-(read by `/initiate`, clicked by `/keypad`), the Sécur'Pass wait and the client space. No browser, no network, no real data.
+Plays the BPCE login page: an optional establishment picker and cookie banner
+(Banque Populaire), the identifier step, a 10-key image keypad (read by
+`/initiate`, clicked by `/keypad`), the Sécur'Pass wait and the client space.
+No browser, no network, no real data. The base image does not ship it; CI mounts
+it read-only for the sidecar tests.
 """
 
 import asyncio
@@ -12,9 +15,11 @@ import zlib
 
 from playwright.async_api import Error as PlaywrightError
 
-import login
+from . import login
 
 DIGITS = "0123456789"
+# Banque Populaire's consent banner refusal ("Continuer sans accepter").
+COOKIE_BANNER_BUTTON = "#no_consent_btn"
 
 IDENTIFIER_URL = "https://www.icgauth.caisse-epargne.fr/se-connecter/identifier"
 KEYS_URL = "https://www.icgauth.caisse-epargne.fr/se-connecter/icg/mot-de-passe"
@@ -81,12 +86,34 @@ def default_cookies() -> list[dict]:
     ]
 
 
-class World:
-    """Scenario knobs plus everything the tests assert on."""
+REGION_PLACEHOLDER = "Sélectionnez votre établissement bancaire"
 
-    def __init__(self, layout: str = "3817250649"):
+
+class World:
+    """Scenario knobs plus everything the tests assert on.
+
+    The URLs default to the Caisse d'Epargne ones; another bank passes its own.
+    """
+
+    def __init__(
+        self,
+        layout: str = "3817250649",
+        *,
+        identifier_url: str = IDENTIFIER_URL,
+        keys_url: str = KEYS_URL,
+        client_url: str = CLIENT_URL,
+        error_url: str = ERROR_URL,
+        authorize_url: str = AUTHORIZE_URL,
+        decoy_authorize_url: str = DECOY_AUTHORIZE_URL,
+    ):
         assert sorted(layout) == list(DIGITS)
         self.layout = layout
+        self.identifier_url = identifier_url
+        self.keys_url = keys_url
+        self.securpass_url = keys_url + "/(modal:icg/cloudcard)"
+        self.client_url = client_url
+        self.error_url = error_url
+        self.decoy_authorize_url = decoy_authorize_url
         # scenario
         self.key_count = 10
         self.unknown_key: int | None = None  # key i shows a PNG that is not one of the pad's
@@ -99,7 +126,7 @@ class World:
         self.after_valider = "securpass"  # securpass | securpass_text | error | nothing
         self.after_push = "approve"  # approve | refuse | never | erreur
         self.approve_after_reads = 6
-        self.authorize_url = AUTHORIZE_URL
+        self.authorize_url = authorize_url
         self.authorize_on = "reach"  # reach | reload | never
         self.early_authorize = False  # an authorize request BEFORE the client space
         self.cookies = default_cookies()
@@ -109,6 +136,11 @@ class World:
         self.info_alert = False  # an informational `role=alert` is visible on every page
         self.reshuffle_after: int | None = None  # keypad reshuffles after this many key clicks
         self.reshuffled_layout = "0123456789"
+        # Establishment picker: None means the page has none (Caisse d'Epargne).
+        self.region_options: list[str] | None = None
+        self.region_triggers = 1  # how many combobox triggers the page shows
+        self.region_select_works = True  # False: a click on an option changes nothing
+        self.cookie_banner = False  # a consent banner covers the page until refused
         # records
         self.events: list[str] = []
         self.launches = 0
@@ -124,6 +156,9 @@ class World:
         self.typed: list[str] = []
         self.page_clicks: list[str] = []
         self.visible_queries: list[str] = []
+        self.selected_region: str | None = None
+        self.region_option_clicks: list[str] = []
+        self.cookie_banner_dismissed = False
 
     def key_png(self, index: int) -> bytes:
         if index == self.unknown_key:
@@ -309,6 +344,7 @@ class FakePage:
         self.reads_in_securpass = 0
         self.reloads = 0
         self.reload_kwargs: list[dict] = []
+        self.picker_open = False
 
     # Forbidden surfaces: the login must never capture the page.
     async def screenshot(self, *_a, **_k):
@@ -337,11 +373,11 @@ class FakePage:
             return
         self.stage = "resolved"
         if outcome == "approve":
-            self._url = CLIENT_URL
+            self._url = self.world.client_url
             if self.world.authorize_on == "reach":
                 self._emit_authorize()
         elif outcome == "erreur":
-            self._url = ERROR_URL
+            self._url = self.world.error_url
         elif outcome == "refuse":
             self.error_visible = True
 
@@ -353,7 +389,7 @@ class FakePage:
         await self.world.maybe_hang("goto")
         self.world.gotos.append(url)
         self.world.events.append("goto")
-        self.stage, self._url = "identifier", IDENTIFIER_URL
+        self.stage, self._url = "identifier", self.world.identifier_url
 
     async def reload(self, **_kw):
         self.reloads += 1
@@ -370,18 +406,22 @@ class FakePage:
         self.world.maybe_fail("click")
         self.world.page_clicks.append(selector)
         self.world.events.append(f"click:{selector}")
-        if selector == login.NEXT_BUTTON:
+        if selector == COOKIE_BANNER_BUTTON and self.world.cookie_banner:
+            self.world.cookie_banner_dismissed = True
+        elif selector == login.NEXT_BUTTON:
+            if self.world.region_options is not None and self.world.selected_region is None:
+                raise AssertionError("identifier submitted before an establishment was picked")
             if self.world.identifier_ok:
-                self.stage, self._url = "password", KEYS_URL
+                self.stage, self._url = "password", self.world.keys_url
             else:
                 self.stage = "identifier_refused"
                 self.error_visible = self.world.identifier_error
         elif selector == login.SUBMIT_BUTTON:
             outcome = self.world.after_valider
             if self.world.early_authorize:
-                self._emit_authorize(DECOY_AUTHORIZE_URL)
+                self._emit_authorize(self.world.decoy_authorize_url)
             if outcome == "securpass":
-                self.stage, self._url = "securpass", SECURPASS_URL
+                self.stage, self._url = "securpass", self.world.securpass_url
             elif outcome == "securpass_text":
                 self.stage = "securpass"
             elif outcome == "error":
@@ -405,13 +445,34 @@ class FakeLocator:
         return self
 
     async def count(self) -> int:
+        world = self.page.world
         if self.selector == login.KEY_SELECTOR:
-            return self.page.world.key_count if self.page.stage == "password" else 0
+            return world.key_count if self.page.stage == "password" else 0
+        if self.selector == login.REGION_TRIGGER:
+            on_identifier = self.page.stage == "identifier"
+            return world.region_triggers if on_identifier and world.region_options is not None else 0
+        if self.selector == login.REGION_OPTION:
+            return len(world.region_options or []) if self.page.picker_open else 0
         return 1 if await self.is_visible() else 0
 
     def nth(self, index: int):
+        if self.selector == login.REGION_OPTION:
+            return FakeRegionOption(self.page, index)
         assert self.selector == login.KEY_SELECTOR
         return FakeKey(self.page, index)
+
+    async def inner_text(self, **_kw) -> str:
+        assert self.selector == login.REGION_TRIGGER
+        world = self.page.world
+        return f"{world.selected_region or REGION_PLACEHOLDER}\n"
+
+    async def click(self, **_kw):
+        assert self.selector == login.REGION_TRIGGER, self.selector
+        world = self.page.world
+        if world.cookie_banner and not world.cookie_banner_dismissed:
+            raise AssertionError("the cookie banner covers the picker")
+        world.events.append("click:region-trigger")
+        self.page.picker_open = True
 
     async def is_visible(self, **_kw) -> bool:
         page = self.page
@@ -422,7 +483,27 @@ class FakeLocator:
             return page.error_visible
         if self.selector == login.SECURPASS_SELECTOR:
             return page.stage == "securpass" and page.world.after_valider == "securpass_text"
+        if self.selector == COOKIE_BANNER_BUTTON:
+            return page.world.cookie_banner and not page.world.cookie_banner_dismissed
         return False
+
+
+class FakeRegionOption:
+    def __init__(self, page: FakePage, index: int):
+        self.page = page
+        self.index = index
+
+    async def inner_text(self, **_kw) -> str:
+        return f"  {self.page.world.region_options[self.index]} "
+
+    async def click(self, **_kw):
+        world = self.page.world
+        label = world.region_options[self.index]
+        world.region_option_clicks.append(label)
+        world.events.append(f"click:region:{label}")
+        self.page.picker_open = False
+        if world.region_select_works:
+            world.selected_region = label
 
 
 class FakeKey:

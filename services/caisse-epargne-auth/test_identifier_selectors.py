@@ -9,7 +9,7 @@ import unittest
 
 from playwright.async_api import async_playwright
 
-import login
+from bpce import login
 
 PAGE = """
 <button type="button">Suivant</button>

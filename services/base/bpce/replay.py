@@ -1,9 +1,9 @@
-"""Session replay transport for the Caisse d'Epargne web front end.
+"""Session replay transport for the BPCE web front ends (Caisse d'Epargne, Banque Populaire).
 
-The bank has no public API. The data calls need a short-lived Bearer token
+The banks have no public API. The data calls need a short-lived Bearer token
 that the browser obtains with an OAuth2 PKCE + SAML chain; the SSO cookies
 captured at login are enough to replay that chain without a browser. Observed
-on the real bank (2026-10-06/07, see spike/E2E_FINDINGS.md):
+on the real banks (Caisse d'Epargne 2026-10-06/07, Banque Populaire 2026-11-05):
 
   1. POST {authorize}?<params>  (fresh PKCE challenge + nonce)
        -> {action, parameters{SAMLRequest}}
@@ -17,6 +17,9 @@ on the real bank (2026-10-06/07, see spike/E2E_FINDINGS.md):
 The AUTHENTICATION_SUCCESS status of step 2 is the session-validity signal.
 `/gsu/sessions/me/status` is not: it answers 202 on live sessions too.
 
+The hosts, and the optional second OAuth apps, come from the `Site` passed at
+call time; every URL must pass that site's `is_allowed_url`.
+
 Never logged or returned: cookies, SAML payloads, authorization codes, tokens
 and the authorize parameters (they carry a login hint).
 
@@ -26,6 +29,7 @@ logout and accounts reading.
 
 import asyncio
 import base64
+import functools
 import hashlib
 import json
 import logging
@@ -39,16 +43,13 @@ from typing import Any, Callable
 
 import httpx
 
-log = logging.getLogger("caisse-epargne-auth")
+from .site import ChainProfile, Site
+
+log = logging.getLogger("bpce")
 # httpx logs every request URL at INFO and the authorize URL carries the
 # authorize parameters (including a login hint) in its query string.
 for _noisy in ("httpx", "httpcore"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
-
-# Hosts observed on the real bank; the chain is replayed against these unless
-# the caller passes others. Whatever is used must pass `is_allowed_url`.
-AUTHORIZE_URL = "https://www.as-ext-bad-ce.caisse-epargne.fr/api/oauth/v2/authorize"
-TOKEN_URL = "https://www.as-ext-bad-ce.caisse-epargne.fr/api/oauth/v2/token"
 
 AUTHN_SUCCESS = "AUTHENTICATION_SUCCESS"
 
@@ -65,10 +66,7 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
-_HOST_RE = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+caisse-epargne\.fr$")
-# The home-loan app is served by the BPCE group hosts (observed live
-# 2026-10-25): these two exactly, never a wildcard on bpce.fr.
-BPCE_HOSTS = frozenset({"www.as-ext-bad-me.bpce.fr", "www.rs-ext-bad-me.bpce.fr"})
+_LABEL = r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
 
 
 # --- Typed errors ------------------------------------------------------------
@@ -99,14 +97,19 @@ class UpstreamError(ReplayError):
 
 
 class HostNotAllowed(UpstreamError):
-    """A URL left the https *.caisse-epargne.fr allow-list; nothing was sent."""
+    """A URL left the site's https allow-list; nothing was sent."""
 
 
 # --- SSRF guard --------------------------------------------------------------
 
 
-def is_allowed_url(url: Any) -> bool:
-    """True only for an https URL on a strict `*.caisse-epargne.fr` host or a `BPCE_HOSTS` one."""
+@functools.lru_cache(maxsize=8)
+def _host_pattern(domain: str) -> re.Pattern[str]:
+    return re.compile(rf"^(?:{_LABEL}\.)+{re.escape(domain)}$")
+
+
+def is_allowed_url(site: Site, url: Any) -> bool:
+    """True only for an https URL on a strict `*.<site.domain>` host or one of `site.extra_hosts`."""
     if not isinstance(url, str) or not url or "\\" in url:
         return False
     if any(ord(char) <= 0x20 or ord(char) == 0x7F for char in url):
@@ -121,12 +124,12 @@ def is_allowed_url(url: Any) -> bool:
         return False
     if port not in (None, 443) or not host:
         return False
-    return _HOST_RE.match(host) is not None or host in BPCE_HOSTS
+    return _host_pattern(site.domain).match(host) is not None or host in site.extra_hosts
 
 
-def _require_allowed(url: Any) -> str:
-    if not is_allowed_url(url):
-        raise HostNotAllowed("Refused a URL outside https *.caisse-epargne.fr")
+def _require_allowed(site: Site, url: Any) -> str:
+    if not is_allowed_url(site, url):
+        raise HostNotAllowed(f"Refused a URL outside https *.{site.domain}")
     return url
 
 
@@ -217,6 +220,7 @@ def restore_cookies(client: httpx.AsyncClient, cookies: list[dict[str, str]]) ->
 
 
 async def _request(
+    site: Site,
     client: httpx.AsyncClient,
     method: str,
     url: str,
@@ -224,7 +228,7 @@ async def _request(
     form: dict[str, str] | None = None,
 ) -> tuple[int, bytes, str | None]:
     """Send and return (status, body, Location); body capped at MAX_RESPONSE_BYTES."""
-    _require_allowed(url)
+    _require_allowed(site, url)
     headers: dict[str, str] = {}
     if method == "POST" and form is None:
         headers["Content-Type"] = "application/x-www-form-urlencoded"
@@ -244,17 +248,20 @@ async def _request(
 
 
 async def _send(
+    site: Site,
     client: httpx.AsyncClient,
     url: str,
     *,
     form: dict[str, str] | None = None,
 ) -> tuple[int, bytes]:
     """POST and return (status, body); the body is capped at MAX_RESPONSE_BYTES."""
-    status, body, _ = await _request(client, "POST", url, form=form)
+    status, body, _ = await _request(site, client, "POST", url, form=form)
     return status, body
 
 
-async def _send_authn(client: httpx.AsyncClient, url: str, form: dict[str, str]) -> tuple[int, bytes]:
+async def _send_authn(
+    site: Site, client: httpx.AsyncClient, url: str, form: dict[str, str]
+) -> tuple[int, bytes]:
     """POST the AuthnRequest, following at most ONE 303 on the same https host.
 
     Observed live 2026-10-07: the servlet answers `303 Location:
@@ -262,7 +269,7 @@ async def _send_authn(client: httpx.AsyncClient, url: str, form: dict[str, str])
     A redirect to any other host, scheme or a second redirect is refused before
     anything is sent, so the SSO cookies never leave the vetted host.
     """
-    status, body, location = await _request(client, "POST", url, form=form)
+    status, body, location = await _request(site, client, "POST", url, form=form)
     if status != 303:
         return status, body
     if not location:
@@ -271,7 +278,7 @@ async def _send_authn(client: httpx.AsyncClient, url: str, form: dict[str, str])
     source, dest = urllib.parse.urlsplit(url), urllib.parse.urlsplit(target)
     if dest.scheme != "https" or dest.netloc.lower() != source.netloc.lower():
         raise HostNotAllowed("Refused an authentication redirect to another host")
-    status, body, _ = await _request(client, "GET", target)
+    status, body, _ = await _request(site, client, "GET", target)
     if 300 <= status < 400:
         raise UpstreamError("Authentication step redirected twice")
     return status, body
@@ -303,97 +310,34 @@ class TokenResult:
     expires_in: float
 
 
-@dataclass(frozen=True)
-class ChainProfile:
-    """Which token a replay mints: the captured authorize query, with overrides.
-
-    `overrides` replaces captured parameters, `drop` removes them. PKCE and the
-    nonce are always fresh, whatever the profile.
-    """
-
-    name: str
-    overrides: tuple[tuple[str, str], ...] = ()
-    drop: tuple[str, ...] = ()
-
-    def authorize_params(self, captured: dict[str, str]) -> dict[str, str]:
-        params = {k: v for k, v in captured.items() if k not in self.drop}
-        params.update(self.overrides)
-        return params
-
-
 # The token used for accounts and transactions: the query captured at login, as is.
+# The other chains (personal loan, home loan, PER) are the site's own.
 MAIN_CHAIN = ChainProfile(name="main")
-
-# The personal-loan pages of the web front mint their own token (observed live
-# 2026-10-13): another public client, scope and redirect, and no `claims`; every
-# other authorize parameter is the one the main chain sends.
-LOAN_CLIENT_ID = "30c229b8-047f-49a0-aad4-198008c1cdd7"
-LOAN_SCOPE = "managePersonalLoanPrd readPersonalLoanPrd readUser"
-LOAN_REDIRECT_URI = "https://www.caisse-epargne.fr/espace-gestion/pret-personnel/postMessage/index.html"
-LOAN_CHAIN = ChainProfile(
-    name="personal-loan",
-    overrides=(
-        ("client_id", LOAN_CLIENT_ID),
-        ("scope", LOAN_SCOPE),
-        ("redirect_uri", LOAN_REDIRECT_URI),
-    ),
-    drop=("claims",),
-)
-
-# The home-loan app (gestion-client/credit-immobilier) mints its own token on the
-# BPCE authorization server (observed live 2026-10-25): public client and
-# redirect of that app, an empty `scope` (the bank grants `readLoan ...`), no
-# `claims`. Every other authorize parameter is the one the main chain sends.
-HOME_LOAN_AUTHORIZE_URL = "https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/authorize"
-HOME_LOAN_TOKEN_URL = "https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/token"
-HOME_LOAN_CLIENT_ID = "873a10ce-67a7-4917-ab31-e5a482617303"
-HOME_LOAN_REDIRECT_URI = "https://www.caisse-epargne.fr/gestion-client/credit-immobilier/postMessage/index.html"
-HOME_LOAN_CHAIN = ChainProfile(
-    name="home-loan",
-    overrides=(
-        ("client_id", HOME_LOAN_CLIENT_ID),
-        ("scope", ""),
-        ("redirect_uri", HOME_LOAN_REDIRECT_URI),
-    ),
-    drop=("claims",),
-)
-
-# The PER insurer app (espace-assurances-de-personnes) mints its own token too
-# (observed live 2026-10-15): public client and redirect from its `conf/conf.json`,
-# an empty `scope` (the bank grants `assuranceVieAuth_get_<id> readUser`), no
-# `claims`. Every other authorize parameter is the one the main chain sends.
-PER_CLIENT_ID = "4f601b77-a48e-4473-8ddd-eae246505206"
-PER_REDIRECT_URI = "https://www.espace-assurances-de-personnes.caisse-epargne.fr/postMessage/index.html"
-PER_CHAIN = ChainProfile(
-    name="per",
-    overrides=(
-        ("client_id", PER_CLIENT_ID),
-        ("scope", ""),
-        ("redirect_uri", PER_REDIRECT_URI),
-    ),
-    drop=("claims",),
-)
 
 
 async def replay_chain(
+    site: Site,
     state: SessionState,
     *,
     transport: httpx.AsyncBaseTransport | None = None,
-    authorize_url: str = AUTHORIZE_URL,
-    token_url: str = TOKEN_URL,
+    authorize_url: str | None = None,
+    token_url: str | None = None,
     chain: ChainProfile = MAIN_CHAIN,
 ) -> TokenResult:
     """Run authorize -> AuthnRequest -> consume -> token with the session cookies.
 
-    `chain` selects which token is minted (MAIN_CHAIN or LOAN_CHAIN).
+    `chain` selects which token is minted (MAIN_CHAIN or one of the site's apps);
+    the authorize and token URLs default to the site's own.
 
     Raises SessionExpired when the bank no longer accepts the SSO session,
     HostNotAllowed (an UpstreamError) when any URL leaves the allow-list, and
     UpstreamError for every other failure. Nothing is sent before the
     authorize/token URLs pass the allow-list.
     """
-    _require_allowed(authorize_url)
-    _require_allowed(token_url)
+    authorize_url = site.authorize_url if authorize_url is None else authorize_url
+    token_url = site.token_url if token_url is None else token_url
+    _require_allowed(site, authorize_url)
+    _require_allowed(site, token_url)
     params = chain.authorize_params(state.authorize_params)
 
     verifier = secrets.token_urlsafe(48)
@@ -409,7 +353,7 @@ async def replay_chain(
         restore_cookies(client, state.cookies)
 
         # 1. authorize
-        status, body = await _send(client, f"{authorize_url}?{urllib.parse.urlencode(query)}")
+        status, body = await _send(site, client, f"{authorize_url}?{urllib.parse.urlencode(query)}")
         authorize = _json_object(body)
         if status != 200 or authorize is None:
             raise UpstreamError("Authorize step failed")
@@ -417,10 +361,10 @@ async def replay_chain(
         saml_request = authorize_params.get("SAMLRequest") if isinstance(authorize_params, dict) else None
         if not _non_empty_str(saml_request):
             raise UpstreamError("Authorize step returned no SAML request")
-        authn_url = _require_allowed(authorize.get("action"))
+        authn_url = _require_allowed(site, authorize.get("action"))
 
         # 2. AuthnRequest: the status is the session-validity signal.
-        status, body = await _send_authn(client, authn_url, {"SAMLRequest": saml_request})
+        status, body = await _send_authn(site, client, authn_url, {"SAMLRequest": saml_request})
         if status in (401, 403):
             raise SessionExpired("Session no longer accepted")
         if status != 200:
@@ -432,13 +376,13 @@ async def replay_chain(
         saml2_post = authn_response.get("saml2_post")
         if not isinstance(saml2_post, dict):
             raise SessionExpired("Session no longer accepted")
-        consume_url = _require_allowed(saml2_post.get("action"))
+        consume_url = _require_allowed(site, saml2_post.get("action"))
         saml_response = saml2_post.get("samlResponse")
         if not _non_empty_str(saml_response):
             raise SessionExpired("Session no longer accepted")
 
         # 3. consume
-        status, body = await _send(client, consume_url, form={"SAMLResponse": saml_response})
+        status, body = await _send(site, client, consume_url, form={"SAMLResponse": saml_response})
         consume = _json_object(body)
         consume_params = consume.get("parameters") if consume else None
         code = consume_params.get("code") if isinstance(consume_params, dict) else None
@@ -447,6 +391,7 @@ async def replay_chain(
 
         # 4. token
         status, body = await _send(
+            site,
             client,
             token_url,
             form={
@@ -490,7 +435,8 @@ class TokenCache:
     used as dictionary keys; never persisted, never logged.
     """
 
-    def __init__(self, clock: Callable[[], float] = time.monotonic):
+    def __init__(self, site: Site, clock: Callable[[], float] = time.monotonic):
+        self._site = site
         self._clock = clock
         self._entries: dict[str, tuple[str, float]] = {}
         # One lock per session, so concurrent callers share a single replay chain.
@@ -522,8 +468,8 @@ class TokenCache:
         raw_state: Any,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
-        authorize_url: str = AUTHORIZE_URL,
-        token_url: str = TOKEN_URL,
+        authorize_url: str | None = None,
+        token_url: str | None = None,
         chain: ChainProfile = MAIN_CHAIN,
     ) -> TokenResult:
         state = parse_session_state(raw_state)
@@ -542,6 +488,7 @@ class TokenCache:
                 del self._entries[key]
 
             result = await replay_chain(
+                self._site,
                 state,
                 transport=transport,
                 authorize_url=authorize_url,

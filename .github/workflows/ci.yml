@@ -229,6 +229,7 @@ jobs:
           --env APP_SIDECAR_API_KEY=test-key --env CORUM_BROWSER_TESTS=1
           --volume "$PWD/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
           --volume "$PWD/services/base/euro_information/testing.py:/opt/sidecar-base/lib/euro_information/testing.py:ro"
+          --volume "$PWD/services/base/bpce/testing.py:/opt/sidecar-base/lib/bpce/testing.py:ro"
           --volume "$PWD/services:/src/services:ro" --workdir /src/services/${{ matrix.service }}
           "$IMAGE" -m unittest discover -v
 

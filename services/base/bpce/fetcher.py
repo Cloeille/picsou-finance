@@ -1,4 +1,4 @@
-"""Reads the accounts and their transactions from the Caisse d'Epargne data host.
+"""Reads the accounts and their transactions from a BPCE bank's data host.
 
 Read-only: GET calls only, with the Bearer token minted by `replay`. The raw
 JSON goes to `accounts_parser.build_import`, whose result is serialised to the
@@ -29,13 +29,12 @@ from typing import Any, Awaitable, Callable, Optional
 
 import httpx
 
-import accounts_parser
-import per_parser
-import replay
+from . import accounts_parser, per_parser, replay
+from .site import Site
 
-log = logging.getLogger("caisse-epargne-auth")
+log = logging.getLogger("bpce")
 
-DATA_BASE_URL = "https://www.rs-ext-bad-ce.caisse-epargne.fr"
+# The data host is the site's (`Site.data_base_url`, `Site.home_loan.base_url`).
 SYNTHESIS_PATH = "/bapi/contract/v2/augmentedSynthesisViews"
 TRANSACTIONS_PATH = "/pfm/user/v1.1/transactions"
 # Observed live 2026-10-13, read with the personal-loan token (the main token
@@ -43,7 +42,6 @@ TRANSACTIONS_PATH = "/pfm/user/v1.1/transactions"
 LOAN_DETAIL_PATH = "/bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/"
 # Observed live 2026-10-25, read with the home-loan token on the BPCE host.
 # The last segment is `<contractId.entityCode>-<contractId.id>`.
-HOME_LOAN_BASE_URL = "https://www.rs-ext-bad-me.bpce.fr"
 HOME_LOAN_DETAIL_PATH = "/bapi/loan/v1/loans/"
 SYNTHESIS_QUERY = {
     "pfmCharacteristicsIndicator": "true",
@@ -384,7 +382,7 @@ async def _fetch_loan_details(
     accounts: list,
     loan_token: Optional[LoanTokenProvider],
     home_loan_token: Optional[LoanTokenProvider] = None,
-    home_loan_base_url: str = HOME_LOAN_BASE_URL,
+    home_loan_base_url: Optional[str] = None,
 ) -> tuple[dict, dict]:
     """`({externalId: parsed loan or None}, {externalId: code})` for every LOAN account.
 
@@ -403,6 +401,10 @@ async def _fetch_loan_details(
     for product, provider in (("PERSONAL", loan_token), ("HOME", home_loan_token)):
         group = [a for a in loans if a.get("loanProduct", "PERSONAL") == product]
         if not group or provider is None:
+            continue
+        if product == "HOME" and home_loan_base_url is None:
+            # A home-loan token without the site's home-loan host: nothing to read it from.
+            unavailable.update({a["externalId"]: UpstreamUnavailable.code for a in group})
             continue
         try:
             token = await provider()
@@ -453,15 +455,16 @@ async def _fetch_loan_details(
 
 
 async def fetch_import(
+    site: Site,
     access_token: str,
     *,
     transport: Optional[httpx.AsyncBaseTransport] = None,
-    base_url: str = DATA_BASE_URL,
+    base_url: Optional[str] = None,
     today: Optional[date] = None,
     loan_token: Optional[LoanTokenProvider] = None,
     per_detail: Optional[PerDetailProvider] = None,
     home_loan_token: Optional[LoanTokenProvider] = None,
-    home_loan_base_url: str = HOME_LOAN_BASE_URL,
+    home_loan_base_url: Optional[str] = None,
 ) -> dict:
     """The `POST /accounts` response body, or a typed error.
 
@@ -471,12 +474,19 @@ async def fetch_import(
 
     `loan_token` mints the personal-loan token and `home_loan_token` the home-loan one;
     each is only awaited when the synthesis holds a loan of its kind. Without it, the
-    `loan` of those loans is null.
+    `loan` of those loans is null. A family the site has no app for (`Site.unsupported_families`)
+    is listed in `unsupported` and never read.
     """
-    if not replay.is_allowed_url(base_url) or not replay.is_allowed_url(home_loan_base_url):
-        raise replay.HostNotAllowed("Refused a URL outside https *.caisse-epargne.fr")
+    base_url = site.data_base_url if base_url is None else base_url
+    if home_loan_base_url is None and site.home_loan is not None:
+        home_loan_base_url = site.home_loan.base_url
+    if not replay.is_allowed_url(site, base_url) or (
+        home_loan_base_url is not None and not replay.is_allowed_url(site, home_loan_base_url)
+    ):
+        raise replay.HostNotAllowed(f"Refused a URL outside https *.{site.domain}")
     base_url = base_url.rstrip("/")
-    home_loan_base_url = home_loan_base_url.rstrip("/")
+    if home_loan_base_url is not None:
+        home_loan_base_url = home_loan_base_url.rstrip("/")
 
     client = replay.new_client(transport)
     stage = "synthesis"  # which step failed, logged with the code
@@ -484,7 +494,9 @@ async def fetch_import(
         client.headers["Authorization"] = f"Bearer {access_token}"
         synthesis = await _get_json(client, base_url + SYNTHESIS_PATH, dict(SYNTHESIS_QUERY))
         try:
-            accounts, unsupported = accounts_parser._parse_synthesis(copy.deepcopy(synthesis))
+            accounts, unsupported = accounts_parser._parse_synthesis(
+                copy.deepcopy(synthesis), skipped_families=site.unsupported_families
+            )
         except accounts_parser.ParseError:
             raise UpstreamFormatChanged("Synthesis does not match the observed format") from None
 
