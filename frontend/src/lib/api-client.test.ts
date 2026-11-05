@@ -159,4 +159,31 @@ describe('api-client SSO revalidation flag', () => {
 
     expect(consumeSsoRevalidate()).toBe(false)
   })
+
+  it('refreshes an expired session for the SSO sign-in-method calls and retries them', async () => {
+    const calls: string[] = []
+    let refreshed = false
+    api.defaults.adapter = async (config) => {
+      calls.push(`${config.method} ${config.url}`)
+      if (config.url === '/auth/refresh') refreshed = true
+      else if (!refreshed) return Promise.reject({ config, response: { status: 401, data: {} } })
+      return { data: { hasPassword: true }, status: 200, statusText: 'OK', headers: {}, config }
+    }
+
+    await expect(api.get('/auth/sign-in-methods')).resolves.toMatchObject({ data: { hasPassword: true } })
+
+    expect(calls).toEqual(['get /auth/sign-in-methods', 'post /auth/refresh', 'get /auth/sign-in-methods'])
+  })
+
+  it('never refreshes after a rejected re-authentication, so a wrong password is not replayed', async () => {
+    const calls: string[] = []
+    api.defaults.adapter = async (config) => {
+      calls.push(`${config.method} ${config.url}`)
+      return Promise.reject({ config, response: { status: 401, data: { code: 'REAUTH_FAILED' } } })
+    }
+
+    await expect(api.post('/auth/reauth', { password: 'wrong' })).rejects.toMatchObject({ response: { status: 401 } })
+
+    expect(calls).toEqual(['post /auth/reauth'])
+  })
 })

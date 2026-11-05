@@ -48,6 +48,16 @@ function notifyRefreshSubscribers() {
   refreshSubscribers = []
 }
 
+// A 401 from /auth/ is the server refusing credentials, a challenge or the refresh itself, so a
+// silent refresh would replay a wrong password or loop. The SSO sign-in-method endpoints are plain
+// authenticated calls whose 401 means an expired access token, so they refresh like any other.
+const REFRESHABLE_AUTH_PATH = /^\/auth\/(sign-in-methods|password|identities\/\d+)$/
+
+function refreshesOn401(url: string | undefined): boolean {
+  if (!url?.includes('/auth/')) return true
+  return REFRESHABLE_AUTH_PATH.test(url)
+}
+
 export function isSetupRequiredResponse(status: number | undefined, data: unknown): boolean {
   if (status !== 503) return false
   if (typeof data === 'string') return data.includes('setup_required')
@@ -118,7 +128,7 @@ api.interceptors.response.use(
     if (
       error.response?.status === 401 &&
       !originalRequest._retry &&
-      !originalRequest.url?.includes('/auth/')
+      refreshesOn401(originalRequest.url)
     ) {
       if (isRefreshing) {
         return new Promise(resolve => {
