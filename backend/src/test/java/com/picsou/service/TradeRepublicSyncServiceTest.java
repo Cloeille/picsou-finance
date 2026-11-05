@@ -281,6 +281,73 @@ class TradeRepublicSyncServiceTest {
         assertThat(status.syncStatus()).isEqualTo(SidecarSyncStatus.IDLE);
     }
 
+    // --- Stored phone: masked in the status, read back for the one-field reconnect ---
+
+    private static final String STATE_WITH_PHONE =
+        "{\"refresh\":\"r\",\"device\":\"d\",\"sub\":\"s\",\"phone\":\"+33612345699\"}";
+
+    @Test
+    void getStatus_masksTheStoredPhoneKeepingThePrefixAndTheLastTwoDigits() {
+        FamilyMember member = FamilyMember.builder().id(7L).displayName("Owner").build();
+        arrangeSession(member);
+        when(encryption.decrypt("encrypted")).thenReturn(STATE_WITH_PHONE);
+
+        var status = service.getStatus(7L);
+
+        assertThat(status.maskedPhone()).isEqualTo("+33 * ** ** ** 99");
+        assertThat(status.maskedPhone()).doesNotContain("1234");
+    }
+
+    @Test
+    void getStatus_hasNoMaskedPhoneForAStateStoredBeforeThePhoneWasKept() {
+        FamilyMember member = FamilyMember.builder().id(7L).displayName("Owner").build();
+        arrangeSession(member);
+        when(encryption.decrypt("encrypted")).thenReturn("{\"refresh\":\"r\",\"device\":\"d\",\"sub\":\"s\"}");
+
+        assertThat(service.getStatus(7L).maskedPhone()).isNull();
+        assertThat(service.storedPhone(7L)).isEmpty();
+    }
+
+    @Test
+    void getStatus_toleratesAStateThatIsNotJsonOrCannotBeDecrypted() {
+        FamilyMember member = FamilyMember.builder().id(7L).displayName("Owner").build();
+        arrangeSession(member);
+        when(encryption.decrypt("encrypted")).thenReturn("not json {");
+        assertThat(service.getStatus(7L).maskedPhone()).isNull();
+
+        when(encryption.decrypt("encrypted")).thenThrow(new IllegalStateException("bad tag"));
+        var status = service.getStatus(7L);
+        assertThat(status.isActive()).isTrue();
+        assertThat(status.maskedPhone()).isNull();
+    }
+
+    @Test
+    void maskPhone_neverRevealsMoreThanTheLastTwoDigits() {
+        assertThat(TradeRepublicSyncService.maskPhone("+4915112345678").replaceAll("[^0-9]", "")).isEqualTo("4978");
+        assertThat(TradeRepublicSyncService.maskPhone("0612345699")).isNull();
+        assertThat(TradeRepublicSyncService.maskPhone(null)).isNull();
+    }
+
+    @Test
+    void storedPhone_isReadFromADeactivatedSessionToo() {
+        FamilyMember member = FamilyMember.builder().id(7L).displayName("Owner").build();
+        SidecarSession session = arrangeSession(member);
+        session.markQueued();
+        session.markFailed(SidecarErrorCode.SESSION_EXPIRED, java.time.Instant.now());
+        when(encryption.decrypt("encrypted")).thenReturn(STATE_WITH_PHONE);
+
+        assertThat(session.isActive()).isFalse();
+        assertThat(service.storedPhone(7L)).contains("+33612345699");
+        assertThat(service.getStatus(7L).maskedPhone()).isEqualTo("+33 * ** ** ** 99");
+    }
+
+    @Test
+    void storedPhone_isEmptyWithoutASession() {
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.TRADE_REPUBLIC, 7L)).thenReturn(Optional.empty());
+
+        assertThat(service.storedPhone(7L)).isEmpty();
+    }
+
     /**
      * When two ISINs resolve to the same ticker, the saved holding's averageBuyIn
      * must be the VWAP -- not whichever position HashMap iteration happens to yield first.
