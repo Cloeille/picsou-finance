@@ -2263,6 +2263,7 @@
       "unlinkSso": "Unlink SSO",
       "unlinkSsoTitle": "Unlink SSO for {{name}}?",
       "unlinkSsoDescription": "This member will no longer sign in with SSO and will be signed out everywhere. If no password remains, they will need a password reset link to sign in again.",
+      "unlinkSsoFailed": "Unlinking SSO for {{name}} failed.",
       "delete": "Delete",
       "deleteConfirmTitle": "Delete member",
       "deleteConfirmDesc": "This will delete the member and all their data. This action cannot be undone.",

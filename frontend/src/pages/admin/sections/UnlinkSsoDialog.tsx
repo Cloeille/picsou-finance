@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import type { FamilyMemberItem } from '@/features/family/api'
 import { formatSsoApiError } from '@/features/sso/errors'
@@ -17,6 +18,26 @@ export function UnlinkSsoDialog({ member, onClose }: UnlinkSsoDialogProps) {
   // Keeps the name in the title while the dialog fades out after `member` is cleared.
   const [shown, setShown] = useState(member)
   if (member && member !== shown) setShown(member)
+  // Read when a request settles, which can be after the dialog closed or opened for someone else.
+  const openMemberId = useRef<number | null>(null)
+  useEffect(() => {
+    openMemberId.current = member?.id ?? null
+  }, [member])
+
+  const confirm = (target: FamilyMemberItem) => {
+    unlink.mutate(target.id, {
+      onSuccess: () => {
+        if (openMemberId.current === target.id) onClose()
+      },
+      onError: err => {
+        // The confirmation that would show the error has closed: report it where it stays visible.
+        if (openMemberId.current === target.id) return
+        toast.error(t('admin.members.unlinkSsoFailed', { name: target.displayName }), {
+          description: formatSsoApiError(err, t),
+        })
+      },
+    })
+  }
 
   const handleOpenChange = (open: boolean) => {
     if (open) return
@@ -34,7 +55,7 @@ export function UnlinkSsoDialog({ member, onClose }: UnlinkSsoDialogProps) {
       description={t('admin.members.unlinkSsoDescription')}
       confirmLabel={t('admin.members.unlinkSso')}
       onConfirm={() => {
-        if (member) unlink.mutate(member.id, { onSuccess: onClose })
+        if (member) confirm(member)
       }}
       loading={unlink.isPending}
       error={unlink.isError && unlink.variables === member?.id ? formatSsoApiError(unlink.error, t) : undefined}

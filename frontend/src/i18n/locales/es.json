@@ -1932,6 +1932,7 @@
       "unlinkSso": "Desvincular SSO",
       "unlinkSsoTitle": "¿Desvincular el SSO de {{name}}?",
       "unlinkSsoDescription": "Este miembro ya no podrá iniciar sesión con SSO y se cerrarán sus sesiones en todos los dispositivos. Si no le queda contraseña, necesitará un enlace para restablecerla y volver a iniciar sesión.",
+      "unlinkSsoFailed": "No se pudo desvincular el SSO de {{name}}.",
       "delete": "Eliminar",
       "deleteConfirmTitle": "Eliminar miembro",
       "deleteConfirmDesc": "Esto eliminará al miembro y todos sus datos. Esta acción no se puede deshacer.",

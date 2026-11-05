@@ -2263,6 +2263,7 @@
       "unlinkSso": "Dissocier le SSO",
       "unlinkSsoTitle": "Dissocier le SSO de {{name}} ?",
       "unlinkSsoDescription": "Ce membre ne pourra plus se connecter avec le SSO et sera déconnecté de tous ses appareils. S'il n'a plus de mot de passe, il lui faudra un lien de réinitialisation du mot de passe pour se reconnecter.",
+      "unlinkSsoFailed": "La dissociation du SSO de {{name}} a échoué.",
       "delete": "Supprimer",
       "deleteConfirmTitle": "Supprimer le membre",
       "deleteConfirmDesc": "Cela supprimera le membre et toutes ses données. Action irréversible.",

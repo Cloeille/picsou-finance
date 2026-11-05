@@ -1932,6 +1932,7 @@
       "unlinkSso": "SSO trennen",
       "unlinkSsoTitle": "SSO für {{name}} trennen?",
       "unlinkSsoDescription": "Dieses Mitglied kann sich nicht mehr per SSO anmelden und wird überall abgemeldet. Bleibt kein Passwort, braucht es einen Link zum Zurücksetzen des Passworts, um sich wieder anzumelden.",
+      "unlinkSsoFailed": "Das Trennen von SSO für {{name}} ist fehlgeschlagen.",
       "delete": "Löschen",
       "deleteConfirmTitle": "Mitglied löschen",
       "deleteConfirmDesc": "Dadurch werden das Mitglied und alle seine Daten gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",

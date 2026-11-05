@@ -37,6 +37,8 @@ const { listMembers } = vi.hoisted(() => ({ listMembers: vi.fn() }))
 vi.mock('@/features/family/api', () => ({ familyApi: { listMembers } }))
 const { adminUnlinkIdentities } = vi.hoisted(() => ({ adminUnlinkIdentities: vi.fn() }))
 vi.mock('@/features/sso/api', () => ({ ssoApi: { adminUnlinkIdentities } }))
+const { toast } = vi.hoisted(() => ({ toast: { error: vi.fn() } }))
+vi.mock('sonner', () => ({ toast }))
 
 const { MembersSection } = await import('./MembersSection')
 const { useAuthStore } = await import('@/stores/auth-store')
@@ -92,6 +94,7 @@ describe('MembersSection sign-in methods', () => {
   beforeEach(() => {
     listMembers.mockReset()
     adminUnlinkIdentities.mockReset()
+    toast.error.mockReset()
     listMembers.mockResolvedValue(MEMBERS)
     useAuthStore.setState({
       user: { username: 'alice', role: 'ADMIN', memberId: ALICE.id, displayName: 'Alice' },
@@ -159,7 +162,7 @@ describe('MembersSection sign-in methods', () => {
     expect(adminUnlinkIdentities).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the failure of an unlink left running out of the next member\'s confirmation', async () => {
+  it('reports an unlink that fails after its confirmation closed, outside the next member\'s dialog', async () => {
     let failUnlink: (reason: unknown) => void = () => {}
     adminUnlinkIdentities.mockReturnValue(new Promise((_, reject) => { failUnlink = reject }))
     renderSection()
@@ -171,10 +174,30 @@ describe('MembersSection sign-in methods', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     await act(async () => { failUnlink({ response: { status: 500, data: {} } }) })
 
+    expect(toast.error).toHaveBeenCalledWith(en.admin.members.unlinkSsoFailed.replace('{{name}}', 'Dora'), {
+      description: en.common.errors.serverError,
+    })
     const carol = await openUnlink('Carol')
-
     expect(within(carol).queryByRole('alert')).not.toBeInTheDocument()
     expect(within(carol).getByRole('button', { name: en.admin.members.unlinkSso })).toBeEnabled()
+  })
+
+  it('leaves the next member\'s confirmation open when an earlier unlink succeeds', async () => {
+    let finishUnlink: (value: unknown) => void = () => {}
+    adminUnlinkIdentities.mockReturnValue(new Promise(resolve => { finishUnlink = resolve }))
+    renderSection()
+    const dialog = await openUnlink('Dora')
+    const confirm = within(dialog).getByRole('button', { name: en.admin.members.unlinkSso })
+    fireEvent.click(confirm)
+    await waitFor(() => expect(confirm).toBeDisabled())
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    const carol = await openUnlink('Carol')
+
+    await act(async () => { finishUnlink({}) })
+
+    expect(screen.getByRole('dialog')).toBe(carol)
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('keeps the confirmation open with the error when the unlink fails', async () => {
