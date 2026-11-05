@@ -236,8 +236,9 @@ so omitting the key is fine. Like other secret changes, it needs an app rollout.
 
 Clearing `secrets.ssoClientSecret` does not remove a stored key: like every inline
 secret, a blank value keeps the one already in the Secret, so the app keeps sending
-it. To turn an existing install into a public client, delete the key from the
-chart's Secret, then roll out the app:
+it. To turn an existing install into a public client, first clear
+`secrets.ssoClientSecret` in your values (a value left there puts the key back on the
+next upgrade), then delete the key from the chart's Secret and roll out the app:
 
 ```sh
 kubectl patch secret <secret-name> --type=json \
