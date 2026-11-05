@@ -293,3 +293,17 @@ class NavigationAllowListTest(BanquePopulaireLoginTest):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IdentifierShapeTest(BanquePopulaireLoginTest):
+    async def test_a_letter_and_digits_identifier_is_typed_as_is(self):
+        # Banque Populaire identifiers hold a letter (observed live): never stripped to digits.
+        await self.initiate(customer_id="A1234567")
+        self.assertEqual(self.world.fills, [(login.IDENTIFIER_INPUT, "A1234567")])
+
+    async def test_identifiers_outside_ascii_letters_and_digits_are_refused_before_any_browser_work(self):
+        for customer_id in ("", "A" * 21, "A123 4567", "A123-4567", "É1234567", "A1234567\n", "Ａ1234567"):
+            with self.subTest(customer=customer_id):
+                await self.assertFails(401, "INVALID_CREDENTIALS", self.initiate(customer_id=customer_id))
+        self.assertEqual(self.world.launches, 0)
+        self.assertClean()

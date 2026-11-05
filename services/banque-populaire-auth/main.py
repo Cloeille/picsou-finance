@@ -75,6 +75,8 @@ SITE = Site(
     regions=REGIONS,
     # "Continuer sans accepter" of the consent banner.
     cookie_banner_button="#no_consent_btn",
+    # A letter then seven digits, like `A1234567` (shape observed live 2026-11-05).
+    alphanumeric_identifier=True,
 )
 
 # Test seam: tests inject an httpx.MockTransport here. None means real network.

@@ -45,7 +45,8 @@ public class BanquePopulaireController {
             + "revoked and may remain active until it expires.";
     /** What a body this endpoint cannot accept answers, whatever was in it. */
     static final String INVALID_BODY = "The Banque Populaire request is not valid";
-    static final Pattern CUSTOMER_ID = Pattern.compile("\\d{1,20}");
+    /** A Banque Populaire identifier holds letters and digits (a letter then seven digits, observed live). */
+    static final Pattern CUSTOMER_ID = Pattern.compile("[A-Za-z0-9]{1,20}");
     static final int POSITIONS_MIN = 6;
     static final int POSITIONS_MAX = 12;
     static final int PAD_SIZE = 10;

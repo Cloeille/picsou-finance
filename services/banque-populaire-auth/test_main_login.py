@@ -67,6 +67,12 @@ class InitiateContractTest(unittest.TestCase):
                 self.assertEqual(response.json(), OK_INITIATE)
                 fake.assert_awaited_once_with(main.SITE, CUSTOMER_ID, region=code)
 
+    def test_a_letter_and_digits_identifier_reaches_the_login_unchanged(self):
+        with patch.object(login, "initiate", AsyncMock(return_value=OK_INITIATE)) as fake:
+            response = self.post({"customerId": "A1234567", "region": "RIVES_DE_PARIS"})
+        self.assertEqual(response.status_code, 200)
+        fake.assert_awaited_once_with(main.SITE, "A1234567", region="RIVES_DE_PARIS")
+
     def test_an_invalid_body_is_400_invalid_request_and_never_reaches_the_login(self):
         bodies = {
             "no region": {"customerId": CUSTOMER_ID},

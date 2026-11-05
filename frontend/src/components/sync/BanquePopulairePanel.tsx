@@ -31,6 +31,7 @@ export function BanquePopulairePanel({ onConnected }: BanquePopulairePanelProps 
       translationPrefix="sync.banquePopulaire"
       fieldIdPrefix="banque-populaire"
       regions={REGIONS}
+      alphanumericIdentifier
       onConnected={onConnected}
     />
   )

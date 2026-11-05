@@ -131,14 +131,16 @@ describe('BanquePopulaireTab', () => {
       expect(apiPost).not.toHaveBeenCalled()
     })
 
-    it('sends the region with the numeric identifier to initiate', async () => {
+    it('sends the region with the identifier, letters kept, to initiate', async () => {
+      // Banque Populaire identifiers start with a letter: stripping it would send someone
+      // else's identifier to the bank.
       apiPost.mockReturnValueOnce(new Promise(() => {}))
       renderTab()
-      await signIn({ region: 'GRAND_OUEST', customerId: '12ab34' })
+      await signIn({ region: 'GRAND_OUEST', customerId: 'A12-34 56' })
 
       await waitFor(() =>
         expect(apiPost).toHaveBeenCalledWith('/banque-populaire/auth/initiate', {
-          customerId: '1234',
+          customerId: 'A123456',
           region: 'GRAND_OUEST',
         }),
       )

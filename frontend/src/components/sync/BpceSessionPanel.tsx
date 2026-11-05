@@ -165,6 +165,8 @@ export interface BpceSessionPanelProps {
    * labelled by `<prefix>.region` with `<prefix>.regionPlaceholder` as its empty choice.
    */
   regions?: readonly BpceRegionOption[]
+  /** The bank's identifiers hold letters as well as digits (Banque Populaire). */
+  alphanumericIdentifier?: boolean
   onConnected?: () => void
 }
 
@@ -174,6 +176,7 @@ export function BpceSessionPanel({
   translationPrefix,
   fieldIdPrefix,
   regions,
+  alphanumericIdentifier = false,
   onConnected,
 }: BpceSessionPanelProps) {
   const { t } = useTranslation()
@@ -625,10 +628,16 @@ export function BpceSessionPanel({
                 </Label>
                 <Input
                   id={`${fieldIdPrefix}-customer-id`}
-                  inputMode="numeric"
+                  inputMode={alphanumericIdentifier ? "text" : "numeric"}
                   autoComplete="off"
+                  autoCapitalize={alphanumericIdentifier ? "characters" : undefined}
+                  spellCheck={false}
                   value={customerId}
-                  onChange={(event) => setCustomerId(event.target.value.replace(/\D/g, ""))}
+                  onChange={(event) =>
+                    setCustomerId(
+                      event.target.value.replace(alphanumericIdentifier ? /[^A-Za-z0-9]/g : /\D/g, ""),
+                    )
+                  }
                   required
                 />
               </div>

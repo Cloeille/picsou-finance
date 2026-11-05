@@ -109,13 +109,26 @@ class BanquePopulaireControllerAuthTest {
     }
 
     @Test
+    void initiateKeepsTheLetterOfABanquePopulaireIdentifier() throws Exception {
+        // A letter then digits (observed live): it must reach the bank unchanged.
+        when(service.initiateAuth("A1234567", BanquePopulaireRegion.RIVES_DE_PARIS, MEMBER_ID))
+            .thenReturn(null);
+
+        initiate("{\"customerId\":\"A1234567\",\"region\":\"RIVES_DE_PARIS\"}", "127.0.0.1");
+
+        verify(service).initiateAuth("A1234567", BanquePopulaireRegion.RIVES_DE_PARIS, MEMBER_ID);
+    }
+
+    @Test
     void initiateRefusesAnInvalidBodyBeforeAnyBankCallAndWithoutConsumingAnAttempt() throws Exception {
         for (String body : List.of(
             "{\"customerId\":\"\",\"region\":\"BRED\"}",
             "{}",
             "{\"customerId\":\"12345678\"}",
             "{\"region\":\"BRED\"}",
-            "{\"customerId\":\"abc\",\"region\":\"BRED\"}",
+            "{\"customerId\":\"A123-4567\",\"region\":\"BRED\"}",
+            "{\"customerId\":\"A123 4567\",\"region\":\"BRED\"}",
+            "{\"customerId\":\"\u00c91234567\",\"region\":\"BRED\"}",
             "{\"customerId\":\"123456789012345678901\",\"region\":\"BRED\"}")) {
             initiate(body, "127.0.0.1").andExpect(status().is4xxClientError());
         }
