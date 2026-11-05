@@ -32,6 +32,16 @@ export function SsoCallbackPage() {
     if (formRef.current) HTMLFormElement.prototype.requestSubmit.call(formRef.current)
   }, [hasResult, navigate])
 
+  // Back from the IdP's answer restores this page from the back/forward cache, spinner included,
+  // and `handled` blocks a second POST of the single-use code: start over from the login page.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) navigate('/login', { replace: true })
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
+  }, [navigate])
+
   return (
     <>
       <SsoProgressScreen message={t('auth.sso.completing')} />

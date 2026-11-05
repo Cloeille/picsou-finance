@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { render, waitFor } from '@testing-library/react'
+import { act, render, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -88,6 +88,19 @@ describe('SsoCallbackPage', () => {
 
     await waitFor(() => expect(submissions).toHaveLength(1))
     expect(document.body.querySelectorAll('form')).toHaveLength(1)
+  })
+
+  it('goes back to /login when Back restores the page from the back/forward cache', async () => {
+    const submissions = captureSubmissions()
+    const { findByText } = renderCallback('/login/sso/callback?code=abc123&state=xyz')
+    await waitFor(() => expect(submissions).toHaveLength(1))
+
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+    })
+
+    expect(await findByText('login-page')).toBeInTheDocument()
+    expect(submissions).toHaveLength(1)
   })
 
   it('redirects a bare visit (neither code nor error) to /login', async () => {
