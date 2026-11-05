@@ -15,6 +15,7 @@ import { Switch } from '@/components/ui/switch'
 import { Loader2, Download } from 'lucide-react'
 import { useMfaStatus } from '@/features/mfa/hooks'
 import { useExportData } from '@/features/export/hooks'
+import { formatSsoApiError } from '@/features/sso/errors'
 import { useSignInMethods } from '@/features/sso/hooks'
 import { formatApiError, getErrorStatus } from '@/lib/errors'
 import { ReauthPanel } from './ReauthPanel'
@@ -52,7 +53,13 @@ export function ExportDataDialog({
   const [reauthConfirmed, setReauthConfirmed] = useState(resumed)
   const [reauthExpired, setReauthExpired] = useState(false)
   const passwordless = signInMethods.data?.hasPassword === false
-  const step = signInMethods.isPending ? 'loading' : passwordless && !reauthConfirmed ? 'reauth' : 'form'
+  const step = signInMethods.isPending
+    ? 'loading'
+    : !signInMethods.data
+      ? 'error'
+      : passwordless && !reauthConfirmed
+        ? 'reauth'
+        : 'form'
 
   const reset = () => {
     setPassword('')
@@ -103,6 +110,12 @@ export function ExportDataDialog({
           <div className="flex justify-center py-4">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
+        )}
+
+        {step === 'error' && (
+          <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {formatSsoApiError(signInMethods.error, t)}
+          </p>
         )}
 
         {step === 'reauth' && (

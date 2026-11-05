@@ -88,6 +88,10 @@ function LocationProbe() {
 
 function renderSection(entry: string, methods = PASSWORDLESS) {
   api.getSignInMethods.mockResolvedValue(methods)
+  mountSection(entry)
+}
+
+function mountSection(entry: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <StrictMode>
@@ -184,6 +188,18 @@ describe('SecuritySection', () => {
       reAuth: { password: 's3cret' },
       includeBalanceSnapshots: false,
     })
+  })
+
+  it('shows why the export cannot be confirmed instead of asking for a password', async () => {
+    api.getSignInMethods.mockRejectedValue(apiError(409, 'SSO_DISABLED'))
+    mountSection('/settings')
+
+    fireEvent.click(await screen.findByRole('button', { name: en.settings.exportButton }))
+    const dialog = await screen.findByRole('dialog')
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(en.ssoErrors.SSO_DISABLED)
+    expect(within(dialog).queryByLabelText(en.settings.currentPassword)).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: en.settings.exportDownload })).not.toBeInTheDocument()
   })
 
   it('shows the IdP refusal and resumes nothing', async () => {
