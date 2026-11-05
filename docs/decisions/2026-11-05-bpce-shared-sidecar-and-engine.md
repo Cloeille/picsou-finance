@@ -80,7 +80,10 @@ tests guard the refactor.
 - A change to `services/base/bpce` or `BpceSyncEngine` affects both banks; both
   test suites run on it.
 - BP loans, PER and revolving credit are not imported until they are observed live.
-- The region is asked at each login and is not stored: only the session cookies are.
+- The region is asked at each login and stored on the session it opens (it is not a
+  secret): each sync stamps the regional bank's official name on the accounts as their
+  provider, with that bank's logo from the Enable Banking catalog. The engine takes a
+  per-bank branding for this; CE supplies its fixed label and no logo.
 
 ## Consequences
 

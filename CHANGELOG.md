@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   regional bank, type your identifier, click your digits on the bank's keypad and approve in
   Sécur'Pass. Imports the current account, Livret A, Livret Jeune and LDDS with their
   transactions, on demand. It shares the Caisse d'Epargne code through the BPCE platform; cards,
-  loans, PER and revolving credit are not imported. Enable the `banque-populaire` Compose profile.
+  loans, PER and revolving credit are not imported. The accounts carry your regional bank's name
+  (for example "Banque Populaire Rives de Paris") and, when Enable Banking is configured, its logo.
+  Enable the `banque-populaire` Compose profile.
   See [Banque Populaire sync](docs/features/banque-populaire.md).
 
 - **AI categorization over MCP.** `start_ai_categorization` starts the inbox's AI job and

@@ -25,14 +25,24 @@ Banque Populaire runs the BPCE platform that Caisse d'Epargne runs, so this conn
 | `POST /api/banque-populaire/auth/complete` | `{processId}` | `{connected: true}` |
 
 - `customerId` is 1 to 20 ASCII letters and digits: a Banque Populaire identifier starts with a letter (observed live), so the UI keeps letters and only drops spaces and symbols. Caisse d'Epargne identifiers stay digits only. Dropping the letter would send another identifier to the bank, which still shows a keypad for it and then refuses the password: an attempt counted against someone else's identifier.
-- `region` is one of the 12 regional banks offered on the bank's identifier page: `ALSACE_LORRAINE_CHAMPAGNE`, `AQUITAINE_CENTRE_ATLANTIQUE`, `AUVERGNE_RHONE_ALPES`, `BOURGOGNE_FRANCHE_COMTE`, `BRED`, `GRAND_OUEST`, `MEDITERRANEE`, `NORD`, `OCCITANE`, `RIVES_DE_PARIS`, `SUD`, `VAL_DE_FRANCE`. A missing or unknown value is refused before the sidecar is called. The region is only used to pick the option on the bank's page and is never stored.
+- `region` is one of the 12 regional banks offered on the bank's identifier page: `ALSACE_LORRAINE_CHAMPAGNE`, `AQUITAINE_CENTRE_ATLANTIQUE`, `AUVERGNE_RHONE_ALPES`, `BOURGOGNE_FRANCHE_COMTE`, `BRED`, `GRAND_OUEST`, `MEDITERRANEE`, `NORD`, `OCCITANE`, `RIVES_DE_PARIS`, `SUD`, `VAL_DE_FRANCE`. A missing or unknown value is refused before the sidecar is called. It picks the option on the bank's page, and is kept server side with the pending login: `/auth/complete` stores it on the session it opens and never reads one from the request (see [Storage](#storage) and [Branding](#branding)).
 - The sidecar opens `https://www.icgauth.banquepopulaire.fr/se-connecter/sso?service=cyber`. The `service=dei` entry used for Caisse d'Epargne lands on `/se-connecter/erreur` for Banque Populaire. It dismisses the consent banner if one shows, picks the region in the establishment combobox and checks that the combobox shows it. The rest is the Caisse d'Epargne flow: identifier, keypad, Sécur'Pass.
 - Rate limits per IP use separate buckets from Caisse d'Epargne: `/auth/initiate` 3 per 15 minutes (`banquePopulaireAuthBuckets`), `/auth/keypad` 5 per 15 minutes (`banquePopulaireKeypadBuckets`).
 - nginx gives `/api/banque-populaire/auth/complete` 180 s, `/auth/keypad` 90 s and `/auth/initiate` 100 s, like Caisse d'Epargne. The region option is matched on its exact text once its Unicode form and spacing are made canonical; case and accents still count.
 
 ### Storage
 
-Table `banque_populaire_session` (migration `V122`) has the Caisse d'Epargne table's shape and the full 11-code `last_sync_error` CHECK. It stores cookies only and encrypts them; no password and no Sécur'Pass approval is stored. External ids are prefixed `bp_`, the provider label is `Banque Populaire`.
+Table `banque_populaire_session` (migration `V122`) has the Caisse d'Epargne table's shape and the full 11-code `last_sync_error` CHECK, plus `region` (`VARCHAR(32) NOT NULL`, CHECK listing the 12 `BanquePopulaireRegion` names). It stores the cookies encrypted; no password and no Sécur'Pass approval is stored. The region is stored in clear: it is not a secret, it names the bank. A new login replaces the row, region included. External ids are prefixed `bp_`.
+
+### Branding
+
+Banque Populaire accounts look like the ones Enable Banking creates for the same bank:
+
+- `account.provider` is the regional bank's official name, `BanquePopulaireRegion.institutionName()` of the session's region: "Banque Populaire Rives de Paris", "BRED Banque Populaire", "Banque Populaire du Nord", and so on. It is written on create and rewritten on every sync (the connector owns it).
+- `account.logoUrl` comes from the Enable Banking catalog through `BankLogoResolver.logoUrlOrNull("FR", null, <that name>)`, so the name tier of its matching applies. Same rule as `SyncService.upsertAccount`: set on a new account, filled on an existing one only while it is `null`, never overwritten.
+- The lookup runs once per sync, on the sync thread, outside any transaction, and only after the snapshot was validated (a refused snapshot costs none). Enable Banking not configured, a catalog outage or no match all leave the logo `null` and the sync goes on; the catalog is asked again on the next sync.
+- How: `BpceSyncEngine` takes a `BrandingSource` per bank. It reads the session inside the queueing transaction and returns a `Branding` (the provider label and a lazy logo lookup). Caisse d'Epargne passes `BrandingSource.fixed("Caisse d'Epargne")`: label unchanged, no logo. Messages, logs and fallback names keep the generic `Banque Populaire` (`BpceBank.provider`), as does a loan's `lenderName`.
+- The frontend recognises these accounts by that set of labels (`BANQUE_POPULAIRE_PROVIDERS` in `SyncAllModal.tsx`), plus the generic `Banque Populaire` of the earliest imports.
 
 ### Supported products
 
@@ -57,7 +67,8 @@ The bank answers a wrong identifier or password with a modal titled "Identifiant
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
 | Shared `bpce` package + `BpceSyncEngine` | Same platform, one place to fix | Duplicating the Caisse d'Epargne stack |
-| Region chosen by the user at each login | The bank's page requires it and nothing else needs it | Storing it, or guessing it from the identifier |
+| Region chosen by the user at each login, stored on the session | The bank's page requires it; the sync needs it to name the accounts and find the logo | Guessing it from the identifier; taking it from the `/complete` request |
+| Provider = the regional bank's official name, logo from the Enable Banking catalog | The accounts look exactly like those Enable Banking creates for that bank | A generic `Banque Populaire` label; a bundled logo per region |
 | Loans and PER unsupported | Their BP clients and hosts were not observed | Reusing the Caisse d'Epargne client ids |
 
 ## Gotchas / Pitfalls
@@ -66,12 +77,14 @@ The bank answers a wrong identifier or password with a modal titled "Identifiant
 - The host allow-list is strictly `*.banquepopulaire.fr`. A `caisse-epargne.fr` or `bpce.fr` URL is refused for this bank, and the other way round for Caisse d'Epargne.
 - During login, an earlier authorize request (client `adad0322-…`, `response_type=id_token token`) runs on the login host. Only the authorize sent from the client space is captured, as for Caisse d'Epargne.
 - The shared sidecar code logs under the `bpce` logger name for both banks.
+- The 12 official names were written from the bank's own naming; whether each matches the Enable Banking catalog name exactly was not checked against the live catalog. A name the catalog spells differently simply gets no logo (the name tier ignores case only: accents, hyphens and spacing must match). `BanquePopulaireRegionTest` pins the names.
+- The provider label is shared with Enable Banking on purpose. A member who also has an Enable Banking connection to the same regional bank sees both sets of accounts under one label, and the Sync-all modal keeps a Banque Populaire row while any account carries one of these labels, even with no sidecar session.
 
 ## Tests
 
 - Sidecar: `services/banque-populaire-auth/test_*.py` (region picker against a synthetic page in real Chromium, login, `/initiate` validation, accounts), `services/base/test_bpce.py` (Site, allow-lists, Livret Jeune / LEP rules, unsupported families).
-- Backend: `BanquePopulaire*Test`, `V122BanquePopulaireSessionMigrationTest` (Testcontainers), plus the Caisse d'Epargne suites that cover `BpceSyncEngine`.
-- Frontend: `BanquePopulaireTab.test.tsx`, `banque-populaire-scope.test.ts`, `demo/banque-populaire.test.ts`, SyncAllModal / AddAccountModal / providers tests.
+- Backend: `BanquePopulaire*Test` (region kept from the pending login, provider label and logo rules, catalog miss and Enable Banking not configured), `BanquePopulaireRegionTest` (the 12 names), `V122BanquePopulaireSessionMigrationTest` (Testcontainers, region column and CHECK), plus the Caisse d'Epargne suites that cover `BpceSyncEngine` (label unchanged, no logo).
+- Frontend: `BanquePopulaireTab.test.tsx`, `banque-populaire-scope.test.ts`, `demo/banque-populaire.test.ts`, SyncAllModal (each regional label keeps the row) / AddAccountModal / providers tests.
 
 ## Verification boundaries
 
