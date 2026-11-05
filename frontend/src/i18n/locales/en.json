@@ -171,6 +171,30 @@
     "viewAll": "View all transactions"
   },
   "accounts": {
+    "corumLifeOperation": {
+      "scheduledPayment": "Scheduled payment",
+      "subscription": "Initial payment",
+      "couponDetachment": "Coupon",
+      "administrativeManagementCosts": "Management fees",
+      "profitParticipation": "Profit sharing",
+      "arbitrage": "Arbitrage",
+      "unknown": "Contract operation"
+    },
+    "inContract": "Inside the contract",
+    "inContractHint": "Internal operation of the life insurance contract: it does not count in your budget.",
+    "lifeContract": {
+      "title": "Contract",
+      "openedAt": "Opened on",
+      "taxAdvantageFrom": "Lighter taxation (8 years) from",
+      "paidIn": "Gross payments",
+      "netInvested": "Net invested",
+      "scheduledPayment": "Scheduled payment",
+      "perWeek": "/week",
+      "perTwoWeeks": "/2 weeks",
+      "perMonth": "/month",
+      "perQuarter": "/quarter",
+      "perYear": "/year"
+    },
     "title": "Accounts",
     "addAccount": "Add account",
     "editAccount": "Edit account",
@@ -1675,11 +1699,17 @@
       "sync": "Sync",
       "queued": "Sync queued…",
       "syncing": "Syncing…",
-      "syncSuccess": "SCPI shares synced.",
+      "syncSuccess": "CORUM sync complete.",
       "clearSession": "Disconnect",
       "noSession": "No active session",
       "sessionActive": "Session active",
-      "scope": "Syncs the SCPI shares in your CORUM contracts, valued at the withdrawal price. A fund without an account gets one, or is linked to the SCPI account with the same name.",
+      "scope": "Syncs the SCPI shares and the CORUM Life life-insurance (assurance-vie) contracts in your CORUM contracts (SCPI at the withdrawal price, life insurance at its valuation). A fund without an account gets one, or is linked to the SCPI account with the same name.",
+      "life": {
+        "synced_one": "1 life-insurance contract synced",
+        "synced_other": "{{count}} life-insurance contracts synced",
+        "ambiguous_one": "1 life-insurance contract not synced: a \"CORUM Life\" account entered by hand already exists (with holdings, or more than one). Rename or delete it, then sync again.",
+        "ambiguous_other": "{{count}} life-insurance contracts not synced: a \"CORUM Life\" account entered by hand already exists (with holdings, or more than one). Rename or delete it, then sync again."
+      },
       "errors": {
         "tooManyAttempts": "Too many attempts. Please wait.",
         "invalidCredentials": "Invalid CORUM credentials.",
@@ -2200,7 +2230,7 @@
       "boursedirect": "Bourse Direct",
       "fortuneo": "Fortuneo",
       "amex": "Sync your American Express cards",
-      "corum": "CORUM SCPI holdings",
+      "corum": "CORUM SCPI and life-insurance holdings",
       "sofidy": "Sofidy SCPI holdings",
       "traderepublic": "Trade Republic",
       "finary": "Finary",

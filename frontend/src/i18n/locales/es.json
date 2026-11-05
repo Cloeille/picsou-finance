@@ -160,6 +160,30 @@
     "dueOn": "Vence el {{date}}"
   },
   "accounts": {
+    "corumLifeOperation": {
+      "scheduledPayment": "Aportación programada",
+      "subscription": "Aportación inicial",
+      "couponDetachment": "Cupón",
+      "administrativeManagementCosts": "Gastos de gestión",
+      "profitParticipation": "Participación en beneficios",
+      "arbitrage": "Arbitraje",
+      "unknown": "Operación del contrato"
+    },
+    "inContract": "Dentro del contrato",
+    "inContractHint": "Operación interna del contrato de seguro de vida: no cuenta en tu presupuesto.",
+    "lifeContract": {
+      "title": "Contrato",
+      "openedAt": "Abierto el",
+      "taxAdvantageFrom": "Fiscalidad reducida (8 años) desde el",
+      "paidIn": "Aportaciones brutas",
+      "netInvested": "Invertido neto",
+      "scheduledPayment": "Aportación programada",
+      "perWeek": "/semana",
+      "perTwoWeeks": "/2 semanas",
+      "perMonth": "/mes",
+      "perQuarter": "/trimestre",
+      "perYear": "/año"
+    },
     "title": "Cuentas",
     "addAccount": "Añadir cuenta",
     "editAccount": "Editar cuenta",
@@ -1424,11 +1448,17 @@
       "sync": "Sincronizar",
       "queued": "Sincronización en cola…",
       "syncing": "Sincronizando…",
-      "syncSuccess": "Partes SCPI sincronizadas.",
+      "syncSuccess": "Sincronización CORUM completada.",
       "clearSession": "Desconectar",
       "noSession": "Ninguna sesión activa",
       "sessionActive": "Sesión activa",
-      "scope": "Sincroniza las participaciones SCPI de sus contratos CORUM, al precio de reembolso. Un fondo sin cuenta recibe una, o se vincula a la cuenta SCPI con el mismo nombre.",
+      "scope": "Sincroniza las participaciones SCPI y los contratos de seguro de vida (assurance-vie) CORUM Life de sus contratos CORUM (SCPI al precio de reembolso, seguro de vida a su valoración). Un fondo sin cuenta recibe una, o se vincula a la cuenta SCPI con el mismo nombre.",
+      "life": {
+        "synced_one": "1 contrato de seguro de vida sincronizado",
+        "synced_other": "{{count}} contratos de seguro de vida sincronizados",
+        "ambiguous_one": "1 contrato de seguro de vida no sincronizado: ya existe una cuenta «CORUM Life» creada a mano (con posiciones, o varias). Renómbrela o elimínela y vuelva a sincronizar.",
+        "ambiguous_other": "{{count}} contratos de seguro de vida no sincronizados: ya existe una cuenta «CORUM Life» creada a mano (con posiciones, o varias). Renómbrela o elimínela y vuelva a sincronizar."
+      },
       "errors": {
         "tooManyAttempts": "Demasiados intentos. Espere un momento.",
         "invalidCredentials": "Credenciales de CORUM no válidas.",
@@ -1869,7 +1899,7 @@
       "boursedirect": "Bourse Direct",
       "fortuneo": "Fortuneo",
       "amex": "Sincroniza tus tarjetas American Express",
-      "corum": "Participaciones SCPI de CORUM",
+      "corum": "Participaciones SCPI y seguro de vida de CORUM",
       "sofidy": "Participaciones SCPI de Sofidy",
       "traderepublic": "Trade Republic",
       "finary": "Finary",

@@ -391,6 +391,21 @@ export interface Account {
   isOwner?: boolean | null
   /** Present only for a SCPI account. */
   scpi?: ScpiPosition | null
+  /** Insurer-reported contract figures (a synced assurance-vie); null when the provider reports none. */
+  contract?: LifeContract | null
+}
+
+/**
+ * What the insurer reports about a life-insurance contract as a whole. Each field is null when
+ * the provider does not report it. `netInvestedEur` is the contract's cost basis: the gain is
+ * the balance minus it, never a sum over the fund lines (see `docs/features/corum-life.md`).
+ */
+export interface LifeContract {
+  /** Gross payments, entry fees included. */
+  paidInEur: number | null
+  netInvestedEur: number | null
+  scheduledPaymentEur: number | null
+  scheduledPaymentCadence: RecurringCadence | null
 }
 
 export interface AccountRequest {
@@ -738,6 +753,11 @@ export interface HoldingResponse {
   // marked, instead of leaving the line blank.
   priceAsOf: string | null
   priceStale: boolean
+  /**
+   * The wealth tier the provider's own classification implies (a CORUM Life real-estate fund
+   * line → REAL_ESTATE), or null when it implies none. A member override still wins.
+   */
+  providerWealthTier?: WealthTier | null
 }
 
 // --- Security insight (asset type + ETF composition) ---
@@ -1177,7 +1197,11 @@ export type CorumErrorCode =
   | 'INVALID_DATA'
   | 'INTERNAL_ERROR'
 
-export type CorumSessionStatus = SidecarSessionStatusOf<CorumErrorCode>
+/**
+ * `lifeAmbiguousCount`: CORUM Life contracts the last successful sync wrote nowhere, because
+ * a manual "CORUM Life" account could not be adopted (several, or holdings typed by hand).
+ */
+export type CorumSessionStatus = SidecarSessionStatusOf<CorumErrorCode, { lifeAmbiguousCount: number }>
 
 /**
  * CORUM needs no second factor, so its `authenticate` response is the session
@@ -1288,6 +1312,8 @@ export interface Transaction {
   accountName?: string | null
   /** Per-trade broker fees folded into the PMP cost basis (null when none recorded). */
   fees: number | null
+  /** True for CORUM Life contract operations: shown on the account, excluded from the budget. */
+  budgetNeutral: boolean
 }
 
 export interface TransactionRequest {

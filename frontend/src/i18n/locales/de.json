@@ -160,6 +160,30 @@
     "dueOn": "Fällig am {{date}}"
   },
   "accounts": {
+    "corumLifeOperation": {
+      "scheduledPayment": "Sparplan-Einzahlung",
+      "subscription": "Ersteinzahlung",
+      "couponDetachment": "Coupon",
+      "administrativeManagementCosts": "Verwaltungsgebühren",
+      "profitParticipation": "Gewinnbeteiligung",
+      "arbitrage": "Umschichtung",
+      "unknown": "Vertragsvorgang"
+    },
+    "inContract": "Im Vertrag",
+    "inContractHint": "Interner Vorgang des Lebensversicherungsvertrags: Er zählt nicht zu deinem Budget.",
+    "lifeContract": {
+      "title": "Vertrag",
+      "openedAt": "Eröffnet am",
+      "taxAdvantageFrom": "Steuervorteil (8 Jahre) ab",
+      "paidIn": "Bruttoeinzahlungen",
+      "netInvested": "Netto investiert",
+      "scheduledPayment": "Sparplan",
+      "perWeek": "/Woche",
+      "perTwoWeeks": "/2 Wochen",
+      "perMonth": "/Monat",
+      "perQuarter": "/Quartal",
+      "perYear": "/Jahr"
+    },
     "title": "Konten",
     "addAccount": "Konto hinzufügen",
     "editAccount": "Konto bearbeiten",
@@ -1424,11 +1448,17 @@
       "sync": "Synchronisieren",
       "queued": "Synchronisierung vorgemerkt…",
       "syncing": "Synchronisierung läuft…",
-      "syncSuccess": "SCPI-Anteile synchronisiert.",
+      "syncSuccess": "CORUM-Synchronisierung abgeschlossen.",
       "clearSession": "Trennen",
       "noSession": "Keine aktive Sitzung",
       "sessionActive": "Sitzung aktiv",
-      "scope": "Synchronisiert die SCPI-Anteile Ihrer CORUM-Verträge zum Rücknahmepreis. Ein Fonds ohne Konto erhält eines oder wird mit dem gleichnamigen SCPI-Konto verknüpft.",
+      "scope": "Synchronisiert die SCPI-Anteile und die CORUM-Life-Lebensversicherungsverträge (Assurance-vie) Ihrer CORUM-Verträge (SCPI zum Rücknahmepreis, Lebensversicherung zum Bewertungswert). Ein Fonds ohne Konto erhält eines oder wird mit dem gleichnamigen SCPI-Konto verknüpft.",
+      "life": {
+        "synced_one": "1 Lebensversicherungsvertrag synchronisiert",
+        "synced_other": "{{count}} Lebensversicherungsverträge synchronisiert",
+        "ambiguous_one": "1 Lebensversicherungsvertrag nicht synchronisiert: Ein manuell angelegtes Konto „CORUM Life“ existiert bereits (mit Positionen oder mehrfach). Benennen Sie es um oder löschen Sie es und synchronisieren Sie erneut.",
+        "ambiguous_other": "{{count}} Lebensversicherungsverträge nicht synchronisiert: Ein manuell angelegtes Konto „CORUM Life“ existiert bereits (mit Positionen oder mehrfach). Benennen Sie es um oder löschen Sie es und synchronisieren Sie erneut."
+      },
       "errors": {
         "tooManyAttempts": "Zu viele Versuche. Bitte warten.",
         "invalidCredentials": "Ungültige CORUM-Zugangsdaten.",
@@ -1869,7 +1899,7 @@
       "boursedirect": "Bourse Direct",
       "fortuneo": "Fortuneo",
       "amex": "Synchronisiere deine American-Express-Karten",
-      "corum": "CORUM-SCPI-Bestände",
+      "corum": "CORUM-SCPI- und Lebensversicherungsbestände",
       "sofidy": "Sofidy-SCPI-Bestände",
       "traderepublic": "Trade Republic",
       "finary": "Finary",

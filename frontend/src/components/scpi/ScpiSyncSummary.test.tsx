@@ -42,6 +42,18 @@ describe('ScpiSyncSummary', () => {
     expect(screen.getByText('scpi.sync.noFund')).toBeInTheDocument()
   })
 
+  it('hides the empty-space warning when asked to', () => {
+    funds.data = []
+    const { container } = render(<ScpiSyncSummary provider="CORUM" completedAt={RUN} hideWhenEmpty />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('still reports funds when hideWhenEmpty is set', () => {
+    funds.data = [fund('US', 'CREATED')]
+    render(<ScpiSyncSummary provider="CORUM" completedAt={RUN} hideWhenEmpty />)
+    expect(screen.getByText(/scpi.sync.found:1/)).toBeInTheDocument()
+  })
+
   it('keeps only the funds of the session\'s own run and provider', () => {
     const older = fund('OLD', 'CREATED', { lastSyncedAt: '2026-10-01T08:00:00Z' })
     const sofidy = fund('DY', 'UPDATED', { provider: 'SOFIDY' })

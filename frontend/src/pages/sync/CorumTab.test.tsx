@@ -18,6 +18,10 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 
+vi.mock('@/components/shared/CurrencyDisplay', () => ({
+  CurrencyDisplay: ({ value }: { value: number }) => <span>{`EUR ${value}`}</span>,
+}))
+
 const { CorumTab } = await import('./CorumTab')
 
 const DISCONNECTED = {
@@ -136,5 +140,86 @@ describe('CorumTab', () => {
     fireEvent.click(await screen.findByText('sync.corum.clearSession'))
 
     await vi.waitFor(() => expect(apiDelete).toHaveBeenCalledWith('/corum/session'))
+  })
+
+  describe('after a successful sync', () => {
+    const RUN = '2026-11-05T08:00:00Z'
+    const SUCCESS = { ...DISCONNECTED, isActive: true, syncStatus: 'SUCCESS', lastSyncCompletedAt: RUN }
+    const lifeAccount = {
+      id: 7, name: 'CORUM Life', type: 'ASSURANCE_VIE', provider: 'CORUM', currency: 'EUR',
+      currentBalance: 5000, currentBalanceEur: 5000, lastSyncedAt: RUN, isManual: false,
+    }
+    const scpiFund = {
+      provider: 'CORUM', fundCode: 'US', label: 'CORUM USA', ignored: false, lastOutcome: 'CREATED',
+      lastSeenAt: RUN, lastSyncedAt: RUN, accountId: 1, accountName: 'CORUM USA',
+    }
+
+    function serve(accounts: unknown[], funds: unknown[]) {
+      apiGet.mockImplementation((url: string) => {
+        if (url === '/accounts') return Promise.resolve({ data: accounts })
+        if (url === '/scpi/funds') return Promise.resolve({ data: funds })
+        return Promise.resolve({ data: SUCCESS })
+      })
+    }
+
+    it('shows no SCPI warning for a login holding only a life-insurance contract', async () => {
+      serve([lifeAccount], [])
+      renderTab()
+
+      expect(await screen.findByText('sync.corum.life.synced')).toBeInTheDocument()
+      expect(screen.getByText('EUR 5000')).toBeInTheDocument()
+      expect(screen.queryByText('scpi.sync.noFund')).not.toBeInTheDocument()
+    })
+
+    it('waits for the accounts before warning that no fund was found', async () => {
+      let resolveAccounts: (value: { data: unknown[] }) => void = () => {}
+      apiGet.mockImplementation((url: string) => {
+        if (url === '/accounts') return new Promise(resolve => { resolveAccounts = resolve })
+        if (url === '/scpi/funds') return Promise.resolve({ data: [] })
+        return Promise.resolve({ data: SUCCESS })
+      })
+      renderTab()
+
+      // The funds have loaded empty, but the accounts may still hold a life contract.
+      await vi.waitFor(() => expect(apiGet).toHaveBeenCalledWith('/scpi/funds'))
+      await screen.findByText('sync.corum.clearSession')
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(screen.queryByText('scpi.sync.noFund')).not.toBeInTheDocument()
+
+      resolveAccounts({ data: [] })
+      expect(await screen.findByText('scpi.sync.noFund')).toBeInTheDocument()
+    })
+
+    it('still warns that no fund was found when the accounts cannot be read', async () => {
+      apiGet.mockImplementation((url: string) => {
+        if (url === '/accounts') return Promise.reject(new Error('accounts unavailable'))
+        if (url === '/scpi/funds') return Promise.resolve({ data: [] })
+        return Promise.resolve({ data: SUCCESS })
+      })
+      renderTab()
+
+      expect(await screen.findByText('scpi.sync.noFund')).toBeInTheDocument()
+    })
+
+    it('warns about a life contract left unwritten instead of claiming success', async () => {
+      apiGet.mockImplementation((url: string) => {
+        if (url === '/accounts') return Promise.resolve({ data: [] })
+        if (url === '/scpi/funds') return Promise.resolve({ data: [] })
+        return Promise.resolve({ data: { ...SUCCESS, lifeAmbiguousCount: 1 } })
+      })
+      renderTab()
+
+      expect(await screen.findByText('sync.corum.life.ambiguous')).toBeInTheDocument()
+      expect(screen.queryByText('sync.corum.life.synced')).not.toBeInTheDocument()
+      expect(screen.queryByText('scpi.sync.noFund')).not.toBeInTheDocument()
+    })
+
+    it('reports both the SCPI funds and the life-insurance account', async () => {
+      serve([lifeAccount], [scpiFund])
+      renderTab()
+
+      expect(await screen.findByText('sync.corum.life.synced')).toBeInTheDocument()
+      expect(screen.getByText(/scpi.sync.found/)).toBeInTheDocument()
+    })
   })
 })
