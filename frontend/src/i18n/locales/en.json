@@ -1707,8 +1707,8 @@
       "life": {
         "synced_one": "1 life-insurance contract synced",
         "synced_other": "{{count}} life-insurance contracts synced",
-        "ambiguous_one": "1 life-insurance contract not synced: a \"CORUM Life\" account entered by hand already exists (with holdings, or more than one). Rename or delete it, then sync again.",
-        "ambiguous_other": "{{count}} life-insurance contracts not synced: a \"CORUM Life\" account entered by hand already exists (with holdings, or more than one). Rename or delete it, then sync again."
+        "ambiguous_one": "1 life-insurance contract not synced: a life-insurance account entered by hand (named \"CORUM Life\" or with CORUM as its provider) could not be matched to it. Delete that account, or rename it and change its provider, then sync again.",
+        "ambiguous_other": "{{count}} life-insurance contracts not synced: a life-insurance account entered by hand (named \"CORUM Life\" or with CORUM as its provider) could not be matched to them. Delete that account, or rename it and change its provider, then sync again."
       },
       "errors": {
         "tooManyAttempts": "Too many attempts. Please wait.",

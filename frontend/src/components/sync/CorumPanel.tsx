@@ -3,7 +3,7 @@ import { SidecarSessionPanel } from "@/components/sync/SidecarSessionPanel"
 import { ScpiSyncSummary } from "@/components/scpi/ScpiSyncSummary"
 import { lifeRun } from "@/components/scpi/scpi-sync-run"
 import { CorumLifeSyncSummary } from "@/components/sync/CorumLifeSyncSummary"
-import { useAccounts } from "@/features/accounts/hooks"
+import { useAllAccounts } from "@/features/accounts/hooks"
 import { useProviderStatus } from "@/features/sync/hooks"
 
 interface CorumPanelProps {
@@ -18,7 +18,8 @@ interface CorumPanelProps {
 export function CorumPanel({ onConnected }: CorumPanelProps = {}) {
   // Same query as the panel's own status: the shared cache makes this free.
   const status = useProviderStatus("corum")
-  const accounts = useAccounts()
+  // Hidden accounts included: a hidden contract the run updated is still a Life run.
+  const accounts = useAllAccounts()
   const completedAt = status.data?.lastSyncCompletedAt
   const lifeAmbiguous = status.data?.lifeAmbiguousCount ?? 0
   const hasLife = lifeAmbiguous > 0

@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { lifeRun } from '@/components/scpi/scpi-sync-run'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
-import { useAccounts } from '@/features/accounts/hooks'
+import { useAllAccounts } from '@/features/accounts/hooks'
 
 /**
  * The life-insurance (assurance-vie) accounts the last CORUM sync wrote, with their balance,
@@ -12,7 +12,8 @@ export function CorumLifeSyncSummary({ completedAt, ambiguous = 0 }: {
   ambiguous?: number
 }) {
   const { t } = useTranslation()
-  const accounts = useAccounts()
+  // Hidden accounts included: hiding a contract does not stop the sync from writing it.
+  const accounts = useAllAccounts()
   if (!completedAt) return null
 
   const run = accounts.data ? lifeRun(accounts.data, completedAt) : []

@@ -27,15 +27,16 @@ const CORUM_LIFE_PAYMENT_TYPES = ['scheduledPayment', 'subscription']
 const CORUM_PROVIDER = 'CORUM'
 
 /**
- * CORUM Life contract operations are budget-neutral rows, coupons carrying a CORUM-LIFE-<CODE>
- * ticker, or payments, which are neither. A payment is recognised by CORUM's own type name, which
+ * CORUM Life contract operations are budget-neutral rows, synced coupons carrying a
+ * CORUM-LIFE-<CODE> ticker, or payments, which are neither. A payment is recognised by CORUM's own type name, which
  * another source could also use, so only on a synced row of an account known to be CORUM's:
  * `accountProvider` is passed where the account is known (its own page), and elsewhere the row
  * keeps the description the sync wrote.
  */
 export function isCorumLifeOperation(transaction: Transaction, accountProvider?: string | null): boolean {
   return transaction.budgetNeutral === true
-    || (transaction.ticker?.startsWith('CORUM-LIFE-') ?? false)
+    // A manual BUY/SELL typed on a CORUM Life line keeps its own trade label.
+    || (!transaction.isManual && (transaction.ticker?.startsWith('CORUM-LIFE-') ?? false))
     || (accountProvider === CORUM_PROVIDER && !transaction.isManual
       && transaction.type != null && CORUM_LIFE_PAYMENT_TYPES.includes(transaction.type))
 }

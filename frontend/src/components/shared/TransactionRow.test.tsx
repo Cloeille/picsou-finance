@@ -51,6 +51,23 @@ describe('TransactionRow CORUM Life operations', () => {
     expect(badge).toHaveAttribute('title', 'accounts.inContractHint')
   })
 
+  it('prefers the CORUM label over a conflicting merchant label', () => {
+    render(<TransactionRow transaction={corum({ type: 'scheduledPayment', merchantLabel: 'Acme' })} />)
+    expect(screen.getByText('accounts.corumLifeOperation.scheduledPayment')).toBeInTheDocument()
+    expect(screen.queryByText('Acme')).not.toBeInTheDocument()
+  })
+
+  it('keeps the trade label of a manual row on a CORUM Life line', () => {
+    render(
+      <TransactionRow
+        transaction={corum({ isManual: true, budgetNeutral: false, txType: 'BUY', ticker: 'CORUM-LIFE-XL' })}
+        accountProvider="CORUM"
+      />,
+    )
+    expect(screen.getByText('accounts.buy CORUM-LIFE-XL')).toBeInTheDocument()
+    expect(screen.queryByText(/accounts\.corumLifeOperation/)).not.toBeInTheDocument()
+  })
+
   it('appends the fund label to a coupon', () => {
     render(<TransactionRow transaction={corum({ type: 'couponDetachment', ticker: 'CORUM-LIFE-XL', name: 'Corum XL' })} />)
     expect(screen.getByText('accounts.corumLifeOperation.couponDetachment Corum XL')).toBeInTheDocument()

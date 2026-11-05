@@ -1707,8 +1707,8 @@
       "life": {
         "synced_one": "1 contrat d'assurance-vie synchronisé",
         "synced_other": "{{count}} contrats d'assurance-vie synchronisés",
-        "ambiguous_one": "1 contrat d'assurance-vie non synchronisé : un compte « CORUM Life » saisi à la main existe déjà (avec des lignes, ou en plusieurs exemplaires). Renommez-le ou supprimez-le, puis relancez la synchronisation.",
-        "ambiguous_other": "{{count}} contrats d'assurance-vie non synchronisés : un compte « CORUM Life » saisi à la main existe déjà (avec des lignes, ou en plusieurs exemplaires). Renommez-le ou supprimez-le, puis relancez la synchronisation."
+        "ambiguous_one": "1 contrat d'assurance-vie non synchronisé : un compte d'assurance-vie saisi à la main (nommé « CORUM Life » ou avec CORUM pour fournisseur) n'a pas pu lui être associé. Supprimez ce compte, ou renommez-le et changez son fournisseur, puis relancez la synchronisation.",
+        "ambiguous_other": "{{count}} contrats d'assurance-vie non synchronisés : un compte d'assurance-vie saisi à la main (nommé « CORUM Life » ou avec CORUM pour fournisseur) n'a pas pu leur être associé. Supprimez ce compte, ou renommez-le et changez son fournisseur, puis relancez la synchronisation."
       },
       "errors": {
         "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",

@@ -1456,8 +1456,8 @@
       "life": {
         "synced_one": "1 contrato de seguro de vida sincronizado",
         "synced_other": "{{count}} contratos de seguro de vida sincronizados",
-        "ambiguous_one": "1 contrato de seguro de vida no sincronizado: ya existe una cuenta «CORUM Life» creada a mano (con posiciones, o varias). Renómbrela o elimínela y vuelva a sincronizar.",
-        "ambiguous_other": "{{count}} contratos de seguro de vida no sincronizados: ya existe una cuenta «CORUM Life» creada a mano (con posiciones, o varias). Renómbrela o elimínela y vuelva a sincronizar."
+        "ambiguous_one": "1 contrato de seguro de vida no sincronizado: una cuenta de seguro de vida creada a mano (llamada «CORUM Life» o con CORUM como proveedor) no se pudo asociar a él. Elimine esa cuenta, o cámbiele el nombre y el proveedor, y vuelva a sincronizar.",
+        "ambiguous_other": "{{count}} contratos de seguro de vida no sincronizados: una cuenta de seguro de vida creada a mano (llamada «CORUM Life» o con CORUM como proveedor) no se pudo asociar a ellos. Elimine esa cuenta, o cámbiele el nombre y el proveedor, y vuelva a sincronizar."
       },
       "errors": {
         "tooManyAttempts": "Demasiados intentos. Espere un momento.",

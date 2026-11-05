@@ -11,7 +11,7 @@ vi.mock('react-i18next', () => ({
     t: (key: string, options?: { count?: number }) => (options?.count != null ? `${key}:${options.count}` : key),
   }),
 }))
-vi.mock('@/features/accounts/hooks', () => ({ useAccounts: () => accounts }))
+vi.mock('@/features/accounts/hooks', () => ({ useAllAccounts: () => accounts }))
 vi.mock('@/components/shared/CurrencyDisplay', () => ({
   CurrencyDisplay: ({ value, className }: { value: number; className?: string }) => (
     <span className={className}>{`EUR ${value}`}</span>
@@ -32,6 +32,13 @@ describe('CorumLifeSyncSummary', () => {
     expect(screen.getByText('sync.corum.life.synced:2')).toBeInTheDocument()
     expect(screen.getByText('CORUM Life 1')).toBeInTheDocument()
     expect(screen.getByText('EUR 2000')).toHaveClass('text-foreground')
+  })
+
+  it('lists a hidden contract the run updated', () => {
+    accounts.data = [account(1, { hidden: true })]
+    render(<CorumLifeSyncSummary completedAt={RUN} />)
+    expect(screen.getByText('sync.corum.life.synced:1')).toBeInTheDocument()
+    expect(screen.getByText('CORUM Life 1')).toBeInTheDocument()
   })
 
   it('ignores manual, other-provider, other-type and older accounts', () => {
