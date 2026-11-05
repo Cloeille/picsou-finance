@@ -27,7 +27,12 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { LoanDetailSection } from '@/components/loan/LoanDetailSection'
 import { PeerLoanDetailSection } from '@/components/peer-loan/PeerLoanDetailSection'
 import { CreatePeerLoanDialog } from '@/components/peer-loan/CreatePeerLoanDialog'
-import { useCreatePeerLoanFromTransaction } from '@/features/peer-loans/hooks'
+import { AssignRepaymentDialog } from '@/components/peer-loan/AssignRepaymentDialog'
+import {
+  useAssignPeerLoanRepayment,
+  useCreatePeerLoanFromTransaction,
+  useOpenPeerLoans,
+} from '@/features/peer-loans/hooks'
 import { extractErrorMessage } from '@/lib/errors'
 import { SavingsConfigSection } from '@/features/savings/SavingsConfigSection'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
@@ -64,6 +69,8 @@ export function AccountDetailPage() {
   const updateHoldingMutation = useUpdateHolding(accountId)
   const importTRMutation = useImportTRTransactions(accountId)
   const createPeerLoan = useCreatePeerLoanFromTransaction()
+  const assignRepayment = useAssignPeerLoanRepayment()
+  const openLoans = useOpenPeerLoans()
   const { data: pnlData } = useHistory(accountId ? [accountId] : [], 12)
   const { data: savingsSuggestions } = useSavingsSuggestions()
   const { data: categories } = useCategories()
@@ -76,6 +83,7 @@ export function AccountDetailPage() {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
   const [editingHolding, setEditingHolding] = useState<HoldingResponse | null>(null)
   const [peerLoanTx, setPeerLoanTx] = useState<Transaction | null>(null)
+  const [repaymentTx, setRepaymentTx] = useState<Transaction | null>(null)
   const [range, setRange] = useState<TimeRange>('1Y')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -212,6 +220,8 @@ export function AccountDetailPage() {
             onCategorize={handleCategorize}
             onCreatePeerLoan={setPeerLoanTx}
             canCreatePeerLoan={() => canStartPeerLoan}
+            onAssignRepayment={setRepaymentTx}
+            canAssignRepayment={(tx) => tx.amount > 0 && canStartPeerLoan}
           />
         </>
       )}
@@ -500,6 +510,25 @@ export function AccountDetailPage() {
             toast.success(t('peerLoan.fromTransaction.created'))
             setPeerLoanTx(null)
             navigate(`/accounts/${created.accountId}`)
+          } catch (err) {
+            toast.error(extractErrorMessage(err, t('common.error')))
+            throw err
+          }
+        }}
+      />
+
+      <AssignRepaymentDialog
+        open={!!repaymentTx}
+        onOpenChange={(open) => { if (!open) setRepaymentTx(null) }}
+        transaction={repaymentTx}
+        loans={openLoans.data ?? []}
+        loading={assignRepayment.isPending}
+        onSubmit={async (loanAccountId, data) => {
+          try {
+            await assignRepayment.mutateAsync({ accountId: loanAccountId, data })
+            toast.success(t('peerLoan.assignRepayment.created'))
+            setRepaymentTx(null)
+            navigate(`/accounts/${loanAccountId}`)
           } catch (err) {
             toast.error(extractErrorMessage(err, t('common.error')))
             throw err

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Coins, Pencil, Trash2 } from 'lucide-react'
+import { ArrowDownLeft, Coins, Pencil, Trash2 } from 'lucide-react'
 import type { Category, Transaction } from '@/types/api'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { MerchantAvatar } from '@/components/shared/MerchantAvatar'
@@ -32,6 +32,9 @@ interface TransactionDetailSheetProps {
   onCreatePeerLoan?: (tx: Transaction) => void
   /** Whether this row can start a loan; defaults to "any outgoing movement". */
   canCreatePeerLoan?: (tx: Transaction) => boolean
+  onAssignRepayment?: (tx: Transaction) => void
+  /** Whether this row can repay a loan; defaults to "any incoming movement". */
+  canAssignRepayment?: (tx: Transaction) => boolean
   onEdit?: (tx: Transaction) => void
   onDelete?: (txId: number) => void
 }
@@ -45,6 +48,8 @@ export function TransactionDetailSheet({
   onCategorize,
   onCreatePeerLoan,
   canCreatePeerLoan,
+  onAssignRepayment,
+  canAssignRepayment,
   onEdit,
   onDelete,
 }: TransactionDetailSheetProps) {
@@ -72,6 +77,7 @@ export function TransactionDetailSheet({
   const label = tx.merchantLabel || transactionDescription(tx, t)
   const canCategorize = !tx.isManual && !!onCategorize && !!categories
   const canStartLoan = !!onCreatePeerLoan && (canCreatePeerLoan ? canCreatePeerLoan(tx) : tx.amount < 0)
+  const canAssign = !!onAssignRepayment && (canAssignRepayment ? canAssignRepayment(tx) : tx.amount > 0)
 
   function confirmCategory() {
     if (!tx || pendingCategoryId === '') return
@@ -163,6 +169,21 @@ export function TransactionDetailSheet({
           >
             <Coins size={14} className="mr-1.5" />
             {t('peerLoan.fromTransaction.action')}
+          </Button>
+        </>
+      )}
+
+      {canAssign && (
+        <>
+          <Separator />
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => { onAssignRepayment!(tx); onClose() }}
+          >
+            <ArrowDownLeft size={14} className="mr-1.5" />
+            {t('peerLoan.fromTransaction.assignAction')}
           </Button>
         </>
       )}

@@ -511,7 +511,19 @@
       "beneficiaryHint": "Dieser Name wird der Kontoname und identifiziert das Darlehen.",
       "beneficiaryRequired": "Der Darlehensnehmer ist erforderlich.",
       "confirm": "Darlehen erstellen",
-      "created": "Darlehen erstellt."
+      "created": "Darlehen erstellt.",
+      "assignAction": "Einer Rückzahlung zuordnen"
+    },
+    "assignRepayment": {
+      "title": "Einer Rückzahlung zuordnen",
+      "description": "Die Buchung wird die Cash-Seite der Rückzahlung, ohne kopiert zu werden.",
+      "loan": "Darlehen",
+      "selectLoan": "Darlehen auswählen",
+      "loanRequired": "Wählen Sie ein Darlehen.",
+      "noLoans": "Kein offenes Darlehen.",
+      "kindHint": "Kapital = Transfer ohne Budgetwirkung. Zinsen = Ertrag.",
+      "confirm": "Zuordnen",
+      "created": "Rückzahlung erfasst."
     },
     "actions": {
       "close": "Darlehen schließen",

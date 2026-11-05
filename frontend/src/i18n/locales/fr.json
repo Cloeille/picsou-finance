@@ -522,7 +522,19 @@
       "beneficiaryHint": "Ce nom devient celui du compte, et identifie le prêt.",
       "beneficiaryRequired": "Le bénéficiaire est requis.",
       "confirm": "Créer le prêt",
-      "created": "Prêt créé."
+      "created": "Prêt créé.",
+      "assignAction": "Assigner à un remboursement"
+    },
+    "assignRepayment": {
+      "title": "Assigner à un remboursement",
+      "description": "La transaction devient la jambe cash du remboursement, sans être recréée.",
+      "loan": "Prêt",
+      "selectLoan": "Sélectionner un prêt",
+      "loanRequired": "Sélectionnez un prêt.",
+      "noLoans": "Aucun prêt en cours.",
+      "kindHint": "Capital = transfert, sans impact budget. Intérêts = revenu.",
+      "confirm": "Assigner",
+      "created": "Remboursement enregistré."
     },
     "actions": {
       "close": "Clôturer le prêt",

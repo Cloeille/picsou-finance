@@ -7,7 +7,12 @@ import { toast } from 'sonner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { TransactionsList } from '@/components/shared/TransactionsList'
 import { CreatePeerLoanDialog } from '@/components/peer-loan/CreatePeerLoanDialog'
-import { useCreatePeerLoanFromTransaction } from '@/features/peer-loans/hooks'
+import { AssignRepaymentDialog } from '@/components/peer-loan/AssignRepaymentDialog'
+import {
+  useAssignPeerLoanRepayment,
+  useCreatePeerLoanFromTransaction,
+  useOpenPeerLoans,
+} from '@/features/peer-loans/hooks'
 import { extractErrorMessage } from '@/lib/errors'
 import { useMerchantLogoUrl } from '@/features/budget/hooks'
 import { useTransactions } from '@/features/budget/hooks'
@@ -41,12 +46,15 @@ export function BudgetTransactionsPage() {
   const [accountId, setAccountId] = useState<number | undefined>()
   const [categoryId, setCategoryId] = useState<number | undefined>()
   const [peerLoanTx, setPeerLoanTx] = useState<Transaction | null>(null)
+  const [repaymentTx, setRepaymentTx] = useState<Transaction | null>(null)
 
   const { data: accounts } = useAccounts()
   const { data: categories } = useCategories()
   const { data: transactions, isLoading, isError, refetch } = useTransactions({ from, to, accountId, categoryId })
   const categorizeMutation = useCategorize()
   const createPeerLoan = useCreatePeerLoanFromTransaction()
+  const assignRepayment = useAssignPeerLoanRepayment()
+  const openLoans = useOpenPeerLoans()
   const logoUrlFor = useMerchantLogoUrl()
 
   function handleCategorize(txId: number, catId: number) {
@@ -116,6 +124,9 @@ export function BudgetTransactionsPage() {
           onCreatePeerLoan={setPeerLoanTx}
           canCreatePeerLoan={(tx) => tx.amount < 0
             && !!accounts?.find(a => a.id === tx.accountId && CASH_ACCOUNT_TYPES.includes(a.type))}
+          onAssignRepayment={setRepaymentTx}
+          canAssignRepayment={(tx) => tx.amount > 0
+            && !!accounts?.find(a => a.id === tx.accountId && CASH_ACCOUNT_TYPES.includes(a.type))}
         />
       )}
 
@@ -130,6 +141,25 @@ export function BudgetTransactionsPage() {
             toast.success(t('peerLoan.fromTransaction.created'))
             setPeerLoanTx(null)
             navigate(`/accounts/${created.accountId}`)
+          } catch (err) {
+            toast.error(extractErrorMessage(err, t('common.error')))
+            throw err
+          }
+        }}
+      />
+
+      <AssignRepaymentDialog
+        open={!!repaymentTx}
+        onOpenChange={(open) => { if (!open) setRepaymentTx(null) }}
+        transaction={repaymentTx}
+        loans={openLoans.data ?? []}
+        loading={assignRepayment.isPending}
+        onSubmit={async (loanAccountId, data) => {
+          try {
+            await assignRepayment.mutateAsync({ accountId: loanAccountId, data })
+            toast.success(t('peerLoan.assignRepayment.created'))
+            setRepaymentTx(null)
+            navigate(`/accounts/${loanAccountId}`)
           } catch (err) {
             toast.error(extractErrorMessage(err, t('common.error')))
             throw err

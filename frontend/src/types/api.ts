@@ -568,6 +568,18 @@ export interface PeerLoanFromTransactionRequest {
   beneficiary?: string | null
 }
 
+export interface PeerLoanRepaymentFromTransactionRequest {
+  transactionId: number
+  kind: Exclude<PeerLoanRepaymentKind, 'WRITE_OFF'>
+}
+
+/** An open loan a received transaction can be assigned to. */
+export interface PeerLoanOpen {
+  accountId: number
+  name: string
+  remaining: number
+}
+
 export interface PeerLoanRepaymentRequest {
   paidOn: string
   amount: number

@@ -522,7 +522,19 @@
       "beneficiaryHint": "This name becomes the account's name and identifies the loan.",
       "beneficiaryRequired": "The borrower is required.",
       "confirm": "Create the loan",
-      "created": "Loan created."
+      "created": "Loan created.",
+      "assignAction": "Assign to a repayment"
+    },
+    "assignRepayment": {
+      "title": "Assign to a repayment",
+      "description": "The transaction becomes the repayment's cash leg, without being copied.",
+      "loan": "Loan",
+      "selectLoan": "Select a loan",
+      "loanRequired": "Select a loan.",
+      "noLoans": "No open loan.",
+      "kindHint": "Capital = transfer, no budget impact. Interest = income.",
+      "confirm": "Assign",
+      "created": "Repayment recorded."
     },
     "actions": {
       "close": "Close the loan",

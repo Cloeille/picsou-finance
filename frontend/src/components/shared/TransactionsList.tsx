@@ -22,6 +22,9 @@ interface TransactionsListProps {
   onCreatePeerLoan?: (tx: Transaction) => void
   /** Whether this row can start a loan; defaults to "any outgoing movement". */
   canCreatePeerLoan?: (tx: Transaction) => boolean
+  onAssignRepayment?: (tx: Transaction) => void
+  /** Whether this row can repay a loan; defaults to "any incoming movement". */
+  canAssignRepayment?: (tx: Transaction) => boolean
   /** Buttons rendered in the card header (add, import). The card stays visible when empty if set. */
   actions?: ReactNode
 }
@@ -35,6 +38,8 @@ export function TransactionsList({
   onCategorize,
   onCreatePeerLoan,
   canCreatePeerLoan,
+  onAssignRepayment,
+  canAssignRepayment,
   actions,
 }: TransactionsListProps) {
   const { t, i18n } = useTranslation()
@@ -117,6 +122,8 @@ export function TransactionsList({
         onCategorize={onCategorize}
         onCreatePeerLoan={onCreatePeerLoan}
         canCreatePeerLoan={canCreatePeerLoan}
+        onAssignRepayment={onAssignRepayment}
+        canAssignRepayment={canAssignRepayment}
         onEdit={onEdit}
         onDelete={onDelete}
       />

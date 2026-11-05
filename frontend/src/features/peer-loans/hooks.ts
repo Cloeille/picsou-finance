@@ -3,6 +3,7 @@ import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { QUERY_STALE_TIMES } from '@/lib/constants'
 import type {
   PeerLoanFromTransactionRequest,
+  PeerLoanRepaymentFromTransactionRequest,
   PeerLoanRepaymentRequest,
   PeerLoanSimulationRequest,
   PeerLoanTermsRequest,
@@ -18,6 +19,7 @@ export const peerLoanKey = (accountId: number) => ['peer-loan', accountId] as co
  */
 const invalidatesFor = (accountId: number) => [
   ['peer-loan', accountId],
+  ['peer-loans', 'open'],
   ['accounts', accountId],
   ['accounts'],
   ['dashboard'],
@@ -87,6 +89,30 @@ export function usePeerLoanSimulation() {
 export function useCreatePeerLoanFromTransaction() {
   return useInvalidatingMutation({
     mutationFn: (data: PeerLoanFromTransactionRequest) => peerLoansApi.createFromTransaction(data),
-    invalidates: [['accounts'], ['dashboard'], ['history'], ['net-worth-intraday']],
+    invalidates: [['accounts'], ['dashboard'], ['history'], ['net-worth-intraday'], ['peer-loans', 'open']],
+  })
+}
+
+/** The open loans a received transaction can be assigned to. */
+export function useOpenPeerLoans(enabled = true) {
+  return useQuery({
+    queryKey: ['peer-loans', 'open'],
+    queryFn: () => peerLoansApi.openLoans(),
+    staleTime: QUERY_STALE_TIMES.accountDetail,
+    enabled,
+  })
+}
+
+/**
+ * Links an existing incoming transaction to a repayment. The loan id comes from the
+ * dialog, so the hook is not bound to one account; the invalidation is.
+ */
+export function useAssignPeerLoanRepayment() {
+  return useInvalidatingMutation({
+    mutationFn: ({ accountId, data }: {
+      accountId: number
+      data: PeerLoanRepaymentFromTransactionRequest
+    }) => peerLoansApi.addRepaymentFromTransaction(accountId, data),
+    invalidates: (_data, variables) => invalidatesFor(variables.accountId),
   })
 }

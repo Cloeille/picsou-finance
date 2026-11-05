@@ -511,7 +511,19 @@
       "beneficiaryHint": "Este nombre pasa a ser el de la cuenta e identifica el préstamo.",
       "beneficiaryRequired": "El destinatario es obligatorio.",
       "confirm": "Crear el préstamo",
-      "created": "Préstamo creado."
+      "created": "Préstamo creado.",
+      "assignAction": "Asignar a una devolución"
+    },
+    "assignRepayment": {
+      "title": "Asignar a una devolución",
+      "description": "La transacción se convierte en la parte de efectivo de la devolución, sin copiarla.",
+      "loan": "Préstamo",
+      "selectLoan": "Seleccionar un préstamo",
+      "loanRequired": "Selecciona un préstamo.",
+      "noLoans": "Ningún préstamo en curso.",
+      "kindHint": "Capital = transferencia, sin impacto en el presupuesto. Intereses = ingreso.",
+      "confirm": "Asignar",
+      "created": "Devolución registrada."
     },
     "actions": {
       "close": "Cerrar el préstamo",

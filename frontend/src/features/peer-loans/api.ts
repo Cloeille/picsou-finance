@@ -2,7 +2,9 @@ import { api } from '@/lib/api-client'
 import type {
   PeerLoanDetail,
   PeerLoanFromTransactionRequest,
+  PeerLoanOpen,
   PeerLoanRepayment,
+  PeerLoanRepaymentFromTransactionRequest,
   PeerLoanRepaymentRequest,
   PeerLoanSimulationRequest,
   PeerLoanSimulationResponse,
@@ -32,4 +34,9 @@ export const peerLoansApi = {
     api.post<PeerLoanSimulationResponse>('/peer-loans/simulate', data).then(r => r.data),
   createFromTransaction: (data: PeerLoanFromTransactionRequest) =>
     api.post<PeerLoanDetail>('/peer-loans/from-transaction', data).then(r => r.data),
+  openLoans: () =>
+    api.get<PeerLoanOpen[]>('/peer-loans/open').then(r => r.data),
+  addRepaymentFromTransaction: (accountId: number, data: PeerLoanRepaymentFromTransactionRequest) =>
+    api.post<PeerLoanDetail>(`/accounts/${accountId}/peer-loan/repayments/from-transaction`, data)
+      .then(r => r.data),
 }

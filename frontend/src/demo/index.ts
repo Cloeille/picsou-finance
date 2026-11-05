@@ -326,6 +326,7 @@ handlers.set(key('GET', '/accounts/:id/peer-loan'), (_config, { id }) => ({
   repaidPct: 0,
   repayments: [],
 }))
+handlers.set(key('GET', '/peer-loans/open'), () => [])
 
 // Live quotes. The holdings fixtures win over the exchange positions for a ticker both carry, so
 // re-pricing a holdings table with these leaves its values exactly as the fixture states them.
