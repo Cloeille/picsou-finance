@@ -110,6 +110,22 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-IP Banque Populaire login rate limiter: 3 attempts per 15 minutes, like Caisse
+     * d'Epargne's (same BPCE login, same risk of locking the account), in a store of its own so
+     * one bank's attempts never eat the other's. Only {@code /auth/initiate} draws from it.
+     */
+    @Bean("banquePopulaireAuthBuckets")
+    public Map<String, Bucket> banquePopulaireAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /** Per-IP Banque Populaire keypad limiter, kept apart from the login bucket like Caisse d'Epargne's. */
+    @Bean("banquePopulaireKeypadBuckets")
+    public Map<String, Bucket> banquePopulaireKeypadBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-IP Revolut enrolment rate limiter: 5 attempts per 15 minutes.
      * The sidecar's own login is already rate-limited by Revolut itself (spec §3.5: repeated
      * WEB logins trigger captchas/throttling within hours), but this endpoint just receives a
@@ -424,6 +440,24 @@ public class RateLimitConfig {
     }
 
     public static Bucket createCaisseEpargneKeypadBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createBanquePopulaireAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(3)
+                .refillIntervally(3, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createBanquePopulaireKeypadBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(5)
