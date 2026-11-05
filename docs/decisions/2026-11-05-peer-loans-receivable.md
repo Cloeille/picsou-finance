@@ -98,7 +98,8 @@ record the two rows a mixed payment needs.
 
 The rate can be stated **monthly or annually**. `annual_rate` always holds the normalized
 annual fraction the calculator uses; `rate_period` only remembers the unit the member
-typed, so the form reopens as it was filled.
+typed, so the form reopens as it was filled. There is no annual cap: a short-term loan may
+legitimately carry a high nominal rate, and the column is sized for it.
 
 Accrued but unpaid interest is **displayed, never counted in net worth**. Counting money
 that has not been received would reintroduce the optimism this ADR rejects. At closure,
@@ -232,7 +233,8 @@ a cousin does nothing.
 - New `AccountType.PEER_LOAN`; migration `V122` adds the enum value alone (PostgreSQL
   refuses to use a new enum value in the transaction that added it, as `V69`, `V79`,
   `V100` and `V112` already document), `V123` creates the three tables, `V124` adds the
-  two cash-leg links, `V125` the `cash_leg_owned` flag and `V126` the `rate_period`.
+  two cash-leg links, `V125` the `cash_leg_owned` flag, `V126` the `rate_period` and
+  `V127` widens `annual_rate` for high short-term rates.
 - `AccountType.isLedger()` must return **false** for `PEER_LOAN`: its balance derives from
   the principal and the ledger, not from transactions. The frontend mirror
   `NON_LEDGER_ACCOUNT_TYPES` follows.

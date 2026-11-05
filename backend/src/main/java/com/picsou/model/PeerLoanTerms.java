@@ -48,7 +48,7 @@ public class PeerLoanTerms extends AuditableEntity {
     @Column(name = "expected_back")
     private LocalDate expectedBack;
 
-    @Column(name = "annual_rate", precision = 5, scale = 4)
+    @Column(name = "annual_rate", precision = 12, scale = 6)
     private BigDecimal annualRate;
 
     @Enumerated(EnumType.STRING)

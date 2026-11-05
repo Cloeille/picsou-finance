@@ -137,8 +137,18 @@ class PeerLoanCalculatorTest {
     }
 
     @Test
-    void simulateByPayment_refusesAPaymentThatNeverAmortises() {
-        assertThatThrownBy(() -> PeerLoanCalculator.simulateByPayment(
+    void highShortTermRateIsAccepted() {
+        // 120 %/year = 10 %/month: a short-term loan may carry it.
+        PeerLoanCalculator.Simulation out = PeerLoanCalculator.simulateByMonths(
+            new BigDecimal("500"), new BigDecimal("1.20"), 12);
+
+        assertThat(out.monthlyPayment().doubleValue())
+            .isCloseTo(73.38, org.assertj.core.api.Assertions.within(1.0));
+        assertThat(out.totalInterest()).isGreaterThan(BigDecimal.ZERO);
+    }
+
+    @Test
+    void simulateByPayment_refusesAPaymentThatNeverAmortises() {        assertThatThrownBy(() -> PeerLoanCalculator.simulateByPayment(
             new BigDecimal("1000"), new BigDecimal("0.10"), new BigDecimal("5")))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("never be repaid");

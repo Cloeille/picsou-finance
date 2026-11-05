@@ -1,6 +1,5 @@
 package com.picsou.dto;
 
-import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -13,7 +12,7 @@ import java.math.BigDecimal;
  */
 public record PeerLoanSimulationRequest(
     @NotNull @DecimalMin(value = "0.01") BigDecimal principal,
-    @DecimalMin("0") @DecimalMax("1") BigDecimal annualRate,
+    @DecimalMin("0") BigDecimal annualRate,
     @Min(1) Integer months,
     @DecimalMin("0.01") BigDecimal monthlyPayment
 ) {}

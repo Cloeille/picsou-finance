@@ -170,6 +170,8 @@ installments. This is information, not a verdict: no automatic "late" state, no 
 The rate can be entered **per year or per month**. `annual_rate` always stores the
 normalized annual fraction the calculator uses; `rate_period` only remembers how the
 member stated it, so a loan agreed at 0.5 %/month reopens as 0.5 %/month rather than 6 %/year.
+There is **no annual cap**: a short-term loan may carry a high nominal rate (10 %/month is
+120 %/year), and the column stores it with six decimals.
 
 ### REST endpoints
 
