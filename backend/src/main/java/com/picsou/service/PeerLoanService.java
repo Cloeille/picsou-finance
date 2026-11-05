@@ -312,7 +312,9 @@ public class PeerLoanService {
         transaction.setCategoryManual(true);
         transactionRepository.save(transaction);
 
-        accountService.upsertSnapshot(account, principal, LocalDate.now());
+        // The transaction is the lending event: a backdated row must land on its own date in
+        // history, not on the day the loan happened to be recorded.
+        refreshBalance(account, terms, transaction.getDate());
         return build(account, terms, LocalDate.now());
     }
 

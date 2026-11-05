@@ -646,6 +646,9 @@ class PeerLoanServiceTest {
         assertThat(transaction.isCategoryManual()).isTrue();
         verify(transactionRepository).save(transaction);
         verify(manualTransactionService, never()).addTransaction(anyLong(), anyLong(), any());
+        // The lending event is the transaction's own date, even when it is backdated.
+        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("350.00")),
+            eq(LocalDate.parse("2026-02-01")));
     }
 
     @Test
