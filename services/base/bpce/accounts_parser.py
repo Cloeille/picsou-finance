@@ -18,14 +18,19 @@ Facts deliberately NOT guessed (the fixtures and findings do not settle them):
 
 * the unit of `fillingRatio` (21.8 in the fixture): passed through untouched;
 * the meaning of contract `status` (`2 Actif`): contracts are not filtered on it;
-* which product families exist beyond those observed (`1`, `3/01` Livret A,
-  `3/28` LDDS, `4/05` PER, `6/12` personal loan, `6/13` home loan): they are skipped (with their cards)
+* which product families exist beyond those observed (`1`, `3/01` Livret A or
+  Livret Jeune, `3/28` LDDS, `4/05` PER, `6/12` personal loan, `6/13` home loan): they are skipped (with their cards)
   and reported in `build_import(...)["unsupported"]` by id and family code
   only, never mapped to a guessed kind, so a PEA or an insurance contract
   cannot block the sync of the supported accounts. PER, loan and insurance
   contracts carry a null `contractPfmId`: they are keyed by
   `contract:<contractId.id>` instead, and the kind is decided before any id
   is read;
+* what a `3/01` contract is beyond its `productLabel`: Banque Populaire files
+  both its Livret A ("Livret A-Particuliers") and its Livret Jeune ("Livret
+  Jeune") under `3/01` (observed live 2026-11-05). A label containing `JEUNE` is
+  a Livret Jeune, one that looks like a LEP (`LEP`, `EPARGNE POPULAIRE`) is
+  unsupported rather than read as a Livret A, any other is a Livret A;
 * a card carries no currency of its own: its balance currency is its parent
   contract's;
 * whether `dueDate` can be null on real rows: it is treated as required;
@@ -38,6 +43,7 @@ Facts deliberately NOT guessed (the fixtures and findings do not settle them):
 import calendar
 import math
 import re
+import unicodedata
 from datetime import date
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal, localcontext
 from fractions import Fraction
@@ -66,9 +72,12 @@ _KINDS_BY_FAMILY = {
 # Which detail a LOAN reads: the personal-loan app or the home-loan app
 # (observed live 2026-10-25, `6/13` "Crédit immobilier").
 LOAN_PRODUCTS = {("6", "12"): "PERSONAL", ("6", "13"): "HOME"}
+# `3/01` covers more than the Livret A: the product label tells them apart.
+LIVRET_A_FAMILY = (FAMILY_SAVINGS_AVAILABLE, "01")
+_LEP_LABEL_RE = re.compile(r"\bLEP\b|\bEPARGNE POPULAIRE\b")
 # Kinds with PFM transactions, keyed by `contractPfmId`. PER and loan contracts
 # carry a null `contractPfmId` and are keyed by `contract:<contractId.id>`.
-PFM_KINDS = frozenset({"CURRENT_ACCOUNT", "LIVRET_A", "LDDS"})
+PFM_KINDS = frozenset({"CURRENT_ACCOUNT", "LIVRET_A", "LIVRET_JEUNE", "LDDS"})
 CONTRACT_ID_PREFIX = "contract:"
 
 # Observed live 2026-10-07: transaction dates carry a time part
@@ -182,6 +191,8 @@ def _contract_kind(identity: dict, where: str, skipped_families: frozenset = fro
         # kind, and never allowed to block the sync of the supported accounts.
         if (code, sub_code) in skipped_families:
             return None
+        if (code, sub_code) == LIVRET_A_FAMILY:
+            return _regulated_savings_kind(identity.get("productLabel"))
         return _KINDS_BY_FAMILY.get((code, sub_code))
     # No sub family: only the Livret A label is recognised (older payloads).
     label = identity.get("productLabel")
@@ -192,6 +203,22 @@ def _contract_kind(identity: dict, where: str, skipped_families: frozenset = fro
     ):
         return "LIVRET_A"
     return None
+
+
+def _folded(label: str) -> str:
+    """Upper case without accents: `Épargne` and `EPARGNE` compare equal."""
+    decomposed = unicodedata.normalize("NFKD", label)
+    return "".join(char for char in decomposed if not unicodedata.combining(char)).upper()
+
+
+def _regulated_savings_kind(label: Any) -> Optional[str]:
+    """The kind of a `3/01` contract from its `productLabel`; None for a LEP lookalike."""
+    folded = _folded(label) if isinstance(label, str) else ""
+    if _LEP_LABEL_RE.search(folded):
+        return None  # never read as a Livret A: its own product, not observed
+    if "JEUNE" in folded:
+        return "LIVRET_JEUNE"
+    return "LIVRET_A"
 
 
 def _contract_id(identification: dict, where: str) -> str:
