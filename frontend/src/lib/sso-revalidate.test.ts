@@ -60,6 +60,17 @@ describe('sso remember preference', () => {
 
     expect(() => rememberSsoPreference(true)).not.toThrow()
   })
+
+  it('never leaves an earlier Remember me in force when the browser refuses to store an unchecked one', () => {
+    rememberSsoPreference(true)
+    vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError')
+    })
+
+    rememberSsoPreference(false)
+
+    expect(ssoRememberPreference()).toBe(false)
+  })
 })
 
 describe('restartSsoRevalidation', () => {

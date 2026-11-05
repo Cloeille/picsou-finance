@@ -16,7 +16,9 @@ export function consumeSsoRevalidate(): boolean {
 
 export function rememberSsoPreference(rememberMe: boolean): void {
   try {
-    localStorage.setItem(REMEMBER_KEY, rememberMe ? '1' : '0')
+    // Removing needs no room, so an unchecked choice always replaces an older "remember me".
+    if (rememberMe) localStorage.setItem(REMEMBER_KEY, '1')
+    else localStorage.removeItem(REMEMBER_KEY)
   } catch {
     // Storage full or blocked: the preference is optional and the sign-in must still start.
   }
