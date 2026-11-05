@@ -434,8 +434,10 @@ The `db` container has no host port: the database is only reachable by the test 
   money that left. The option is only offered for a manual linked account, and only before
   a leg exists; writing it twice would double the outflow in net worth.
 - **A synced account's row is not categorised automatically.** The provider owns it, so
-  the member classifies it once as "Internal transfer"; the detail keeps the hint while
-  no link is set.
+  the member classifies the **lending** row once as "Internal transfer"; the detail keeps
+  the hint while no link is set. A repayment assigned from an incoming transaction is
+  categorised as a transfer for both capital and interest: the interest is tracked in the
+  loan ledger, not booked as income twice.
 - **A repayment can skip the cash leg.** `withCashLeg=false` records a compensation (a
   netting, or a payment already booked elsewhere): the receivable falls and no deposit is
   written. The row stays editable and deletable, and the ledger badges it "No cash

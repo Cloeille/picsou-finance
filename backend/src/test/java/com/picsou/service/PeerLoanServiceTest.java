@@ -33,6 +33,8 @@ import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -400,8 +402,9 @@ class PeerLoanServiceTest {
         assertThat(account.getCurrentBalance()).isEqualByComparingTo("0");
     }
 
-    @Test
-    void addRepaymentFromTransactionLinksTheRowWithoutCopyingIt() {
+    @ParameterizedTest
+    @EnumSource(value = PeerLoanRepaymentKind.class, names = {"PRINCIPAL", "INTEREST"})
+    void addRepaymentFromTransactionLinksTheRowWithoutCopyingIt(PeerLoanRepaymentKind kind) {
         Account account = loanAccount("Jean");
         Account cash = cashAccount(false);
         PeerLoanTerms terms = PeerLoanTerms.builder()
@@ -433,7 +436,7 @@ class PeerLoanServiceTest {
             .thenReturn(Map.of(PeerLoanService.TRANSFER_SLUG, transferCategory()));
 
         PeerLoanDetailResponse response = service.addRepaymentFromTransaction(
-            ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentFromTransactionRequest(60L, PeerLoanRepaymentKind.PRINCIPAL));
+            ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentFromTransactionRequest(60L, kind));
 
         assertThat(response.principalRemaining()).isEqualByComparingTo("400.00");
         assertThat(ledger).hasSize(1);
