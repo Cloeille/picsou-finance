@@ -60,6 +60,14 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
      */
     List<Transaction> findByAccountIdAndIsManualFalse(Long accountId);
 
+    /** The synced rows of one account, scoped to the member who owns it. */
+    @Query("""
+        SELECT t FROM Transaction t
+        WHERE t.account.id = :accountId AND t.account.member.id = :memberId AND t.isManual = false
+        """)
+    List<Transaction> findByAccountIdAndAccountMemberIdAndIsManualFalse(@Param("accountId") Long accountId,
+                                                                        @Param("memberId") Long memberId);
+
     @Query("SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t WHERE t.account.id = :accountId AND t.date > :date")
     BigDecimal sumAmountByAccountIdAndDateAfter(@Param("accountId") Long accountId, @Param("date") LocalDate date);
 

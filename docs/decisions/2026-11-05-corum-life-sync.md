@@ -39,9 +39,10 @@ which parked it as cash.
 2. **One `ASSURANCE_VIE` account per Life contract**, keyed by `externalAccountId =
    corum_life_<contractCode>`. Its balance is the contract's `valuationAmount`, its cash is 0, and
    its units are `account_holding` rows valued by CORUM (`providerValueEur`), because no market
-   feed quotes a CORUM unit. `AccountService.isProviderValued` treats the non-manual `CORUM`
-   accounts as provider-valued; a manual account whose free-text provider is "CORUM" keeps the
-   usual valuation.
+   feed quotes a CORUM unit. `AccountService.isProviderValued` treats the synced CORUM Life
+   accounts (non-manual, `externalAccountId` prefixed `corum_life_`) as provider-valued, whatever
+   their editable provider string says; a manual account whose free-text provider is "CORUM"
+   keeps the usual valuation.
 3. **Aggregate per fund code across pockets.** Quantity, amount and net invested are summed, so
    one fund is one holding. Pockets may quote one code at different prices (one at an older
    NAV); the holding's unit price is then `Σamount / Σquantity` (8 decimals), and the first

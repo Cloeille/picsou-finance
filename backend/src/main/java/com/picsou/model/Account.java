@@ -18,6 +18,12 @@ import java.time.LocalDate;
 @Builder
 public class Account extends AuditableEntity {
 
+    /**
+     * The {@code externalAccountId} prefix the CORUM Life sync writes. With {@code isManual}
+     * false it marks a synced CORUM Life contract, whatever the editable provider string says.
+     */
+    public static final String CORUM_LIFE_EXTERNAL_ID_PREFIX = "corum_life_";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

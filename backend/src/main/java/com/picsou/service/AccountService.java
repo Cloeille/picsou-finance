@@ -554,6 +554,11 @@ public class AccountService {
         if (holdings.isEmpty()) {
             BigDecimal cash = priceService.toEur(
                 account.getCurrentBalance(), account.getCurrency(), account.getTicker());
+            // A CORUM Life contract keeps its own cost basis without lines too (the last one
+            // deleted by hand): pairing the total with itself would report a zero gain.
+            if (account.getProviderInvestedEur() != null && isSyncedCorumLife(account)) {
+                return new Valuation(cash, account.getProviderInvestedEur(), true, true, false);
+            }
             // Cash costs what it is worth, in the same currency on both sides: returning the
             // stored balance as the cost basis paired a converted value with an unconverted
             // cost, so a USD or GBP account reported the FX rate as a gain or a loss.
@@ -800,18 +805,25 @@ public class AccountService {
      * Null-safe: {@code Set.of(...)} throws on a null lookup, and most accounts have no provider.
      *
      * <p>CORUM is provider-valued for the accounts CORUM Life sync writes only: no
-     * market feed quotes a CORUM Life unit. Those are the non-manual CORUM accounts. "CORUM"
-     * is also free text on a manual account, and the SCPI accounts its sync writes are
-     * manual, so neither takes the fallback.
+     * market feed quotes a CORUM Life unit. Those are recognised by {@link #isSyncedCorumLife},
+     * not by the provider string, which the member can edit. "CORUM" is also free text on a
+     * manual account, and the SCPI accounts its sync writes are manual, so neither takes the
+     * fallback.
      */
     private boolean isProviderValued(Account account) {
+        if (isSyncedCorumLife(account)) {
+            return true;
+        }
         if (account.getProvider() == null) {
             return false;
         }
-        if (ScpiProvider.CORUM.displayName().equals(account.getProvider())) {
-            return !account.isManual();
-        }
         return PROVIDER_VALUED.contains(account.getProvider());
+    }
+
+    /** An account the CORUM Life sync writes: non-manual, keyed by the contract's external id. */
+    private static boolean isSyncedCorumLife(Account account) {
+        return !account.isManual() && account.getExternalAccountId() != null
+            && account.getExternalAccountId().startsWith(Account.CORUM_LIFE_EXTERNAL_ID_PREFIX);
     }
 
     private boolean isCaisseEpargnePer(Account account) {
@@ -908,7 +920,12 @@ public class AccountService {
         if (averageBuyIn != null) h.setAverageBuyIn(averageBuyIn);
         // A user edit invalidates broker-derived valuation/P&L as a coherent
         // pair. A subsequent provider sync will repopulate both fields.
-        h.setProviderValueEur(null);
+        // Except a CORUM Life line's value: no feed quotes its unit, so clearing it would
+        // leave the line unvalued until the next sync. Only the P&L goes, which is what
+        // lets the edited buy-in become the line's cost basis.
+        if (!isSyncedCorumLife(account)) {
+            h.setProviderValueEur(null);
+        }
         h.setProviderPnlEur(null);
         holdingRepository.save(h);
         return toHoldingResponse(account, h, quotesFor(account, List.of(h)), logosFor(account, List.of(h)));

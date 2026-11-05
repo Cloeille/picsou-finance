@@ -169,6 +169,18 @@ class EssentialExpenseEstimatorTest {
     }
 
     @Test
+    void aBudgetNeutralDebitIsNeverCountedAsSpending() {
+        // A CORUM Life contract retyped to CHECKING keeps its neutral fee and switch-out rows.
+        tx(current, 1, 5, "-1000");
+        Transaction fee = tx(current, 1, 10, "-12");
+        fee.setBudgetNeutral(true);
+
+        EssentialExpenseEstimateResponse response = estimator.estimate(MEMBER);
+
+        assertThat(response.estimate()).isEqualByComparingTo("1000.00");
+    }
+
+    @Test
     void anExchangeBetweenOwnPocketsIsExcludedThroughItsSharedId() {
         Account cryptoPocket = account(3L, AccountType.CHECKING);
         current.setProvider("Revolut");

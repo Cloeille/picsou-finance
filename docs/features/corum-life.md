@@ -44,7 +44,8 @@ validates both parts, then writes both in one transaction.
 - `backend/src/main/resources/db/migration/V124__transaction_budget_neutral.sql` —
   `transaction.budget_neutral`
 - `backend/.../service/SyncValues.java` — `linesClose`, shared with BoursoBank
-- `backend/.../service/AccountService.java` — `isProviderValued`: non-manual `CORUM` accounts
+- `backend/.../service/AccountService.java` — `isProviderValued` / `isSyncedCorumLife`: non-manual
+  accounts whose `externalAccountId` starts with `Account.CORUM_LIFE_EXTERNAL_ID_PREFIX`
 - `backend/src/main/resources/db/migration/V122__corum_session_life_ambiguous.sql` —
   `corum_session.last_sync_life_ambiguous`, exposed as `lifeAmbiguousCount` in the CORUM status
 - `backend/src/main/resources/db/migration/V123__corum_life_contract_facts.sql` — the contract
@@ -125,7 +126,7 @@ the same keys, nesting and number types and invented figures.
 | Cost basis | `netInvestedAmountCumulated` summed per fund. Unknown in any pocket makes the whole fund's cost unknown (`null`) |
 | Labels | `LIFE_FUND_NAMES`: `CC` CORUM Origin, `XL` CORUM XL, `EU` CORUM Eurion, `BCO` CORUM BCO, `CBEHY` CORUM BEHY, `CBE` CORUM Butler Entreprise, `FGCORUM` CORUM EuroLife (fonds euros). Any other code is `CORUM <code>` |
 | Contract code | The payload's `contractCode` must equal the code requested, else `UPSTREAM_FORMAT_CHANGED` |
-| Contract cost | `netInvestedEur` = `contractDetail.netInvestedAmount`, required, `>= 0`. `|valuationAmount − netInvestedAmount − gainOrLoss| > 0.05` (or a missing `gainOrLoss`) is `UPSTREAM_FORMAT_CHANGED`. Per-line `netInvestedEur` is still sent raw |
+| Contract cost | `netInvestedEur` = `contractDetail.netInvestedAmount`, required, `>= 0`. `\|valuationAmount − netInvestedAmount − gainOrLoss\| > 0.05` (or a missing `gainOrLoss`) is `UPSTREAM_FORMAT_CHANGED`. Per-line `netInvestedEur` is still sent raw |
 | Paid in | `paidInEur` = `grossInvestedAmount`, `null` when absent, a negative one is `UPSTREAM_FORMAT_CHANGED` |
 | Opening date | `openedAt` = `creationDate` as ISO, `null` when unreadable |
 | Savings plan | `scheduledPayment` = `{amountEur, frequency}` from `programSavingAmount`; `null` for any odd shape (no dict, non-number or negative amount, no frequency). Informational, never a refusal. A zero amount is sent as is |
@@ -150,8 +151,17 @@ log). There is no per-line `quantity × unitPrice` check.
 `_select_contracts` reads one real-estate contract at most and every Life contract. Two
 real-estate contracts is `MULTIPLE_CONTRACTS` and also blocks the Life part. The same Life code
 listed twice is `UPSTREAM_FORMAT_CHANGED` on `/portfolio` only: `/positions` never reads the Life
-part and answers as before. Neither kind is `PORTFOLIO_INCOMPLETE`. An `/contract/active` entry
-whose `contractCode` is not a string is left out of the logged totals.
+part and answers as before. On `/portfolio` (`reads_life=True`), a `LIFE` entry whose
+`contractCode` is empty or not a string is `UPSTREAM_FORMAT_CHANGED` too, before any contract is
+read: skipping it would report a successful sync that left that contract stale. `/positions` still
+skips it. Neither kind is `PORTFOLIO_INCOMPLETE`. An `/contract/active` entry whose
+`contractCode` is not a string is left out of the logged totals.
+
+Every in-page read (`_get_json`) aborts its `fetch` (body included) through an `AbortController`
+after `READ_TIMEOUT_SECONDS` (20 s, below the 30 s navigation bound), and the evaluation itself is
+bounded `READ_EVALUATE_GRACE_SECONDS` (5 s) later for a wedged page. Either is
+`UPSTREAM_UNAVAILABLE`; the raise reaches `_read_in_portal`'s `finally`, which frees the browser
+slot.
 
 ### Writing (`CorumLifeWriter`)
 
@@ -167,7 +177,10 @@ For each contract, in order:
 4. When such manual accounts exist but none can be adopted (it has holdings, there are several,
    or the snapshot holds several contracts), nothing is written for the contract (`AMBIGUOUS`).
    A new account beside the manual one would count the contract twice in the net worth. The
-   user renames or deletes the manual account and syncs again.
+   remedies are narrower than they look: deleting the manual account removes the candidate;
+   renaming it does not when its provider is `CORUM` (the provider must change too); removing
+   its holdings helps only when the snapshot holds exactly one contract and it is the only
+   candidate. The UI message (`sync.corum.life.ambiguous`) gives the first two.
 5. Otherwise an account is created (`CREATED`): "CORUM Life", or "CORUM Life <code>" when the
    snapshot holds several contracts.
 
@@ -198,10 +211,17 @@ The name is set on creation only. Then, on every write:
 ### Valuation
 
 `AccountService.valuation` returns `(currentBalance, providerInvestedEur)` for an account with a
-`providerInvestedEur` that `isProviderValued` (a non-manual `CORUM` account). The gain the UI
-shows is then the contract's own, never the gain against the lines' summed costs.
+`providerInvestedEur` that `isProviderValued` (a synced CORUM Life account: non-manual, with a
+`corum_life_` external id, whatever its editable provider string now says), with or without
+holdings. The gain the UI shows is then the contract's own, never the gain against the lines'
+summed costs, and never a zero gain once the last line was deleted by hand.
 `HistoryService.buildIntradayHistory` takes that same cost for the 24H chart, weighed by the
 member's share. A manual account carrying the column ignores it.
+
+Editing a line's average buy-in (`AccountService.updateHolding`) on such an account keeps the
+line's `providerValueEur` (no feed quotes it, so clearing it would unvalue the line and move its
+tier until the next sync) and clears only `providerPnlEur`, so the edited buy-in becomes the
+line's cost basis. On every other account both are cleared, as before.
 
 ### Classification
 
@@ -234,7 +254,7 @@ contract's list is treated as `null`, so its stored rows are kept and its valuat
 
 | CORUM `operationType` | `txType` | `budgetNeutral` | Category | Other |
 |-----------------------|----------|-----------------|----------|-------|
-| `scheduledPayment`, `subscription` | `DEPOSIT` | false | the member's `investissement` (TRANSFER), on insert only | a contribution in the allocation view |
+| `scheduledPayment`, `subscription` | `DEPOSIT` | false | the member's `investissement` (TRANSFER), on insert only | a contribution in the allocation view while its category is a TRANSFER one |
 | `couponDetachment` | `DIVIDEND` | true | none | `ticker` `CORUM-LIFE-<CODE>` and the holding's name when exactly one fund code |
 | `administrativeManagementCosts` | `FEE` | true | none | negative |
 | `profitParticipation`, `arbitrage` (both legs), anything else | null | true | none | an unknown type is counted in the log |
@@ -242,21 +262,29 @@ contract's list is treated as `null`, so its stored rows are kept and its valuat
 - `type` stores CORUM's raw `operationType`; the UI labels a row by it
   (`accounts.corumLifeOperation.<type>`), and `description` is a neutral English fallback.
 - Key: `externalId` = `externalTransactionId` = `corum:<operationId>`; when two operations of one
-  list share an id, `corum:<id>:+` / `corum:<id>:-` by sign.
+  list share an id, `corum:<id>:+` / `corum:<id>:-` by sign. When a stored `corum:<id>` row gives
+  way to those legs, the leg with the stored amount's sign inherits its `categoryRef` and
+  `categoryManual` before the old row is deleted; the other leg starts as a fresh insert.
 - Reconciliation, like Fortuneo's full-history one: upsert by key; an update rewrites date,
   amount, type, `txType`, ticker, name and `budgetNeutral` but never `categoryRef` or
   `categoryManual`; synced rows no longer reported between the oldest reported date and today are
   deleted. A null or empty list keeps every stored row.
 - The category comes from `CategoryService.findOrCreateDefault`: an archived `investissement` is
-  not revived, and one of another kind is not used; the payment then stays uncategorized.
+  not revived, and one of another kind is not used; the payment then stays uncategorized. The
+  allocation view reads contributions from TRANSFER-category rows only, so such a payment is not
+  counted as a contribution until the member files it under a transfer category.
+- `reconcile` reads the stored rows by account **and** member
+  (`findByAccountIdAndAccountMemberIdAndIsManualFalse`), the member being the one the account
+  was resolved for.
 - No row is ever `BUY`/`SELL`, and no CORUM row goes through auto-categorisation or enrichment.
 - Budget-neutral rows show on the account page only. `TransactionRepository` leaves them out of
   every budget, cashflow, categorisation and global-transactions query (`searchByMember`, even
   with an account filter); `DividendReceiptService.classifyRecent` skips them. The coupons still
   list under dividends received, flagged out of the budget like every locked-wrapper dividend.
   The account export (`TransactionsExporter`) keeps them: it is the account's data.
-- `TransactionResponse.budgetNeutral` carries the flag to the UI. A neutral or `CORUM-LIFE-`
-  ticker row is labelled by its type everywhere; a payment (`scheduledPayment`, `subscription`)
+- `TransactionResponse.budgetNeutral` carries the flag to the UI. A neutral or synced
+  `CORUM-LIFE-` ticker row is labelled by its type everywhere (a manual BUY/SELL on such a line
+  keeps its trade label); a payment (`scheduledPayment`, `subscription`)
   only on its own account page, where `TransactionsList` gets `accountProvider` and the row is
   synced on a `CORUM` account: those type names are no proof of origin on their own. Lists that
   span accounts show the synced description ("Scheduled payment").
@@ -288,7 +316,8 @@ After a successful sync, `CorumPanel` shows:
   `sync.corum.life.ambiguous` line when `lifeAmbiguousCount > 0`, never a success line for them.
 
 `lifeRun` selects accounts that are `ASSURANCE_VIE`, provider `CORUM`, not manual, and whose
-`lastSyncedAt` equals the session's `lastSyncCompletedAt`. That works because the backend stamps
+`lastSyncedAt` equals the session's `lastSyncCompletedAt`. `CorumPanel` and `CorumLifeSyncSummary`
+feed it `useAllAccounts()`, hidden accounts included: a hidden contract the run updated still counts. That works because the backend stamps
 every row of a run with the same instant. Strings live under `sync.corum.life` in `en`, `fr`,
 `es` and `de`; the panel's `scope` and `syncSuccess` strings now mention both kinds.
 
@@ -299,7 +328,7 @@ every row of a run with the same instant. Strings live under `sync.corum.life` i
 | One `/portfolio` read | Both parts describe the same moment and commit together | Two sidecar calls and two commits |
 | One holding per fund code | Holdings view, classification and diversification all key on the ticker | One holding per (code, pocket) |
 | Euro fund as a holding in 1 EUR units | It is invested money, and the payload's unit is unproven | Cash balance |
-| Provider-valued for non-manual `CORUM` | No feed quotes a CORUM unit; "CORUM" on a manual account is free text | `CORUM` in `PROVIDER_VALUED` for every account |
+| Provider-valued for a synced CORUM Life account (non-manual, `externalAccountId` prefixed `corum_life_`, `Account.CORUM_LIFE_EXTERNAL_ID_PREFIX`) | No feed quotes a CORUM unit; "CORUM" on a manual account is free text, and the provider string is editable | `CORUM` in `PROVIDER_VALUED` for every account; keying on the provider string |
 | Adoption needs no holdings | Replacing holdings is the one write a sync cannot undo | Adopting any "CORUM Life" account |
 | Provider `CORUM` is a candidate too | An existing user's manual contract rarely carries the exact name; missing it creates a second account | Name match only |
 | A duplicate operation key drops the list, not the sync | The ledger is secondary to the valuation | `INVALID_DATA` for the whole run |
@@ -383,19 +412,29 @@ every row of a run with the same instant. Strings live under `sync.corum.life` i
   valuation kept; a shared (id, sign) → `null` for that contract only
 - `CorumLifeOperationWriterTest` — mapping per type, coupon ticker and name, unknown type
   neutral, archived or retyped category, sign-suffixed keys, idempotent resync, deletion window,
-  manual category kept on update, null/empty list or a repeated key keeps rows
+  manual category kept on update and carried to the same-sign leg when a key splits, member-scoped
+  read, null/empty list or a repeated key keeps rows
 - `CorumLifeWriterTest` (operations) — validation, a repeated key reconciled as `null` with the
   valuation written, reconcile called for a written contract, never for `AMBIGUOUS`/`IGNORED`;
   `CorumSyncServiceTest` — a duplicate operation keeps the stored rows and syncs the valuation,
   a failed operation write fails the run
-- `TransactionRepositoryAccountFetchTest#budgetQueriesSkipBudgetNeutralRows`,
-  `DividendReceiptServiceTest` (neutral never classified; CORUM coupon listed out of budget),
+- `TransactionRepositoryAccountFetchTest#budgetQueriesSkipBudgetNeutralRows` (including the AI
+  categorizer's `findRecentCategorizedByMemberId`), `#syncedRowsOfAnAccountAreReadForItsOwnerOnly`,
+  `DividendReceiptServiceTest` (neutral never classified; CORUM coupon listed out of budget; a
+  neutral row never `countsInBudget`, whatever the account type),
   `AllocationServiceTest#compute_contributions_countACorumLifePayment`,
-  `EssentialExpenseEstimatorTest#aBudgetNeutralCreditIsNeverTakenForTheOtherLegOfATransfer`
-- Frontend: `CorumLifeSyncSummary.test.tsx`, `ScpiSyncSummary.test.tsx` (`hideWhenEmpty`),
+  `EssentialExpenseEstimatorTest#aBudgetNeutralCreditIsNeverTakenForTheOtherLegOfATransfer`,
+  `#aBudgetNeutralDebitIsNeverCountedAsSpending`
+- `AccountServiceTest` — contract cost kept after a provider rename and without holdings, a
+  non-manual `CORUM` account without the `corum_life_` id not provider-valued, a buy-in edit keeps
+  the line value; `ScpiSyncSessionPostgresTest` runs the real `AccountService` and asserts the
+  Life `balance_snapshot` row
+- Frontend: `CorumLifeSyncSummary.test.tsx` and `CorumPanel.test.tsx` (hidden accounts read
+  through `useAllAccounts`), `ScpiSyncSummary.test.tsx` (`hideWhenEmpty`),
   `CorumTab.test.tsx` (Life-only and mixed logins, no warning while accounts load, the warning
   when they fail, ambiguous contract), `TransactionRow.test.tsx` / `TransactionsList.test.tsx`
-  (a payment labelled only on a synced CORUM account), `AccountDetailPage.test.tsx`
+  (a payment labelled only on a synced CORUM account; the CORUM label wins over a merchant label;
+  a manual row on a `CORUM-LIFE-` line keeps its trade label), `AccountDetailPage.test.tsx`
   (`accountProvider` passed)
 
 ## Links

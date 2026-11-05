@@ -73,7 +73,7 @@ import java.util.Set;
 public class CorumLifeWriter {
 
     static final String PROVIDER = ScpiProvider.CORUM.displayName();
-    private static final String EXTERNAL_ID_PREFIX = "corum_life_";
+    private static final String EXTERNAL_ID_PREFIX = Account.CORUM_LIFE_EXTERNAL_ID_PREFIX;
     private static final String TICKER_PREFIX = "CORUM-LIFE-";
     private static final String ACCOUNT_NAME = "CORUM Life";
     private static final String ACCOUNT_COLOR = "#8b5cf6";

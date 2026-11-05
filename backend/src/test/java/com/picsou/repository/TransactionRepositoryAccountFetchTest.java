@@ -115,6 +115,15 @@ class TransactionRepositoryAccountFetchTest {
             .account(testEntityManager.getEntityManager().getReference(Account.class, 1L))
             .date(LocalDate.of(2026, 6, 13)).description("uncategorized-coupon")
             .amount(BigDecimal.ONE).budgetNeutral(true).build());
+        // Categorized and labelled, so only the budget-neutral filter can tell them apart.
+        for (boolean neutral : new boolean[] {false, true}) {
+            transactionRepository.save(Transaction.builder()
+                .account(testEntityManager.getEntityManager().getReference(Account.class, 1L))
+                .categoryRef(testEntityManager.getEntityManager().getReference(Category.class, 11L))
+                .merchantLabel("Acme").date(LocalDate.of(2026, 5, 20))
+                .description(neutral ? "labelled-neutral" : "labelled-ordinary")
+                .amount(BigDecimal.ONE).budgetNeutral(neutral).build());
+        }
         testEntityManager.flush();
         testEntityManager.clear();
 
@@ -138,9 +147,29 @@ class TransactionRepositoryAccountFetchTest {
             .isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(transactionRepository.findUncategorizedByMemberId(1L)).isEmpty();
         assertThat(transactionRepository.findChangeable(1L))
-            .extracting(Transaction::getDescription).containsExactly("payment");
+            .extracting(Transaction::getDescription).containsExactlyInAnyOrder("payment", "labelled-ordinary");
+        // The AI categorizer's examples: the ordinary row proves the query returns data at all.
+        assertThat(transactionRepository.findRecentCategorizedByMemberId(1L,
+                org.springframework.data.domain.PageRequest.of(0, 8)))
+            .extracting(Transaction::getDescription).containsExactly("labelled-ordinary");
         // The account page still lists every row.
-        assertThat(transactionRepository.findByAccountIdOrderByDateDesc(1L)).hasSize(4);
+        assertThat(transactionRepository.findByAccountIdOrderByDateDesc(1L)).hasSize(6);
+    }
+
+    @Test
+    @Sql("classpath:sql/transaction-repository-account-fetch.sql")
+    void syncedRowsOfAnAccountAreReadForItsOwnerOnly() {
+        persist(2L, 10L, LocalDate.of(2026, 6, 10), "synced");
+        transactionRepository.save(Transaction.builder()
+            .account(testEntityManager.getEntityManager().getReference(Account.class, 2L))
+            .date(LocalDate.of(2026, 6, 11)).description("typed").amount(BigDecimal.ONE)
+            .isManual(true).build());
+        testEntityManager.flush();
+        testEntityManager.clear();
+
+        assertThat(transactionRepository.findByAccountIdAndAccountMemberIdAndIsManualFalse(2L, 1L))
+            .extracting(Transaction::getDescription).containsExactly("synced");
+        assertThat(transactionRepository.findByAccountIdAndAccountMemberIdAndIsManualFalse(2L, 99L)).isEmpty();
     }
 
     private void persist(long accountId, long categoryId, LocalDate date, String description) {

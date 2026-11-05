@@ -221,7 +221,8 @@ public class DividendReceiptService {
                 tx.getNativeCurrency(),
                 exDate,
                 event == null ? null : perShare(tx, event, source),
-                DividendForecastService.countsInBudget(account.getType(), false)));
+                // A budget-neutral row is left out of every budget query, whatever the account type.
+                !tx.isBudgetNeutral() && DividendForecastService.countsInBudget(account.getType(), false)));
         }
         out.sort(NEWEST_FIRST);
         return out;

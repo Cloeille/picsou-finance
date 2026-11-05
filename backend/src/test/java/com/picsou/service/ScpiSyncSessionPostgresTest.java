@@ -47,7 +47,7 @@ import static org.mockito.Mockito.when;
 @Import({CorumSyncService.class, SofidySyncService.class, ScpiPositionService.class,
     ScpiFundReconciler.class, ScpiFundService.class, CorumLifeWriter.class,
     CorumLifeOperationWriter.class, com.picsou.service.budget.CategoryService.class,
-    ScpiSyncSessionPostgresTest.Transactions.class})
+    AccountService.class, ScpiSyncSessionPostgresTest.Transactions.class})
 class ScpiSyncSessionPostgresTest {
     @Container
     @ServiceConnection
@@ -74,7 +74,15 @@ class ScpiSyncSessionPostgresTest {
     @MockitoBean CorumPort corumPort;
     @MockitoBean SofidyPort sofidyPort;
     @MockitoBean CryptoEncryption encryption;
-    @MockitoBean AccountService accountService;
+    // The real AccountService, so the Life balance snapshot is written to PostgreSQL; only its
+    // collaborators outside the persistence layer are mocked.
+    @MockitoBean PriceService priceService;
+    @MockitoBean LoanAmortizationService loanAmortizationService;
+    @MockitoBean AccountAccessResolver accessResolver;
+    @MockitoBean BankLogoResolver bankLogoResolver;
+    @MockitoBean CryptoLogoService cryptoLogoService;
+    @MockitoBean InstrumentLogoService instrumentLogoService;
+    @Autowired BalanceSnapshotRepository snapshots;
     @Autowired AccountHoldingRepository holdings;
     @Autowired TransactionRepository transactions;
     @Autowired CategoryRepository categories;
@@ -248,6 +256,12 @@ class ScpiSyncSessionPostgresTest {
             .containsExactlyInAnyOrder(
                 tuple("CORUM-LIFE-XL", WealthTier.REAL_ESTATE),
                 tuple("CORUM-LIFE-FGCORUM", null));
+        // Two syncs on one day: one snapshot, the contract's total against its own cost.
+        assertThat(snapshots.findByAccountIdAndDate(created.get(0).getId(), LocalDate.now()))
+            .hasValueSatisfying(snapshot -> {
+                assertThat(snapshot.getBalance()).isEqualByComparingTo("1534.37");
+                assertThat(snapshot.getInvestedAmount()).isEqualByComparingTo("1480");
+            });
 
         Account doomed = created.get(0);
         doomed.setDeletedAt(Instant.now());

@@ -121,6 +121,9 @@ public class EssentialExpenseEstimator {
             Account account = byId.get(t.getAccount().getId());
             if (account.getType() != AccountType.CHECKING) continue;
             if (t.getAmount() == null || t.getAmount().signum() >= 0) continue;
+            // A budget-neutral debit (a CORUM Life fee or switch-out kept on an account retyped
+            // to CHECKING) never left the member's money: it is no spending.
+            if (t.isBudgetNeutral()) continue;
 
             if (t.getTicker() != null && !t.getTicker().isBlank()) continue;
             if (t.getTxType() != null && INVESTMENT_TYPES.contains(t.getTxType())) continue;

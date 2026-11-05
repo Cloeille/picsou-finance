@@ -194,7 +194,7 @@ class CorumLifeOperationWriterTest {
         writer.reconcile(MEMBER, account, allTypes(), holdings());
         List<Transaction> firstRun = saved();
         org.mockito.Mockito.clearInvocations(transactionRepository);
-        when(transactionRepository.findByAccountIdAndIsManualFalse(42L)).thenReturn(new ArrayList<>(firstRun));
+        when(transactionRepository.findByAccountIdAndAccountMemberIdAndIsManualFalse(42L, MEMBER)).thenReturn(new ArrayList<>(firstRun));
 
         var result = writer.reconcile(MEMBER, account, allTypes(), holdings());
 
@@ -209,7 +209,7 @@ class CorumLifeOperationWriterTest {
         Transaction stored = Transaction.builder().id(1L).account(account).externalId("corum:9")
             .date(LocalDate.of(2026, 10, 5)).description("Scheduled payment").amount(new BigDecimal("50"))
             .categoryRef(chosen).categoryManual(true).build();
-        when(transactionRepository.findByAccountIdAndIsManualFalse(42L)).thenReturn(List.of(stored));
+        when(transactionRepository.findByAccountIdAndAccountMemberIdAndIsManualFalse(42L, MEMBER)).thenReturn(List.of(stored));
 
         writer.reconcile(MEMBER, account, List.of(op("9", "scheduledPayment", "2026-10-06", "55", null)),
             holdings());
@@ -232,7 +232,7 @@ class CorumLifeOperationWriterTest {
         // Synced by another importer before the account was adopted: never CORUM's to delete.
         Transaction imported = stored(5L, null, LocalDate.of(2025, 3, 1));
         Transaction otherProvider = stored(6L, "finary:9", LocalDate.of(2025, 3, 1));
-        when(transactionRepository.findByAccountIdAndIsManualFalse(42L))
+        when(transactionRepository.findByAccountIdAndAccountMemberIdAndIsManualFalse(42L, MEMBER))
             .thenReturn(List.of(older, dropped, legacyKey, future, imported, otherProvider));
 
         // The switch now comes back as two legs under one id: the old single key is obsolete.
@@ -248,6 +248,37 @@ class CorumLifeOperationWriterTest {
         assertThat(result.deleted()).isEqualTo(2);
         assertThat(saved()).extracting(Transaction::getExternalId)
             .containsExactly("corum:7:-", "corum:7:+", "corum:5");
+    }
+
+    @Test
+    void aLegReplacingASingleKeyRowKeepsTheCategoryTheMemberChose() {
+        Category chosen = Category.builder().id(99L).slug("epargne").kind(CategoryKind.TRANSFER).build();
+        Transaction single = Transaction.builder().id(1L).account(account).externalId("corum:7")
+            .date(LocalDate.of(2026, 6, 15)).description("Switch between funds").amount(new BigDecimal("-100"))
+            .categoryRef(chosen).categoryManual(true).build();
+        when(transactionRepository.findByAccountIdAndAccountMemberIdAndIsManualFalse(42L, MEMBER))
+            .thenReturn(List.of(single));
+
+        var result = writer.reconcile(MEMBER, account, List.of(
+            op("7", "arbitrage", "2026-06-15", "-100", null),
+            op("7", "arbitrage", "2026-06-15", "100", null)), holdings());
+
+        assertThat(result.deleted()).isEqualTo(1);
+        Map<String, Transaction> rows = byKey(saved());
+        // The leg with the stored row's sign inherits the member's choice; the other starts clean.
+        assertThat(rows.get("corum:7:-").getCategoryRef()).isSameAs(chosen);
+        assertThat(rows.get("corum:7:-").isCategoryManual()).isTrue();
+        assertThat(rows.get("corum:7:+").getCategoryRef()).isNull();
+        assertThat(rows.get("corum:7:+").isCategoryManual()).isFalse();
+    }
+
+    @Test
+    void reconcileReadsOnlyTheMembersRows() {
+        writer.reconcile(MEMBER, account, List.of(op("5", "profitParticipation", "2026-01-15", "10", null)),
+            holdings());
+
+        verify(transactionRepository).findByAccountIdAndAccountMemberIdAndIsManualFalse(42L, MEMBER);
+        verify(transactionRepository, never()).findByAccountIdAndIsManualFalse(org.mockito.ArgumentMatchers.any());
     }
 
     @Test

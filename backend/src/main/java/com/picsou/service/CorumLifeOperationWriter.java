@@ -39,7 +39,10 @@ import java.util.Set;
  * <p>The list is reconciled the way {@code FortuneoSyncService.reconcileFullHistory} reconciles
  * a full history: upsert by CORUM's operation id, never touching a row's category on update (the
  * member may have moved it), and delete the synced rows CORUM no longer reports between its oldest
- * reported date and today. A null or empty list keeps every stored row: it far more likely means
+ * reported date and today. When a stored {@code corum:<id>} row gives way to the
+ * {@code corum:<id>:+} / {@code corum:<id>:-} legs of a later list, the leg with the stored
+ * row's sign inherits its category, so a choice the member made survives the key change.
+ * A null or empty list keeps every stored row: it far more likely means
  * "not read" than "every operation was reversed", and so does a list in which two operations
  * still share a key.
  *
@@ -137,8 +140,10 @@ public class CorumLifeOperationWriter {
         LocalDate to = LocalDate.now();
 
         Map<String, Transaction> storedById = new HashMap<>();
+        Map<String, Transaction> obsoleteById = new HashMap<>();
         List<Transaction> obsolete = new ArrayList<>();
-        for (Transaction row : transactionRepository.findByAccountIdAndIsManualFalse(account.getId())) {
+        for (Transaction row : transactionRepository.findByAccountIdAndAccountMemberIdAndIsManualFalse(
+                account.getId(), memberId)) {
             String externalId = row.getExternalId();
             if (externalId != null && reported.containsKey(externalId)) {
                 storedById.put(externalId, row);
@@ -147,6 +152,7 @@ public class CorumLifeOperationWriter {
                 // Only rows CORUM wrote can be declared gone: an adopted account may carry
                 // synced rows from another importer (Finary) that CORUM never reported.
                 obsolete.add(row);
+                obsoleteById.put(externalId, row);
             }
         }
 
@@ -178,6 +184,11 @@ public class CorumLifeOperationWriter {
                     // Set on insert only: a category the member chose later is theirs.
                     row.setCategoryRef(investment);
                 }
+                Transaction predecessor = predecessorOf(entry.getKey(), obsoleteById);
+                if (predecessor != null) {
+                    row.setCategoryRef(predecessor.getCategoryRef());
+                    row.setCategoryManual(predecessor.isCategoryManual());
+                }
                 inserted++;
             }
             apply(row, operation, type, fundNames);
@@ -191,6 +202,23 @@ public class CorumLifeOperationWriter {
         }
         transactionRepository.saveAllAndFlush(upserts);
         return new Result(inserted, upserts.size() - inserted, obsolete.size(), unknown);
+    }
+
+    /**
+     * The stored single-key row a new {@code corum:<id>:+} / {@code :-} leg replaces, when that
+     * row's amount has the leg's sign and the member had categorized it; else null.
+     */
+    private static Transaction predecessorOf(String key, Map<String, Transaction> obsoleteById) {
+        if (!key.endsWith(":+") && !key.endsWith(":-")) {
+            return null;
+        }
+        Transaction stored = obsoleteById.get(key.substring(0, key.length() - 2));
+        if (stored == null || stored.getAmount() == null
+                || (stored.getCategoryRef() == null && !stored.isCategoryManual())) {
+            return null;
+        }
+        String storedSign = stored.getAmount().signum() < 0 ? ":-" : ":+";
+        return key.endsWith(storedSign) ? stored : null;
     }
 
     /** Everything CORUM owns on the row; the category and its manual flag are never touched here. */

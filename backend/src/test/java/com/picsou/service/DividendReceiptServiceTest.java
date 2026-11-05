@@ -414,6 +414,25 @@ class DividendReceiptServiceTest {
     }
 
     @Test
+    void receivedNeverCountsABudgetNeutralDividendInTheBudget() {
+        // A CORUM Life coupon left on an account retyped to a taxable one: still budget-neutral.
+        Account cto = account(13L, "CTO", AccountType.COMPTE_TITRES, null);
+        Transaction neutral = dividend(1L, cto, "2026-10-10", "59.50");
+        neutral.setBudgetNeutral(true);
+        Transaction ordinary = dividend(2L, cto, "2026-10-09", "59.50");
+        when(access.readableAccounts(MEMBER)).thenReturn(List.of(cto));
+        when(transactions.findByAccountIdInAndDateBetweenOrderByDateAsc(anyCollection(), any(), any()))
+            .thenReturn(List.of(neutral, ordinary));
+        when(sources.findAllWithEventsByTickerIn(anyCollection())).thenReturn(List.of());
+
+        List<ReceivedDividendResponse> out = service.received(MEMBER, TODAY, 30);
+
+        assertThat(out).extracting(ReceivedDividendResponse::transactionId).containsExactly(1L, 2L);
+        assertThat(out.get(0).countsInBudget()).isFalse();
+        assertThat(out.get(1).countsInBudget()).isTrue();
+    }
+
+    @Test
     void receivedFallsBackToTheTransactionIdWhenNoExDateIsKnown() {
         Account cto = account(13L, "CTO", AccountType.COMPTE_TITRES, null);
         Transaction tx = dividend(5L, cto, "2026-10-10", "59.50");
