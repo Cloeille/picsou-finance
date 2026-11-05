@@ -261,7 +261,10 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     },
     {
       type: 'banque-populaire' as const, name: 'Banque Populaire', provider: 'Banque Populaire',
-      ownsAccount: (a: Account) => a.provider != null && BANQUE_POPULAIRE_PROVIDERS.has(a.provider),
+      // A manual account picked from the bank catalog can carry the same regional label:
+      // it was never synced by this connector, so it must not show a session row.
+      ownsAccount: (a: Account) =>
+        !a.isManual && a.provider != null && BANQUE_POPULAIRE_PROVIDERS.has(a.provider),
       active: banquePopulaireStatus?.isActive ?? false, lastSyncedAt: banquePopulaireStatus?.lastSyncCompletedAt ?? null,
       failed: banquePopulaireStatus?.syncStatus === 'FAILED',
     },

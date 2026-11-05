@@ -551,6 +551,15 @@ describe('SyncAllModal session providers', () => {
     expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
   })
 
+  it('lists no Banque Populaire row for a manual account picked from the bank catalog', async () => {
+    // Same regional label as a synced account, but nothing ever connected it.
+    accountsFixture = [TR_ACCOUNT, { ...BANQUE_POPULAIRE_ACCOUNT, isManual: true }]
+    renderModal()
+
+    await screen.findByText('Trade Republic')
+    expect(screen.queryByText('Banque Populaire')).not.toBeInTheDocument()
+  })
+
   it('lists no Banque Populaire row for an account of another bank whose name merely mentions it', async () => {
     accountsFixture = [TR_ACCOUNT, { ...BANQUE_POPULAIRE_ACCOUNT, provider: 'Banque Populaire Imaginaire' }]
     renderModal()
