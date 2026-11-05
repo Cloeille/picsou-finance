@@ -16,6 +16,7 @@ import com.picsou.dto.TransactionResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
+import com.picsou.model.BalanceSnapshot;
 import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
 import com.picsou.model.PeerCounterparty;
@@ -26,6 +27,7 @@ import com.picsou.model.PeerLoanTerms;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.CategoryRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.PeerCounterpartyRepository;
@@ -78,6 +80,7 @@ public class PeerLoanService {
         AccountType.LDDS, AccountType.LIVRET_JEUNE, AccountType.PEL, AccountType.CEL);
 
     private final AccountRepository accountRepository;
+    private final BalanceSnapshotRepository snapshotRepository;
     private final FamilyMemberRepository familyMemberRepository;
     private final PeerCounterpartyRepository counterpartyRepository;
     private final PeerLoanTermsRepository termsRepository;
@@ -91,6 +94,7 @@ public class PeerLoanService {
 
     public PeerLoanService(
         AccountRepository accountRepository,
+        BalanceSnapshotRepository snapshotRepository,
         FamilyMemberRepository familyMemberRepository,
         PeerCounterpartyRepository counterpartyRepository,
         PeerLoanTermsRepository termsRepository,
@@ -103,6 +107,7 @@ public class PeerLoanService {
         HistoryService historyService
     ) {
         this.accountRepository = accountRepository;
+        this.snapshotRepository = snapshotRepository;
         this.familyMemberRepository = familyMemberRepository;
         this.counterpartyRepository = counterpartyRepository;
         this.termsRepository = termsRepository;
@@ -399,6 +404,7 @@ public class PeerLoanService {
         PeerLoanTerms terms = requireConfiguredTerms(accountId);
         requireOpen(terms);
 
+        requireCompletedRepaymentDate(request.paidOn());
         PeerLoanRepaymentKind kind = request.kind() != null
             ? request.kind()
             : PeerLoanRepaymentKind.PRINCIPAL;
@@ -464,6 +470,7 @@ public class PeerLoanService {
         if (termsRepository.findByLendingTransactionId(transaction.getId()).isPresent()) {
             throw new IllegalArgumentException("This transaction is already linked to a peer loan");
         }
+        requireCompletedRepaymentDate(transaction.getDate());
         validateInterestRepayment(terms, kind, transaction.getAmount(), transaction.getDate(), null);
 
         PeerLoanRepayment repayment = repaymentRepository.save(PeerLoanRepayment.builder()
@@ -502,9 +509,19 @@ public class PeerLoanService {
                 "This repayment is linked to an existing transaction. Delete it and assign the "
                     + "transaction again to change it.");
         }
+        requireCompletedRepaymentDate(request.paidOn());
         validateInterestRepayment(terms,
             request.kind() != null ? request.kind() : repayment.getKind(),
             request.amount(), request.paidOn(), repayment.getId());
+
+        // Moving a repayment changes the balance from the earlier of its two dates: the days
+        // it used to affect are stale too, not only the new ones.
+        LocalDate previousPaidOn = repayment.getPaidOn();
+        LocalDate affectedFrom = request.paidOn() == null
+            ? previousPaidOn
+            : previousPaidOn != null && previousPaidOn.isBefore(request.paidOn())
+                ? previousPaidOn
+                : request.paidOn();
 
         deleteCashLeg(terms, repayment, memberId);
         repayment.setPaidOn(request.paidOn());
@@ -523,7 +540,7 @@ public class PeerLoanService {
         }
         repaymentRepository.save(repayment);
 
-        refreshBalance(account, terms, request.paidOn());
+        refreshBalance(account, terms, affectedFrom);
         return PeerLoanRepaymentResponse.from(repayment);
     }
 
@@ -670,9 +687,10 @@ public class PeerLoanService {
     // --- Helpers ---
 
     /**
-     * Writes today's balance, and records the balance the ledger has on the event's own
-     * date. A backdated repayment must appear in history on the day it happened, not on the
-     * day it was typed in.
+     * Writes today's balance, then repairs history from the event's own date onwards. A
+     * backdated repayment changes every later balance, so each persisted snapshot at or
+     * after it is recomputed: writing only the event date would leave the following rows
+     * showing the old principal.
      */
     private void refreshBalance(Account account, PeerLoanTerms terms, LocalDate eventDate) {
         List<PeerLoanRepayment> repayments =
@@ -693,11 +711,48 @@ public class PeerLoanService {
         account.setCurrentBalance(remaining);
         accountRepository.save(account);
 
-        LocalDate snapshotDate = eventDate != null ? eventDate : LocalDate.now();
-        BigDecimal snapshotBalance = PeerLoanCalculator
-            .compute(terms, repayments, snapshotDate)
-            .principalRemaining();
-        accountService.upsertSnapshot(account, snapshotBalance, snapshotDate);
+        LocalDate affectedFrom = eventDate != null ? eventDate : LocalDate.now();
+        boolean eventDatePersisted = false;
+        for (BalanceSnapshot snapshot
+            : snapshotRepository.findByAccountIdOrderByDateAsc(account.getId())) {
+            LocalDate date = snapshot.getDate();
+            if (date.isBefore(affectedFrom)) {
+                continue;
+            }
+            if (date.equals(affectedFrom)) {
+                eventDatePersisted = true;
+            }
+            accountService.upsertSnapshot(account, balanceAt(terms, repayments, date), date);
+        }
+        if (!eventDatePersisted) {
+            accountService.upsertSnapshot(
+                account, balanceAt(terms, repayments, affectedFrom), affectedFrom);
+        }
+    }
+
+    /**
+     * The receivable on {@code date}: repayments dated after it are not part of that point,
+     * and the loan simply does not exist before the money was lent. {@code compute} only
+     * uses {@code asOf} for the final accrual, so the ledger has to be filtered here too.
+     */
+    private static BigDecimal balanceAt(
+        PeerLoanTerms terms, List<PeerLoanRepayment> repayments, LocalDate date
+    ) {
+        if (terms.getLentAt() != null && date.isBefore(terms.getLentAt())) {
+            return BigDecimal.ZERO;
+        }
+        List<PeerLoanRepayment> upToDate = repayments.stream()
+            .filter(repayment -> repayment.getPaidOn() == null
+                || !repayment.getPaidOn().isAfter(date))
+            .toList();
+        return PeerLoanCalculator.compute(terms, upToDate, date).principalRemaining();
+    }
+
+    /** The ledger holds completed payments; a forecast belongs in {@code planned_*}. */
+    private static void requireCompletedRepaymentDate(LocalDate paidOn) {
+        if (paidOn != null && paidOn.isAfter(LocalDate.now())) {
+            throw new IllegalArgumentException("A repayment date cannot be in the future");
+        }
     }
 
     private Account requireAccount(Long accountId, Long memberId) {

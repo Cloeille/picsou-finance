@@ -24,6 +24,7 @@ import com.picsou.model.PeerLoanTerms;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.repository.AccountRepository;
+import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.CategoryRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.PeerCounterpartyRepository;
@@ -69,6 +70,7 @@ class PeerLoanServiceTest {
     private static final Long TRANSFER_CATEGORY_ID = 42L;
 
     @Mock AccountRepository accountRepository;
+    @Mock BalanceSnapshotRepository snapshotRepository;
     @Mock FamilyMemberRepository familyMemberRepository;
     @Mock PeerCounterpartyRepository counterpartyRepository;
     @Mock PeerLoanTermsRepository termsRepository;
@@ -338,6 +340,79 @@ class PeerLoanServiceTest {
         verify(manualTransactionService, never()).addTransaction(anyLong(), anyLong(), any());
         assertThat(response.hasCashLeg()).isFalse();
         assertThat(account.getCurrentBalance()).isEqualByComparingTo("450");
+    }
+
+    @Test
+    void addRepaymentRejectsAFutureDate() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+
+        assertThatThrownBy(() -> service.addRepayment(ACCOUNT_ID, MEMBER_ID,
+            new PeerLoanRepaymentRequest(LocalDate.now().plusDays(1), new BigDecimal("50"),
+                PeerLoanRepaymentKind.PRINCIPAL, null, false)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("future");
+
+        verify(repaymentRepository, never()).save(any(PeerLoanRepayment.class));
+    }
+
+    @Test
+    void aBackdatedRepaymentRecomputesEveryLaterSnapshot() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("1000")).lentAt(LocalDate.parse("2026-01-01"))
+            .annualRate(BigDecimal.ZERO).linkedAccount(cashAccount(true))
+            .build();
+        PeerLoanRepayment february = PeerLoanRepayment.builder()
+            .id(21L).account(account).paidOn(LocalDate.parse("2026-02-01"))
+            .amount(new BigDecimal("300")).kind(PeerLoanRepaymentKind.PRINCIPAL).build();
+        PeerLoanRepayment march = PeerLoanRepayment.builder()
+            .id(22L).account(account).paidOn(LocalDate.parse("2026-03-01"))
+            .amount(new BigDecimal("200")).kind(PeerLoanRepaymentKind.PRINCIPAL).build();
+        List<PeerLoanRepayment> ledger = new ArrayList<>(List.of(february, march));
+
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
+            PeerLoanRepayment saved = invocation.getArgument(0);
+            saved.setId(23L);
+            ledger.add(saved);
+            return saved;
+        });
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenAnswer(invocation -> ledger);
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(snapshotRepository.findByAccountIdOrderByDateAsc(ACCOUNT_ID)).thenReturn(List.of(
+            snapshot(account, "2026-02-01"),
+            snapshot(account, "2026-03-01"),
+            snapshot(account, "2026-04-01")));
+
+        service.addRepayment(ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentRequest(
+            LocalDate.parse("2026-01-15"), new BigDecimal("100"),
+            PeerLoanRepaymentKind.PRINCIPAL, null, false));
+
+        // The January event is the new snapshot; February and March still include the
+        // repayments dated after them only when that date has passed, and April inherits them.
+        verify(accountService).upsertSnapshot(eq(account), eq(new BigDecimal("900.00")),
+            eq(LocalDate.parse("2026-01-15")));
+        verify(accountService).upsertSnapshot(eq(account), eq(new BigDecimal("600.00")),
+            eq(LocalDate.parse("2026-02-01")));
+        verify(accountService).upsertSnapshot(eq(account), eq(new BigDecimal("400.00")),
+            eq(LocalDate.parse("2026-03-01")));
+        verify(accountService).upsertSnapshot(eq(account), eq(new BigDecimal("400.00")),
+            eq(LocalDate.parse("2026-04-01")));
+    }
+
+    private static com.picsou.model.BalanceSnapshot snapshot(Account account, String date) {
+        return com.picsou.model.BalanceSnapshot.builder()
+            .account(account)
+            .date(LocalDate.parse(date))
+            .balance(BigDecimal.ZERO)
+            .investedAmount(BigDecimal.ZERO)
+            .build();
     }
 
     @Test
