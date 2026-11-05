@@ -1,11 +1,14 @@
 import { AxiosHeaders } from 'axios'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
+  Account,
   BanquePopulaireAuthCompleteResponse,
   BanquePopulaireAuthKeypadResponse,
   BanquePopulaireDeleteResponse,
   BanquePopulaireSessionStatus,
+  DashboardData,
 } from '@/types/api'
+import { mockAccounts, mockBanquePopulaireAccounts } from './data/accounts'
 import { createDemoAdapter } from './index'
 
 const inactiveSession = {
@@ -102,5 +105,89 @@ describe('demo Banque Populaire session contracts', () => {
     expect(response.data.processId).toBe('demo')
     expect(response.data.keypad.images).toHaveLength(10)
     expect(response.data.expiresInSeconds).toBe(90)
+  })
+})
+
+describe('demo Banque Populaire accounts', () => {
+  let call: <T = unknown>(method: string, url: string) => Promise<T>
+  const fixtureIds = mockBanquePopulaireAccounts.map((account) => account.id)
+  const demoAccounts = () => call<Account[]>('GET', '/accounts')
+  const idsOf = (accounts: Account[]) => accounts.map((account) => account.id)
+
+  beforeEach(async () => {
+    vi.resetModules()
+    const { createDemoAdapter: freshAdapter } = await import('./index')
+    const adapter = freshAdapter()
+    call = <T = unknown>(method: string, url: string) =>
+      adapter({ method, url, headers: new AxiosHeaders() }).then((response) => response.data as T)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('takes ids no other demo account uses', () => {
+    const taken = new Set(mockAccounts.map((account) => account.id))
+    expect(fixtureIds.every((id) => !taken.has(id))).toBe(true)
+    expect(new Set(fixtureIds).size).toBe(fixtureIds.length)
+  })
+
+  it('adds a current account and a Livret A, stamped with the sync time, on the first sync only', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-05T10:00:00Z'))
+    const before = await demoAccounts()
+    expect(before.filter((account) => fixtureIds.includes(account.id))).toEqual([])
+
+    await call('POST', '/banque-populaire/auth/complete')
+    await call('POST', '/banque-populaire/sync')
+    const after = await demoAccounts()
+
+    expect(before).toHaveLength(mockAccounts.length)
+    expect(after).toHaveLength(mockAccounts.length + fixtureIds.length)
+    const added = after.filter((account) => fixtureIds.includes(account.id))
+    expect(added.map((account) => account.type).sort()).toEqual(['CHECKING', 'LIVRET_A'])
+    for (const account of added) {
+      expect(account).toMatchObject({
+        provider: 'Banque Populaire Rives de Paris',
+        isManual: false,
+        currency: 'EUR',
+        createdAt: '2026-11-05T10:00:00.000Z',
+        lastSyncedAt: '2026-11-05T10:00:00.000Z',
+      })
+      expect(await call('GET', `/accounts/${account.id}`)).toEqual(account)
+      expect(await call('GET', `/accounts/${account.id}/transactions`)).toEqual([])
+    }
+
+    vi.setSystemTime(new Date('2026-11-05T10:10:00Z'))
+    await call('POST', '/banque-populaire/sync')
+    expect(await demoAccounts()).toEqual(after)
+  })
+
+  it('keeps one of each account through a disconnect, a reconnect and a new sync', async () => {
+    await call('POST', '/banque-populaire/auth/complete')
+    await call('POST', '/banque-populaire/sync')
+    await call('POST', '/banque-populaire/sync')
+    await call('DELETE', '/banque-populaire/session')
+    expect(idsOf(await demoAccounts())).toEqual(expect.arrayContaining(fixtureIds))
+
+    await call('POST', '/banque-populaire/auth/complete')
+    await call('POST', '/banque-populaire/sync')
+
+    const ids = idsOf(await demoAccounts())
+    for (const id of fixtureIds) expect(ids.filter((accountId) => accountId === id)).toHaveLength(1)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('counts the new accounts in the dashboard and gives them a balance history', async () => {
+    await call('POST', '/banque-populaire/auth/complete')
+    await call('POST', '/banque-populaire/sync')
+
+    const dashboard = await call<DashboardData>('GET', '/dashboard')
+    expect(dashboard.distribution.map((row) => row.accountId)).toEqual(expect.arrayContaining(fixtureIds))
+    for (const account of mockBanquePopulaireAccounts) {
+      const history = await call<{ balance: number }[]>('GET', `/accounts/${account.id}/history`)
+      expect(history.at(-1)?.balance).toBe(account.currentBalanceEur)
+      expect(history.length).toBeGreaterThan(1)
+    }
   })
 })

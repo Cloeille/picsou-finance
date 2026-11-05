@@ -365,3 +365,40 @@ export const mockAccounts: Account[] = [
     },
   },
 ]
+
+/**
+ * The accounts the demo Banque Populaire sync adds on top of `mockAccounts`, with the two
+ * dates the sync stamps itself. Ids stay above every `mockAccounts` id.
+ */
+export const mockBanquePopulaireAccounts: Omit<Account, 'createdAt' | 'lastSyncedAt'>[] = [
+  {
+    id: 16,
+    name: 'Compte courant',
+    type: 'CHECKING',
+    provider: 'Banque Populaire Rives de Paris',
+    currency: 'EUR',
+    currentBalance: 1250,
+    currentBalanceEur: 1250,
+    isManual: false,
+    color: '#2563eb',
+    ticker: null,
+    logoUrl: null,
+    logoKey: null,
+    hidden: false,
+  },
+  {
+    id: 17,
+    name: 'Livret A',
+    type: 'LIVRET_A',
+    provider: 'Banque Populaire Rives de Paris',
+    currency: 'EUR',
+    currentBalance: 4300,
+    currentBalanceEur: 4300,
+    isManual: false,
+    color: '#14b8a6',
+    ticker: null,
+    logoUrl: null,
+    logoKey: null,
+    hidden: false,
+  },
+]

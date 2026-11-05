@@ -1,6 +1,6 @@
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import type { CicSessionStatus, ScpiPosition, ScpiPositionRequest } from '@/types/api'
-import { mockAccounts } from './data/accounts'
+import { mockAccounts, mockBanquePopulaireAccounts } from './data/accounts'
 import {
   mockAllocationTargets,
   mockDiversification,
@@ -958,7 +958,8 @@ handlers.set(key('DELETE', '/caisse-epargne/session'), () => ({
 // SUCCESS, so the panel sees SUCCESS from its own sync and closes the add-account wizard.
 // The sync stamps its time once and every status read repeats it: a fresh timestamp per read
 // would look like a new sync to useProviderStatus and refetch the account views forever.
-// Disconnecting resets both.
+// The first sync also adds the connector's accounts, and later syncs and reconnects leave them
+// be; disconnecting resets the status and the stamp but keeps the accounts, as the backend does.
 let demoBanquePopulaireState: 'idle' | 'connected' | 'synced' = 'idle'
 let demoBanquePopulaireSyncedAt: string | null = null
 const demoBanquePopulaireStatus = () => {
@@ -987,9 +988,19 @@ handlers.set(key('POST', '/banque-populaire/auth/complete'), () => {
 })
 handlers.set(key('POST', '/banque-populaire/sync'), () => {
   demoBanquePopulaireState = 'synced'
-  demoBanquePopulaireSyncedAt = new Date().toISOString()
+  const syncedAt = new Date().toISOString()
+  demoBanquePopulaireSyncedAt = syncedAt
+  const known = new Set(_demoAccounts.map(a => a.id))
+  const added = mockBanquePopulaireAccounts
+    .filter(a => !known.has(a.id))
+    .map(a => ({ ...a, createdAt: syncedAt, lastSyncedAt: syncedAt }))
+  if (added.length) _demoAccounts = [..._demoAccounts, ...added]
   return demoBanquePopulaireStatus()
 })
+for (const { id } of mockBanquePopulaireAccounts) {
+  handlers.set(key('GET', `/accounts/${id}`), () => _demoAccounts.find(a => a.id === id))
+  handlers.set(key('GET', `/accounts/${id}/transactions`), () => [])
+}
 handlers.set(key('DELETE', '/banque-populaire/session'), () => {
   demoBanquePopulaireState = 'idle'
   demoBanquePopulaireSyncedAt = null
