@@ -32,6 +32,7 @@ import org.springframework.web.util.WebUtils;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.sql.SQLException;
 import java.time.Clock;
 
 /**
@@ -47,6 +48,8 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
     private static final Logger log = LoggerFactory.getLogger(SsoAuthenticationSuccessHandler.class);
     private static final String OAUTH2_TARGET_PREFIX = "/oauth2/";
     private static final String COMPLETE_TARGET = "/login/sso-complete?redirect=";
+    /** SQLSTATE of a unique-key violation: the only integrity failure a second attempt can get past. */
+    private static final String UNIQUE_VIOLATION = "23505";
 
     private final SsoAccountService ssoAccountService;
     private final SsoRoleSyncService ssoRoleSyncService;
@@ -141,6 +144,9 @@ public class SsoAuthenticationSuccessHandler implements AuthenticationSuccessHan
         try {
             return ssoAccountService.resolveLogin(identity, request);
         } catch (DataIntegrityViolationException e) {
+            if (!(e.getMostSpecificCause() instanceof SQLException sql && UNIQUE_VIOLATION.equals(sql.getSQLState()))) {
+                throw e;
+            }
             return ssoAccountService.resolveLogin(identity, request);
         }
     }

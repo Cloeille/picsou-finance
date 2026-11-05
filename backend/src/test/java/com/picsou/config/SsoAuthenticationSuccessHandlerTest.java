@@ -13,6 +13,7 @@ import com.picsou.service.sso.SsoFlowException;
 import com.picsou.service.sso.SsoIdentity;
 import com.picsou.service.sso.SsoIntent;
 import com.picsou.service.sso.SsoRoleSyncService;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -45,6 +46,7 @@ import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -254,7 +256,7 @@ class SsoAuthenticationSuccessHandlerTest {
         var response = new MockHttpServletResponse();
         AppUser alice = user(1, "alice.2", UserRole.ADMIN, true);
         when(ssoAccountService.resolveLogin(any(), eq(request)))
-            .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"))
+            .thenThrow(integrityViolation("duplicate key value violates unique constraint \"app_user_username_key\"", "23505"))
             .thenReturn(new SsoAccountService.LoginOutcome.Resolved(alice, true));
 
         handler(false).onAuthenticationSuccess(request, response, aliceAuthentication());
@@ -262,6 +264,25 @@ class SsoAuthenticationSuccessHandlerTest {
         verify(ssoAccountService, times(2)).resolveLogin(any(), eq(request));
         verify(sessionIssuer).issue(alice, false, false, NOW, request, response);
         assertThat(response.getRedirectedUrl()).isEqualTo("/login/sso-complete?redirect=%2Faccounts");
+    }
+
+    @Test
+    void anIntegrityFailureOtherThanAUniqueRaceIsRethrownWithoutARetry() {
+        var request = requestWith(loginIntent("/accounts", false));
+        DataIntegrityViolationException notNull =
+            integrityViolation("null value in column \"username\" violates not-null constraint", "23502");
+        when(ssoAccountService.resolveLogin(any(), eq(request))).thenThrow(notNull);
+
+        assertThatThrownBy(() -> handler(false).onAuthenticationSuccess(request, new MockHttpServletResponse(),
+            aliceAuthentication())).isSameAs(notNull);
+
+        verify(ssoAccountService, times(1)).resolveLogin(any(), eq(request));
+        verifyNoInteractions(sessionIssuer);
+    }
+
+    /** What Hibernate surfaces through Spring: the driver's SQLException is the most specific cause. */
+    private static DataIntegrityViolationException integrityViolation(String message, String sqlState) {
+        return new DataIntegrityViolationException("could not execute statement", new SQLException(message, sqlState));
     }
 
     @Test
