@@ -279,13 +279,13 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
      * Shared by the keypad and complete steps so both are single use and member-scoped.
      */
     private PendingLogin takePending(String processId, Long memberId) {
-        PendingLogin pending = pendingLogins.remove(processId);
-        if (pending != null && !pending.memberId().equals(memberId)) {
-            // Someone else probing a process id must not burn the owner's attempt.
-            pendingLogins.putIfAbsent(processId, pending);
-            throw attemptExpired();
-        }
-        if (pending == null) {
+        // Read, check the owner, then remove only that exact entry: someone else probing a
+        // process id never takes it out, even for an instant, so the owner's concurrent call
+        // cannot see it missing.
+        PendingLogin pending = pendingLogins.get(processId);
+        if (pending == null
+            || !pending.memberId().equals(memberId)
+            || !pendingLogins.remove(processId, pending)) {
             throw attemptExpired();
         }
         return pending;
