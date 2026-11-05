@@ -161,6 +161,7 @@ function ProviderConfirmation({
       await authApi.refresh()
       if (mounted.current) submitSsoStart({ intent: 'reauth', redirect: `/settings?resume=${action}` })
     } catch (err: unknown) {
+      if (!mounted.current) return
       if (getErrorCode(err) === 'SSO_REVALIDATE') {
         restartSsoRevalidation('/settings')
         return

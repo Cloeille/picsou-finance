@@ -198,4 +198,29 @@ describe('LinkIdentityDialog', () => {
 
     expect(submitSsoStart).not.toHaveBeenCalled()
   })
+
+  it('leaves the session alone when the dialog closed before the refresh asked for re-validation', async () => {
+    const original = window.location
+    const assign = vi.fn()
+    Object.defineProperty(window, 'location', { value: { assign }, configurable: true, writable: true })
+    try {
+      getSignInMethods.mockResolvedValue(METHODS)
+      let failRefresh: (reason: unknown) => void = () => {}
+      vi.mocked(authApi.refresh).mockReset().mockReturnValue(new Promise((_, reject) => { failRefresh = reject }))
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      const { unmount } = render(
+        <QueryClientProvider client={queryClient}>
+          <LinkIdentityDialog open resumed onOpenChange={() => {}} providerName="Zitadel" />
+        </QueryClientProvider>,
+      )
+      await waitFor(() => expect(authApi.refresh).toHaveBeenCalledTimes(1))
+
+      unmount()
+      await act(async () => { failRefresh({ response: { status: 401, data: { code: 'SSO_REVALIDATE' } } }) })
+
+      expect(assign).not.toHaveBeenCalled()
+    } finally {
+      Object.defineProperty(window, 'location', { value: original, configurable: true })
+    }
+  })
 })

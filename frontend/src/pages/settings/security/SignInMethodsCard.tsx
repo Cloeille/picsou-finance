@@ -178,6 +178,7 @@ function LinkSteps({ resumed }: { resumed: boolean }) {
       await authApi.refresh()
       if (mounted.current) submitSsoStart({ intent: 'link', redirect: '/settings' })
     } catch (err: unknown) {
+      if (!mounted.current) return
       if (getErrorCode(err) === 'SSO_REVALIDATE') {
         restartSsoRevalidation('/settings')
         return

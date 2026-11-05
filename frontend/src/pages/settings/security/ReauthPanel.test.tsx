@@ -178,6 +178,27 @@ describe('ReauthPanel', () => {
     }
   })
 
+  it('leaves the session alone when the dialog closed before the refresh asked for re-validation', async () => {
+    const original = window.location
+    const assign = vi.fn()
+    Object.defineProperty(window, 'location', { value: { assign }, configurable: true, writable: true })
+    try {
+      let failRefresh: (reason: unknown) => void = () => {}
+      refresh.mockReturnValue(new Promise((_, reject) => { failRefresh = reject }))
+      const { unmount } = renderPanel({ hasPassword: false }, 'export')
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Confirm with Zitadel' }))
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+      unmount()
+      await act(async () => { failRefresh(apiError(401, 'SSO_REVALIDATE')) })
+
+      expect(assign).not.toHaveBeenCalled()
+      expect(consumeSsoRevalidate()).toBe(false)
+    } finally {
+      Object.defineProperty(window, 'location', { value: original, configurable: true })
+    }
+  })
+
   it('stays put when the dialog closes while the session refresh runs', async () => {
     let finishRefresh: (value: unknown) => void = () => {}
     refresh.mockReturnValue(new Promise(resolve => { finishRefresh = resolve }))
