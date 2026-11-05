@@ -68,14 +68,15 @@ class RegionSelectorTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.page.inner_text("#value"), "RIVES DE PARIS")
 
     async def test_a_banner_that_appears_after_the_check_is_refused_and_the_picker_clicked_again(self):
-        # Hidden when the banner is checked, shown right after: it covers the picker
-        # when the first click lands.
+        # Hidden when the banner is checked, shown by the picker click: it then covers
+        # the options, so the option click is the one refused and retried, every run.
         late = PAGE.replace(
             '<div id="banner" style="',
             '<div id="banner" style="display:none;',
         ).replace(
             "<script>",
-            "<script>setTimeout(() => document.getElementById('banner').style.display = 'block', 50);",
+            "<script>document.getElementById('neo-input-2').addEventListener("
+            "'click', () => document.getElementById('banner').style.display = 'block');",
         )
         await self.page.set_content(late)
 

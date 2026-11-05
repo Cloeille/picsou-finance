@@ -78,6 +78,8 @@ REGION_TRIGGER = 'neo-select-simple button[role="combobox"]'
 REGION_OPTION = 'neo-select-simple-option[role="option"]'
 _BACKGROUND_JS = "element => getComputedStyle(element).backgroundImage"
 
+# How long a click waits before checking whether the consent banner covers its target.
+BANNER_CLICK_ATTEMPT_SECONDS = 3
 MAX_CONCURRENT_BROWSERS = 2
 PENDING_TTL_SECONDS = 300
 PENDING_SWEEP_SECONDS = 30
@@ -452,13 +454,24 @@ async def _click_past_banner(site: Site, page: Any, target: Any, timeout_ms: flo
     the click, refuse the banner and click once more. No other retry: this only runs
     before the identifier is typed, so nothing reaches the bank twice.
     """
+    if site.cookie_banner_button is None:
+        await target.click(timeout=timeout_ms)
+        return
+    # A short first attempt, so a banner covering the target is seen in seconds rather
+    # than after the whole step timeout; the deadline of /initiate is 80 s in all.
+    first_ms = min(timeout_ms, BANNER_CLICK_ATTEMPT_SECONDS * 1000)
     try:
-        await target.click(timeout=timeout_ms)
+        await target.click(timeout=first_ms)
+        return
     except PlaywrightTimeoutError:
-        if site.cookie_banner_button is None or not await _visible(page, site.cookie_banner_button):
+        if await _visible(page, site.cookie_banner_button):
+            await _dismiss_cookie_banner(site, page)
+            await target.click(timeout=timeout_ms)
+        elif first_ms < timeout_ms:
+            # No banner: the target is just slow. Wait out the rest of the step.
+            await target.click(timeout=timeout_ms - first_ms)
+        else:
             raise
-        await _dismiss_cookie_banner(site, page)
-        await target.click(timeout=timeout_ms)
 
 
 def _region_text(text: str) -> str:
