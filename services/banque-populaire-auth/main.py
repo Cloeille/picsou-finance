@@ -77,6 +77,8 @@ SITE = Site(
     cookie_banner_button="#no_consent_btn",
     # A letter then seven digits, like `A1234567` (shape observed live 2026-11-05).
     alphanumeric_identifier=True,
+    # Cards are not imported for Banque Populaire.
+    cards=False,
 )
 
 # Test seam: tests inject an httpx.MockTransport here. None means real network.

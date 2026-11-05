@@ -495,7 +495,9 @@ async def fetch_import(
         synthesis = await _get_json(client, base_url + SYNTHESIS_PATH, dict(SYNTHESIS_QUERY))
         try:
             accounts, unsupported = accounts_parser._parse_synthesis(
-                copy.deepcopy(synthesis), skipped_families=site.unsupported_families
+                copy.deepcopy(synthesis),
+                skipped_families=site.unsupported_families,
+                import_cards=site.cards,
             )
         except accounts_parser.ParseError:
             raise UpstreamFormatChanged("Synthesis does not match the observed format") from None

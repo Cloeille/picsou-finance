@@ -3,7 +3,7 @@
 The bank is an `httpx.MockTransport` playing the hosts observed live (2026-11-05):
 the replay chain on `as-ext-bad-ib` and icgauth, the data API on `rs-ext-bad-ib`.
 Products are those seen on a real account (current account with an immediate-debit
-card, Livret A and Livret Jeune both `3/01`, a revolving credit `2/11` with a null
+card, which this site does not import, Livret A and Livret Jeune both `3/01`, a revolving credit `2/11` with a null
 balance) plus the loan and PER families this site does not read. Every value is
 synthetic.
 """
@@ -153,24 +153,25 @@ class AccountsTest(unittest.TestCase):
         self.assertEqual(hosts, {AS_HOST, LOGIN_HOST})
         self.assertEqual([f["client_id"] for f in self.bank.token_forms()], [CLIENT_ID])
 
-    def test_the_supported_products_are_imported_with_their_transactions(self):
+    def test_the_supported_products_are_imported_with_their_transactions_and_no_card(self):
         response = self.post("/accounts")
 
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertEqual(
             [(a["externalId"], a["kind"]) for a in body["accounts"]],
-            [("1001", "CURRENT_ACCOUNT"), ("9001", "CARD"), ("1002", "LIVRET_A"),
+            [("1001", "CURRENT_ACCOUNT"), ("1002", "LIVRET_A"),
              ("1003", "LIVRET_JEUNE"), ("1004", "LDDS")],
         )
-        jeune = body["accounts"][3]
+        jeune = body["accounts"][2]
         self.assertEqual(jeune["name"], "Livret Pour La Jeunesse")
         self.assertEqual(jeune["balance"], "800.0")
         self.assertEqual(jeune["ceiling"], "1600.0")
         self.assertEqual(jeune["iban"], "FR76SYNTHETIC1003")
         self.assertEqual([t["externalId"] for t in jeune["transactions"]], ["tx-1003"])
-        card = body["accounts"][1]
-        self.assertEqual((card["cardNature"], card["parentExternalId"]), ("IMMEDIATE_DEBIT", "1001"))
+        # The current account's card is not imported for this bank, and not listed either:
+        # it is not a contract.
+        self.assertNotIn("CARD", {a["kind"] for a in body["accounts"]})
         self.assertEqual(body["unavailable"], [])
 
     def test_loans_per_and_revolving_credit_are_unsupported_and_never_read(self):
@@ -186,7 +187,7 @@ class AccountsTest(unittest.TestCase):
         self.assertEqual(paths.count(fetcher.SYNTHESIS_PATH), 1)
         self.assertEqual(
             sorted(r.url.params["accountIds"] for r in self.bank.requests if r.url.path == fetcher.TRANSACTIONS_PATH),
-            ["1001", "1002", "1003", "1004", "9001"],
+            ["1001", "1002", "1003", "1004"],  # never the card's operations
         )
         # One token, the main one: no loan, home-loan or PER chain is ever minted.
         self.assertEqual([f["client_id"] for f in self.bank.token_forms()], [CLIENT_ID])

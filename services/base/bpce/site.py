@@ -78,6 +78,9 @@ class Site:
     # Whether the identifier may hold ASCII letters as well as digits. Banque Populaire
     # identifiers do (observed live 2026-11-05: a letter then seven digits).
     alphanumeric_identifier: bool = False
+    # Whether the cards of a contract (`augmentedCards`) become accounts. Off for
+    # Banque Populaire: its cards are not imported.
+    cards: bool = True
     personal_loan: ChainProfile | None = None
     home_loan: HomeLoanApp | None = None
     per: PerApp | None = None

@@ -234,5 +234,34 @@ class FetchImportTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sent, [])
 
 
+
+class CardSwitchTest(unittest.TestCase):
+    CARD = {
+        "cardPfmId": 9001,
+        "cardProductLabel": "SYNTHETIC VISA",
+        "cardStatusType": {"code": "100"},
+        "cardCreditIndicator": True,
+        "defferedDebitIndicator": False,
+    }
+
+    def current_with_card(self):
+        item = contract(1, "1", None, "Compte De Cheques")
+        item["identity"]["augmentedCards"] = [dict(self.CARD)]
+        return item
+
+    def test_cards_are_imported_by_default(self):
+        self.assertEqual(kinds([self.current_with_card()]), ([("1", "CURRENT_ACCOUNT"), ("9001", "CARD")], []))
+
+    def test_a_site_without_cards_imports_the_account_only_and_lists_nothing(self):
+        self.assertEqual(
+            kinds([self.current_with_card()], import_cards=False), ([("1", "CURRENT_ACCOUNT")], [])
+        )
+
+    def test_a_malformed_card_list_still_refuses_the_snapshot_without_cards(self):
+        item = self.current_with_card()
+        item["identity"]["augmentedCards"] = "not a list"
+        with self.assertRaises(accounts_parser.ParseError):
+            kinds([item], import_cards=False)
+
 if __name__ == "__main__":
     unittest.main()

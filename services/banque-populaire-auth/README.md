@@ -72,10 +72,14 @@ unchanged. The container listens on port 8001.
 
 ## Accounts
 
-Imported: the current account, its cards, `3/01` Livret A, `3/01` Livret Jeune
-(`LIVRET_JEUNE`, told apart by a `productLabel` containing `JEUNE`), `3/28` LDDS,
-all with their PFM transactions. A `3/01` label that looks like a LEP (`LEP`,
-`EPARGNE POPULAIRE`) is unsupported.
+Imported: the current account, `3/01` Livret A, `3/01` Livret Jeune
+(`LIVRET_JEUNE`, told apart by a `productLabel` with the word `JEUNE`), `3/28` LDDS,
+all with their PFM transactions. A `3/01` label that names a LEP (`LEP`,
+`EPARGNE POPULAIRE`) is imported as `LEP`.
+
+Cards are not imported (`Site.cards=False`): the `augmentedCards` list of a
+contract is checked for shape, then ignored. No card account, no card operation
+read, nothing listed in `unsupported` (a card is not a contract).
 
 Listed in `unsupported` (id and family code only), never read, never fatal:
 personal loans `6/12`, home loans `6/13`, PER `4/05`, the revolving credit `2/11`
@@ -98,10 +102,13 @@ Observed, on one Rives de Paris account:
   with an immediate-debit card, a Livret A and a Livret Jeune both `3/01`, a
   revolving credit `2/11`.
 
-Not observed: a transaction row (the call returned none), card operations, a
-failed login (error banner), the revolving-credit detail, personal or home loans,
-PER, and any establishment other than Rives de Paris. The replay itself has not
-yet run against the bank from this sidecar: the first live test will tell.
+Run live end to end on 2026-11-05 (Rives de Paris): region, identifier with its
+letter, keypad, Sécur'Pass, session replay and `/accounts`. A wrong identifier or
+password was seen too: the bank shows a keypad for any identifier, then a modal
+"Identifiant ou mot de passe erroné", read as `INVALID_CREDENTIALS`.
+
+Not observed: the revolving-credit detail, personal or home loans, PER, LDDS, LEP,
+and any establishment other than Rives de Paris.
 
 ## Tests
 

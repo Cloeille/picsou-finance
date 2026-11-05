@@ -344,10 +344,14 @@ def parse_synthesis(synthesis: Any) -> list:
     return _parse_synthesis(synthesis)[0]
 
 
-def _parse_synthesis(synthesis: Any, *, skipped_families: frozenset = frozenset()) -> tuple:
+def _parse_synthesis(
+    synthesis: Any, *, skipped_families: frozenset = frozenset(), import_cards: bool = True
+) -> tuple:
     """`(accounts, unsupported)`; unsupported carries id and family code only.
 
     `skipped_families` (`Site.unsupported_families`) go to `unsupported` unread.
+    With `import_cards` False (`Site.cards`), the cards of a contract are still checked
+    for shape but never become accounts, so none of their operations is read.
     """
     root = _object(synthesis, INVALID_SYNTHESIS, "synthesis")
     items = root.get("items")
@@ -383,6 +387,8 @@ def _parse_synthesis(synthesis: Any, *, skipped_families: frozenset = frozenset(
             cards = []  # observed live: a contract without card carries null
         if not isinstance(cards, list):
             raise ParseError(INVALID_SYNTHESIS, f"{where}.augmentedCards: expected a list")
+        if not import_cards:
+            continue
         for j, raw_card in enumerate(cards):
             card_where = f"{where}.augmentedCards[{j}]"
             card = _card_account(raw_card, contract, card_where)
