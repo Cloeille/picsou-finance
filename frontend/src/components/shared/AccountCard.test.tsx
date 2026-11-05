@@ -306,7 +306,7 @@ describe('AccountCard', () => {
       const account = {
         ...baseAccount,
         id: 16,
-        name: 'Sfd',
+        name: 'Camille',
         type: 'PEER_LOAN' as const,
         currentBalance: 0,
         currentBalanceEur: 0,

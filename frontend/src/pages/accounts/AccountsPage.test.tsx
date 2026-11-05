@@ -251,7 +251,7 @@ describe('AccountsPage - closed peer loans', () => {
   it('hides a closed loan by default and reveals it with the Receivables toggle', () => {
     const closedLoan: Account = {
       id: 99,
-      name: 'Sfd',
+      name: 'Camille',
       type: 'PEER_LOAN',
       provider: null,
       currency: 'EUR',
@@ -276,7 +276,7 @@ describe('AccountsPage - closed peer loans', () => {
         interestAccrued: 0,
         loans: [{
           accountId: 99,
-          name: 'Sfd',
+          name: 'Camille',
           principal: 300,
           principalRemaining: 0,
           repaidPct: 100,
@@ -291,17 +291,17 @@ describe('AccountsPage - closed peer loans', () => {
     render(<AccountsPage />)
 
     // Not an active card, and the Créances overview is not on screen yet.
-    expect(screen.queryByText('Sfd')).not.toBeInTheDocument()
+    expect(screen.queryByText('Camille')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'accounts.filters.RECEIVABLES' }))
     // The overview table lists it even before the toggle: only the cards are filtered.
-    expect(screen.getAllByText('Sfd')).toHaveLength(1)
+    expect(screen.getAllByText('Camille')).toHaveLength(1)
     expect(screen.getAllByText('peerLoan.overview.status.closed')).toHaveLength(1)
     expect(screen.queryByText('peerLoan.summary.closed')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'accounts.showClosedLoans' }))
     // The closed loan now appears both in the overview table and on its account card.
-    expect(screen.getAllByText('Sfd')).toHaveLength(2)
+    expect(screen.getAllByText('Camille')).toHaveLength(2)
     expect(screen.getAllByText('peerLoan.overview.status.closed')).toHaveLength(1)
     expect(screen.getAllByText('peerLoan.summary.closed')).toHaveLength(1)
   })
