@@ -111,8 +111,10 @@ public class SignInMethodsService {
     }
 
     @Transactional
-    public void setPassword(AppUser user, String newPassword, HttpServletRequest request,
+    public void setPassword(AppUser caller, String newPassword, HttpServletRequest request,
                             HttpServletResponse response) {
+        AppUser user = userRepository.findByIdForUpdate(caller.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("User not found"));
         reAuthService.requireProof(user, request);
         if (hasPassword(user)) {
             throw new SignInMethodException(HttpStatus.CONFLICT, "PASSWORD_ALREADY_SET",

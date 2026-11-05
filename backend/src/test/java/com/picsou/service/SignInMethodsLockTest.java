@@ -74,6 +74,19 @@ class SignInMethodsLockTest {
     }
 
     @Test
+    void setPassword_checksTheLockedRowNotTheCallersSnapshot() {
+        AppUser passwordless = AppUser.builder().id(7L).passwordHash("").build();
+        AppUser alreadySet = AppUser.builder().id(7L).passwordHash("set-by-a-concurrent-request").build();
+        when(users.findByIdForUpdate(7L)).thenReturn(Optional.of(alreadySet));
+
+        assertThatThrownBy(() -> service.setPassword(passwordless, "new-password", request, new MockHttpServletResponse()))
+            .isInstanceOfSatisfying(SignInMethodException.class,
+                ex -> assertThat(ex.getCode()).isEqualTo("PASSWORD_ALREADY_SET"));
+
+        verify(users, never()).save(any());
+    }
+
+    @Test
     void removePassword_checksRemainingIdentityUnderLock() {
         assertThatThrownBy(() -> service.removePassword(caller, request, new MockHttpServletResponse()))
             .isInstanceOfSatisfying(SignInMethodException.class,
