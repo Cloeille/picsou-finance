@@ -80,10 +80,10 @@ Frontend:
 First boot
     │
     ▼
-SecretBootstrap       ──► writes $PICSOU_SECRETS_DIR/{jwt_secret,crypto_key,postgres_password}
-                              (keys generated when unset, postgres_password never;
-                               a supplied value is copied when its file is missing;
-                               an existing file is never overwritten)
+SecretBootstrap       ──► writes $PICSOU_SECRETS_DIR/{jwt_secret,crypto_key}
+                              (generated when unset; a supplied value is copied
+                               when its file is missing; an existing file is never
+                               overwritten; postgres_password is only read, never written)
     │
     ▼
 Spring boots → Flyway V25 seeds setup.state='PENDING_ADMIN'
