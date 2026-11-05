@@ -2,6 +2,7 @@ package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.picsou.port.BanquePopulaireErrorCode;
+import com.picsou.port.BanquePopulaireRegion;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -9,8 +10,8 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * One Banque Populaire session per member. Holds the encrypted session state only:
- * there is deliberately no credentials field (decision D5, cookies only).
+ * One Banque Populaire session per member. Holds the encrypted session state and the regional
+ * bank it was opened at: there is deliberately no credentials field (decision D5, cookies only).
  */
 @Entity
 @Table(name = "banque_populaire_session")
@@ -33,6 +34,14 @@ public class BanquePopulaireSession extends AuditableEntity implements BpceSessi
     @ToString.Exclude
     @Column(name = "session_state", nullable = false, columnDefinition = "TEXT")
     private String sessionState;
+
+    /**
+     * The regional bank chosen at the login that opened this session. Not a secret: it names the
+     * bank, which the sync stamps on the accounts it imports and looks the logo up under.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "region", nullable = false, length = 32)
+    private BanquePopulaireRegion region;
 
     @Column(name = "last_validated_at")
     private Instant lastValidatedAt;
@@ -63,11 +72,13 @@ public class BanquePopulaireSession extends AuditableEntity implements BpceSessi
     public static BanquePopulaireSession create(
         FamilyMember member,
         String encryptedSessionState,
-        Instant validatedAt
+        Instant validatedAt,
+        BanquePopulaireRegion region
     ) {
         return BanquePopulaireSession.builder()
             .member(Objects.requireNonNull(member, "member"))
             .sessionState(Objects.requireNonNull(encryptedSessionState, "encryptedSessionState"))
+            .region(Objects.requireNonNull(region, "region"))
             .lastValidatedAt(Objects.requireNonNull(validatedAt, "validatedAt"))
             .active(true)
             .syncStatus(BanquePopulaireSyncStatus.IDLE)

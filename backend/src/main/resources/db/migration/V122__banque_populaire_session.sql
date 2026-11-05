@@ -6,10 +6,13 @@
 -- BPCE platform and goes through the same sync engine. Its own table keeps the two banks'
 -- sessions apart. There is NO encrypted_credentials column: only session cookies are
 -- retained, never the password nor the Secur'Pass, so an expired session means the user
--- reconnects. The regional bank chosen at login is not stored either.
+-- reconnects. The regional bank chosen at login IS stored (region): it is not a secret,
+-- it names the bank the sync stamps on the accounts it imports and looks the logo up under.
+-- A new login replaces the row, region included.
 CREATE TABLE banque_populaire_session (
     id                     BIGSERIAL PRIMARY KEY,
     member_id              BIGINT NOT NULL UNIQUE,
+    region                 VARCHAR(32) NOT NULL,
     session_state          TEXT NOT NULL,
     last_validated_at      TIMESTAMPTZ,
     is_active              BOOLEAN NOT NULL DEFAULT TRUE,
@@ -24,6 +27,22 @@ CREATE TABLE banque_populaire_session (
     updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_banque_populaire_session_member
         FOREIGN KEY (member_id) REFERENCES family_member(id) ON DELETE CASCADE,
+    -- Kept in lockstep with BanquePopulaireRegion.
+    CONSTRAINT ck_banque_populaire_session_region
+        CHECK (region IN (
+            'ALSACE_LORRAINE_CHAMPAGNE',
+            'AQUITAINE_CENTRE_ATLANTIQUE',
+            'AUVERGNE_RHONE_ALPES',
+            'BOURGOGNE_FRANCHE_COMTE',
+            'BRED',
+            'GRAND_OUEST',
+            'MEDITERRANEE',
+            'NORD',
+            'OCCITANE',
+            'RIVES_DE_PARIS',
+            'SUD',
+            'VAL_DE_FRANCE'
+        )),
     CONSTRAINT ck_banque_populaire_session_sync_status
         CHECK (sync_status IN ('IDLE', 'QUEUED', 'RUNNING', 'SUCCESS', 'FAILED')),
     -- Kept in lockstep with BanquePopulaireErrorCode: a code missing here blows up the

@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.model.BanquePopulaireSession;
 import com.picsou.model.BanquePopulaireSyncStatus;
-import com.picsou.model.FamilyMember;
 import com.picsou.port.BanquePopulaireErrorCode;
 import com.picsou.port.BanquePopulairePort;
 import com.picsou.port.BanquePopulaireRegion;
@@ -25,23 +24,29 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 
 /**
- * Imports Banque Populaire current accounts, savings books and cards, with their transactions.
+ * Imports Banque Populaire current accounts and savings books, with their transactions.
  * Banque Populaire runs on the BPCE platform, so the import is the shared {@link BpceSyncEngine}'s
  * (loans and PER included, should the sidecar ever report them); this service binds it to the
  * Banque Populaire port, session table and labels, and owns the transaction boundaries. The sync
  * is <b>on demand only</b>, like Caisse d'Epargne's: no scheduler, startup or member sync. No
- * credentials are ever stored, and the regional bank chosen at login is not stored either.
+ * credentials are ever stored. The regional bank chosen at login is stored on the session: each
+ * sync stamps its official name on the accounts as their provider, with that bank's logo from the
+ * Enable Banking catalog, so they look like the ones Enable Banking would create for that bank.
  */
 @Service
 public class BanquePopulaireSyncService {
     private static final Logger log = LoggerFactory.getLogger(BanquePopulaireSyncService.class);
 
+    /** The bank's generic name, used in messages, logs and fallback names; accounts carry the regional one. */
     static final String PROVIDER = "Banque Populaire";
     static final BpceBank BANK = BpceBank.named(PROVIDER, "bp_");
+    /** Every regional bank is French: narrows the catalog search to one country. */
+    static final String LOGO_COUNTRY = "FR";
 
     private final BanquePopulairePort port;
     private final BanquePopulaireSessionRepository sessionRepository;
@@ -61,11 +66,12 @@ public class BanquePopulaireSyncService {
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         @Qualifier("banquePopulaireSyncExecutor") Executor syncExecutor,
-        CaisseEpargnePerService perService
+        CaisseEpargnePerService perService,
+        BankLogoResolver logoResolver
     ) {
         this(port, sessionRepository, accountRepository, transactionRepository, memberRepository, debtRepository,
             accountService, categorizationService, categoryService, encryption, txTemplate, syncExecutor,
-            perService, Clock.systemUTC());
+            perService, logoResolver, Clock.systemUTC());
     }
 
     BanquePopulaireSyncService(
@@ -82,6 +88,7 @@ public class BanquePopulaireSyncService {
         TransactionTemplate txTemplate,
         Executor syncExecutor,
         CaisseEpargnePerService perService,
+        BankLogoResolver logoResolver,
         Clock clock
     ) {
         this.port = port;
@@ -89,6 +96,7 @@ public class BanquePopulaireSyncService {
         this.engine = new BpceSyncEngine<>(
             BANK, BanquePopulaireErrorCode.class, port, new Sessions(sessionRepository),
             BanquePopulaireSyncService::toStatus, SessionStatusResponse::inactive,
+            session -> brandingFor(session.getRegion(), logoResolver),
             accountRepository, transactionRepository, memberRepository, debtRepository, accountService,
             categorizationService, categoryService, encryption, txTemplate, syncExecutor, perService, clock);
     }
@@ -97,11 +105,14 @@ public class BanquePopulaireSyncService {
      * Starts a login at the customer's regional bank. One call to the sidecar, no retry. No
      * password ever reaches Picsou: the sidecar answers with the bank's keypad, which the user
      * clicks himself. A failure leaves any session already stored (valid or not) exactly as it was.
+     * The region is kept with the pending login and stored on the session it opens: the later
+     * steps never take one from the request.
      */
     public BpceSyncEngine.InitiateResponse initiateAuth(
         String customerId, BanquePopulaireRegion region, Long memberId
     ) {
-        return engine.initiateAuth(() -> port.initiateAuth(customerId, region), memberId);
+        Objects.requireNonNull(region, "region");
+        return engine.initiateAuth(() -> port.initiateAuth(customerId, region), memberId, sessionAt(region));
     }
 
     /** Clicks the digits the user chose. Single use, no retry; the positions are never logged. */
@@ -114,9 +125,29 @@ public class BanquePopulaireSyncService {
         return engine.completeAuth(processId, memberId);
     }
 
-    /** Stores (encrypted) a session state. It does <b>not</b> queue a sync: the user triggers it. */
-    public SessionStatusResponse storeSession(String plainState, Long memberId) {
-        return engine.storeSession(plainState, memberId);
+    /**
+     * Stores (encrypted) a session state opened at {@code region}, replacing the member's session.
+     * It does <b>not</b> queue a sync: the user triggers it.
+     */
+    public SessionStatusResponse storeSession(String plainState, BanquePopulaireRegion region, Long memberId) {
+        Objects.requireNonNull(region, "region");
+        return engine.storeSession(plainState, memberId, sessionAt(region));
+    }
+
+    private static BpceSyncEngine.SessionFactory<BanquePopulaireSession> sessionAt(BanquePopulaireRegion region) {
+        return (member, encryptedState, validatedAt) ->
+            BanquePopulaireSession.create(member, encryptedState, validatedAt, region);
+    }
+
+    /**
+     * The regional bank's official name, and its logo from the Enable Banking catalog. The region
+     * is read inside the queueing transaction; the lookup runs later, once per sync, and
+     * {@link BankLogoResolver#logoUrlOrNull} never throws: no catalog configured, an outage or no
+     * match all leave the logo {@code null}.
+     */
+    static BpceSyncEngine.Branding brandingFor(BanquePopulaireRegion region, BankLogoResolver logoResolver) {
+        String name = region.institutionName();
+        return new BpceSyncEngine.Branding(name, () -> logoResolver.logoUrlOrNull(LOGO_COUNTRY, null, name));
     }
 
     public SessionStatusResponse queueSync(Long memberId) {
@@ -183,11 +214,6 @@ public class BanquePopulaireSyncService {
         @Override
         public Optional<BanquePopulaireSession> findByIdAndMemberIdForUpdate(Long id, Long memberId) {
             return repository.findByIdAndMemberIdForUpdate(id, memberId);
-        }
-
-        @Override
-        public BanquePopulaireSession create(FamilyMember member, String encryptedState, Instant validatedAt) {
-            return BanquePopulaireSession.create(member, encryptedState, validatedAt);
         }
 
         @Override

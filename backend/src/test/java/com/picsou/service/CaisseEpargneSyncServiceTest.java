@@ -115,10 +115,25 @@ class CaisseEpargneSyncServiceTest {
             .containsExactly("ce_1001", "ce_1002", "ce_2001");
         assertThat(saved).allSatisfy(account -> {
             assertThat(account.getProvider()).isEqualTo("Caisse d'Epargne");
+            assertThat(account.getLogoUrl()).isNull();
             assertThat(account.getCurrency()).isEqualTo("EUR");
             assertThat(account.isManual()).isFalse();
             assertThat(account.getLastSyncedAt()).isNotNull();
         });
+    }
+
+    @Test
+    void queueSync_keepsTheCaisseEpargneLabelAndLeavesAStoredLogoAlone() {
+        Fixture f = new Fixture();
+        Account stored = Account.builder().id(40L).externalAccountId("ce_1001")
+            .provider("Caisse d'Epargne").logoUrl("https://logos.example/ce.png").build();
+        arrangeCommittableSync(f.current());
+        when(accountRepository.findByExternalAccountIdAndMemberId("ce_1001", 7L)).thenReturn(Optional.of(stored));
+
+        service.queueSync(7L);
+
+        assertThat(stored.getProvider()).isEqualTo("Caisse d'Epargne");
+        assertThat(stored.getLogoUrl()).isEqualTo("https://logos.example/ce.png");
     }
 
     @Test

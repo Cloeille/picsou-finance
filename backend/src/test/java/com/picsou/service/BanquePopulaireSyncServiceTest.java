@@ -12,6 +12,7 @@ import com.picsou.model.Transaction;
 import com.picsou.port.BanquePopulaireErrorCode;
 import com.picsou.port.BanquePopulairePort;
 import com.picsou.port.BanquePopulaireRegion;
+import com.picsou.port.BankConnectorPort;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.DebtRepository;
@@ -56,8 +57,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * The Banque Populaire binding of the shared BPCE engine: its prefix, provider, lender, error
- * codes, session table and regional login. The engine's own rules are covered once, through
+ * The Banque Populaire binding of the shared BPCE engine: its prefix, regional provider label and
+ * logo, lender, error codes, session table and regional login. The engine's own rules are covered once, through
  * {@link CaisseEpargneSyncServiceTest}.
  */
 @ExtendWith(MockitoExtension.class)
@@ -68,6 +69,8 @@ class BanquePopulaireSyncServiceTest {
     private static final String IMAGE = "data:image/png;base64,iVBORw0KGgo=";
     private static final String CUSTOMER_ID = "12345678";
     private static final List<Integer> POSITIONS = List.of(7, 3, 0, 9, 4, 1);
+    private static final String RIVES_DE_PARIS = "Banque Populaire Rives de Paris";
+    private static final String LOGO = "https://logos.example/rives-de-paris.png";
 
     @Mock BanquePopulairePort port;
     @Mock BanquePopulaireSessionRepository sessionRepository;
@@ -79,6 +82,7 @@ class BanquePopulaireSyncServiceTest {
     @Mock CategorizationService categorizationService;
     @Mock CategoryService categoryService;
     @Mock CaisseEpargnePerService perService;
+    @Mock BankLogoResolver logoResolver;
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock TransactionStatus transactionStatus;
@@ -101,13 +105,20 @@ class BanquePopulaireSyncServiceTest {
         service = new BanquePopulaireSyncService(
             port, sessionRepository, accountRepository, transactionRepository, memberRepository, debtRepository,
             accountService, categorizationService, categoryService, encryption, txTemplate, Runnable::run,
-            perService, Clock.fixed(TODAY.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC));
+            perService, logoResolver, Clock.fixed(TODAY.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC));
+    }
+
+    private BanquePopulaireSyncService serviceWith(BankLogoResolver resolver) {
+        return new BanquePopulaireSyncService(
+            port, sessionRepository, accountRepository, transactionRepository, memberRepository, debtRepository,
+            accountService, categorizationService, categoryService, encryption, txTemplate, Runnable::run,
+            perService, resolver, Clock.fixed(TODAY.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC));
     }
 
     // -- mapping ------------------------------------------------------------
 
     @Test
-    void queueSync_importsEachKindUnderTheBanquePopulairePrefixAndProvider() {
+    void queueSync_importsEachKindUnderThePrefixAndTheRegionalBanksName() {
         arrangeCommittableSync(current(), account("1002", "LIVRET_A", "LIVRET A", "5000.00"),
             account("1003", "LIVRET_JEUNE", "LIVRET JEUNE", "1600.00"),
             account("1004", "LDDS", "LDDS", "3000.00"), card());
@@ -123,7 +134,7 @@ class BanquePopulaireSyncServiceTest {
         assertThat(saved).extracting(Account::getExternalAccountId)
             .containsExactly("bp_1001", "bp_1002", "bp_1003", "bp_1004", "bp_2001");
         assertThat(saved).allSatisfy(account -> {
-            assertThat(account.getProvider()).isEqualTo("Banque Populaire");
+            assertThat(account.getProvider()).isEqualTo(RIVES_DE_PARIS);
             assertThat(account.getCurrency()).isEqualTo("EUR");
             assertThat(account.isManual()).isFalse();
         });
@@ -201,6 +212,115 @@ class BanquePopulaireSyncServiceTest {
         assertThat(accountCaptor.getValue().getExternalAccountId()).isEqualTo("bp_1002");
     }
 
+    // -- branding -----------------------------------------------------------
+
+    @Test
+    void queueSync_givesNewAccountsTheRegionalBanksLogoLookedUpOncePerSync() {
+        when(logoResolver.logoUrlOrNull("FR", null, RIVES_DE_PARIS)).thenReturn(LOGO);
+        arrangeCommittableSync(current(), account("1002", "LIVRET_A", "LIVRET A", "5000.00"));
+
+        service.queueSync(7L);
+
+        verify(accountRepository, times(2)).save(accountCaptor.capture());
+        assertThat(accountCaptor.getAllValues()).allSatisfy(account -> {
+            assertThat(account.getProvider()).isEqualTo(RIVES_DE_PARIS);
+            assertThat(account.getLogoUrl()).isEqualTo(LOGO);
+        });
+        verify(logoResolver, times(1)).logoUrlOrNull(anyString(), any(), anyString());
+    }
+
+    @Test
+    void queueSync_usesTheRegionTheSessionWasOpenedAt() {
+        BanquePopulaireSession session = arrangeCommittableSync(BanquePopulaireRegion.BRED, current());
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.SUCCESS);
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getProvider()).isEqualTo("BRED Banque Populaire");
+        verify(logoResolver).logoUrlOrNull("FR", null, "BRED Banque Populaire");
+    }
+
+    @Test
+    void queueSync_updatesTheProviderOfAnAccountImportedUnderAnotherLabelAndFillsAMissingLogo() {
+        when(logoResolver.logoUrlOrNull("FR", null, RIVES_DE_PARIS)).thenReturn(LOGO);
+        Account stored = Account.builder().id(40L).externalAccountId("bp_1001")
+            .provider("Banque Populaire").logoUrl(null).build();
+        arrangeCommittableSync(current());
+        when(accountRepository.findByExternalAccountIdAndMemberId("bp_1001", 7L)).thenReturn(Optional.of(stored));
+
+        service.queueSync(7L);
+
+        assertThat(stored.getProvider()).isEqualTo(RIVES_DE_PARIS);
+        assertThat(stored.getLogoUrl()).isEqualTo(LOGO);
+    }
+
+    @Test
+    void queueSync_neverOverwritesALogoAlreadySet() {
+        when(logoResolver.logoUrlOrNull("FR", null, RIVES_DE_PARIS)).thenReturn(LOGO);
+        Account stored = Account.builder().id(40L).externalAccountId("bp_1001")
+            .provider(RIVES_DE_PARIS).logoUrl("https://logos.example/earlier.png").build();
+        arrangeCommittableSync(current());
+        when(accountRepository.findByExternalAccountIdAndMemberId("bp_1001", 7L)).thenReturn(Optional.of(stored));
+
+        service.queueSync(7L);
+
+        assertThat(stored.getLogoUrl()).isEqualTo("https://logos.example/earlier.png");
+        assertThat(stored.getProvider()).isEqualTo(RIVES_DE_PARIS);
+    }
+
+    @Test
+    void queueSync_importsWithoutALogoWhenTheCatalogHasNoMatch() {
+        when(logoResolver.logoUrlOrNull("FR", null, RIVES_DE_PARIS)).thenReturn(null);
+        BanquePopulaireSession session = arrangeCommittableSync(current());
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.SUCCESS);
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getProvider()).isEqualTo(RIVES_DE_PARIS);
+        assertThat(accountCaptor.getValue().getLogoUrl()).isNull();
+    }
+
+    @Test
+    void queueSync_succeedsWithoutALogoWhenEnableBankingIsNotConfigured() {
+        BankConnectorPort unconfigured = org.mockito.Mockito.mock(BankConnectorPort.class);
+        when(unconfigured.searchInstitutions(anyString(), anyString()))
+            .thenThrow(new SyncException("Enable Banking Application ID is missing"));
+        service = serviceWith(new BankLogoResolver(unconfigured));
+        BanquePopulaireSession session = arrangeCommittableSync(current());
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.SUCCESS);
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getProvider()).isEqualTo(RIVES_DE_PARIS);
+        assertThat(accountCaptor.getValue().getLogoUrl()).isNull();
+        verify(unconfigured, times(1)).searchInstitutions(RIVES_DE_PARIS, "FR");
+    }
+
+    @Test
+    void queueSync_keepsTheRegionalNameWhenTheLookupThrowsAnyway() {
+        when(logoResolver.logoUrlOrNull(anyString(), any(), anyString())).thenThrow(new IllegalStateException());
+        BanquePopulaireSession session = arrangeCommittableSync(current());
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.SUCCESS);
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getProvider()).isEqualTo(RIVES_DE_PARIS);
+        assertThat(accountCaptor.getValue().getLogoUrl()).isNull();
+    }
+
+    @Test
+    void aRefusedSnapshotCostsNoLogoLookup() {
+        arrangeCommittableSync(current(), account("1009", "PEA", "PEA", "1.00"));
+
+        service.queueSync(7L);
+
+        verifyNoInteractions(logoResolver);
+    }
+
     // -- failures -----------------------------------------------------------
 
     @Test
@@ -262,7 +382,7 @@ class BanquePopulaireSyncServiceTest {
         assertThat(response.processId()).isEqualTo("proc-1");
         assertThat(response.expiresInSeconds()).isEqualTo(90);
         verify(port, times(1)).initiateAuth(anyString(), any());
-        verifyNoInteractions(sessionRepository, encryption);
+        verifyNoInteractions(sessionRepository, encryption, logoResolver);
     }
 
     @Test
@@ -285,7 +405,74 @@ class BanquePopulaireSyncServiceTest {
         assertThat(stored.getValue().getSessionState()).isEqualTo("encrypted-state");
         assertThat(stored.getValue().isActive()).isTrue();
         assertThat(stored.getValue().getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.IDLE);
+        assertThat(stored.getValue().getRegion()).isEqualTo(BanquePopulaireRegion.BRED);
         verify(port).submitKeypad("proc-1", POSITIONS);
+    }
+
+    @Test
+    void aNewLoginReplacesTheSessionAndItsRegion() {
+        BanquePopulaireSession earlier = activeSession();
+        when(port.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.SUD))
+            .thenReturn(new BanquePopulairePort.InitiateResult("proc-2", keypad(), 90));
+        when(port.completeAuth("proc-2")).thenReturn("{\"cookies\":[]}");
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(earlier));
+        when(encryption.encrypt("{\"cookies\":[]}")).thenReturn("encrypted-state");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+
+        service.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.SUD, 7L);
+        service.submitKeypad("proc-2", POSITIONS, 7L);
+        service.completeAuth("proc-2", 7L);
+
+        verify(sessionRepository).delete(earlier);
+        ArgumentCaptor<BanquePopulaireSession> stored = ArgumentCaptor.forClass(BanquePopulaireSession.class);
+        verify(sessionRepository).saveAndFlush(stored.capture());
+        assertThat(stored.getValue()).isNotSameAs(earlier);
+        assertThat(stored.getValue().getRegion()).isEqualTo(BanquePopulaireRegion.SUD);
+    }
+
+    @Test
+    void eachPendingLoginKeepsItsOwnRegion() {
+        when(port.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.NORD))
+            .thenReturn(new BanquePopulairePort.InitiateResult("proc-n", keypad(), 90));
+        when(port.initiateAuth("B7654321", BanquePopulaireRegion.OCCITANE))
+            .thenReturn(new BanquePopulairePort.InitiateResult("proc-o", keypad(), 90));
+        when(port.completeAuth("proc-n")).thenReturn("state-n");
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+        when(encryption.encrypt("state-n")).thenReturn("encrypted-n");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+
+        service.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.NORD, 7L);
+        service.initiateAuth("B7654321", BanquePopulaireRegion.OCCITANE, 7L);
+        service.submitKeypad("proc-n", POSITIONS, 7L);
+        service.completeAuth("proc-n", 7L);
+
+        ArgumentCaptor<BanquePopulaireSession> stored = ArgumentCaptor.forClass(BanquePopulaireSession.class);
+        verify(sessionRepository).saveAndFlush(stored.capture());
+        assertThat(stored.getValue().getRegion()).isEqualTo(BanquePopulaireRegion.NORD);
+    }
+
+    @Test
+    void storeSessionStoresTheRegionItIsGiven() {
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+        when(encryption.encrypt("cookies")).thenReturn("encrypted-state");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+
+        service.storeSession("cookies", BanquePopulaireRegion.VAL_DE_FRANCE, 7L);
+
+        ArgumentCaptor<BanquePopulaireSession> stored = ArgumentCaptor.forClass(BanquePopulaireSession.class);
+        verify(sessionRepository).saveAndFlush(stored.capture());
+        assertThat(stored.getValue().getRegion()).isEqualTo(BanquePopulaireRegion.VAL_DE_FRANCE);
+        verify(port, never()).fetchAccounts(anyString());
+    }
+
+    @Test
+    void aLoginCannotStartWithoutARegion() {
+        assertThatThrownBy(() -> service.initiateAuth(CUSTOMER_ID, null, 7L))
+            .isInstanceOf(NullPointerException.class);
+        verifyNoInteractions(port);
     }
 
     @Test
@@ -304,18 +491,24 @@ class BanquePopulaireSyncServiceTest {
     }
 
     @Test
-    void theServiceKeepsNoFieldThatCouldHoldACredentialOrTheRegion() {
+    void theServiceKeepsNoFieldThatCouldHoldACredential() {
         for (var field : BanquePopulaireSyncService.class.getDeclaredFields()) {
             assertThat(field.getName().toLowerCase()).doesNotContain("password").doesNotContain("credential")
-                .doesNotContain("customer").doesNotContain("positions").doesNotContain("region");
+                .doesNotContain("customer").doesNotContain("positions");
         }
     }
 
     // -- fixtures -----------------------------------------------------------
 
     private BanquePopulaireSession arrangeCommittableSync(BanquePopulairePort.AccountData... accounts) {
+        return arrangeCommittableSync(BanquePopulaireRegion.RIVES_DE_PARIS, accounts);
+    }
+
+    private BanquePopulaireSession arrangeCommittableSync(
+        BanquePopulaireRegion region, BanquePopulairePort.AccountData... accounts
+    ) {
         FamilyMember member = member();
-        BanquePopulaireSession session = activeSession();
+        BanquePopulaireSession session = activeSession(region);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state"))
             .thenReturn(new BanquePopulairePort.AccountsSnapshot(List.of(accounts), List.of()));
@@ -344,9 +537,14 @@ class BanquePopulaireSyncServiceTest {
     }
 
     private static BanquePopulaireSession activeSession() {
+        return activeSession(BanquePopulaireRegion.RIVES_DE_PARIS);
+    }
+
+    private static BanquePopulaireSession activeSession(BanquePopulaireRegion region) {
         return BanquePopulaireSession.builder()
             .id(3L)
             .member(member())
+            .region(region)
             .sessionState("encrypted")
             .active(true)
             .syncStatus(BanquePopulaireSyncStatus.IDLE)

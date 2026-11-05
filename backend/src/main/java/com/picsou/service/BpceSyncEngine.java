@@ -49,7 +49,7 @@ import java.util.function.Supplier;
  * speak one contract ({@link BpcePort}), so the login bookkeeping, the job state machine and the
  * import of current accounts, savings books, cards, loans and PER live here once. Each bank keeps
  * its own service, session table, port and error code, and hands the engine a {@link BpceBank}
- * descriptor plus access to its sessions.
+ * descriptor, access to its sessions, and the {@link Branding} its imported accounts carry.
  *
  * <p>Shaped like {@link BoursoSyncService}: upstream I/O happens outside any transaction and one
  * short transaction writes the whole snapshot, so a failure part-way rolls every account back.
@@ -104,6 +104,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
     private final SessionStore<S> sessions;
     private final BiFunction<S, List<UnsupportedContract>, R> statusOf;
     private final Supplier<R> inactiveStatus;
+    private final BrandingSource<S> branding;
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final FamilyMemberRepository memberRepository;
@@ -117,11 +118,11 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
     private final CaisseEpargnePerService perService;
     private final Clock clock;
     /**
-     * Logins waiting for the human to approve on the phone. Holds the process id, the member and a
-     * deadline: never the identifier, the password nor the session. Process-local on purpose, a
-     * restart drops the attempt and the user starts again.
+     * Logins waiting for the human to approve on the phone. Holds the process id, the member, a
+     * deadline and how to build the session row once approved: never the identifier, the password
+     * nor the session. Process-local on purpose, a restart drops the attempt and the user starts again.
      */
-    private final Map<String, PendingLogin> pendingLogins = new ConcurrentHashMap<>();
+    private final Map<String, PendingLogin<S>> pendingLogins = new ConcurrentHashMap<>();
 
     /**
      * The bank's session table, seen through the calls the engine makes on it. Each method is a
@@ -134,9 +135,6 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
 
         Optional<S> findByIdAndMemberIdForUpdate(Long id, Long memberId);
 
-        /** A new active, idle session; not saved. */
-        S create(FamilyMember member, String encryptedState, Instant validatedAt);
-
         void save(S session);
 
         void saveAndFlush(S session);
@@ -146,6 +144,51 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         void flush();
     }
 
+    /**
+     * Builds a new active, idle session row; not saved. Given per login rather than once per bank,
+     * so whatever the login was started with (Banque Populaire's regional bank) is captured server
+     * side when the login starts and lands on the row it opens, never taken from a later request.
+     */
+    @FunctionalInterface
+    interface SessionFactory<S> {
+        S create(FamilyMember member, String encryptedState, Instant validatedAt);
+    }
+
+    /**
+     * What a sync stamps on the accounts it imports: {@code account.provider}, kept up to date on
+     * every sync, and a logo URL, set on a new account and only filled on one that has none.
+     *
+     * @param logoUrl called once per sync, on the sync thread and outside any transaction, so it may
+     *                call the network; {@code null} means no logo. Should it throw anyway, the sync
+     *                goes on without a logo.
+     */
+    record Branding(String provider, Supplier<String> logoUrl) {
+        Branding {
+            Objects.requireNonNull(provider, "provider");
+            Objects.requireNonNull(logoUrl, "logoUrl");
+        }
+
+        /** A label and no logo. */
+        static Branding fixed(String provider) {
+            return new Branding(provider, () -> null);
+        }
+    }
+
+    /**
+     * The {@link Branding} of a session's sync. Runs inside the transaction that queues the sync,
+     * so it must only read the session: any lookup belongs in {@link Branding#logoUrl}.
+     */
+    @FunctionalInterface
+    interface BrandingSource<S> {
+        Branding brandingFor(S session);
+
+        /** The same label for every session, no logo. */
+        static <S> BrandingSource<S> fixed(String provider) {
+            Branding branding = Branding.fixed(provider);
+            return session -> branding;
+        }
+    }
+
     BpceSyncEngine(
         BpceBank bank,
         Class<E> codeType,
@@ -153,6 +196,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         SessionStore<S> sessions,
         BiFunction<S, List<UnsupportedContract>, R> statusOf,
         Supplier<R> inactiveStatus,
+        BrandingSource<S> branding,
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
@@ -176,6 +220,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         this.sessions = sessions;
         this.statusOf = statusOf;
         this.inactiveStatus = inactiveStatus;
+        this.branding = Objects.requireNonNull(branding, "branding");
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.memberRepository = memberRepository;
@@ -198,9 +243,12 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
      * Starts a login. The bank's service makes the one sidecar call (no retry) and hands its
      * answer here. No password ever reaches Picsou: the sidecar answers with the bank's keypad,
      * which the user clicks himself. A failure leaves any session already stored (valid or not)
-     * exactly as it was.
+     * exactly as it was. {@code sessionFactory} builds the row this login opens once approved.
      */
-    InitiateResponse initiateAuth(Supplier<BpcePort.InitiateResult> initiate, Long memberId) {
+    InitiateResponse initiateAuth(
+        Supplier<BpcePort.InitiateResult> initiate, Long memberId, SessionFactory<S> sessionFactory
+    ) {
+        Objects.requireNonNull(sessionFactory, "sessionFactory");
         BpcePort.InitiateResult result = initiate.get();
         if (result == null || result.processId() == null || result.processId().isBlank()
             || result.keypad() == null || result.expiresInSeconds() <= 0) {
@@ -212,7 +260,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         // Swept on every start: a stale process id must never be reachable again.
         pendingLogins.values().removeIf(pending -> !pending.deadline().isAfter(now));
         pendingLogins.put(result.processId(),
-            new PendingLogin(memberId, now.plusSeconds(result.expiresInSeconds()), null));
+            new PendingLogin<>(memberId, now.plusSeconds(result.expiresInSeconds()), null, sessionFactory));
         return new InitiateResponse(result.processId(), result.keypad(), result.expiresInSeconds());
     }
 
@@ -259,7 +307,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
      * its keypad lifetime, and the keypad step must not have been done yet.
      */
     void submitKeypad(String processId, List<Integer> positions, Long memberId) {
-        PendingLogin pending = takePending(processId, memberId);
+        PendingLogin<S> pending = takePending(processId, memberId);
         if (pending.approvalExpiresAt() != null) {
             // The digits were already sent for this process: nothing more to click.
             throw attemptExpired();
@@ -270,19 +318,19 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
                 "The " + bank.provider() + " keypad expired. Start again.", null);
         }
         port.submitKeypad(processId, positions);
-        pendingLogins.put(processId, new PendingLogin(memberId, null,
-            clock.instant().plusSeconds(KEYPAD_APPROVAL_WINDOW_SECONDS)));
+        pendingLogins.put(processId, new PendingLogin<>(memberId, null,
+            clock.instant().plusSeconds(KEYPAD_APPROVAL_WINDOW_SECONDS), pending.sessionFactory()));
     }
 
     /**
      * Removes a pending login for its owner, or refuses without burning the owner's attempt.
      * Shared by the keypad and complete steps so both are single use and member-scoped.
      */
-    private PendingLogin takePending(String processId, Long memberId) {
+    private PendingLogin<S> takePending(String processId, Long memberId) {
         // Read, check the owner, then remove only that exact entry: someone else probing a
         // process id never takes it out, even for an instant, so the owner's concurrent call
         // cannot see it missing.
-        PendingLogin pending = pendingLogins.get(processId);
+        PendingLogin<S> pending = pendingLogins.get(processId);
         if (pending == null
             || !pending.memberId().equals(memberId)
             || !pendingLogins.remove(processId, pending)) {
@@ -303,7 +351,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
      * and be unexpired, otherwise the sidecar is not even contacted.
      */
     R completeAuth(String processId, Long memberId) {
-        PendingLogin pending = takePending(processId, memberId);
+        PendingLogin<S> pending = takePending(processId, memberId);
         // The keypad must have been submitted: without it there is no approval to wait for.
         if (pending.approvalExpiresAt() == null
             || !pending.approvalExpiresAt().isAfter(clock.instant())) {
@@ -314,14 +362,15 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
             throw error(BpceErrorCode.UPSTREAM_FORMAT_CHANGED,
                 bank.provider() + " did not return a session", null);
         }
-        return storeSession(plainState, memberId);
+        return storeSession(plainState, memberId, pending.sessionFactory());
     }
 
     /**
-     * Stores (encrypted) the session state produced by a login. It does <b>not</b> queue a sync:
+     * Stores (encrypted) the session state produced by a login, in a row built by
+     * {@code sessionFactory}; it replaces any row the member had. It does <b>not</b> queue a sync:
      * the user triggers it.
      */
-    R storeSession(String plainState, Long memberId) {
+    R storeSession(String plainState, Long memberId, SessionFactory<S> sessionFactory) {
         if (plainState == null || plainState.isBlank()) {
             throw error(BpceErrorCode.INVALID_SESSION_STATE, "No " + bank.provider() + " session was provided", null);
         }
@@ -330,7 +379,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             sessions.findByMemberIdForUpdate(memberId).ifPresent(sessions::delete);
             sessions.flush();
-            S created = sessions.create(member, encryption.encrypt(plainState), Instant.now());
+            S created = sessionFactory.create(member, encryption.encrypt(plainState), Instant.now());
             sessions.saveAndFlush(created);
             return created;
         }));
@@ -375,7 +424,9 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
             }
             session.markQueued();
             sessions.save(session);
-            return new QueueDecision<>(new SyncJob(session.getId(), memberId, plainState), toStatus(session), null);
+            return new QueueDecision<>(
+                new SyncJob(session.getId(), memberId, plainState, branding.brandingFor(session)),
+                toStatus(session), null);
         }));
 
         if (decision.failure() != null) {
@@ -409,7 +460,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         try {
             BpcePort.AccountsSnapshot fetched = port.fetchAccounts(job.plainState());
             PreparedSnapshot prepared = prepare(fetched);
-            if (commit(job, prepared)) {
+            if (commit(job, prepared, logoOf(job))) {
                 for (PreparedAccount account : prepared.accounts()) {
                     if (account.per() == null) continue;
                     try {
@@ -436,6 +487,20 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
             // The exception type only: its message could carry a value from the payload.
             log.error("{} sync failed unexpectedly (member={}; type={})",
                 bank.provider(), job.memberId(), ex.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * Resolved once per sync, outside any transaction, after the snapshot was validated: a refused
+     * snapshot costs no lookup. Never fails the sync: the accounts then keep the logo they have.
+     */
+    private String logoOf(SyncJob job) {
+        try {
+            return job.branding().logoUrl().get();
+        } catch (RuntimeException ex) {
+            log.warn("{} logo lookup failed; importing without a logo (member={}; type={})",
+                bank.provider(), job.memberId(), ex.getClass().getSimpleName());
+            return null;
         }
     }
 
@@ -556,7 +621,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         return List.copyOf(byId.values());
     }
 
-    private boolean commit(SyncJob job, PreparedSnapshot prepared) {
+    private boolean commit(SyncJob job, PreparedSnapshot prepared, String logoUrl) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
             Optional<S> current = sessions.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId());
             if (current.isEmpty()) {
@@ -580,7 +645,9 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
             Map<String, Map<String, Transaction>> rowsByAccount = new LinkedHashMap<>();
             Map<String, Account> savedById = new LinkedHashMap<>();
             for (PreparedAccount data : prepared.accounts()) {
-                Map<String, Transaction> rows = upsertAccount(data, member, job.memberId(), syncedAt, savedById);
+                Map<String, Transaction> rows =
+                    upsertAccount(data, member, job.memberId(), syncedAt, savedById,
+                        job.branding().provider(), logoUrl);
                 if (rows != null) {
                     rowsByAccount.put(data.externalId(), rows);
                 }
@@ -596,9 +663,15 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         }));
     }
 
-    /** The account's upserted rows by prefixed external id, or null when the user deleted it. */
+    /**
+     * The account's upserted rows by prefixed external id, or null when the user deleted it. The
+     * provider label is rewritten on every sync (the connector owns it); the logo follows Enable
+     * Banking's rule: set on a new account, filled on an existing one only when it has none, never
+     * overwritten.
+     */
     private Map<String, Transaction> upsertAccount(
-        PreparedAccount data, FamilyMember member, Long memberId, Instant syncedAt, Map<String, Account> savedById
+        PreparedAccount data, FamilyMember member, Long memberId, Instant syncedAt, Map<String, Account> savedById,
+        String provider, String logoUrl
     ) {
         Optional<Account> existing = accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), memberId);
         if (existing.isEmpty()
@@ -610,14 +683,18 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         Account account = existing.orElseGet(() -> Account.builder()
             .member(member)
             .externalAccountId(data.externalId())
-            .provider(bank.provider())
+            .provider(provider)
             .currency("EUR")
             .isManual(false)
             .color(colorFor(data.type()))
+            .logoUrl(logoUrl)
             .build());
         account.setName(data.name());
         account.setType(data.type());
-        account.setProvider(bank.provider());
+        account.setProvider(provider);
+        if (account.getLogoUrl() == null && logoUrl != null) {
+            account.setLogoUrl(logoUrl);
+        }
         account.setCurrency("EUR");
         account.setManual(false);
         account.setCurrentBalance(data.balance());
@@ -1179,14 +1256,16 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
      * the approval window's once the digits were sent. Both are nulled out with the process id, so
      * nothing about the pad survives a step.
      */
-    private record PendingLogin(Long memberId, Instant keypadExpiresAt, Instant approvalExpiresAt) {
+    private record PendingLogin<S>(
+        Long memberId, Instant keypadExpiresAt, Instant approvalExpiresAt, SessionFactory<S> sessionFactory
+    ) {
         Instant deadline() {
             return approvalExpiresAt != null ? approvalExpiresAt : keypadExpiresAt;
         }
     }
 
     private record QueueDecision<R>(SyncJob job, R status, SyncException failure) {}
-    private record SyncJob(Long sessionId, Long memberId, String plainState) {}
+    private record SyncJob(Long sessionId, Long memberId, String plainState, Branding branding) {}
     private record PreparedSnapshot(List<PreparedAccount> accounts, List<UnsupportedContract> unsupported) {}
     private record PreparedAccount(
         String externalId,

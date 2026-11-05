@@ -1,6 +1,7 @@
 package com.picsou.migration;
 
 import com.picsou.port.BanquePopulaireErrorCode;
+import com.picsou.port.BanquePopulaireRegion;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -23,7 +24,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * V122 applies on top of the whole chain and creates the Banque Populaire session table in the
- * shape Caisse d'Epargne's reached after V109 + V110, with every error code in one CHECK.
+ * shape Caisse d'Epargne's reached after V109 + V110, with every error code in one CHECK, plus the
+ * regional bank the session was opened at.
  *
  * <p>Every statement is a constant with bound parameters: no value is concatenated into SQL.
  */
@@ -32,12 +34,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class V122BanquePopulaireSessionMigrationTest {
 
     private static final String INSERT_SESSION =
+        "INSERT INTO banque_populaire_session (member_id, session_state, region) VALUES (?, ?, 'RIVES_DE_PARIS')";
+    private static final String INSERT_SESSION_REGION =
+        "INSERT INTO banque_populaire_session (member_id, session_state, region) VALUES (?, ?, ?)";
+    private static final String INSERT_SESSION_WITHOUT_REGION =
         "INSERT INTO banque_populaire_session (member_id, session_state) VALUES (?, ?)";
     private static final String INSERT_SESSION_STATUS =
-        "INSERT INTO banque_populaire_session (member_id, session_state, sync_status) VALUES (?, ?, ?)";
+        "INSERT INTO banque_populaire_session (member_id, session_state, sync_status, region) "
+            + "VALUES (?, ?, ?, 'RIVES_DE_PARIS')";
     private static final String INSERT_SESSION_ERROR =
-        "INSERT INTO banque_populaire_session (member_id, session_state, sync_status, last_sync_error) "
-            + "VALUES (?, ?, ?, ?)";
+        "INSERT INTO banque_populaire_session (member_id, session_state, sync_status, last_sync_error, region) "
+            + "VALUES (?, ?, ?, ?, 'RIVES_DE_PARIS')";
 
     static {
         System.setProperty("api.version", System.getProperty("api.version", "1.44"));
@@ -102,7 +109,7 @@ class V122BanquePopulaireSessionMigrationTest {
             while (rs.next()) columns.add(rs.getString(1));
         }
         assertThat(columns).isNotEmpty()
-            .contains("member_id", "session_state", "is_active", "sync_status", "last_sync_error")
+            .contains("member_id", "region", "session_state", "is_active", "sync_status", "last_sync_error")
             .doesNotContain("encrypted_credentials")
             .noneMatch(name -> name.contains("password") || name.contains("credential"));
     }
@@ -117,6 +124,42 @@ class V122BanquePopulaireSessionMigrationTest {
             long member = newMember("bad-" + code);
             assertThatThrownBy(() -> exec(INSERT_SESSION_ERROR, member, "x", "FAILED", code))
                 .hasMessageContaining("ck_banque_populaire_session_last_sync_error");
+        }
+    }
+
+    @Test
+    void acceptsEveryRegionOfTheEnumAndNoOther() throws SQLException {
+        for (BanquePopulaireRegion region : BanquePopulaireRegion.values()) {
+            long member = newMember("region-" + region.name());
+            exec(INSERT_SESSION_REGION, member, "x", region.name());
+        }
+        for (String region : List.of("PARIS", "rives_de_paris", "")) {
+            long member = newMember("bad-region-" + region);
+            assertThatThrownBy(() -> exec(INSERT_SESSION_REGION, member, "x", region))
+                .hasMessageContaining("ck_banque_populaire_session_region");
+        }
+    }
+
+    @Test
+    void refusesASessionWithoutARegion() throws SQLException {
+        long member = newMember("no-region");
+        assertThatThrownBy(() -> exec(INSERT_SESSION_WITHOUT_REGION, member, "x"))
+            .hasMessageContaining("region");
+    }
+
+    @Test
+    void theRegionColumnFitsTheLongestRegion() throws SQLException {
+        int longest = 0;
+        for (BanquePopulaireRegion region : BanquePopulaireRegion.values()) {
+            longest = Math.max(longest, region.name().length());
+        }
+        try (Connection c = connection();
+             PreparedStatement st = c.prepareStatement(
+                 "SELECT character_maximum_length FROM information_schema.columns "
+                     + "WHERE table_name = 'banque_populaire_session' AND column_name = 'region'");
+             ResultSet rs = st.executeQuery()) {
+            rs.next();
+            assertThat(rs.getInt(1)).isGreaterThanOrEqualTo(longest);
         }
     }
 

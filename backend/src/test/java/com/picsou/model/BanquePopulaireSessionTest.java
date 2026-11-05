@@ -1,6 +1,7 @@
 package com.picsou.model;
 
 import com.picsou.port.BanquePopulaireErrorCode;
+import com.picsou.port.BanquePopulaireRegion;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -15,7 +16,8 @@ class BanquePopulaireSessionTest {
 
     private BanquePopulaireSession session() {
         return BanquePopulaireSession.create(
-            FamilyMember.builder().id(7L).displayName("Owner").build(), "encrypted", NOW);
+            FamilyMember.builder().id(7L).displayName("Owner").build(), "encrypted", NOW,
+            BanquePopulaireRegion.RIVES_DE_PARIS);
     }
 
     @Test
@@ -26,6 +28,15 @@ class BanquePopulaireSessionTest {
         assertThat(session.getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.IDLE);
         assertThat(session.getSessionState()).isEqualTo("encrypted");
         assertThat(session.getLastValidatedAt()).isEqualTo(NOW);
+        assertThat(session.getRegion()).isEqualTo(BanquePopulaireRegion.RIVES_DE_PARIS);
+    }
+
+    @Test
+    void aSessionCannotBeCreatedWithoutARegion() {
+        assertThatThrownBy(() -> BanquePopulaireSession.create(
+            FamilyMember.builder().id(7L).displayName("Owner").build(), "encrypted", NOW, null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessageContaining("region");
     }
 
     @Test

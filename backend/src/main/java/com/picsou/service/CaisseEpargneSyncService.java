@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.model.CaisseEpargneSession;
 import com.picsou.model.CaisseEpargneSyncStatus;
-import com.picsou.model.FamilyMember;
 import com.picsou.port.CaisseEpargneErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
@@ -86,6 +85,7 @@ public class CaisseEpargneSyncService {
         this.engine = new BpceSyncEngine<>(
             BANK, CaisseEpargneErrorCode.class, port, new Sessions(sessionRepository),
             CaisseEpargneSyncService::toStatus, SessionStatusResponse::inactive,
+            BpceSyncEngine.BrandingSource.fixed(PROVIDER),
             accountRepository, transactionRepository, memberRepository, debtRepository, accountService,
             categorizationService, categoryService, encryption, txTemplate, syncExecutor, perService, clock);
     }
@@ -96,7 +96,7 @@ public class CaisseEpargneSyncService {
      * session already stored (valid or not) exactly as it was.
      */
     public BpceSyncEngine.InitiateResponse initiateAuth(String customerId, Long memberId) {
-        return engine.initiateAuth(() -> port.initiateAuth(customerId), memberId);
+        return engine.initiateAuth(() -> port.initiateAuth(customerId), memberId, CaisseEpargneSession::create);
     }
 
     /** Clicks the digits the user chose. Single use, no retry; the positions are never logged. */
@@ -111,7 +111,7 @@ public class CaisseEpargneSyncService {
 
     /** Stores (encrypted) a session state. It does <b>not</b> queue a sync: the user triggers it. */
     public SessionStatusResponse storeSession(String plainState, Long memberId) {
-        return engine.storeSession(plainState, memberId);
+        return engine.storeSession(plainState, memberId, CaisseEpargneSession::create);
     }
 
     public SessionStatusResponse queueSync(Long memberId) {
@@ -178,11 +178,6 @@ public class CaisseEpargneSyncService {
         @Override
         public Optional<CaisseEpargneSession> findByIdAndMemberIdForUpdate(Long id, Long memberId) {
             return repository.findByIdAndMemberIdForUpdate(id, memberId);
-        }
-
-        @Override
-        public CaisseEpargneSession create(FamilyMember member, String encryptedState, Instant validatedAt) {
-            return CaisseEpargneSession.create(member, encryptedState, validatedAt);
         }
 
         @Override
