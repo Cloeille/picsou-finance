@@ -194,8 +194,11 @@ public class DashboardService {
             Double percentPaid = null;
             if (debt != null) {
                 monthlyPayment = loanAmortizationService.resolveMonthlyPayment(debt);
-                BigDecimal borrowed = debt.getBorrowedAmount();
-                if (borrowed != null && borrowed.compareTo(BigDecimal.ZERO) > 0) {
+                // balanceEur is the member's share of what is left, so the borrowed amount is
+                // weighed by the same share: a co-owner's progress is the loan's own progress.
+                BigDecimal borrowed = AccountAccessResolver.weigh(
+                    debt.getBorrowedAmount(), shares.get(item.accountId()));
+                if (borrowed.compareTo(BigDecimal.ZERO) > 0) {
                     BigDecimal remaining = item.balanceEur().abs();
                     BigDecimal repaid = borrowed.subtract(remaining);
                     percentPaid = repaid.divide(borrowed, 6, RoundingMode.HALF_UP)

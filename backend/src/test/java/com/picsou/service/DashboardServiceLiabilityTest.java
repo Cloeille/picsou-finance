@@ -129,6 +129,39 @@ class DashboardServiceLiabilityTest {
     }
 
     @Test
+    void co_owned_loan_percentPaid_isTheLoansOwnProgress_notSkewedByTheShare() {
+        Account loan = new Account();
+        loan.setId(13L);
+        loan.setName("Joint mortgage");
+        loan.setType(AccountType.LOAN);
+        loan.setCurrentBalance(new BigDecimal("-150000"));
+        loan.setCurrency("EUR");
+        loan.setColor("#6366f1");
+
+        Debt debt = new Debt();
+        debt.setAccount(loan);
+        debt.setBorrowedAmount(new BigDecimal("200000"));
+
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
+        when(holdingRepository.findByAccount_Id(13L)).thenReturn(List.of());
+        when(accountService.liveBalanceEur(loan)).thenReturn(new BigDecimal("150000"));
+        // The member holds half of the loan: their liability is 75 000 of the 150 000 left.
+        org.mockito.Mockito.doReturn(java.util.Map.of(13L, new BigDecimal("50")))
+            .when(accessResolver).sharesFor(any(), any());
+        when(debtRepository.findByAccountIdIn(List.of(13L))).thenReturn(List.of(debt));
+        when(historyService.buildHistory(any(), any(Integer.class), any())).thenReturn(List.of());
+        when(goalRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of());
+
+        DashboardResponse result = dashboardService.getDashboard(1L, null);
+
+        DashboardResponse.LiabilityEntry entry = result.liabilities().get(0);
+        assertThat(entry.balanceEur()).isEqualByComparingTo("75000");
+        // 50 000 of the 200 000 borrowed has been repaid: 25%, whoever holds which share.
+        // Comparing the member's half of the balance to the whole loan reported 62.5%.
+        assertThat(entry.percentPaid()).isCloseTo(25.0, org.assertj.core.data.Offset.offset(0.01));
+    }
+
+    @Test
     void liability_with_debt_missing_dates_returns_null_monthlyPayment() {
         Account loan = new Account();
         loan.setId(12L);
