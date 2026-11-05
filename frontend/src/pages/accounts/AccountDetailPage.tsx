@@ -26,6 +26,9 @@ import { CardNatureField } from '@/components/shared/CardNatureField'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { LoanDetailSection } from '@/components/loan/LoanDetailSection'
 import { PeerLoanDetailSection } from '@/components/peer-loan/PeerLoanDetailSection'
+import { CreatePeerLoanDialog } from '@/components/peer-loan/CreatePeerLoanDialog'
+import { useCreatePeerLoanFromTransaction } from '@/features/peer-loans/hooks'
+import { extractErrorMessage } from '@/lib/errors'
 import { SavingsConfigSection } from '@/features/savings/SavingsConfigSection'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
 import { PropertyDetailSection } from '@/components/property/PropertyDetailSection'
@@ -37,7 +40,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ArrowLeft, Calendar, TrendingUp, TrendingDown, Upload } from 'lucide-react'
 import { formatLocalDate, formatNumber, formatPercent, localeFromLanguage } from '@/lib/utils'
-import { accountTypeLabelKey, HOLDING_ACCOUNT_TYPES } from '@/lib/constants'
+import { accountTypeLabelKey, CASH_ACCOUNT_TYPES, HOLDING_ACCOUNT_TYPES } from '@/lib/constants'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import type { HoldingResponse, Transaction } from '@/types/api'
 
@@ -60,6 +63,7 @@ export function AccountDetailPage() {
   const deleteHoldingMutation = useDeleteHolding(accountId)
   const updateHoldingMutation = useUpdateHolding(accountId)
   const importTRMutation = useImportTRTransactions(accountId)
+  const createPeerLoan = useCreatePeerLoanFromTransaction()
   const { data: pnlData } = useHistory(accountId ? [accountId] : [], 12)
   const { data: savingsSuggestions } = useSavingsSuggestions()
   const { data: categories } = useCategories()
@@ -71,6 +75,7 @@ export function AccountDetailPage() {
   const [showImport, setShowImport] = useState(false)
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
   const [editingHolding, setEditingHolding] = useState<HoldingResponse | null>(null)
+  const [peerLoanTx, setPeerLoanTx] = useState<Transaction | null>(null)
   const [range, setRange] = useState<TimeRange>('1Y')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -118,6 +123,7 @@ export function AccountDetailPage() {
   // snapshot list, exactly as a LOAN's amortization view does.
   const isPeerLoan = account?.type === 'PEER_LOAN'
   const hidesLedger = isLoan || isPeerLoan
+  const canStartPeerLoan = account ? CASH_ACCOUNT_TYPES.includes(account.type) : false
   // A freshly bank-synced livret is typed CHECKING until configured, so also surface the
   // section when it already has a config or the detector flagged it as a savings candidate.
   const savingsSuggestion = Array.isArray(savingsSuggestions)
@@ -204,6 +210,8 @@ export function AccountDetailPage() {
             onEdit={(tx) => setEditingTx(tx)}
             categories={categories}
             onCategorize={handleCategorize}
+            onCreatePeerLoan={setPeerLoanTx}
+            canCreatePeerLoan={() => canStartPeerLoan}
           />
         </>
       )}
@@ -477,6 +485,26 @@ export function AccountDetailPage() {
           setEditingHolding(null)
         }}
         isLoading={updateHoldingMutation.isPending}
+      />
+
+      {/* Create a peer loan from an outgoing transaction (the transaction becomes its
+          cash leg, so the outflow is not counted twice). */}
+      <CreatePeerLoanDialog
+        open={!!peerLoanTx}
+        onOpenChange={(open) => { if (!open) setPeerLoanTx(null) }}
+        transaction={peerLoanTx}
+        loading={createPeerLoan.isPending}
+        onSubmit={async (data) => {
+          try {
+            const created = await createPeerLoan.mutateAsync(data)
+            toast.success(t('peerLoan.fromTransaction.created'))
+            setPeerLoanTx(null)
+            navigate(`/accounts/${created.accountId}`)
+          } catch (err) {
+            toast.error(extractErrorMessage(err, t('common.error')))
+            throw err
+          }
+        }}
       />
 
       {/* Monthly history dialog */}

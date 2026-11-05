@@ -18,6 +18,10 @@ interface TransactionsListProps {
   logoUrlFor?: (brandId: number | null | undefined) => string | null
   categories?: Category[]
   onCategorize?: (txId: number, categoryId: number) => void
+  /** Turns an outgoing transaction into a peer loan. Absent where the action has no route. */
+  onCreatePeerLoan?: (tx: Transaction) => void
+  /** Whether this row can start a loan; defaults to "any outgoing movement". */
+  canCreatePeerLoan?: (tx: Transaction) => boolean
   /** Buttons rendered in the card header (add, import). The card stays visible when empty if set. */
   actions?: ReactNode
 }
@@ -29,6 +33,8 @@ export function TransactionsList({
   logoUrlFor,
   categories,
   onCategorize,
+  onCreatePeerLoan,
+  canCreatePeerLoan,
   actions,
 }: TransactionsListProps) {
   const { t, i18n } = useTranslation()
@@ -109,6 +115,8 @@ export function TransactionsList({
         logoUrlFor={logoUrlFor}
         categories={categories}
         onCategorize={onCategorize}
+        onCreatePeerLoan={onCreatePeerLoan}
+        canCreatePeerLoan={canCreatePeerLoan}
         onEdit={onEdit}
         onDelete={onDelete}
       />

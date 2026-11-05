@@ -198,6 +198,9 @@
     "manual": "Manuell",
     "allTypes": "Alle Typen",
     "accountName": "Kontoname",
+    "beneficiary": "Darlehensnehmer",
+    "beneficiaryPlaceholder": "Jean, Marie…",
+    "peerLoanSetupHint": "Der verliehene Betrag und das Girokonto werden im nächsten Schritt auf der Darlehensseite erfasst.",
     "accountType": "Kontotyp",
     "provider": "Anbieter",
     "bankPickerHint": "Wählen Sie Ihre Bank aus der Liste, um ihr Logo anzuzeigen.",
@@ -439,8 +442,10 @@
     "peerLoan": "Privatdarlehen"
   },
   "peerLoan": {
-    "termsDescription": "Der verliehene Betrag, die Person und optional ein Zinssatz und eine Prognose.",
-    "setupHint": "Geben Sie den verliehenen Betrag und den Schuldner ein, um die Nachverfolgung zu starten.",
+    "termsDescription": "Der verliehene Betrag, das Datum und optional ein Zinssatz und eine Prognose.",
+    "borrowerHint": "Der Darlehensnehmer ist der Name des Kontos. Ein Konto, ein Darlehen.",
+    "linkedAccountHint": "Erforderlich: das Konto, das die Rückzahlungen erhält, damit das Vermögen korrekt bleibt.",
+    "setupHint": "Geben Sie den verliehenen Betrag und das Girokonto ein, um die Nachverfolgung zu starten.",
     "saved": "Bedingungen gespeichert.",
     "repaymentSaved": "Rückzahlung erfasst.",
     "repaymentDeleted": "Rückzahlung gelöscht.",
@@ -455,8 +460,7 @@
     "closedHint": "Dieses Darlehen ist geschlossen. Löschen Sie den Forderungsverzicht, um es wieder zu öffnen.",
     "cashflowHint": "Damit dieses Darlehen nicht als Ausgabe zählt, ordnen Sie die passende Banküberweisung der Kategorie „Interner Transfer“ zu.",
     "fields": {
-      "counterparty": "Darlehensnehmer",
-      "counterpartyPlaceholder": "Marie, Paul…",
+      "beneficiary": "Darlehensnehmer",
       "principal": "Verliehener Betrag",
       "lentAt": "Datum des Darlehens",
       "expectedBack": "Erwartete Rückzahlung",
@@ -464,7 +468,7 @@
       "plannedMonths": "Geplante Laufzeit (Monate)",
       "plannedMonthly": "Geplante Monatsrate",
       "linkedAccount": "Verknüpftes Girokonto",
-      "noLinkedAccount": "Keins",
+      "selectLinkedAccount": "Konto auswählen",
       "note": "Notiz",
       "paidOn": "Datum",
       "amount": "Betrag",
@@ -500,13 +504,14 @@
       "simulationResult": "{{months}} Monate · {{monthlyPayment}} €/Monat · {{interest}} € Zinsen",
       "accruedHint": "Bisher aufgelaufene Zinsen:"
     },
-    "history": {
-      "title": "Historie — {{name}}",
-      "loans": "Darlehen",
-      "totalLent": "Gesamt verliehen",
-      "recovered": "Zurückerhalten",
-      "averageDelay": "Durchschnittliche Verzögerung",
-      "days": "{{count}} T"
+    "fromTransaction": {
+      "action": "Privatdarlehen erstellen",
+      "title": "Darlehen aus dieser Buchung erstellen",
+      "description": "Das Geld ist bereits abgeflossen: Diese Buchung wird die Cash-Seite des Darlehens, ohne kopiert zu werden.",
+      "beneficiaryHint": "Dieser Name wird der Kontoname und identifiziert das Darlehen.",
+      "beneficiaryRequired": "Der Darlehensnehmer ist erforderlich.",
+      "confirm": "Darlehen erstellen",
+      "created": "Darlehen erstellt."
     },
     "actions": {
       "close": "Darlehen schließen",
@@ -519,7 +524,7 @@
     },
     "validation": {
       "principal": "Der verliehene Betrag muss größer als null sein.",
-      "counterparty": "Der Darlehensnehmer ist erforderlich.",
+      "linkedAccount": "Das Girokonto ist erforderlich.",
       "lentAt": "Das Datum des Darlehens ist erforderlich.",
       "plan": "Geben Sie eine Laufzeit oder eine Monatsrate an, nicht beides.",
       "simulation": "Diese Prognose konnte nicht berechnet werden.",

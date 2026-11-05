@@ -550,7 +550,6 @@ export interface PeerLoanRepayment {
 
 export interface PeerLoanTermsRequest {
   principal: number
-  counterpartyName: string
   lentAt: string
   expectedBack?: string | null
   /** Annual rate as a fraction (0.02 = 2 %). Null/absent = interest-free. */
@@ -558,8 +557,15 @@ export interface PeerLoanTermsRequest {
   /** Forecast only: both fields go together, or neither. */
   plannedMonthlyAmount?: number | null
   plannedMonths?: number | null
-  linkedAccountId?: number | null
+  /** Required: the receivable must balance a real cash movement. */
+  linkedAccountId: number
   note?: string | null
+}
+
+export interface PeerLoanFromTransactionRequest {
+  transactionId: number
+  /** Defaults to the transaction's merchant label or description. */
+  beneficiary?: string | null
 }
 
 export interface PeerLoanRepaymentRequest {
@@ -583,38 +589,13 @@ export interface PeerLoanSimulationResponse {
   totalCost: number
 }
 
-export interface PeerLoanBrief {
-  accountId: number
-  accountName: string
-  principal: number
-  remaining: number
-  lentAt?: string | null
-  closedAt?: string | null
-}
-
 /** Facts only: no score, no predicted risk. */
-export interface PeerCounterpartyHistory {
-  id: number
-  name?: string | null
-  loanCount: number
-  openLoans: number
-  closedLoans: number
-  totalLent: number
-  totalRecovered: number
-  totalWrittenOff: number
-  totalInterestReceived: number
-  averageClosureDelayDays?: number | null
-  openExposure: number
-  loans: PeerLoanBrief[]
-}
-
 export interface PeerLoanDetail {
   accountId: number
+  /** The borrower: one account is one loan, so its own name identifies the debt. */
   accountName: string
   /** False while the account exists without terms yet. */
   configured: boolean
-  counterpartyId?: number | null
-  counterpartyName?: string | null
   principal: number
   lentAt?: string | null
   expectedBack?: string | null
@@ -636,7 +617,6 @@ export interface PeerLoanDetail {
   scheduledRemaining?: number | null
   installmentsBehind?: number | null
   repayments: PeerLoanRepayment[]
-  counterpartyHistory?: PeerCounterpartyHistory | null
 }
 
 export interface BalanceSnapshot {

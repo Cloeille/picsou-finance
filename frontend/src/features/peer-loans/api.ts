@@ -1,6 +1,7 @@
 import { api } from '@/lib/api-client'
 import type {
   PeerLoanDetail,
+  PeerLoanFromTransactionRequest,
   PeerLoanRepayment,
   PeerLoanRepaymentRequest,
   PeerLoanSimulationRequest,
@@ -29,4 +30,6 @@ export const peerLoansApi = {
     ).then(r => r.data),
   simulate: (data: PeerLoanSimulationRequest) =>
     api.post<PeerLoanSimulationResponse>('/peer-loans/simulate', data).then(r => r.data),
+  createFromTransaction: (data: PeerLoanFromTransactionRequest) =>
+    api.post<PeerLoanDetail>('/peer-loans/from-transaction', data).then(r => r.data),
 }

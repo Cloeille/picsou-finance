@@ -209,6 +209,9 @@
     "manual": "Manuel",
     "allTypes": "Tous les types",
     "accountName": "Nom du compte",
+    "beneficiary": "Bénéficiaire",
+    "beneficiaryPlaceholder": "Jean, Marie…",
+    "peerLoanSetupHint": "Le montant prêté et le compte de trésorerie se renseignent à l'étape suivante, sur la page du prêt.",
     "accountType": "Type de compte",
     "provider": "Établissement",
     "bankPickerHint": "Choisissez votre banque dans la liste pour afficher son logo.",
@@ -450,8 +453,10 @@
     "peerLoan": "Prêt entre particuliers"
   },
   "peerLoan": {
-    "termsDescription": "Le montant prêté, la personne, et si besoin un taux et une prévision.",
-    "setupHint": "Renseignez le montant prêté et le destinataire pour commencer le suivi.",
+    "termsDescription": "Le montant prêté, la date, et si besoin un taux et une prévision.",
+    "borrowerHint": "Le bénéficiaire est le nom du compte. Un compte = un prêt.",
+    "linkedAccountHint": "Obligatoire : le compte qui reçoit les remboursements, pour que le patrimoine reste juste.",
+    "setupHint": "Renseignez le montant prêté et le compte de trésorerie pour commencer le suivi.",
     "saved": "Conditions enregistrées.",
     "repaymentSaved": "Remboursement enregistré.",
     "repaymentDeleted": "Remboursement supprimé.",
@@ -466,8 +471,7 @@
     "closedHint": "Ce prêt est clôturé. Supprimez l'abandon pour le rouvrir.",
     "cashflowHint": "Pour que ce prêt ne soit pas compté comme une dépense, classez le virement bancaire correspondant dans la catégorie « Virement interne ».",
     "fields": {
-      "counterparty": "Destinataire",
-      "counterpartyPlaceholder": "Marie, Paul…",
+      "beneficiary": "Bénéficiaire",
       "principal": "Montant prêté",
       "lentAt": "Date du prêt",
       "expectedBack": "Retour prévu",
@@ -475,7 +479,7 @@
       "plannedMonths": "Durée prévue (mois)",
       "plannedMonthly": "Mensualité prévue",
       "linkedAccount": "Compte de trésorerie lié",
-      "noLinkedAccount": "Aucun",
+      "selectLinkedAccount": "Sélectionner un compte",
       "note": "Note",
       "paidOn": "Date",
       "amount": "Montant",
@@ -511,13 +515,14 @@
       "simulationResult": "{{months}} mois · {{monthlyPayment}} €/mois · {{interest}} € d'intérêts",
       "accruedHint": "Intérêts courus à ce jour :"
     },
-    "history": {
-      "title": "Historique — {{name}}",
-      "loans": "Prêts",
-      "totalLent": "Total prêté",
-      "recovered": "Récupéré",
-      "averageDelay": "Retard moyen",
-      "days": "{{count}} j"
+    "fromTransaction": {
+      "action": "Créer un prêt entre particuliers",
+      "title": "Créer un prêt depuis cette transaction",
+      "description": "La sortie d'argent existe déjà : elle devient la jambe cash du prêt, sans être recréée.",
+      "beneficiaryHint": "Ce nom devient celui du compte, et identifie le prêt.",
+      "beneficiaryRequired": "Le bénéficiaire est requis.",
+      "confirm": "Créer le prêt",
+      "created": "Prêt créé."
     },
     "actions": {
       "close": "Clôturer le prêt",
@@ -530,7 +535,7 @@
     },
     "validation": {
       "principal": "Le montant prêté doit être supérieur à zéro.",
-      "counterparty": "Le destinataire est requis.",
+      "linkedAccount": "Le compte de trésorerie est requis.",
       "lentAt": "La date du prêt est requise.",
       "plan": "Renseignez une durée ou une mensualité, mais pas les deux.",
       "simulation": "Impossible de calculer cette prévision.",

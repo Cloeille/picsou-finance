@@ -20,7 +20,7 @@ import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { extractErrorMessage } from '@/lib/errors'
 import { formatLocalDate, formatPercent, localeFromLanguage } from '@/lib/utils'
-import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
+import { CASH_ACCOUNT_TYPES } from '@/lib/constants'
 import { PeerLoanTermsDialog } from './PeerLoanTermsDialog'
 import { PeerLoanRepaymentDialog } from './PeerLoanRepaymentDialog'
 import type {
@@ -76,14 +76,10 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
 
   const failure = (err: unknown) => toast.error(extractErrorMessage(err, t('common.error')))
 
-  // The linked account is a reconciliation hint only: a manual account's own balance and
-  // the synced bank row are what actually move. Offering only spendable accounts keeps a
-  // loan from being pointed at a holding or another loan.
+  // The linked account is the cash counterpart of the asset swap. Offering only
+  // spendable accounts keeps a loan from being pointed at a holding or another loan.
   const cashAccounts = (accounts ?? []).filter(account =>
-    account.id !== accountId
-    && !HOLDING_ACCOUNT_TYPES.includes(account.type)
-    && !LIABILITY_ACCOUNT_TYPES.includes(account.type)
-    && account.type !== 'PEER_LOAN',
+    account.id !== accountId && CASH_ACCOUNT_TYPES.includes(account.type),
   )
 
   async function handleSaveTerms(values: PeerLoanTermsRequest) {
@@ -131,7 +127,6 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
   }
 
   const pct = Math.max(0, Math.min(100, data.repaidPct))
-  const history = data.counterpartyHistory
   const ledger = [...data.repayments].reverse()
 
   return (
@@ -139,7 +134,7 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-            <span>{data.counterpartyName ?? data.accountName}</span>
+            <span>{data.accountName}</span>
             <Badge variant={data.closedAt ? 'secondary' : 'default'}>
               {data.closedAt ? t('peerLoan.summary.closed') : t('peerLoan.summary.open')}
             </Badge>
@@ -175,14 +170,14 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
               <div className="space-y-2">
                 <Progress value={pct} className="h-2" />
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  <span>
+                  <span className="text-emerald-500">
                     {t('peerLoan.summary.principalRepaid')} <CurrencyDisplay value={data.principalRepaid} />
                   </span>
-                  <span>
+                  <span className="text-emerald-500">
                     {t('peerLoan.summary.interestReceived')} <CurrencyDisplay value={data.interestReceived} />
                   </span>
                   {data.writtenOff > 0 && (
-                    <span>
+                    <span className="text-red-500">
                       {t('peerLoan.summary.writtenOff')} <CurrencyDisplay value={data.writtenOff} />
                     </span>
                   )}
@@ -284,7 +279,10 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                   {repayment.note && <span className="truncate text-xs text-muted-foreground">{repayment.note}</span>}
                 </div>
                 <div className="flex items-center gap-2">
-                  <CurrencyDisplay value={repayment.amount} className="text-sm font-semibold" />
+                  <span className={repayment.kind === 'WRITE_OFF' ? 'text-red-500' : 'text-emerald-500'}>
+                    {repayment.kind === 'WRITE_OFF' ? '−' : '+'}
+                    <CurrencyDisplay value={repayment.amount} className="text-sm font-semibold" />
+                  </span>
                   {!data.closedAt && (
                     <>
                       <Button
@@ -305,44 +303,6 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
           )}
         </CardContent>
       </Card>
-      )}
-
-      {history && history.loanCount > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">
-              {t('peerLoan.history.title', { name: history.name ?? '' })}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Stat label={t('peerLoan.history.loans')} value={String(history.loanCount)} />
-              <Stat label={t('peerLoan.history.totalLent')} value={<CurrencyDisplay value={history.totalLent} />} />
-              <Stat label={t('peerLoan.history.recovered')} value={<CurrencyDisplay value={history.totalRecovered} />} />
-              <Stat
-                label={t('peerLoan.history.averageDelay')}
-                value={history.averageClosureDelayDays == null
-                  ? '—'
-                  : t('peerLoan.history.days', { count: history.averageClosureDelayDays })}
-              />
-            </div>
-            <div className="space-y-1">
-              {history.loans.map(loan => (
-                <div key={loan.accountId} className="flex items-center justify-between text-sm">
-                  <span className="truncate">
-                    {loan.accountName}
-                    {loan.closedAt ? ` · ${t('peerLoan.summary.closed')}` : ''}
-                  </span>
-                  <span className="flex gap-3 text-muted-foreground">
-                    <CurrencyDisplay value={loan.principal} />
-                    <span>→</span>
-                    <CurrencyDisplay value={loan.remaining} />
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
       )}
 
       <PeerLoanTermsDialog

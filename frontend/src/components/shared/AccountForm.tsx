@@ -162,7 +162,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
   // save, and a non-euro currency would be converted a second time on the withdrawal value.
   const previousType = useRef(selectedType)
   useEffect(() => {
-    if (selectedType === 'SCPI' && previousType.current !== 'SCPI') {
+    if ((selectedType === 'SCPI' || selectedType === 'PEER_LOAN') && previousType.current !== selectedType) {
       setValue('currentBalance', undefined, { shouldValidate: true })
       setValue('currency', 'EUR', { shouldValidate: true })
     }
@@ -177,7 +177,7 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
   }
 
   function handleFormSubmit(data: AccountFormData) {
-    if (data.type !== 'SCPI') {
+    if (data.type !== 'SCPI' && data.type !== 'PEER_LOAN') {
       onSubmit(data)
       return
     }
@@ -195,8 +195,16 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
         </DialogHeader>
         <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="name">{t('accounts.accountName')}</Label>
-            <Input id="name" {...register('name')} placeholder="PEA Boursorama" />
+            <Label htmlFor="name">
+              {selectedType === 'PEER_LOAN' ? t('accounts.beneficiary') : t('accounts.accountName')}
+            </Label>
+            <Input
+              id="name"
+              {...register('name')}
+              placeholder={selectedType === 'PEER_LOAN'
+                ? t('accounts.beneficiaryPlaceholder')
+                : 'PEA Boursorama'}
+            />
           </div>
 
           <div className="space-y-2">
@@ -214,33 +222,39 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="currency">{t('common.currency')}</Label>
-              <select
-                id="currency"
-                {...register('currency')}
-                className={SELECT_CONTROL_CLASS}
-                disabled={selectedType === 'SCPI'}
-              >
-                {currencyOptions.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {selectedType !== 'SCPI' && (
+          {selectedType !== 'PEER_LOAN' && (
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="balance">
-                  {selectedType === 'LOAN'
-                    ? t('debt.remaining')
-                    : selectedType === 'CREDIT_CARD' ? t('accounts.currentDebt') : t('accounts.balance')}
-                </Label>
-                <NumericInput id="balance" {...register('currentBalance', { setValueAs: toOptionalNumber })} />
+                <Label htmlFor="currency">{t('common.currency')}</Label>
+                <select
+                  id="currency"
+                  {...register('currency')}
+                  className={SELECT_CONTROL_CLASS}
+                  disabled={selectedType === 'SCPI'}
+                >
+                  {currencyOptions.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
               </div>
-            )}
-          </div>
+              {selectedType !== 'SCPI' && (
+                <div className="space-y-2">
+                  <Label htmlFor="balance">
+                    {selectedType === 'LOAN'
+                      ? t('debt.remaining')
+                      : selectedType === 'CREDIT_CARD' ? t('accounts.currentDebt') : t('accounts.balance')}
+                  </Label>
+                  <NumericInput id="balance" {...register('currentBalance', { setValueAs: toOptionalNumber })} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {selectedType === 'PEER_LOAN' && (
+            <p className="text-sm text-muted-foreground">{t('accounts.peerLoanSetupHint')}</p>
+          )}
 
           {OPENING_DATE_TYPES.includes(selectedType) && (
             <div className="space-y-2">
@@ -256,7 +270,8 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
             </div>
           )}
 
-          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && selectedType !== 'SCPI' && (
+          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && selectedType !== 'SCPI'
+            && selectedType !== 'PEER_LOAN' && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="provider">{t('accounts.provider')}</Label>
@@ -392,14 +407,16 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
             </div>
           )}
 
-          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && selectedType !== 'SCPI' && (
+          {selectedType !== 'REAL_ESTATE' && selectedType !== 'LOAN' && selectedType !== 'SCPI'
+            && selectedType !== 'PEER_LOAN' && (
             <div className="flex min-h-10 items-center gap-2">
               <input id="isManual" type="checkbox" {...register('isManual')} className="h-5 w-5 rounded accent-primary" />
               <Label htmlFor="isManual">{t('accounts.manual')}</Label>
             </div>
           )}
 
-          {(selectedType === 'REAL_ESTATE' || selectedType === 'LOAN' || selectedType === 'SCPI') && (
+          {(selectedType === 'REAL_ESTATE' || selectedType === 'LOAN' || selectedType === 'SCPI'
+            || selectedType === 'PEER_LOAN') && (
             <input type="hidden" {...register('isManual')} value="true" />
           )}
 

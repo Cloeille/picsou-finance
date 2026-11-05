@@ -1,9 +1,14 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Receipt } from 'lucide-react'
+import { toast } from 'sonner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { TransactionsList } from '@/components/shared/TransactionsList'
+import { CreatePeerLoanDialog } from '@/components/peer-loan/CreatePeerLoanDialog'
+import { useCreatePeerLoanFromTransaction } from '@/features/peer-loans/hooks'
+import { extractErrorMessage } from '@/lib/errors'
 import { useMerchantLogoUrl } from '@/features/budget/hooks'
 import { useTransactions } from '@/features/budget/hooks'
 import { useCategories, useCategorize } from '@/features/budget/hooks'
@@ -12,6 +17,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { DateInput } from '@/components/shared/DateInput'
 import { NativeSelect } from '@/components/shared/NativeSelect'
+import { CASH_ACCOUNT_TYPES } from '@/lib/constants'
+import type { Transaction } from '@/types/api'
 
 function startOfMonth(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
@@ -27,16 +34,19 @@ const now = new Date()
 export function BudgetTransactionsPage() {
   const { t } = useTranslation()
   const qc = useQueryClient()
+  const navigate = useNavigate()
 
   const [from, setFrom] = useState(startOfMonth(now))
   const [to, setTo] = useState(endOfMonth(now))
   const [accountId, setAccountId] = useState<number | undefined>()
   const [categoryId, setCategoryId] = useState<number | undefined>()
+  const [peerLoanTx, setPeerLoanTx] = useState<Transaction | null>(null)
 
   const { data: accounts } = useAccounts()
   const { data: categories } = useCategories()
   const { data: transactions, isLoading, isError, refetch } = useTransactions({ from, to, accountId, categoryId })
   const categorizeMutation = useCategorize()
+  const createPeerLoan = useCreatePeerLoanFromTransaction()
   const logoUrlFor = useMerchantLogoUrl()
 
   function handleCategorize(txId: number, catId: number) {
@@ -103,8 +113,29 @@ export function BudgetTransactionsPage() {
           logoUrlFor={logoUrlFor}
           categories={categories}
           onCategorize={handleCategorize}
+          onCreatePeerLoan={setPeerLoanTx}
+          canCreatePeerLoan={(tx) => tx.amount < 0
+            && !!accounts?.find(a => a.id === tx.accountId && CASH_ACCOUNT_TYPES.includes(a.type))}
         />
       )}
+
+      <CreatePeerLoanDialog
+        open={!!peerLoanTx}
+        onOpenChange={(open) => { if (!open) setPeerLoanTx(null) }}
+        transaction={peerLoanTx}
+        loading={createPeerLoan.isPending}
+        onSubmit={async (data) => {
+          try {
+            const created = await createPeerLoan.mutateAsync(data)
+            toast.success(t('peerLoan.fromTransaction.created'))
+            setPeerLoanTx(null)
+            navigate(`/accounts/${created.accountId}`)
+          } catch (err) {
+            toast.error(extractErrorMessage(err, t('common.error')))
+            throw err
+          }
+        }}
+      />
     </div>
   )
 }

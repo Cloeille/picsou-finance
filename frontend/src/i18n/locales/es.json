@@ -198,6 +198,9 @@
     "manual": "Manual",
     "allTypes": "Todos los tipos",
     "accountName": "Nombre de la cuenta",
+    "beneficiary": "Destinatario",
+    "beneficiaryPlaceholder": "Jean, Marie…",
+    "peerLoanSetupHint": "El importe prestado y la cuenta de tesorería se indican en el paso siguiente, en la página del préstamo.",
     "accountType": "Tipo de cuenta",
     "provider": "Entidad",
     "bankPickerHint": "Elige tu banco de la lista para mostrar su logotipo.",
@@ -439,8 +442,10 @@
     "peerLoan": "Préstamo entre particulares"
   },
   "peerLoan": {
-    "termsDescription": "El importe prestado, la persona y, opcionalmente, un tipo de interés y una previsión.",
-    "setupHint": "Introduce el importe prestado y el destinatario para empezar el seguimiento.",
+    "termsDescription": "El importe prestado, la fecha y, opcionalmente, un tipo de interés y una previsión.",
+    "borrowerHint": "El destinatario es el nombre de la cuenta. Una cuenta, un préstamo.",
+    "linkedAccountHint": "Obligatoria: la cuenta que recibe las devoluciones, para que el patrimonio sea correcto.",
+    "setupHint": "Introduce el importe prestado y la cuenta de tesorería para empezar el seguimiento.",
     "saved": "Condiciones guardadas.",
     "repaymentSaved": "Devolución registrada.",
     "repaymentDeleted": "Devolución eliminada.",
@@ -455,8 +460,7 @@
     "closedHint": "Este préstamo está cerrado. Elimina la condonación para reabrirlo.",
     "cashflowHint": "Para que este préstamo no cuente como gasto, clasifica la transferencia bancaria correspondiente como «Transferencia interna».",
     "fields": {
-      "counterparty": "Destinatario",
-      "counterpartyPlaceholder": "Marie, Paul…",
+      "beneficiary": "Destinatario",
       "principal": "Importe prestado",
       "lentAt": "Fecha del préstamo",
       "expectedBack": "Devolución prevista",
@@ -464,7 +468,7 @@
       "plannedMonths": "Duración prevista (meses)",
       "plannedMonthly": "Cuota mensual prevista",
       "linkedAccount": "Cuenta de tesorería vinculada",
-      "noLinkedAccount": "Ninguna",
+      "selectLinkedAccount": "Seleccionar una cuenta",
       "note": "Nota",
       "paidOn": "Fecha",
       "amount": "Importe",
@@ -500,13 +504,14 @@
       "simulationResult": "{{months}} meses · {{monthlyPayment}} €/mes · {{interest}} € de intereses",
       "accruedHint": "Intereses devengados:"
     },
-    "history": {
-      "title": "Historial — {{name}}",
-      "loans": "Préstamos",
-      "totalLent": "Total prestado",
-      "recovered": "Recuperado",
-      "averageDelay": "Retraso medio",
-      "days": "{{count}} d"
+    "fromTransaction": {
+      "action": "Crear un préstamo entre particulares",
+      "title": "Crear un préstamo desde esta transacción",
+      "description": "El dinero ya salió: esta transacción se convierte en la parte de efectivo del préstamo, sin copiarla.",
+      "beneficiaryHint": "Este nombre pasa a ser el de la cuenta e identifica el préstamo.",
+      "beneficiaryRequired": "El destinatario es obligatorio.",
+      "confirm": "Crear el préstamo",
+      "created": "Préstamo creado."
     },
     "actions": {
       "close": "Cerrar el préstamo",
@@ -519,7 +524,7 @@
     },
     "validation": {
       "principal": "El importe prestado debe ser mayor que cero.",
-      "counterparty": "El destinatario es obligatorio.",
+      "linkedAccount": "La cuenta de tesorería es obligatoria.",
       "lentAt": "La fecha del préstamo es obligatoria.",
       "plan": "Indica una duración o una cuota, pero no ambas.",
       "simulation": "No se pudo calcular esta previsión.",

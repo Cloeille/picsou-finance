@@ -50,7 +50,6 @@ export function PeerLoanTermsDialog({
   const money = useMoney()
   const simulate = usePeerLoanSimulation()
 
-  const [counterparty, setCounterparty] = useState('')
   const [principal, setPrincipal] = useState('')
   const [lentAt, setLentAt] = useState('')
   const [expectedBack, setExpectedBack] = useState('')
@@ -68,7 +67,6 @@ export function PeerLoanTermsDialog({
   if (open !== wasOpen) {
     setWasOpen(open)
     if (open) {
-      setCounterparty(initial?.counterpartyName ?? '')
       setPrincipal(text(initial?.principal))
       setLentAt(initial?.lentAt ?? new Date().toISOString().slice(0, 10))
       setExpectedBack(initial?.expectedBack ?? '')
@@ -125,12 +123,13 @@ export function PeerLoanTermsDialog({
       setError(t('peerLoan.validation.principal'))
       return
     }
-    if (!counterparty.trim()) {
-      setError(t('peerLoan.validation.counterparty'))
-      return
-    }
     if (!lentAt) {
       setError(t('peerLoan.validation.lentAt'))
+      return
+    }
+    const linkedValue = numberOrNull(linkedAccountId)
+    if (linkedValue == null) {
+      setError(t('peerLoan.validation.linkedAccount'))
       return
     }
     const monthCount = numberOrNull(months)
@@ -142,13 +141,12 @@ export function PeerLoanTermsDialog({
     try {
       await onSubmit({
         principal: principalValue,
-        counterpartyName: counterparty.trim(),
         lentAt,
         expectedBack: expectedBack || null,
         annualRate: (numberOrNull(ratePct) ?? 0) / 100,
         plannedMonthlyAmount: monthlyValue,
         plannedMonths: monthCount,
-        linkedAccountId: numberOrNull(linkedAccountId),
+        linkedAccountId: linkedValue,
         note: note.trim() || null,
       })
       onOpenChange(false)
@@ -166,16 +164,7 @@ export function PeerLoanTermsDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="peer-counterparty">{t('peerLoan.fields.counterparty')}</Label>
-            <Input
-              id="peer-counterparty"
-              value={counterparty}
-              onChange={(e) => setCounterparty(e.target.value)}
-              maxLength={120}
-              placeholder={t('peerLoan.fields.counterpartyPlaceholder')}
-            />
-          </div>
+          <p className="text-sm text-muted-foreground">{t('peerLoan.borrowerHint')}</p>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
@@ -232,11 +221,12 @@ export function PeerLoanTermsDialog({
               value={linkedAccountId}
               onChange={(e) => setLinkedAccountId(e.target.value)}
             >
-              <option value="">{t('peerLoan.fields.noLinkedAccount')}</option>
+              <option value="">{t('peerLoan.fields.selectLinkedAccount')}</option>
               {cashAccounts.map(account => (
                 <option key={account.id} value={account.id}>{account.name}</option>
               ))}
             </select>
+            <p className="text-xs text-muted-foreground">{t('peerLoan.linkedAccountHint')}</p>
           </div>
 
           <div className="space-y-2">

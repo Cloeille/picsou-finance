@@ -33,6 +33,15 @@ export const NON_LEDGER_ACCOUNT_TYPES: AccountType[] = [
 ]
 
 /**
+ * Spendable cash accounts, the only ones a peer loan can draw from or repay into.
+ * Mirrors the backend's `CASH_TYPES`; a property or a brokerage account never funds a
+ * private loan.
+ */
+export const CASH_ACCOUNT_TYPES: AccountType[] = [
+  'CHECKING', 'SAVINGS', 'LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL',
+]
+
+/**
  * Account types whose value comes from `account_holding` lines rather than a stored
  * balance — the client-side mirror of the backend's `AccountType.isInvestment()`, plus
  * `EMPLOYEE_SAVINGS`, whose FCPE lines arrive from the Amundi sync rather than from

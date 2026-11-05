@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { QUERY_STALE_TIMES } from '@/lib/constants'
 import type {
+  PeerLoanFromTransactionRequest,
   PeerLoanRepaymentRequest,
   PeerLoanSimulationRequest,
   PeerLoanTermsRequest,
@@ -75,5 +76,17 @@ export function usePeerLoanSimulation() {
     mutationFn: (data: PeerLoanSimulationRequest) => peerLoansApi.simulate(data),
     when: 'settled',
     invalidates: [],
+  })
+}
+
+/**
+ * Turns an existing outgoing transaction into a loan. The new account id is in the
+ * response, so the caller navigates to it; every aggregate that saw the transaction
+ * (accounts, dashboard, history) is refreshed.
+ */
+export function useCreatePeerLoanFromTransaction() {
+  return useInvalidatingMutation({
+    mutationFn: (data: PeerLoanFromTransactionRequest) => peerLoansApi.createFromTransaction(data),
+    invalidates: [['accounts'], ['dashboard'], ['history'], ['net-worth-intraday']],
   })
 }

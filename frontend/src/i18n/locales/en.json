@@ -209,6 +209,9 @@
     "manual": "Manual",
     "allTypes": "All types",
     "accountName": "Account name",
+    "beneficiary": "Borrower",
+    "beneficiaryPlaceholder": "Jean, Marie…",
+    "peerLoanSetupHint": "The amount lent and the cash account are entered on the next step, on the loan page.",
     "accountType": "Account type",
     "provider": "Provider",
     "bankPickerHint": "Pick your bank from the list to show its logo.",
@@ -450,8 +453,10 @@
     "peerLoan": "Peer loan"
   },
   "peerLoan": {
-    "termsDescription": "The amount lent, the person, and optionally a rate and a forecast.",
-    "setupHint": "Enter the amount lent and the borrower to start tracking.",
+    "termsDescription": "The amount lent, the date, and optionally a rate and a forecast.",
+    "borrowerHint": "The borrower is the account's own name. One account, one loan.",
+    "linkedAccountHint": "Required: the account that receives the repayments, so net worth stays correct.",
+    "setupHint": "Enter the amount lent and the cash account to start tracking.",
     "saved": "Terms saved.",
     "repaymentSaved": "Repayment recorded.",
     "repaymentDeleted": "Repayment deleted.",
@@ -466,8 +471,7 @@
     "closedHint": "This loan is closed. Delete its write-off to reopen it.",
     "cashflowHint": "So this loan is not counted as spending, categorise the matching bank transfer as 'Internal transfer'.",
     "fields": {
-      "counterparty": "Borrower",
-      "counterpartyPlaceholder": "Marie, Paul…",
+      "beneficiary": "Borrower",
       "principal": "Amount lent",
       "lentAt": "Lending date",
       "expectedBack": "Expected return",
@@ -475,7 +479,7 @@
       "plannedMonths": "Planned duration (months)",
       "plannedMonthly": "Planned monthly payment",
       "linkedAccount": "Linked cash account",
-      "noLinkedAccount": "None",
+      "selectLinkedAccount": "Select an account",
       "note": "Note",
       "paidOn": "Date",
       "amount": "Amount",
@@ -511,13 +515,14 @@
       "simulationResult": "{{months}} months · {{monthlyPayment}} €/month · {{interest}} € of interest",
       "accruedHint": "Interest accrued so far:"
     },
-    "history": {
-      "title": "History — {{name}}",
-      "loans": "Loans",
-      "totalLent": "Total lent",
-      "recovered": "Recovered",
-      "averageDelay": "Average delay",
-      "days": "{{count}} d"
+    "fromTransaction": {
+      "action": "Create a peer loan",
+      "title": "Create a loan from this transaction",
+      "description": "The money already left: this transaction becomes the loan's cash leg, without being copied.",
+      "beneficiaryHint": "This name becomes the account's name and identifies the loan.",
+      "beneficiaryRequired": "The borrower is required.",
+      "confirm": "Create the loan",
+      "created": "Loan created."
     },
     "actions": {
       "close": "Close the loan",
@@ -530,7 +535,7 @@
     },
     "validation": {
       "principal": "The amount lent must be greater than zero.",
-      "counterparty": "The borrower is required.",
+      "linkedAccount": "The cash account is required.",
       "lentAt": "The lending date is required.",
       "plan": "Provide a duration or a monthly payment, but not both.",
       "simulation": "This forecast could not be computed.",

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Pencil, Trash2 } from 'lucide-react'
+import { Coins, Pencil, Trash2 } from 'lucide-react'
 import type { Category, Transaction } from '@/types/api'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { MerchantAvatar } from '@/components/shared/MerchantAvatar'
@@ -29,6 +29,9 @@ interface TransactionDetailSheetProps {
   logoUrlFor?: (brandId: number | null | undefined) => string | null
   categories?: Category[]
   onCategorize?: (txId: number, categoryId: number) => void
+  onCreatePeerLoan?: (tx: Transaction) => void
+  /** Whether this row can start a loan; defaults to "any outgoing movement". */
+  canCreatePeerLoan?: (tx: Transaction) => boolean
   onEdit?: (tx: Transaction) => void
   onDelete?: (txId: number) => void
 }
@@ -40,6 +43,8 @@ export function TransactionDetailSheet({
   logoUrlFor,
   categories,
   onCategorize,
+  onCreatePeerLoan,
+  canCreatePeerLoan,
   onEdit,
   onDelete,
 }: TransactionDetailSheetProps) {
@@ -66,6 +71,7 @@ export function TransactionDetailSheet({
 
   const label = tx.merchantLabel || transactionDescription(tx, t)
   const canCategorize = !tx.isManual && !!onCategorize && !!categories
+  const canStartLoan = !!onCreatePeerLoan && (canCreatePeerLoan ? canCreatePeerLoan(tx) : tx.amount < 0)
 
   function confirmCategory() {
     if (!tx || pendingCategoryId === '') return
@@ -143,6 +149,23 @@ export function TransactionDetailSheet({
           <span className="font-medium">{tx.category}</span>
         </div>
       ) : null}
+
+      {/* A loan can start from the outflow itself: the transaction becomes the cash leg
+          instead of being copied, so net worth stays neutral. */}
+      {canStartLoan && (
+        <>
+          <Separator />
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => { onCreatePeerLoan(tx); onClose() }}
+          >
+            <Coins size={14} className="mr-1.5" />
+            {t('peerLoan.fromTransaction.action')}
+          </Button>
+        </>
+      )}
 
       {/* Actions for manual transactions */}
       {tx.isManual && (onEdit || onDelete) && (
