@@ -5,7 +5,7 @@ import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
 import { AXIS_PROPS } from '@/lib/chart-axis'
 import { MONEY_AXIS_WIDTH } from '@/lib/money'
 import { useMoney } from '@/hooks/use-money'
-import { localeFromLanguage } from '@/lib/utils'
+import { localeFromLanguage, toDate } from '@/lib/utils'
 import type { PeerLoanCurvePoint } from '@/types/api'
 
 interface PeerLoanForecastChartProps {
@@ -37,7 +37,7 @@ export function PeerLoanForecastChart({ data, hasPlan }: PeerLoanForecastChartPr
         <XAxis
           dataKey="date"
           {...AXIS_PROPS}
-          tickFormatter={(value) => new Date(value).toLocaleDateString(locale, {
+          tickFormatter={(value) => toDate(String(value)).toLocaleDateString(locale, {
             month: 'short',
             year: '2-digit',
           })}
@@ -50,7 +50,7 @@ export function PeerLoanForecastChart({ data, hasPlan }: PeerLoanForecastChartPr
               labelFormatter={(value) => new Intl.DateTimeFormat(locale, {
                 month: 'short',
                 year: 'numeric',
-              }).format(new Date(String(value)))}
+              }).format(toDate(String(value)))}
             />
           }
         />

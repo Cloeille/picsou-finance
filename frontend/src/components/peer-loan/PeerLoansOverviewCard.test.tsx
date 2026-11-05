@@ -94,13 +94,22 @@ describe('PeerLoansOverviewCard', () => {
     expect(screen.getByText('peerLoan.overview.status.onTime')).toBeInTheDocument()
   })
 
-  it('opens the loan when its row is clicked or activated by keyboard', () => {
+  it('opens the loan from a native button, keyboard included', () => {
     render(<PeerLoansOverviewCard data={overview} />)
 
-    fireEvent.click(screen.getByText('Sophie'))
+    // The borrower cell is a real button, so Enter/Space activation is the browser's own
+    // behaviour rather than a hand-rolled key handler on a non-interactive row.
+    const sophie = screen.getByRole('button', { name: 'Sophie' })
+    const jean = screen.getByRole('button', { name: 'Jean' })
+    expect(sophie.tagName).toBe('BUTTON')
+    expect(jean.tagName).toBe('BUTTON')
+
+    fireEvent.click(sophie)
     expect(navigate).toHaveBeenCalledWith('/accounts/17')
 
-    fireEvent.keyDown(screen.getByText('Jean'), { key: 'Enter' })
+    jean.focus()
+    expect(jean).toHaveFocus()
+    fireEvent.click(jean)
     expect(navigate).toHaveBeenCalledWith('/accounts/16')
   })
 })

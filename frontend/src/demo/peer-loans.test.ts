@@ -64,7 +64,10 @@ describe('demo peer loan', () => {
     expect(overview.closedCount).toBe(0)
     expect(overview.totalOutstanding).toBeCloseTo(
       overview.loans.reduce((sum, loan) => sum + loan.principalRemaining, 0), 2)
-    expect(overview.loans.some((loan) => (loan.installmentsBehind ?? 0) > 0)).toBe(true)
+    // Assert Sophie's own row: Jean's status must not be able to satisfy this check.
+    const sophie = overview.loans.find((loan) => loan.name === 'Sophie')
+    expect(sophie, 'the demo overview carries Sophie').toBeDefined()
+    expect(sophie!.installmentsBehind ?? 0).toBeGreaterThan(0)
     expect(overview.history.length).toBeGreaterThan(1)
     expect(overview.history.at(-1)?.outstanding).toBeCloseTo(overview.totalOutstanding, 2)
   })

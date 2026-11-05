@@ -12,7 +12,7 @@ import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
 import { AXIS_PROPS, yAxisWidth } from '@/lib/chart-axis'
 import { useMoney } from '@/hooks/use-money'
-import { formatLocalDate, formatPercent, localeFromLanguage } from '@/lib/utils'
+import { formatLocalDate, formatPercent, localeFromLanguage, toDate } from '@/lib/utils'
 import type { PeerLoanOverviewEntry, PeerLoansOverview } from '@/types/api'
 
 function Stat({ label, value }: { label: string; value: ReactNode }) {
@@ -90,7 +90,7 @@ export function PeerLoansOverviewCard({ data }: { data: PeerLoansOverview }) {
                 <XAxis
                   dataKey="date"
                   {...AXIS_PROPS}
-                  tickFormatter={(value: string) => new Date(value).toLocaleDateString(locale, {
+                  tickFormatter={(value: string) => toDate(value).toLocaleDateString(locale, {
                     month: 'short',
                     year: '2-digit',
                   })}
@@ -104,7 +104,7 @@ export function PeerLoansOverviewCard({ data }: { data: PeerLoansOverview }) {
                   content={
                     <MoneyChartTooltip
                       config={chartConfig}
-                      labelFormatter={(value) => new Date(String(value)).toLocaleDateString(locale, {
+                      labelFormatter={(value) => toDate(String(value)).toLocaleDateString(locale, {
                         month: 'long',
                         year: 'numeric',
                       })}
@@ -144,17 +144,17 @@ export function PeerLoansOverviewCard({ data }: { data: PeerLoansOverview }) {
             {data.loans.map((loan) => (
               <TableRow
                 key={loan.accountId}
-                tabIndex={0}
-                className={`cursor-pointer ${loan.closedAt ? 'opacity-70' : ''}`}
-                onClick={() => open(loan.accountId)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    open(loan.accountId)
-                  }
-                }}
+                className={loan.closedAt ? 'opacity-70' : ''}
               >
-                <TableCell className="font-medium">{loan.name}</TableCell>
+                <TableCell className="font-medium">
+                  <button
+                    type="button"
+                    className="cursor-pointer text-left underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => open(loan.accountId)}
+                  >
+                    {loan.name}
+                  </button>
+                </TableCell>
                 <TableCell className="text-right tabular-nums">
                   <CurrencyDisplay value={loan.principalRemaining} />
                 </TableCell>

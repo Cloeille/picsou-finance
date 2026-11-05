@@ -70,6 +70,9 @@ export function PeerLoanTermsDialog({
   const [alreadyBooked, setAlreadyBooked] = useState(false)
   const [simulation, setSimulation] = useState<PeerLoanSimulationResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Both plan fields usually hold a value (the calculator fills the other one), so the
+  // field the member typed in last is what decides which direction the next run takes.
+  const [lastEdited, setLastEdited] = useState<'months' | 'monthly' | null>(null)
   const [wasOpen, setWasOpen] = useState(open)
 
   // Seed the fields each time the dialog opens, during render (the pattern ConfirmDialog
@@ -91,6 +94,7 @@ export function PeerLoanTermsDialog({
       setNote(initial?.note ?? '')
       setAlreadyBooked(false)
       setSimulation(null)
+      setLastEdited(null)
       setError(null)
     }
   }
@@ -143,16 +147,23 @@ export function PeerLoanTermsDialog({
     }
     const monthCount = numberOrNull(months)
     const monthlyValue = numberOrNull(monthly)
+    const hasMonths = monthCount != null && monthCount > 0
+    const hasMonthly = monthlyValue != null && monthlyValue > 0
+    // When the payment is the last field the member touched, it wins even though the
+    // duration still carries the value filled by the previous run.
+    const usePayment = lastEdited === 'monthly'
+      ? hasMonthly
+      : !hasMonths && hasMonthly
     try {
-      if (monthCount != null && monthCount > 0) {
-        const result = await simulate.mutateAsync({ principal: principalValue, annualRate, months: monthCount })
-        setMonthly(String(result.monthlyPayment))
-        setSimulation(result)
-      } else if (monthlyValue != null && monthlyValue > 0) {
+      if (usePayment && monthlyValue != null) {
         const result = await simulate.mutateAsync({
           principal: principalValue, annualRate, monthlyPayment: monthlyValue,
         })
         setMonths(String(result.months))
+        setSimulation(result)
+      } else if (hasMonths && monthCount != null) {
+        const result = await simulate.mutateAsync({ principal: principalValue, annualRate, months: monthCount })
+        setMonthly(String(result.monthlyPayment))
         setSimulation(result)
       } else {
         setError(t('peerLoan.validation.plan'))
@@ -262,11 +273,17 @@ export function PeerLoanTermsDialog({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="peer-months">{t('peerLoan.fields.plannedMonths')}</Label>
-                <NumericInput id="peer-months" value={months} onChange={(e) => setMonths(e.target.value)} />
+                <NumericInput id="peer-months" value={months} onChange={(e) => {
+                  setMonths(e.target.value)
+                  setLastEdited('months')
+                }} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="peer-monthly">{t('peerLoan.fields.plannedMonthly')}</Label>
-                <NumericInput id="peer-monthly" value={monthly} onChange={(e) => setMonthly(e.target.value)} />
+                <NumericInput id="peer-monthly" value={monthly} onChange={(e) => {
+                  setMonthly(e.target.value)
+                  setLastEdited('monthly')
+                }} />
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">

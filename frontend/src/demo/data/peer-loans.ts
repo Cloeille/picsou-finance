@@ -262,5 +262,9 @@ export const demoPeerLoansOpen: PeerLoanOpen[] = demoPeerLoans
 /** The remaining capital of one demo loan on a given day, for the account's history. */
 export function demoPeerLoanBalanceAt(accountId: number, asOf: string): number {
   const fixture = FIXTURES.find((candidate) => candidate.accountId === accountId)
-  return fixture ? r2(computeAt(fixture, asOf).remaining) : 0
+  if (!fixture) return 0
+  // Before the money was lent the receivable did not exist: computeAt would otherwise
+  // start the balance at the principal and accrue interest backwards.
+  if (asOf < fixture.terms.lentAt) return 0
+  return r2(computeAt(fixture, asOf).remaining)
 }

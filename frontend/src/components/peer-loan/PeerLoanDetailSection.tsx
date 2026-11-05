@@ -318,18 +318,18 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                     <CurrencyDisplay value={repayment.amount} className="text-sm font-semibold" />
                   </span>
                   {!data.closedAt && (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => { setEditingRepayment(repayment); setRepaymentOpen(true) }}
-                      >
-                        {t('common.edit')}
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => handleDeleteRepayment(repayment)}>
-                        {t('common.delete')}
-                      </Button>
-                    </>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => { setEditingRepayment(repayment); setRepaymentOpen(true) }}
+                    >
+                      {t('common.edit')}
+                    </Button>
+                  )}
+                  {(!data.closedAt || repayment.kind === 'WRITE_OFF') && (
+                    <Button size="sm" variant="ghost" onClick={() => handleDeleteRepayment(repayment)}>
+                      {t('common.delete')}
+                    </Button>
                   )}
                 </div>
               </div>
