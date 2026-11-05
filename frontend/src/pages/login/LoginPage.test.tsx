@@ -114,14 +114,14 @@ describe('LoginPage SSO', () => {
   it('starts SSO with the sanitized redirect and stores the Remember me choice', () => {
     useSsoInfo.mockReturnValue(SSO_ENABLED)
 
-    renderLogin('/login?redirect=%2Fsettings%3Fresume%3Dexport')
+    renderLogin('/login?redirect=%2F%2Fevil.example')
     fireEvent.click(screen.getByLabelText('Remember me'))
     fireEvent.click(screen.getByRole('button', { name: 'Sign in with SSO' }))
 
     expect(submitSsoStart).toHaveBeenCalledTimes(1)
     expect(submitSsoStart).toHaveBeenCalledWith({
       intent: 'login',
-      redirect: '/settings?resume=export',
+      redirect: '/',
       rememberMe: true,
     })
     expect(ssoRememberPreference()).toBe(true)
