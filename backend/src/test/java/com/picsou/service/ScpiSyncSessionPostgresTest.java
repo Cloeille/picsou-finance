@@ -59,6 +59,9 @@ class ScpiSyncSessionPostgresTest {
             return new TransactionTemplate(manager);
         }
         @Bean("corumSyncExecutor") Executor corumExecutor() { return Runnable::run; }
+        @Bean("corumReloginBuckets") java.util.Map<Long, io.github.bucket4j.Bucket> corumReloginBuckets() {
+            return new com.picsou.config.RateLimitConfig().corumReloginBuckets();
+        }
         @Bean("sofidySyncExecutor") Executor sofidyExecutor() { return Runnable::run; }
     }
 

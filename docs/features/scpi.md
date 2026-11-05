@@ -102,7 +102,19 @@ read and credentials are stored, `reauthenticateAndFetch` logs in again through 
 re-login per run, never a loop: a fresh session that expires too ends the run as
 `SESSION_EXPIRED`. Without stored credentials an expired session turns inactive and the panel
 asks to reconnect, as before. `INVALID_CREDENTIALS` on the re-login clears the credentials (so a
-rejected password is not replayed daily) and turns the session inactive.
+rejected password is not replayed daily) and turns the session inactive. Stored credentials that no
+longer decrypt or parse are cleared too (nothing could ever log in with them): the run still ends
+as `SESSION_EXPIRED` and the status reports `credentialsRemembered: false`. A fresh session that
+expires right after a successful re-login keeps them, since the password just worked.
+
+Re-logins are throttled per member on the CORUM login budget (`RateLimitConfig.createCorumAuthBucket`,
+5 per 15 minutes), in their own bounded store (`corumReloginBuckets`, keyed by member id), apart
+from the per-IP `/api/corum/sync` bucket, so neither the daily sync nor repeated manual syncs can
+replay the password faster than a person could type it. A throttled run calls nothing and ends as
+`UPSTREAM_UNAVAILABLE`, not `SESSION_EXPIRED`: that code keeps the session active and the
+credentials stored, so a later run logs in again once the budget refills instead of asking the
+member to reconnect. Neither path logs the credentials or the exception that carried them, only its
+type.
 
 CORUM runs in the daily 08:00 member sync (`MemberSyncService`, source `corum`, last in the
 canonical order), gated like `cmes`: an active session is queued; an inactive one is reported as

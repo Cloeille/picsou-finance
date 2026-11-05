@@ -51,6 +51,8 @@ class CorumSyncServiceTest {
     @Mock AccountHoldingRepository holdingRepository;
     @Mock AccountService accountService;
     @Mock CorumLifeOperationWriter operationWriter;
+    /** The real bounded store, as {@code RateLimitConfig} builds it; fresh per test. */
+    java.util.Map<Long, io.github.bucket4j.Bucket> reloginBuckets = new com.picsou.config.RateLimitConfig().corumReloginBuckets();
     CorumSyncService service;
 
     @BeforeEach
@@ -70,7 +72,7 @@ class CorumSyncServiceTest {
         CorumLifeWriter lifeWriter = new CorumLifeWriter(
             accountRepository, holdingRepository, memberRepository, accountService, operationWriter);
         service = new CorumSyncService(port, sessionRepository, memberRepository, encryption,
-            txTemplate, Runnable::run, reconciler, lifeWriter);
+            txTemplate, Runnable::run, reconciler, lifeWriter, reloginBuckets);
     }
 
     /**
@@ -473,6 +475,63 @@ class CorumSyncServiceTest {
         assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.CorumErrorCode.SESSION_EXPIRED);
         verify(port, times(1)).authenticate(any(), any());
         verify(port, times(2)).fetchPortfolio(any());
+        // The password just worked: an expired fresh session is no reason to forget it.
+        assertThat(session.getEncryptedCredentials()).isEqualTo(REMEMBERED);
+        assertThat(service.getStatus(7L).credentialsRemembered()).isTrue();
+    }
+
+    /**
+     * Re-logins draw on the member's own CORUM login budget (5 per 15 minutes), however the runs were
+     * queued: the sixth run calls nothing, keeps the session active and the credentials stored.
+     */
+    @org.junit.jupiter.api.Test
+    void queueSync_reloginsAreThrottledPerMemberWithoutCallingCorum() {
+        CorumSession session = rememberedSession();
+        when(port.fetchPortfolio("plain-state"))
+            .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
+        when(port.authenticate("client", PASSWORD))
+            .thenThrow(new SyncException("CORUM is temporarily unavailable", null, "UPSTREAM_UNAVAILABLE"));
+
+        for (int run = 0; run < 6; run++) {
+            service.queueSync(7L);
+            assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        }
+
+        verify(port, times(5)).authenticate(any(), any());
+        assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.CorumErrorCode.UPSTREAM_UNAVAILABLE);
+        assertThat(session.isActive()).isTrue();
+        assertThat(session.getEncryptedCredentials()).isEqualTo(REMEMBERED);
+        assertThat(service.getStatus(7L).credentialsRemembered()).isTrue();
+        assertThat(reloginBuckets).containsOnlyKeys(7L);
+        // Another member's budget is untouched.
+        assertThat(reloginBuckets.computeIfAbsent(8L, key -> com.picsou.config.RateLimitConfig.createCorumAuthBucket())
+            .getAvailableTokens()).isEqualTo(5);
+    }
+
+    /** Credentials that cannot be decrypted or read back can never log in: they are cleared, the run ends expired. */
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"DECRYPT", "MALFORMED_JSON", "BLANK_PASSWORD"})
+    void queueSync_unreadableCredentialsAreClearedAndTheSessionExpires(String failure) {
+        CorumSession session = rememberedSession();
+        switch (failure) {
+            case "DECRYPT" -> when(encryption.decrypt(REMEMBERED))
+                .thenThrow(new IllegalStateException("Tag mismatch"));
+            case "MALFORMED_JSON" -> when(encryption.decrypt(REMEMBERED))
+                .thenReturn("{\"login\":\"client\",\"password\":\"" + PASSWORD);
+            default -> when(encryption.decrypt(REMEMBERED)).thenReturn("{\"login\":\"client\",\"password\":\"\"}");
+        }
+        when(port.fetchPortfolio("plain-state"))
+            .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.CorumErrorCode.SESSION_EXPIRED);
+        assertThat(session.isActive()).isFalse();
+        assertThat(session.getEncryptedCredentials()).isNull();
+        assertThat(service.getStatus(7L).credentialsRemembered()).isFalse();
+        verify(port, never()).authenticate(any(), any());
+        assertThat(reloginBuckets).isEmpty();
     }
 
     /** Real AES-GCM: what is stored is ciphertext, and the re-login reads back the same login and password. */
@@ -483,7 +542,8 @@ class CorumSyncServiceTest {
             positionRepository, positionService, accountRepository, fundRepository, memberRepository);
         CorumSyncService realService = new CorumSyncService(port, sessionRepository, memberRepository, real,
             txTemplate, Runnable::run, reconciler, new CorumLifeWriter(
-                accountRepository, holdingRepository, memberRepository, accountService, operationWriter));
+                accountRepository, holdingRepository, memberRepository, accountService, operationWriter),
+            reloginBuckets);
         AtomicReference<CorumSession> stored = captureStoredSession();
         when(port.authenticate("client", PASSWORD)).thenReturn("first-state", "fresh-state");
         when(port.fetchPortfolio(any())).thenAnswer(inv -> {
@@ -503,32 +563,172 @@ class CorumSyncServiceTest {
         assertThat(real.decrypt(session.getSessionState())).isEqualTo("fresh-state");
     }
 
-    /** Neither a log message nor a logged exception from a failed re-login contains the remembered password. */
-    @org.junit.jupiter.api.Test
-    void thePasswordNeverReachesTheLogs() {
-        rememberedSession();
+    /**
+     * No log event, from any logger, carries the remembered password: not its message, its arguments, nor any
+     * exception in its cause or suppressed chain (message or stack frame). The sidecar answers go through the
+     * real {@link com.picsou.adapter.CorumAdapter}, whose stubbed sidecar echoes the request body -- password
+     * included -- in its 401, 422 and 500 answers. Each case runs through the member's sync and the daily one.
+     */
+    @ParameterizedTest(name = "{0} via {1}")
+    @CsvSource({
+        "REJECTED_401,QUEUE", "REJECTED_401,DAILY",
+        "VALIDATION_422,QUEUE", "VALIDATION_422,DAILY",
+        "ERROR_500_JSON,QUEUE", "ERROR_500_JSON,DAILY",
+        "ERROR_500_TEXT,QUEUE", "ERROR_500_TEXT,DAILY",
+        "DECRYPT_FAILURE,QUEUE", "DECRYPT_FAILURE,DAILY",
+        "MALFORMED_CREDENTIALS,QUEUE", "MALFORMED_CREDENTIALS,DAILY",
+        "PORT_RUNTIME_EXCEPTION,QUEUE", "PORT_RUNTIME_EXCEPTION,DAILY"
+    })
+    void thePasswordNeverReachesTheLogs(String scenario, String entry) {
+        CorumSession session = rememberedSession();
         stubPassThroughEncryption();
-        when(port.fetchPortfolio("plain-state"))
+        lenient().when(port.fetchPortfolio("plain-state"))
             .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
-        when(port.authenticate("client", PASSWORD))
-            .thenThrow(new SyncException("CORUM rejected the credentials", null, "INVALID_CREDENTIALS"));
-        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(CorumSyncService.class);
-        var logs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
-        logs.start();
-        logger.addAppender(logs);
-        try {
-            service.queueSync(7L);
-        } finally {
-            logger.detachAppender(logs);
-            logs.stop();
+        AtomicReference<String> echoed = new AtomicReference<>();
+        CorumPort sidecarPort = switch (scenario) {
+            case "REJECTED_401" -> echoingSidecar(echoed, org.springframework.http.HttpStatus.UNAUTHORIZED,
+                org.springframework.http.MediaType.APPLICATION_JSON, body -> body);
+            case "VALIDATION_422" -> echoingSidecar(echoed, org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY,
+                org.springframework.http.MediaType.APPLICATION_JSON,
+                body -> "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\"],\"msg\":\"Invalid login\","
+                    + "\"input\":" + body + "}]}");
+            case "ERROR_500_JSON" -> echoingSidecar(echoed, org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR,
+                org.springframework.http.MediaType.APPLICATION_JSON, body -> "{\"error\":\"boom\",\"request\":" + body + "}");
+            case "ERROR_500_TEXT" -> echoingSidecar(echoed, org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR,
+                org.springframework.http.MediaType.TEXT_PLAIN, body -> "Traceback: login failed for " + body);
+            default -> port;
+        };
+        switch (scenario) {
+            case "DECRYPT_FAILURE" -> when(encryption.decrypt(REMEMBERED))
+                .thenThrow(new IllegalStateException("Could not decrypt " + REMEMBERED));
+            case "MALFORMED_CREDENTIALS" -> when(encryption.decrypt(REMEMBERED))
+                .thenReturn("{\"login\":\"client\",\"password\":\"" + PASSWORD + "\",");
+            case "PORT_RUNTIME_EXCEPTION" -> when(port.authenticate("client", PASSWORD)).thenThrow(
+                new IllegalStateException("Could not write {\"password\":\"" + PASSWORD + "\"}",
+                    new RuntimeException(PASSWORD)));
+            default -> { }
         }
-        assertThat(logs.list).isNotEmpty();
-        assertThat(logs.list).allSatisfy(event -> {
-            assertThat(event.getFormattedMessage()).doesNotContain(PASSWORD);
-            if (event.getThrowableProxy() != null) {
-                assertThat(event.getThrowableProxy().getMessage()).doesNotContain(PASSWORD);
-            }
+        CorumSyncService logged = new CorumSyncService(sidecarPort, sessionRepository, memberRepository, encryption,
+            txTemplate, Runnable::run, new ScpiFundReconciler(
+                positionRepository, positionService, accountRepository, fundRepository, memberRepository),
+            new CorumLifeWriter(accountRepository, holdingRepository, memberRepository, accountService, operationWriter),
+            reloginBuckets);
+
+        List<ch.qos.logback.classic.spi.ILoggingEvent> events = captureAllLogs(() -> {
+            if ("QUEUE".equals(entry)) logged.queueSync(7L);
+            else logged.resyncReporting(7L);
         });
+
+        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        if (scenario.startsWith("REJECTED") || scenario.startsWith("VALIDATION") || scenario.startsWith("ERROR")) {
+            assertThat(echoed.get()).as("the stubbed sidecar received the password").contains(PASSWORD);
+        }
+        assertThat(events).isNotEmpty();
+        assertThat(events).allSatisfy(event -> assertThat(logText(event)).doesNotContain(PASSWORD));
+        if (scenario.equals("REJECTED_401")) {
+            assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.CorumErrorCode.INVALID_CREDENTIALS);
+        }
+    }
+
+    /**
+     * A real {@link com.picsou.adapter.CorumAdapter} on a stubbed sidecar: the portfolio read answers a bare 401
+     * (the session expired), and the login answers {@code status} with a body built from the request body.
+     */
+    private static CorumPort echoingSidecar(
+        AtomicReference<String> echoed,
+        org.springframework.http.HttpStatus status,
+        org.springframework.http.MediaType type,
+        java.util.function.UnaryOperator<String> answer
+    ) {
+        org.springframework.web.reactive.function.BodyInserter.Context context =
+            new org.springframework.web.reactive.function.BodyInserter.Context() {
+                @Override public List<org.springframework.http.codec.HttpMessageWriter<?>> messageWriters() {
+                    return org.springframework.web.reactive.function.client.ExchangeStrategies.withDefaults()
+                        .messageWriters();
+                }
+                @Override public Optional<org.springframework.http.server.reactive.ServerHttpRequest> serverRequest() {
+                    return Optional.empty();
+                }
+                @Override public java.util.Map<String, Object> hints() { return java.util.Map.of(); }
+            };
+        org.springframework.web.reactive.function.client.ExchangeFunction sidecar = request -> {
+            if (request.url().getPath().endsWith("/portfolio")) {
+                return reactor.core.publisher.Mono.just(org.springframework.web.reactive.function.client.ClientResponse
+                    .create(org.springframework.http.HttpStatus.UNAUTHORIZED).build());
+            }
+            var captured = new org.springframework.mock.http.client.reactive.MockClientHttpRequest(
+                request.method(), request.url());
+            return request.body().insert(captured, context)
+                .then(reactor.core.publisher.Mono.defer(captured::getBodyAsString))
+                .map(body -> {
+                    echoed.set(body);
+                    return org.springframework.web.reactive.function.client.ClientResponse.create(status)
+                        .header("Content-Type", type.toString())
+                        .body(answer.apply(body))
+                        .build();
+                });
+        };
+        org.springframework.web.reactive.function.client.WebClient client =
+            org.springframework.web.reactive.function.client.WebClient.builder()
+                .baseUrl("http://corum-auth:8001").exchangeFunction(sidecar).build();
+        com.picsou.adapter.sidecar.SidecarWebClientFactory clients =
+            mock(com.picsou.adapter.sidecar.SidecarWebClientFactory.class);
+        when(clients.create(any(), any())).thenReturn(client);
+        return new com.picsou.adapter.CorumAdapter(clients, "http://corum-auth:8001",
+            new com.fasterxml.jackson.databind.ObjectMapper());
+    }
+
+    /**
+     * Every event any logger emits while {@code action} runs, root logger included. The root stays at the
+     * shipped INFO and {@code com.picsou} is opened to TRACE, beyond any shipped profile (dev is DEBUG).
+     */
+    private static List<ch.qos.logback.classic.spi.ILoggingEvent> captureAllLogs(Runnable action) {
+        var root = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(
+            org.slf4j.Logger.ROOT_LOGGER_NAME);
+        var app = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("com.picsou");
+        ch.qos.logback.classic.Level rootLevel = root.getLevel();
+        ch.qos.logback.classic.Level appLevel = app.getLevel();
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        root.addAppender(appender);
+        root.setLevel(ch.qos.logback.classic.Level.INFO);
+        app.setLevel(ch.qos.logback.classic.Level.TRACE);
+        try {
+            action.run();
+        } finally {
+            root.detachAppender(appender);
+            appender.stop();
+            root.setLevel(rootLevel);
+            app.setLevel(appLevel);
+        }
+        return appender.list;
+    }
+
+    /** Everything an appender could print for {@code event}: message, raw arguments, MDC and every throwable. */
+    private static String logText(ch.qos.logback.classic.spi.ILoggingEvent event) {
+        StringBuilder text = new StringBuilder(event.getFormattedMessage()).append('\n')
+            .append(event.getMessage()).append('\n')
+            .append(java.util.Arrays.deepToString(event.getArgumentArray())).append('\n')
+            .append(event.getMDCPropertyMap());
+        java.util.Deque<ch.qos.logback.classic.spi.IThrowableProxy> pending = new java.util.ArrayDeque<>();
+        java.util.Set<ch.qos.logback.classic.spi.IThrowableProxy> seen =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        if (event.getThrowableProxy() != null) pending.add(event.getThrowableProxy());
+        while (!pending.isEmpty()) {
+            ch.qos.logback.classic.spi.IThrowableProxy proxy = pending.pop();
+            if (!seen.add(proxy)) continue;
+            text.append('\n').append(proxy.getClassName()).append(": ").append(proxy.getMessage());
+            if (proxy.getStackTraceElementProxyArray() != null) {
+                for (var frame : proxy.getStackTraceElementProxyArray()) text.append('\n').append(frame.getSTEAsString());
+            }
+            if (proxy.getCause() != null) pending.add(proxy.getCause());
+            if (proxy.getSuppressed() != null) pending.addAll(java.util.List.of(proxy.getSuppressed()));
+        }
+        if (event.getThrowableProxy() != null) {
+            // The full rendering a console appender prints, as a cross-check of the walk above.
+            text.append('\n').append(ch.qos.logback.classic.spi.ThrowableProxyUtil.asString(event.getThrowableProxy()));
+        }
+        return text.toString();
     }
 
     @org.junit.jupiter.api.Test

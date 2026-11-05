@@ -256,8 +256,12 @@ form has an unticked "Remember my credentials (encrypted)" checkbox. Ticked, the
 password are stored encrypted (`CryptoEncryption`, AES-256-GCM) in
 `corum_session.encrypted_credentials` (V125); a sync whose session expired logs in again once
 through `/initiate`, replaces the session and reads. A rejected password clears them and turns the
-session inactive; disconnecting deletes them with the session; a login without the box ticked
-stores none and replaces any stored before. CORUM joins the daily member sync as source `corum`,
+session inactive; so do credentials that no longer decrypt or parse (the run ends as
+`SESSION_EXPIRED`); disconnecting deletes them with the session; a login without the box ticked
+stores none and replaces any stored before. Re-logins are throttled per member on the CORUM login
+budget (5 per 15 minutes, `corumReloginBuckets`), apart from the `/api/corum/sync` bucket; a
+throttled run calls nothing and ends as `UPSTREAM_UNAVAILABLE`, which keeps the session active and
+the credentials stored for a later run. CORUM joins the daily member sync as source `corum`,
 gated on an active session like `cmes`.
 
 **Trade-off.** An encrypted password now sits in the database for members who opt in, so a leak

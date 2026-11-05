@@ -1,6 +1,6 @@
 # Feature: Encryption at Rest
 
-> Last updated: 2026-04-08
+> Last updated: 2026-11-05
 
 ## Context
 
@@ -29,6 +29,10 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 | Trade Republic refresh token | `TradeRepublicSession` | `refresh_token` | V15 (2026-04-08), `TEXT` since V86 |
 | DEGIRO session blob | `DegiroSession` | `session_blob` | V71 (2026-08-10), `TEXT` since V86 |
 | SimpleFIN access URL | `SimplefinConnection` | `access_url` | V113 (2026-10-06) |
+| BoursoBank login and password (JSON), stored at every login | `BoursoSession` | `bourso_session.encrypted_credentials` | V103 (2026-09-28) |
+| Crédit Mutuel Épargne Salariale login and password (JSON), stored at every login | `CmesSession` | `cmes_session.encrypted_credentials` | V117 (2026-10-31) |
+| CIC login and password (JSON), stored at every login | `CicSession` | `cic_session.encrypted_credentials` | V121 (2026-10-31) |
+| CORUM login and password (JSON), opt-in ("Remember my credentials"), NULL otherwise | `CorumSession` | `corum_session.encrypted_credentials` | V125 (2026-11-05) |
 
 ### What is NOT encrypted (and why)
 
@@ -87,7 +91,7 @@ Read credential:
 - **V15 truncates existing sessions**: After deploying V15, all crypto exchange sessions and TR sessions are cleared. Users must re-enter API keys and re-authenticate TR. This is a one-time migration cost.
 - **Column widths**: An encrypted value is `4 * ceil((n + 28) / 3)` characters for `n` plaintext bytes (Base64 of a 12-byte IV + ciphertext + 16-byte tag), so a `VARCHAR(2000)` silently caps the plaintext at 1472 bytes and a `VARCHAR(4000)` at 2972. That cap fails the INSERT *after* a successful login once a third party grows its token (#115), so the columns whose plaintext length a third party controls are `TEXT` since V86: `trade_republic_session.session_token` / `refresh_token` and `degiro_session.session_blob` (Amundi, Bourse Direct and BoursoBank session state already were). Only values bounded by a known format stay sized: `api_key` 500 and `api_secret` 500 (largest known exchange key ~230 chars, ~350 once encrypted). Do not reintroduce a `length` on a third-party token column.
 - **No key rotation**: A single key is used for all encryption. If compromised, all secrets must be re-encrypted. No versioning mechanism exists yet.
-- **Decryption failure on corrupt data**: If a stored value is not valid AES-GCM ciphertext (e.g., legacy plaintext), `decrypt()` throws `RuntimeException`. Callers should handle this gracefully (crypto sync sets status to ERROR; TR treats it as expired session).
+- **Decryption failure on corrupt data**: If a stored value is not valid AES-GCM ciphertext (e.g., legacy plaintext), `decrypt()` throws `RuntimeException`. Callers should handle this gracefully (crypto sync sets status to ERROR; TR treats it as expired session; CORUM clears stored credentials that no longer decrypt or parse and ends the run as `SESSION_EXPIRED`).
 
 ## Tests
 

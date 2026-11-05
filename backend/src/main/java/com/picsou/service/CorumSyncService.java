@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.config.CryptoEncryption;
+import com.picsou.config.RateLimitConfig;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
 import com.picsou.model.CorumSession;
@@ -16,6 +17,7 @@ import com.picsou.port.CorumPort;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.service.sync.SourceSyncResult;
+import io.github.bucket4j.Bucket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -82,6 +84,12 @@ public class CorumSyncService {
     private final ScpiFundReconciler fundReconciler;
     private final CorumLifeWriter lifeWriter;
     /**
+     * Each member's unattended re-logins, throttled on the CORUM login budget
+     * ({@link RateLimitConfig#createCorumAuthBucket}) apart from the {@code /api/corum/sync}
+     * bucket: every re-login is a real credential check against CORUM.
+     */
+    private final Map<Long, Bucket> reloginBuckets;
+    /**
      * Bumped by {@link #clearSession}: a login that was waiting on CORUM when the
      * connection was removed carries an older generation and stores nothing, so
      * a disconnect cannot be undone by a login (and its password) landing after it.
@@ -97,7 +105,8 @@ public class CorumSyncService {
         TransactionTemplate txTemplate,
         @Qualifier("corumSyncExecutor") Executor syncExecutor,
         ScpiFundReconciler fundReconciler,
-        CorumLifeWriter lifeWriter
+        CorumLifeWriter lifeWriter,
+        @Qualifier("corumReloginBuckets") Map<Long, Bucket> reloginBuckets
     ) {
         this.port = port;
         this.sessionRepository = sessionRepository;
@@ -107,6 +116,7 @@ public class CorumSyncService {
         this.syncExecutor = syncExecutor;
         this.fundReconciler = fundReconciler;
         this.lifeWriter = lifeWriter;
+        this.reloginBuckets = reloginBuckets;
     }
 
     /**
@@ -289,7 +299,14 @@ public class CorumSyncService {
      * again through the sidecar, replaces the session and reads with the new one;
      * without them the run ends as SESSION_EXPIRED and the member reconnects. A
      * rejected password surfaces as INVALID_CREDENTIALS, which {@link #markFailed}
-     * turns into cleared credentials and an inactive session.
+     * turns into cleared credentials and an inactive session. Credentials that no
+     * longer decrypt or parse are cleared too, since no run could ever use them.
+     *
+     * <p>A member's re-logins draw on their own bucket; once it is spent the run
+     * ends as UPSTREAM_UNAVAILABLE without calling CORUM. That code keeps the
+     * session active and the credentials stored, so a later run logs in again
+     * once the budget has refilled: being throttled is no reason to make the
+     * member type the password again.
      */
     private CorumPort.Portfolio reauthenticateAndFetch(SyncJob job) {
         CorumSession session = requireTransactionResult(txTemplate.execute(
@@ -304,9 +321,29 @@ public class CorumSyncService {
         try {
             credentials = parseCredentials(encryption.decrypt(session.getEncryptedCredentials()));
         } catch (RuntimeException ex) {
-            throw error(CorumErrorCode.SESSION_EXPIRED, "CORUM session expired", ex);
+            // Only the type: neither the stored value nor what it decrypted to belongs in a log.
+            log.warn("CORUM stored credentials are unreadable and were cleared (member={}; type={})",
+                job.memberId(), ex.getClass().getSimpleName());
+            clearStoredCredentials(job);
+            throw error(CorumErrorCode.SESSION_EXPIRED, "CORUM session expired", null);
         }
-        String newState = port.authenticate(credentials.login(), credentials.password());
+        if (!reloginBuckets.computeIfAbsent(job.memberId(), key -> RateLimitConfig.createCorumAuthBucket())
+                .tryConsume(1)) {
+            log.warn("CORUM re-login throttled (member={})", job.memberId());
+            throw error(CorumErrorCode.UPSTREAM_UNAVAILABLE, "Too many CORUM re-logins. Please try again later.", null);
+        }
+        String newState;
+        try {
+            newState = port.authenticate(credentials.login(), credentials.password());
+        } catch (SyncException ex) {
+            throw ex;
+        } catch (RuntimeException ex) {
+            // Not a translated sidecar error: its message or causes may quote the
+            // request, password included, so neither is kept nor logged.
+            log.error("CORUM re-login failed unexpectedly (member={}; type={})",
+                job.memberId(), ex.getClass().getName());
+            throw error(CorumErrorCode.INTERNAL_ERROR, "CORUM re-login failed", null);
+        }
         if (newState == null || newState.isBlank()) {
             throw error(CorumErrorCode.INVALID_DATA, "CORUM returned no session", null);
         }
@@ -566,6 +603,19 @@ public class CorumSyncService {
                     if (code == CorumErrorCode.INVALID_CREDENTIALS) session.setEncryptedCredentials(null);
                     session.markFailed(code, Instant.now());
                     sessionRepository.save(session);
+                });
+        });
+    }
+
+    /** Clears the job's stored credentials, under the member lock, if the session is still in flight. */
+    private void clearStoredCredentials(SyncJob job) {
+        txTemplate.executeWithoutResult(status -> {
+            lockMember(job.memberId());
+            sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+                .filter(CorumSession::isSyncInFlight)
+                .ifPresent(current -> {
+                    current.setEncryptedCredentials(null);
+                    sessionRepository.save(current);
                 });
         });
     }
