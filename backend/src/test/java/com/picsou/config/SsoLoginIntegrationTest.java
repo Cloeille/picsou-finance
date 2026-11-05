@@ -286,6 +286,7 @@ class SsoLoginIntegrationTest {
     @Test @Order(13)
     void idpTokens_areNeverRetainedAsAuthorizedClients() throws Exception {
         assertThat(login("login", "dave", false).getResponse().getRedirectedUrl()).startsWith("/login/sso-complete?");
+        assertThat(authorizedClients.orderedStream()).as("an OAuth2AuthorizedClientService bean must be registered").isNotEmpty();
         authorizedClients.orderedStream().forEach(service -> {
             OAuth2AuthorizedClient stored = service.loadAuthorizedClient("oidc", "dave");
             assertThat(stored).as("IdP tokens must be discarded, not saved for the OIDC principal").isNull();
