@@ -19,10 +19,11 @@ export function UnlinkSsoDialog({ member, onClose }: UnlinkSsoDialogProps) {
   if (member && member !== shown) setShown(member)
 
   const handleOpenChange = (open: boolean) => {
-    // Escape or a click outside must not reset an unlink in flight, nor allow a second one.
-    if (open || unlink.isPending) return
+    if (open) return
     onClose()
-    unlink.reset()
+    // An unlink in flight keeps running (offline, it waits for the network): its pending state
+    // keeps Confirm disabled if the dialog reopens, so a second request cannot start.
+    if (!unlink.isPending) unlink.reset()
   }
 
   return (
@@ -36,7 +37,7 @@ export function UnlinkSsoDialog({ member, onClose }: UnlinkSsoDialogProps) {
         if (member) unlink.mutate(member.id, { onSuccess: onClose })
       }}
       loading={unlink.isPending}
-      error={unlink.isError ? formatSsoApiError(unlink.error, t) : undefined}
+      error={unlink.isError && unlink.variables === member?.id ? formatSsoApiError(unlink.error, t) : undefined}
       variant="destructive"
     />
   )

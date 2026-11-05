@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FamilyMemberItem } from '@/features/family/api'
 import en from '@/i18n/locales/en.json'
@@ -142,7 +142,7 @@ describe('MembersSection sign-in methods', () => {
     expect(adminUnlinkIdentities).not.toHaveBeenCalled()
   })
 
-  it('holds the confirmation while the unlink runs: no second request, no dismissal', async () => {
+  it('lets the confirmation close while the unlink runs, without allowing a second request', async () => {
     adminUnlinkIdentities.mockReturnValue(new Promise(() => {}))
     renderSection()
     const dialog = await openUnlink('Dora')
@@ -152,10 +152,29 @@ describe('MembersSection sign-in methods', () => {
     await waitFor(() => expect(confirm).toBeDisabled())
     fireEvent.click(confirm)
     fireEvent.keyDown(dialog, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
-    expect(within(dialog).getByRole('button', { name: en.common.cancel })).toBeDisabled()
+    const reopened = await openUnlink('Dora')
+    expect(within(reopened).getByRole('button', { name: en.admin.members.unlinkSso })).toBeDisabled()
     expect(adminUnlinkIdentities).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('keeps the failure of an unlink left running out of the next member\'s confirmation', async () => {
+    let failUnlink: (reason: unknown) => void = () => {}
+    adminUnlinkIdentities.mockReturnValue(new Promise((_, reject) => { failUnlink = reject }))
+    renderSection()
+    const dialog = await openUnlink('Dora')
+    const confirm = within(dialog).getByRole('button', { name: en.admin.members.unlinkSso })
+    fireEvent.click(confirm)
+    await waitFor(() => expect(confirm).toBeDisabled())
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await act(async () => { failUnlink({ response: { status: 500, data: {} } }) })
+
+    const carol = await openUnlink('Carol')
+
+    expect(within(carol).queryByRole('alert')).not.toBeInTheDocument()
+    expect(within(carol).getByRole('button', { name: en.admin.members.unlinkSso })).toBeEnabled()
   })
 
   it('keeps the confirmation open with the error when the unlink fails', async () => {
