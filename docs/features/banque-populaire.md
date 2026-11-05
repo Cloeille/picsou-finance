@@ -1,7 +1,7 @@
 # Feature: Banque Populaire sync
 
 > Last updated: 2026-11-05
-> Status: sidecar, backend and frontend are in the codebase. Docker Compose (profile `banque-populaire`) and the Helm chart run the `banque-populaire-auth` sidecar. The user connects from the Sync page (Banque Populaire tab) or the add-account modal: they pick their regional bank, type their identifier, click their own digits on the bank's keypad, then approve in Sécur'Pass. Sync is on demand only. The login pages, OAuth chain, synthesis and transaction endpoints were observed live on a Rives de Paris account on 2026-11-05. No full Picsou sync has run against the real bank yet (see "Verification boundaries").
+> Status: sidecar, backend and frontend are in the codebase. Docker Compose (profile `banque-populaire`) and the Helm chart run the `banque-populaire-auth` sidecar. The user connects from the Sync page (Banque Populaire tab) or the add-account modal: they pick their regional bank, type their identifier, click their own digits on the bank's keypad, then approve in Sécur'Pass. Sync is on demand only. A full login and sync through Picsou ran against a real Rives de Paris account on 2026-11-05 (see "Verification boundaries").
 
 ## Context
 
@@ -75,4 +75,6 @@ The bank answers a wrong identifier or password with a modal titled "Identifiant
 
 ## Verification boundaries
 
-Observed live (2026-11-05, shape only, no data kept): login pages and selectors, region picker, OAuth chain and main client, synthesis payload, transaction endpoint and envelope. Not observed: a transaction row (the one call seen returned none), card operations, loan, PER and revolving-credit detail. Not run: a full login and sync through the Picsou sidecar against the real bank.
+Run live end to end on 2026-11-05 with a Rives de Paris account, through the dev stack (sidecar, backend, frontend): region picker, identifier with its letter, keypad, Sécur'Pass approval, session stored, first sync `SUCCESS`. It imported a current account, a Livret A and a Livret Jeune with their transactions (several hundred rows on the current account, paged within the 365-day window) and a card account, all with the `bp_` prefix; the revolving credit was listed in `unsupported` (family `2`). The card, an immediate-debit Visa Premier, is stored with nature `CREDIT` because the bank reports `cardCreditIndicator=true`; it had no operations in the window. A wrong identifier was also seen live: the bank still shows a keypad, then the refusal modal.
+
+Not observed: card operations, LDDS, LEP, loan, PER and revolving-credit detail.
