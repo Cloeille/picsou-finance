@@ -94,4 +94,16 @@ describe('restartSsoRevalidation', () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(false)
     expect(consumeSsoRevalidate()).toBe(true)
   })
+
+  it('still signs out and leaves for /login when the flag cannot be stored', () => {
+    useAuthStore.getState().login({ username: 'alice', role: 'MEMBER', memberId: 1, displayName: 'Alice' })
+    vi.spyOn(sessionStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError')
+    })
+
+    restartSsoRevalidation('/settings')
+
+    expect(window.location.assign).toHaveBeenCalledWith('/login?redirect=%2Fsettings')
+    expect(useAuthStore.getState().isAuthenticated).toBe(false)
+  })
 })

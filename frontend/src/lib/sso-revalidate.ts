@@ -4,7 +4,11 @@ const REVALIDATE_KEY = 'picsou_sso_revalidate'
 const REMEMBER_KEY = 'picsou_sso_remember'
 
 export function markSsoRevalidate(): void {
-  sessionStorage.setItem(REVALIDATE_KEY, '1')
+  try {
+    sessionStorage.setItem(REVALIDATE_KEY, '1')
+  } catch {
+    // Without the flag /login shows its form, and its SSO button still signs in.
+  }
 }
 
 /** True at most once per mark: the flag is cleared on read. */
