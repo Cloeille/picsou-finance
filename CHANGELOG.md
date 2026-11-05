@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `get_ai_categorization_status` reports its progress as counters only, under a new
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
   browser session. See [Budget + OAuth2 tools in MCP](docs/features/mcp-budget-oauth2.md).
+
+### Changed
+
+- **Smaller first load.** The demo mode and the English, German and Spanish translations no
+  longer ship in the main script: the demo is fetched only by demo builds, and a language only
+  when it is selected. The entry chunk drops from about 373 KB to 245 KB gzipped. Behaviour is
+  unchanged.
+
 ### Fixed
 
 - **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar

@@ -1,4 +1,4 @@
-import './i18n'
+import { i18nReady } from './i18n'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router/dom'
@@ -15,14 +15,18 @@ applyTheme(getStoredTheme())
 const root = document.getElementById('root')
 if (!root) throw new Error('Root element not found')
 
-createRoot(root).render(
-  <StrictMode>
-    <Providers>
-      <ErrorBoundary>
-        <ConnectionGuard>
-          <RouterProvider router={router} />
-        </ConnectionGuard>
-      </ErrorBoundary>
-    </Providers>
-  </StrictMode>
+// A non-default language arrives as its own chunk: render once it is there, so the first paint
+// is never raw keys. i18next resolves even when the fetch fails, and then renders in French.
+i18nReady.then(() =>
+  createRoot(root).render(
+    <StrictMode>
+      <Providers>
+        <ErrorBoundary>
+          <ConnectionGuard>
+            <RouterProvider router={router} />
+          </ConnectionGuard>
+        </ErrorBoundary>
+      </Providers>
+    </StrictMode>
+  )
 )

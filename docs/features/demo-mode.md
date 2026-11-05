@@ -1,6 +1,6 @@
 # Feature: Demo mode
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-05
 
 ## Context
 
@@ -18,9 +18,11 @@ At startup, if `VITE_DEMO_MODE === 'true'`, a custom Axios adapter replaces the 
 
 ```
 VITE_DEMO_MODE=true
-  → api-client.ts injects createDemoAdapter() on api.defaults.adapter
+  → api-client.ts dynamically imports @/demo and installs createDemoAdapter() on api.defaults.adapter
   → every Axios request is intercepted, resolved with mock data after a random delay (200–600 ms)
 ```
+
+The import is dynamic and sits behind the build-time flag. A production build (`VITE_DEMO_MODE=false`) drops the branch, so the handler table and `demo/data/` never reach any chunk. A demo build fetches them as a separate chunk; requests sent before it arrives wait for it instead of reaching the network. Never import `@/demo` statically from app code: it would pull the fixtures back into the entry chunk.
 
 Register handlers only for supported backend routes, using their response shapes.
 
