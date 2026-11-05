@@ -88,16 +88,15 @@ public class AllocationService {
         Map<AssetClass, BigDecimal> byClass = new EnumMap<>(AssetClass.class);
         List<Account> accounts = accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(memberId);
         Map<Long, Account> byId = new HashMap<>();
-        // The stored balance is a USD amount for a USD account, a coin quantity for an account
-        // with a ticker, and the last stored figure for an account with holdings. Value each
-        // account with the same EUR valuation as the dashboard (liveBalanceEur).
-        Map<Long, BigDecimal> valueById = new HashMap<>();
         for (Account account : accounts) {
             byId.put(account.getId(), account);
-            if (AssetClass.of(account.getType()) != AssetClass.OTHER) {
-                valueById.put(account.getId(), accountService.liveBalanceEur(account));
-            }
         }
+        // The stored balance is a USD amount for a USD account, a coin quantity for an account
+        // with a ticker, and the last stored figure for an account with holdings. Value each
+        // account with the same EUR valuation as the dashboard (liveBalanceEur), once, and only
+        // if it contributes: a skipped account is never valued, so its failing price or
+        // snapshot lookup cannot break the view.
+        Map<Long, BigDecimal> valueById = new HashMap<>();
         // What is left of each parent wallet after the sub-accounts taken out of it so far.
         Map<Long, BigDecimal> parentLeft = new HashMap<>();
         for (Account account : accounts) {
@@ -105,26 +104,35 @@ public class AllocationService {
             if (assetClass == AssetClass.OTHER) {
                 continue; // not part of cash allocation
             }
-            BigDecimal value = valueById.get(account.getId());
-            if (account.getParentAccountId() != null) {
-                // Pocket / money-box sub-account: the parent wallet's balance already includes it,
-                // and the dashboard counts only the parent. Count it in its own class and take the
-                // same amount out of the parent's, so the total is unchanged but a money-box shows
-                // as savings. A sub-account whose parent is not listed is skipped, as on the
-                // dashboard. A sub-account's stored balance can be older than its wallet's (an
-                // unselected Revolut pocket keeps its last balance, an Enable Banking sync rewrites
-                // the wallet's), so move at most what is left of the wallet.
-                Account parent = byId.get(account.getParentAccountId());
-                AssetClass parentClass = parent == null ? AssetClass.OTHER : AssetClass.of(parent.getType());
-                if (parentClass == AssetClass.OTHER) {
-                    continue;
-                }
-                BigDecimal left = parentLeft.computeIfAbsent(parent.getId(), valueById::get);
-                value = value.min(left.max(BigDecimal.ZERO));
-                parentLeft.put(parent.getId(), left.subtract(value));
-                byClass.merge(parentClass, value.negate(), BigDecimal::add);
+            if (account.getParentAccountId() == null) {
+                byClass.merge(assetClass, eurValue(account, valueById), BigDecimal::add);
+                continue;
             }
-            byClass.merge(assetClass, value, BigDecimal::add);
+            // Pocket / money-box sub-account: the parent wallet's balance already includes it,
+            // and the dashboard counts only the parent. Count it in its own class and take the
+            // same amount out of the parent's, so the total is unchanged but a money-box shows
+            // as savings. It is skipped, as on the dashboard, when its parent is not listed or
+            // is not part of the allocation, and when it is in its parent's class: it is then
+            // already in the parent's amount for that class, and moving it would change no
+            // class total but use up what is left of the wallet for a money-box of another
+            // class. A sub-account's stored balance can be older than its wallet's (an
+            // unselected Revolut pocket keeps its last balance, an Enable Banking sync rewrites
+            // the wallet's), so it moves between zero and what is left of the wallet: a
+            // negative sub-account moves nothing, its negative is already in the wallet's
+            // balance.
+            Account parent = byId.get(account.getParentAccountId());
+            if (parent == null) {
+                continue;
+            }
+            AssetClass parentClass = AssetClass.of(parent.getType());
+            if (parentClass == AssetClass.OTHER || parentClass == assetClass) {
+                continue;
+            }
+            BigDecimal left = parentLeft.computeIfAbsent(parent.getId(), id -> eurValue(parent, valueById));
+            BigDecimal moved = eurValue(account, valueById).max(BigDecimal.ZERO).min(left.max(BigDecimal.ZERO));
+            parentLeft.put(parent.getId(), left.subtract(moved));
+            byClass.merge(parentClass, moved.negate(), BigDecimal::add);
+            byClass.merge(assetClass, moved, BigDecimal::add);
         }
 
         BigDecimal total = byClass.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -134,6 +142,10 @@ public class AllocationService {
         }
         stock.sort(Comparator.comparing(AllocationStock::assetClass));
         return stock;
+    }
+
+    private BigDecimal eurValue(Account account, Map<Long, BigDecimal> valueById) {
+        return valueById.computeIfAbsent(account.getId(), id -> accountService.liveBalanceEur(account));
     }
 
     private static BigDecimal percentOf(BigDecimal amount, BigDecimal total) {

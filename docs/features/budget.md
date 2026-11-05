@@ -457,8 +457,10 @@ Enable Banking sync ─▶ SyncService.fetchTransactions ─▶ dedup ─▶ per
   already inside its parent wallet's balance, so it is counted in its own class and the same amount
   is taken out of the parent's, never more than is left of the parent (a sub-account's stored
   balance can be older than its wallet's); a sub-account whose parent is not listed is skipped, as
-  on the dashboard. Summing `currentBalance` directly mixed currencies, coin quantities and stale
-  holding totals.
+  on the dashboard. A sub-account in its parent's own class stays in the wallet, a negative one
+  moves nothing, and a skipped account is never valued, so its failing lookup cannot break the
+  view. Summing `currentBalance` directly mixed currencies, coin quantities and stale holding
+  totals.
 - The cycle is **not** the calendar month; `cycleStartDay` 28 clamps to a short month's last day.
 - Recurring detection needs **≥3 regular occurrences** with a stable amount; auto-confirm
   additionally requires a **FIXED** amount class and **confidence ≥ 0.80**. Identity is the

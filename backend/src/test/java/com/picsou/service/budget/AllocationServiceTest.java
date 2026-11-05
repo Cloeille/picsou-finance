@@ -56,6 +56,13 @@ class AllocationServiceTest {
             .currentBalance(new BigDecimal(balance)).color("#000000").build();
     }
 
+    private static BigDecimal amountOf(AllocationResponse r, AssetClass assetClass) {
+        return r.stock().stream()
+            .filter(s -> s.assetClass() == assetClass)
+            .map(AllocationResponse.AllocationStock::amount)
+            .findFirst().orElse(BigDecimal.ZERO);
+    }
+
     private static Transaction transfer(Account account, String amount) {
         Category cat = Category.builder().id(9L).kind(CategoryKind.TRANSFER).name("Transfer").build();
         return Transaction.builder()
@@ -205,6 +212,80 @@ class AllocationServiceTest {
 
         assertThat(r.totalStock()).isEqualByComparingTo("0");
         assertThat(r.stock()).noneMatch(s -> s.assetClass() == AssetClass.SAVINGS);
+    }
+
+    @Test
+    void compute_skippedSubAccount_isNeverValued() {
+        // A sub-account that does not contribute must not be valued: its failing price or
+        // snapshot lookup would otherwise break the whole view.
+        Account orphan = account(11L, "Money-box", AccountType.SAVINGS, "1200.00");
+        orphan.setParentAccountId(99L);
+        Account house = account(5L, "House", AccountType.REAL_ESTATE, "300000.00");
+        Account underHouse = account(12L, "Money-box", AccountType.SAVINGS, "400.00");
+        underHouse.setParentAccountId(5L);
+        lenient().when(accountService.liveBalanceEur(orphan)).thenThrow(new RuntimeException("no price"));
+        lenient().when(accountService.liveBalanceEur(underHouse)).thenThrow(new RuntimeException("no price"));
+
+        when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID))
+            .thenReturn(List.of(orphan, house, underHouse));
+        when(transactionRepository.findByMemberIdAndKindAndDateBetween(eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
+            .thenReturn(List.of());
+
+        AllocationResponse r = service.compute(MEMBER_ID, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(r.totalStock()).isEqualByComparingTo("0");
+        verify(accountService, never()).liveBalanceEur(orphan);
+        verify(accountService, never()).liveBalanceEur(underHouse);
+    }
+
+    @Test
+    void compute_negativeSubAccount_doesNotRaiseTheWalletCeiling() {
+        // A negative sub-account moves nothing (its negative is already in the wallet's
+        // balance), so it cannot make room for a later money-box to take more than the wallet.
+        Account wallet = account(1L, "Wallet", AccountType.CHECKING, "1000.00");
+        Account overdrawn = account(10L, "Pocket", AccountType.SAVINGS, "-300.00");
+        overdrawn.setParentAccountId(1L);
+        Account moneyBox = account(11L, "Money-box", AccountType.SAVINGS, "1200.00");
+        moneyBox.setParentAccountId(1L);
+
+        when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID))
+            .thenReturn(List.of(wallet, overdrawn, moneyBox));
+        when(transactionRepository.findByMemberIdAndKindAndDateBetween(eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
+            .thenReturn(List.of());
+
+        AllocationResponse r = service.compute(MEMBER_ID, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(r.totalStock()).isEqualByComparingTo("1000.00");
+        assertThat(r.stock()).allMatch(s -> s.amount().signum() >= 0);
+        assertThat(amountOf(r, AssetClass.CURRENT)).isEqualByComparingTo("0");
+        assertThat(amountOf(r, AssetClass.SAVINGS)).isEqualByComparingTo("1000.00");
+        verify(accountService).liveBalanceEur(wallet);
+    }
+
+    @Test
+    void compute_sameClassPocket_doesNotConsumeTheWallet() {
+        // A pocket in the wallet's own class is already inside the wallet's CURRENT amount:
+        // moving it would change no class total but use up what a money-box can take.
+        Account wallet = account(1L, "Wallet", AccountType.CHECKING, "1000.00");
+        Account pocket = account(10L, "Pocket", AccountType.CHECKING, "1000.00");
+        pocket.setParentAccountId(1L);
+        Account moneyBox = account(11L, "Money-box", AccountType.SAVINGS, "400.00");
+        moneyBox.setParentAccountId(1L);
+
+        when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID))
+            .thenReturn(List.of(wallet, pocket, moneyBox));
+        when(transactionRepository.findByMemberIdAndKindAndDateBetween(eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
+            .thenReturn(List.of());
+
+        AllocationResponse r = service.compute(MEMBER_ID, CashflowPeriod.CYCLE, TODAY);
+
+        assertThat(r.totalStock()).isEqualByComparingTo("1000.00");
+        assertThat(amountOf(r, AssetClass.CURRENT)).isEqualByComparingTo("600.00");
+        assertThat(amountOf(r, AssetClass.SAVINGS)).isEqualByComparingTo("400.00");
+        verify(accountService, never()).liveBalanceEur(pocket);
     }
 
     @Test
