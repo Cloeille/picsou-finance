@@ -160,7 +160,7 @@ class SsoLoginIntegrationTest {
     }
 
     @Test @Order(7)
-    void pkceAndNonce_roundTrip_andTamperedVerifierFails() throws Exception {
+    void pkceAndNonce_roundTrip_andTamperedVerifierOrNonceFails() throws Exception {
         Flow flow = begin(start("login"), "dave", false);
         assertThat(finish(flow).getResponse().getRedirectedUrl()).startsWith("/login/sso-complete?");
         Map<String, String> authorization = IDP.authorization(flow.code());
@@ -168,6 +168,8 @@ class SsoLoginIntegrationTest {
         assertThat(authorization.get("nonce")).isNotBlank();
         assertThat(authorization.get("code_challenge")).isEqualTo(FakeOidcProvider.s256(IDP.exchange(flow.code()).get("code_verifier")));
         IDP.tamperNextVerifier.set(true);
+        assertThat(login("login", "dave", false).getResponse().getRedirectedUrl()).isEqualTo("/login?ssoError=IDP_ERROR");
+        IDP.tamperNextNonce.set(true);
         assertThat(login("login", "dave", false).getResponse().getRedirectedUrl()).isEqualTo("/login?ssoError=IDP_ERROR");
     }
 

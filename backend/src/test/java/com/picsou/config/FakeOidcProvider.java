@@ -52,6 +52,7 @@ final class FakeOidcProvider implements AutoCloseable {
     private final Map<String, Map<String, String>> authorizations = new ConcurrentHashMap<>();
     private final Map<String, Map<String, String>> exchanges = new ConcurrentHashMap<>();
     final AtomicBoolean tamperNextVerifier = new AtomicBoolean();
+    final AtomicBoolean tamperNextNonce = new AtomicBoolean();
 
     FakeOidcProvider() throws IOException, JOSEException {
         key = new RSAKeyGenerator(2048).keyID("fake-oidc").generate();
@@ -142,9 +143,11 @@ final class FakeOidcProvider implements AutoCloseable {
         }
         Identity identity = grant.identity();
         Instant now = Instant.now();
+        String nonce = grant.authorization().get("nonce");
+        if (tamperNextNonce.getAndSet(false)) nonce = "tampered-" + nonce;
         var claims = new JWTClaimsSet.Builder().issuer(issuer()).subject(identity.subject()).audience("picsou-test")
             .issueTime(Date.from(now)).expirationTime(Date.from(now.plusSeconds(300)))
-            .claim("nonce", grant.authorization().get("nonce"))
+            .claim("nonce", nonce)
             .claim("auth_time", identity.authTime().getEpochSecond()).build();
         SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(key.getKeyID()).build(), claims);
         jwt.sign(new RSASSASigner(key));
