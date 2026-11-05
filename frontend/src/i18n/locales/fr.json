@@ -98,7 +98,8 @@
       "button": "Se connecter avec {{provider}}",
       "or": "ou",
       "redirecting": "Redirection vers votre fournisseur de connexion...",
-      "completing": "Finalisation de la connexion..."
+      "completing": "Finalisation de la connexion...",
+      "infoError": "Impossible de charger les options de connexion."
     },
     "validation": {
       "usernameTooShort": "Le nom d'utilisateur doit contenir au moins 3 caractères.",

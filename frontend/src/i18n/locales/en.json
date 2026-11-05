@@ -98,7 +98,8 @@
       "button": "Sign in with {{provider}}",
       "or": "or",
       "redirecting": "Redirecting to your sign-in provider...",
-      "completing": "Completing sign-in..."
+      "completing": "Completing sign-in...",
+      "infoError": "Couldn't load the sign-in options."
     },
     "validation": {
       "usernameTooShort": "The username must contain at least 3 characters.",

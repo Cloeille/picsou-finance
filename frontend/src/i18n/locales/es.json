@@ -98,7 +98,8 @@
       "button": "Iniciar sesión con {{provider}}",
       "or": "o",
       "redirecting": "Redirigiendo a tu proveedor de inicio de sesión...",
-      "completing": "Completando el inicio de sesión..."
+      "completing": "Completando el inicio de sesión...",
+      "infoError": "No se pudieron cargar las opciones de inicio de sesión."
     },
     "validation": {
       "usernameTooShort": "El nombre de usuario debe tener al menos 3 caracteres.",

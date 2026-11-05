@@ -98,7 +98,8 @@
       "button": "Mit {{provider}} anmelden",
       "or": "oder",
       "redirecting": "Weiterleitung zu deinem Anmeldeanbieter...",
-      "completing": "Anmeldung wird abgeschlossen..."
+      "completing": "Anmeldung wird abgeschlossen...",
+      "infoError": "Die Anmeldeoptionen konnten nicht geladen werden."
     },
     "validation": {
       "usernameTooShort": "Der Benutzername muss mindestens 3 Zeichen enthalten.",

@@ -123,6 +123,19 @@ export function LoginPage() {
           </CardHeader>
 
           <CardContent className="px-6 sm:px-10">
+            {!demoMode && ssoInfo.isError && (
+              <AlertBanner
+                variant="roomy"
+                className="mb-6"
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={() => void ssoInfo.refetch()}>
+                    {t('common.retry')}
+                  </Button>
+                }
+              >
+                {t('auth.sso.infoError')}
+              </AlertBanner>
+            )}
             {sso && (
               <>
                 <Button

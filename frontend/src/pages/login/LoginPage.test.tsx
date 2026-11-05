@@ -127,6 +127,21 @@ describe('LoginPage SSO', () => {
     expect(ssoRememberPreference()).toBe(true)
   })
 
+  it('says when the sign-in options fail to load and retries on request', () => {
+    const refetch = vi.fn()
+    useSsoInfo.mockReturnValue({ data: undefined, isSuccess: false, isError: true, refetch })
+
+    const view = renderLogin()
+    fireEvent.click(screen.getByRole('button', { name: en.common.retry }))
+
+    expect(screen.getByText(en.auth.sso.infoError)).toBeInTheDocument()
+    expect(refetch).toHaveBeenCalledTimes(1)
+    useSsoInfo.mockReturnValue(SSO_ENABLED)
+    view.rerenderSame()
+    expect(screen.queryByText(en.auth.sso.infoError)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign in with SSO' })).toBeInTheDocument()
+  })
+
   it('shows the translated SSO error from the query parameter, never the raw code', () => {
     useSsoInfo.mockReturnValue(SSO_DISABLED)
 
