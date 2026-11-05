@@ -256,7 +256,7 @@ class SsoAccountServiceTest {
     @Test
     void activateWithIdentityActivatesPasswordlessAndLinksTheIdentity() {
         AppUser dora = invited(NOW.plusSeconds(60));
-        when(appUserRepository.findByActivationToken("tok")).thenReturn(Optional.of(dora));
+        when(appUserRepository.findByActivationTokenForUpdate("tok")).thenReturn(Optional.of(dora));
         when(userIdentityRepository.findByIssuerAndSubject(ISSUER, "sub-1")).thenReturn(Optional.empty());
         when(appUserRepository.findByIdWithMember(9L)).thenReturn(Optional.of(dora));
 
@@ -272,7 +272,7 @@ class SsoAccountServiceTest {
     @Test
     void activateWithIdentityDisablesTwoFactor() {
         AppUser dora = invited(null);
-        when(appUserRepository.findByActivationToken("tok")).thenReturn(Optional.of(dora));
+        when(appUserRepository.findByActivationTokenForUpdate("tok")).thenReturn(Optional.of(dora));
         when(userIdentityRepository.findByIssuerAndSubject(ISSUER, "sub-1")).thenReturn(Optional.empty());
         when(appUserRepository.findByIdWithMember(9L)).thenReturn(Optional.of(dora));
         when(mfaService.isEnabled(dora)).thenReturn(true);
@@ -286,7 +286,7 @@ class SsoAccountServiceTest {
     void activateWithIdentityRefusesAnIdentityLinkedElsewhereAndLeavesTheAccountUntouched() {
         AppUser dora = invited(NOW.plusSeconds(60));
         UserIdentity alice = UserIdentity.builder().user(user(1L, "alice")).issuer(ISSUER).subject("sub-1").build();
-        when(appUserRepository.findByActivationToken("tok")).thenReturn(Optional.of(dora));
+        when(appUserRepository.findByActivationTokenForUpdate("tok")).thenReturn(Optional.of(dora));
         when(userIdentityRepository.findByIssuerAndSubject(ISSUER, "sub-1")).thenReturn(Optional.of(alice));
 
         assertThatThrownBy(() -> service.activateWithIdentity("tok", identity("a", "a@x.io", Set.of()), null))
@@ -298,8 +298,8 @@ class SsoAccountServiceTest {
 
     @Test
     void activateWithIdentityRefusesUnknownOrExpiredTokens() {
-        when(appUserRepository.findByActivationToken("gone")).thenReturn(Optional.empty());
-        when(appUserRepository.findByActivationToken("old")).thenReturn(Optional.of(invited(NOW.minusSeconds(1))));
+        when(appUserRepository.findByActivationTokenForUpdate("gone")).thenReturn(Optional.empty());
+        when(appUserRepository.findByActivationTokenForUpdate("old")).thenReturn(Optional.of(invited(NOW.minusSeconds(1))));
 
         for (String token : new String[] {"gone", "old"}) {
             assertThatThrownBy(() -> service.activateWithIdentity(token, identity("a", "a@x.io", Set.of()), null))

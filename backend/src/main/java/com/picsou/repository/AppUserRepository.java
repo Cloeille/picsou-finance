@@ -33,5 +33,9 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
 
     Optional<AppUser> findByActivationToken(String token);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM AppUser u WHERE u.activationToken = :token")
+    Optional<AppUser> findByActivationTokenForUpdate(@Param("token") String token);
+
     Optional<AppUser> findByMemberId(Long memberId);
 }

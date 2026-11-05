@@ -425,6 +425,7 @@ class AuthControllerTest {
             .member(FamilyMember.builder().id(50L).displayName("Bob").build())
             .build();
         when(userRepository.findByActivationToken("tok")).thenReturn(Optional.of(member));
+        when(userRepository.findByActivationTokenForUpdate("tok")).thenReturn(Optional.of(member));
 
         ResponseEntity<?> res = controller.activate(
             "tok", new ActivationRequest("new-password-123", true), httpReq);
@@ -435,6 +436,22 @@ class AuthControllerTest {
         assertThat(member.getTokenVersion()).isEqualTo(6L);
         // ...and every Remember-Me persistent session for this user is wiped.
         verify(persistentSessionService).revokeAllForUser(11L);
+    }
+
+    @Test
+    void activate_refusesATokenAConcurrentActivationUsedWhileThePasswordWasHashed() {
+        AppUser member = AppUser.builder()
+            .id(11L).username("bob").role(UserRole.MEMBER).passwordHash("").activated(false)
+            .activationToken("tok").activationTokenExpires(Instant.now().plus(1, ChronoUnit.HOURS))
+            .build();
+        when(userRepository.findByActivationToken("tok")).thenReturn(Optional.of(member));
+        when(userRepository.findByActivationTokenForUpdate("tok")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> controller.activate("tok", new ActivationRequest("new-password-123", true), httpReq))
+            .isInstanceOf(BadCredentialsException.class);
+
+        verify(userRepository, never()).save(any());
+        verify(persistentSessionService, never()).revokeAllForUser(any());
     }
 
     // ─── mfa/verify ──────────────────────────────────────────────────────

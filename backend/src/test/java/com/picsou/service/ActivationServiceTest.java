@@ -11,11 +11,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.time.Instant;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ActivationServiceTest {
@@ -61,6 +65,28 @@ class ActivationServiceTest {
         service().complete(user, "", request);
 
         assertThat(user.getPasswordHash()).isEmpty();
+    }
+
+    @Test
+    void completeInvitationCompletesTheRowFoundUnderLock() {
+        AppUser user = invited(UserRole.MEMBER);
+        when(userRepository.findByActivationTokenForUpdate("tok")).thenReturn(Optional.of(user));
+
+        assertThat(service().completeInvitation("tok", "new-hash", request)).isTrue();
+
+        assertThat(user.getPasswordHash()).isEqualTo("new-hash");
+        assertThat(user.getActivationToken()).isNull();
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    void completeInvitationReportsATokenAlreadyUsedAndWritesNothing() {
+        when(userRepository.findByActivationTokenForUpdate("tok")).thenReturn(Optional.empty());
+
+        assertThat(service().completeInvitation("tok", "new-hash", request)).isFalse();
+
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(persistentSessionService, auditService);
     }
 
     @Test

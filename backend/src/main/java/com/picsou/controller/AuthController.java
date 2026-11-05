@@ -476,7 +476,9 @@ public class AuthController {
                 .body(Map.of("error", "You must acknowledge the data access warning"));
         }
 
-        activationService.complete(user, passwordEncoder.encode(req.password()), httpReq);
+        if (!activationService.completeInvitation(token, passwordEncoder.encode(req.password()), httpReq)) {
+            throw new BadCredentialsException("Invalid activation token");
+        }
 
         return ResponseEntity.ok(Map.of("message", "Account activated successfully"));
     }

@@ -84,7 +84,7 @@ same-origin POST, as the bank OAuth callback does.
 | `login`: `(iss, sub)` linked to an account | That account. Deactivated: `ACCOUNT_INACTIVE`, or `ADMIN_RECOVERY_ACTIVE` for an admin while admin recovery is on |
 | `login`: not linked, setup complete, `SSO_ADMIN_GROUP` set, identity in the group | New password-less ADMIN account (audited `sso.user.provisioned`) |
 | `setup`: setup at `PENDING_ADMIN`, identity in the admin group | First admin, password-less. Not in the group: `NOT_IN_ADMIN_GROUP`; lost race: `SETUP_ALREADY_CLAIMED` |
-| `activate`: valid, unexpired invitation token | Identity bound to the invited account; account activated with an empty password hash. Identity owned by another account: `IDENTITY_IN_USE` |
+| `activate`: valid, unexpired invitation token | Identity bound to the invited account; account activated with an empty password hash. Identity owned by another account: `IDENTITY_IN_USE`. The invitation row is locked until commit, so a concurrent activation of the same invitation finds the token gone: `ACTIVATION_INVALID` here, the invalid-token answer on the password path |
 | `link`: signed-in user, valid `reauth_proof` at start and callback | Identity bound to that account (`last_login_at` stays empty until its first SSO sign-in) |
 | `reauth`: signed-in user, identity already linked to them, fresh `auth_time` | `reauth_proof` set; no new session |
 | Anything else | `NOT_LINKED`. No account is ever matched by email or username |

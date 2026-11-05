@@ -26,6 +26,20 @@ public class ActivationService {
         this.auditService = auditService;
     }
 
+    /**
+     * Completes an invitation while holding its row lock. A token that a concurrent activation
+     * already used no longer matches, so this one reports false instead of overwriting it.
+     */
+    @Transactional
+    public boolean completeInvitation(String token, String newPasswordHash, HttpServletRequest request) {
+        return userRepository.findByActivationTokenForUpdate(token)
+            .map(user -> {
+                complete(user, newPasswordHash, request);
+                return true;
+            })
+            .orElse(false);
+    }
+
     @Transactional
     public void complete(AppUser user, String newPasswordHash, HttpServletRequest request) {
         user.setPasswordHash(newPasswordHash);
