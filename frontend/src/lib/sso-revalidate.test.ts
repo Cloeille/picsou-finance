@@ -43,4 +43,14 @@ describe('sso remember preference', () => {
     rememberSsoPreference(false)
     expect(ssoRememberPreference()).toBe(false)
   })
+
+  it('never throws when the browser refuses to store it, so the sign-in still starts', () => {
+    const refusing: Storage = {
+      ...memoryStorage(),
+      setItem: () => { throw new DOMException('The quota has been exceeded.', 'QuotaExceededError') },
+    }
+    Object.defineProperty(globalThis, 'localStorage', { value: refusing, configurable: true })
+
+    expect(() => rememberSsoPreference(true)).not.toThrow()
+  })
 })

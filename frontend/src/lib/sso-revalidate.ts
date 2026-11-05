@@ -13,7 +13,11 @@ export function consumeSsoRevalidate(): boolean {
 }
 
 export function rememberSsoPreference(rememberMe: boolean): void {
-  localStorage.setItem(REMEMBER_KEY, rememberMe ? '1' : '0')
+  try {
+    localStorage.setItem(REMEMBER_KEY, rememberMe ? '1' : '0')
+  } catch {
+    // Storage full or blocked: the preference is optional and the sign-in must still start.
+  }
 }
 
 export function ssoRememberPreference(): boolean {
