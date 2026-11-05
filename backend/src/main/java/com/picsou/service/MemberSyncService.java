@@ -138,6 +138,10 @@ public class MemberSyncService {
         return results;
     }
 
+    /**
+     * Runs one source and always returns a result: an unknown source is SKIPPED and an unexpected
+     * exception is FAILED, so one source never stops the others.
+     */
     private SourceSyncResult executeSource(String source, Long memberId) {
         try {
             switch (source) {

@@ -73,6 +73,9 @@ class CorumSyncServiceTest {
             txTemplate, Runnable::run, reconciler, lifeWriter);
     }
 
+    /**
+     * A fetch that ends after the session was disconnected or replaced writes nothing, whether it returned a portfolio or failed.
+     */
     @ParameterizedTest
     @CsvSource({"false,false", "true,false", "false,true", "true,true"})
     void queueSync_discardsSnapshotAfterDisconnectOrReplacement(boolean replace, boolean remoteFailure) throws Exception {
@@ -186,6 +189,7 @@ class CorumSyncServiceTest {
         assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.CorumErrorCode.INVALID_DATA);
     }
 
+    /** A portfolio with life contracts only is written without touching the SCPI funds. */
     @org.junit.jupiter.api.Test
     void queueSync_lifeOnlyPortfolioSkipsTheScpiReconciler() {
         CorumSession session = activeSession();
@@ -499,6 +503,7 @@ class CorumSyncServiceTest {
         assertThat(real.decrypt(session.getSessionState())).isEqualTo("fresh-state");
     }
 
+    /** Neither a log message nor a logged exception from a failed re-login contains the remembered password. */
     @org.junit.jupiter.api.Test
     void thePasswordNeverReachesTheLogs() {
         rememberedSession();

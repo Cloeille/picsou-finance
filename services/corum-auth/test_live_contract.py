@@ -216,6 +216,7 @@ class InitiateClosesItsBrowserTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(source.count("_close_resources("), 1)
 
     def test_every_open_path_closes_exactly_once(self):
+        """Each path that opens a browser closes it from one place, in a finally."""
         import inspect
 
         # `/positions` and `/portfolio` open their browser through
@@ -229,6 +230,7 @@ class InitiateClosesItsBrowserTest(unittest.IsolatedAsyncioTestCase):
             )
 
     def test_read_endpoints_open_no_browser_of_their_own(self):
+        """The read endpoints use the browser of `_read_in_portal`, never their own."""
         import inspect
 
         for handler in (main.positions, main.portfolio):
@@ -237,7 +239,7 @@ class InitiateClosesItsBrowserTest(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("_new_browser(", source)
 
     async def test_each_read_endpoint_passes_its_own_reader(self):
-        # Swapping the two readers would still pass the source checks above.
+        """Each read endpoint passes its own reader; a swap would pass the source checks."""
         from unittest.mock import AsyncMock
 
         for handler, reader in (
@@ -338,6 +340,7 @@ class SelectsContractsTest(unittest.TestCase):
         ], 409, "MULTIPLE_CONTRACTS")
 
     def test_a_life_entry_without_a_usable_code_is_refused_when_life_is_read(self):
+        """A life entry whose code cannot key an account is refused, not skipped."""
         for code in (None, "", 123, ["LIFE-2"]):
             with self.subTest(code=code), self.assertRaises(HTTPException) as caught:
                 main._select_contracts([
@@ -348,6 +351,7 @@ class SelectsContractsTest(unittest.TestCase):
             self.assertEqual(caught.exception.detail, "UPSTREAM_FORMAT_CHANGED")
 
     def test_a_real_estate_entry_without_a_usable_code_is_refused_when_life_is_read(self):
+        """A real-estate entry whose code cannot be looked up is refused, not skipped."""
         for code in (None, "", 123, ["RE-2"]):
             with self.subTest(code=code), self.assertRaises(HTTPException) as caught:
                 main._select_contracts([
@@ -414,6 +418,9 @@ class ReadsTest(unittest.IsolatedAsyncioTestCase):
     replaced by a path -> body map. The browser is not what is under test."""
 
     def _serve(self, active, **bodies):
+        """Serve `active` and the default contract bodies by path, overridden by
+        `bodies`; a body that is an exception is raised. Each requested path is
+        recorded."""
         routes = {
             main.CONTRACT_PATH: active,
             main.CONTRACT_DETAIL_PATH.format(code="RE-1", investment_type="FULL_PROPERTY"):
@@ -427,6 +434,7 @@ class ReadsTest(unittest.IsolatedAsyncioTestCase):
         self.requested = []
 
         async def get_json(_page, path):
+            """Stand-in for the in-page fetch: record the path, return or raise its body."""
             self.requested.append(path)
             body = routes[path]
             if isinstance(body, Exception):
@@ -436,6 +444,7 @@ class ReadsTest(unittest.IsolatedAsyncioTestCase):
         return patch.object(main, "_get_json", get_json)
 
     async def test_portfolio_reads_both_kinds(self):
+        """A login with a real-estate and a life contract returns both parts."""
         active = [
             {"contractCode": "RE-1", "contractType": "real_estate"},
             {"contractCode": LIFE_CODE, "contractType": "LIFE", "valuationAmount": 3506.56},
@@ -472,7 +481,7 @@ class ReadsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.requested[-1], encoded)
 
     def test_a_dot_segment_code_is_refused(self):
-        # `..` survives percent-encoding and would be resolved by the browser.
+        """An empty or all-dots code is refused: `..` survives percent-encoding."""
         for code in ("", ".", ".."):
             with self.subTest(code=code):
                 with self.assertRaises(main.HTTPException) as caught:
@@ -515,6 +524,7 @@ class ReadsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.requested.count(main.OPERATIONS_PATH), 1)
 
     async def test_an_operations_read_failure_keeps_the_valuation(self):
+        """A failed operations read keeps the valuation and leaves operations unread."""
         for failure in (
             HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED"),
             HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE"),

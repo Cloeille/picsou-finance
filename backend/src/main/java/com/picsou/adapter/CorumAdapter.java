@@ -72,6 +72,11 @@ public class CorumAdapter implements CorumPort {
         ).sessionState();
     }
 
+    /**
+     * Reads the whole portfolio, real estate and life, in one sidecar call. A bare 401 is read as an expired
+     * session, and a contract flagged incomplete fails the read as PORTFOLIO_INCOMPLETE instead of being
+     * written partially.
+     */
     @Override
     public Portfolio fetchPortfolio(String sessionState) {
         Portfolio portfolio = sidecar.post(

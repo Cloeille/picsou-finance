@@ -104,6 +104,10 @@ public class CorumSession extends AuditableEntity {
         this.active = true;
     }
 
+    /**
+     * Queues a sync. Refused for an inactive session or one already queued or running, so a run is never
+     * started twice; the previous run's timestamps, error and ambiguous count are cleared.
+     */
     public void markQueued() {
         if (!active) {
             throw new IllegalStateException("Inactive CORUM sessions cannot be queued");
@@ -118,6 +122,7 @@ public class CorumSession extends AuditableEntity {
         lastSyncLifeAmbiguous = 0;
     }
 
+    /** Starts a queued sync. Only an active session that is QUEUED can run, so a stale job cannot start one. */
     public void markRunning(Instant startedAt) {
         if (!active || syncStatus != CorumSyncStatus.QUEUED) {
             throw new IllegalStateException("Only an active queued CORUM session can run");
@@ -128,6 +133,10 @@ public class CorumSession extends AuditableEntity {
         lastSyncError = null;
     }
 
+    /**
+     * Ends the running sync as a success. A completed read proves the session still works, so it also
+     * refreshes {@code lastValidatedAt}. {@code lifeAmbiguous} counts the life contracts left unwritten.
+     */
     public void markSuccessful(Instant completedAt, int lifeAmbiguous) {
         if (!active || syncStatus != CorumSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an active running CORUM session can succeed");
@@ -143,6 +152,10 @@ public class CorumSession extends AuditableEntity {
         lastSyncLifeAmbiguous = lifeAmbiguous;
     }
 
+    /**
+     * Ends an in-flight sync as failed with its error code. A SESSION_EXPIRED or INVALID_CREDENTIALS failure
+     * also deactivates the session, as only a new login can recover it.
+     */
     public void markFailed(CorumErrorCode errorCode, Instant completedAt) {
         if (syncStatus != CorumSyncStatus.QUEUED && syncStatus != CorumSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an in-flight CORUM synchronization can fail");

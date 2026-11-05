@@ -540,6 +540,7 @@ class CorumLifeWriterTest {
                 assertThat(error.getCode()).isEqualTo(code.name()));
     }
 
+    /** Saving an account hands it back, giving a new one the id 42 as the database would. */
     private void stubSaves() {
         lenient().when(accountRepository.save(any(Account.class))).thenAnswer(inv -> {
             Account account = inv.getArgument(0);
@@ -596,6 +597,7 @@ class CorumLifeWriterTest {
         verify(operationWriter).reconcile(eq(7L), eq(account), isNull(), eq(contract.holdings()));
     }
 
+    /** An operation missing its date, id, type or amount, or a null one, refuses the contract as INVALID_DATA. */
     @Test
     void validate_refusesAnOperationWithoutADateIdTypeOrAmount() {
         for (CorumPort.LifeOperation incomplete : List.of(
@@ -661,6 +663,7 @@ class CorumLifeWriterTest {
         return contractWith(total, lines, null, holdings);
     }
 
+    /** A contract with the given contract-level invested amount, or none when null. */
     private static CorumPort.LifeContract contractWith(
         String total, int lines, String netInvested, CorumPort.LifeHolding... holdings
     ) {

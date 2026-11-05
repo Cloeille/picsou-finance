@@ -718,6 +718,7 @@ async def _read_operations(page: Any, life_codes: list[str]) -> dict[str, Any]:
 
 
 def _active_totals(active: Any) -> dict[str, Any]:
+    """Valuation per contract code from the active list, which may hold a single entry."""
     entries = active if isinstance(active, list) else [active]
     return {
         entry["contractCode"]: entry.get("valuationAmount")
@@ -728,6 +729,9 @@ def _active_totals(active: Any) -> dict[str, Any]:
 
 
 async def _read_portfolio(page: Any) -> dict:
+    """Read the real-estate snapshot and every life contract of the login in one pass. A
+    repeated life code is refused, since it would write one account from two reads; a
+    gap between the listed and detailed total is only logged."""
     _, active = await _get_json(page, CONTRACT_PATH)
     real_estate_code, life_codes = _select_contracts(active, reads_life=True)
     if len(set(life_codes)) != len(life_codes):
@@ -763,6 +767,8 @@ async def _read_portfolio(page: Any) -> dict:
 
 
 async def _read_positions(page: Any) -> dict:
+    """Read the SCPI snapshot alone. A login with only CORUM Life has none, so it is
+    refused as PORTFOLIO_INCOMPLETE."""
     _, active = await _get_json(page, CONTRACT_PATH)
     code, _life = _select_contracts(active)
     if code is None:

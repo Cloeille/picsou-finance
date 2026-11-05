@@ -45,6 +45,7 @@ class CorumLifeOperationWriterTest {
 
     // ─── mapping ──────────────────────────────────────────────────────────────
 
+    /** Each known type is inserted as its own row, with the transaction type and budget flag its kind implies. */
     @Test
     void eachKnownTypeIsMappedOnItsOwnRow() {
         when(categoryService.findOrCreateDefault(MEMBER, "investissement")).thenReturn(Optional.of(investment));

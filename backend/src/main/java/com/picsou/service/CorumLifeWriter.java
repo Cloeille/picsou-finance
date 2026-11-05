@@ -178,6 +178,11 @@ public class CorumLifeWriter {
         return operations != null && CorumLifeOperationWriter.externalIds(operations) == null ? null : operations;
     }
 
+    /**
+     * Refuses a contract whose figures cannot be written as stated, before anything is: no valid total, a
+     * negative invested amount, an incomplete, duplicate or negative holding, a euro fund not in 1 EUR units,
+     * or lines that do not add up to the declared total.
+     */
     private void validateFigures(CorumPort.LifeContract contract) {
         BigDecimal declared = contract.totalValuationEur();
         if (declared == null || declared.signum() < 0) {
@@ -239,6 +244,11 @@ public class CorumLifeWriter {
         return outcomes;
     }
 
+    /**
+     * Writes one validated contract: finds its account by external id, or adopts the single empty manual
+     * account, or creates one, then replaces its holdings and reconciles its operations. A soft-deleted
+     * account is IGNORED and an account that cannot be adopted unambiguously is AMBIGUOUS; neither is written.
+     */
     private Outcome writeContract(
         Long memberId, String code, CorumPort.LifeContract contract, int contractCount, Instant syncedAt
     ) {
@@ -333,6 +343,10 @@ public class CorumLifeWriter {
         return outcome;
     }
 
+    /**
+     * A holding row for the account. The average buy-in and the gain are filled only when line costs are
+     * kept and known, so a gain is never invented from figures that do not add up.
+     */
     private static AccountHolding toHolding(
         Account account, CorumPort.LifeHolding holding, boolean lineCosts, Instant syncedAt
     ) {
@@ -411,6 +425,7 @@ public class CorumLifeWriter {
         return TICKER_PREFIX + holding.productCode().trim().toUpperCase(Locale.ROOT);
     }
 
+    /** The value cut to at most {@code max} characters so it fits its column. */
     private static String truncate(String value, int max) {
         return value.length() <= max ? value : value.substring(0, max);
     }

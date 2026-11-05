@@ -256,6 +256,10 @@ public class CorumSyncService {
         }
     }
 
+    /**
+     * Runs a queued sync to its end: fetches the portfolio, logging in again once if the session expired,
+     * and commits it. A failure is recorded on the session rather than thrown, so a run never leaves it RUNNING.
+     */
     private void executeJob(SyncJob job) {
         if (!markRunning(job)) {
             return;
@@ -324,6 +328,10 @@ public class CorumSyncService {
         return port.fetchPortfolio(newState);
     }
 
+    /**
+     * The login and password as the JSON that {@link #parseCredentials} reads back. Plaintext: it is
+     * encrypted before it is stored.
+     */
     private String serializeCredentials(String login, String password) {
         try {
             return JSON.writeValueAsString(Map.of("login", login, "password", password));
@@ -332,6 +340,10 @@ public class CorumSyncService {
         }
     }
 
+    /**
+     * Reads credentials back from {@link #serializeCredentials}. Malformed JSON or a blank login or
+     * password is refused, so a damaged value is never replayed as empty credentials.
+     */
     private Credentials parseCredentials(String value) {
         try {
             JsonNode node = JSON.readTree(value);
@@ -367,6 +379,11 @@ public class CorumSyncService {
         validateRealEstate(portfolio.realEstate());
     }
 
+    /**
+     * Refuses a real-estate snapshot that cannot be written as it is: incomplete, without funds, a fund
+     * without a code or quantity, a duplicate or negative one, a declared total that does not match, or a
+     * currency other than EUR.
+     */
     private void validateRealEstate(CorumPort.Snapshot snapshot) {
         if (!snapshot.snapshotComplete()) {
             throw error(
@@ -464,6 +481,10 @@ public class CorumSyncService {
         }
     }
 
+    /**
+     * Moves the job's session from QUEUED to RUNNING under the member lock. False when the session is gone,
+     * inactive or no longer queued (disconnected or replaced meanwhile), in which case the job does nothing.
+     */
     private boolean markRunning(SyncJob job) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
             Optional<CorumSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
@@ -488,6 +509,11 @@ public class CorumSyncService {
         }));
     }
 
+    /**
+     * Writes the portfolio in one transaction under the member lock, only if the session is still active
+     * and RUNNING, so a disconnect or replacement meanwhile discards the snapshot. Both parts are validated
+     * before either is written, and a failure rolls the whole sync back.
+     */
     private void commitPortfolio(SyncJob job, CorumPort.Portfolio portfolio) {
         txTemplate.executeWithoutResult(status -> {
             lockMember(job.memberId());
@@ -525,6 +551,10 @@ public class CorumSyncService {
             .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
     }
 
+    /**
+     * Records the failure on the session if it is still in flight. A rejected password also clears the
+     * stored credentials, so no later sync replays it.
+     */
     private void markFailed(SyncJob job, CorumErrorCode code) {
         txTemplate.executeWithoutResult(status -> {
             lockMember(job.memberId());

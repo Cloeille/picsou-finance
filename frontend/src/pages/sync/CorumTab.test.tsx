@@ -202,6 +202,7 @@ describe('CorumTab', () => {
       lastSeenAt: RUN, lastSyncedAt: RUN, accountId: 1, accountName: 'CORUM USA',
     }
 
+    /** Answers the accounts and SCPI fund reads with the given rows, and any other read with the successful status. */
     function serve(accounts: unknown[], funds: unknown[]) {
       apiGet.mockImplementation((url: string) => {
         if (url === '/accounts') return Promise.resolve({ data: accounts })

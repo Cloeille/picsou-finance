@@ -238,6 +238,10 @@ public class CorumLifeOperationWriter {
         row.setBudgetNeutral(!payment);
     }
 
+    /**
+     * The transaction type of a CORUM operation type: payments and subscriptions are deposits, coupons
+     * dividends and management costs fees. Any other type is null, so its row moves no money in or out.
+     */
     private static TransactionType txTypeOf(String type) {
         return switch (type) {
             case "scheduledPayment", "subscription" -> TransactionType.DEPOSIT;
@@ -260,6 +264,10 @@ public class CorumLifeOperationWriter {
         return ticker.length() <= TICKER_MAX ? ticker : null;
     }
 
+    /**
+     * The fund label per ticker, from the contract's holdings, to name a coupon's row. A holding without a
+     * label is left out; no holdings give an empty map.
+     */
     private static Map<String, String> fundNames(List<CorumPort.LifeHolding> holdings) {
         Map<String, String> names = new HashMap<>();
         if (holdings == null) {
@@ -288,6 +296,7 @@ public class CorumLifeOperationWriter {
         return category;
     }
 
+    /** The value cut to at most {@code max} characters so it fits its column. */
     private static String truncate(String value, int max) {
         return value.length() <= max ? value : value.substring(0, max);
     }
