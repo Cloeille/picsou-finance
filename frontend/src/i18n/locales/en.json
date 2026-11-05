@@ -554,7 +554,6 @@
     },
     "validation": {
       "principal": "The amount lent must be greater than zero.",
-      "rateTooHigh": "The equivalent annual rate exceeds 100%. Check the selected period.",
       "rateNegative": "The rate cannot be negative.",
       "linkedAccount": "The cash account is required.",
       "lentAt": "The lending date is required.",

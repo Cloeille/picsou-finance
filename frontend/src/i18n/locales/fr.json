@@ -554,7 +554,6 @@
     },
     "validation": {
       "principal": "Le montant prêté doit être supérieur à zéro.",
-      "rateTooHigh": "Le taux annuel équivalent dépasse 100 %. Vérifiez la période choisie.",
       "rateNegative": "Le taux ne peut pas être négatif.",
       "linkedAccount": "Le compte de trésorerie est requis.",
       "lentAt": "La date du prêt est requise.",

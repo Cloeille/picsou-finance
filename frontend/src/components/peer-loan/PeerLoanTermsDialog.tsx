@@ -105,14 +105,10 @@ export function PeerLoanTermsDialog({
     return (ratePeriod === 'MONTHLY' ? pct * 12 : pct) / 100
   }
 
-  /** The backend stores an annual fraction in [0, 1]; say why instead of a generic failure. */
+  /** The backend only rejects a negative rate; short-term loans may carry high ones. */
   function validateRate(annualRate: number): boolean {
     if (annualRate < 0) {
       setError(t('peerLoan.validation.rateNegative'))
-      return false
-    }
-    if (annualRate > 1) {
-      setError(t('peerLoan.validation.rateTooHigh'))
       return false
     }
     return true

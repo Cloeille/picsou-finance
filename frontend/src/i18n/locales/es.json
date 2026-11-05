@@ -543,7 +543,6 @@
     },
     "validation": {
       "principal": "El importe prestado debe ser mayor que cero.",
-      "rateTooHigh": "El tipo anual equivalente supera el 100 %. Comprueba el periodo elegido.",
       "rateNegative": "El tipo no puede ser negativo.",
       "linkedAccount": "La cuenta de tesorería es obligatoria.",
       "lentAt": "La fecha del préstamo es obligatoria.",
