@@ -103,7 +103,9 @@ Edge cases:
   excess would be labelled as income while the ledger has nothing to pay;
 - a zero rate short-circuits the interest branch and the whole payment amortises;
 - the linked cash account must be in EUR, because the principal and the ledger are EUR
-  figures that are never converted a second time.
+  figures that are never converted a second time;
+- a repayment date cannot be in the future: the ledger records completed payments, and the
+  forecast belongs to `planned_*`.
 
 ### Closure
 
@@ -331,7 +333,9 @@ Add a repayment
    ├─ withCashLeg=false → no cash row, the receivable steps down (compensation)
    ├─ manual linked account → DEPOSIT (TRANSFER for capital, uncategorised income
    │  for interest)
-   └─ account.current_balance = remaining; a snapshot is upserted on the event date
+   ├─ account.current_balance = remaining; a snapshot is upserted on the event date
+   └─ every persisted snapshot at or after that date is recomputed (a backdated
+      repayment changes the later balances, not only its own day)
 
 Daily snapshot
    │
