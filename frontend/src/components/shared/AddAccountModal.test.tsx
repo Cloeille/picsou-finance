@@ -42,6 +42,7 @@ vi.mock('@/features/sync/hooks', () => ({
   useBankCountries: () => ({ data: undefined }),
   useInitiateBankSync: () => ({ mutate: vi.fn(), isPending: false }),
   useInitiateTrAuth: () => ({ mutate: initiateTrAuth, isPending: false }),
+  useReconnectTrAuth: () => ({ mutate: vi.fn(), isPending: false }),
   useCompleteTrAuth: () => ({ mutate: completeTrAuth, isPending: false }),
   useAddCryptoExchange: () => ({ mutate: addCryptoExchange, isPending: false }),
   useAddCryptoWallet: () => ({ mutate: vi.fn(), isPending: false }),
@@ -130,9 +131,7 @@ function fillPhoneAndPin() {
   fireEvent.change(screen.getByLabelText('sync.tr.phone'), {
     target: { value: '+33612345678' },
   })
-  const pinInput = screen.getAllByRole('textbox').find((input) => input !== screen.getByLabelText('sync.tr.phone'))
-  if (!pinInput) throw new Error('PIN input not found')
-  fireEvent.change(pinInput, { target: { value: '1234' } })
+  fireEvent.change(screen.getByLabelText('sync.tr.pin'), { target: { value: '1234' } })
 }
 
 describe('AddAccountModal Trade Republic wizard', () => {
