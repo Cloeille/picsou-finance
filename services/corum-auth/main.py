@@ -78,6 +78,11 @@ SUBMIT_TIMEOUT_SECONDS = 30
 # first authenticated call the dashboard makes, so the wait is bounded by how
 # long that dashboard takes to fire rather than by any user prompt.
 SESSION_CAPTURE_TIMEOUT_SECONDS = 30
+# One in-page API read. Below the 30 s navigation bound: a stalled response
+# must give its browser slot back rather than hold it until CORUM answers.
+READ_TIMEOUT_SECONDS = 20
+# The evaluation's own bound, past the in-page abort, for a page that is wedged.
+READ_EVALUATE_GRACE_SECONDS = 5
 
 # Every login starts a Playwright driver and a Chromium process, and the
 # backend throttles per IP, which does not bound this service in aggregate.
@@ -539,16 +544,40 @@ async def _get_json(
     So the reads go through `fetch` in the page. That also means no cookie
     header is assembled here: a missing or stale token shows up as the API's
     own 401 rather than as a bot-wall 403 we would have to guess about.
+
+    The fetch is aborted after `READ_TIMEOUT_SECONDS`, body included, and the
+    evaluation itself is bounded a little later in case the page is wedged: a
+    stalled read raises, so `_read_in_portal` closes and frees its slot.
     """
-    result = await page.evaluate(
-        """async (path) => {
-            const response = await fetch(path, {credentials: 'include'});
-            let body = null;
-            try { body = await response.json(); } catch (e) { body = null; }
-            return {status: response.status, body};
-        }""",
-        path,
-    )
+    try:
+        result = await asyncio.wait_for(
+            page.evaluate(
+                """async ([path, timeoutMs]) => {
+                    const controller = new AbortController();
+                    const timer = setTimeout(() => controller.abort(), timeoutMs);
+                    try {
+                        const response = await fetch(path, {credentials: 'include', signal: controller.signal});
+                        let body = null;
+                        try { body = await response.json(); } catch (e) { body = null; }
+                        if (controller.signal.aborted) return {status: null, body: null, timedOut: true};
+                        return {status: response.status, body};
+                    } catch (e) {
+                        if (controller.signal.aborted) return {status: null, body: null, timedOut: true};
+                        throw e;
+                    } finally {
+                        clearTimeout(timer);
+                    }
+                }""",
+                [path, READ_TIMEOUT_SECONDS * 1000],
+            ),
+            timeout=READ_TIMEOUT_SECONDS + READ_EVALUATE_GRACE_SECONDS,
+        )
+    except asyncio.TimeoutError as exc:
+        log.warning("CORUM request timed out")
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
+    if result.get("timedOut"):
+        log.warning("CORUM request timed out")
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
     status = result.get("status")
     if status in (401, 403):
         # 401 is the API refusing the session. 403 here is Cloudflare rather
@@ -571,11 +600,14 @@ async def _get_json(
     return status, result["body"]
 
 
-def _select_contracts(active: Any) -> tuple[str | None, list[str]]:
+def _select_contracts(active: Any, *, reads_life: bool = False) -> tuple[str | None, list[str]]:
     """Pick the contracts this service reads out of `/contract/active`.
 
     Returns the real-estate contract code, if any, and every CORUM Life code
     as listed; `/portfolio` refuses a duplicate code, `/positions` never reads them.
+    With `reads_life` (`/portfolio`), a Life entry without a usable code is
+    refused rather than skipped: skipping it would report a successful sync
+    that silently left that contract stale.
     PER and capitalisation are still left out: they are insurance this service
     has no parser for, and folding them in would invent positions.
     """
@@ -587,7 +619,11 @@ def _select_contracts(active: Any) -> tuple[str | None, list[str]]:
             continue
         code = entry.get("contractCode")
         contract_type = entry.get("contractType")
-        if not (isinstance(code, str) and code and isinstance(contract_type, str)):
+        if not isinstance(contract_type, str):
+            continue
+        if not (isinstance(code, str) and code):
+            if reads_life and contract_type.casefold() == "life":
+                raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
             continue
         if contract_type.casefold() == "real_estate":
             real_estate.append(code)
@@ -693,7 +729,7 @@ def _active_totals(active: Any) -> dict[str, Any]:
 
 async def _read_portfolio(page: Any) -> dict:
     _, active = await _get_json(page, CONTRACT_PATH)
-    real_estate_code, life_codes = _select_contracts(active)
+    real_estate_code, life_codes = _select_contracts(active, reads_life=True)
     if len(set(life_codes)) != len(life_codes):
         # A Life account is keyed by its contract code. The same code twice
         # would write one account from two reads.

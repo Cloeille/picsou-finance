@@ -3,6 +3,7 @@
 Each test here corresponds to a defect that a fixture-based test could not see,
 because the fixture was written from the same wrong assumption as the code.
 """
+import asyncio
 import os
 import unittest
 from unittest.mock import patch
@@ -235,6 +236,21 @@ class InitiateClosesItsBrowserTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn("_read_in_portal(", source)
             self.assertNotIn("_new_browser(", source)
 
+    async def test_each_read_endpoint_passes_its_own_reader(self):
+        # Swapping the two readers would still pass the source checks above.
+        from unittest.mock import AsyncMock
+
+        for handler, reader in (
+            (main.positions, main._read_positions),
+            (main.portfolio, main._read_portfolio),
+        ):
+            with self.subTest(handler=handler.__name__), \
+                    patch.object(main, "_read_in_portal", AsyncMock(return_value={})) as read_in_portal:
+                await handler(main.SessionRequest(sessionState="{}"))
+
+            read_in_portal.assert_awaited_once()
+            self.assertEqual(read_in_portal.await_args.args, ("{}", reader))
+
 
 class NewBrowserReleasesOnSetupFailureTest(unittest.IsolatedAsyncioTestCase):
     """A failure between the launch and the return must give the slot back.
@@ -320,6 +336,24 @@ class SelectsContractsTest(unittest.TestCase):
             {"contractCode": "RE-2", "contractType": "REAL_ESTATE"},
             {"contractCode": "LIFE-1", "contractType": "LIFE"},
         ], 409, "MULTIPLE_CONTRACTS")
+
+    def test_a_life_entry_without_a_usable_code_is_refused_when_life_is_read(self):
+        for code in (None, "", 123, ["LIFE-2"]):
+            with self.subTest(code=code), self.assertRaises(HTTPException) as caught:
+                main._select_contracts([
+                    {"contractCode": "LIFE-1", "contractType": "LIFE"},
+                    {"contractCode": code, "contractType": "life"},
+                ], reads_life=True)
+            self.assertEqual(caught.exception.status_code, 502)
+            self.assertEqual(caught.exception.detail, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_a_life_entry_without_a_usable_code_is_skipped_by_the_scpi_read(self):
+        selected = main._select_contracts([
+            {"contractCode": "RE-1", "contractType": "real_estate"},
+            {"contractCode": "", "contractType": "LIFE"},
+        ])
+
+        self.assertEqual(selected, ("RE-1", []))
 
     def test_neither_kind_is_incomplete(self):
         self.assertRefused([
@@ -582,6 +616,31 @@ class ReadsTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result["realEstate"])
         self.assertEqual([c["contractCode"] for c in result["life"]], [LIFE_CODE])
 
+    async def test_portfolio_refuses_a_life_entry_without_a_code(self):
+        active = [
+            {"contractCode": "RE-1", "contractType": "real_estate"},
+            {"contractCode": LIFE_CODE, "contractType": "LIFE"},
+            {"contractCode": "", "contractType": "LIFE"},
+        ]
+        with self._serve(active):
+            with self.assertRaises(HTTPException) as caught:
+                await main._read_portfolio(object())
+
+        self.assertEqual(caught.exception.status_code, 502)
+        self.assertEqual(caught.exception.detail, "UPSTREAM_FORMAT_CHANGED")
+        # Refused before any contract is read, so nothing is half-reported.
+        self.assertEqual(self.requested, [main.CONTRACT_PATH])
+
+    async def test_positions_ignores_a_life_entry_without_a_code(self):
+        active = [
+            {"contractCode": "RE-1", "contractType": "real_estate"},
+            {"contractCode": None, "contractType": "LIFE"},
+        ]
+        with self._serve(active):
+            result = await main._read_positions(object())
+
+        self.assertEqual(result["contractCode"], "RE-1")
+
     async def test_positions_on_a_life_only_login_is_incomplete(self):
         active = [{"contractCode": LIFE_CODE, "contractType": "LIFE"}]
         with self._serve(active):
@@ -590,6 +649,74 @@ class ReadsTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(caught.exception.status_code, 502)
         self.assertEqual(caught.exception.detail, "PORTFOLIO_INCOMPLETE")
+
+
+class _TimedOutPage:
+    """A page whose in-page fetch hit its abort timer."""
+
+    def __init__(self):
+        self.args = None
+
+    async def goto(self, *_args, **_kwargs):
+        return None
+
+    async def evaluate(self, script, args):
+        self.script = script
+        self.args = args
+        return {"status": None, "body": None, "timedOut": True}
+
+
+class _WedgedPage(_TimedOutPage):
+    """A page that never answers the evaluation at all."""
+
+    async def evaluate(self, script, args):
+        await asyncio.sleep(3600)
+
+
+class ReadTimeoutTest(unittest.IsolatedAsyncioTestCase):
+    """A stalled CORUM read must fail, so its browser slot comes back."""
+
+    async def test_the_in_page_fetch_is_aborted_after_the_read_timeout(self):
+        page = _TimedOutPage()
+        with self.assertRaises(HTTPException) as caught:
+            await main._get_json(page, main.CONTRACT_PATH)
+
+        self.assertEqual(caught.exception.status_code, 502)
+        self.assertEqual(caught.exception.detail, "UPSTREAM_UNAVAILABLE")
+        self.assertIn("AbortController", page.script)
+        self.assertIn("signal: controller.signal", page.script)
+        self.assertEqual(page.args, [main.CONTRACT_PATH, main.READ_TIMEOUT_SECONDS * 1000])
+
+    async def test_the_timeout_is_within_the_navigation_bound(self):
+        self.assertGreater(main.READ_TIMEOUT_SECONDS, 0)
+        self.assertLess(main.READ_TIMEOUT_SECONDS + main.READ_EVALUATE_GRACE_SECONDS, 30)
+
+    async def test_a_wedged_page_is_bounded_too(self):
+        with patch.object(main, "READ_TIMEOUT_SECONDS", 0.01), \
+                patch.object(main, "READ_EVALUATE_GRACE_SECONDS", 0):
+            with self.assertRaises(HTTPException) as caught:
+                await main._get_json(_WedgedPage(), main.CONTRACT_PATH)
+
+        self.assertEqual(caught.exception.detail, "UPSTREAM_UNAVAILABLE")
+
+    async def test_a_timed_out_read_releases_its_browser_slot(self):
+        class _Starter:
+            async def start(self):
+                return _FakePlaywright(explode=False)
+
+        async def new_page(_context):
+            return _TimedOutPage()
+
+        session = main._encode_session({"cookies": []}, "au_t=x")
+        with patch.object(main, "_browsers", 0), \
+                patch.object(main, "async_playwright", lambda: _Starter()), \
+                patch.object(main, "_new_page", new_page):
+            with self.assertRaises(HTTPException) as caught:
+                await main._read_in_portal(session, main._read_portfolio)
+            browsers = main._browsers
+
+        self.assertEqual(caught.exception.detail, "UPSTREAM_UNAVAILABLE")
+        self.assertEqual(browsers, 0)
 
 
 class InvalidBodyTest(unittest.TestCase):
