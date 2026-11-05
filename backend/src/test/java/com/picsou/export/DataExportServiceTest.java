@@ -217,7 +217,7 @@ class DataExportServiceTest {
             .note("March").cashTransactionId(702L).cashLegOwned(false).build();
 
         when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L))
-            .thenReturn(List.of(a));
+            .thenReturn(List.of(a, peerLoanAccount));
         when(holdingRepository.findByAccount_Id(100L)).thenReturn(List.of(h));
         when(requisitionRepository.findAllByMemberId(42L)).thenReturn(List.of(connection));
         when(debtRepository.findAllByMemberId(42L)).thenReturn(List.of(debt));
@@ -260,7 +260,7 @@ class DataExportServiceTest {
         assertThat(parsed.get("schema_version").asText()).isEqualTo("1");
         assertThat(parsed.get("user_id").asLong()).isEqualTo(7L);
         assertThat(parsed.get("profile").get("username").asText()).isEqualTo("chloe");
-        assertThat(parsed.get("accounts")).hasSize(1);
+        assertThat(parsed.get("accounts")).hasSize(2);
         assertThat(parsed.get("holdings")).hasSize(1);
         assertThat(parsed.get("accounts").get(0).get("cash_balance").decimalValue())
             .isEqualByComparingTo("345.67");
@@ -270,17 +270,20 @@ class DataExportServiceTest {
             .isEqualByComparingTo("30000");
 
         String accountsCsv = new String(entries.get("accounts.csv"));
-        assertThat(accountsCsv).contains("Crypto wallet").contains("BTC").contains("12345.67");
+        assertThat(accountsCsv).contains("Crypto wallet").contains("BTC").contains("12345.67")
+            .contains("Marie").contains("PEER_LOAN");
         String holdingsCsv = new String(entries.get("holdings.csv"));
         assertThat(holdingsCsv).contains("USD").contains("30000").contains("15000");
 
         assertThat(parsed.get("peer_counterparties")).hasSize(1);
         assertThat(parsed.get("peer_counterparties").get(0).get("name").asText()).isEqualTo("Marie");
         assertThat(parsed.get("peer_loan_terms")).hasSize(1);
+        assertThat(parsed.get("peer_loan_terms").get(0).get("account_id").asLong()).isEqualTo(110L);
         assertThat(parsed.get("peer_loan_terms").get(0).get("annual_rate").decimalValue())
             .isEqualByComparingTo("0.05");
         assertThat(parsed.get("peer_loan_terms").get(0).get("rate_period").asText()).isEqualTo("ANNUAL");
         assertThat(parsed.get("peer_loan_repayments")).hasSize(1);
+        assertThat(parsed.get("peer_loan_repayments").get(0).get("account_id").asLong()).isEqualTo(110L);
         assertThat(parsed.get("peer_loan_repayments").get(0).get("amount").decimalValue())
             .isEqualByComparingTo("300");
         assertThat(parsed.get("peer_loan_repayments").get(0).get("cash_leg_owned").asBoolean()).isFalse();

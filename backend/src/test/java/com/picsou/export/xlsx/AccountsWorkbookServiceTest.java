@@ -290,6 +290,8 @@ class AccountsWorkbookServiceTest {
             .annualRate(new BigDecimal("0.05")).ratePeriod(PeerLoanRatePeriod.ANNUAL)
             .plannedMonthlyAmount(new BigDecimal("200")).plannedMonths(8)
             .note("Car loan").build();
+        // 50 days at 5 % on 1 500 EUR accrue 10.27 EUR: the row pays that first, then 289.73
+        // of capital. Asserting the split proves the journal carries the calculator's work.
         PeerLoanRepayment repayment = PeerLoanRepayment.builder()
             .paidOn(LocalDate.parse("2026-03-01"))
             .amount(new BigDecimal("300"))
@@ -313,7 +315,15 @@ class AccountsWorkbookServiceTest {
         Row row = sheet.getRow(header + 1);
         assertThat(row.getCell(1).getNumericCellValue()).isEqualTo(300.0);
         assertThat(row.getCell(2).getStringCellValue()).isEqualTo("PRINCIPAL");
+        assertThat(row.getCell(3).getNumericCellValue()).isEqualTo(10.27);
+        assertThat(row.getCell(4).getNumericCellValue()).isEqualTo(289.73);
         assertThat(row.getCell(5).getStringCellValue()).isEqualTo("March");
+
+        // The derived balances come from the same split, not a second computation.
+        assertThat(numberBesideLabel(sheet, "Remaining capital")).isEqualTo(1210.27);
+        assertThat(numberBesideLabel(sheet, "Capital repaid")).isEqualTo(289.73);
+        assertThat(numberBesideLabel(sheet, "Interest received")).isEqualTo(10.27);
+        assertThat(numberBesideLabel(sheet, "Written off")).isEqualTo(0.0);
     }
 
     @Test

@@ -224,22 +224,38 @@ public final class PeerLoanCalculator {
         }
         BigDecimal p = nonNull(principal);
         BigDecimal monthlyRate = nonNull(annualRate).divide(new BigDecimal("12"), MC);
-        int months;
         if (monthlyRate.signum() == 0) {
-            months = (int) Math.ceil(p.divide(monthlyPayment, INTERNAL_SCALE, RoundingMode.HALF_UP).doubleValue());
-        } else {
-            BigDecimal interestOnly = p.multiply(monthlyRate, MC);
-            if (monthlyPayment.compareTo(interestOnly) <= 0) {
-                throw new IllegalArgumentException(
-                    "The monthly payment does not cover the monthly interest: the loan would never be repaid");
-            }
-            double ratio = BigDecimal.ONE
-                .subtract(p.multiply(monthlyRate, MC).divide(monthlyPayment, MC))
-                .doubleValue();
-            months = (int) Math.ceil(-Math.log(ratio) / Math.log(1 + monthlyRate.doubleValue()));
+            int months = Math.max(1,
+                (int) Math.ceil(p.divide(monthlyPayment, INTERNAL_SCALE, RoundingMode.HALF_UP).doubleValue()));
+            // No interest: the last payment is whatever is left, so the cost is exactly the principal.
+            return new Simulation(
+                scale(monthlyPayment),
+                months,
+                BigDecimal.ZERO.setScale(MONEY_SCALE),
+                scale(p));
         }
-        months = Math.max(months, 1);
-        BigDecimal total = monthlyPayment.multiply(BigDecimal.valueOf(months));
+
+        BigDecimal interestOnly = p.multiply(monthlyRate, MC);
+        if (monthlyPayment.compareTo(interestOnly) <= 0) {
+            throw new IllegalArgumentException(
+                "The monthly payment does not cover the monthly interest: the loan would never be repaid");
+        }
+        double ratio = BigDecimal.ONE
+            .subtract(p.multiply(monthlyRate, MC).divide(monthlyPayment, MC))
+            .doubleValue();
+        int months = Math.max(1,
+            (int) Math.ceil(-Math.log(ratio) / Math.log(1 + monthlyRate.doubleValue())));
+
+        // The final installment is not a full monthly payment: it clears the balance left
+        // after the preceding ones, plus the interest that balance accrued. Multiplying the
+        // monthly payment by the month count would overstate both the cost and the interest.
+        BigDecimal growth = BigDecimal.ONE.add(monthlyRate).pow(months - 1, MC);
+        BigDecimal beforeFinal = p.multiply(growth, MC)
+            .subtract(monthlyPayment.multiply(growth.subtract(BigDecimal.ONE)).divide(monthlyRate, MC))
+            .max(BigDecimal.ZERO);
+        BigDecimal finalPayment = beforeFinal.multiply(BigDecimal.ONE.add(monthlyRate), MC);
+        BigDecimal total = monthlyPayment.multiply(BigDecimal.valueOf(months - 1L)).add(finalPayment);
+
         return new Simulation(
             scale(monthlyPayment),
             months,

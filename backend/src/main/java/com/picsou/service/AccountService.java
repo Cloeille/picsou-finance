@@ -248,9 +248,13 @@ public class AccountService {
             account.setCurrency("EUR");
         } else if (account.getType() == AccountType.PEER_LOAN) {
             // The receivable is derived from its terms and ledger: the form must not write
-            // its value, only the fields around it.
+            // its value, only the fields around it. Converting a cash account must therefore
+            // drop its old balance instead of presenting it as money lent.
             account.setManual(true);
             account.setCurrency("EUR");
+            if (previousType != AccountType.PEER_LOAN) {
+                account.setCurrentBalance(BigDecimal.ZERO);
+            }
         }
         // Converting a current account must not keep its old balance as a paper valuation.
         // A SCPI that is already a SCPI keeps the figure ScpiPositionService wrote.
@@ -349,6 +353,12 @@ public class AccountService {
     @Transactional
     public BalanceSnapshot addManualSnapshot(Long accountId, Long memberId, SnapshotRequest req) {
         Account account = getOrThrow(accountId, memberId);
+        // A peer loan is valued from its terms and dated repayments. Accepting a typed
+        // balance here would let a snapshot contradict the ledger the account is built on.
+        if (account.getType() == AccountType.PEER_LOAN) {
+            throw new IllegalArgumentException(
+                "A peer loan's balance comes from its repayment ledger, not a manual snapshot");
+        }
         BigDecimal balance = signedBalance(account.getType(), req.balance());
 
         // Update current balance if this is the most recent snapshot

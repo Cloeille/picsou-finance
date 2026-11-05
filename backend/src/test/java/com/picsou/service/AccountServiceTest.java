@@ -234,6 +234,21 @@ class AccountServiceTest {
     }
 
     @Test
+    void addManualSnapshot_rejectsAPeerLoanWhoseBalanceComesFromItsLedger() {
+        Account loan = Account.builder().id(1L).name("Jean").type(AccountType.PEER_LOAN)
+            .currency("EUR").isManual(true).currentBalance(new BigDecimal("500")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(loan));
+
+        assertThatThrownBy(() -> accountService.addManualSnapshot(
+            1L, 7L, new SnapshotRequest(new BigDecimal("500"), LocalDate.now())))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("repayment ledger");
+
+        assertThat(loan.getCurrentBalance()).isEqualByComparingTo("500");
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
     void update_keepsAManualCardsDebtNegativeWhenTheFormSendsTheAmountOwed() {
         Account card = Account.builder().id(1L).name("Card").type(AccountType.CREDIT_CARD)
             .currency("EUR").isManual(true).currentBalance(new BigDecimal("-800")).build();

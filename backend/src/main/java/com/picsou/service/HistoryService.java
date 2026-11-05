@@ -259,7 +259,7 @@ public class HistoryService {
             }
 
             if (split) {
-                BigDecimal invested = isLiability ? BigDecimal.ZERO : accInvested;
+                BigDecimal invested = isLiability || isReceivable ? BigDecimal.ZERO : accInvested;
                 liveAccountPoints.put(account.getId(), new AccountPoint(total, invested, accPnl));
             }
         }

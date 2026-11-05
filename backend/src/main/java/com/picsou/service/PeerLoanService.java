@@ -274,6 +274,7 @@ public class PeerLoanService {
         if (!CASH_TYPES.contains(transaction.getAccount().getType())) {
             throw new IllegalArgumentException("Only a cash movement can fund a peer loan");
         }
+        requireEur(transaction.getAccount(), "fund a peer loan");
         if (termsRepository.findByLendingTransactionId(transaction.getId()).isPresent()) {
             throw new IllegalArgumentException("This transaction is already linked to a peer loan");
         }
@@ -356,6 +357,11 @@ public class PeerLoanService {
                     "The cash account cannot change once the cash movement is recorded. "
                         + "Delete the loan and create it again.");
             }
+            if (terms.getLentAt() != null && !terms.getLentAt().equals(request.lentAt())) {
+                throw new IllegalArgumentException(
+                    "The lending date cannot change once the cash movement is recorded. "
+                        + "Delete the loan and create it again.");
+            }
         }
 
         terms.setCounterparty(getOrCreateCounterparty(memberId, account.getName()));
@@ -380,7 +386,7 @@ public class PeerLoanService {
         }
         termsRepository.save(terms);
 
-        refreshBalance(account, terms);
+        refreshBalance(account, terms, request.lentAt());
         return build(account, terms, LocalDate.now());
     }
 
@@ -393,11 +399,16 @@ public class PeerLoanService {
         PeerLoanTerms terms = requireConfiguredTerms(accountId);
         requireOpen(terms);
 
+        PeerLoanRepaymentKind kind = request.kind() != null
+            ? request.kind()
+            : PeerLoanRepaymentKind.PRINCIPAL;
+        validateInterestRepayment(terms, kind, request.amount(), request.paidOn(), null);
+
         PeerLoanRepayment repayment = PeerLoanRepayment.builder()
             .account(account)
             .paidOn(request.paidOn())
             .amount(request.amount())
-            .kind(request.kind() != null ? request.kind() : PeerLoanRepaymentKind.PRINCIPAL)
+            .kind(kind)
             .note(request.note())
             .build();
         repaymentRepository.save(repayment);
@@ -409,7 +420,7 @@ public class PeerLoanService {
             repaymentRepository.save(repayment);
         }
 
-        refreshBalance(account, terms);
+        refreshBalance(account, terms, request.paidOn());
         return PeerLoanRepaymentResponse.from(repayment);
     }
 
@@ -446,12 +457,14 @@ public class PeerLoanService {
         if (!CASH_TYPES.contains(transaction.getAccount().getType())) {
             throw new IllegalArgumentException("Only a cash movement can repay a peer loan");
         }
+        requireEur(transaction.getAccount(), "repay a peer loan");
         if (repaymentRepository.findByCashTransactionId(transaction.getId()).isPresent()) {
             throw new IllegalArgumentException("This transaction is already linked to a repayment");
         }
         if (termsRepository.findByLendingTransactionId(transaction.getId()).isPresent()) {
             throw new IllegalArgumentException("This transaction is already linked to a peer loan");
         }
+        validateInterestRepayment(terms, kind, transaction.getAmount(), transaction.getDate(), null);
 
         PeerLoanRepayment repayment = repaymentRepository.save(PeerLoanRepayment.builder()
             .account(account)
@@ -469,7 +482,7 @@ public class PeerLoanService {
         transaction.setCategoryManual(true);
         transactionRepository.save(transaction);
 
-        refreshBalance(account, terms);
+        refreshBalance(account, terms, transaction.getDate());
         return build(account, terms, LocalDate.now());
     }
 
@@ -489,11 +502,19 @@ public class PeerLoanService {
                 "This repayment is linked to an existing transaction. Delete it and assign the "
                     + "transaction again to change it.");
         }
+        validateInterestRepayment(terms,
+            request.kind() != null ? request.kind() : repayment.getKind(),
+            request.amount(), request.paidOn(), repayment.getId());
 
         deleteCashLeg(terms, repayment, memberId);
         repayment.setPaidOn(request.paidOn());
         repayment.setAmount(request.amount());
-        repayment.setKind(request.kind());
+        // An absent kind means "leave it as it was": the edit dialog may only change the
+        // amount or the date, and nulling the kind would silently turn a write-off into
+        // principal (or an interest payment into capital).
+        if (request.kind() != null) {
+            repayment.setKind(request.kind());
+        }
         repayment.setNote(request.note());
         repayment.setCashTransactionId(null);
         repayment.setCashLegOwned(true);
@@ -502,7 +523,7 @@ public class PeerLoanService {
         }
         repaymentRepository.save(repayment);
 
-        refreshBalance(account, terms);
+        refreshBalance(account, terms, request.paidOn());
         return PeerLoanRepaymentResponse.from(repayment);
     }
 
@@ -514,6 +535,7 @@ public class PeerLoanService {
 
         PeerLoanRepayment repayment = repaymentRepository.findByIdAndAccountId(repaymentId, accountId)
             .orElseThrow(() -> new ResourceNotFoundException("Repayment not found"));
+        LocalDate paidOn = repayment.getPaidOn();
         deleteCashLeg(terms, repayment, memberId);
         repaymentRepository.delete(repayment);
         repaymentRepository.flush();
@@ -527,7 +549,7 @@ public class PeerLoanService {
             termsRepository.save(terms);
         }
 
-        refreshBalance(account, terms);
+        refreshBalance(account, terms, paidOn);
     }
 
     /**
@@ -548,6 +570,9 @@ public class PeerLoanService {
         if (terms.getLentAt() != null && date.isBefore(terms.getLentAt())) {
             throw new IllegalArgumentException("The closure date cannot precede the lending date");
         }
+        if (date.isAfter(LocalDate.now())) {
+            throw new IllegalArgumentException("The closure date cannot be in the future");
+        }
 
         List<PeerLoanRepayment> repayments =
             repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(accountId);
@@ -564,7 +589,7 @@ public class PeerLoanService {
         terms.setClosedAt(date);
         termsRepository.save(terms);
 
-        refreshBalance(account, terms);
+        refreshBalance(account, terms, date);
         return build(account, terms, LocalDate.now());
     }
 
@@ -644,7 +669,12 @@ public class PeerLoanService {
 
     // --- Helpers ---
 
-    private void refreshBalance(Account account, PeerLoanTerms terms) {
+    /**
+     * Writes today's balance, and records the balance the ledger has on the event's own
+     * date. A backdated repayment must appear in history on the day it happened, not on the
+     * day it was typed in.
+     */
+    private void refreshBalance(Account account, PeerLoanTerms terms, LocalDate eventDate) {
         List<PeerLoanRepayment> repayments =
             repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(account.getId());
         BigDecimal remaining = PeerLoanCalculator
@@ -662,7 +692,12 @@ public class PeerLoanService {
         }
         account.setCurrentBalance(remaining);
         accountRepository.save(account);
-        accountService.upsertSnapshot(account, remaining, LocalDate.now());
+
+        LocalDate snapshotDate = eventDate != null ? eventDate : LocalDate.now();
+        BigDecimal snapshotBalance = PeerLoanCalculator
+            .compute(terms, repayments, snapshotDate)
+            .principalRemaining();
+        accountService.upsertSnapshot(account, snapshotBalance, snapshotDate);
     }
 
     private Account requireAccount(Long accountId, Long memberId) {
@@ -693,6 +728,50 @@ public class PeerLoanService {
         boolean complete = request.plannedMonthlyAmount() != null && request.plannedMonths() != null;
         if (!missing && !complete) {
             throw new IllegalArgumentException("A plan needs both a monthly amount and a month count");
+        }
+        // The plan draws one curve point per month; an unbounded count would be a free DoS.
+        if (request.plannedMonths() != null && request.plannedMonths() > 1200) {
+            throw new IllegalArgumentException("A plan cannot exceed 1200 months");
+        }
+    }
+
+    /**
+     * The loan ledger and the account's principal are EUR figures. Accepting a cash account
+     * in another currency would link an amount that is never converted, so the receivable
+     * would silently be wrong by the exchange rate.
+     */
+    private static void requireEur(Account account, String action) {
+        String currency = account.getCurrency();
+        if (currency != null && !"EUR".equalsIgnoreCase(currency)) {
+            throw new IllegalArgumentException(
+                "Only a EUR cash account can " + action + " (this one is in " + currency + ")");
+        }
+    }
+
+    /**
+     * An explicit interest payment pays interest that has actually accrued: anything above
+     * it would be saved as a transfer while reducing nothing, which hides real income.
+     */
+    private void validateInterestRepayment(
+        PeerLoanTerms terms, PeerLoanRepaymentKind kind, BigDecimal amount,
+        LocalDate paidOn, Long excludedRepaymentId
+    ) {
+        if (kind != PeerLoanRepaymentKind.INTEREST || amount == null || paidOn == null) {
+            return;
+        }
+        List<PeerLoanRepayment> others = repaymentRepository
+            .findByAccountIdOrderByPaidOnAscIdAsc(terms.getAccount().getId()).stream()
+            .filter(r -> excludedRepaymentId == null || !excludedRepaymentId.equals(r.getId()))
+            .filter(r -> r.getPaidOn() == null || !r.getPaidOn().isAfter(paidOn))
+            .toList();
+        BigDecimal accrued = PeerLoanCalculator.compute(terms, others, paidOn).interestAccrued();
+        // With no interest accrued there is nothing for an interest row to pay: the
+        // calculator already applies the whole amount to capital, which is the honest
+        // reading of a zero-rate loan. The guard targets a genuine overpayment of interest.
+        if (accrued.signum() > 0 && amount.compareTo(accrued) > 0) {
+            throw new IllegalArgumentException(
+                "An interest repayment cannot exceed the accrued interest of "
+                    + accrued.setScale(2, RoundingMode.HALF_UP) + " EUR");
         }
     }
 
@@ -855,7 +934,12 @@ public class PeerLoanService {
     private static PeerLoanDetailResponse.CurvePoint curvePoint(
         PeerLoanTerms terms, List<PeerLoanRepayment> repayments, LocalDate date
     ) {
-        PeerLoanCalculator.Computed computed = PeerLoanCalculator.compute(terms, repayments, date);
+        // A point describes the past up to its own date: a repayment recorded for later
+        // must not step the curve down early. Null dates keep their existing handling.
+        List<PeerLoanRepayment> upToDate = repayments.stream()
+            .filter(repayment -> repayment.getPaidOn() == null || !repayment.getPaidOn().isAfter(date))
+            .toList();
+        PeerLoanCalculator.Computed computed = PeerLoanCalculator.compute(terms, upToDate, date);
         PeerLoanCalculator.Plan plan = PeerLoanCalculator.plan(terms, computed.principalRemaining(), date);
         return new PeerLoanDetailResponse.CurvePoint(
             date,

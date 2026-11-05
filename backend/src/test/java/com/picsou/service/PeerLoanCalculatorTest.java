@@ -193,6 +193,23 @@ class PeerLoanCalculatorTest {
             new BigDecimal("1200"), BigDecimal.ZERO, new BigDecimal("100"));
         assertThat(out.months()).isEqualTo(12);
         assertThat(out.monthlyPayment()).isEqualByComparingTo("100.00");
+        // No interest and a full final instalment: the cost is exactly the principal.
+        assertThat(out.totalCost()).isEqualByComparingTo("1200.00");
+        assertThat(out.totalInterest()).isEqualByComparingTo("0.00");
+    }
+
+    @Test
+    void simulateByPayment_countsTheFinalInstalmentInsteadOfMultiplyingTheMonthly() {
+        PeerLoanCalculator.Simulation out = PeerLoanCalculator.simulateByPayment(
+            new BigDecimal("1200"), new BigDecimal("0.12"), new BigDecimal("110"));
+
+        assertThat(out.months()).isEqualTo(12);
+        // 11 payments of 110 leave a balance of ~66.45, whose final payment is ~67.12 --
+        // not another full 110. The old monthly x months overstates the cost by ~43 EUR.
+        assertThat(out.totalCost().doubleValue())
+            .isCloseTo(1277.12, org.assertj.core.api.Assertions.within(1.0));
+        assertThat(out.totalInterest().doubleValue())
+            .isCloseTo(77.12, org.assertj.core.api.Assertions.within(1.0));
     }
 
     @Test

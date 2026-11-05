@@ -2,6 +2,7 @@ package com.picsou.dto;
 
 import com.picsou.model.PeerLoanRatePeriod;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -27,7 +28,8 @@ public record PeerLoanTermsRequest(
     /** How the rate was stated; it defaults to annual. The stored rate is annual either way. */
     PeerLoanRatePeriod ratePeriod,
     @DecimalMin("0") BigDecimal plannedMonthlyAmount,
-    @Min(1) Integer plannedMonths,
+    /** Capped so the forecast curve cannot be asked for an unbounded number of points. */
+    @Min(1) @Max(1200) Integer plannedMonths,
     @NotNull Long linkedAccountId,
     @Size(max = 500) String note,
     /**
