@@ -1,5 +1,8 @@
 package com.picsou.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
@@ -12,9 +15,11 @@ import com.picsou.port.CorumErrorCode;
 import com.picsou.port.CorumPort;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -28,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
@@ -50,6 +56,11 @@ import static com.picsou.service.SyncValues.requireTransactionResult;
  * in one transaction: a refused life contract leaves the SCPI accounts as they
  * were, and the reverse.
  *
+ * <p>The session is handled like {@link CmesSyncService}'s: when the member asks
+ * for it at login, the credentials are stored encrypted, and a sync that finds
+ * its session expired logs in again with them, once, before reading. Without
+ * stored credentials an expired session still waits for the member.
+ *
  * <p>The balance written here is the withdrawal value, computed by
  * {@link ScpiPositionService}. This service never re-derives it and never falls
  * back to the subscription price, because entry fees sit between the two and
@@ -59,6 +70,8 @@ import static com.picsou.service.SyncValues.requireTransactionResult;
 public class CorumSyncService {
     private static final Logger log = LoggerFactory.getLogger(CorumSyncService.class);
     private static final BigDecimal MONEY_TOLERANCE = new BigDecimal("0.01");
+    private static final String SOURCE = "corum";
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final CorumPort port;
     private final CorumSessionRepository sessionRepository;
@@ -68,6 +81,13 @@ public class CorumSyncService {
     private final Executor syncExecutor;
     private final ScpiFundReconciler fundReconciler;
     private final CorumLifeWriter lifeWriter;
+    /**
+     * Bumped by {@link #clearSession}: a login that was waiting on CORUM when the
+     * connection was removed carries an older generation and stores nothing, so
+     * a disconnect cannot be undone by a login (and its password) landing after it.
+     * Bumped and checked under the member row lock.
+     */
+    private final Map<Long, Long> authGenerations = new ConcurrentHashMap<>();
 
     public CorumSyncService(
         CorumPort port,
@@ -89,13 +109,22 @@ public class CorumSyncService {
         this.lifeWriter = lifeWriter;
     }
 
-    public SessionStatusResponse authenticate(String login, String password, Long memberId) {
+    /**
+     * Logs in and queues the import. With {@code remember} the credentials are
+     * stored encrypted for the unattended re-login; without it none are, and any
+     * stored by an earlier login go with the session this one replaces.
+     */
+    public SessionStatusResponse authenticate(String login, String password, boolean remember, Long memberId) {
+        long generation = authGeneration(memberId);
         String plainState = port.authenticate(login, password);
         if (plainState == null || plainState.isBlank()) {
             throw error(CorumErrorCode.INVALID_DATA, "CORUM did not return a session", null);
         }
         SyncJob job = requireTransactionResult(txTemplate.execute(status -> {
             lockMember(memberId);
+            if (authGeneration(memberId) != generation) {
+                throw error(CorumErrorCode.SESSION_EXPIRED, "The CORUM connection was removed during the login", null);
+            }
             FamilyMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
@@ -106,6 +135,9 @@ public class CorumSyncService {
                 encryption.encrypt(plainState),
                 Instant.now()
             );
+            if (remember) {
+                newSession.setEncryptedCredentials(encryption.encrypt(serializeCredentials(login, password)));
+            }
             newSession.markQueued();
             CorumSession stored = sessionRepository.saveAndFlush(newSession);
             return new SyncJob(stored.getId(), memberId, plainState);
@@ -158,10 +190,57 @@ public class CorumSyncService {
             .orElseGet(SessionStatusResponse::inactive);
     }
 
+    /**
+     * Deletes the session and the credentials stored with it. A login still
+     * waiting on CORUM is cancelled too: it stores nothing once it lands.
+     */
     @Transactional
     public void clearSession(Long memberId) {
         lockMember(memberId);
+        authGenerations.merge(memberId, 1L, Long::sum);
         sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+    }
+
+    /**
+     * The daily sync's entry, shaped like {@link CmesSyncService#resyncReporting}: an
+     * active session is queued (and logs in again by itself if it has expired and
+     * credentials are stored); an inactive one is reported, never retried.
+     */
+    public SourceSyncResult resyncReporting(Long memberId) {
+        try {
+            SessionStatusResponse status = getStatus(memberId);
+            if (!status.isActive()) {
+                if (status.lastSyncError() == CorumErrorCode.SESSION_EXPIRED
+                    || status.lastSyncError() == CorumErrorCode.INVALID_CREDENTIALS) {
+                    return new SourceSyncResult(SOURCE, SourceSyncResult.Status.NEEDS_REAUTH,
+                        status.lastSyncError().name());
+                }
+                if (status.lastSyncError() != null) {
+                    return new SourceSyncResult(SOURCE, SourceSyncResult.Status.FAILED,
+                        status.lastSyncError().name());
+                }
+                return new SourceSyncResult(SOURCE, SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
+            }
+            queueSync(memberId);
+            return new SourceSyncResult(SOURCE, SourceSyncResult.Status.QUEUED, "");
+        } catch (ResourceNotFoundException ex) {
+            return new SourceSyncResult(SOURCE, SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
+        } catch (DataAccessException ex) {
+            log.error("Database error during scheduled CORUM sync (member={})", memberId, ex);
+            return new SourceSyncResult(SOURCE, SourceSyncResult.Status.FAILED, "Database error");
+        } catch (SyncException ex) {
+            log.warn("Could not queue scheduled CORUM sync (member={}; code={})", memberId, ex.getCode(), ex);
+            SourceSyncResult classified = SourceSyncResult.fromSyncException(SOURCE, ex);
+            return new SourceSyncResult(SOURCE, classified.status(),
+                classified.status() == SourceSyncResult.Status.NEEDS_REAUTH ? ex.getCode() : "Sync failed");
+        } catch (Exception ex) {
+            log.error("CORUM scheduled sync failed unexpectedly for member {}", memberId, ex);
+            return new SourceSyncResult(SOURCE, SourceSyncResult.Status.FAILED, "Unexpected sync error");
+        }
+    }
+
+    private long authGeneration(Long memberId) {
+        return authGenerations.getOrDefault(memberId, 0L);
     }
 
     private void submit(SyncJob job) {
@@ -182,7 +261,14 @@ public class CorumSyncService {
             return;
         }
         try {
-            CorumPort.Portfolio portfolio = port.fetchPortfolio(job.plainState());
+            CorumPort.Portfolio portfolio;
+            try {
+                portfolio = port.fetchPortfolio(job.plainState());
+            } catch (SyncException ex) {
+                if (codeOf(ex) != CorumErrorCode.SESSION_EXPIRED) throw ex;
+                // One re-login per run, never a loop: its own failure ends the run.
+                portfolio = reauthenticateAndFetch(job);
+            }
             commitPortfolio(job, portfolio);
         } catch (SyncException ex) {
             CorumErrorCode code = codeOf(ex);
@@ -191,6 +277,70 @@ public class CorumSyncService {
         } catch (Exception ex) {
             markFailed(job, CorumErrorCode.INTERNAL_ERROR);
             log.error("CORUM sync failed unexpectedly (member={})", job.memberId(), ex);
+        }
+    }
+
+    /**
+     * The stored session has expired. With stored credentials the sync logs in
+     * again through the sidecar, replaces the session and reads with the new one;
+     * without them the run ends as SESSION_EXPIRED and the member reconnects. A
+     * rejected password surfaces as INVALID_CREDENTIALS, which {@link #markFailed}
+     * turns into cleared credentials and an inactive session.
+     */
+    private CorumPort.Portfolio reauthenticateAndFetch(SyncJob job) {
+        CorumSession session = requireTransactionResult(txTemplate.execute(
+            status -> sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+        )).orElse(null);
+        if (session == null || !session.isActive()
+            || session.getSyncStatus() != CorumSyncStatus.RUNNING
+            || session.getEncryptedCredentials() == null) {
+            throw error(CorumErrorCode.SESSION_EXPIRED, "CORUM session expired", null);
+        }
+        Credentials credentials;
+        try {
+            credentials = parseCredentials(encryption.decrypt(session.getEncryptedCredentials()));
+        } catch (RuntimeException ex) {
+            throw error(CorumErrorCode.SESSION_EXPIRED, "CORUM session expired", ex);
+        }
+        String newState = port.authenticate(credentials.login(), credentials.password());
+        if (newState == null || newState.isBlank()) {
+            throw error(CorumErrorCode.INVALID_DATA, "CORUM returned no session", null);
+        }
+        Boolean updated = txTemplate.execute(status -> {
+            lockMember(job.memberId());
+            return sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+                .filter(current -> current.isActive() && current.getSyncStatus() == CorumSyncStatus.RUNNING)
+                .map(current -> {
+                    current.updateSessionState(encryption.encrypt(newState), Instant.now());
+                    sessionRepository.save(current);
+                    return true;
+                })
+                .orElse(false);
+        });
+        if (!Boolean.TRUE.equals(updated)) {
+            throw error(CorumErrorCode.SESSION_EXPIRED, "CORUM session changed", null);
+        }
+        log.info("CORUM re-logged in with stored credentials (member={})", job.memberId());
+        return port.fetchPortfolio(newState);
+    }
+
+    private String serializeCredentials(String login, String password) {
+        try {
+            return JSON.writeValueAsString(Map.of("login", login, "password", password));
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Could not encode credentials");
+        }
+    }
+
+    private Credentials parseCredentials(String value) {
+        try {
+            JsonNode node = JSON.readTree(value);
+            String login = node.path("login").asText();
+            String password = node.path("password").asText();
+            if (login.isBlank() || password.isBlank()) throw new IllegalArgumentException("Invalid credentials");
+            return new Credentials(login, password);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalArgumentException("Invalid credentials", ex);
         }
     }
 
@@ -381,6 +531,9 @@ public class CorumSyncService {
             sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
                 .filter(session -> session.isActive() && session.isSyncInFlight())
                 .ifPresent(session -> {
+                    // A rejected password must not be replayed by every scheduled
+                    // sync: the site may lock the access after a few failures.
+                    if (code == CorumErrorCode.INVALID_CREDENTIALS) session.setEncryptedCredentials(null);
                     session.markFailed(code, Instant.now());
                     sessionRepository.save(session);
                 });
@@ -394,7 +547,8 @@ public class CorumSyncService {
             session.getLastSyncStartedAt(),
             session.getLastSyncCompletedAt(),
             session.getLastSyncError(),
-            session.getLastSyncLifeAmbiguous()
+            session.getLastSyncLifeAmbiguous(),
+            session.getEncryptedCredentials() != null
         );
     }
 
@@ -413,10 +567,19 @@ public class CorumSyncService {
         Instant lastSyncCompletedAt,
         CorumErrorCode lastSyncError,
         /** CORUM Life contracts the last successful sync left unwritten (AMBIGUOUS). */
-        int lifeAmbiguousCount
+        int lifeAmbiguousCount,
+        /** Whether credentials are stored for the unattended re-login. Never the credentials themselves. */
+        boolean credentialsRemembered
     ) {
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, CorumSyncStatus.IDLE, null, null, null, 0);
+            return new SessionStatusResponse(false, CorumSyncStatus.IDLE, null, null, null, 0, false);
+        }
+    }
+
+    private record Credentials(String login, String password) {
+        @Override
+        public String toString() {
+            return "Credentials[redacted]";
         }
     }
 

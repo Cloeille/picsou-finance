@@ -244,8 +244,45 @@ so the UI labels a payment that way only on its CORUM account's page (the list r
 account's provider); lists spanning accounts show the synced description. Any future connector with in-wrapper movements can
 set the same flag. Details: [CORUM Life feature note](../features/corum-life.md#operations).
 
+## Addendum (2026-11-05): remembered credentials and the daily sync
+
+**Context.** A stored CORUM session eventually expires, and the contracts then went stale until the
+member typed the password again; CORUM was also absent from the 08:00 member sync. CORUM asks for no second factor at login (`services/corum-auth/main.py`,
+`/initiate`), so a stored password is enough to log in unattended.
+
+**Decision.** Follow the Crédit Mutuel Épargne Salariale precedent
+([feature note](../features/cmes-epargne-salariale.md#backend)), with Revolut's opt-in: the login
+form has an unticked "Remember my credentials (encrypted)" checkbox. Ticked, the login and
+password are stored encrypted (`CryptoEncryption`, AES-256-GCM) in
+`corum_session.encrypted_credentials` (V125); a sync whose session expired logs in again once
+through `/initiate`, replaces the session and reads. A rejected password clears them and turns the
+session inactive; disconnecting deletes them with the session; a login without the box ticked
+stores none and replaces any stored before. CORUM joins the daily member sync as source `corum`,
+gated on an active session like `cmes`.
+
+**Trade-off.** An encrypted password now sits in the database for members who opt in, so a leak
+of both the database and the encryption key exposes a CORUM password, and with it the member's
+whole CORUM client space, not only the read-only use Picsou makes of it.
+Members who do not tick the box keep today's behaviour exactly: only the session blob is stored.
+The password is never logged and never returned: the status exposes `credentialsRemembered`, a
+boolean. The re-login is one attempt per run, so a changed password costs CORUM one failed login,
+after which nothing is replayed.
+
+**Alternatives considered.** Always storing the credentials (as CMES does) was rejected: CMES needs
+them because its sessions last minutes, so nearly every sync logs in again; a CORUM session
+outlives a sync, so reconnecting by hand stays workable and the member can choose. Keeping the session-only model was rejected: it leaves CORUM the one connector that never
+refreshes on its own. Re-logging in from the browser instead of the backend was rejected: the
+daily sync runs without a browser.
+
+**Consequences.** Point 2 of [2026-09-26-corum-scpi-sidecar.md](2026-09-26-corum-scpi-sidecar.md)
+("credentials are ephemeral") now holds only when the box is unticked. Details:
+[CORUM session and remembered credentials](../features/scpi.md#corum-session-and-remembered-credentials).
+
 ## Supersedes
 
 Point 7 of [2026-09-26-corum-scpi-sidecar.md](2026-09-26-corum-scpi-sidecar.md): CORUM Life is now
 read. PER and capitalisation remain out of scope, and a login with more than one real-estate
 contract is still refused as `MULTIPLE_CONTRACTS`.
+
+Point 2 of the same ADR ("credentials are ephemeral"), for members who tick "remember my
+credentials": see the addendum above.

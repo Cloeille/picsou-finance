@@ -15,6 +15,10 @@ import java.util.Objects;
  * between two calls: a successful login yields a session or it does not. The
  * job state below still exists, because the snapshot read is slow and must not
  * be started twice concurrently.
+ *
+ * <p>When the member opted in at login, the credentials are kept encrypted too,
+ * so a sync whose session expired logs in again by itself, as
+ * {@link CmesSession} does.
  */
 @Entity
 @Table(name = "corum_session")
@@ -38,6 +42,15 @@ public class CorumSession extends AuditableEntity {
      */
     @Column(name = "session_state", nullable = false, columnDefinition = "TEXT")
     private String sessionState;
+
+    /**
+     * The login and password as JSON, encrypted via CryptoEncryption. Null unless
+     * the member asked to remember them. Never exposed, never logged.
+     */
+    @JsonIgnore
+    @ToString.Exclude
+    @Column(name = "encrypted_credentials", columnDefinition = "TEXT")
+    private String encryptedCredentials;
 
     @Column(name = "last_validated_at")
     private Instant lastValidatedAt;
@@ -78,6 +91,17 @@ public class CorumSession extends AuditableEntity {
             .active(true)
             .syncStatus(CorumSyncStatus.IDLE)
             .build();
+    }
+
+    public void setEncryptedCredentials(String encryptedCredentials) {
+        this.encryptedCredentials = encryptedCredentials;
+    }
+
+    /** A login with the stored credentials replaced the expired session. */
+    public void updateSessionState(String encryptedState, Instant validatedAt) {
+        this.sessionState = Objects.requireNonNull(encryptedState, "encryptedState");
+        this.lastValidatedAt = Objects.requireNonNull(validatedAt, "validatedAt");
+        this.active = true;
     }
 
     public void markQueued() {
@@ -127,10 +151,10 @@ public class CorumSession extends AuditableEntity {
         syncStatus = CorumSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
-        if (error == CorumErrorCode.SESSION_EXPIRED) {
-            // The cookie died, so the stored session can only be replaced by a
-            // fresh login. Leaving it active would make every later sync fail
-            // the same way with no path forward.
+        if (error == CorumErrorCode.SESSION_EXPIRED || error == CorumErrorCode.INVALID_CREDENTIALS) {
+            // The cookie died and no stored credentials could replace it (or
+            // CORUM rejected them), so only a fresh login can. Leaving it active
+            // would make every later sync fail the same way with no path forward.
             active = false;
         }
     }

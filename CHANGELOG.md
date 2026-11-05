@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CORUM re-logs in by itself and syncs daily.** The CORUM login form gains an opt-in, unticked
+  "Remember my credentials (encrypted)" checkbox. Ticked, the credentials are stored encrypted and
+  a sync whose session expired logs in again once before reading; a rejected password clears them
+  and asks to reconnect, and "Disconnect" forgets them. Unticked, nothing is stored, as before.
+  CORUM now runs in the daily 08:00 sync, in `trigger_full_sync`/`trigger_broker_sync` and in
+  `get_sync_status`. Migration V125. See
+  [CORUM session and remembered credentials](docs/features/scpi.md#corum-session-and-remembered-credentials).
+
 - **CORUM Life (assurance-vie) sync.** A CORUM login holding a CORUM Life contract no longer
   fails with `PORTFOLIO_INCOMPLETE`: each contract becomes an assurance-vie account, synced with
   the SCPI funds in one all-or-nothing run. Holdings are CORUM's funds (aggregated across

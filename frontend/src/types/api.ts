@@ -920,6 +920,8 @@ export interface SidecarSessionStatus {
   lastSyncError: string | null
   /** Set by providers that can log in again from stored credentials. */
   canReconnect?: boolean
+  /** Set by providers whose login form offers to remember the credentials (CORUM). Never the credentials. */
+  credentialsRemembered?: boolean
 }
 
 /** `auth/initiate` answer of a sidecar provider; `MfaType` narrows the kinds of second factor it can ask for. */
@@ -1200,8 +1202,13 @@ export type CorumErrorCode =
 /**
  * `lifeAmbiguousCount`: CORUM Life contracts the last successful sync wrote nowhere, because
  * a manual "CORUM Life" account could not be adopted (several, or holdings typed by hand).
+ * `credentialsRemembered`: the member ticked "remember" at login, so an expired session logs in
+ * again by itself.
  */
-export type CorumSessionStatus = SidecarSessionStatusOf<CorumErrorCode, { lifeAmbiguousCount: number }>
+export type CorumSessionStatus = SidecarSessionStatusOf<
+  CorumErrorCode,
+  { lifeAmbiguousCount: number; credentialsRemembered: boolean }
+>
 
 /**
  * CORUM needs no second factor, so its `authenticate` response is the session

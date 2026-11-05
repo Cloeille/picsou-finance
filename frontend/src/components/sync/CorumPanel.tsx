@@ -14,6 +14,9 @@ interface CorumPanelProps {
  * CORUM needs no second factor, so unlike Amundi this panel never renders the
  * OTP or app-push state. The shared component handles that on its own: it only
  * reaches those screens when the auth response says a second factor is required.
+ *
+ * The login form offers "remember my credentials": ticked, the backend keeps them encrypted
+ * and the daily sync logs in again by itself once the session expires.
  */
 export function CorumPanel({ onConnected }: CorumPanelProps = {}) {
   // Same query as the panel's own status: the shared cache makes this free.
@@ -30,6 +33,7 @@ export function CorumPanel({ onConnected }: CorumPanelProps = {}) {
       translationPrefix="sync.corum"
       fieldIdPrefix="corum"
       loginIcon={Building2}
+      rememberCredentials
       onConnected={onConnected}
       successSummary={
         <>

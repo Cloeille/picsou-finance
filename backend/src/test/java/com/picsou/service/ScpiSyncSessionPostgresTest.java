@@ -286,6 +286,47 @@ class ScpiSyncSessionPostgresTest {
         assertThat(funds.findByMemberIdAndProviderAndFundCode(fresh.getId(), ScpiProvider.CORUM, "US")).isEmpty();
     }
 
+    /** V125 on the real schema: remembered credentials re-log in an expired session, a rejected password clears them. */
+    @Test
+    void corumRememberedCredentialsReLogInAndARejectedPasswordClearsThem() {
+        when(encryption.encrypt(anyString())).thenAnswer(inv -> inv.getArgument(0));
+        FamilyMember fresh = members.saveAndFlush(FamilyMember.builder().displayName("CORUM relogin").build());
+        when(corumPort.authenticate("client", "pw")).thenReturn("first-state", "fresh-state");
+        when(corumPort.fetchPortfolio("first-state")).thenReturn(new CorumPort.Portfolio(corumUsa(), List.of()));
+        when(corumPort.fetchPortfolio("expired-state"))
+            .thenThrow(new com.picsou.exception.SyncException("expired", null, "SESSION_EXPIRED"));
+        when(corumPort.fetchPortfolio("fresh-state")).thenReturn(new CorumPort.Portfolio(corumUsa(), List.of()));
+
+        assertThat(corum.authenticate("client", "pw", true, fresh.getId()).credentialsRemembered()).isTrue();
+        CorumSession stored = corumSessions.findByMemberId(fresh.getId()).orElseThrow();
+        assertThat(stored.getEncryptedCredentials()).contains("\"password\":\"pw\"");
+
+        // The cookie died: the next sync logs in again and persists the new session.
+        stored.updateSessionState("expired-state", Instant.now());
+        corumSessions.saveAndFlush(stored);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        CorumSession relogged = corumSessions.findByMemberId(fresh.getId()).orElseThrow();
+        assertThat(relogged.getSessionState()).isEqualTo("fresh-state");
+        assertThat(relogged.isActive()).isTrue();
+
+        when(corumPort.authenticate("client", "pw"))
+            .thenThrow(new com.picsou.exception.SyncException("rejected", null, "INVALID_CREDENTIALS"));
+        relogged.updateSessionState("expired-state", Instant.now());
+        corumSessions.saveAndFlush(relogged);
+        assertThat(corum.queueSync(fresh.getId()).syncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        CorumSession rejected = corumSessions.findByMemberId(fresh.getId()).orElseThrow();
+        assertThat(rejected.getEncryptedCredentials()).isNull();
+        assertThat(rejected.isActive()).isFalse();
+        assertThat(rejected.getLastSyncError()).isEqualTo(com.picsou.port.CorumErrorCode.INVALID_CREDENTIALS);
+
+        // Logging in again without "remember" stores nothing; disconnecting removes the row.
+        when(corumPort.authenticate("client", "pw2")).thenReturn("first-state");
+        assertThat(corum.authenticate("client", "pw2", false, fresh.getId()).credentialsRemembered()).isFalse();
+        assertThat(corumSessions.findByMemberId(fresh.getId()).orElseThrow().getEncryptedCredentials()).isNull();
+        corum.clearSession(fresh.getId());
+        assertThat(corumSessions.findByMemberId(fresh.getId())).isEmpty();
+    }
+
     /** A complete CORUM snapshot holding one fund (US, 10 units at 180 EUR). */
     private static CorumPort.Snapshot corumUsa() {
         return new CorumPort.Snapshot("contract", "PP", "EUR", new BigDecimal("1800"), null, true,

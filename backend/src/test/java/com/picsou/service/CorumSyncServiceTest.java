@@ -341,6 +341,257 @@ class CorumSyncServiceTest {
         verifyNoInteractions(positionRepository, positionService, fundRepository);
     }
 
+    // --- Remembered credentials and the unattended re-login -------------------
+
+    @org.junit.jupiter.api.Test
+    void authenticate_withRememberStoresTheEncryptedCredentials() throws Exception {
+        stubPassThroughEncryption();
+        AtomicReference<CorumSession> stored = captureStoredSession();
+        when(port.authenticate("client", PASSWORD)).thenReturn("plain-state");
+        when(port.fetchPortfolio("plain-state")).thenReturn(lifeOnly());
+        stubLifeWrite();
+
+        CorumSyncService.SessionStatusResponse status = service.authenticate("client", PASSWORD, true, 7L);
+
+        String encrypted = stored.get().getEncryptedCredentials();
+        assertThat(encrypted).startsWith("enc:");
+        com.fasterxml.jackson.databind.JsonNode credentials =
+            new com.fasterxml.jackson.databind.ObjectMapper().readTree(encrypted.substring(4));
+        assertThat(credentials.path("login").asText()).isEqualTo("client");
+        assertThat(credentials.path("password").asText()).isEqualTo(PASSWORD);
+        assertThat(status.credentialsRemembered()).isTrue();
+        assertThat(status.toString()).doesNotContain(PASSWORD);
+    }
+
+    @org.junit.jupiter.api.Test
+    void authenticate_withoutRememberStoresNoCredentials() {
+        stubPassThroughEncryption();
+        AtomicReference<CorumSession> stored = captureStoredSession();
+        when(port.authenticate("client", PASSWORD)).thenReturn("plain-state");
+        when(port.fetchPortfolio("plain-state")).thenReturn(lifeOnly());
+        stubLifeWrite();
+
+        CorumSyncService.SessionStatusResponse status = service.authenticate("client", PASSWORD, false, 7L);
+
+        assertThat(stored.get().getEncryptedCredentials()).isNull();
+        assertThat(status.credentialsRemembered()).isFalse();
+        verify(encryption, never()).encrypt(contains(PASSWORD));
+    }
+
+    /** A login that lands after a disconnect must not bring the session or its password back. */
+    @org.junit.jupiter.api.Test
+    void authenticate_landingAfterADisconnectStoresNothing() {
+        when(port.authenticate("client", PASSWORD)).thenAnswer(inv -> {
+            service.clearSession(7L);
+            return "plain-state";
+        });
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.authenticate("client", PASSWORD, true, 7L))
+            .isInstanceOf(SyncException.class)
+            .extracting(ex -> ((SyncException) ex).getCode()).isEqualTo("SESSION_EXPIRED");
+        verify(sessionRepository, never()).saveAndFlush(any());
+        verify(encryption, never()).encrypt(any());
+    }
+
+    @org.junit.jupiter.api.Test
+    void clearSession_deletesTheSessionAndItsCredentials() {
+        CorumSession session = CorumSession.builder().id(3L).member(FamilyMember.builder().id(7L).build())
+            .sessionState("encrypted").encryptedCredentials(REMEMBERED).build();
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+
+        service.clearSession(7L);
+
+        verify(sessionRepository).delete(session);
+    }
+
+    @org.junit.jupiter.api.Test
+    void queueSync_expiredSessionLogsInAgainWithTheStoredCredentialsAndSyncs() {
+        CorumSession session = rememberedSession();
+        stubPassThroughEncryption();
+        when(port.fetchPortfolio("plain-state"))
+            .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
+        when(port.authenticate("client", PASSWORD)).thenReturn("fresh-state");
+        when(port.fetchPortfolio("fresh-state")).thenReturn(lifeOnly());
+        stubLifeWrite();
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(session.isActive()).isTrue();
+        assertThat(session.getSessionState()).isEqualTo("enc:fresh-state");
+        assertThat(session.getEncryptedCredentials()).isEqualTo(REMEMBERED);
+        verify(port, times(1)).authenticate("client", PASSWORD);
+    }
+
+    @org.junit.jupiter.api.Test
+    void queueSync_aRejectedPasswordClearsTheCredentialsAndDeactivatesTheSession() {
+        CorumSession session = rememberedSession();
+        when(port.fetchPortfolio("plain-state"))
+            .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
+        when(port.authenticate("client", PASSWORD))
+            .thenThrow(new SyncException("CORUM rejected the credentials", null, "INVALID_CREDENTIALS"));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.CorumErrorCode.INVALID_CREDENTIALS);
+        assertThat(session.isActive()).isFalse();
+        assertThat(session.getEncryptedCredentials()).isNull();
+        assertThat(service.getStatus(7L).credentialsRemembered()).isFalse();
+    }
+
+    @org.junit.jupiter.api.Test
+    void queueSync_expiredSessionWithoutCredentialsWaitsForTheMember() {
+        CorumSession session = activeSession();
+        when(port.fetchPortfolio("plain-state"))
+            .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.CorumErrorCode.SESSION_EXPIRED);
+        assertThat(session.isActive()).isFalse();
+        verify(port, never()).authenticate(any(), any());
+    }
+
+    /** One re-login per run: a fresh session that expires too ends the run instead of looping. */
+    @org.junit.jupiter.api.Test
+    void queueSync_logsInAgainAtMostOncePerRun() {
+        CorumSession session = rememberedSession();
+        stubPassThroughEncryption();
+        when(port.fetchPortfolio(any()))
+            .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
+        when(port.authenticate("client", PASSWORD)).thenReturn("fresh-state");
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.CorumErrorCode.SESSION_EXPIRED);
+        verify(port, times(1)).authenticate(any(), any());
+        verify(port, times(2)).fetchPortfolio(any());
+    }
+
+    /** Real AES-GCM: what is stored is ciphertext, and the re-login reads back the same login and password. */
+    @org.junit.jupiter.api.Test
+    void rememberedCredentialsRoundTripThroughTheRealEncryption() {
+        CryptoEncryption real = new CryptoEncryption(java.util.Base64.getEncoder().encodeToString(new byte[32]));
+        ScpiFundReconciler reconciler = new ScpiFundReconciler(
+            positionRepository, positionService, accountRepository, fundRepository, memberRepository);
+        CorumSyncService realService = new CorumSyncService(port, sessionRepository, memberRepository, real,
+            txTemplate, Runnable::run, reconciler, new CorumLifeWriter(
+                accountRepository, holdingRepository, memberRepository, accountService, operationWriter));
+        AtomicReference<CorumSession> stored = captureStoredSession();
+        when(port.authenticate("client", PASSWORD)).thenReturn("first-state", "fresh-state");
+        when(port.fetchPortfolio(any())).thenAnswer(inv -> {
+            if ("fresh-state".equals(inv.getArgument(0))) return lifeOnly();
+            throw new SyncException("The CORUM session expired", null, "SESSION_EXPIRED");
+        });
+        stubLifeWrite();
+
+        realService.authenticate("client", PASSWORD, true, 7L);
+        CorumSession session = stored.get();
+        assertThat(session.getEncryptedCredentials()).doesNotContain(PASSWORD).doesNotContain("client");
+        assertThat(real.decrypt(session.getEncryptedCredentials())).contains(PASSWORD);
+
+        // The first read expired; the re-login used the decrypted credentials.
+        verify(port, times(2)).authenticate("client", PASSWORD);
+        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(real.decrypt(session.getSessionState())).isEqualTo("fresh-state");
+    }
+
+    @org.junit.jupiter.api.Test
+    void thePasswordNeverReachesTheLogs() {
+        rememberedSession();
+        stubPassThroughEncryption();
+        when(port.fetchPortfolio("plain-state"))
+            .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
+        when(port.authenticate("client", PASSWORD))
+            .thenThrow(new SyncException("CORUM rejected the credentials", null, "INVALID_CREDENTIALS"));
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(CorumSyncService.class);
+        var logs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            service.queueSync(7L);
+        } finally {
+            logger.detachAppender(logs);
+            logs.stop();
+        }
+        assertThat(logs.list).isNotEmpty();
+        assertThat(logs.list).allSatisfy(event -> {
+            assertThat(event.getFormattedMessage()).doesNotContain(PASSWORD);
+            if (event.getThrowableProxy() != null) {
+                assertThat(event.getThrowableProxy().getMessage()).doesNotContain(PASSWORD);
+            }
+        });
+    }
+
+    @org.junit.jupiter.api.Test
+    void resyncReporting_queuesAnActiveSessionAndReportsAnInactiveOne() {
+        CorumSession session = rememberedSession();
+        stubPassThroughEncryption();
+        when(port.fetchPortfolio("plain-state")).thenReturn(lifeOnly());
+        stubLifeWrite();
+        assertThat(service.resyncReporting(7L).status())
+            .isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.QUEUED);
+        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+
+        session.markQueued();
+        session.markFailed(com.picsou.port.CorumErrorCode.INVALID_CREDENTIALS, java.time.Instant.now());
+        var rejected = service.resyncReporting(7L);
+        assertThat(rejected.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.NEEDS_REAUTH);
+        assertThat(rejected.message()).isEqualTo("INVALID_CREDENTIALS");
+
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        assertThat(service.resyncReporting(7L).status())
+            .isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.SKIPPED_NOT_CONNECTED);
+    }
+
+    private static final String PASSWORD = "s3cret-Pa55";
+    private static final String REMEMBERED = "remembered-credentials";
+
+    private CorumSession rememberedSession() {
+        CorumSession session = activeSession();
+        session.setEncryptedCredentials(REMEMBERED);
+        lenient().when(encryption.decrypt(REMEMBERED))
+            .thenReturn("{\"login\":\"client\",\"password\":\"" + PASSWORD + "\"}");
+        return session;
+    }
+
+    private void stubPassThroughEncryption() {
+        lenient().when(encryption.encrypt(any())).thenAnswer(inv -> "enc:" + inv.getArgument(0));
+        lenient().when(encryption.decrypt(startsWith("enc:")))
+            .thenAnswer(inv -> ((String) inv.getArgument(0)).substring(4));
+    }
+
+    /** The session {@code authenticate} inserts, answered back by every later lookup. */
+    private AtomicReference<CorumSession> captureStoredSession() {
+        AtomicReference<CorumSession> stored = new AtomicReference<>();
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(FamilyMember.builder().id(7L).build()));
+        when(sessionRepository.saveAndFlush(any(CorumSession.class))).thenAnswer(inv -> {
+            CorumSession session = inv.getArgument(0);
+            org.springframework.test.util.ReflectionTestUtils.setField(session, "id", 3L);
+            stored.set(session);
+            return session;
+        });
+        lenient().when(sessionRepository.findByMemberIdForUpdate(7L))
+            .thenAnswer(inv -> Optional.ofNullable(stored.get()));
+        lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L))
+            .thenAnswer(inv -> Optional.ofNullable(stored.get()));
+        lenient().when(sessionRepository.findByMemberId(7L))
+            .thenAnswer(inv -> Optional.ofNullable(stored.get()));
+        return stored;
+    }
+
+    private static CorumPort.Portfolio lifeOnly() {
+        return new CorumPort.Portfolio(null, List.of(lifeContract("1001", "518.61")));
+    }
+
+    private void stubLifeWrite() {
+        when(memberRepository.getReferenceById(7L)).thenReturn(FamilyMember.builder().id(7L).build());
+        when(accountRepository.save(any(com.picsou.model.Account.class))).thenAnswer(inv -> inv.getArgument(0));
+    }
+
     private CorumSession activeSession() {
         FamilyMember member = FamilyMember.builder().id(7L).build();
         CorumSession session = CorumSession.builder().id(3L).member(member)

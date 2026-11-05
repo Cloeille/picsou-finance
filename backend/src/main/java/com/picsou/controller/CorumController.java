@@ -45,7 +45,7 @@ public class CorumController {
             return rateLimited("Too many CORUM authentication attempts. Please wait before retrying.");
         }
         return ResponseEntity.ok(
-            service.authenticate(req.login(), req.password(), userContext.currentMemberId())
+            service.authenticate(req.login(), req.password(), req.remember(), userContext.currentMemberId())
         );
     }
 
@@ -68,6 +68,7 @@ public class CorumController {
         return service.getStatus(userContext.currentMemberId());
     }
 
+    /** Disconnects: the session and any stored credentials are deleted. */
     @DeleteMapping("/session")
     public ResponseEntity<Void> clear() {
         service.clearSession(userContext.currentMemberId());
@@ -94,9 +95,19 @@ public class CorumController {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
     }
 
-    /** {@code login} is a CORUM client id, not an email address. */
+    /**
+     * {@code login} is a CORUM client id, not an email address. {@code remember}
+     * (false when absent) stores the credentials encrypted so a sync can log in
+     * again once the session has expired. The password is never echoed back.
+     */
     record AuthenticateRequest(
         @NotBlank @Size(max = 100) String login,
-        @NotBlank @Size(max = 100) String password
-    ) {}
+        @NotBlank @Size(max = 100) String password,
+        boolean remember
+    ) {
+        @Override
+        public String toString() {
+            return "AuthenticateRequest[login=" + login + ", remember=" + remember + "]";
+        }
+    }
 }

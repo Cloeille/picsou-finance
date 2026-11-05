@@ -1450,6 +1450,8 @@
       "syncing": "Synchronisierung läuft…",
       "syncSuccess": "CORUM-Synchronisierung abgeschlossen.",
       "clearSession": "Trennen",
+      "remember": "Meine Zugangsdaten speichern (verschlüsselt)",
+      "credentialsRemembered": "Zugangsdaten gespeichert (verschlüsselt): Picsou meldet sich selbst neu an, wenn die Sitzung abläuft. Trennen, um sie zu löschen.",
       "noSession": "Keine aktive Sitzung",
       "sessionActive": "Sitzung aktiv",
       "scope": "Synchronisiert die SCPI-Anteile und die CORUM-Life-Lebensversicherungsverträge (Assurance-vie) Ihrer CORUM-Verträge (SCPI zum Rücknahmepreis, Lebensversicherung zum Bewertungswert). Ein Fonds ohne Konto erhält eines oder wird mit dem gleichnamigen SCPI-Konto verknüpft.",

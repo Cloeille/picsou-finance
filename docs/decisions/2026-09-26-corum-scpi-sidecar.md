@@ -63,7 +63,9 @@ URL. That is the argument for `test_live_contract.py` existing at all.
    knows CORUM's HTML or its routes.
 2. Credentials are ephemeral. Only the sidecar's opaque session blob — Playwright storage
    state plus the harvested cookie jar — is persisted, encrypted through `CryptoEncryption`.
-   The password is never stored and never logged.
+   The password is never stored and never logged. (Since 2026-11-05 a member may opt in to
+   storing it encrypted for the daily re-login: see the
+   [addendum](2026-11-05-corum-life-sync.md#addendum-2026-11-05-remembered-credentials-and-the-daily-sync).)
 3. The cookie jar is harvested by watching the requests the SPA itself makes, not by
    reading a CORUM-internal storage key. Watching live traffic is also the capture point
    that does not depend on CORUM's internal storage keys, which is what makes this

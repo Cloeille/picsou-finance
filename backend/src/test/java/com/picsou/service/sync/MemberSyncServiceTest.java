@@ -35,6 +35,7 @@ class MemberSyncServiceTest {
     @Mock private AmundiSyncService amundiSyncService;
     @Mock private CmesSyncService cmesSyncService;
     @Mock private CicSyncService cicSyncService;
+    @Mock private CorumSyncService corumSyncService;
     @Mock private FortuneoSyncService fortuneoSyncService;
     @Mock private AmexSyncService amexSyncService;
     @Mock private IbkrSyncService ibkrSyncService;
@@ -53,12 +54,15 @@ class MemberSyncServiceTest {
             revolutSyncService, syncService, trSyncService, boursoSyncService,
             bourseDirectSyncService, amundiSyncService, fortuneoSyncService, amexSyncService,
             ibkrSyncService, simplefinSyncService, cryptoExchangeSyncService, walletSyncService,
-            finaryApiSyncService, degiroSyncService, new ReceivedDividendClassifier(dividendReceiptService), cmesSyncService, cicSyncService
+            finaryApiSyncService, degiroSyncService, new ReceivedDividendClassifier(dividendReceiptService), cmesSyncService, cicSyncService,
+            corumSyncService
         );
         lenient().when(cmesSyncService.resyncReporting(anyLong())).thenReturn(
             new SourceSyncResult("cmes", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
         lenient().when(cicSyncService.resyncReporting(anyLong())).thenReturn(
             new SourceSyncResult("cic", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
+        lenient().when(corumSyncService.resyncReporting(anyLong())).thenReturn(
+            new SourceSyncResult("corum", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
     }
 
     @Test
@@ -81,10 +85,13 @@ class MemberSyncServiceTest {
 
         List<SourceSyncResult> results = memberSyncService.resyncScheduled(memberId);
 
-        assertEquals(17, results.size());
+        assertEquals(18, results.size());
         assertEquals("cmes", results.get(15).source());
         verify(cmesSyncService).resyncReporting(memberId);
         assertEquals("cic", results.get(16).source());
+        // The daily 08:00 run includes CORUM, which logs in again with remembered credentials.
+        assertEquals("corum", results.get(17).source());
+        verify(corumSyncService).resyncReporting(memberId);
         assertEquals("revolut", results.get(0).source());
         assertEquals("enable-banking", results.get(1).source());
         assertEquals("enable-banking-retry", results.get(2).source());

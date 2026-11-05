@@ -1701,6 +1701,8 @@
       "syncing": "Syncing…",
       "syncSuccess": "CORUM sync complete.",
       "clearSession": "Disconnect",
+      "remember": "Remember my credentials (encrypted)",
+      "credentialsRemembered": "Credentials remembered (encrypted): Picsou signs in again by itself when the session expires. Disconnect to forget them.",
       "noSession": "No active session",
       "sessionActive": "Session active",
       "scope": "Syncs the SCPI shares and the CORUM Life life-insurance (assurance-vie) contracts in your CORUM contracts (SCPI at the withdrawal price, life insurance at its valuation). A fund without an account gets one, or is linked to the SCPI account with the same name.",

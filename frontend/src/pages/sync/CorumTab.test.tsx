@@ -22,6 +22,16 @@ vi.mock('@/components/shared/CurrencyDisplay', () => ({
   CurrencyDisplay: ({ value }: { value: number }) => <span>{`EUR ${value}`}</span>,
 }))
 
+// The "remember my credentials" checkbox is Radix-based; jsdom lacks this.
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+)
+
 const { CorumTab } = await import('./CorumTab')
 
 const DISCONNECTED = {
@@ -76,11 +86,49 @@ describe('CorumTab', () => {
       expect(apiPost).toHaveBeenCalledWith('/corum/auth', {
         login: '000000',
         password: 'secret',
+        // Unticked by default: nothing is stored unless the user asks.
+        remember: false,
       }),
     )
     expect(apiPost).toHaveBeenCalledTimes(1)
     expect(screen.queryByLabelText('sync.corum.otpCode')).not.toBeInTheDocument()
     expect(screen.queryByText('sync.corum.appValidationPrompt')).not.toBeInTheDocument()
+  })
+
+  it('sends remember when the user ticks "remember my credentials"', async () => {
+    apiPost.mockResolvedValueOnce({
+      data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED', credentialsRemembered: true },
+    })
+
+    renderTab()
+    const checkbox = await screen.findByRole('checkbox')
+    expect(checkbox).not.toBeChecked()
+    expect(screen.getByText('sync.corum.remember')).toBeInTheDocument()
+    fireEvent.click(checkbox)
+    await signIn()
+
+    await vi.waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith('/corum/auth', {
+        login: '000000',
+        password: 'secret',
+        remember: true,
+      }),
+    )
+  })
+
+  it('says when the credentials are remembered, and not otherwise', async () => {
+    apiGet.mockResolvedValue({ data: { ...DISCONNECTED, isActive: true, credentialsRemembered: true } })
+    renderTab()
+    expect(await screen.findByText('sync.corum.credentialsRemembered')).toBeInTheDocument()
+    // Disconnecting is how they are forgotten.
+    expect(screen.getByText('sync.corum.clearSession')).toBeInTheDocument()
+  })
+
+  it('shows no remembered-credentials line for a session without them', async () => {
+    apiGet.mockResolvedValue({ data: { ...DISCONNECTED, isActive: true, credentialsRemembered: false } })
+    renderTab()
+    await screen.findByText('sync.corum.clearSession')
+    expect(screen.queryByText('sync.corum.credentialsRemembered')).not.toBeInTheDocument()
   })
 
   it('translates a backend error code instead of leaking its message', async () => {

@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useProviderSession } from "@/features/sync/hooks"
@@ -118,6 +119,12 @@ export interface SidecarSessionPanelProps {
   /** An extra login-form choice merged into the initiate payload (e.g. AMEX's SMS/e-mail pick). */
   extraField?: SidecarExtraField
   /**
+   * Offers the opt-in "remember my credentials" checkbox (CORUM), sent as `remember` with the
+   * login, and says in the status card when the status reports `credentialsRemembered`.
+   * Unticked by default: nothing is stored unless the user asks.
+   */
+  rememberCredentials?: boolean
+  /**
    * A provider whose table entry has a `reconnect` logs in again from the
    * credentials stored at the last login. It is offered while the status reports
    * `canReconnect`; the second factor then runs as after a typed login, with the
@@ -151,6 +158,7 @@ export function SidecarSessionPanel({
   appPush = false,
   otpRetryable = false,
   extraField,
+  rememberCredentials = false,
   autoReconnect = false,
   onAutoReconnectStarted,
   onConnected,
@@ -163,6 +171,7 @@ export function SidecarSessionPanel({
   const [password, setPassword] = useState("")
   const [code, setCode] = useState("")
   const [extraValue, setExtraValue] = useState(extraField?.defaultValue ?? "")
+  const [remember, setRemember] = useState(false)
   const [processId, setProcessId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lostConfirmationAt, setLostConfirmationAt] = useState<number | null>(null)
@@ -346,6 +355,11 @@ export function SidecarSessionPanel({
           <p className="mt-2 text-xs text-muted-foreground">
             {t(key("scope"))}
           </p>
+          {connected && rememberCredentials && status.data?.credentialsRemembered === true && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {t(key("credentialsRemembered"))}
+            </p>
+          )}
           {isSyncing && (
             <p className="mt-2 text-sm text-muted-foreground">
               {syncStatus === "QUEUED" ? t(key("queued")) : t(key("syncing"))}
@@ -455,7 +469,12 @@ export function SidecarSessionPanel({
             event.preventDefault()
             setError(null)
             initiate.mutate(
-              { login, password, ...(extraField ? { [extraField.id]: extraValue } : {}) },
+              {
+                login,
+                password,
+                ...(extraField ? { [extraField.id]: extraValue } : {}),
+                ...(rememberCredentials ? { remember } : {}),
+              },
               { onSuccess: handleInitResult, onError: handleInitError }
             )
           }}
@@ -507,6 +526,17 @@ export function SidecarSessionPanel({
                     ))}
                   </select>
                 </div>
+              )}
+              {rememberCredentials && (
+                <label className="flex cursor-pointer items-center gap-2">
+                  <Checkbox
+                    id={`${fieldIdPrefix}-remember`}
+                    checked={remember}
+                    onCheckedChange={(checked) => setRemember(checked === true)}
+                    disabled={initiate.isPending}
+                  />
+                  <span className="text-sm text-muted-foreground">{t(key("remember"))}</span>
+                </label>
               )}
               <Button type="submit" disabled={initiate.isPending}>
                 {initiate.isPending && <RefreshCw className="animate-spin" />}

@@ -1701,6 +1701,8 @@
       "syncing": "Synchronisation en cours…",
       "syncSuccess": "Synchronisation CORUM terminée.",
       "clearSession": "Déconnecter",
+      "remember": "Mémoriser mes identifiants (chiffrés)",
+      "credentialsRemembered": "Identifiants mémorisés (chiffrés) : Picsou se reconnecte seul quand la session expire. Déconnectez pour les oublier.",
       "noSession": "Aucune session active",
       "sessionActive": "Session active",
       "scope": "Synchronise les parts de SCPI et les contrats d'assurance-vie CORUM Life de vos contrats CORUM (SCPI au prix de retrait, assurance-vie à sa valorisation). Un fonds sans compte en reçoit un, ou est rattaché au compte SCPI du même nom.",

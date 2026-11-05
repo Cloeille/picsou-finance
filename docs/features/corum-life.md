@@ -25,6 +25,9 @@ validates both parts, then writes both in one transaction.
 - The contracts' operations are read once with `GET /api/operations/` and written as the
   account's transactions (see [Operations](#operations)).
 - PER and capitalisation contracts are still not read.
+- The contracts sync daily at 08:00 with the other connectors. When the member ticked "remember my
+  credentials" at login, a sync whose session expired logs in again by itself first; see
+  [CORUM session and remembered credentials](./scpi.md#corum-session-and-remembered-credentials).
 
 ### Key files
 
