@@ -27,7 +27,7 @@ Banque Populaire runs the BPCE platform that Caisse d'Epargne runs, so this conn
 - `region` is one of the 12 regional banks offered on the bank's identifier page: `ALSACE_LORRAINE_CHAMPAGNE`, `AQUITAINE_CENTRE_ATLANTIQUE`, `AUVERGNE_RHONE_ALPES`, `BOURGOGNE_FRANCHE_COMTE`, `BRED`, `GRAND_OUEST`, `MEDITERRANEE`, `NORD`, `OCCITANE`, `RIVES_DE_PARIS`, `SUD`, `VAL_DE_FRANCE`. A missing or unknown value is refused before the sidecar is called. The region is only used to pick the option on the bank's page and is never stored.
 - The sidecar opens `https://www.icgauth.banquepopulaire.fr/se-connecter/sso?service=cyber`. The `service=dei` entry used for Caisse d'Epargne lands on `/se-connecter/erreur` for Banque Populaire. It dismisses the consent banner if one shows, picks the region in the establishment combobox and checks that the combobox shows it. The rest is the Caisse d'Epargne flow: identifier, keypad, Sécur'Pass.
 - Rate limits per IP use separate buckets from Caisse d'Epargne: `/auth/initiate` 3 per 15 minutes (`banquePopulaireAuthBuckets`), `/auth/keypad` 5 per 15 minutes (`banquePopulaireKeypadBuckets`).
-- nginx gives `/api/banque-populaire/auth/complete` 180 s and `/auth/keypad` 90 s, like Caisse d'Epargne.
+- nginx gives `/api/banque-populaire/auth/complete` 180 s, `/auth/keypad` 90 s and `/auth/initiate` 100 s, like Caisse d'Epargne. The region option is matched on its exact text once its Unicode form and spacing are made canonical; case and accents still count.
 
 ### Storage
 
@@ -41,6 +41,7 @@ Table `banque_populaire_session` (migration `V122`) has the Caisse d'Epargne tab
 | card in `augmentedCards` | `CREDIT_CARD` (liability) | yes (immediate-debit Visa Premier) |
 | `3/01` labelled Livret A | `LIVRET_A`, with transactions | yes ("Livret A-Particuliers") |
 | `3/01` labelled Livret Jeune | `LIVRET_JEUNE`, with transactions | yes ("Livret Jeune") |
+| `3/01` labelled LEP | `LEP`, with transactions | no |
 | `3/28` | `LDDS`, with transactions | no (same code as Caisse d'Epargne) |
 | `6/12`, `6/13` loans, `4/05` PER, `2/11` revolving credit, anything else | listed in `unsupported`, never fetched, never fatal | revolving credit seen ("Credit Renouvelable Facelia", no balance) |
 
@@ -56,7 +57,7 @@ Loans and the PER read their detail through separate OAuth clients on Caisse d'E
 
 ## Gotchas / Pitfalls
 
-- A BPCE `3/01` code covers both Livret A and Livret Jeune. The product label tells them apart, for both banks. A LEP-looking label is listed as unsupported rather than imported as a Livret A.
+- A BPCE `3/01` code covers both Livret A and Livret Jeune. The product label tells them apart (whole word `JEUNE`), for both banks. A LEP label (`LEP`, `EPARGNE POPULAIRE`) is imported as `LEP` (not observed live).
 - The host allow-list is strictly `*.banquepopulaire.fr`. A `caisse-epargne.fr` or `bpce.fr` URL is refused for this bank, and the other way round for Caisse d'Epargne.
 - During login, an earlier authorize request (client `adad0322-…`, `response_type=id_token token`) runs on the login host. Only the authorize sent from the client space is captured, as for Caisse d'Epargne.
 - The shared sidecar code logs under the `bpce` logger name for both banks.

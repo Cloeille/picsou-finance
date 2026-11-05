@@ -24,7 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Caisse d'Epargne: a Livret Jeune is imported as a Livret Jeune.** The BPCE product code it
   shares with the Livret A made it show up as a Livret A; the product label now tells them apart.
-  A LEP-looking product with that code is listed as unsupported instead of guessed.
+  A product with that code labelled as a LEP is imported as a LEP. An account already imported
+  under the wrong type is re-typed on the next sync and keeps its history.
 
 - **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar
   read the whole transaction history and refused it past 1,000 rows (`UPSTREAM_FORMAT_CHANGED`).

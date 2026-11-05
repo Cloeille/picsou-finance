@@ -33,7 +33,7 @@ Table `caisse_epargne_session` (migration `V109`) is `bourso_session` without `e
 
 - **Current account** (`CURRENT_ACCOUNT` → `CHECKING`), with its transactions.
 - **Livret A** (`LIVRET_A` → `LIVRET_A`), with its transactions.
-- **Livret Jeune** (`LIVRET_JEUNE` → `LIVRET_JEUNE`), with its transactions. The bank files it under the Livret A's code (`3/01`); the product label tells them apart (`JEUNE` in the label). A `3/01` product labelled like a LEP (`LEP`, `EPARGNE POPULAIRE`, whole words) is listed in `unsupported`, never imported as a Livret A.
+- **Livret Jeune** (`LIVRET_JEUNE` → `LIVRET_JEUNE`), with its transactions. The bank files it under the Livret A's code (`3/01`); the product label tells them apart (`JEUNE` in the label). A `3/01` product labelled like a LEP (`LEP`, `EPARGNE POPULAIRE`, whole words) is imported as a `LEP`. An account first imported as a Livret A is re-typed on the next sync (same external id, history kept); it is never left out, so its balance never freezes.
 - **LDDS** (`LDDS` → `LDDS`), with its transactions. It is a product of its own: it shares the Livret A's regulated rate, never its ceiling. The bank sends each account's own ceiling (`ceiling` in the sidecar contract); nothing hardcodes an LDDS ceiling or reuses the Livret A's.
 - **PER** (`PER` → `PER`): owned unit-linked positions (ISIN, quantity, bank NAV, NAV date and line value) and the separate euro-fund pocket when complete insurer details are available. EUR market quotes update each resolved line between bank syncs; other lines retain their bank value, marked stale with the bank NAV date. The euro fund stays fixed until another sync. No transactions are read, no IBAN. Negative or unreconciled details refuse the sync. Legacy payloads without PER details preserve existing positions rather than clearing them.
 - **Personal loan and home loan** (`LOAN` → `LOAN`; sub codes `12` and `13`): the bank shows the outstanding capital as a figure <= 0; Picsou stores it positive (like any `LOAN`) and applies the liability sign itself. A positive outstanding refuses the sync. No transactions are read on the loan itself. See "Personal loan" below.
@@ -96,6 +96,7 @@ Login is three backend calls that drive the sidecar's browser login (`POST /init
 - The service keeps the pending login (`processId`, member, deadlines) in memory only: the keypad deadline is the sidecar's `expiresInSeconds`, the approval window 180 s after the keypad step. An unknown, used, expired or other member's process id is refused with `AUTH_ATTEMPT_EXPIRED` (or `KEYPAD_EXPIRED` when the user took too long to click) without contacting the sidecar. A restart drops the attempt and the user starts again.
 - On success `completeAuth` stores the encrypted session through `storeSession` and does **not** queue a sync (sync stays on demand). A failed login never deactivates or deletes an existing session; only a sync that ends `SESSION_EXPIRED` or `INVALID_SESSION_STATE` does.
 - Timeouts: `/initiate` 90 s, `/keypad` 70 s, `/complete` 170 s (above the sidecar's 150 s wait for the phone).
+- nginx gives these three calls 100 s, 90 s and 180 s (`docker/nginx.conf`) so the generic 60 s never cuts them.
 
 ### Recovering a lost completion response
 
