@@ -78,6 +78,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lists these accounts only; `OTHER` accounts get their own filter. See
   [Precious metals](docs/features/precious-metals.md). (#448)
 
+- **Trade Republic: password and authenticator login, and a one-field reconnect.** The
+  backend accepts a password (1 to 128 characters) in place of the 4-digit PIN, and the new
+  `authenticator` flow takes the 6-digit code of an authenticator app through `/auth/complete`.
+  `POST /api/tr/auth/reconnect` asks only for the PIN or password and reuses the phone number
+  kept in the encrypted session state, which is also shown masked (`maskedPhone`, last two
+  digits only) in `GET /api/tr/status`. The PIN is never stored. The daily and MCP syncs never
+  start a login: an expired session stays `SESSION_EXPIRED` until the member reconnects. Members
+  connected before this change enter their phone number once more. See
+  [Trade Republic](docs/features/trade-republic.md).
 - **Trade Republic transactions import automatically during the sync.** The sync now also
   fetches Trade Republic's own CSV export through the `tr-auth` sidecar and feeds it to the
   existing CSV importer, so card payments, interest and trades land in TR Cash and the PEA/CTO

@@ -159,7 +159,7 @@ public class TradeRepublicAdapter {
      * TR has asked for the second factor. Credentials are NOT stored: they are used only for this call.
      *
      * @param phoneNumber international format (+33…) or local (06…, auto-converted)
-     * @param pin         numeric PIN
+     * @param pin         4-digit PIN or password (1..128 characters)
      */
     public TrInitiate initiateAuth(String phoneNumber, String pin) {
         log.info("Delegating TR auth initiation to tr-auth sidecar");
@@ -182,7 +182,7 @@ public class TradeRepublicAdapter {
      * Step 2: waits for the in-app confirmation (or checks the 4-digit code) and returns the
      * serialized session state, opaque to the domain.
      *
-     * @param tan the 4-digit code of the {@code otp} flow, null for {@code confirmInApp}
+     * @param tan the 4-digit {@code otp} or 6-digit {@code authenticator} code, null for {@code confirmInApp}
      */
     public String completeAuth(String processId, String tan) {
         log.info("Delegating TR login completion to tr-auth sidecar");
