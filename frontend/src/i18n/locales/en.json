@@ -475,7 +475,10 @@
       "principal": "Amount lent",
       "lentAt": "Lending date",
       "expectedBack": "Expected return",
-      "annualRatePct": "Annual rate (%)",
+      "ratePct": "Rate (%)",
+      "ratePeriod": "Rate period",
+      "rateAnnual": "Annual rate",
+      "rateMonthly": "Monthly rate",
       "plannedMonths": "Planned duration (months)",
       "plannedMonthly": "Planned monthly payment",
       "linkedAccount": "Linked cash account",
@@ -484,6 +487,10 @@
       "paidOn": "Date",
       "amount": "Amount",
       "kind": "Kind"
+    },
+    "ratePeriod": {
+      "ANNUAL": "Annual",
+      "MONTHLY": "Monthly"
     },
     "kinds": {
       "PRINCIPAL": "Capital",

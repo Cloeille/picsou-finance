@@ -17,7 +17,13 @@ import { SELECT_CONTROL_CLASS } from '@/lib/constants'
 import { parseAmount } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import { usePeerLoanSimulation } from '@/features/peer-loans/hooks'
-import type { Account, PeerLoanDetail, PeerLoanSimulationResponse, PeerLoanTermsRequest } from '@/types/api'
+import type {
+  Account,
+  PeerLoanDetail,
+  PeerLoanRatePeriod,
+  PeerLoanSimulationResponse,
+  PeerLoanTermsRequest,
+} from '@/types/api'
 
 interface PeerLoanTermsDialogProps {
   open: boolean
@@ -54,6 +60,7 @@ export function PeerLoanTermsDialog({
   const [lentAt, setLentAt] = useState('')
   const [expectedBack, setExpectedBack] = useState('')
   const [ratePct, setRatePct] = useState('')
+  const [ratePeriod, setRatePeriod] = useState<PeerLoanRatePeriod>('ANNUAL')
   const [months, setMonths] = useState('')
   const [monthly, setMonthly] = useState('')
   const [linkedAccountId, setLinkedAccountId] = useState('')
@@ -70,7 +77,11 @@ export function PeerLoanTermsDialog({
       setPrincipal(text(initial?.principal))
       setLentAt(initial?.lentAt ?? new Date().toISOString().slice(0, 10))
       setExpectedBack(initial?.expectedBack ?? '')
-      setRatePct(initial?.annualRate != null ? String(initial.annualRate * 100) : '')
+      const period = initial?.ratePeriod ?? 'ANNUAL'
+      setRatePeriod(period)
+      setRatePct(initial?.annualRate != null
+        ? String(period === 'MONTHLY' ? initial.annualRate * 100 / 12 : initial.annualRate * 100)
+        : '')
       setMonths(text(initial?.plannedMonths))
       setMonthly(text(initial?.plannedMonthlyAmount))
       setLinkedAccountId(text(initial?.linkedAccountId))
@@ -87,6 +98,22 @@ export function PeerLoanTermsDialog({
     return Number.isFinite(parsed) ? parsed : null
   }
 
+  /** The normalized annual fraction, whatever period the field is displayed in. */
+  const annualRateFromInput = (): number => {
+    const pct = numberOrNull(ratePct) ?? 0
+    return (ratePeriod === 'MONTHLY' ? pct * 12 : pct) / 100
+  }
+
+  /** Converts the visible value when the member switches period, so 6 %/yr reads 0.5 %/mo. */
+  function handlePeriodChange(next: PeerLoanRatePeriod) {
+    const value = numberOrNull(ratePct)
+    if (value != null) {
+      const converted = next === 'MONTHLY' ? value / 12 : value * 12
+      setRatePct(String(Number(converted.toFixed(6))))
+    }
+    setRatePeriod(next)
+  }
+
   async function handleSimulate() {
     setError(null)
     const principalValue = numberOrNull(principal)
@@ -94,7 +121,7 @@ export function PeerLoanTermsDialog({
       setError(t('peerLoan.validation.principal'))
       return
     }
-    const annualRate = (numberOrNull(ratePct) ?? 0) / 100
+    const annualRate = annualRateFromInput()
     const monthCount = numberOrNull(months)
     const monthlyValue = numberOrNull(monthly)
     try {
@@ -143,7 +170,8 @@ export function PeerLoanTermsDialog({
         principal: principalValue,
         lentAt,
         expectedBack: expectedBack || null,
-        annualRate: (numberOrNull(ratePct) ?? 0) / 100,
+        annualRate: annualRateFromInput(),
+        ratePeriod,
         plannedMonthlyAmount: monthlyValue,
         plannedMonths: monthCount,
         linkedAccountId: linkedValue,
@@ -172,8 +200,24 @@ export function PeerLoanTermsDialog({
               <NumericInput id="peer-principal" value={principal} onChange={(e) => setPrincipal(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="peer-rate">{t('peerLoan.fields.annualRatePct')}</Label>
-              <NumericInput id="peer-rate" value={ratePct} onChange={(e) => setRatePct(e.target.value)} />
+              <Label htmlFor="peer-rate">{t('peerLoan.fields.ratePct')}</Label>
+              <div className="flex gap-2">
+                <NumericInput
+                  id="peer-rate"
+                  className="flex-1"
+                  value={ratePct}
+                  onChange={(e) => setRatePct(e.target.value)}
+                />
+                <select
+                  aria-label={t('peerLoan.fields.ratePeriod')}
+                  className={`${SELECT_CONTROL_CLASS} w-32`}
+                  value={ratePeriod}
+                  onChange={(e) => handlePeriodChange(e.target.value as PeerLoanRatePeriod)}
+                >
+                  <option value="ANNUAL">{t('peerLoan.ratePeriod.ANNUAL')}</option>
+                  <option value="MONTHLY">{t('peerLoan.ratePeriod.MONTHLY')}</option>
+                </select>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="peer-lent-at">{t('peerLoan.fields.lentAt')}</Label>

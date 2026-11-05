@@ -464,7 +464,10 @@
       "principal": "Importe prestado",
       "lentAt": "Fecha del préstamo",
       "expectedBack": "Devolución prevista",
-      "annualRatePct": "Tipo anual (%)",
+      "ratePct": "Tipo (%)",
+      "ratePeriod": "Periodo del tipo",
+      "rateAnnual": "Tipo anual",
+      "rateMonthly": "Tipo mensual",
       "plannedMonths": "Duración prevista (meses)",
       "plannedMonthly": "Cuota mensual prevista",
       "linkedAccount": "Cuenta de tesorería vinculada",
@@ -473,6 +476,10 @@
       "paidOn": "Fecha",
       "amount": "Importe",
       "kind": "Naturaleza"
+    },
+    "ratePeriod": {
+      "ANNUAL": "Anual",
+      "MONTHLY": "Mensual"
     },
     "kinds": {
       "PRINCIPAL": "Capital",

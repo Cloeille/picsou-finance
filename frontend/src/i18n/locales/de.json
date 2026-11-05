@@ -464,7 +464,10 @@
       "principal": "Verliehener Betrag",
       "lentAt": "Datum des Darlehens",
       "expectedBack": "Erwartete Rückzahlung",
-      "annualRatePct": "Jahreszins (%)",
+      "ratePct": "Zinssatz (%)",
+      "ratePeriod": "Zinszeitraum",
+      "rateAnnual": "Jahreszins",
+      "rateMonthly": "Monatszins",
       "plannedMonths": "Geplante Laufzeit (Monate)",
       "plannedMonthly": "Geplante Monatsrate",
       "linkedAccount": "Verknüpftes Girokonto",
@@ -473,6 +476,10 @@
       "paidOn": "Datum",
       "amount": "Betrag",
       "kind": "Art"
+    },
+    "ratePeriod": {
+      "ANNUAL": "Jährlich",
+      "MONTHLY": "Monatlich"
     },
     "kinds": {
       "PRINCIPAL": "Kapital",

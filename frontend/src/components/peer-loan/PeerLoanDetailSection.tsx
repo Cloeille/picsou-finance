@@ -23,6 +23,7 @@ import { formatLocalDate, formatPercent, localeFromLanguage } from '@/lib/utils'
 import { CASH_ACCOUNT_TYPES } from '@/lib/constants'
 import { PeerLoanTermsDialog } from './PeerLoanTermsDialog'
 import { PeerLoanRepaymentDialog } from './PeerLoanRepaymentDialog'
+import { PeerLoanForecastChart } from './PeerLoanForecastChart'
 import type {
   PeerLoanRepayment,
   PeerLoanRepaymentKind,
@@ -183,7 +184,14 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                   )}
                   {data.annualRate != null && data.annualRate > 0 && (
                     <span>
-                      {t('peerLoan.fields.annualRatePct')} {formatPercent(data.annualRate * 100, { fractionDigits: 2 }, locale)}
+                      {t(data.ratePeriod === 'MONTHLY'
+                        ? 'peerLoan.fields.rateMonthly'
+                        : 'peerLoan.fields.rateAnnual')}{' '}
+                      {formatPercent(
+                        data.ratePeriod === 'MONTHLY' ? data.annualRate * 100 / 12 : data.annualRate * 100,
+                        { fractionDigits: 2 },
+                        locale,
+                      )}
                     </span>
                   )}
                 </div>
@@ -254,6 +262,12 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
               </>
             ) : (
               <p className="text-sm text-muted-foreground">{t('peerLoan.noPlan')}</p>
+            )}
+            {data.curve.length > 1 && (
+              <PeerLoanForecastChart
+                data={data.curve}
+                hasPlan={data.plannedMonthlyAmount != null}
+              />
             )}
           </CardContent>
         </Card>

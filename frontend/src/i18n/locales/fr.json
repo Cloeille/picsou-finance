@@ -475,7 +475,10 @@
       "principal": "Montant prêté",
       "lentAt": "Date du prêt",
       "expectedBack": "Retour prévu",
-      "annualRatePct": "Taux annuel (%)",
+      "ratePct": "Taux (%)",
+      "ratePeriod": "Période du taux",
+      "rateAnnual": "Taux annuel",
+      "rateMonthly": "Taux mensuel",
       "plannedMonths": "Durée prévue (mois)",
       "plannedMonthly": "Mensualité prévue",
       "linkedAccount": "Compte de trésorerie lié",
@@ -484,6 +487,10 @@
       "paidOn": "Date",
       "amount": "Montant",
       "kind": "Nature"
+    },
+    "ratePeriod": {
+      "ANNUAL": "Annuel",
+      "MONTHLY": "Mensuel"
     },
     "kinds": {
       "PRINCIPAL": "Capital",

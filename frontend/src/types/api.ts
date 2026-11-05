@@ -548,12 +548,16 @@ export interface PeerLoanRepayment {
   note?: string | null
 }
 
+export type PeerLoanRatePeriod = 'ANNUAL' | 'MONTHLY'
+
 export interface PeerLoanTermsRequest {
   principal: number
   lentAt: string
   expectedBack?: string | null
-  /** Annual rate as a fraction (0.02 = 2 %). Null/absent = interest-free. */
+  /** Annual rate as a fraction (0.06 = 6 %), whatever the period it was entered in. */
   annualRate?: number | null
+  /** How the member stated the rate; defaults to annual. */
+  ratePeriod?: PeerLoanRatePeriod | null
   /** Forecast only: both fields go together, or neither. */
   plannedMonthlyAmount?: number | null
   plannedMonths?: number | null
@@ -601,6 +605,13 @@ export interface PeerLoanSimulationResponse {
   totalCost: number
 }
 
+export interface PeerLoanCurvePoint {
+  date: string
+  actual: number
+  /** Null when the loan has no plan. */
+  scheduled?: number | null
+}
+
 /** Facts only: no score, no predicted risk. */
 export interface PeerLoanDetail {
   accountId: number
@@ -612,6 +623,8 @@ export interface PeerLoanDetail {
   lentAt?: string | null
   expectedBack?: string | null
   annualRate?: number | null
+  /** How the rate was stated, so the page shows it as agreed. */
+  ratePeriod?: PeerLoanRatePeriod | null
   plannedMonthlyAmount?: number | null
   plannedMonths?: number | null
   linkedAccountId?: number | null
@@ -629,6 +642,8 @@ export interface PeerLoanDetail {
   scheduledRemaining?: number | null
   installmentsBehind?: number | null
   repayments: PeerLoanRepayment[]
+  /** Actual capital over time, plus the forecast when a plan exists. */
+  curve: PeerLoanCurvePoint[]
 }
 
 export interface BalanceSnapshot {
