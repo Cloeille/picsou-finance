@@ -7,9 +7,30 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-/** Accept French commas as decimal separators: "12,50" → "12.50". */
+/**
+ * Whole digits grouped by thousands with a single separator kind: "1.000", "-1,234,567".
+ * A first group made of zeros does not count, so "0.125" stays a decimal.
+ */
+const THOUSANDS = /^-?(?!0+[.,])\d{1,3}([.,])\d{3}(?:\1\d{3})*$/
+
+/**
+ * Normalise a typed amount to a "." decimal string. A lone "." or "," is the
+ * decimal separator ("12,50" gives "12.50"). Thousands are read only when they
+ * are well formed: one separator repeated between groups of three digits
+ * ("1.000.000"), or one kind grouping the digits before the other ("12.500,50"
+ * and "12,500.50" give "12500.50"). Anything else keeps the first separator as
+ * the decimal one and drops the rest, so a slip like "12..50" still reads 12.50.
+ */
 export function normalizeDecimal(value: string | null | undefined): string {
-  return (value ?? '').replace(',', '.')
+  const text = value ?? ''
+  const last = Math.max(text.lastIndexOf('.'), text.lastIndexOf(','))
+  if (last === -1) return text
+  const sep = text[last]
+  if (text.indexOf(sep) !== last && THOUSANDS.test(text)) return text.replace(/[.,]/g, '')
+  const head = text.slice(0, last)
+  if (!head.includes(sep) && THOUSANDS.test(head)) return head.replace(/[.,]/g, '') + '.' + text.slice(last + 1)
+  const first = text.search(/[.,]/)
+  return text.slice(0, first) + '.' + text.slice(first + 1).replace(/[.,]/g, '')
 }
 
 /** Parse a user-entered amount tolerating both "." and "," separators. */

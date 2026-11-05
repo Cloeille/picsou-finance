@@ -19,12 +19,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar
+  read the whole transaction history and refused it past 1,000 rows (`UPSTREAM_FORMAT_CHANGED`).
+  It now asks for rows ordered by date and stops paging past the last 365 days when they come
+  newest first; older rows already imported stay. (#397)
+
 - **The account export dialog says "2 accounts selected".** Its count key used the legacy
   `_plural` suffix, which i18next ignores, so every language showed the singular form.
+
 - **Trade Republic bond values no longer use percentage quotes as euro prices.** EUR bond
   ticker prices are divided by 100. Non-EUR or unknown bond currencies keep the position's
   current price empty and value it at its average buy-in. A sync updates current holdings and
   today's snapshot; earlier daily snapshots keep their recorded values.
+
+- **Loan monthly payments count the insurance once.** When the monthly payment is left empty,
+  the dashboard's liabilities card now adds the insurance to the computed annuity, as the loan
+  page does. The XLSX export's monthly total no longer adds the insurance on top of an entered
+  payment, and no longer shows only the insurance when the payment is empty. See
+  [Loans](docs/features/loans.md).
 
 ### Changed
 
@@ -912,6 +924,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#197](https://github.com/Cloeille/picsou-finance/issues/197))
 - **Deleting an account through the MCP assistant now also disconnects the bank, wallet or broker when it was the last account on that connection, and says which one.** ([#176](https://github.com/Cloeille/picsou-finance/issues/176))
 - **A BoursoBank access with a personal and a business identity now syncs the personal one.** BoursoBank shows such an access an identity selector before the dashboard, which the connector used to report as a site format change. It now switches to the personal identity on each sync, and says so plainly when it cannot tell which identity is personal. Business identities are not synced. ([#153](https://github.com/Cloeille/picsou-finance/issues/153))
+- **Amounts like `12.500,50` or `1.000.000` are saved in full.** Amount fields dropped every
+  separator after the first one, so `12.500,50` (German or Spanish) or `12,500.50` (English)
+  was saved as 12.5005 and `1.000.000` as 1. Thousands are now read when the digits are
+  grouped by three. A single separator is still the decimal one, so `12,50` gives 12.5 and
+  `1.000` on its own still gives 1.
 - **A 1.1.0 database that applied migrations before they were renumbered starts again.**
   The old V80, V81 and V86–V88 rows are moved to V93–V99 before Flyway validates, matched on
   version, description and checksum, so the boot no longer fails and those migrations do not run
