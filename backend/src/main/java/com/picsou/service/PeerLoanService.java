@@ -638,6 +638,16 @@ public class PeerLoanService {
         BigDecimal remaining = PeerLoanCalculator
             .compute(terms, repayments, LocalDate.now())
             .principalRemaining();
+        // Reaching zero is the end of the loan: there is nothing left to collect, and an
+        // explicit click would let a 0 EUR receivable linger on the dashboard. An explicit
+        // close stays for the other case -- abandoning a residual.
+        if (remaining.signum() == 0 && terms.getClosedAt() == null) {
+            LocalDate closedAt = repayments.isEmpty()
+                ? LocalDate.now()
+                : repayments.getLast().getPaidOn();
+            terms.setClosedAt(closedAt);
+            termsRepository.save(terms);
+        }
         account.setCurrentBalance(remaining);
         accountRepository.save(account);
         accountService.upsertSnapshot(account, remaining, LocalDate.now());

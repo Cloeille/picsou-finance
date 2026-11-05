@@ -20,6 +20,7 @@ export const peerLoanKey = (accountId: number) => ['peer-loan', accountId] as co
 const invalidatesFor = (accountId: number) => [
   ['peer-loan', accountId],
   ['peer-loans', 'open'],
+  ['peer-loans', 'overview'],
   ['accounts', accountId],
   ['accounts'],
   ['dashboard'],

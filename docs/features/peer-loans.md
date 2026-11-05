@@ -396,6 +396,10 @@ The `db` container has no host port: the database is only reachable by the test 
   a fact.
 - **Closing is not deleting.** The account stays with a badge; deleting it would also
   delete the loss history through `ON DELETE CASCADE`.
+- **Reaching zero closes the loan automatically.** The last repayment that clears the
+  capital stamps `closed_at` on its own date, so a 0 EUR receivable never lingers on the
+  dashboard. The explicit close action remains for the other case: abandoning a residual
+  that will not be repaid.
 - **A closed loan leaves the current views, not the record.** It is absent from the
   dashboard's asset distribution and from the Analysis table (which states how many are
   closed), but the account stays in Accounts with its badge and the net-worth history keeps
@@ -433,10 +437,11 @@ The `db` container has no host port: the database is only reachable by the test 
   short-term rate.
 - `PeerLoanServiceTest` — unconfigured detail, member scoping, wrong type, closed-loan
   guard, account name as the borrower, no leg on a synced account, the outflow written on
-  a manual one, closure write-off and zeroed balance, reopen on deleting the write-off,
-  loan creation from an existing transaction, a repayment linked from an incoming
-  transaction (no copy, not deleted), simulation input guard, and the member-wide overview
-  (open/closed counts, totals, ordering, last payment, curve).
+  a manual one, closure write-off and zeroed balance, the final repayment closing the loan
+  by itself, reopen on deleting the write-off, loan creation from an existing transaction,
+  a repayment linked from an incoming transaction (no copy, not deleted), simulation input
+  guard, and the member-wide overview (open/closed counts, totals, ordering, last payment,
+  curve).
 - `DataExportServiceTest` — the three peer-loan CSV/JSON sections, including the borrower,
   the plan and the journal's `cash_leg_owned` flag.
 - `AccountsWorkbookServiceTest` — the peer-loan block and its repayment journal, with the

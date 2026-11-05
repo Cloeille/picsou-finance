@@ -279,6 +279,38 @@ class PeerLoanServiceTest {
     }
 
     @Test
+    void theRepaymentThatClearsTheCapitalClosesTheLoan() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("500")).lentAt(LocalDate.now().minusDays(10))
+            .annualRate(BigDecimal.ZERO).linkedAccount(cashAccount(false))
+            .build();
+        List<PeerLoanRepayment> ledger = new ArrayList<>();
+
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
+            PeerLoanRepayment saved = invocation.getArgument(0);
+            if (saved.getId() == null) {
+                saved.setId(11L);
+                ledger.add(saved);
+            }
+            return saved;
+        });
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenAnswer(invocation -> ledger);
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addRepayment(ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentRequest(
+            LocalDate.now(), new BigDecimal("500"), PeerLoanRepaymentKind.PRINCIPAL, null));
+
+        // Nothing left to collect: the loan closes itself rather than lingering at 0 EUR.
+        assertThat(terms.getClosedAt()).isEqualTo(LocalDate.now());
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("0");
+    }
+
+    @Test
     void addRepaymentFromTransactionLinksTheRowWithoutCopyingIt() {
         Account account = loanAccount("Jean");
         Account cash = cashAccount(false);
