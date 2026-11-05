@@ -24,9 +24,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -146,6 +152,37 @@ class SsoClientRegistrationRepositoryTest {
         clock.advance(Duration.ofSeconds(1));
         assertThat(repository.findByRegistrationId("oidc")).isNotNull();
         verify(discovery, times(2)).apply(ISSUER);
+    }
+
+    @Test
+    void lookupDuringDiscovery_answersAtOnceInsteadOfWaitingForTheProvider() throws Exception {
+        CountDownLatch discoveryStarted = new CountDownLatch(1);
+        CountDownLatch providerAnswers = new CountDownLatch(1);
+        SsoClientRegistrationRepository repository = new SsoClientRegistrationRepository(props("", null), issuer -> {
+            discoveryStarted.countDown();
+            try {
+                providerAnswers.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return discovered();
+        }, clock);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<ClientRegistration> first = executor.submit(() -> repository.findByRegistrationId("oidc"));
+            assertThat(discoveryStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+            ClientRegistration concurrent = assertTimeoutPreemptively(Duration.ofSeconds(5),
+                () -> repository.findByRegistrationId("oidc"));
+
+            assertThat(concurrent).isNull();
+            providerAnswers.countDown();
+            assertThat(first.get(5, TimeUnit.SECONDS)).isNotNull();
+            assertThat(repository.findByRegistrationId("oidc")).isSameAs(first.get());
+        } finally {
+            providerAnswers.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test

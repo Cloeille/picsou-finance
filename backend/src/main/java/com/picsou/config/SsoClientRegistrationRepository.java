@@ -14,6 +14,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
 /**
@@ -37,9 +38,10 @@ public class SsoClientRegistrationRepository implements ClientRegistrationReposi
     private final SsoProperties properties;
     private final Function<String, ClientRegistration.Builder> discovery;
     private final Clock clock;
+    private final AtomicBoolean discovering = new AtomicBoolean();
 
-    private ClientRegistration registration;
-    private Instant lastFailure;
+    private volatile ClientRegistration registration;
+    private volatile Instant lastFailure;
 
     @org.springframework.beans.factory.annotation.Autowired
     public SsoClientRegistrationRepository(SsoProperties properties, Clock clock) {
@@ -55,10 +57,27 @@ public class SsoClientRegistrationRepository implements ClientRegistrationReposi
     }
 
     @Override
-    public synchronized ClientRegistration findByRegistrationId(String registrationId) {
+    public ClientRegistration findByRegistrationId(String registrationId) {
         if (!REGISTRATION_ID.equals(registrationId)) {
             return null;
         }
+        ClientRegistration cached = registration;
+        if (cached != null) {
+            return cached;
+        }
+        // One discovery at a time and outside any lock: a lookup arriving while it runs answers
+        // "unavailable" at once instead of holding a servlet worker for the provider's timeout.
+        if (!discovering.compareAndSet(false, true)) {
+            return null;
+        }
+        try {
+            return discoverUnlessBackingOff();
+        } finally {
+            discovering.set(false);
+        }
+    }
+
+    private ClientRegistration discoverUnlessBackingOff() {
         if (registration != null) {
             return registration;
         }

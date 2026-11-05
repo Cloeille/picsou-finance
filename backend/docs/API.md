@@ -320,7 +320,7 @@ Starts a round trip to the IdP.
 
 | Condition | Redirect |
 |-----------|----------|
-| IdP discovery not reachable yet | the intent's error page with `ssoError=IDP_UNAVAILABLE` |
+| IdP discovery not reachable yet, or still running for another request | the intent's error page with `ssoError=IDP_UNAVAILABLE` |
 | `login` before setup is complete | `/setup` |
 | `link` / `reauth` without a valid `access_token` | `/login` |
 | `link` without a valid `reauth_proof` | `{redirect}?ssoError=REAUTH_REQUIRED` |

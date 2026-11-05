@@ -208,7 +208,9 @@ Backend (`backend/src/main/java/com/picsou/`):
 - `config/SsoProperties.java`, `config/SsoEnabledCondition.java`: settings and the single
   "is SSO on" rule shared by every SSO bean.
 - `config/SsoClientRegistrationRepository.java`: lazy discovery, cached on success, retried
-  after 60 s on failure; PKCE required; redirect URI `{baseUrl}/login/sso/callback`.
+  after 60 s on failure; one discovery at a time and outside any lock, so a lookup arriving while
+  it runs answers "unavailable" at once instead of holding a worker; PKCE required; redirect URI
+  `{baseUrl}/login/sso/callback`.
 - `config/SsoSecurityConfig.java`: the `@Order(0)` chain.
 - `config/SsoStartGuardFilter.java`: POST-only, rate limit, intent checks.
 - `config/SsoAuthorizationRequestResolver.java`, `config/SsoAuthorizationRequestRepository.java`:
