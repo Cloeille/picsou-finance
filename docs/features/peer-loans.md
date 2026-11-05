@@ -199,6 +199,14 @@ There is **no annual cap**: a short-term loan may carry a high nominal rate (10 
 Every account-scoped route resolves the account with `findByIdAndMemberId` before touching
 a child row: the ledger is scoped through its account, never through an unvalidated id.
 
+### MCP tools
+
+`get_peer_loan` (`accounts:read`) returns the same detail as the REST `GET`, and
+`add_peer_loan_repayment` (`accounts:write`) records one repayment through the same service,
+including the cash leg on a manual linked account. A loan is a `PEER_LOAN` account, so the
+account scopes cover it and the consent surface does not change. The repayment tool refuses
+`WRITE_OFF`: closing a loan stays an explicit action, not a side effect of a payment.
+
 ### Frontend
 
 - `components/peer-loan/PeerLoanDetailSection.tsx` renders in `AccountDetailPage` where
@@ -393,7 +401,6 @@ The `db` container has no host port: the database is only reachable by the test 
   member classifies it once).
 - A projected-vs-actual **chart** (v1 compares the figures textually).
 - A **borrower history** view across loans (kept out of the account page on purpose).
-- MCP tools (read the detail, add a repayment).
 - The borrowed direction (`PEER_DEBT`).
 - Ownership shares on a peer-loan account (`AccountAccessResolver` scope).
 
@@ -412,6 +419,8 @@ The `db` container has no host port: the database is only reachable by the test 
   the plan and the journal's `cash_leg_owned` flag.
 - `AccountsWorkbookServiceTest` — the peer-loan block and its repayment journal, with the
   rate written out of 100 and the planned interest.
+- `PeerLoanToolsTest` — both MCP tools delegate to `PeerLoanService`, validate their
+  arguments, refuse a standalone write-off and require the `accounts:*` scope.
 - `constants.test.ts` — the new account type has a label, is not a liability and is not a
   holdings type.
 
