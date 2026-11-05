@@ -7,7 +7,7 @@ FROM ${SIDECAR_BASE}
 
 RUN groupadd -r corum && useradd -r -g corum corum
 
-COPY main.py positions_parser.py ./
+COPY main.py positions_parser.py life_parser.py ./
 
 USER corum
 EXPOSE 8001

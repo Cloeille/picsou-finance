@@ -21,6 +21,7 @@ all the client space carries, so it is what the domain gets as its external
 id, and the display name is mapped explicitly rather than guessed from it.
 """
 
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -87,16 +88,23 @@ def _share(product: dict[str, Any]) -> dict[str, Any]:
 
 
 def _valuation_date(raw: Any) -> str | None:
-    """CORUM renders dates as `DD/MM/YYYY`; the domain wants ISO."""
+    """CORUM renders dates as `DD/MM/YYYY`; the domain wants ISO.
+
+    A date that does not exist on the calendar (`31/02/2026`) is unreadable,
+    not passed on: the backend would fail to decode it and lose the whole sync.
+    """
     if not isinstance(raw, str) or not raw:
         return None
     parts = raw.split("/")
     if len(parts) != 3:
         return None
     day, month, year = parts
-    if not (day.isdigit() and month.isdigit() and year.isdigit()):
+    if not (day.isdigit() and month.isdigit() and year.isdigit() and len(year) == 4):
         return None
-    return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+    try:
+        return date(int(year), int(month), int(day)).isoformat()
+    except ValueError:
+        return None
 
 
 def _lines_sum(contract: dict[str, Any], values: list[Decimal]) -> None:
