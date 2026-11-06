@@ -1,14 +1,15 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
-import com.picsou.model.CaisseEpargneSession;
-import com.picsou.model.CaisseEpargneSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
@@ -51,7 +52,7 @@ class CaisseEpargneSyncServiceAuthTest {
     private static final Instant T0 = Instant.parse("2026-10-07T10:00:00Z");
 
     @Mock CaisseEpargnePort port;
-    @Mock CaisseEpargneSessionRepository sessionRepository;
+    @Mock SidecarSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock TransactionRepository transactionRepository;
     @Mock FamilyMemberRepository memberRepository;
@@ -98,11 +99,11 @@ class CaisseEpargneSyncServiceAuthTest {
     private void arrangeStore(String plainState) {
         FamilyMember member = FamilyMember.builder().id(7L).displayName("Owner").build();
         lenient().when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.empty());
         lenient().when(encryption.encrypt(plainState)).thenReturn("encrypted-state");
-        lenient().when(sessionRepository.saveAndFlush(any(CaisseEpargneSession.class)))
+        lenient().when(sessionRepository.saveAndFlush(any(SidecarSession.class)))
             .thenAnswer(invocation -> invocation.getArgument(0));
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.empty());
     }
 
     // -- initiate -----------------------------------------------------------
@@ -333,10 +334,10 @@ class CaisseEpargneSyncServiceAuthTest {
 
         service.completeAuth("proc-1", 7L);
 
-        ArgumentCaptor<CaisseEpargneSession> stored = ArgumentCaptor.forClass(CaisseEpargneSession.class);
+        ArgumentCaptor<SidecarSession> stored = ArgumentCaptor.forClass(SidecarSession.class);
         verify(sessionRepository).saveAndFlush(stored.capture());
         assertThat(stored.getValue().getSessionState()).isEqualTo("encrypted-state");
-        assertThat(stored.getValue().getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.IDLE);
+        assertThat(stored.getValue().getSyncStatus()).isEqualTo(SidecarSyncStatus.IDLE);
         assertThat(stored.getValue().isActive()).isTrue();
         verify(port, never()).fetchAccounts(any());
         verify(port, never()).checkSession(any());

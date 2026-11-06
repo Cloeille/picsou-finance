@@ -4,7 +4,7 @@
 
 ## Context
 
-Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secrets, Trade Republic session/refresh tokens, and bank sync session IDs. A database compromise (backup leak, SQL injection, host access) would expose these credentials, granting attackers access to financial accounts. All sensitive fields are encrypted at the application layer using AES-256-GCM before storage.
+Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secrets, the Trade Republic session state, and bank sync session IDs. A database compromise (backup leak, SQL injection, host access) would expose these credentials, granting attackers access to financial accounts. All sensitive fields are encrypted at the application layer using AES-256-GCM before storage.
 
 ## How it works
 
@@ -25,14 +25,13 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 |------|--------|--------|-----------------|
 | Crypto exchange API key | `CryptoExchangeSession` | `api_key` | V15 (2026-04-08) |
 | Crypto exchange API secret | `CryptoExchangeSession` | `api_secret` | V9 (initial) |
-| Trade Republic session token | `TradeRepublicSession` | `session_token` | V15 (2026-04-08), `TEXT` since V86 |
-| Trade Republic refresh token | `TradeRepublicSession` | `refresh_token` | V15 (2026-04-08), `TEXT` since V86 |
+| Trade Republic session state (refresh and device cookies) | `SidecarSession` (bank `TRADE_REPUBLIC`) | `session_state` | V130 (2026-11); was `trade_republic_session.session_token` / `refresh_token` from V15 |
 | DEGIRO session blob | `DegiroSession` | `session_blob` | V71 (2026-08-10), `TEXT` since V86 |
 | SimpleFIN access URL | `SimplefinConnection` | `access_url` | V113 (2026-10-06) |
-| BoursoBank login and password (JSON), stored at every login | `BoursoSession` | `bourso_session.encrypted_credentials` | V103 (2026-09-28) |
-| Crédit Mutuel Épargne Salariale login and password (JSON), stored at every login | `CmesSession` | `cmes_session.encrypted_credentials` | V117 (2026-10-31) |
-| CIC login and password (JSON), stored at every login | `CicSession` | `cic_session.encrypted_credentials` | V121 (2026-10-31) |
-| CORUM login and password (JSON), opt-in ("Remember my credentials"), NULL otherwise | `CorumSession` | `corum_session.encrypted_credentials` | V127 (2026-11-05) |
+| BoursoBank login and password (JSON), stored at every login | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'BOURSO'`) | V103, moved by V129 |
+| Crédit Mutuel Épargne Salariale login and password (JSON), stored at every login | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'CMES'`) | V117, moved by V129 |
+| CIC login and password (JSON), stored at every login | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'CIC'`) | V121, moved by V129 |
+| CORUM login and password (JSON), opt-in ("Remember my credentials"), NULL otherwise | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'CORUM'`) | V127, moved by V129 |
 
 ### What is NOT encrypted (and why)
 
@@ -89,7 +88,7 @@ Read credential:
 - **Key is mandatory**: The app will not start without `CRYPTO_ENCRYPTION_KEY`. Generate with: `openssl rand -base64 32`.
 - **Lost key = re-enter credentials**: If the encryption key is lost, encrypted data cannot be recovered. The user must re-add crypto exchanges and re-authenticate Trade Republic.
 - **V15 truncates existing sessions**: After deploying V15, all crypto exchange sessions and TR sessions are cleared. Users must re-enter API keys and re-authenticate TR. This is a one-time migration cost.
-- **Column widths**: An encrypted value is `4 * ceil((n + 28) / 3)` characters for `n` plaintext bytes (Base64 of a 12-byte IV + ciphertext + 16-byte tag), so a `VARCHAR(2000)` silently caps the plaintext at 1472 bytes and a `VARCHAR(4000)` at 2972. That cap fails the INSERT *after* a successful login once a third party grows its token (#115), so the columns whose plaintext length a third party controls are `TEXT` since V86: `trade_republic_session.session_token` / `refresh_token` and `degiro_session.session_blob` (Amundi, Bourse Direct and BoursoBank session state already were). Only values bounded by a known format stay sized: `api_key` 500 and `api_secret` 500 (largest known exchange key ~230 chars, ~350 once encrypted). Do not reintroduce a `length` on a third-party token column.
+- **Column widths**: An encrypted value is `4 * ceil((n + 28) / 3)` characters for `n` plaintext bytes (Base64 of a 12-byte IV + ciphertext + 16-byte tag), so a `VARCHAR(2000)` silently caps the plaintext at 1472 bytes and a `VARCHAR(4000)` at 2972. That cap fails the INSERT *after* a successful login once a third party grows its token (#115), so the columns whose plaintext length a third party controls are `TEXT`: `degiro_session.session_blob` since V86, and `sidecar_session.session_state`, which holds every sidecar bank's state, Trade Republic included since V130. Only values bounded by a known format stay sized: `api_key` 500 and `api_secret` 500 (largest known exchange key ~230 chars, ~350 once encrypted). Do not reintroduce a `length` on a third-party token column.
 - **No key rotation**: A single key is used for all encryption. If compromised, all secrets must be re-encrypted. No versioning mechanism exists yet.
 - **Decryption failure on corrupt data**: If a stored value is not valid AES-GCM ciphertext (e.g., legacy plaintext), `decrypt()` throws `RuntimeException`. Callers should handle this gracefully (crypto sync sets status to ERROR; TR treats it as expired session; CORUM clears stored credentials that no longer decrypt or parse and ends the run as `SESSION_EXPIRED`).
 

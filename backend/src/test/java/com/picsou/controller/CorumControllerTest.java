@@ -1,7 +1,7 @@
 package com.picsou.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.model.CorumSyncStatus;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.service.CorumSyncService;
 import com.picsou.service.UserContext;
 import org.junit.jupiter.api.Test;
@@ -37,7 +37,7 @@ class CorumControllerTest {
     void theLoginPassesRememberToTheServiceAndAnswersWithoutThePassword() throws Exception {
         when(userContext.currentMemberId()).thenReturn(7L);
         CorumSyncService.SessionStatusResponse status = new CorumSyncService.SessionStatusResponse(
-            true, CorumSyncStatus.QUEUED, null, null, null, 0, true);
+            true, SidecarSyncStatus.QUEUED, null, null, null, 0, true);
         when(service.authenticate("client", PASSWORD, true, 7L)).thenReturn(status);
         CorumController controller = new CorumController(
             service, userContext, new ConcurrentHashMap<>(), new ConcurrentHashMap<>());

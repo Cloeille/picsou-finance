@@ -1043,16 +1043,31 @@ handlers.set(key('GET', '/revolut/status'), () => ({ connected: false, remembere
 handlers.set(key('GET', '/revolut/sync/progress'), () => demoIdleSyncProgress)
 
 // Trade Republic - session status
-handlers.set(key('GET', '/tr/status'), () => ({ isActive: false, expiresAt: null }))
+const demoTrStatus = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+  maskedPhone: '+33 * ** ** ** 78',
+}
+handlers.set(key('GET', '/tr/status'), () => demoTrStatus)
 
 // Trade Republic - initiate auth
-handlers.set(key('POST', '/tr/auth/initiate'), () => ({ processId: 'demo-tr-process' }))
+handlers.set(key('POST', '/tr/auth/initiate'), () => ({
+  processId: 'demo-tr-process', flow: 'confirmInApp', countdownInSeconds: 120,
+}))
+
+// Trade Republic - reconnect with the stored phone (PIN or password only)
+handlers.set(key('POST', '/tr/auth/reconnect'), () => ({
+  processId: 'demo-tr-process', flow: 'confirmInApp', countdownInSeconds: 120,
+}))
 
 // Trade Republic - complete auth
-handlers.set(key('POST', '/tr/auth/complete'), () => [])
+handlers.set(key('POST', '/tr/auth/complete'), () => demoTrStatus)
 
 // Trade Republic - sync
-handlers.set(key('POST', '/tr/sync'), () => [])
+handlers.set(key('POST', '/tr/sync'), () => demoTrStatus)
 
 // Trade Republic - import CSV
 handlers.set(key('POST', '/tr/import'), () => [])

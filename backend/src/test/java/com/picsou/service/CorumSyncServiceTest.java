@@ -1,13 +1,14 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
-import com.picsou.model.CorumSession;
-import com.picsou.model.CorumSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.adapter.CorumAdapter;
 import com.picsou.port.SidecarErrorCode;
-import com.picsou.repository.CorumSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -40,7 +41,7 @@ import static org.mockito.Mockito.*;
 @SuppressWarnings("unchecked")
 class CorumSyncServiceTest {
     @Mock CorumAdapter port;
-    @Mock CorumSessionRepository sessionRepository;
+    @Mock SidecarSessionRepository sessionRepository;
     @Mock ScpiPositionRepository positionRepository;
     @Mock ScpiPositionService positionService;
     @Mock FamilyMemberRepository memberRepository;
@@ -58,7 +59,7 @@ class CorumSyncServiceTest {
 
     @BeforeEach
     void setUp() {
-        lenient().when(sessionRepository.findMemberByIdForUpdate(7L))
+        lenient().when(memberRepository.findByIdForUpdate(7L))
             .thenReturn(Optional.of(FamilyMember.builder().id(7L).build()));
         lenient().doAnswer(inv -> ((TransactionCallback<Object>) inv.getArgument(0))
             .doInTransaction(transactionStatus)).when(txTemplate).execute(any(TransactionCallback.class));
@@ -83,14 +84,14 @@ class CorumSyncServiceTest {
     @CsvSource({"false,false", "true,false", "false,true", "true,true"})
     void queueSync_discardsSnapshotAfterDisconnectOrReplacement(boolean replace, boolean remoteFailure) throws Exception {
         FamilyMember member = FamilyMember.builder().id(7L).build();
-        CorumSession old = CorumSession.builder().id(3L).member(member)
+        SidecarSession old = SidecarSession.builder().bank(SidecarBank.CORUM).id(3L).member(member)
             .sessionState("encrypted").build();
-        AtomicReference<CorumSession> current = new AtomicReference<>(old);
-        when(sessionRepository.findByMemberIdForUpdate(7L))
+        AtomicReference<SidecarSession> current = new AtomicReference<>(old);
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CORUM, 7L))
             .thenAnswer(inv -> Optional.ofNullable(current.get()));
         when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L))
             .thenAnswer(inv -> Optional.ofNullable(current.get()).filter(s -> s.getId().equals(3L)));
-        when(sessionRepository.findByMemberId(7L))
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CORUM, 7L))
             .thenAnswer(inv -> Optional.ofNullable(current.get()));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         doAnswer(inv -> { current.set(null); return null; }).when(sessionRepository).delete(old);
@@ -115,30 +116,30 @@ class CorumSyncServiceTest {
             assertThat(fetching.await(5, TimeUnit.SECONDS)).isTrue();
             service.clearSession(7L);
             if (replace) {
-                current.set(CorumSession.builder().id(4L).member(member)
+                current.set(SidecarSession.builder().bank(SidecarBank.CORUM).id(4L).member(member)
                     .sessionState("new-session").build());
             }
-            clearInvocations(sessionRepository);
+            clearInvocations(sessionRepository, memberRepository);
         } finally {
             release.countDown();
             worker.join(5000);
         }
         assertThat(worker.isAlive()).isFalse();
         assertThat(failure.get()).isNull();
-        var order = inOrder(sessionRepository);
-        order.verify(sessionRepository).findMemberByIdForUpdate(7L);
+        var order = inOrder(memberRepository, sessionRepository);
+        order.verify(memberRepository).findByIdForUpdate(7L);
         order.verify(sessionRepository).findByIdAndMemberIdForUpdate(3L, 7L);
         verifyNoInteractions(positionRepository, positionService);
         verify(sessionRepository, never()).save(any());
-        assertThat(old.getSyncStatus()).isEqualTo(CorumSyncStatus.RUNNING);
+        assertThat(old.getSyncStatus()).isEqualTo(SidecarSyncStatus.RUNNING);
         if (replace) {
-            assertThat(current.get().getSyncStatus()).isEqualTo(CorumSyncStatus.IDLE);
+            assertThat(current.get().getSyncStatus()).isEqualTo(SidecarSyncStatus.IDLE);
         }
     }
 
     @org.junit.jupiter.api.Test
     void queueSync_refusesASnapshotWhoseDisplayedValuesMissTheEnvelope() {
-        CorumSession session = activeSession();
+        SidecarSession session = activeSession();
         when(port.fetchPortfolio("plain-state")).thenReturn(realEstateOnly(new CorumAdapter.Snapshot(
             "contract", "PP", "EUR", new BigDecimal("600.00"), null, true,
             List.of(holding("US", "100.00", "150"))
@@ -147,13 +148,13 @@ class CorumSyncServiceTest {
         service.queueSync(7L);
 
         verifyNoInteractions(positionRepository, positionService);
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.PORTFOLIO_INCOMPLETE);
     }
 
     @org.junit.jupiter.api.Test
     void queueSync_acceptsDisplayedTotalEvenWhenWithdrawalValueIsLower() {
-        CorumSession session = activeSession();
+        SidecarSession session = activeSession();
         when(port.fetchPortfolio("plain-state")).thenReturn(realEstateOnly(new CorumAdapter.Snapshot(
             "contract", "PP", "EUR", new BigDecimal("340.00"), null, true,
             List.of(holding("US", "340.00", "150"))
@@ -168,7 +169,7 @@ class CorumSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(positionService).applySyncedPosition(
             any(), eq(new BigDecimal("2")), eq(new BigDecimal("170")),
             eq(new BigDecimal("150")), eq(null)
@@ -179,7 +180,7 @@ class CorumSyncServiceTest {
     @org.junit.jupiter.params.provider.NullSource
     @org.junit.jupiter.params.provider.ValueSource(strings = {"USD", "eur", ""})
     void queueSync_refusesASnapshotNotInEuros(String currency) {
-        CorumSession session = activeSession();
+        SidecarSession session = activeSession();
         when(port.fetchPortfolio("plain-state")).thenReturn(realEstateOnly(new CorumAdapter.Snapshot(
             "contract", "PP", currency, new BigDecimal("340.00"), null, true,
             List.of(holding("US", "340.00", "150"))
@@ -188,14 +189,14 @@ class CorumSyncServiceTest {
         service.queueSync(7L);
 
         verifyNoInteractions(positionRepository, positionService);
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.INVALID_DATA);
     }
 
     /** A portfolio with life contracts only is written without touching the SCPI funds. */
     @org.junit.jupiter.api.Test
     void queueSync_lifeOnlyPortfolioSkipsTheScpiReconciler() {
-        CorumSession session = activeSession();
+        SidecarSession session = activeSession();
         when(port.fetchPortfolio("plain-state")).thenReturn(
             new CorumAdapter.Portfolio(null, List.of(lifeContract("1001", "518.61"))));
         when(memberRepository.getReferenceById(7L)).thenReturn(FamilyMember.builder().id(7L).build());
@@ -203,7 +204,7 @@ class CorumSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verifyNoInteractions(positionRepository, positionService, fundRepository);
         verify(accountRepository).save(argThat(account ->
             "corum_life_1001".equals(account.getExternalAccountId())
@@ -212,12 +213,12 @@ class CorumSyncServiceTest {
 
     @org.junit.jupiter.api.Test
     void queueSync_refusesAPortfolioWithNeitherPart() {
-        CorumSession session = activeSession();
+        SidecarSession session = activeSession();
         when(port.fetchPortfolio("plain-state")).thenReturn(new CorumAdapter.Portfolio(null, List.of()));
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verifyNoInteractions(accountRepository, positionRepository, positionService, fundRepository);
     }
@@ -225,7 +226,7 @@ class CorumSyncServiceTest {
     /** All-or-nothing: a refused life contract must not leave the SCPI funds written. */
     @org.junit.jupiter.api.Test
     void queueSync_aRefusedLifeContractWritesNoScpiFundEither() {
-        CorumSession session = activeSession();
+        SidecarSession session = activeSession();
         when(port.fetchPortfolio("plain-state")).thenReturn(new CorumAdapter.Portfolio(
             new CorumAdapter.Snapshot("contract", "PP", "EUR", new BigDecimal("340.00"), null, true,
                 List.of(holding("US", "340.00", "150"))),
@@ -234,14 +235,14 @@ class CorumSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verifyNoInteractions(accountRepository, positionRepository, positionService, fundRepository);
     }
 
     @org.junit.jupiter.api.Test
     void queueSync_aRefusedRealEstateContractWritesNoLifeContractEither() {
-        CorumSession session = activeSession();
+        SidecarSession session = activeSession();
         when(port.fetchPortfolio("plain-state")).thenReturn(new CorumAdapter.Portfolio(
             new CorumAdapter.Snapshot("contract", "PP", "EUR", new BigDecimal("600.00"), null, true,
                 List.of(holding("US", "100.00", "150"))),
@@ -249,7 +250,7 @@ class CorumSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verifyNoInteractions(accountRepository, holdingRepository, accountService,
             positionRepository, positionService, fundRepository);
@@ -257,7 +258,7 @@ class CorumSyncServiceTest {
 
     @org.junit.jupiter.api.Test
     void queueSync_writesBothPartsInOneRun() {
-        CorumSession session = activeSession();
+        SidecarSession session = activeSession();
         when(port.fetchPortfolio("plain-state")).thenReturn(new CorumAdapter.Portfolio(
             new CorumAdapter.Snapshot("contract", "PP", "EUR", new BigDecimal("340.00"), null, true,
                 List.of(holding("US", "340.00", "150"))),
@@ -272,7 +273,7 @@ class CorumSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(positionService).applySyncedPosition(any(), eq(new BigDecimal("2")), eq(new BigDecimal("170")),
             eq(new BigDecimal("150")), eq(null));
         verify(holdingRepository).saveAll(any());
@@ -280,7 +281,7 @@ class CorumSyncServiceTest {
 
     @org.junit.jupiter.api.Test
     void queueSync_reportsALifeContractLeftUnwrittenNextToAManualAccount() {
-        CorumSession session = activeSession();
+        SidecarSession session = activeSession();
         when(port.fetchPortfolio("plain-state")).thenReturn(new CorumAdapter.Portfolio(
             null, List.of(lifeContract("1001", "518.61"))));
         when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(7L)).thenReturn(List.of(
@@ -292,7 +293,7 @@ class CorumSyncServiceTest {
         service.queueSync(7L);
 
         // The sync itself succeeded; the status says one contract was written nowhere.
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         assertThat(service.getStatus(7L).lifeAmbiguousCount()).isEqualTo(1);
         verify(accountRepository, never()).save(any(com.picsou.model.Account.class));
     }
@@ -300,7 +301,7 @@ class CorumSyncServiceTest {
     /** An operation list that cannot be keyed is dropped; the valuation still syncs. */
     @org.junit.jupiter.api.Test
     void queueSync_aDuplicateLifeOperationKeepsTheStoredRowsAndSyncsTheValuation() {
-        CorumSession session = activeSession();
+        SidecarSession session = activeSession();
         when(port.fetchPortfolio("plain-state")).thenReturn(new CorumAdapter.Portfolio(null,
             // Same id and same sign twice: no suffix can tell them apart.
             List.of(lifeContract("1001", "518.61", List.of(operation("5", "100"), operation("5", "100"))))));
@@ -309,7 +310,7 @@ class CorumSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository).save(argThat(account ->
             "corum_life_1001".equals(account.getExternalAccountId())
                 && new BigDecimal("518.61").compareTo(account.getCurrentBalance()) == 0));
@@ -319,7 +320,7 @@ class CorumSyncServiceTest {
     /** A failed operation write fails the run; the transaction (real in the Postgres test) undoes the rest. */
     @org.junit.jupiter.api.Test
     void queueSync_aFailedOperationWriteFailsTheRun() {
-        CorumSession session = activeSession();
+        SidecarSession session = activeSession();
         when(port.fetchPortfolio("plain-state")).thenReturn(new CorumAdapter.Portfolio(
             null, List.of(lifeContract("1001", "518.61", List.of(operation("5", "-100"), operation("5", "100"))))));
         when(memberRepository.getReferenceById(7L)).thenReturn(FamilyMember.builder().id(7L).build());
@@ -329,13 +330,13 @@ class CorumSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.INTERNAL_ERROR);
     }
 
     @org.junit.jupiter.api.Test
     void queueSync_refusesAPortfolioWithoutItsLifeList() {
-        CorumSession session = activeSession();
+        SidecarSession session = activeSession();
         when(port.fetchPortfolio("plain-state")).thenReturn(new CorumAdapter.Portfolio(
             new CorumAdapter.Snapshot("contract", "PP", "EUR", new BigDecimal("340.00"), null, true,
                 List.of(holding("US", "340.00", "150"))),
@@ -343,7 +344,7 @@ class CorumSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.INVALID_DATA);
         verifyNoInteractions(positionRepository, positionService, fundRepository);
     }
@@ -353,7 +354,7 @@ class CorumSyncServiceTest {
     @org.junit.jupiter.api.Test
     void authenticate_withRememberStoresTheEncryptedCredentials() throws Exception {
         stubPassThroughEncryption();
-        AtomicReference<CorumSession> stored = captureStoredSession();
+        AtomicReference<SidecarSession> stored = captureStoredSession();
         when(port.authenticate("client", PASSWORD)).thenReturn("plain-state");
         when(port.fetchPortfolio("plain-state")).thenReturn(lifeOnly());
         stubLifeWrite();
@@ -373,7 +374,7 @@ class CorumSyncServiceTest {
     @org.junit.jupiter.api.Test
     void authenticate_withoutRememberStoresNoCredentials() {
         stubPassThroughEncryption();
-        AtomicReference<CorumSession> stored = captureStoredSession();
+        AtomicReference<SidecarSession> stored = captureStoredSession();
         when(port.authenticate("client", PASSWORD)).thenReturn("plain-state");
         when(port.fetchPortfolio("plain-state")).thenReturn(lifeOnly());
         stubLifeWrite();
@@ -402,9 +403,9 @@ class CorumSyncServiceTest {
 
     @org.junit.jupiter.api.Test
     void clearSession_deletesTheSessionAndItsCredentials() {
-        CorumSession session = CorumSession.builder().id(3L).member(FamilyMember.builder().id(7L).build())
+        SidecarSession session = SidecarSession.builder().bank(SidecarBank.CORUM).id(3L).member(FamilyMember.builder().id(7L).build())
             .sessionState("encrypted").encryptedCredentials(REMEMBERED).build();
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CORUM, 7L)).thenReturn(Optional.of(session));
 
         assertThat(service.clearSession(7L)).isTrue();
 
@@ -413,7 +414,7 @@ class CorumSyncServiceTest {
 
     @org.junit.jupiter.api.Test
     void clearSession_reportsThatThereWasNoSession() {
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CORUM, 7L)).thenReturn(Optional.empty());
 
         assertThat(service.clearSession(7L)).isFalse();
 
@@ -422,7 +423,7 @@ class CorumSyncServiceTest {
 
     @org.junit.jupiter.api.Test
     void queueSync_expiredSessionLogsInAgainWithTheStoredCredentialsAndSyncs() {
-        CorumSession session = rememberedSession();
+        SidecarSession session = rememberedSession();
         stubPassThroughEncryption();
         when(port.fetchPortfolio("plain-state"))
             .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
@@ -432,16 +433,45 @@ class CorumSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         assertThat(session.isActive()).isTrue();
         assertThat(session.getSessionState()).isEqualTo("enc:fresh-state");
         assertThat(session.getEncryptedCredentials()).isEqualTo(REMEMBERED);
         verify(port, times(1)).authenticate("client", PASSWORD);
     }
 
+    /** "Remember my credentials" also serves a SCPI-only client: the re-login does not depend on CORUM Life. */
+    @org.junit.jupiter.api.Test
+    void queueSync_expiredSessionOfAScpiOnlyClientLogsInAgainWithTheStoredCredentials() {
+        SidecarSession session = rememberedSession();
+        stubPassThroughEncryption();
+        when(port.fetchPortfolio("plain-state"))
+            .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
+        when(port.authenticate("client", PASSWORD)).thenReturn("fresh-state");
+        when(port.fetchPortfolio("fresh-state")).thenReturn(realEstateOnly(new CorumAdapter.Snapshot(
+            "contract", "PP", "EUR", new BigDecimal("340.00"), null, true,
+            List.of(holding("US", "340.00", "150")))));
+        when(positionRepository.findByMemberIdAndCorumFundCode(7L, "US"))
+            .thenReturn(Optional.of(com.picsou.model.ScpiPosition.builder()
+                .account(com.picsou.model.Account.builder().id(11L).build())
+                .corumFundCode("US").build()));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(session.isActive()).isTrue();
+        assertThat(session.getSessionState()).isEqualTo("enc:fresh-state");
+        assertThat(session.getEncryptedCredentials()).isEqualTo(REMEMBERED);
+        assertThat(session.getLastSyncLifeAmbiguous()).isZero();
+        verify(port, times(1)).authenticate("client", PASSWORD);
+        verify(positionService).applySyncedPosition(
+            any(), eq(new BigDecimal("2")), eq(new BigDecimal("170")),
+            eq(new BigDecimal("150")), eq(null));
+    }
+
     @org.junit.jupiter.api.Test
     void queueSync_aRejectedPasswordClearsTheCredentialsAndDeactivatesTheSession() {
-        CorumSession session = rememberedSession();
+        SidecarSession session = rememberedSession();
         when(port.fetchPortfolio("plain-state"))
             .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
         when(port.authenticate("client", PASSWORD))
@@ -449,7 +479,7 @@ class CorumSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.INVALID_CREDENTIALS);
         assertThat(session.isActive()).isFalse();
         assertThat(session.getEncryptedCredentials()).isNull();
@@ -458,13 +488,13 @@ class CorumSyncServiceTest {
 
     @org.junit.jupiter.api.Test
     void queueSync_expiredSessionWithoutCredentialsWaitsForTheMember() {
-        CorumSession session = activeSession();
+        SidecarSession session = activeSession();
         when(port.fetchPortfolio("plain-state"))
             .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.SESSION_EXPIRED);
         assertThat(session.isActive()).isFalse();
         verify(port, never()).authenticate(any(), any());
@@ -473,7 +503,7 @@ class CorumSyncServiceTest {
     /** One re-login per run: a fresh session that expires too ends the run instead of looping. */
     @org.junit.jupiter.api.Test
     void queueSync_logsInAgainAtMostOncePerRun() {
-        CorumSession session = rememberedSession();
+        SidecarSession session = rememberedSession();
         stubPassThroughEncryption();
         when(port.fetchPortfolio(any()))
             .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
@@ -481,7 +511,7 @@ class CorumSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.SESSION_EXPIRED);
         verify(port, times(1)).authenticate(any(), any());
         verify(port, times(2)).fetchPortfolio(any());
@@ -496,7 +526,7 @@ class CorumSyncServiceTest {
      */
     @org.junit.jupiter.api.Test
     void queueSync_reloginsAreThrottledPerMemberWithoutCallingCorum() {
-        CorumSession session = rememberedSession();
+        SidecarSession session = rememberedSession();
         when(port.fetchPortfolio("plain-state"))
             .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
         when(port.authenticate("client", PASSWORD))
@@ -504,7 +534,7 @@ class CorumSyncServiceTest {
 
         for (int run = 0; run < 6; run++) {
             service.queueSync(7L);
-            assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+            assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         }
 
         verify(port, times(5)).authenticate(any(), any());
@@ -522,7 +552,7 @@ class CorumSyncServiceTest {
     @ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"DECRYPT", "MALFORMED_JSON", "BLANK_PASSWORD"})
     void queueSync_unreadableCredentialsAreClearedAndTheSessionExpires(String failure) {
-        CorumSession session = rememberedSession();
+        SidecarSession session = rememberedSession();
         switch (failure) {
             case "DECRYPT" -> when(encryption.decrypt(REMEMBERED))
                 .thenThrow(new IllegalStateException("Tag mismatch"));
@@ -535,7 +565,7 @@ class CorumSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.SESSION_EXPIRED);
         assertThat(session.isActive()).isFalse();
         assertThat(session.getEncryptedCredentials()).isNull();
@@ -554,7 +584,7 @@ class CorumSyncServiceTest {
             txTemplate, Runnable::run, reconciler, new CorumLifeWriter(
                 accountRepository, holdingRepository, memberRepository, accountService, operationWriter),
             reloginBuckets);
-        AtomicReference<CorumSession> stored = captureStoredSession();
+        AtomicReference<SidecarSession> stored = captureStoredSession();
         when(port.authenticate("client", PASSWORD)).thenReturn("first-state", "fresh-state");
         when(port.fetchPortfolio(any())).thenAnswer(inv -> {
             if ("fresh-state".equals(inv.getArgument(0))) return lifeOnly();
@@ -563,13 +593,13 @@ class CorumSyncServiceTest {
         stubLifeWrite();
 
         realService.authenticate("client", PASSWORD, true, 7L);
-        CorumSession session = stored.get();
+        SidecarSession session = stored.get();
         assertThat(session.getEncryptedCredentials()).doesNotContain(PASSWORD).doesNotContain("client");
         assertThat(real.decrypt(session.getEncryptedCredentials())).contains(PASSWORD);
 
         // The first read expired; the re-login used the decrypted credentials.
         verify(port, times(2)).authenticate("client", PASSWORD);
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         assertThat(real.decrypt(session.getSessionState())).isEqualTo("fresh-state");
     }
 
@@ -590,7 +620,7 @@ class CorumSyncServiceTest {
         "PORT_RUNTIME_EXCEPTION,QUEUE", "PORT_RUNTIME_EXCEPTION,DAILY"
     })
     void thePasswordNeverReachesTheLogs(String scenario, String entry) {
-        CorumSession session = rememberedSession();
+        SidecarSession session = rememberedSession();
         stubPassThroughEncryption();
         lenient().when(port.fetchPortfolio("plain-state"))
             .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
@@ -629,7 +659,7 @@ class CorumSyncServiceTest {
             else logged.resyncReporting(7L);
         });
 
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         if (scenario.startsWith("REJECTED") || scenario.startsWith("VALIDATION") || scenario.startsWith("ERROR")) {
             assertThat(echoed.get()).as("the stubbed sidecar received the password").contains(PASSWORD);
         }
@@ -742,13 +772,13 @@ class CorumSyncServiceTest {
 
     @org.junit.jupiter.api.Test
     void resyncReporting_queuesAnActiveSessionAndReportsAnInactiveOne() {
-        CorumSession session = rememberedSession();
+        SidecarSession session = rememberedSession();
         stubPassThroughEncryption();
         when(port.fetchPortfolio("plain-state")).thenReturn(lifeOnly());
         stubLifeWrite();
         assertThat(service.resyncReporting(7L).status())
             .isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.QUEUED);
-        assertThat(session.getSyncStatus()).isEqualTo(CorumSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
 
         session.markQueued();
         session.markFailed(com.picsou.port.SidecarErrorCode.INVALID_CREDENTIALS, java.time.Instant.now());
@@ -756,7 +786,7 @@ class CorumSyncServiceTest {
         assertThat(rejected.status()).isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.NEEDS_REAUTH);
         assertThat(rejected.message()).isEqualTo("INVALID_CREDENTIALS");
 
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CORUM, 7L)).thenReturn(Optional.empty());
         assertThat(service.resyncReporting(7L).status())
             .isEqualTo(com.picsou.service.sync.SourceSyncResult.Status.SKIPPED_NOT_CONNECTED);
     }
@@ -764,8 +794,8 @@ class CorumSyncServiceTest {
     private static final String PASSWORD = "s3cret-Pa55";
     private static final String REMEMBERED = "remembered-credentials";
 
-    private CorumSession rememberedSession() {
-        CorumSession session = activeSession();
+    private SidecarSession rememberedSession() {
+        SidecarSession session = activeSession();
         session.setEncryptedCredentials(REMEMBERED);
         lenient().when(encryption.decrypt(REMEMBERED))
             .thenReturn("{\"login\":\"client\",\"password\":\"" + PASSWORD + "\"}");
@@ -779,20 +809,20 @@ class CorumSyncServiceTest {
     }
 
     /** The session {@code authenticate} inserts, answered back by every later lookup. */
-    private AtomicReference<CorumSession> captureStoredSession() {
-        AtomicReference<CorumSession> stored = new AtomicReference<>();
-        when(memberRepository.findById(7L)).thenReturn(Optional.of(FamilyMember.builder().id(7L).build()));
-        when(sessionRepository.saveAndFlush(any(CorumSession.class))).thenAnswer(inv -> {
-            CorumSession session = inv.getArgument(0);
+    private AtomicReference<SidecarSession> captureStoredSession() {
+        AtomicReference<SidecarSession> stored = new AtomicReference<>();
+        lenient().when(memberRepository.findById(7L)).thenReturn(Optional.of(FamilyMember.builder().id(7L).build()));
+        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenAnswer(inv -> {
+            SidecarSession session = inv.getArgument(0);
             org.springframework.test.util.ReflectionTestUtils.setField(session, "id", 3L);
             stored.set(session);
             return session;
         });
-        lenient().when(sessionRepository.findByMemberIdForUpdate(7L))
+        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CORUM, 7L))
             .thenAnswer(inv -> Optional.ofNullable(stored.get()));
         lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L))
             .thenAnswer(inv -> Optional.ofNullable(stored.get()));
-        lenient().when(sessionRepository.findByMemberId(7L))
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CORUM, 7L))
             .thenAnswer(inv -> Optional.ofNullable(stored.get()));
         return stored;
     }
@@ -806,13 +836,13 @@ class CorumSyncServiceTest {
         when(accountRepository.save(any(com.picsou.model.Account.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
-    private CorumSession activeSession() {
+    private SidecarSession activeSession() {
         FamilyMember member = FamilyMember.builder().id(7L).build();
-        CorumSession session = CorumSession.builder().id(3L).member(member)
+        SidecarSession session = SidecarSession.builder().bank(SidecarBank.CORUM).id(3L).member(member)
             .sessionState("encrypted").build();
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CORUM, 7L)).thenReturn(Optional.of(session));
         when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L)).thenReturn(Optional.of(session));
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CORUM, 7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         return session;
     }

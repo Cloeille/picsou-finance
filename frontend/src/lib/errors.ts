@@ -98,7 +98,6 @@ type TFunc = (key: string) => string
  */
 function matchTrDetail(detail: string, t: TFunc): string | null {
   if (detail.includes('authentication service is unavailable')) return t('sync.tr.errors.serviceUnavailable')
-  if (detail.includes('blocked the request')) return t('sync.tr.errors.temporarilyBlocked')
   if (detail.includes('did not respond')) return t('sync.tr.errors.serverError')
   if (detail.includes('VALIDATION_CODE_INVALID') || detail.includes('verification code is invalid')) return t('sync.tr.errors.invalidTan')
   if (detail.includes('NUMBER_INVALID')) return t('sync.tr.errors.invalidPhoneNumber')
@@ -115,12 +114,66 @@ function matchTrDetail(detail: string, t: TFunc): string | null {
  * to {@link formatTrAuthError} so the two substring taxonomies evolve together.
  */
 export function isTrSessionDeadError(err: unknown): boolean {
+  if (getErrorCode(err) === 'SESSION_EXPIRED') return true
   const detail = getErrorDetail(err) || ''
   return (
     detail.includes('expired') ||
     detail.includes('reconnect') ||
     detail.includes('No Trade Republic session')
   )
+}
+
+/**
+ * Maps a Trade Republic error code (`SidecarErrorCode` name, on a failed request or in
+ * `lastSyncError` of the session status) to a translated message, or `null` for an unknown one.
+ */
+export function trErrorMessage(t: TFunc, code: string | null | undefined): string | null {
+  switch (code) {
+    case 'INVALID_CREDENTIALS':
+      return t('sync.tr.errors.invalidCredentials')
+    case 'INVALID_OTP':
+      return t('sync.tr.errors.invalidTan')
+    case 'APP_VALIDATION_TIMEOUT':
+      return t('sync.tr.errors.appValidationTimeout')
+    case 'APP_VALIDATION_CANCELLED':
+      return t('sync.tr.errors.appValidationCancelled')
+    case 'AUTH_ATTEMPT_EXPIRED':
+      return t('sync.tr.errors.authAttemptExpired')
+    case 'SESSION_EXPIRED':
+    case 'INVALID_SESSION_STATE':
+      return t('sync.tr.errors.sessionExpired')
+    case 'RATE_LIMITED':
+      return t('sync.tr.errors.tooManyAttempts')
+    case 'UPSTREAM_UNAVAILABLE':
+    case 'INTERNAL_ERROR':
+      return t('sync.tr.errors.serverError')
+    default:
+      return null
+  }
+}
+
+/**
+ * Error codes after which the pending login attempt is dead: the member must start over from the
+ * phone number and PIN. `INVALID_OTP` is not one of them, the attempt survives a mistyped code.
+ */
+export function isTrAttemptOverError(err: unknown): boolean {
+  switch (getErrorCode(err)) {
+    case 'INVALID_CREDENTIALS':
+    case 'APP_VALIDATION_TIMEOUT':
+    case 'APP_VALIDATION_CANCELLED':
+    case 'AUTH_ATTEMPT_EXPIRED':
+    case 'RATE_LIMITED':
+    case 'UPSTREAM_UNAVAILABLE':
+    case 'INTERNAL_ERROR':
+      return true
+    default:
+      return false
+  }
+}
+
+/** `auth/reconnect` answers this when no phone is stored: the member must use the full login form. */
+export function isTrInvalidSessionStateError(err: unknown): boolean {
+  return getErrorCode(err) === 'INVALID_SESSION_STATE'
 }
 
 /**
@@ -132,6 +185,9 @@ export function isTrSessionDeadError(err: unknown): boolean {
  * drift.
  */
 export function formatTrAuthError(err: unknown, t: TFunc): string {
+  const coded = trErrorMessage(t, getErrorCode(err))
+  if (coded) return coded
+
   const status = getErrorStatus(err)
 
   if (status === 429) return t('sync.tr.errors.tooManyAttempts')

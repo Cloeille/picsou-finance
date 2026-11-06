@@ -58,7 +58,7 @@ function mockStatusEndpoints() {
       case '/crypto/wallet':
         return Promise.resolve({ data: [] })
       case '/tr/status':
-        return Promise.resolve({ data: { isActive: false, expiresAt: null } })
+        return Promise.resolve({ data: trStatus })
       case '/bourso/status':
         return Promise.resolve({ data: { isActive: false, syncStatus: 'IDLE', lastSyncError: null, lastSyncStartedAt: null, lastSyncCompletedAt: null } })
       case '/finary/status':
@@ -128,6 +128,8 @@ let corumStatus: Record<string, unknown>
 let sofidyStatus: Record<string, unknown>
 let cmesStatus: Record<string, unknown>
 let cicStatus: Record<string, unknown>
+const TR_NO_SESSION = { isActive: false, syncStatus: 'IDLE', lastSyncError: null, lastSyncStartedAt: '2026-07-07T08:00:00Z', lastSyncCompletedAt: null, maskedPhone: null }
+let trStatus: Record<string, unknown>
 
 const AMUNDI_INACTIVE = {
   isActive: false, syncStatus: 'IDLE', lastSyncError: null,
@@ -198,6 +200,7 @@ function resetFixtures() {
   sofidyStatus = AMUNDI_INACTIVE
   cmesStatus = AMUNDI_INACTIVE
   cicStatus = AMUNDI_INACTIVE
+  trStatus = TR_NO_SESSION
   accountsFixture = [TR_ACCOUNT]
   revolutStatus = REVOLUT_NOT_REMEMBERED
   revolutProgress = REVOLUT_DONE
@@ -251,6 +254,44 @@ describe('SyncAllModal Trade Republic inline auth', () => {
     mockStatusEndpoints()
   })
 
+  it('reconnects an expired session with the PIN or password only, through /tr/auth/reconnect', async () => {
+    trStatus = { ...TR_NO_SESSION, syncStatus: 'FAILED', lastSyncError: 'SESSION_EXPIRED', maskedPhone: '+33 * ** ** ** 78' }
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/tr/auth/reconnect') {
+        return Promise.resolve({ data: { processId: 'process-123', flow: 'confirmInApp', countdownInSeconds: 120 } })
+      }
+      if (url === '/tr/auth/complete') return new Promise(() => {})
+      return Promise.reject(new Error(`Unexpected POST ${url}`))
+    })
+
+    renderModal()
+    const trRow = (await screen.findByText('Trade Republic')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(trRow).getByRole('button'))
+
+    expect(await screen.findByTestId('tr-modal-masked-phone')).toHaveTextContent('+33 * ** ** ** 78')
+    expect(screen.queryByLabelText('sync.tr.phone')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('sync.tr.pin'), { target: { value: 'my password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    expect(await screen.findByText('sync.tr.appConfirmPrompt')).toBeInTheDocument()
+    expect(apiPost).toHaveBeenCalledWith('/tr/auth/reconnect', { pin: 'my password' })
+    expect(apiPost).not.toHaveBeenCalledWith('/tr/auth/initiate', expect.anything())
+  })
+
+  it('falls back to the phone and PIN form when the reconnect finds no stored phone (409)', async () => {
+    trStatus = { ...TR_NO_SESSION, syncStatus: 'FAILED', lastSyncError: 'SESSION_EXPIRED', maskedPhone: '+33 * ** ** ** 78' }
+    apiPost.mockRejectedValue({ response: { status: 409, data: { code: 'INVALID_SESSION_STATE' } } })
+
+    renderModal()
+    const trRow = (await screen.findByText('Trade Republic')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(trRow).getByRole('button'))
+    fireEvent.change(await screen.findByLabelText('sync.tr.pin'), { target: { value: 'pw' } })
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    expect(await screen.findByLabelText('sync.tr.phone')).toBeInTheDocument()
+    expect(screen.queryByTestId('tr-modal-masked-phone')).not.toBeInTheDocument()
+  })
+
   it('shows the mapped error and stays on the phone/PIN step when initiation fails', async () => {
     apiPost.mockRejectedValue({
       response: { status: 422, data: { detail: 'PIN_INVALID' } },
@@ -272,7 +313,7 @@ describe('SyncAllModal Trade Republic inline auth', () => {
   it('shows the mapped error, keeps the TAN step and clears the code when completion fails', async () => {
     apiPost.mockImplementation((url: string) => {
       if (url === '/tr/auth/initiate') {
-        return Promise.resolve({ data: { processId: 'process-123' } })
+        return Promise.resolve({ data: { processId: 'process-123', flow: 'otp', countdownInSeconds: 120 } })
       }
       if (url === '/tr/auth/complete') {
         return Promise.reject({
@@ -295,14 +336,35 @@ describe('SyncAllModal Trade Republic inline auth', () => {
     const tanInput = screen.getByLabelText('sync.tr.tan')
     expect(tanInput).toBeInTheDocument()
     await waitFor(() => expect(tanInput).toHaveValue(''))
-    expect(apiPost).toHaveBeenCalledWith('/tr/auth/complete', {
-      processId: 'process-123',
-      tan: '9876',
+    expect(apiPost).toHaveBeenCalledWith(
+      '/tr/auth/complete',
+      { processId: 'process-123', tan: '9876' },
+      expect.any(Object),
+    )
+  })
+
+  it('shows the app prompt and completes without a code when the login is confirmed in the app', async () => {
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/tr/auth/initiate') {
+        return Promise.resolve({ data: { processId: 'process-123', flow: 'confirmInApp', countdownInSeconds: 120 } })
+      }
+      if (url === '/tr/auth/complete') return new Promise(() => {})
+      return Promise.reject(new Error(`Unexpected POST ${url}`))
     })
+
+    renderModal()
+    await openTrFormAndFillCredentials()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))
+
+    expect(await screen.findByText('sync.tr.appConfirmPrompt')).toBeInTheDocument()
+    expect(screen.queryByLabelText('sync.tr.tan')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith('/tr/auth/complete', { processId: 'process-123' }, expect.any(Object)),
+    )
   })
 
   it('moves to the TAN step without an error message when initiation succeeds', async () => {
-    apiPost.mockResolvedValue({ data: { processId: 'process-123' } })
+    apiPost.mockResolvedValue({ data: { processId: 'process-123', flow: 'otp', countdownInSeconds: 120 } })
 
     renderModal()
     await openTrFormAndFillCredentials()

@@ -5,7 +5,6 @@ import com.picsou.repository.FinarySessionRepository;
 import com.picsou.repository.IbkrConnectionRepository;
 import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.SimplefinConnectionRepository;
-import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.WalletAddressRepository;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.junit.jupiter.api.Test;
@@ -118,7 +117,6 @@ class SyncStatusTransactionIsolationTest {
                 mock(RevolutSyncService.class),
                 requisitionRepository,
                 mock(TradeRepublicSyncService.class),
-                mock(TradeRepublicSessionRepository.class),
                 mock(BoursoSyncService.class),
                 mock(BourseDirectSyncService.class),
                 mock(AmundiSyncService.class),

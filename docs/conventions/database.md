@@ -38,7 +38,7 @@ V{n}__description.sql
 | `V1__init_schema.sql` | Core tables: `app_user`, `account`, `balance_snapshot`, `account_type` enum |
 | `V2__goals.sql` | `goal` table + `goal_account` join table |
 | `V3__requisitions.sql` | `requisition` table for bank connections |
-| `V4__trade_republic_session.sql` | `trade_republic_session` |
+| `V4__trade_republic_session.sql` | `trade_republic_session` (dropped by V130; sessions moved to `sidecar_session`) |
 | `V5__tr_refresh_token.sql` | Refresh token column for TR sessions |
 | `V6__rename_gocardless_column.sql` | Rename `gocardless_account_id` to `external_account_id` |
 | `V7__goal_month_override.sql` | `goal_month_override` table |
@@ -56,7 +56,7 @@ V{n}__description.sql
 | `V20__create_family_system.sql` | `family_member`, `sharing_settings`, `shared_resource` |
 | `V21__migrate_existing_data.sql` | Backfill `member_id` on all existing financial rows |
 | `V22__make_member_id_not_null.sql` | Enforce `member_id NOT NULL` after backfill |
-| `V23__bourso_session.sql` | `bourso_session` table (BoursoBank sidecar) |
+| `V23__bourso_session.sql` | `bourso_session` table (BoursoBank sidecar), folded into `sidecar_session` by V129 |
 | `V24__manual_transactions.sql` | Manual transaction support |
 | `V25__setup_state.sql` | First-launch Setup Wizard state |
 | `V26__setup_audit.sql` | Setup audit log |
@@ -70,6 +70,8 @@ V{n}__description.sql
 | `V119__widen_holding_ticker.sql` | `account_holding.ticker` 30→100, `name` 100→255 (Finary RealT codes) |
 | `V121__cic_session.sql` | CIC session, encrypted credentials, and persisted sync status |
 | `V122__crypto_asset.sql` | `crypto_asset` registry: curated CoinGecko tickers, plus coins learned at runtime |
+| `V129__sidecar_session.sql` | One `sidecar_session` table replaces the ten sidecar session tables (after V124–V127 of CORUM Life and V128 of SSO); rows copied as stored, CORUM stored login and Life ambiguous count included (inconsistent CORUM/Sofidy failure states repaired), per-bank error-code CHECK generated from `SidecarBank` |
+| `V130__trade_republic_sidecar_session.sql` | Trade Republic joins `sidecar_session` (bank and error-code CHECKs widened); `trade_republic_session` dropped, members reconnect once |
 
 Note: V8 is absent by design (skipped — never rolled into another migration). Numbering after V32 is not contiguous (V33–V36 unused).
 

@@ -152,7 +152,7 @@ Never serialized in any form:
 - `AppUser.passwordHash`
 - `UserMfa.*` — TOTP secrets, recovery code hashes
 - `UserMfaRecoveryCode.*`
-- `BoursoSession.*` / `TradeRepublicSession.*` / `FinarySession.*` / `CryptoExchangeSession.*` — all encrypted credentials
+- `SidecarSession.*` (Trade Republic included) / `FinarySession.*` / `CryptoExchangeSession.*` — all encrypted credentials
 - `Requisition.accessToken` / `refreshToken` / any encrypted Enable Banking blobs
 - `PersistentSession.tokenHash`
 - `SetupAudit`, `AppSetting` — instance-wide, not user-specific
@@ -219,10 +219,10 @@ Backend:
 - `MeExportControllerTest#export_withAValidProofAndNoInlinePayload_isAccepted` / `#export_withoutProofOrInlinePayload_isRefused` — the `reauth_proof` cookie replaces the inline payload.
 - `ReAuthServiceTest` — proof accepted only for the same user id and token version; `SsoLoginIntegrationTest` (scenario 10) — an SSO re-authentication's proof authorizes the export.
 - `LinkedIdentitiesExporterTest` — the `linked_identities` table (issuer, subject, email, display name, dates).
-- `DataExportIntegrationTest` (`@SpringBootTest` + H2) — seed an `AppUser` with **all** entity types populated **and** every secret-bearing entity (MFA secret, recovery codes, BoursoSession ciphertext, requisition tokens, persistent session). Hit the endpoint, parse the ZIP in memory, assert:
+- `DataExportIntegrationTest` (`@SpringBootTest` + H2) — seed an `AppUser` with **all** entity types populated **and** every secret-bearing entity (MFA secret, recovery codes, SidecarSession ciphertext, requisition tokens, persistent session). Hit the endpoint, parse the ZIP in memory, assert:
   - all expected files present
   - row counts match seeded entity counts
-  - **raw byte grep**: no occurrence of the seeded `passwordHash`, MFA secret bytes, requisition token bytes, BoursoSession ciphertext bytes, persistent-session token hash bytes
+  - **raw byte grep**: no occurrence of the seeded `passwordHash`, MFA secret bytes, requisition token bytes, SidecarSession ciphertext bytes, persistent-session token hash bytes
   - This is the principal GDPR safety net.
 
 Frontend:
