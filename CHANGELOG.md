@@ -44,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Caisse d'Epargne: a Livret Jeune is imported as a Livret Jeune.** The BPCE product code it
   shares with the Livret A made it show up as a Livret A; the product label now tells them apart.
   A product with that code labelled as a LEP is imported as a LEP. An account already imported
-  under the wrong type is re-typed on the next sync and keeps its history.
+  under the wrong type is re-typed the next time it is imported, and keeps its history.
 - **Crypto coins outside the built-in list get a price.** NEXO and CRO are now priced
   ([#419](https://github.com/Cloeille/picsou-finance/issues/419)). Beyond them, a coin held in a
   crypto account that Picsou does not know yet is looked up on CoinGecko and remembered once it is

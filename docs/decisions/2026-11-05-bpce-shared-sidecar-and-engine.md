@@ -92,7 +92,7 @@ tests guard the refactor.
 
 - Shared parser fix: a BPCE `3/01` product labelled Livret Jeune is now imported as
   `LIVRET_JEUNE` for both banks, and one labelled LEP as `LEP`. CE imported both as a
-  Livret A before; such an account is re-typed on its next sync and never left out.
+  Livret A before; such an account is re-typed on the next successful import of that account.
 - New: `services/base/bpce`, `services/banque-populaire-auth`, the `BanquePopulaire*`
   backend classes, `V124__banque_populaire_session.sql`, `BpceSessionPanel`,
   `BanquePopulairePanel`, Compose profile `banque-populaire`, GHCR image
