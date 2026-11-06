@@ -21,7 +21,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -30,6 +32,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -345,9 +352,11 @@ class SecretBootstrapTest {
     }
 
     /**
-     * A password is not a Spring template: {@code ${...}} is four characters, not a placeholder to
-     * expand. {@code environment.getProperty} would expand it, which both throws when the
-     * placeholder names nothing and puts the whole password in the failure message.
+     * This processor never expands a password: {@code environment.getProperty} would, which both
+     * throws when the placeholder names nothing and puts the whole password in the failure message.
+     * The value is not byte for byte in general: the datasource binder still expands a placeholder
+     * it can resolve, as it does without this processor. An unresolvable {@code ${nope}} reaches
+     * the datasource unchanged.
      */
     @Test
     @ExtendWith(OutputCaptureExtension.class)
@@ -359,6 +368,11 @@ class SecretBootstrapTest {
             "POSTGRES_PASSWORD", "irrelevant", "SPRING_DATASOURCE_PASSWORD", password))).isEqualTo(password);
         assertThat(datasourcePassword(variables("SPRING_DATASOURCE_PASSWORD", password))).isEqualTo(password);
         assertThat(datasourcePassword(variables("POSTGRES_PASSWORD", password))).isEqualTo(password);
+        // A placeholder Spring can resolve is expanded by the binder, with or without a secrets directory.
+        assertThat(datasourcePassword(variablesWithSecretsDir("POSTGRES_PASSWORD", "a${XVAR}b", "XVAR", "EXPANDED")))
+            .isEqualTo("aEXPANDEDb");
+        assertThat(datasourcePassword(variables("POSTGRES_PASSWORD", "a${XVAR}b", "XVAR", "EXPANDED")))
+            .isEqualTo("aEXPANDEDb");
         // The same rule for the app's own secrets: this processor stores the raw value and never
         // expands it. A consumer reading ${app.jwt.secret} still goes through Spring's resolver,
         // which fails on an unresolvable ${nope}, as it does without this processor.
@@ -728,26 +742,23 @@ class SecretBootstrapTest {
     }
 
     /**
-     * Without hard links, every chmod the write performs looks at the final name: it must be absent
-     * or complete. The earlier fallback created it empty and chmodded it before writing a byte.
+     * Without hard links, the final name must be the very file that was complete and synced before
+     * it got that name. The earlier fallback created the final name empty and filled it in place,
+     * a different file (inode) from the temp one. The inode is what the test compares: sampling
+     * the final name's content at some hook can miss the window entirely.
      */
     @Test
     void writeIfAbsent_withoutHardLinks_neverShowsTheFinalNameBeforeItsLastByte() throws IOException {
         String value = Base64.getEncoder().encodeToString(new byte[32]);
         Path file = secretsDir().resolve("crypto_key");
-        List<String> seen = new ArrayList<>();
+        List<Object> completeTempKeys = new ArrayList<>();
         SecretBootstrap withoutHardLinks = new SecretBootstrap(supplier -> supplier.get()) {
             @Override
             void link(Path target, Path temp) throws IOException {
+                assertThat(target).doesNotExist();
+                assertThat(Files.readString(temp)).isEqualTo(value);
+                completeTempKeys.add(fileKey(temp));
                 throw new FileSystemException(target.toString(), temp.toString(), "Operation not permitted");
-            }
-
-            @Override
-            void setPermissions(Path path, String permissions) throws IOException {
-                if (Files.exists(file)) {
-                    seen.add(Files.readString(file));
-                }
-                super.setPermissions(path, permissions);
             }
         };
         Files.createDirectories(secretsDir());
@@ -755,8 +766,90 @@ class SecretBootstrapTest {
         boolean written = withoutHardLinks.writeIfAbsent(file, value);
 
         assertThat(written).isTrue();
-        assertThat(seen).allSatisfy(content -> assertThat(content).isEqualTo(value));
+        assertThat(completeTempKeys).hasSize(1).doesNotContainNull();
+        assertThat(fileKey(file)).isEqualTo(completeTempKeys.get(0));
         assertThat(Files.readString(file)).isEqualTo(value);
+    }
+
+    private static Object fileKey(Path path) throws IOException {
+        return Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS).fileKey();
+    }
+
+    /**
+     * Starts racing on one name without hard links: exactly one publishes, and every start ends
+     * up with that one value. Without the {@code CREATE_NEW} lock, several renames succeed in
+     * turn and each start keeps the value it wrote, so two starts sign with different keys.
+     */
+    @Test
+    void writeIfAbsent_withoutHardLinks_concurrentStartsAgreeOnOneValue() throws Exception {
+        int starts = 8;
+        SecretBootstrap withoutHardLinks = new SecretBootstrap(supplier -> supplier.get()) {
+            @Override
+            void link(Path target, Path temp) throws IOException {
+                throw new FileSystemException(target.toString(), temp.toString(), "Operation not permitted");
+            }
+        };
+        Files.createDirectories(secretsDir());
+        ExecutorService pool = Executors.newFixedThreadPool(starts);
+        try {
+            for (int round = 0; round < 100; round++) {
+                Path file = secretsDir().resolve("crypto_key-" + round);
+                CyclicBarrier barrier = new CyclicBarrier(starts);
+                List<Future<Boolean>> results = new ArrayList<>();
+                for (int start = 0; start < starts; start++) {
+                    String value = "value-" + start;
+                    results.add(pool.submit(() -> {
+                        barrier.await();
+                        return withoutHardLinks.writeIfAbsent(file, value);
+                    }));
+                }
+                List<String> winners = new ArrayList<>();
+                for (int start = 0; start < starts; start++) {
+                    if (results.get(start).get(30, TimeUnit.SECONDS)) {
+                        winners.add("value-" + start);
+                    }
+                }
+                assertThat(winners).as("round %d", round).hasSize(1);
+                assertThat(Files.readString(file)).as("round %d", round).isEqualTo(winners.get(0));
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(secretsDirEntries()).allSatisfy(name -> assertThat(name).startsWith("crypto_key-").doesNotEndWith(".lock"));
+    }
+
+    /**
+     * A holder can release the lock without a file (an I/O error while moving it). The waiting
+     * start then takes the lock itself and publishes, instead of blaming a lock that is gone.
+     */
+    @Test
+    void publishUnderLock_aLockReleasedWithoutItsFile_isTakenOver() throws Exception {
+        SecretBootstrap shortWait = new SecretBootstrap(supplier -> supplier.get()) {
+            @Override
+            Duration lockWait() {
+                return Duration.ofSeconds(3);
+            }
+        };
+        Path file = secretsDir().resolve("crypto_key");
+        Path lock = secretsDir().resolve("crypto_key.lock");
+        Path ours = tempWith("ours");
+        Files.createFile(lock);
+
+        Thread failedHolder = new Thread(() -> {
+            try {
+                Thread.sleep(200);
+                Files.delete(lock);
+            } catch (Exception ex) {
+                throw new IllegalStateException(ex);
+            }
+        });
+        failedHolder.start();
+        boolean published = shortWait.publishUnderLock(file, ours);
+        failedHolder.join();
+
+        assertThat(published).isTrue();
+        assertThat(Files.readString(file)).isEqualTo("ours");
+        assertThat(secretsDirEntries()).containsExactly("crypto_key");
     }
 
     static List<Exception> hardLinkFailures() {

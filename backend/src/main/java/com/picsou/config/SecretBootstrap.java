@@ -211,10 +211,12 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
 
     /**
      * The raw value of {@code name}: {@code source.getProperty} directly, never
-     * {@code environment.getProperty}, which expands placeholders. A secret is not a template, and
-     * a database password holding {@code ${...}} must reach the datasource byte for byte. The
-     * sources are walked in order, so an explicit {@code spring.datasource.password} keeps the
-     * precedence Spring itself would give it.
+     * {@code environment.getProperty}, which expands placeholders and throws on an unresolvable
+     * one, its message holding the whole value. This processor never expands a secret. The
+     * datasource binder still does, as it would without this processor: an unresolvable
+     * {@code ${nope}} reaches it unchanged, while a {@code ${HOME}} is expanded. The sources are
+     * walked in order, so an explicit {@code spring.datasource.password} keeps the precedence
+     * Spring itself would give it.
      */
     private static String valueOf(ConfigurableEnvironment environment, String name) {
         for (PropertySource<?> source : environment.getPropertySources()) {
@@ -343,15 +345,14 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
      * concurrent reader can not take a prefix of a key for a shorter, valid one.
      *
      * <p>A start that finds the lock waits up to {@link #lockWait()} for the holder's file, then
-     * uses it. A lock with no file after that wait is left by a crashed start: the app refuses to
-     * start and names the lock to delete, rather than guess whether another instance is writing.
+     * uses it. A holder that releases the lock without a file (an I/O error) hands the turn to the
+     * next start, which takes the lock and publishes its own value. A lock still held with no file
+     * after that wait is left by a crashed start: the app refuses to start and names the lock to
+     * delete, rather than guess whether another instance is writing.
      */
     boolean publishUnderLock(Path file, Path temp) throws IOException {
         Path lock = file.resolveSibling(file.getFileName() + ".lock");
-        try {
-            Files.createFile(lock);
-        } catch (FileAlreadyExistsException ex) {
-            awaitPublication(file, lock);
+        if (!acquireLock(file, lock)) {
             return false;
         }
         try {
@@ -370,9 +371,23 @@ public class SecretBootstrap implements EnvironmentPostProcessor, Ordered {
         }
     }
 
-    private void awaitPublication(Path file, Path lock) {
+    /**
+     * Takes {@code lock} and returns {@code true}, or returns {@code false} once the holder's
+     * {@code file} exists. The lock is retried on every turn, so a holder that gave up without
+     * a file is not blamed for a lock that is already gone.
+     */
+    private boolean acquireLock(Path file, Path lock) throws IOException {
         long deadline = System.nanoTime() + lockWait().toNanos();
-        while (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) {
+        while (true) {
+            try {
+                Files.createFile(lock);
+                return true;
+            } catch (FileAlreadyExistsException held) {
+                // Another start is publishing: wait for its file below.
+            }
+            if (Files.exists(file, LinkOption.NOFOLLOW_LINKS)) {
+                return false;
+            }
             if (System.nanoTime() - deadline >= 0) {
                 throw new IllegalStateException("Secret file " + file + " is still being created behind "
                     + lock + ". Delete " + lock + " if no other Picsou instance is starting.");
