@@ -111,7 +111,7 @@ BalanceSnapshot persisted  →  historical balance chart steps down monthly
 
 ## Gotchas / Pitfalls
 
-- **A computed monthly payment includes the insurance.** `monthlyPayment` is the whole installment; the schedule subtracts `insuranceMonthly` from it before amortising. A user-entered payment already includes the insurance, a computed annuity does not, so `LoanAmortizationService` adds it when it computes the payment itself. Before that, every installment under-amortised the capital by the insurance and the last installment absorbed the shortfall.
+- **A computed monthly payment includes the insurance.** `monthlyPayment` is the whole installment; the schedule subtracts `insuranceMonthly` from it before amortising. A user-entered payment already includes the insurance, a computed annuity does not, so `LoanAmortizationService` adds it when it computes the payment itself. Before that, every installment under-amortised the capital by the insurance and the last installment absorbed the shortfall. `resolveMonthlyPayment` follows the same rule, so the dashboard's liabilities card and the XLSX export's monthly total show the same installment as the loan page.
 - **A `Debt` without a start and an end date has no schedule.** `computeRemainingBalance` then answers the borrowed amount, not what is owed, so `AccountService.valuation` and `RealEstateSummaryService` check `LoanAmortizationService.hasSchedule` first and fall back to the balance stored on the loan account.
 - **Installment *i* falls *i* months after `startDate`, each clamped to its own month.** The due
   day is `startDate`'s, except when `startDate` is the last day of its month and `endDate` falls on

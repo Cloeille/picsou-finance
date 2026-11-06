@@ -3,7 +3,7 @@ package com.picsou.controller;
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
 import com.picsou.model.CmesSyncStatus;
-import com.picsou.port.CmesErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.CmesSyncService;
 import com.picsou.service.UserContext;
 import io.github.bucket4j.Bucket;
@@ -102,7 +102,7 @@ class CmesControllerTest {
     @Test
     void aWrongSmsCodeReachesTheClientAsItsOwnCode() throws Exception {
         when(service.completeAuth("process", "000000", MEMBER_ID))
-            .thenThrow(new SyncException("wrong code", null, CmesErrorCode.INVALID_OTP.name()));
+            .thenThrow(new SyncException("wrong code", null, SidecarErrorCode.INVALID_OTP.name()));
 
         mockMvc.perform(post("/api/cmes/auth/complete")
                 .contentType(MediaType.APPLICATION_JSON)

@@ -311,7 +311,7 @@ Use icons from `lucide-react` as direct JSX components (e.g., `<Pencil className
 
 Recharts v3 for all data visualizations. Chart color tokens (`--chart-1` through `--chart-5`) are defined in the Tailwind theme.
 
-Size a new or touched money Y axis with `yAxisWidth(values, money.tick)` (`lib/chart-axis.ts`), passing the same `money.tick` formatter the axis uses, rather than a fixed `width`. A fixed width clips the longer labels, such as "-250.000 €" (German). `NetWorthChart` and `AccountsStackedChart` use it. `LoanAmortizationChart`, `PropertyValuationChart`, `BalanceHistoryChart`, `ProjectionSection` and `CashflowTab` use the fixed `MONEY_AXIS_WIDTH`; `AllocationTrajectory` is a percent axis.
+Size a new or touched money Y axis with `yAxisWidth(values, money.tick)` (`lib/chart-axis.ts`), passing the same `money.tick` formatter the axis uses, rather than a fixed `width`. A fixed width clips the longer labels, such as "-250.000 €" (German). `NetWorthChart` and `AccountsStackedChart` use it. `LoanAmortizationChart`, `PropertyValuationChart`, `BalanceHistoryChart` and `ProjectionSection` use the fixed `MONEY_AXIS_WIDTH`; `AllocationTrajectory` is a percent axis.
 
 ## Form controls
 

@@ -3,6 +3,7 @@ package com.picsou.adapter;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,25 +61,20 @@ class CoinGeckoPriceProviderTest {
         logger.detachAppender(logs);
     }
 
-    private CoinGeckoPriceProvider providerReturning(Mono<ClientResponse> response) {
-        ExchangeFunction exchange = request -> response;
-        return new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build());
+    private CoinGeckoPriceProvider providerReturning(WebClient client) {
+        return new CoinGeckoPriceProvider(client);
     }
 
     private CoinGeckoPriceProvider providerWithJson(String json) {
-        return providerReturning(Mono.just(ClientResponse.create(HttpStatus.OK)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .body(json).build()));
+        return providerReturning(WebClientStubs.returning(json));
     }
 
     private CoinGeckoPriceProvider providerWithStatus(HttpStatus status, String body) {
-        return providerReturning(Mono.just(ClientResponse.create(status)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .body(body).build()));
+        return providerReturning(WebClientStubs.returning(status, body));
     }
 
     private CoinGeckoPriceProvider providerFailingWith(Throwable ex) {
-        return providerReturning(Mono.error(ex));
+        return providerReturning(WebClientStubs.failing(ex));
     }
 
     private List<ILoggingEvent> eventsAt(Level level) {
@@ -220,10 +216,8 @@ class CoinGeckoPriceProviderTest {
 
     @Test
     void rateLimit_honoursRetryAfter_withinReason() {
-        var provider = providerReturning(Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .header("Retry-After", "120")
-            .body("{}").build()));
+        var provider = providerReturning(WebClientStubs.returning(
+            HttpStatus.TOO_MANY_REQUESTS, "Retry-After", "120", "{}"));
 
         provider.getPricesEur(Set.of("BTC"));
 
@@ -235,10 +229,8 @@ class CoinGeckoPriceProviderTest {
     void rateLimit_ignoresAnAbsurdRetryAfter() {
         // A day-long pause would leave the instance unable to price anything long after the real
         // limit lifted -- the cure being worse than the disease.
-        var provider = providerReturning(Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .header("Retry-After", "86400")
-            .body("{}").build()));
+        var provider = providerReturning(WebClientStubs.returning(
+            HttpStatus.TOO_MANY_REQUESTS, "Retry-After", "86400", "{}"));
 
         provider.getPricesEur(Set.of("BTC"));
 

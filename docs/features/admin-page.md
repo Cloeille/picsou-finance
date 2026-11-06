@@ -99,7 +99,7 @@ Frontend:
 - `frontend/src/pages/settings/SettingsPage.tsx` — admin-only "Admin" section
   card after Family.
 - `frontend/src/i18n/locales/{fr,en}.json` — `admin.*` namespace + `nav.admin`,
-  `nav.admin.desc`, `settings.adminSection*`.
+  `settings.adminSection*`.
 
 ### Flow
 

@@ -1,19 +1,17 @@
 package com.picsou.migration;
 
-import org.flywaydb.core.Flyway;
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
+
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -35,46 +33,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>The ISIN CHECK is asserted too: it is the only thing stopping a malformed identifier from
  * reaching a provider as though it were real.
  */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class V97SecurityProfileIsinMigrationTest {
 
-    static {
-        // Same pin as the other migration tests: docker-java otherwise negotiates down to an API
-        // version modern Engines refuse, and it surfaces as an ordinary "no Docker" skip.
-        System.setProperty("api.version", "1.44");
-    }
-
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && System.getenv("PICSOU_REQUIRE_DOCKER_TESTS") != null) {
-            throw new IllegalStateException("Docker is required but unavailable");
-        }
-        return available;
-    }
-
-    private static void migrateTo(String version) {
-        Flyway.configure()
-            .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-            .locations("classpath:db/migration")
-            .target(version)
-            .load()
-            .migrate();
-    }
-
-    private static Connection connection() throws SQLException {
-        return DriverManager.getConnection(
-            POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @BeforeAll
     static void migrateAndSeed() throws SQLException {
-        migrateTo("96");
-        try (Connection c = connection(); Statement st = c.createStatement()) {
+        PostgresContainers.migrateTo(POSTGRES, "96");
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement()) {
             st.execute("INSERT INTO security_profile (ticker, asset_type, sector_key, refreshed_at) "
                 + "VALUES ('AI.PA', 'STOCK', 'basic_materials', NOW())");
         }
@@ -83,7 +52,7 @@ class V97SecurityProfileIsinMigrationTest {
     @Test
     @Order(1)
     void beforeTheMigrationAProfileCannotBeSeededWithoutATimestamp() throws SQLException {
-        try (Connection c = connection(); Statement st = c.createStatement()) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement()) {
             assertThatThrownBy(() -> st.execute(
                 "INSERT INTO security_profile (ticker, asset_type) VALUES ('CW8.PA', 'UNKNOWN')"))
                 .isInstanceOf(SQLException.class)
@@ -94,9 +63,9 @@ class V97SecurityProfileIsinMigrationTest {
     @Test
     @Order(2)
     void afterTheMigrationAnIsinOnlyRowIsSeedableAndReadsAsNeverResolved() throws SQLException {
-        migrateTo("97");
+        PostgresContainers.migrateTo(POSTGRES, "97");
 
-        try (Connection c = connection(); Statement st = c.createStatement()) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement()) {
             assertThatCode(() -> st.execute(
                 "INSERT INTO security_profile (ticker, asset_type, isin) "
                     + "VALUES ('CW8.PA', 'UNKNOWN', 'LU1681043599')"))
@@ -123,7 +92,7 @@ class V97SecurityProfileIsinMigrationTest {
     @Test
     @Order(3)
     void aMalformedIsinIsRefused() throws SQLException {
-        try (Connection c = connection(); Statement st = c.createStatement()) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement()) {
             assertThatThrownBy(() -> st.execute(
                 "INSERT INTO security_profile (ticker, asset_type, isin) "
                     + "VALUES ('JUNK', 'UNKNOWN', 'not-an-isin')"))
@@ -137,7 +106,7 @@ class V97SecurityProfileIsinMigrationTest {
     void twoTickersMaySharePlainlyOneIsin() throws SQLException {
         // Deliberately not UNIQUE. OpenFIGI can map two tickers onto one ISIN, and a constraint
         // violation here would fail an entire sync over reference data nobody asked for.
-        try (Connection c = connection(); Statement st = c.createStatement()) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement()) {
             assertThatCode(() -> st.execute(
                 "INSERT INTO security_profile (ticker, asset_type, isin) "
                     + "VALUES ('CW8.MI', 'UNKNOWN', 'LU1681043599')"))

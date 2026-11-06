@@ -13,12 +13,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `get_ai_categorization_status` reports its progress as counters only, under a new
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
   browser session. See [Budget + OAuth2 tools in MCP](docs/features/mcp-budget-oauth2.md).
+- **Unused-file check for the frontend.** `frontend/knip.jsonc` lets
+  `bunx knip --production` report unused files under `src/`. German and Spanish strings still
+  in English are listed for translators in `docs/features/i18n-untranslated.md`.
+
 ### Fixed
+
+- **A co-owned loan shows its real repayment progress.** The dashboard's liabilities card
+  compared the member's share of the remaining capital to the whole borrowed amount, so a
+  half-owned 200,000 EUR loan with 150,000 left showed 62.5% repaid instead of 25%. Progress
+  now uses the loan's own figures whatever the member's share, including a zero share. See
+  [Ownership shares](docs/features/account-ownership-shares.md).
+
+- **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar
+  read the whole transaction history and refused it past 1,000 rows (`UPSTREAM_FORMAT_CHANGED`).
+  It now asks for rows ordered by date and stops paging past the last 365 days when they come
+  newest first; older rows already imported stay. (#397)
+
+- **The account export dialog says "2 accounts selected".** Its count key used the legacy
+  `_plural` suffix, which i18next ignores, so every language showed the singular form.
 
 - **Trade Republic bond values no longer use percentage quotes as euro prices.** EUR bond
   ticker prices are divided by 100. Non-EUR or unknown bond currencies keep the position's
   current price empty and value it at its average buy-in. A sync updates current holdings and
   today's snapshot; earlier daily snapshots keep their recorded values.
+
+- **Loan monthly payments count the insurance once.** When the monthly payment is left empty,
+  the dashboard's liabilities card now adds the insurance to the computed annuity, as the loan
+  page does. The XLSX export's monthly total no longer adds the insurance on top of an entered
+  payment, and no longer shows only the insurance when the payment is empty. See
+  [Loans](docs/features/loans.md).
 
 ### Changed
 
@@ -26,6 +50,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PostgreSQL, the backend and Vite, `make test` runs the backend, frontend, e2e and sidecar suites, `make build`
   builds the images, `make release VERSION=x.y.z` checks the CHANGELOG and pushes the tag.
   CI calls the same targets, and `CONTRIBUTING.md` is the one place that lists commands.
+- **Sidecar URLs live under one `app.sidecars` map.** `app.bourso-auth.url` and its 12
+  siblings are now `app.sidecars.<service>.url`. The environment variables (`BOURSO_AUTH_URL`,
+  `TR_AUTH_URL`, …) and their defaults are unchanged, so a Docker or Helm install needs nothing.
+  Only an install that set the old Spring property itself must rename it: in its own YAML,
+  as `-Dapp.bourso-auth.url`, or through relaxed binding (`APP_BOURSO_AUTH_URL` becomes
+  `APP_SIDECARS_BOURSO_AUTH_URL`). The URLs now come only from the packaged `application.yml`, with no
+  fallback in code: an install that replaces it through `spring.config.location` must copy
+  the `app.sidecars` block, or the backend stops at startup naming the missing key. Behind it, the backend talks to the ten `detail`-code connectors through one client and
+  one error-code enum; stored `last_sync_error` values are unchanged (#336).
 
 - **Caisse d'Epargne: a failed account import says where it failed.** The sidecar's
   `accounts fetch failed` line now names the step (synthesis, transactions,
@@ -68,6 +101,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   See [testing conventions](docs/conventions/testing.md#sidecar-tests).
 
 ### Removed
+
+- **Unreachable frontend code.** `PortfolioView`, `CashflowTab`, `types/app.ts`, thirteen hooks
+  and helpers and three constants with no caller, the API functions only they called, the
+  Trade Republic sync-progress client stub (the backend never served it) and 94 translation
+  keys nothing reads. No screen changes.
 
 - **Split Docker stack.** The root `docker-compose.yml`, `backend/Dockerfile`,
   `frontend/Dockerfile`, `frontend/nginx.conf`, `frontend/picsou-realip.conf`, both
@@ -906,6 +944,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#197](https://github.com/Cloeille/picsou-finance/issues/197))
 - **Deleting an account through the MCP assistant now also disconnects the bank, wallet or broker when it was the last account on that connection, and says which one.** ([#176](https://github.com/Cloeille/picsou-finance/issues/176))
 - **A BoursoBank access with a personal and a business identity now syncs the personal one.** BoursoBank shows such an access an identity selector before the dashboard, which the connector used to report as a site format change. It now switches to the personal identity on each sync, and says so plainly when it cannot tell which identity is personal. Business identities are not synced. ([#153](https://github.com/Cloeille/picsou-finance/issues/153))
+- **Amounts like `12.500,50` or `1.000.000` are saved in full.** Amount fields dropped every
+  separator after the first one, so `12.500,50` (German or Spanish) or `12,500.50` (English)
+  was saved as 12.5005 and `1.000.000` as 1. Thousands are now read when the digits are
+  grouped by three. A single separator is still the decimal one, so `12,50` gives 12.5 and
+  `1.000` on its own still gives 1.
 - **A 1.1.0 database that applied migrations before they were renumbered starts again.**
   The old V80, V81 and V86–V88 rows are moved to V93–V99 before Flyway validates, matched on
   version, description and checksum, so the boot no longer fails and those migrations do not run

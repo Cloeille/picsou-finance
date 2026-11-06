@@ -12,6 +12,7 @@ import {
   freshnessLevel,
   isOAuthAuthorizeRedirect,
   localeFromLanguage,
+  parseAmount,
   parseDate,
   todayLabel,
 } from './utils'
@@ -220,6 +221,43 @@ describe('parseDate', () => {
       const displayed = formatDate(iso, locale, format)
       expect(parseDate(displayed, locale, format), `${locale}/${format} → ${displayed}`).toBe(iso)
     }
+  })
+})
+
+describe('parseAmount', () => {
+  it('reads a lone "." or "," as the decimal separator', () => {
+    expect(parseAmount('12,50')).toBe(12.5)
+    expect(parseAmount('12.50')).toBe(12.5)
+    expect(parseAmount('-0,5')).toBe(-0.5)
+  })
+
+  it('reads the last separator as the decimal one when the digits before it are grouped by three', () => {
+    expect(parseAmount('12.500,50')).toBe(12500.5)
+    expect(parseAmount('12,500.50')).toBe(12500.5)
+    expect(parseAmount('-1.234.567,89')).toBe(-1234567.89)
+    expect(parseAmount('1.000,')).toBe(1000)
+  })
+
+  it('reads a separator repeated between groups of three digits as a thousands separator', () => {
+    expect(parseAmount('1.000.000')).toBe(1000000)
+    expect(parseAmount('1,000,000')).toBe(1000000)
+  })
+
+  it('keeps a lone separator followed by three digits as the decimal one', () => {
+    expect(parseAmount('1.000')).toBe(1)
+    expect(parseAmount('1,234')).toBe(1.234)
+  })
+
+  it('reads a doubled or stray separator as a slip, not as thousands', () => {
+    expect(parseAmount('12..50')).toBe(12.5)
+    expect(parseAmount('12,,50')).toBe(12.5)
+    expect(parseAmount('0.5.')).toBe(0.5)
+    expect(parseAmount('0.125,')).toBe(0.125)
+  })
+
+  it('returns NaN for an empty value', () => {
+    expect(parseAmount('')).toBeNaN()
+    expect(parseAmount(null)).toBeNaN()
   })
 })
 

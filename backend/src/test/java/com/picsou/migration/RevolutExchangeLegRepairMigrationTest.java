@@ -1,20 +1,18 @@
 package com.picsou.migration;
 
-import org.flywaydb.core.Flyway;
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
+
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -30,13 +28,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * V118 deletes the mis-scaled foreign leg of each Revolut exchange (#251), whatever the asset's
  * price, copies it to a backup table first, and touches nothing else.
  */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 class RevolutExchangeLegRepairMigrationTest {
-
-    static {
-        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
-    }
 
     private static final String V118 = "db/migration/V118__revolut_exchange_leg_repair.sql";
     /** Descriptions are matched ignoring case, padding and repeated spaces. */
@@ -45,24 +38,13 @@ class RevolutExchangeLegRepairMigrationTest {
     private static long prodCategory;
 
     @Container
-    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
-            throw new IllegalStateException(
-                "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
-                    + "The V118 migration test cannot be skipped. Needs Docker Engine >= 25.0.");
-        }
-        return available;
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @BeforeAll
     static void migrateAndSeed() throws SQLException {
         // 117 is reserved by the open AMEX PR (#247); out-of-order keeps either merge order valid.
-        migrateTo("116");
-        try (Connection c = connect()) {
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "116");
+        try (Connection c = PostgresContainers.connection(POSTGRES)) {
             long owner = id(c, "INSERT INTO family_member (display_name) VALUES ('Owner') RETURNING id");
             long other = id(c, "INSERT INTO family_member (display_name) VALUES ('Other') RETURNING id");
             long eur = account(c, owner, "EUR pocket", "Revolut");
@@ -118,7 +100,7 @@ class RevolutExchangeLegRepairMigrationTest {
                 st.execute("UPDATE transaction SET native_currency = 'USD' WHERE external_id = 'usd-lone'");
             }
         }
-        migrateTo("118");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "118");
     }
 
     @Test
@@ -191,7 +173,7 @@ class RevolutExchangeLegRepairMigrationTest {
             "doge -Exchanged to EUR", "buy-btc +Exchanged from EUR", "same -Exchanged to EUR",
             "padded -" + PADDED, "prod -Exchanged to EUR", "fee -Exchanged to EUR",
             "lone -Exchanged to EUR", "cross-member -Exchanged to EUR");
-        try (Connection c = connect(); Statement st = c.createStatement();
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement();
              ResultSet rs = st.executeQuery(
                  "SELECT category_id FROM transaction_v118_backup WHERE external_id = 'prod'")) {
             assertThat(rs.next()).isTrue();
@@ -201,7 +183,7 @@ class RevolutExchangeLegRepairMigrationTest {
 
     @Test
     void theBackupRestoresIntoTheTransactionTable() throws SQLException {
-        try (Connection c = connect(); Statement st = c.createStatement()) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement()) {
             c.setAutoCommit(false);
             try {
                 st.execute("INSERT INTO transaction SELECT * FROM transaction_v118_backup");
@@ -219,26 +201,12 @@ class RevolutExchangeLegRepairMigrationTest {
     void aSecondRunIsANoOp() throws SQLException, IOException {
         List<String> rowsBefore = transactionRows();
         List<String> backupBefore = backupRows();
-        try (Connection c = connect(); Statement st = c.createStatement();
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement();
              InputStream sql = getClass().getClassLoader().getResourceAsStream(V118)) {
             st.execute(new String(sql.readAllBytes(), StandardCharsets.UTF_8));
         }
         assertThat(transactionRows()).containsExactlyInAnyOrderElementsOf(rowsBefore);
         assertThat(backupRows()).containsExactlyInAnyOrderElementsOf(backupBefore);
-    }
-
-    private static void migrateTo(String version) {
-        Flyway.configure()
-            .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-            .locations("classpath:db/migration")
-            .target(version)
-            .outOfOrder(true) // mirrors application.yml
-            .load()
-            .migrate();
-    }
-
-    private static Connection connect() throws SQLException {
-        return DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static long id(Connection c, String sql) throws SQLException {
@@ -336,7 +304,7 @@ class RevolutExchangeLegRepairMigrationTest {
     /** Each row as "<external_id> <sign><description>", the sign telling a debit from a credit. */
     private static List<String> rows(String query) throws SQLException {
         List<String> out = new ArrayList<>();
-        try (Connection c = connect(); Statement st = c.createStatement(); ResultSet rs = st.executeQuery(query)) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement(); ResultSet rs = st.executeQuery(query)) {
             while (rs.next()) {
                 out.add(rs.getString(1) + " " + (rs.getBigDecimal(3).signum() < 0 ? "-" : "+") + rs.getString(2));
             }
