@@ -38,6 +38,7 @@ CODE = "424242"
 CSRF = "csrf-value-0123456789"
 SAML_VALUE = "saml-response-value"
 AUTH_CODE = "authorization-code-value"
+SIDECAR_KEY = "test-sidecar-key"
 ACCESS_TOKEN = "access-token-value"
 REFRESH_TOKEN = "refresh-token-value"
 VERIFICATION_ID = "verification-id-value"
@@ -179,6 +180,9 @@ class SidecarTestCase(unittest.TestCase):
     """Runs the app against the fake, with the shared sidecar key set."""
 
     def setUp(self):
+        patcher = mock.patch.dict(os.environ, {"APP_SIDECAR_API_KEY": SIDECAR_KEY})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.main = main
         self.fake = FakeNatixis()
         patcher = mock.patch.object(
@@ -190,7 +194,7 @@ class SidecarTestCase(unittest.TestCase):
         self.client = TestClient(main.app)
         self.client.__enter__()
         self.addCleanup(self.client.__exit__, None, None, None)
-        self.headers = {KEY_HEADER: os.environ["APP_SIDECAR_API_KEY"]}
+        self.headers = {KEY_HEADER: SIDECAR_KEY}
 
     def post(self, path, payload):
         return self.client.post(path, json=payload, headers=self.headers)

@@ -72,6 +72,14 @@ class PaymentTest(unittest.TestCase):
         self.assertEqual(sold["date"], first["disvestmentValue"]["date"])
 
 
+    def test_sold_amount_not_in_eur_is_format_changed(self):
+        detail = copy.deepcopy(PAYMENT_DEMAND)
+        detail["payments"][0]["products"][0]["investmentOptions"][0]["gross"]["currencyCode"] = "USD"
+        with self.assertRaises(SavingsFormatError) as caught:
+            payment_operations(detail, EMPLOYEE_ID, {})
+        self.assertIn("not in EUR", str(caught.exception))
+
+
 class ParseOperationsTest(unittest.TestCase):
     def test_sold_out_funds_are_named_for_their_codes(self):
         self.assertIn(1007, operation_fund_ids([PAYMENT_DEMAND]))

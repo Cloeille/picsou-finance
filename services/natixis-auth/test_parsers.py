@@ -84,6 +84,29 @@ class ParsePlansTest(unittest.TestCase):
                 plans(savings)
             self.assertEqual(caught.exception.code, "UPSTREAM_FORMAT_CHANGED")
 
+    def test_amount_not_in_eur_is_format_changed(self):
+        def set_currency(node, code):
+            if isinstance(node, dict):
+                if "currencyCode" in node:
+                    if code is None:
+                        node.pop("currencyCode")
+                    else:
+                        node["currencyCode"] = code
+                for child in node.values():
+                    set_currency(child, code)
+            elif isinstance(node, list):
+                for child in node:
+                    set_currency(child, code)
+
+        for code in ("USD", None):
+            for target in ("savings", "products"):
+                payloads = {"savings": copy.deepcopy(SAVINGS), "products": copy.deepcopy(PRODUCTS)}
+                set_currency(payloads[target], code)
+                with self.subTest(code=code, target=target), self.assertRaises(SavingsFormatError) as caught:
+                    plans(payloads["savings"], payloads["products"])
+                self.assertEqual(caught.exception.code, "UPSTREAM_FORMAT_CHANGED")
+                self.assertIn("not in EUR", str(caught.exception))
+
     def test_funds_in_sub_compartments_are_read(self):
         savings = copy.deepcopy(SAVINGS)
         pee = savings["items"][0]
