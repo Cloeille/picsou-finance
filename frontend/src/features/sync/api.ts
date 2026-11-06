@@ -20,6 +20,11 @@ import type {
   CaisseEpargneAuthKeypadResponse,
   CaisseEpargneAuthCompleteResponse,
   CaisseEpargneDeleteResponse,
+  LbpSessionStatus,
+  LbpAuthInitResponse,
+  LbpAuthKeypadResponse,
+  LbpAuthCompleteResponse,
+  LbpDeleteResponse,
   RevolutSessionStatus,
   SyncProgress,
   BourseDirectSessionStatus,
@@ -226,6 +231,42 @@ export const caisseEpargneApi = {
 
   clearSession: () =>
     api.delete<CaisseEpargneDeleteResponse>('/caisse-epargne/session').then(r => r.data),
+}
+
+export const lbpApi = {
+  // One attempt only: a wrong password spends a bank attempt. The identifier
+  // alone goes out; the password is clicked on the bank's shuffled keypad.
+  initiateAuth: (customerId: string) =>
+    api.post<LbpAuthInitResponse>('/lbp/auth/initiate', { customerId }).then(r => r.data),
+
+  // Key positions (0..9 in the keypad's DOM order), never digits. Single use.
+  sendKeypad: (processId: string, positions: number[]) =>
+    api.post<LbpAuthKeypadResponse>('/lbp/auth/keypad', { processId, positions }).then(r => r.data),
+
+  // A notification is sent to the bank's mobile app; the request stays open
+  // until the human approves it (the backend waits up to 170 s).
+  completeAuth: (processId: string) =>
+    api
+      .post<LbpAuthCompleteResponse>('/lbp/auth/complete', { processId }, { timeout: 180_000 })
+      .then(r => r.data),
+
+  sync: () => api.post<LbpSessionStatus>('/lbp/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<LbpSessionStatus>('/lbp/status', { skipGlobalErrorRedirect: true })
+      .then(r => r.data),
+
+  /** One status read that gives up after `timeoutMs`, outside the query cache. */
+  getStatusWithin: (timeoutMs: number) =>
+    api
+      .get<LbpSessionStatus>('/lbp/status', {
+        skipGlobalErrorRedirect: true,
+        timeout: timeoutMs,
+      })
+      .then(r => r.data),
+
+  clearSession: () => api.delete<LbpDeleteResponse>('/lbp/session').then(r => r.data),
 }
 
 // --- Revolut ---

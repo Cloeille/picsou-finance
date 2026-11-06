@@ -9,6 +9,7 @@ import {
   cmesApi,
   corumApi,
   fortuneoApi,
+  lbpApi,
   sofidyApi,
 } from './api'
 import type { SidecarApi } from './api'
@@ -122,6 +123,21 @@ export const sidecarProviders = {
     singleAttemptComplete: true,
   },
 
+  /**
+   * Like Caisse d'Epargne, the keypad positions are the password in disguise:
+   * the panel calls `lbpApi.initiateAuth` / `sendKeypad` directly and holds the
+   * positions in component state only. The second factor is a mobile approval.
+   */
+  lbp: {
+    queryKey: syncKeys.lbp(),
+    refreshOnSuccess: ACCOUNT_VIEWS,
+    getStatus: () => lbpApi.getStatus(),
+    complete: ({ processId }: { processId: string }) => lbpApi.completeAuth(processId),
+    sync: () => lbpApi.sync(),
+    clear: () => lbpApi.clearSession(),
+    singleAttemptComplete: true,
+  },
+
   bourseDirect: {
     queryKey: syncKeys.bourseDirect(),
     refreshOnSuccess: PORTFOLIO_VIEWS,
@@ -220,7 +236,10 @@ type Providers = typeof sidecarProviders
 export type SidecarProviderId = keyof Providers
 
 /** Providers rendered by the shared `SidecarSessionPanel`. */
-export type PanelProviderId = Exclude<SidecarProviderId, 'bourso' | 'caisseEpargne' | 'fortuneo'>
+export type PanelProviderId = Exclude<
+  SidecarProviderId,
+  'bourso' | 'caisseEpargne' | 'fortuneo' | 'lbp'
+>
 
 /** What `SidecarSessionPanel` reads from an entry: a login answer, then session statuses. */
 interface PanelProviderEntry extends SidecarProviderEntry {

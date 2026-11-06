@@ -24,6 +24,7 @@ import { CorumTab } from './CorumTab'
 import { SofidyTab } from './SofidyTab'
 import { BoursoTab } from './BoursoTab'
 import { CaisseEpargneTab } from './CaisseEpargneTab'
+import { LbpTab } from './LbpTab'
 import { FortuneoTab } from './FortuneoTab'
 import { ActualBudgetTab } from './ActualBudgetTab'
 
@@ -46,6 +47,7 @@ export function SyncPage() {
             <TabsTrigger value="revolut" className="flex-none">{t('sync.revolut.title')}</TabsTrigger>
             <TabsTrigger value="bourso" className="flex-none">{t('sync.bourso.title')}</TabsTrigger>
             <TabsTrigger value="caisse-epargne" className="flex-none">{t('sync.caisseEpargne.title')}</TabsTrigger>
+            <TabsTrigger value="lbp" className="flex-none">{t('sync.lbp.title')}</TabsTrigger>
             <TabsTrigger value="bourse-direct" className="flex-none">{t('sync.bourseDirect.title')}</TabsTrigger>
             <TabsTrigger value="degiro" className="flex-none">{t('sync.degiro.title')}</TabsTrigger>
             <TabsTrigger value="ibkr" className="flex-none">{t('sync.ibkr.title')}</TabsTrigger>
@@ -83,6 +85,9 @@ export function SyncPage() {
         </TabsContent>
         <TabsContent value="caisse-epargne" className="mt-6">
           <CaisseEpargneTab />
+        </TabsContent>
+        <TabsContent value="lbp" className="mt-6">
+          <LbpTab />
         </TabsContent>
         <TabsContent value="bourse-direct" className="mt-6">
           <BourseDirectTab />

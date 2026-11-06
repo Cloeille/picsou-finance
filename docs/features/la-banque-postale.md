@@ -226,10 +226,21 @@ Camoufox. The data layer stays cookie replay either way.
   the published image like every other sidecar.
 - Wired into Compose (`lbp` profile, `sidecar-python` base) and the Helm chart.
 
+**Frontend**
+
+- `components/sync/LbpPanel.tsx` — identifier form, shuffled keypad (labels and
+  positions only), mobile-approval wait, status/sync/disconnect, first-sync
+  orchestration and recovery when the completion answer is lost.
+- `pages/sync/LbpTab.tsx`, the `lbp` entry in `features/sync/providers.ts`,
+  `features/sync/api.ts`, `features/sync/keys.ts`, `types/api.ts`, and the
+  `sync.lbp.*` keys in all four locales.
+- Tests: `LbpTab.test.tsx` (4 cases).
+
 **Verification** — 36 LBP backend tests pass, plus the shared
 `SidecarContractTest` (214 cases across every bank), `SidecarBankCodesTest`
 (23 cases, including the `lbp_session` CHECK) and the `V131` migration test on
 real PostgreSQL (5 cases). The 29 sidecar tests pass in the published image.
+The frontend typechecks, lints and builds, and the 4 `LbpTab` tests pass.
 The previous date-dependent `DividendControllerAuthorizationTest` failure was
 fixed upstream (relative ex-dates).
 
@@ -239,7 +250,6 @@ fixed upstream (relative ex-dates).
   has not run it against the bank.
 - Enforcement of `iscdName`: unknown. The Camoufox fallback is designed but not
   written.
-- A frontend tab and login panel.
 - Card, loan, life-insurance and PER parsing.
 - History beyond roughly 90 days: the export and the monthly PDFs are not
   parsed.

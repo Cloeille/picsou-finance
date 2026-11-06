@@ -1427,6 +1427,55 @@
         "countdownLabel": "Time left:"
       }
     },
+    "lbp": {
+      "title": "La Banque Postale",
+      "customerId": "Identifier",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "La Banque Postale accounts synced.",
+      "clearSession": "Disconnect",
+      "disconnectConfirm": "This deletes the session stored in Picsou. The La Banque Postale session itself is not ended and may stay active until it expires.",
+      "disconnectConfirmAction": "Delete the stored session",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs your La Banque Postale current account and savings books (Livret A, LDDS, LEP, Compte sur livret) on demand. Only the session is kept, encrypted.",
+      "notice": {
+        "neverStored": "Picsou never sees or stores your password. You click your six digits yourself on the bank's shuffled keypad; only the key positions are sent, once.",
+        "noRetry": "Picsou never retries a sign-in. If it fails, nothing is sent again until you submit the form yourself.",
+        "lockRisk": "Wrong attempts count against your bank access and can lock your La Banque Postale account. Check your identifier and the six digits you click before validating."
+      },
+      "securPassPrompt": "Approve the sign-in in the La Banque Postale app.",
+      "securPassHint": "Picsou does not touch your phone. This page continues on its own once you approve.",
+      "countdownLabel": "Time left to approve:",
+      "unsupportedTitle": "Products not imported",
+      "unsupportedHint": "Picsou does not support these products yet (family code shown).",
+      "errors": {
+        "rateLimited": "Too many sign-in attempts. Please wait before trying again.",
+        "rateLimitedRetryAfter": "Too many sign-in attempts. Try again in {{minutes}} min.",
+        "invalidCredentials": "The bank refused the identifier or password. Check them before trying again: repeated failures can lock your account.",
+        "keypadChanged": "The keypad changed, please start again. Nothing was sent.",
+        "appValidationTimeout": "The sign-in was not approved in the mobile app in time. Start over if you want to try again.",
+        "authAttemptExpired": "The sign-in attempt expired. Start over if you want to try again.",
+        "sessionExpired": "The La Banque Postale session expired. Please reconnect.",
+        "formatChanged": "The La Banque Postale website format changed. Your existing data was kept.",
+        "invalidSessionState": "The stored session could not be read. Please reconnect.",
+        "serverError": "Could not reach La Banque Postale. Please try again later.",
+        "keypadExpired": "The keypad expired before you validated. Start over if you want to try again.",
+        "invalidPositions": "The keypad entry was not accepted. Start over and enter six keys."
+      },
+      "keypad": {
+        "title": "Click your password",
+        "description": "Click the six digits of your password in order. The digits are shown on the keys themselves.",
+        "entered": "{{count}} keys entered",
+        "clear": "Clear",
+        "cancel": "Cancel",
+        "validate": "Validate",
+        "countdownLabel": "Time left:"
+      }
+    },
     "degiro": {
       "title": "DEGIRO",
       "username": "Username",

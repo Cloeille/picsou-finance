@@ -1119,6 +1119,55 @@
         "countdownLabel": "Verbleibende Zeit:"
       }
     },
+    "lbp": {
+      "title": "La Banque Postale",
+      "customerId": "Kennung",
+      "connect": "Verbinden",
+      "connecting": "Verbindung…",
+      "sync": "Synchronisieren",
+      "queued": "Synchronisierung in Warteschlange…",
+      "syncing": "Synchronisierung…",
+      "syncSuccess": "La-Banque-Postale-Konten synchronisiert.",
+      "clearSession": "Trennen",
+      "disconnectConfirm": "Dies löscht die in Picsou gespeicherte Sitzung. Die Sitzung bei La Banque Postale selbst wird nicht beendet und kann bis zu ihrem Ablauf aktiv bleiben.",
+      "disconnectConfirmAction": "Gespeicherte Sitzung löschen",
+      "noSession": "Keine aktive Sitzung",
+      "sessionActive": "Sitzung aktiv",
+      "scope": "Synchronisiert auf Abruf Ihr Girokonto und Ihre Sparkonten (Livret A, LDDS, LEP, Compte sur livret) bei La Banque Postale. Nur die Sitzung wird verschlüsselt gespeichert.",
+      "notice": {
+        "neverStored": "Picsou sieht und speichert Ihr Passwort nie. Sie klicken Ihre sechs Ziffern selbst auf der gemischten Tastatur der Bank; nur die Tastenpositionen werden einmalig gesendet.",
+        "noRetry": "Picsou wiederholt eine Anmeldung nie. Schlägt sie fehl, wird nichts erneut gesendet, bis Sie das Formular selbst absenden.",
+        "lockRisk": "Falsche Versuche zählen bei Ihrer Bank und können Ihren La-Banque-Postale-Zugang sperren. Prüfen Sie Ihre Kennung und die sechs geklickten Ziffern vor dem Bestätigen."
+      },
+      "securPassPrompt": "Bestätigen Sie die Anmeldung in der La-Banque-Postale-App.",
+      "securPassHint": "Picsou greift nicht auf Ihr Telefon zu. Diese Seite geht von selbst weiter, sobald Sie bestätigen.",
+      "countdownLabel": "Verbleibende Zeit zum Bestätigen:",
+      "unsupportedTitle": "Nicht importierte Produkte",
+      "unsupportedHint": "Picsou unterstützt diese Produkte noch nicht (Familiencode angezeigt).",
+      "errors": {
+        "rateLimited": "Zu viele Anmeldeversuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
+        "rateLimitedRetryAfter": "Zu viele Anmeldeversuche. Versuchen Sie es in {{minutes}} Min. erneut.",
+        "invalidCredentials": "Die Bank hat Kennung oder Passwort abgelehnt. Prüfen Sie sie, bevor Sie es erneut versuchen: wiederholte Fehlversuche können Ihr Konto sperren.",
+        "keypadChanged": "Die Tastatur hat sich geändert, bitte neu beginnen. Es wurde nichts gesendet.",
+        "appValidationTimeout": "Die Anmeldung wurde nicht rechtzeitig in der App bestätigt. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "sessionExpired": "Die La-Banque-Postale-Sitzung ist abgelaufen. Bitte neu verbinden.",
+        "formatChanged": "Das Format der La-Banque-Postale-Website hat sich geändert. Ihre vorhandenen Daten wurden beibehalten.",
+        "invalidSessionState": "Die gespeicherte Sitzung ist nicht lesbar. Bitte neu verbinden.",
+        "serverError": "La Banque Postale ist nicht erreichbar. Bitte versuchen Sie es später erneut.",
+        "keypadExpired": "Die Tastatur ist vor Ihrer Bestätigung abgelaufen. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "invalidPositions": "Die Tastatureingabe wurde nicht akzeptiert. Beginnen Sie neu und geben Sie sechs Tasten ein."
+      },
+      "keypad": {
+        "title": "Passwort anklicken",
+        "description": "Klicken Sie die sechs Ziffern Ihres Passworts der Reihe nach an. Die Ziffern werden auf den Tasten selbst angezeigt.",
+        "entered": "{{count}} Tasten eingegeben",
+        "clear": "Löschen",
+        "cancel": "Abbrechen",
+        "validate": "Bestätigen",
+        "countdownLabel": "Verbleibende Zeit:"
+      }
+    },
     "degiro": {
       "title": "DEGIRO",
       "username": "Benutzername",
