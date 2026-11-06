@@ -1,13 +1,15 @@
 # Feature: La Banque Postale sync (sidecar, replaces Enable Banking)
 
 > Last updated: 2026-11-06
-> Status: 🟡 **Browser-assisted login implemented, not live-validated.** The
-> backend contract, storage, adapter, sync service and REST endpoints are in
-> place. `services/lbp-auth` runs the login in headless Chromium (base
-> `chromium`) so the bank's anti-fraud scripts set `iscdName`; the keypad is
-> clicked in that browser and the password never leaves it. The session cookies
-> are replayed with `httpx` for the server-rendered pages. Do not present this
-> connector as usable until a live end-to-end run succeeds.
+> Status: 🟢 **Live-validated on a test stack.** The backend contract, storage,
+> adapter, sync service and REST endpoints are in place. `services/lbp-auth`
+> runs the login in headless Chromium (base `chromium`) so the bank's anti-fraud
+> scripts set `iscdName`; the keypad is clicked in that browser and the password
+> never leaves it. After the keypad, the sidecar clicks the bank's
+> strong-authentication notice (**Continuer**), which is what sends the mobile
+> notification, then waits for the approval. The session cookies are replayed
+> with `httpx` for the server-rendered pages. A live run on 2026-11-06 imported
+> the current account, a Livret A and a LEP with 27 transactions.
 
 ## Context
 
@@ -255,12 +257,16 @@ the 4 `LbpTab` tests pass.
 The previous date-dependent `DividendControllerAuthorizationTest` failure was
 fixed upstream (relative ex-dates).
 
+The live run on 2026-11-06 exercised the whole path on an isolated stack: the
+headless keypad, the notice's **Continuer** click, the mobile approval, the
+cookie serialization, the `afficheSyntheseCCP` / `afficheSyntheseEP` import and
+the write of the current account, a Livret A and a LEP with 27 transactions.
+The session row was `SUCCESS` and active afterwards.
+
 ## Not in this slice
 
-- A live end-to-end run: the client is built from two captures, but the project
-  has not run it against the bank.
-- A live run of the browser login: the selectors, the headless detection and the
-  mobile-approval wait are not covered offline.
+- A second sync that reuses the stored session: the replay path is implemented
+  and unit-tested, but the live run started from a fresh login.
 - Card, loan, life-insurance and PER parsing.
 - History beyond roughly 90 days: the export and the monthly PDFs are not
   parsed.

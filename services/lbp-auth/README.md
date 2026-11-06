@@ -1,10 +1,11 @@
 # lbp-auth — La Banque Postale sidecar
 
-> Status: **browser-assisted login implemented, not yet validated against a live
-> bank session by the project.** The login runs in headless Chromium (base
-> `chromium`), so the bank's anti-fraud scripts set the `iscdName` device
-> fingerprint naturally; the keypad is clicked in that browser and the password
-> never leaves it. The session cookies are then replayed with `httpx` for the
+> Status: **live-validated on a test stack (2026-11-06).** The login runs in
+> headless Chromium (base `chromium`), so the bank's anti-fraud scripts set the
+> `iscdName` device fingerprint naturally; the keypad is clicked in that browser
+> and the password never leaves it. After the keypad, the sidecar clicks the
+> strong-authentication notice (**Continuer**), which is what sends the mobile
+> notification. The session cookies are then replayed with `httpx` for the
 > server-rendered pages.
 >
 > Sign-in is identifier → shuffled virtual keypad → **approval in the bank's

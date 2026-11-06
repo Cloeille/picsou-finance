@@ -114,8 +114,10 @@ account never sits in the `CHECKING` bucket waiting for the name-based detector.
   access. Failures must be typed so they are diagnosable.
 - **A larger sidecar image.** The login needs Chromium, so `lbp-auth` builds on
   the `chromium` base rather than the browserless `python` one.
-- **A live end-to-end run is still required.** Two captures fixed the flow and
-  the page structure, but the project has not run the client against the bank.
+- **One extra click in the login flow.** After the keypad, the bank shows a
+  strong-authentication notice; its **Continuer** button is what sends the
+  mobile notification. The sidecar clicks it. Without that click no push is
+  sent, which looked like a bank refusal.
 
 ## Consequences
 
@@ -146,6 +148,7 @@ account never sits in the `CHECKING` bucket waiting for the name-based detector.
 
 1. How long a replayed session stays usable (the client assumes 600 s and
    revalidates).
-2. Whether the bank detects headless Chromium (the live run will tell).
+2. How the bank behaves under repeated automated logins over time (one live run
+   passed; headless Chromium was not detected on 2026-11-06).
 3. How to parse the `telechargementMouvements.ea` export for history beyond the
    90-day window.
