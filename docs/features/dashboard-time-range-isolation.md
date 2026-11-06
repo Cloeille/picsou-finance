@@ -40,7 +40,10 @@ User clicks "3M" → DashboardPage.setRange('3M')
   ↓
 Both hero trend AND chart update to reflect 3M period
   ↓
-Distribution and goals: unaffected (no range dependency)
+Distribution and goals: unaffected by range (no range dependency).
+In financial wealth mode the distribution donut additionally mirrors the
+hero filter (checking, loans, real estate, physical precious metals and
+OTHER excluded), so the donut never shows a category the figure excludes.
 ```
 
 ## Trend calculation
