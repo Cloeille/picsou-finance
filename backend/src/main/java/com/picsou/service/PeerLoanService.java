@@ -867,10 +867,11 @@ public class PeerLoanService {
         BigDecimal accrued = PeerLoanCalculator
             .compute(terms, ledgerUpTo(terms, paidOn, excludedRepaymentId), paidOn)
             .interestAccrued();
-        // With no interest accrued there is nothing for an interest row to pay: the
-        // calculator already applies the whole amount to capital, which is the honest
-        // reading of a zero-rate loan. The guard targets a genuine overpayment of interest.
-        if (accrued.signum() > 0 && amount.compareTo(accrued) > 0) {
+        // An interest row pays what has accrued: with nothing accrued there is no
+        // interest to pay, so the row would be capital wearing the wrong label.
+        // (Open to debate: zero-rate loans never accrue; rejecting here forces the
+        // honest PRINCIPAL label instead of a ledger that says "interest".)
+        if (amount.compareTo(accrued) > 0) {
             throw new IllegalArgumentException(
                 "An interest repayment cannot exceed the accrued interest of "
                     + accrued.setScale(2, RoundingMode.HALF_UP) + " EUR");

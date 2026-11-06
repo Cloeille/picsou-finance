@@ -653,9 +653,8 @@ class PeerLoanServiceTest {
         assertThat(account.getCurrentBalance()).isEqualByComparingTo("0");
     }
 
-    @ParameterizedTest
-    @EnumSource(value = PeerLoanRepaymentKind.class, names = {"PRINCIPAL", "INTEREST"})
-    void addRepaymentFromTransactionLinksTheRowWithoutCopyingIt(PeerLoanRepaymentKind kind) {
+    @Test
+    void addRepaymentFromTransactionLinksTheRowWithoutCopyingIt() {
         Account account = loanAccount("Jean");
         Account cash = cashAccount(false);
         PeerLoanTerms terms = PeerLoanTerms.builder()
@@ -687,7 +686,7 @@ class PeerLoanServiceTest {
             .thenReturn(Map.of(PeerLoanService.TRANSFER_SLUG, transferCategory()));
 
         PeerLoanDetailResponse response = service.addRepaymentFromTransaction(
-            ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentFromTransactionRequest(60L, kind));
+            ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentFromTransactionRequest(60L, null));
 
         assertThat(response.principalRemaining()).isEqualByComparingTo("400.00");
         assertThat(ledger).hasSize(1);
@@ -696,6 +695,29 @@ class PeerLoanServiceTest {
         assertThat(transaction.getCategoryRef().getId()).isEqualTo(TRANSFER_CATEGORY_ID);
         assertThat(transaction.isCategoryManual()).isTrue();
         verify(manualTransactionService, never()).addTransaction(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void interestRepaymentIsRefusedWhenNothingHasAccrued() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("500")).lentAt(LocalDate.parse("2026-01-01"))
+            .annualRate(BigDecimal.ZERO).linkedAccount(cashAccount(true))
+            .build();
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID)).thenReturn(List.of());
+
+        // Zero rate, so nothing ever accrues: an INTEREST row would be capital wearing
+        // the wrong label. Record it as a payment instead.
+        assertThatThrownBy(() -> service.addRepayment(ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentRequest(
+            LocalDate.parse("2026-02-01"), new BigDecimal("100"),
+            PeerLoanRepaymentKind.INTEREST, null, false)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("accrued interest");
+
+        verify(repaymentRepository, never()).save(any(PeerLoanRepayment.class));
     }
 
     @Test

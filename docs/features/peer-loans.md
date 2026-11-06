@@ -104,8 +104,11 @@ Edge cases:
   it, inflating net worth. (Open to debate: capping the cash leg at the applied amount
   instead of rejecting was considered; rejection won because a silent partial write
   hides money just as badly.)
-- an explicit `INTEREST` repayment cannot exceed the interest accrued at its own date: the
-  excess would be labelled as income while the ledger has nothing to pay;
+- an explicit `INTEREST` repayment cannot exceed the interest accrued at its own date:
+  with nothing accrued the row would be capital wearing the wrong label. (Open to
+  debate: zero-rate loans never accrue, so this forces the honest `PRINCIPAL` label;
+  the alternative is accepting the label and letting the calculator apply it to
+  capital anyway.)
 - a zero rate short-circuits the interest branch and the whole payment amortises;
 - the linked cash account must be in EUR, because the principal and the ledger are EUR
   figures that are never converted a second time;
