@@ -81,7 +81,7 @@ public class SyncTools {
 
     @Tool(name = "trigger_broker_sync",
         description = "Refresh the authenticated member's existing broker connections: Trade Republic, "
-            + "BoursoBank, Bourse Direct, Amundi, Crédit Mutuel / CIC Épargne Salariale, Fortuneo, American Express, IBKR, and DEGIRO when the session is "
+            + "BoursoBank, Bourse Direct, Amundi, Crédit Mutuel / CIC Épargne Salariale, Natixis Interépargne, Fortuneo, American Express, IBKR, and DEGIRO when the session is "
             + "still active. Does not connect a new source. BoursoBank and Crédit Mutuel / CIC Épargne Salariale "
             + "log in again with their stored credentials when the session has expired; no source completes a "
             + "new second factor. Returns one status line per source." + SHARED_COOLDOWN_DESCRIPTION)

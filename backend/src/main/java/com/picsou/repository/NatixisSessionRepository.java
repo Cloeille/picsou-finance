@@ -26,12 +26,14 @@ public interface NatixisSessionRepository extends JpaRepository<NatixisSession, 
             session.lastSyncCompletedAt = :completedAt,
             session.lastSyncError = :errorCode
         WHERE session.syncStatus IN :interrupted
+          AND session.updatedAt < :staleBefore
         """)
     int markInterruptedSyncsFailed(
         @Param("interrupted") Collection<NatixisSyncStatus> interrupted,
         @Param("failed") NatixisSyncStatus failed,
         @Param("completedAt") Instant completedAt,
-        @Param("errorCode") SidecarErrorCode errorCode
+        @Param("errorCode") SidecarErrorCode errorCode,
+        @Param("staleBefore") Instant staleBefore
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

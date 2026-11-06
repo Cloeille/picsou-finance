@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.TransactionStatus;
@@ -41,6 +42,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -100,7 +102,10 @@ class NatixisSyncServiceTest {
         verify(holdingRepository, org.mockito.Mockito.times(2)).saveAll(holdingsCaptor.capture());
         List<AccountHolding> holdings = holdingsCaptor.getAllValues().getFirst();
         assertThat(holdings).extracting(AccountHolding::getTicker)
-            .containsExactly("NATIXIS-QS0004086763", "AVENIR-MONETAIRE");
+            .satisfiesExactly(
+                ticker -> assertThat(ticker).isEqualTo("NATIXIS-QS0004086763"),
+                // No fund code: the label slug plus a hash of the full label.
+                ticker -> assertThat(ticker).matches("AVENIR-MONETAIRE-[0-9A-F]{8}"));
         AccountHolding first = holdings.getFirst();
         assertThat(first.getProviderValueEur()).isEqualByComparingTo("1000.00");
         assertThat(first.getProviderPnlEur()).isEqualByComparingTo("90.91");
@@ -174,13 +179,111 @@ class NatixisSyncServiceTest {
         when(port.fetchPlans("plain-state")).thenReturn(positions("plain-state", peePlan()));
         Account gone = Account.builder().id(20L).externalAccountId(PERCO_ID).name("PERCO")
             .provider(NatixisSyncService.PROVIDER).currentBalance(new BigDecimal("300")).build();
-        when(accountRepository.findAllByMemberIdAndProvider(7L, NatixisSyncService.PROVIDER)).thenReturn(List.of(gone));
+        when(accountRepository.findAllByMemberIdAndProviderForUpdate(7L, NatixisSyncService.PROVIDER))
+            .thenReturn(List.of(gone));
 
         service.queueSync(7L);
 
         assertThat(gone.getCurrentBalance()).isEqualByComparingTo("0");
         verify(holdingRepository).deleteByAccountId(20L);
         verify(accountService).upsertSnapshot(gone, BigDecimal.ZERO, BigDecimal.ZERO, LocalDate.now());
+    }
+
+    @Test
+    void aSaverWhoClosedEveryPlanGetsTheirOldAccountsClosedAtZero() {
+        NatixisSession session = activeSession(owner());
+        arrangeCommittableSession(session);
+        when(port.fetchPlans("plain-state")).thenReturn(positions("plain-state"));
+        Account gone = Account.builder().id(20L).externalAccountId(PEE_ID).name("PEE")
+            .provider(NatixisSyncService.PROVIDER).currentBalance(new BigDecimal("1500.50")).build();
+        when(accountRepository.findAllByMemberIdAndProviderForUpdate(7L, NatixisSyncService.PROVIDER))
+            .thenReturn(List.of(gone));
+
+        NatixisSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(NatixisSyncStatus.SUCCESS);
+        assertThat(gone.getCurrentBalance()).isEqualByComparingTo("0");
+        verify(holdingRepository).deleteByAccountId(20L);
+        verify(accountService).upsertSnapshot(gone, BigDecimal.ZERO, BigDecimal.ZERO, LocalDate.now());
+    }
+
+    @Test
+    void theCommitLocksTheAccountsBeforeTheSessionLikeAnAccountDeletionDoes() {
+        NatixisSession session = activeSession(owner());
+        arrangeCommittableSession(session);
+        when(port.fetchPlans("plain-state")).thenReturn(positions("plain-state", peePlan()));
+
+        service.queueSync(7L);
+
+        InOrder order = inOrder(accountRepository, sessionRepository);
+        order.verify(accountRepository).findAllByMemberIdAndProviderForUpdate(7L, NatixisSyncService.PROVIDER);
+        order.verify(sessionRepository).findByIdAndMemberIdForUpdate(3L, 7L);
+        order.verify(accountRepository).save(any(Account.class));
+        assertThat(session.getSyncStatus()).isEqualTo(NatixisSyncStatus.SUCCESS);
+    }
+
+    @Test
+    void twoLabelOnlyFundsSharingTheirFirstCharactersKeepDistinctTickers() {
+        NatixisSession session = activeSession(owner());
+        arrangeCommittableSession(session);
+        NatixisAdapter.PlanData plan = new NatixisAdapter.PlanData(PEE_ID, "Plan d'Épargne Entreprise", "PEE",
+            "UES ACME", new BigDecimal("300.00"), List.of(
+                new NatixisAdapter.Position(null, null, "IMPACT ISR PERFORMANCE SOLIDAIRE PART A",
+                    new BigDecimal("10"), null, new BigDecimal("100.00"), null),
+                new NatixisAdapter.Position(null, null, "IMPACT ISR PERFORMANCE SOLIDAIRE PART B",
+                    new BigDecimal("10"), null, new BigDecimal("200.00"), null)
+            ), true);
+        when(port.fetchPlans("plain-state")).thenReturn(positions("plain-state", plan));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(NatixisSyncStatus.SUCCESS);
+        verify(holdingRepository).saveAll(holdingsCaptor.capture());
+        List<String> tickers = holdingsCaptor.getValue().stream().map(AccountHolding::getTicker).toList();
+        assertThat(tickers).hasSize(2).doesNotHaveDuplicates()
+            .allSatisfy(ticker -> assertThat(ticker).hasSizeLessThanOrEqualTo(30)
+                .startsWith("IMPACT-ISR-PERFORMANC"));
+    }
+
+    @Test
+    void aJobThatCannotBeMarkedRunningFailsRetryablyInsteadOfStayingQueued() {
+        NatixisSession session = activeSession(owner());
+        arrangeQueuedSession(session);
+        when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L))
+            .thenThrow(new org.springframework.dao.QueryTimeoutException("db hiccup"))
+            .thenReturn(Optional.of(session));
+
+        NatixisSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(NatixisSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
+        assertThat(session.isActive()).isTrue();
+        verify(port, never()).fetchPlans(anyString());
+        // Retryable: the next sync is accepted again.
+        when(port.fetchPlans("plain-state"))
+            .thenThrow(new SyncException("transient", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
+        service.queueSync(7L);
+        verify(port).fetchPlans("plain-state");
+    }
+
+    @Test
+    void bootRecoveryOnlyFailsJobsThatWentStale() {
+        Instant before = Instant.now();
+
+        service.recoverInterruptedSyncs();
+
+        ArgumentCaptor<Instant> staleBefore = ArgumentCaptor.forClass(Instant.class);
+        verify(sessionRepository).markInterruptedSyncsFailed(
+            eq(List.of(NatixisSyncStatus.QUEUED, NatixisSyncStatus.RUNNING)),
+            eq(NatixisSyncStatus.FAILED),
+            any(Instant.class),
+            eq(SidecarErrorCode.INTERNAL_ERROR),
+            staleBefore.capture());
+        // A job another backend touched in the last ten minutes is left alone.
+        assertThat(staleBefore.getValue())
+            .isBeforeOrEqualTo(Instant.now().minus(NatixisSyncService.STALE_SYNC_AFTER))
+            .isAfterOrEqualTo(before.minus(NatixisSyncService.STALE_SYNC_AFTER));
+        assertThat(NatixisSyncService.STALE_SYNC_AFTER).isGreaterThanOrEqualTo(java.time.Duration.ofMinutes(10));
     }
 
     @Test
@@ -255,6 +358,51 @@ class NatixisSyncServiceTest {
             .isInstanceOfSatisfying(SyncException.class,
                 error -> assertThat(error.getCode()).isEqualTo("AUTH_ATTEMPT_EXPIRED"));
         verify(sessionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void removingTheConnectionCancelsTheMembersPendingLoginsAtTheSidecar() {
+        when(port.initiateAuth("saver@example.com", "secret"))
+            .thenReturn(new SidecarInitiate("mine", true, "SMS", null));
+        when(port.initiateAuth("other@example.com", "secret"))
+            .thenReturn(new SidecarInitiate("theirs", true, "SMS", null));
+        service.initiateAuth("saver@example.com", "secret", 7L);
+        service.initiateAuth("other@example.com", "secret", 8L);
+
+        service.clearSession(7L);
+
+        verify(port).cancelAuth("mine");
+        verify(port, never()).cancelAuth("theirs");
+    }
+
+    @Test
+    void aLoginOpenedWhileTheConnectionWasRemovedIsCancelledAtTheSidecar() {
+        when(port.initiateAuth("saver@example.com", "secret")).thenAnswer(invocation -> {
+            service.clearSession(7L);
+            return new SidecarInitiate("process", true, "SMS", null);
+        });
+
+        assertThatThrownBy(() -> service.initiateAuth("saver@example.com", "secret", 7L))
+            .isInstanceOfSatisfying(SyncException.class,
+                error -> assertThat(error.getCode()).isEqualTo("AUTH_ATTEMPT_EXPIRED"));
+        verify(port).cancelAuth("process");
+    }
+
+    @Test
+    void aConnectionRemovedWhileTheCodeIsBeingCheckedStoresNothing() {
+        when(port.initiateAuth("saver@example.com", "secret"))
+            .thenReturn(new SidecarInitiate("process", true, "SMS", null));
+        when(port.completeAuth("process", "123456")).thenAnswer(invocation -> {
+            service.clearSession(7L);
+            return "fresh-state";
+        });
+        service.initiateAuth("saver@example.com", "secret", 7L);
+
+        assertThatThrownBy(() -> service.completeAuth("process", "123456", 7L))
+            .isInstanceOfSatisfying(SyncException.class,
+                error -> assertThat(error.getCode()).isEqualTo("AUTH_ATTEMPT_EXPIRED"));
+        verify(sessionRepository, never()).saveAndFlush(any());
+        verify(memberRepository, never()).findById(anyLong());
     }
 
     private NatixisAdapter.PositionsData positions(String sessionState, NatixisAdapter.PlanData... plans) {

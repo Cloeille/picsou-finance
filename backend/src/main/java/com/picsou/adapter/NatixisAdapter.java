@@ -7,9 +7,13 @@ import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.SidecarInitiate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -27,16 +31,21 @@ import java.util.Map;
  */
 @Component
 public class NatixisAdapter {
+    private static final Logger log = LoggerFactory.getLogger(NatixisAdapter.class);
     /** The sidecar's own upstream calls are capped below these. */
     private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
     private static final Duration DEFAULT_COMPLETE_TIMEOUT = Duration.ofSeconds(45);
     /** One savings list, then one product page per plan. */
     private static final Duration DEFAULT_POSITIONS_TIMEOUT = Duration.ofSeconds(120);
+    /** Best effort on a path the user is waiting on (a disconnect): short, and never retried. */
+    private static final Duration DEFAULT_CANCEL_TIMEOUT = Duration.ofSeconds(10);
 
+    private final WebClient client;
     private final SidecarClient sidecar;
     private final Duration authTimeout;
     private final Duration completeTimeout;
     private final Duration positionsTimeout;
+    private final Duration cancelTimeout;
 
     @Autowired
     public NatixisAdapter(
@@ -59,10 +68,23 @@ public class NatixisAdapter {
         Duration completeTimeout,
         Duration positionsTimeout
     ) {
+        this(client, objectMapper, authTimeout, completeTimeout, positionsTimeout, DEFAULT_CANCEL_TIMEOUT);
+    }
+
+    NatixisAdapter(
+        WebClient client,
+        ObjectMapper objectMapper,
+        Duration authTimeout,
+        Duration completeTimeout,
+        Duration positionsTimeout,
+        Duration cancelTimeout
+    ) {
+        this.client = client;
         this.sidecar = new SidecarClient(client, objectMapper, SidecarBank.NATIXIS, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
         this.authTimeout = authTimeout;
         this.completeTimeout = completeTimeout;
         this.positionsTimeout = positionsTimeout;
+        this.cancelTimeout = cancelTimeout;
     }
 
     /** Always answers with a second factor to complete: {@code mfaType} is {@code SMS}, {@code VOICE} or {@code EMAIL}. */
@@ -77,6 +99,24 @@ public class NatixisAdapter {
             SidecarSession.class, completeTimeout, "Could not complete Natixis Interépargne authentication",
             SidecarErrorCode.INVALID_OTP);
         return response.sessionState();
+    }
+
+    /**
+     * Tells the sidecar to drop a parked login attempt so its pending slot frees at once.
+     * Best effort: the sidecar forgets the attempt on its own after 600 s anyway, so a
+     * failure is logged -- without the attempt id -- and never thrown.
+     */
+    public void cancelAuth(String processId) {
+        try {
+            client.post().uri("/cancel").contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("processId", processId)).retrieve().toBodilessEntity()
+                .timeout(cancelTimeout).block();
+        } catch (RuntimeException ex) {
+            String reason = ex instanceof WebClientResponseException response
+                ? "status " + response.getStatusCode().value()
+                : ex.getClass().getSimpleName();
+            log.warn("Could not cancel a pending Natixis Interépargne login ({})", reason);
+        }
     }
 
     /** The answer carries the session to store next, which may differ from the one sent. */

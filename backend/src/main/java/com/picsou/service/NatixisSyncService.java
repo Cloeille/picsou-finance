@@ -29,10 +29,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -70,6 +75,14 @@ public class NatixisSyncService {
     private static final int MAX_TICKER_LENGTH = 30;
     /** The sidecar forgets a login attempt after 600 s. */
     private static final long PENDING_ATTEMPT_SECONDS = 600;
+    /**
+     * An in-flight job untouched for this long has no live worker behind it. Well above
+     * the adapter's 120 s positions call, so a job another backend sharing the database
+     * just started is left alone.
+     */
+    static final Duration STALE_SYNC_AFTER = Duration.ofMinutes(10);
+    /** Hex characters of the label hash that keeps two label-only fund tickers apart. */
+    private static final int LABEL_HASH_LENGTH = 8;
 
     private final NatixisAdapter port;
     private final NatixisSessionRepository sessionRepository;
@@ -124,10 +137,18 @@ public class NatixisSyncService {
             throw error(SidecarErrorCode.INVALID_DATA, "Natixis did not return a login attempt", null);
         }
         evictExpiredPendingAttempts();
+        boolean removedMeanwhile;
         synchronized (sessionWriteLock) {
-            requireGeneration(memberId, generation);
-            pendingAttempts.put(result.processId(), new PendingAttempt(
-                memberId, generation, Instant.now().plusSeconds(PENDING_ATTEMPT_SECONDS)));
+            removedMeanwhile = authGeneration(memberId) != generation;
+            if (!removedMeanwhile) {
+                pendingAttempts.put(result.processId(), new PendingAttempt(
+                    memberId, generation, Instant.now().plusSeconds(PENDING_ATTEMPT_SECONDS)));
+            }
+        }
+        if (removedMeanwhile) {
+            // The connection was removed while the sidecar opened this attempt: drop it there too.
+            port.cancelAuth(result.processId());
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED, "The Natixis connection was removed during the login", null);
         }
         return new AuthInitResponse(result.processId(), true, result.mfaType());
     }
@@ -228,7 +249,18 @@ public class NatixisSyncService {
     }
 
     private void executeJob(SyncJob job) {
-        if (!markRunning(job)) {
+        boolean running;
+        try {
+            running = markRunning(job);
+        } catch (RuntimeException ex) {
+            // Left QUEUED, the session would refuse every later sync and keep the UI
+            // polling. A failure is retryable; if even that write fails, the stale-job
+            // sweep in recoverInterruptedSyncs picks it up.
+            log.warn("Natixis sync could not start (member={})", job.memberId(), ex);
+            markFailed(job, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
+            return;
+        }
+        if (!running) {
             return;
         }
         try {
@@ -295,8 +327,12 @@ public class NatixisSyncService {
         }));
     }
 
+    /**
+     * An empty list is a saver who closed every plan, not a partial read: the sidecar only
+     * answers once the products total matches, so {@link #closeUnlistedPlans} zeroes them all.
+     */
     private List<PreparedPlan> preparePlans(List<NatixisAdapter.PlanData> fetched) {
-        if (fetched == null || fetched.isEmpty()) {
+        if (fetched == null) {
             throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "Natixis returned no complete plan", null);
         }
 
@@ -401,6 +437,12 @@ public class NatixisSyncService {
 
     private boolean commitPlans(SyncJob job, List<PreparedPlan> prepared) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
+            // Lock order: the member's Natixis accounts, then the session row. Deleting an
+            // account takes them in that order too -- AccountConnectionService soft-deletes
+            // the account, then clearSession locks the session -- so locking the session
+            // first here, then writing the accounts, could deadlock against a deletion.
+            List<Account> imported = accountRepository.findAllByMemberIdAndProviderForUpdate(
+                job.memberId(), PROVIDER);
             Optional<NatixisSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(),
                 job.memberId()
@@ -423,7 +465,6 @@ public class NatixisSyncService {
             FamilyMember member = memberRepository.findById(job.memberId())
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             Instant syncedAt = Instant.now();
-            List<Account> imported = accountRepository.findAllByMemberIdAndProvider(job.memberId(), PROVIDER);
             for (PreparedPlan data : prepared) {
                 upsertAccount(data, member, job.memberId(), syncedAt);
             }
@@ -545,14 +586,22 @@ public class NatixisSyncService {
      * Queued jobs live in a process-local executor and cannot survive a backend
      * restart. Turn persisted in-flight states into a retryable failure instead
      * of leaving the UI polling QUEUED/RUNNING forever.
+     *
+     * <p>Only jobs untouched for {@link #STALE_SYNC_AFTER} are failed: another
+     * backend sharing the database may be running a fresh one. Run at boot and
+     * then periodically, so a job interrupted just before a restart is still
+     * recovered once it goes stale.
      */
     @Transactional
+    @Scheduled(fixedDelay = 300_000, initialDelay = 300_000)
     public void recoverInterruptedSyncs() {
+        Instant now = Instant.now();
         int recovered = sessionRepository.markInterruptedSyncsFailed(
             List.of(NatixisSyncStatus.QUEUED, NatixisSyncStatus.RUNNING),
             NatixisSyncStatus.FAILED,
-            Instant.now(),
-            SidecarErrorCode.INTERNAL_ERROR
+            now,
+            SidecarErrorCode.INTERNAL_ERROR,
+            now.minus(STALE_SYNC_AFTER)
         );
         if (recovered > 0) {
             log.warn("Recovered {} interrupted Natixis sync job(s)", recovered);
@@ -571,16 +620,27 @@ public class NatixisSyncService {
      * its code is cancelled too, so finishing it cannot bring the connection back.
      */
     public boolean clearSession(Long memberId) {
+        boolean removed;
+        List<String> dropped = new ArrayList<>();
         synchronized (sessionWriteLock) {
             authGenerations.merge(memberId, 1L, Long::sum);
-            boolean removed = Boolean.TRUE.equals(txTemplate.execute(status -> {
+            removed = Boolean.TRUE.equals(txTemplate.execute(status -> {
                 var session = sessionRepository.findByMemberIdForUpdate(memberId);
                 session.ifPresent(sessionRepository::delete);
                 return session.isPresent();
             }));
-            pendingAttempts.entrySet().removeIf(entry -> entry.getValue().memberId().equals(memberId));
-            return removed;
+            pendingAttempts.entrySet().removeIf(entry -> {
+                if (!entry.getValue().memberId().equals(memberId)) {
+                    return false;
+                }
+                dropped.add(entry.getKey());
+                return true;
+            });
         }
+        // Outside the lock: a slow sidecar must not hold up other members' logins.
+        // Best effort, never throws: the sidecar forgets the attempt after 600 s anyway.
+        dropped.forEach(port::cancelAuth);
+        return removed;
     }
 
     public SourceSyncResult resyncReporting(Long memberId) {
@@ -664,8 +724,10 @@ public class NatixisSyncService {
     /**
      * Employer funds are not quoted anywhere Picsou can price them: the ISIN is
      * the ticker when there is one, else the AMF fund code prefixed to keep it
-     * apart from a real symbol, and the label as the last resort, behind the
-     * collision guard in {@link #mergePositions}.
+     * apart from a real symbol. Without either (an older sidecar), the label slug
+     * plus a short hash of the full label: two funds whose labels share the first
+     * {@value #MAX_TICKER_LENGTH} characters keep distinct, stable tickers instead of
+     * tripping the collision guard in {@link #mergePositions}.
      */
     private String resolveTicker(NatixisAdapter.Position position) {
         String isin = clean(position.isin());
@@ -683,7 +745,19 @@ public class NatixisSyncService {
         if (label == null) {
             throw error(SidecarErrorCode.INVALID_DATA, "Natixis returned a fund without any identifier", null);
         }
-        return label;
+        String hash = labelHash(clean(position.label()));
+        int room = MAX_TICKER_LENGTH - hash.length() - 1;
+        String prefix = label.length() <= room ? label : label.substring(0, room).replaceAll("-+$", "");
+        return prefix + "-" + hash;
+    }
+
+    private static String labelHash(String label) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(label.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().withUpperCase().formatHex(digest).substring(0, LABEL_HASH_LENGTH);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is unavailable", ex);
+        }
     }
 
     /** Uppercase alphanumeric slug, capped at {@value #MAX_TICKER_LENGTH}, or null if nothing is left. */

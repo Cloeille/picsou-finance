@@ -75,6 +75,13 @@ public class AccountService {
         FortuneoSyncService.PROVIDER
     );
 
+    /**
+     * Provider-valued accounts that are never priced from market quotes, even when every
+     * ticker resolves. Natixis Interépargne employer funds are quoted nowhere, so a quote
+     * found for one of their tickers (a label slug, say) belongs to another instrument.
+     */
+    private static final Set<String> NEVER_MARKET_PRICED = Set.of(NatixisSyncService.PROVIDER);
+
     private final AccountRepository accountRepository;
     private final BalanceSnapshotRepository snapshotRepository;
     private final AccountHoldingRepository holdingRepository;
@@ -738,6 +745,9 @@ public class AccountService {
      * what was synced.
      */
     private Map<String, PriceService.Quote> quotesFor(Account account, List<AccountHolding> holdings) {
+        // No quote at all: each line falls back to its provider value, and the provider-valued
+        // override in valuation() keeps the provider's own total.
+        if (account.getProvider() != null && NEVER_MARKET_PRICED.contains(account.getProvider())) return Map.of();
         Set<String> tickers = tickersOf(holdings);
         if (tickers.isEmpty()) return Map.of();
         return account.getType() == AccountType.CRYPTO
