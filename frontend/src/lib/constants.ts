@@ -14,6 +14,7 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
   { value: 'CRYPTO', labelKey: 'accountTypes.crypto' },
   { value: 'ASSURANCE_VIE', labelKey: 'accountTypes.assuranceVie' },
   { value: 'PER', labelKey: 'accountTypes.per' },
+  { value: 'PRECIOUS_METALS', labelKey: 'accountTypes.preciousMetals' },
   { value: 'REAL_ESTATE', labelKey: 'accountTypes.realEstate' },
   { value: 'SCPI', labelKey: 'accountTypes.scpi' },
   { value: 'EMPLOYEE_SAVINGS', labelKey: 'accountTypes.employeeSavings' },
@@ -29,7 +30,8 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
  * A ledger import cannot target them, and a manual transaction never rewrites their balance.
  */
 export const NON_LEDGER_ACCOUNT_TYPES: AccountType[] = [
-  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI', 'PEER_LOAN',
+  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS', 'EMPLOYEE_SAVINGS',
+  'REAL_ESTATE', 'SCPI', 'PEER_LOAN',
 ]
 
 /**
@@ -51,7 +53,7 @@ export const CASH_ACCOUNT_TYPES: AccountType[] = [
  * three chances to forget one.
  */
 export const HOLDING_ACCOUNT_TYPES: AccountType[] = [
-  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'EMPLOYEE_SAVINGS', 'ASSURANCE_VIE', 'PER',
+  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'EMPLOYEE_SAVINGS', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS',
 ]
 
 /** Mirrors the backend's `AccountType.isLiability()`: debts, never part of the user's assets. */
@@ -93,6 +95,9 @@ export const QUERY_STALE_TIMES = {
   // Allocation moves at the pace of the portfolio behind it, and the score is read, not
   // watched -- the dashboard's cadence is the right one here too.
   analysis: 5 * 60 * 1000,
+  // The precious-metals catalogue is a fixed list shipped with the backend: it only changes
+  // with a release, so a session-long cache never serves a stale answer.
+  preciousMetals: 60 * 60 * 1000,
 } as const
 
 /**

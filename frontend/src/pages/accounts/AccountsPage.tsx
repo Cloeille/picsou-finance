@@ -28,20 +28,21 @@ import { accountInvestedAt, accountPnlAt, hasMeasurableGain } from '@/features/a
 import { useAppStore } from '@/stores/app-store'
 import type { Account, AccountRequest, AccountType } from '@/types/api'
 
-type AssetFilter = 'ALL' | 'STOCKS' | 'METALS' | 'SAVINGS' | 'CHECKING' | 'CRYPTO' | 'REAL_ESTATE' | 'RECEIVABLES' | 'DEBTS'
+type AssetFilter = 'ALL' | 'STOCKS' | 'METALS' | 'SAVINGS' | 'CHECKING' | 'CRYPTO' | 'REAL_ESTATE' | 'RECEIVABLES' | 'DEBTS' | 'OTHER'
 
-const FILTER_KEYS: AssetFilter[] = ['ALL', 'STOCKS', 'METALS', 'SAVINGS', 'CHECKING', 'CRYPTO', 'REAL_ESTATE', 'RECEIVABLES', 'DEBTS']
+const FILTER_KEYS: AssetFilter[] = ['ALL', 'STOCKS', 'METALS', 'SAVINGS', 'CHECKING', 'CRYPTO', 'REAL_ESTATE', 'RECEIVABLES', 'DEBTS', 'OTHER']
 
 const ASSET_FILTER_MAP: Record<AssetFilter, AccountType[] | null> = {
   ALL: null,
   STOCKS: ['PEA', 'COMPTE_TITRES', 'EMPLOYEE_SAVINGS', 'ASSURANCE_VIE', 'PER'],
-  METALS: ['OTHER'],
+  METALS: ['PRECIOUS_METALS'],
   SAVINGS: ['LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL', 'SAVINGS'],
   CHECKING: ['CHECKING'],
   CRYPTO: ['CRYPTO'],
   REAL_ESTATE: ['REAL_ESTATE', 'SCPI'],
   RECEIVABLES: ['PEER_LOAN'],
   DEBTS: LIABILITY_ACCOUNT_TYPES,
+  OTHER: ['OTHER'],
 }
 
 const TYPE_GROUP_META: Record<string, { key: string; labelKey: string; color: string }> = {
@@ -53,6 +54,7 @@ const TYPE_GROUP_META: Record<string, { key: string; labelKey: string; color: st
   REAL_ESTATE: { key: 'REAL_ESTATE', labelKey: 'accounts.filters.REAL_ESTATE', color: '#a855f7' },
   RECEIVABLES: { key: 'RECEIVABLES', labelKey: 'accounts.filters.RECEIVABLES', color: '#0d9488' },
   DEBTS:       { key: 'DEBTS',       labelKey: 'accounts.filters.DEBTS',       color: '#ef4444' },
+  OTHER:       { key: 'OTHER',       labelKey: 'accounts.filters.OTHER',       color: '#94a3b8' },
 }
 
 const TYPE_TO_GROUP: Record<AccountType, string> = {
@@ -61,7 +63,8 @@ const TYPE_TO_GROUP: Record<AccountType, string> = {
   EMPLOYEE_SAVINGS: 'STOCKS',
   ASSURANCE_VIE: 'STOCKS',
   PER: 'STOCKS',
-  OTHER: 'METALS',
+  PRECIOUS_METALS: 'METALS',
+  OTHER: 'OTHER',
   LEP: 'SAVINGS',
   LIVRET_A: 'SAVINGS',
   LDDS: 'SAVINGS',

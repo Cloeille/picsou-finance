@@ -12,9 +12,9 @@ import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.IbkrConnection;
-import com.picsou.port.IbkrFlexPort;
-import com.picsou.port.IbkrFlexPort.IbkrAccountData;
-import com.picsou.port.IbkrFlexPort.IbkrPosition;
+import com.picsou.ibkr.client.IbkrFlexClient;
+import com.picsou.ibkr.client.IbkrFlexClient.IbkrAccountData;
+import com.picsou.ibkr.client.IbkrFlexClient.IbkrPosition;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -56,7 +56,7 @@ import java.util.Set;
 @Transactional
 public class IbkrSyncService {
 
-    private final IbkrFlexPort ibkrFlexPort;
+    private final IbkrFlexClient ibkrFlexClient;
     private final IbkrConnectionRepository connectionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
@@ -195,7 +195,7 @@ public class IbkrSyncService {
                 + "key may have changed. Please reconnect with a fresh token.", ex);
         }
 
-        List<IbkrAccountData> accounts = ibkrFlexPort.fetchOpenPositions(token, queryId);
+        List<IbkrAccountData> accounts = ibkrFlexClient.fetchOpenPositions(token, queryId);
 
         List<AccountResponse> responses = accounts.stream()
             .map(data -> upsertAccount(data, memberId))

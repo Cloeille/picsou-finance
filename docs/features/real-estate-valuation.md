@@ -46,13 +46,11 @@ Daily snapshot job (unchanged) picks up the new balance -> gain curve for free
 ### Key files
 
 **Backend**
-- `port/PropertyValuationPort.java` — estimation contract; `supports()` is how a provider
-  declines an area it has no data for
 - `port/GeocodingPort.java` — address → INSEE code (the join key for every price series)
-- `port/HousingPriceIndexPort.java` — re-indexing ratio
-- `adapter/CeremaDv3fValuationProvider.java` — DV3F market indicators
+- `adapter/CeremaDv3fValuationProvider.java` — DV3F market indicators; `supports()` is how it
+  declines an area it has no data for; nests `ValuationInput` / `ValuationResult`
 - `adapter/GeoplateformeGeocoder.java` — IGN Géoplateforme
-- `adapter/InseeBdmIndexProvider.java` — INSEE BDM, SDMX-ML, 24 h cache
+- `adapter/InseeBdmIndexProvider.java` — INSEE BDM, SDMX-ML, 24 h cache; the re-indexing ratio
 - `service/PropertyValuationService.java` — orchestration, persistence, balance write
 - `service/PropertyAdjustments.java` — the heuristic coefficient table
 - `service/RealEstateSummaryService.java` — gross / net / debt roll-up

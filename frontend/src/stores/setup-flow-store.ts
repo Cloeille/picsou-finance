@@ -11,17 +11,6 @@ export type IntegrationKey =
   | 'finary'
   | 'crypto'
 
-export const ALL_INTEGRATIONS: IntegrationKey[] = [
-  'enablebanking',
-  'boursobank',
-  'boursedirect',
-  'fortuneo',
-  'traderepublic',
-  'revolut',
-  'finary',
-  'crypto',
-]
-
 export type EnableBankingKeyMode = 'import' | 'generate'
 
 interface EnableBankingDraft {

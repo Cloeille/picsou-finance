@@ -18,6 +18,21 @@ class AccountTypeTest {
         assertThat(AccountType.ASSURANCE_VIE.isInvestment()).isTrue();
         // An individual PER holds unit-linked lines plus a euro fund, the same shape as a policy.
         assertThat(AccountType.PER.isInvestment()).isTrue();
+        // Gold is held as a quantity of a priced product (grams, coins), never as a balance.
+        assertThat(AccountType.PRECIOUS_METALS.isInvestment()).isTrue();
+    }
+
+    @Test
+    void preciousMetalsIsWealthNotDebt() {
+        assertThat(AccountType.PRECIOUS_METALS.isLiability()).isFalse();
+    }
+
+    @Test
+    void peerLoanAndPreciousMetalsSitJustBeforeOther() {
+        AccountType[] all = AccountType.values();
+        assertThat(all[all.length - 3]).isEqualTo(AccountType.PEER_LOAN);
+        assertThat(all[all.length - 2]).isEqualTo(AccountType.PRECIOUS_METALS);
+        assertThat(all[all.length - 1]).isEqualTo(AccountType.OTHER);
     }
 
     @Test
@@ -57,7 +72,8 @@ class AccountTypeTest {
         // transactions would replace that value.
         assertThat(Arrays.stream(AccountType.values()).filter(t -> !t.isLedger()))
             .containsExactlyInAnyOrder(AccountType.PEA, AccountType.COMPTE_TITRES, AccountType.CRYPTO,
-                AccountType.ASSURANCE_VIE, AccountType.PER, AccountType.EMPLOYEE_SAVINGS,
-                AccountType.REAL_ESTATE, AccountType.SCPI, AccountType.PEER_LOAN);
+                AccountType.ASSURANCE_VIE, AccountType.PER, AccountType.PRECIOUS_METALS,
+                AccountType.EMPLOYEE_SAVINGS, AccountType.REAL_ESTATE, AccountType.SCPI,
+                AccountType.PEER_LOAN);
     }
 }

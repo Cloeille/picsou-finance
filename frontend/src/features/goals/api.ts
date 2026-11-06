@@ -7,8 +7,6 @@ export const goalsApi = {
   create: (data: GoalRequest) => api.post<GoalProgress>('/goals', data).then(r => r.data),
   update: (id: number, data: GoalRequest) => api.put<GoalProgress>(`/goals/${id}`, data).then(r => r.data),
   delete: (id: number) => api.delete(`/goals/${id}`),
-  getHistory: (id: number) =>
-    api.get<{ date: string; total: number; invested: number }[]>(`/goals/${id}/history`).then(r => r.data),
   getMonths: (id: number) => api.get<GoalMonthEntry[]>(`/goals/${id}/months`).then(r => r.data),
   extendHistory: (id: number) =>
     api.post<GoalProgress>(`/goals/${id}/history/extend`).then(r => r.data),

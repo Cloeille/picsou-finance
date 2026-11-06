@@ -8,6 +8,7 @@ import com.picsou.imports.homebank.HomeBankFileParser;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
 import com.picsou.repository.*;
+import com.picsou.support.PostgresContainers;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -20,7 +21,6 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -43,20 +43,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=validate", "spring.flyway.enabled=true"})
 @EnabledIfSystemProperty(named = "picsou.homebank.qifFile", matches = ".+")
 @Testcontainers
-@EnabledIf("dockerAvailable")
+@EnabledIf("com.picsou.support.PostgresContainers#dockerDaemonReachable")
 class HomeBankQifPrivateSmokeTest {
-    static {
-        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
-    }
-
     @Container
     @ServiceConnection
-    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        return DockerClientFactory.instance().isDockerAvailable();
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @Autowired HomeBankImportService service;
     @Autowired HomeBankFileParser parser;

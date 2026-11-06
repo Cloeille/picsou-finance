@@ -2,7 +2,7 @@ package com.picsou.repository;
 
 import com.picsou.model.AmundiSession;
 import com.picsou.model.AmundiSyncStatus;
-import com.picsou.port.AmundiErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -31,7 +31,7 @@ public interface AmundiSessionRepository extends JpaRepository<AmundiSession, Lo
         @Param("interrupted") Collection<AmundiSyncStatus> interrupted,
         @Param("failed") AmundiSyncStatus failed,
         @Param("completedAt") Instant completedAt,
-        @Param("errorCode") AmundiErrorCode errorCode
+        @Param("errorCode") SidecarErrorCode errorCode
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

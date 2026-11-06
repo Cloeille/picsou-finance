@@ -1,6 +1,6 @@
 # Feature: Demo mode
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-05
 
 ## Context
 
@@ -18,9 +18,11 @@ At startup, if `VITE_DEMO_MODE === 'true'`, a custom Axios adapter replaces the 
 
 ```
 VITE_DEMO_MODE=true
-  → api-client.ts injects createDemoAdapter() on api.defaults.adapter
+  → api-client.ts dynamically imports @/demo and installs createDemoAdapter() on api.defaults.adapter
   → every Axios request is intercepted, resolved with mock data after a random delay (200–600 ms)
 ```
+
+The import is dynamic and sits behind the build-time flag. A production build (`VITE_DEMO_MODE=false`) drops the branch, so the handler table and `demo/data/` never reach any chunk. A demo build fetches them as a separate chunk; requests sent before it arrives wait for it instead of reaching the network. If the chunk fails to load, those requests reject and the next request fetches it again. Never import `@/demo` statically from app code: it would pull the fixtures back into the entry chunk.
 
 Register handlers only for supported backend routes, using their response shapes.
 
@@ -74,12 +76,13 @@ Register handlers only for supported backend routes, using their response shapes
 
 ## Tests
 
-From `frontend/`, run `bun run typecheck` and `bun run lint` alongside the demo
-tests (`bunx vitest run src/demo src/features/auth/guards.test.tsx src/features/accounts/hooks.test.tsx`). Vitest
+`make test-frontend` runs lint, typecheck and these tests (`src/demo`,
+`src/features/auth/guards.test.tsx`, `src/features/accounts/hooks.test.tsx`). Vitest
 transpiles TypeScript without checking for unused imports. An unused import in
 `src/demo/index.ts` fails both checks and blocks `bun run build`, including the
 demo build used by the Docker image.
 
+- `frontend/src/lib/api-client.demo.test.ts` checks that a request issued before the chunk arrives is held and then answered by the demo adapter (nothing reaches XHR), that the adapter is built once for concurrent requests, and that a failed chunk load rejects the request and is retried by the next one.
 - `frontend/src/demo/cic.test.ts` checks all six CIC session routes through the adapter, including authentication, reconnect, sync, and deletion response shapes.
 - `frontend/src/demo/coverage.test.ts` scans the source for every `api.get('/...')` call, expands each path parameter over every demo account, goal and category id, and fails on any URL the demo adapter has no handler for. Mutations are not checked: an unhandled one still answers `200 {}` by design.
 - `frontend/src/demo/fixtures.test.ts` freezes the clock before the fixtures load and checks that they agree across pages (dashboard against Accounts, allocation stock against the accounts, an account's history against its edited balance, family against accounts and goals, goal badge against its calendar), that the calendar is identical between loads, and that the budget opens on the current month in a UTC+ zone. Categorization checks cover invalid IDs, removal from the inbox, ledger and spending updates, previously unused categories, and TRANSFER exclusion.
@@ -91,7 +94,7 @@ demo build used by the Docker image.
 - `frontend/src/demo/data/budget.test.ts` checks local cycle dates and every projected recurring due date in Paris, Tokyo, and Los Angeles, including DST changes, month ends, and year ends.
 - `frontend/src/demo/transactions.test.ts` checks date, account, and category filters, newest-first order, spending amounts and counts including the review inbox, and session recategorization through the adapter. Category filters select an explicitly categorized row, including on October 31, November 1, and January 1.
 
-The Playwright suite (`frontend/e2e/*.spec.ts`, `bun run test:e2e`) runs entirely against demo mode — it is the de-facto regression net for the handler table. `playwright.config.ts` forces `VITE_DEMO_MODE=true` on the Vite dev server it starts, so a missing `frontend/.env` still runs the suite in demo mode. The specs find demo data by its displayed text (a goal or account name, a label), so renaming a fixture means updating the specs that name it: `e2e/mobile-layout.spec.ts` still looked for the goal "Vacances été 2025" after it became "Voyage au Japon". The same holds for counts that follow from a fixture's relative dates: `e2e/goals.spec.ts` counts goal 2's calendar months, which is its `createdMonthsAgo` + 1 (12) on any date.
+The Playwright suite (`frontend/e2e/*.spec.ts`, `make test-e2e`) runs entirely against demo mode — it is the de-facto regression net for the handler table. `playwright.config.ts` forces `VITE_DEMO_MODE=true` on the Vite dev server it starts, so a missing `frontend/.env` still runs the suite in demo mode. The specs find demo data by its displayed text (a goal or account name, a label), so renaming a fixture means updating the specs that name it: `e2e/mobile-layout.spec.ts` still looked for the goal "Vacances été 2025" after it became "Voyage au Japon". The same holds for counts that follow from a fixture's relative dates: `e2e/goals.spec.ts` counts goal 2's calendar months, which is its `createdMonthsAgo` + 1 (12) on any date.
 
 The goals E2E test waits for each named savings goal and its progress bar, including "Voyage au Japon". Navigation alone does not establish readiness because route fallbacks wait 200 ms before appearing. The demo session probe still sets the signed-in user while `RequireAuth` renders immediately. The admin guard waits for the user before checking the role and uses the same delayed loading spinner as other guards.
 

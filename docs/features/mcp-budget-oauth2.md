@@ -92,7 +92,7 @@ No scope exists for: connecting new bank/broker/exchange/wallet accounts, changi
 
 ## Tests
 
-Backend (`mvn test`):
+Backend (`make test-backend`):
 - `OAuth2ToolsTest` (4) — configuration discovery, session status (own key only), denial cases.
 - `BudgetToolsTest` (30) — categories (CRUD + not-found), rules (CRUD + application), transactions (list + categorize), recurring (list/get), envelopes (tree + CRUD), dashboard composition, spending/cashflow period and anchor defaults.
 - `BudgetToolsRecurringTriageTest` (40) — the new tools driven through the real recurring, categorization and cashflow services over mocked repositories: undo (price step vs. auto-confirm), ignore not resurrected by detection, other-member series/category not found and never modified, bean-validation errors, preview writes nothing, and each new tool refused through the real `ScopeEnforcementAspect` without its exact scope. A `budget:dashboard-read`-only key cannot read the spending detail. A `budget:rules-read`-only key cannot preview a rule; with `budget:transactions-read` the preview returns the count and the rows. The calendar lists card payments only with `accounts:read`.
@@ -126,6 +126,6 @@ After adding an MCP client connection in claude.ai Settings pointing to `https:/
 
 ## Links
 
-- Brief: `docs/briefs/oauth2-budget-mcp.md`
+- ADR: [Drop the oauth2:token scope](../decisions/2026-07-06-drop-oauth2-token-scope.md)
 - Related: [MCP server + scoped access-keys](./mcp-server.md), [Budget & Cashflow](./budget.md), [Budget categorization rules](./budget-rules.md)
 - ADR: [Access-key auth + embedded MCP server](../decisions/2026-06-05-access-key-auth-and-embedded-mcp.md)

@@ -49,7 +49,7 @@ public enum WealthTier {
             // inflating any real asset class. A peer loan is a receivable: it is an
             // asset, but not an investment, and WealthPyramidService skips it for the
             // same reason. The value here only keeps the switch total.
-            case CREDIT_CARD, PEER_LOAN, OTHER                                 -> ALTERNATIVE;
+            case CREDIT_CARD, PEER_LOAN, OTHER, PRECIOUS_METALS                -> ALTERNATIVE;
         };
     }
 }

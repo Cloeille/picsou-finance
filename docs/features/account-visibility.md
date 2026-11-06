@@ -148,4 +148,3 @@ No frontend test exists yet for `AccountsVisibilityTab.tsx` or the visibility-re
 
 - Related: [bank-sync.md](./bank-sync.md) — IBAN/external-id sync matching that hidden accounts
   must keep participating in
-- Design doc: `docs/briefs/2026-07-14-account-visibility-and-pocket-cleanup-design.md`

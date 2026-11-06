@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/main.tsx!",
+    // design-sync barrel: bundles the shared components for the design tool
+    // (.design-sync/NOTES.md). Its components have no other production caller.
+    ".ds-entry.tsx!"
+  ],
+  // src/test holds helpers for vitest only.
+  "project": ["src/**/*.{ts,tsx}!", "!src/test/**!", ".ds-entry.tsx!"]
+}

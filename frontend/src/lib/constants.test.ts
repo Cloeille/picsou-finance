@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ACCOUNT_TYPES, HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES, accountTypeLabelKey } from './constants'
+import { ACCOUNT_TYPES, HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES, NON_LEDGER_ACCOUNT_TYPES, accountTypeLabelKey } from './constants'
 import type { AccountType } from '@/types/api'
 import fr from '@/i18n/locales/fr.json'
 import en from '@/i18n/locales/en.json'
@@ -13,7 +13,7 @@ import es from '@/i18n/locales/es.json'
  */
 const EVERY_TYPE: AccountType[] = [
   'CHECKING', 'SAVINGS', 'LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL',
-  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'REAL_ESTATE', 'SCPI',
+  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS', 'REAL_ESTATE', 'SCPI',
   'EMPLOYEE_SAVINGS', 'LOAN', 'CREDIT_CARD', 'PEER_LOAN', 'OTHER',
 ]
 
@@ -58,5 +58,17 @@ describe('peer loan account type', () => {
 
   it('has its own label rather than falling back to Other', () => {
     expect(accountTypeLabelKey('PEER_LOAN')).toBe('accountTypes.peerLoan')
+  })
+})
+
+describe('PRECIOUS_METALS account type', () => {
+  it('holds positions, is not a cash ledger and is not a debt', () => {
+    expect(HOLDING_ACCOUNT_TYPES).toContain('PRECIOUS_METALS')
+    expect(NON_LEDGER_ACCOUNT_TYPES).toContain('PRECIOUS_METALS')
+    expect(LIABILITY_ACCOUNT_TYPES).not.toContain('PRECIOUS_METALS')
+  })
+
+  it('has its own label rather than falling back to Other', () => {
+    expect(accountTypeLabelKey('PRECIOUS_METALS')).toBe('accountTypes.preciousMetals')
   })
 })

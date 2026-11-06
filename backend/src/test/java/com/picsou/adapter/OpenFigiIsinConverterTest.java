@@ -28,8 +28,15 @@ class OpenFigiIsinConverterTest {
         return Mockito.mock(SymbolCatalogPort.class);
     }
 
+    /** The seeded rows these tests read; names are the stored display names, not derived from ids. */
+    private static final CryptoAssetRegistry SEEDED_COINS = CryptoAssetRegistry.of(java.util.Map.of(
+        "BTC", new CryptoAssetRegistry.Coin("bitcoin", "Bitcoin"),
+        "ETH", new CryptoAssetRegistry.Coin("ethereum", "Ethereum"),
+        "SOL", new CryptoAssetRegistry.Coin("solana", "Solana"),
+        "MATIC", new CryptoAssetRegistry.Coin("matic-network", "MATIC (migrated to POL)")));
+
     private static OpenFigiIsinConverter converterWith(SymbolCatalogPort catalog) {
-        return new OpenFigiIsinConverter(new CoinGeckoPriceProvider(), catalog);
+        return new OpenFigiIsinConverter(CoinGeckoStubs.provider(SEEDED_COINS), catalog);
     }
 
     @Test
@@ -86,15 +93,14 @@ class OpenFigiIsinConverterTest {
         // The symbol is parsed generically from the "XF000<SYMBOL><digits>" pattern and
         // validated against CoinGeckoPriceProvider's known tickers -- SOL isn't hardcoded
         // anywhere in OpenFigiIsinConverter (GH issue #22). The display name is derived
-        // from the provider's coin registry too, so every known coin gets a real name,
-        // including multi-word ids ("matic-network" -> "Matic Network").
+        // from the provider's coin registry too: the stored name, not one derived from the id.
         OpenFigiIsinConverter.TickerResult sol = converter.resolve("XF000SOL0042");
         assertThat(sol.ticker()).isEqualTo("SOL");
         assertThat(sol.name()).isEqualTo("Solana");
 
         OpenFigiIsinConverter.TickerResult matic = converter.resolve("XF000MATIC0099");
         assertThat(matic.ticker()).isEqualTo("MATIC");
-        assertThat(matic.name()).isEqualTo("Matic Network");
+        assertThat(matic.name()).isEqualTo("MATIC (migrated to POL)");
     }
 
     @Test

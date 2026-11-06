@@ -1,15 +1,20 @@
+/** One entry of `GET /prices/precious-metals`: GRAM prices per fine gram, COIN per piece. */
+export interface PreciousMetalProduct {
+  ticker: string
+  name: string
+  unit: 'GRAM' | 'COIN'
+}
+
 export type AccountType =
   | 'LEP' | 'LIVRET_A' | 'LDDS' | 'LIVRET_JEUNE' | 'PEL' | 'CEL'
   | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
-  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'PEER_LOAN' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'PER' | 'OTHER'
+  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'PEER_LOAN' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'PER'
+  | 'PRECIOUS_METALS' | 'OTHER'
 
 export type PropertyKind = 'HOUSE' | 'APARTMENT' | 'BUILDING' | 'LAND' | 'PARKING' | 'COMMERCIAL'
 
 export type PropertyCategory =
   | 'PRIMARY_RESIDENCE' | 'SECONDARY_RESIDENCE' | 'RENTAL' | 'LAND' | 'OTHER'
-
-/** Only houses and apartments have a reliable price per m² in the open data. */
-export const ESTIMABLE_PROPERTY_KINDS: PropertyKind[] = ['HOUSE', 'APARTMENT']
 
 export type ValuationMode = 'ESTIMATED' | 'MANUAL'
 
