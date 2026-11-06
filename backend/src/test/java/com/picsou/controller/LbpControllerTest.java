@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -58,7 +59,7 @@ class LbpControllerTest {
     private static LbpSyncService.SessionStatusResponse statusOf(LbpSyncStatus syncStatus) {
         return new LbpSyncService.SessionStatusResponse(
             true, syncStatus, null, null, null,
-            List.of(new LbpSyncService.UnsupportedProduct("9001", "ASSURANCE_VIE")));
+            List.of(new LbpSyncService.UnsupportedProduct("9001", "ASSURANCE_VIE")), null);
     }
 
     private static LbpSyncService.InitiateResponse initiate() {
@@ -68,7 +69,7 @@ class LbpControllerTest {
 
     @Test
     void initiateStartsALoginAndAnswersTheKeypad() throws Exception {
-        when(service.initiateAuth("1234567890", MEMBER_ID)).thenReturn(initiate());
+        when(service.initiateAuth("1234567890", false, MEMBER_ID)).thenReturn(initiate());
 
         mockMvc.perform(post("/api/lbp/auth/initiate")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -80,6 +81,28 @@ class LbpControllerTest {
             .andExpect(jsonPath("$.keypad.columns").value(5))
             .andExpect(jsonPath("$.keypad.keys.length()").value(10))
             .andExpect(jsonPath("$.keypad.keys[0]").value("5"));
+    }
+
+    @Test
+    void initiateForwardsTheRememberIdentifierFlag() throws Exception {
+        when(service.initiateAuth("1234567890", true, MEMBER_ID)).thenReturn(initiate());
+
+        mockMvc.perform(post("/api/lbp/auth/initiate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"customerId\":\"1234567890\",\"rememberIdentifier\":true}"))
+            .andExpect(status().isOk());
+
+        verify(service).initiateAuth("1234567890", true, MEMBER_ID);
+    }
+
+    @Test
+    void initiateRefusesANonBooleanRememberIdentifier() throws Exception {
+        mockMvc.perform(post("/api/lbp/auth/initiate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"customerId\":\"1234567890\",\"rememberIdentifier\":\"yes\"}"))
+            .andExpect(status().isBadRequest());
+
+        verify(service, never()).initiateAuth(org.mockito.ArgumentMatchers.any(), anyBoolean(), anyLong());
     }
 
     @Test
@@ -105,7 +128,7 @@ class LbpControllerTest {
 
     @Test
     void theLoginBucketStopsAFourthInitiatePerIp() throws Exception {
-        when(service.initiateAuth(org.mockito.ArgumentMatchers.any(), anyLong())).thenReturn(initiate());
+        when(service.initiateAuth(org.mockito.ArgumentMatchers.any(), anyBoolean(), anyLong())).thenReturn(initiate());
         var request = post("/api/lbp/auth/initiate")
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"customerId\":\"1234567890\"}")
@@ -118,7 +141,7 @@ class LbpControllerTest {
             .andExpect(status().isTooManyRequests())
             .andExpect(header().exists("Retry-After"));
 
-        verify(service, times(3)).initiateAuth("1234567890", MEMBER_ID);
+        verify(service, times(3)).initiateAuth("1234567890", false, MEMBER_ID);
         assertThat(authBuckets).containsOnlyKeys("127.0.0.1");
     }
 

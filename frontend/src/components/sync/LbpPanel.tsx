@@ -137,7 +137,9 @@ interface LbpPanelProps {
 export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
   const { t } = useTranslation()
   const [authState, setAuthState] = useState<AuthState>("IDLE")
-  const [customerId, setCustomerId] = useState("")
+  // `null` means untouched: fall back to the remembered identifier, if any.
+  const [customerId, setCustomerId] = useState<string | null>(null)
+  const [rememberIdentifier, setRememberIdentifier] = useState<boolean | null>(null)
   const [pad, setPad] = useState<KeypadPad | null>(null)
   // Key positions only (indexes in the pad's DOM order), never digits. Component
   // state only: no query, no mutation cache, no storage, no log.
@@ -164,6 +166,13 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
   const { mutate: completeMutate } = complete
   const { mutate: syncMutate } = sync
   const { refetch: refetchStatus } = status
+
+  // The identifier is the only login field Picsou may keep (encrypted at rest).
+  // The password and the keypad positions are never stored. `null` means the user
+  // has not edited the field yet, so the remembered value is shown and reused.
+  const savedIdentifier = status.data?.savedIdentifier ?? null
+  const customerIdValue = customerId ?? savedIdentifier ?? ""
+  const rememberValue = rememberIdentifier ?? savedIdentifier !== null
 
   const messageForCode = useCallback((value: string | null | undefined) => {
     switch (value) {
@@ -346,7 +355,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
     setError(null)
     setAuthState("SUBMITTING")
     try {
-      const result = await lbpApi.initiateAuth(customerId)
+      const result = await lbpApi.initiateAuth(customerIdValue, rememberValue)
       const keys = result.keypad?.keys
       if (!result.processId || !Array.isArray(keys) || keys.length !== 10) {
         setError(t("sync.lbp.errors.formatChanged"))
@@ -562,10 +571,27 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
                   id="lbp-customer-id"
                   inputMode="numeric"
                   autoComplete="off"
-                  value={customerId}
+                  value={customerIdValue}
                   onChange={(event) => setCustomerId(event.target.value.replace(/\D/g, ""))}
                   required
                 />
+              </div>
+              <div className="flex items-start gap-2">
+                <input
+                  id="lbp-remember-identifier"
+                  type="checkbox"
+                  checked={rememberValue}
+                  onChange={(event) => setRememberIdentifier(event.target.checked)}
+                  className="mt-1 size-4 shrink-0 accent-primary"
+                />
+                <div className="space-y-0.5">
+                  <Label htmlFor="lbp-remember-identifier" className="text-sm font-normal">
+                    {t("sync.lbp.rememberIdentifier")}
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t("sync.lbp.rememberIdentifierHint")}
+                  </p>
+                </div>
               </div>
               <Button type="submit" disabled={pending}>
                 {pending && <RefreshCw className="animate-spin" />}

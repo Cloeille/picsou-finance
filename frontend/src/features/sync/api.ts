@@ -236,8 +236,9 @@ export const caisseEpargneApi = {
 export const lbpApi = {
   // One attempt only: a wrong password spends a bank attempt. The identifier
   // alone goes out; the password is clicked on the bank's shuffled keypad.
-  initiateAuth: (customerId: string) =>
-    api.post<LbpAuthInitResponse>('/lbp/auth/initiate', { customerId }).then(r => r.data),
+  // `rememberIdentifier` asks the backend to keep it encrypted, never the password.
+  initiateAuth: (customerId: string, rememberIdentifier = false) =>
+    api.post<LbpAuthInitResponse>('/lbp/auth/initiate', { customerId, rememberIdentifier }).then(r => r.data),
 
   // Key positions (0..9 in the keypad's DOM order), never digits. Single use.
   sendKeypad: (processId: string, positions: number[]) =>

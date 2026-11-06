@@ -113,7 +113,9 @@ must be diagnosed from the sidecar's typed error, never by replaying it.
 - Every request but `/health` requires `APP_SIDECAR_API_KEY`, sent as
   `X-Picsou-Sidecar-Key`. The service refuses to start without one.
 - The identifier, the keypad positions, cookies, tokens and raw bank payloads
-  are **never logged, echoed or stored**.
+  are **never logged, echoed or stored** by the sidecar. The backend may keep the
+  identifier encrypted when the user ticks "remember the identifier"; it never
+  keeps the password or the keypad positions.
 - No login step is retried: a wrong password can lock the bank account.
 - Pending login state lives in memory only. A restart drops it and the user
   starts again.

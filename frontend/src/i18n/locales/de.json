@@ -726,7 +726,8 @@
       "property": "Haus, Wohnung, Grundstück…",
       "revolut": "Phone + passcode, on-demand sync",
       "fortuneo": "Fortuneo-Konten synchronisieren",
-      "caisseEpargne": "Girokonto, Livret A, LDDS, PER, Kredite und Karten bei der Caisse d'Epargne"
+      "caisseEpargne": "Girokonto, Livret A, LDDS, PER, Kredite und Karten bei der Caisse d'Epargne",
+      "lbp": "Girokonto, Livret A und LEP bei La Banque Postale"
     }
   },
   "sync": {
@@ -1122,6 +1123,8 @@
     "lbp": {
       "title": "La Banque Postale",
       "customerId": "Kennung",
+      "rememberIdentifier": "Kennung merken",
+      "rememberIdentifierHint": "Die Kennung wird verschlüsselt auf deinem Server gespeichert. Das Passwort wird nie gespeichert.",
       "connect": "Verbinden",
       "connecting": "Verbindung…",
       "sync": "Synchronisieren",
@@ -1850,6 +1853,7 @@
       "corum": "CORUM-SCPI-Bestände",
       "sofidy": "Sofidy-SCPI-Bestände",
       "traderepublic": "Trade Republic",
+      "lbp": "La Banque Postale",
       "finary": "Finary",
       "crypto": "Krypto"
     },
@@ -2075,6 +2079,10 @@
           "title": "Fortuneo",
           "description": "Synchronisiere dein PEA, Wertpapier- und Girokonto mit Zwei-Faktor-Authentifizierung."
         },
+        "lbp": {
+          "title": "La Banque Postale",
+          "description": "Synchronisiere dein Girokonto und deine Sparbücher (Livret A, LEP) mit Tastatur und mobiler Bestätigung."
+        },
         "traderepublic": {
           "title": "Trade Republic",
           "description": "Synchronisiere dein Trade-Republic-Portfolio mit deinen Login-Daten. Die Zugangsdaten gibst du beim Erstellen des Kontos ein."
@@ -2255,6 +2263,13 @@
       "tip": "Picsou speichert nur eine verschlüsselte Sitzung. Passwort und 2FA-Code werden nie gespeichert. Importierte Konten bleiben ihrem PEA-, Wertpapier- oder Girokonto zugeordnet.",
       "cta": "Fortuneo aktivieren",
       "skip": "Fortuneo nicht aktivieren"
+    },
+    "lbp": {
+      "title": "La Banque Postale ist bereit.",
+      "body": "Verbinde dein Konto nach der Einrichtung über Konten → Konto hinzufügen. Du gibst deine Kennung ein und dann deine sechs Ziffern auf der Tastatur der Bank.",
+      "tip": "Picsou speichert nur eine verschlüsselte Sitzung und, wenn du es möchtest, deine Kennung. Passwort und Tastenpositionen werden nie gespeichert.",
+      "cta": "La Banque Postale aktivieren",
+      "skip": "La Banque Postale nicht aktivieren"
     }
   },
   "import": {

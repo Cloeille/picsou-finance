@@ -1002,7 +1002,8 @@
       "amex": "American Express credit card: balance and transactions",
       "property": "House, apartment, land…",
       "fortuneo": "Sync your Fortuneo accounts",
-      "caisseEpargne": "Current account, Livret A, LDDS, PER, loans and cards at Caisse d'Epargne"
+      "caisseEpargne": "Current account, Livret A, LDDS, PER, loans and cards at Caisse d'Epargne",
+      "lbp": "Current account, Livret A and LEP at La Banque Postale"
     }
   },
   "sync": {
@@ -1430,6 +1431,8 @@
     "lbp": {
       "title": "La Banque Postale",
       "customerId": "Identifier",
+      "rememberIdentifier": "Remember the identifier",
+      "rememberIdentifierHint": "The identifier is stored encrypted on your server. The password is never saved.",
       "connect": "Connect",
       "connecting": "Connecting…",
       "sync": "Sync",
@@ -2170,6 +2173,7 @@
       "corum": "CORUM SCPI holdings",
       "sofidy": "Sofidy SCPI holdings",
       "traderepublic": "Trade Republic",
+      "lbp": "La Banque Postale",
       "finary": "Finary",
       "crypto": "Crypto"
     },
@@ -2383,6 +2387,10 @@
           "title": "Fortuneo",
           "description": "Sync your PEA, securities account, and current accounts with two-factor authentication."
         },
+        "lbp": {
+          "title": "La Banque Postale",
+          "description": "Sync your current account and savings books (Livret A, LEP) with the keypad and mobile approval."
+        },
         "finary": {
           "title": "Finary",
           "description": "Import holdings and auto-sync with your Finary account. TOTP is handled at add-time."
@@ -2555,6 +2563,13 @@
       "tip": "Picsou only stores an encrypted session. Your password and 2FA code are never stored. Imported accounts remain attached to their PEA, securities, or current account.",
       "cta": "Enable Fortuneo",
       "skip": "Don't enable Fortuneo"
+    },
+    "lbp": {
+      "title": "La Banque Postale is ready.",
+      "body": "Connect your account after setup from Accounts → Add an account. You will enter your identifier, then your six digits on the bank's keypad.",
+      "tip": "Picsou only stores an encrypted session and, if you ask, your identifier. The password and keypad positions are never stored.",
+      "cta": "Enable La Banque Postale",
+      "skip": "Don't enable La Banque Postale"
     }
   },
   "pockets": {

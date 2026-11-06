@@ -108,6 +108,11 @@ page's `URL_AF_POLLING` every 3 s until the bank redirects. No SMS path was
 observed, but an additive `/otp` step could be added without changing the rest
 of the contract.
 
+The backend can remember the **identifier** (10 digits) when the user ticks the
+box: it is encrypted with `CryptoEncryption` and returned to the form on the next
+login. The password and the keypad positions are still never stored; unticking
+the box clears the remembered identifier on the next successful login.
+
 | Endpoint | Body | Answer |
 |---|---|---|
 | `POST /initiate` | `{customerId}` | `{processId, keypad: {keys[10], columns}, expiresInSeconds}` |
@@ -130,10 +135,11 @@ of the contract.
 ### Storage
 
 Table `lbp_session`, modelled on `caisse_epargne_session`: one row per member,
-`session_state` encrypted with `CryptoEncryption`, `last_validated_at`,
+`session_state` encrypted with `CryptoEncryption`, `encrypted_identifier` (the
+optional remembered 10-digit identifier, also encrypted), `last_validated_at`,
 `is_active`, `sync_status`, `last_sync_started_at`, `last_sync_completed_at`,
 `last_sync_error` (CHECK on the error codes), `unsupported_contracts`.
-Deliberately no credentials column.
+Deliberately no password or keypad-position column.
 
 A session the bank rejects (`SESSION_EXPIRED`) or that cannot be decrypted
 (`INVALID_SESSION_STATE`) becomes inactive and must be renewed by the user. A
@@ -155,8 +161,12 @@ transient failure leaves it usable.
   duplicates.
 - The IBAN is not stored, so an Enable Banking sync cannot adopt these accounts
   by accident.
-- Account types are set directly from `kind`; the savings config and its
-  interest projection then work without the name-based detector.
+- Account types are set directly from `kind`. On import, `SavingsAutoConfigService`
+  creates the default savings config for a regulated product (`LIVRET_A`, `LDDS`,
+  `LEP`) when the account has none: product, `RegulatedRates` rate, NET basis and
+  the legal ceiling. A config the user edited is never overwritten; a deleted one
+  is recreated by the next sync. Livret Jeune, PEL and CEL stay manual because
+  the current `SavingsProduct` model has no entry for them.
 
 ### Configuration
 
@@ -217,16 +227,20 @@ layer is `httpx` cookie replay.
   service and the codes La Banque Postale may store.
 - `model/LbpSession.java`, `model/LbpSyncStatus.java`,
   `repository/LbpSessionRepository.java`, `config/LbpSyncRecovery.java`,
-  `config/SyncExecutorConfig.java` (`lbpSyncExecutor`), migration
-  `V131__lbp_session.sql`.
+  `config/SyncExecutorConfig.java` (`lbpSyncExecutor`), migrations
+  `V131__lbp_session.sql` and `V132__lbp_saved_identifier.sql`.
 - `service/LbpSyncService.java` — validates the whole snapshot, then writes every
   account and its transactions in one transaction; maps `kind` to
-  `AccountType` directly.
+  `AccountType` directly, stores the optional encrypted identifier and asks
+  `SavingsAutoConfigService` for the regulated-livret defaults.
+- `service/SavingsAutoConfigService.java` — creates the Livret A / LDDS / LEP
+  savings config (rate, NET basis, legal ceiling) when the account has none.
 - `controller/LbpController.java` — `/api/lbp/auth/{initiate,keypad,complete}`,
   `/sync`, `/status`, `/session`, with strict bodies and per-IP buckets.
-- Tests: `LbpSessionTest`, `LbpAdapterTest`, `LbpControllerTest`, the shared
-  `SidecarContractTest` rig, `SidecarBankCodesTest`, and the
-  `V131LbpSessionMigrationTest`.
+- Tests: `LbpSessionTest`, `LbpAdapterTest`, `LbpControllerTest`,
+  `LbpSyncServiceAuthTest`, `LbpSyncServiceStoreSessionTest`,
+  `SavingsAutoConfigServiceTest`, the shared `SidecarContractTest` rig,
+  `SidecarBankCodesTest`, and the `V131` / `V132` migration tests.
 
 **Sidecar**
 
@@ -249,20 +263,24 @@ layer is `httpx` cookie replay.
 
 **Frontend**
 
-- `components/sync/LbpPanel.tsx` — identifier form, shuffled keypad (labels and
-  positions only), mobile-approval wait, status/sync/disconnect, first-sync
-  orchestration and recovery when the completion answer is lost.
+- `components/sync/LbpPanel.tsx` — identifier form with the optional
+  "remember the identifier" checkbox, shuffled keypad (labels and positions
+  only), mobile-approval wait, status/sync/disconnect, first-sync orchestration
+  and recovery when the completion answer is lost.
 - `pages/sync/LbpTab.tsx`, the `lbp` entry in `features/sync/providers.ts`,
   `features/sync/api.ts`, `features/sync/keys.ts`, `types/api.ts`, and the
   `sync.lbp.*` keys in all four locales.
-- Tests: `LbpTab.test.tsx` (4 cases).
+- `components/shared/AddAccountModal.tsx` and the setup integration
+  (`SetupStepLbp`, catalog, route, admin toggle) expose the connector from
+  Comptes → Ajouter un compte and from the first-run wizard.
+- Tests: `LbpTab.test.tsx` (5 cases, including the remembered identifier).
 
-**Verification** — 36 LBP backend tests pass, plus the shared
+**Verification** — the LBP backend tests pass, plus the shared
 `SidecarContractTest` (214 cases across every bank), `SidecarBankCodesTest`
-(23 cases, including the `lbp_session` CHECK) and the `V131` migration test on
-real PostgreSQL (5 cases). The 29 sidecar tests pass in the published image;
+(23 cases, including the `lbp_session` CHECK) and the `V131` / `V132` migration
+tests on real PostgreSQL. The 29 sidecar tests pass in the published image;
 the browser login is live-only. The frontend typechecks, lints and builds, and
-the 4 `LbpTab` tests pass.
+the 5 `LbpTab` tests pass.
 The previous date-dependent `DividendControllerAuthorizationTest` failure was
 fixed upstream (relative ex-dates).
 
@@ -275,6 +293,9 @@ three accounts. The session row was `SUCCESS` and active afterwards.
 
 ## Not in this slice
 
+- Automatic savings configuration for Livret Jeune, PEL and CEL: the model has
+  no `SavingsProduct` for them, so they stay manual. The three regulated books
+  that do map (`LIVRET_A`, `LDDS`, `LEP`) are configured on import.
 - A long-lived session: the bank logs the web session out after a few minutes of
   inactivity, so a sync after that window requires a new login + A2F. Keeping
   the session warm would need a scheduled request and is deliberately not done.

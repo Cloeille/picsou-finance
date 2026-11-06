@@ -36,6 +36,7 @@ class LbpSyncServiceAuthTest {
     @Mock TransactionRepository transactionRepository;
     @Mock FamilyMemberRepository memberRepository;
     @Mock AccountService accountService;
+    @Mock SavingsAutoConfigService savingsAutoConfig;
     @Mock CryptoEncryption encryption;
     @Mock TransactionTemplate txTemplate;
     @Mock Executor executor;
@@ -45,7 +46,7 @@ class LbpSyncServiceAuthTest {
     @BeforeEach
     void setUp() {
         service = new LbpSyncService(adapter, sessionRepository, accountRepository, transactionRepository,
-            memberRepository, accountService, encryption, txTemplate, executor, CLOCK);
+            memberRepository, accountService, savingsAutoConfig, encryption, txTemplate, executor, CLOCK);
     }
 
     private void keypad(List<String> keys) {

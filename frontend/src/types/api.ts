@@ -1045,6 +1045,8 @@ export interface LbpSessionStatus {
   lastSyncError: LbpErrorCode | null
   unsupported: LbpUnsupportedProduct[]
   unsupportedCount: number
+  /** The identifier the user asked to remember, decrypted for the form. Never a password. */
+  savedIdentifier: string | null
 }
 
 /**

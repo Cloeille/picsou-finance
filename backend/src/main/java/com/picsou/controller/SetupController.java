@@ -247,7 +247,7 @@ public class SetupController {
         requireNotComplete();
 
         if (!"traderepublic".equals(key) && !"finary".equals(key) && !"boursedirect".equals(key)
-            && !"fortuneo".equals(key)) {
+            && !"fortuneo".equals(key) && !"lbp".equals(key)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "This step only applies to integrations configured after signing in.");
         }

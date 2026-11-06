@@ -76,6 +76,7 @@ public class LbpSyncService {
     private final TransactionRepository transactionRepository;
     private final FamilyMemberRepository memberRepository;
     private final AccountService accountService;
+    private final SavingsAutoConfigService savingsAutoConfig;
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
     private final Executor syncExecutor;
@@ -95,12 +96,13 @@ public class LbpSyncService {
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
         AccountService accountService,
+        SavingsAutoConfigService savingsAutoConfig,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         @Qualifier("lbpSyncExecutor") Executor syncExecutor
     ) {
         this(adapter, sessionRepository, accountRepository, transactionRepository, memberRepository, accountService,
-            encryption, txTemplate, syncExecutor, Clock.systemUTC());
+            savingsAutoConfig, encryption, txTemplate, syncExecutor, Clock.systemUTC());
     }
 
     LbpSyncService(
@@ -110,6 +112,7 @@ public class LbpSyncService {
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
         AccountService accountService,
+        SavingsAutoConfigService savingsAutoConfig,
         CryptoEncryption encryption,
         TransactionTemplate txTemplate,
         Executor syncExecutor,
@@ -121,6 +124,7 @@ public class LbpSyncService {
         this.transactionRepository = transactionRepository;
         this.memberRepository = memberRepository;
         this.accountService = accountService;
+        this.savingsAutoConfig = savingsAutoConfig;
         this.encryption = encryption;
         this.txTemplate = txTemplate;
         this.syncExecutor = syncExecutor;
@@ -133,6 +137,10 @@ public class LbpSyncService {
      * session already stored (valid or not) exactly as it was.
      */
     public InitiateResponse initiateAuth(String customerId, Long memberId) {
+        return initiateAuth(customerId, false, memberId);
+    }
+
+    public InitiateResponse initiateAuth(String customerId, boolean rememberIdentifier, Long memberId) {
         LbpAdapter.InitiateResult result = adapter.initiateAuth(customerId);
         if (result == null || result.processId() == null || result.processId().isBlank()
             || result.keypad() == null || result.expiresInSeconds() <= 0) {
@@ -144,7 +152,8 @@ public class LbpSyncService {
         // Swept on every start: a stale process id must never be reachable again.
         pendingLogins.values().removeIf(pending -> !pending.deadline().isAfter(now));
         pendingLogins.put(result.processId(),
-            new PendingLogin(memberId, now.plusSeconds(result.expiresInSeconds()), null));
+            new PendingLogin(memberId, now.plusSeconds(result.expiresInSeconds()), null,
+                rememberIdentifier ? customerId : null, rememberIdentifier));
         return new InitiateResponse(result.processId(), result.keypad(), result.expiresInSeconds());
     }
 
@@ -192,7 +201,8 @@ public class LbpSyncService {
         }
         adapter.submitKeypad(processId, positions);
         pendingLogins.put(processId, new PendingLogin(memberId, null,
-            clock.instant().plusSeconds(APPROVAL_WINDOW_SECONDS)));
+            clock.instant().plusSeconds(APPROVAL_WINDOW_SECONDS),
+            pending.customerId(), pending.rememberIdentifier()));
     }
 
     /**
@@ -212,7 +222,7 @@ public class LbpSyncService {
             throw error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
                 "La Banque Postale did not return a session", null);
         }
-        return storeSession(plainState, memberId);
+        return storeSession(plainState, memberId, pending.customerId(), pending.rememberIdentifier());
     }
 
     /**
@@ -239,17 +249,31 @@ public class LbpSyncService {
      * the user triggers it.
      */
     public SessionStatusResponse storeSession(String plainState, Long memberId) {
+        return storeSession(plainState, memberId, null, false);
+    }
+
+    /**
+     * Stores (encrypted) the session state produced by a login, plus the optional remembered
+     * identifier. It does <b>not</b> queue a sync: the user triggers it.
+     */
+    public SessionStatusResponse storeSession(
+        String plainState, Long memberId, String customerId, boolean rememberIdentifier
+    ) {
         if (plainState == null || plainState.isBlank()) {
             throw error(SidecarErrorCode.INVALID_SESSION_STATE,
                 "No La Banque Postale session was provided", null);
         }
+        String encryptedIdentifier = rememberIdentifier && customerId != null && !customerId.isBlank()
+            ? encryption.encrypt(customerId)
+            : null;
         requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
             sessionRepository.flush();
-            return sessionRepository.saveAndFlush(
-                LbpSession.create(member, encryption.encrypt(plainState), clock.instant()));
+            LbpSession session = LbpSession.create(member, encryption.encrypt(plainState), clock.instant());
+            session.updateEncryptedIdentifier(encryptedIdentifier);
+            return sessionRepository.saveAndFlush(session);
         }));
         return getStatus(memberId);
     }
@@ -505,6 +529,9 @@ public class LbpSyncService {
         // accounts by itself while both connectors are configured.
         Account saved = accountRepository.save(account);
         accountService.upsertSnapshot(saved, data.balance(), LocalDate.now(clock));
+        // Regulated livrets get a usable savings configuration on first import instead of
+        // asking the user to configure them by hand after every first sync.
+        savingsAutoConfig.configureIfMissing(saved, data.type());
         upsertTransactions(saved, data.transactions());
     }
 
@@ -608,8 +635,22 @@ public class LbpSyncService {
             session.getLastSyncStartedAt(),
             session.getLastSyncCompletedAt(),
             session.getLastSyncError(),
-            parseUnsupported(session.getUnsupportedProducts())
+            parseUnsupported(session.getUnsupportedProducts()),
+            savedIdentifier(session)
         );
+    }
+
+    /** Decrypts the optional remembered identifier; an unreadable one simply behaves as absent. */
+    private String savedIdentifier(LbpSession session) {
+        if (session.getEncryptedIdentifier() == null) {
+            return null;
+        }
+        try {
+            return encryption.decrypt(session.getEncryptedIdentifier());
+        } catch (RuntimeException ex) {
+            log.warn("Stored La Banque Postale identifier is unreadable");
+            return null;
+        }
     }
 
     private static String serializeUnsupported(List<UnsupportedProduct> unsupported) {
@@ -743,7 +784,13 @@ public class LbpSyncService {
      * A login in flight. Only one of the two deadlines is set: the keypad's while the user
      * clicks, the approval window's once the digits were sent.
      */
-    private record PendingLogin(Long memberId, Instant keypadExpiresAt, Instant approvalExpiresAt) {
+    private record PendingLogin(
+        Long memberId,
+        Instant keypadExpiresAt,
+        Instant approvalExpiresAt,
+        String customerId,
+        boolean rememberIdentifier
+    ) {
         Instant deadline() {
             return approvalExpiresAt != null ? approvalExpiresAt : keypadExpiresAt;
         }
@@ -757,14 +804,15 @@ public class LbpSyncService {
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError,
-        List<UnsupportedProduct> unsupported
+        List<UnsupportedProduct> unsupported,
+        String savedIdentifier
     ) {
         public SessionStatusResponse {
             unsupported = unsupported == null ? List.of() : List.copyOf(unsupported);
         }
 
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, LbpSyncStatus.IDLE, null, null, null, List.of());
+            return new SessionStatusResponse(false, LbpSyncStatus.IDLE, null, null, null, List.of(), null);
         }
 
         @JsonProperty("unsupportedCount")

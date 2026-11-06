@@ -31,6 +31,7 @@ const DISCONNECTED = {
   lastSyncError: null,
   unsupported: [],
   unsupportedCount: 0,
+  savedIdentifier: null,
 }
 
 const ACTIVE = { ...DISCONNECTED, isActive: true }
@@ -84,7 +85,28 @@ describe('LbpTab', () => {
     expect(screen.getByLabelText('sync.lbp.customerId')).toBeInTheDocument()
     expect(document.querySelector('input[type="password"]')).toBeNull()
     await waitFor(() =>
-      expect(apiPost).toHaveBeenCalledWith('/lbp/auth/initiate', { customerId: '1234' }),
+      expect(apiPost).toHaveBeenCalledWith('/lbp/auth/initiate', {
+        customerId: '1234',
+        rememberIdentifier: false,
+      }),
+    )
+  })
+
+  it('prefills the identifier the user asked to remember', async () => {
+    apiGet.mockResolvedValue({ data: { ...DISCONNECTED, savedIdentifier: '9876543210' } })
+    renderTab()
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('sync.lbp.customerId')).toHaveValue('9876543210'),
+    )
+    expect(screen.getByLabelText('sync.lbp.rememberIdentifier')).toBeChecked()
+
+    fireEvent.click(screen.getByText('sync.lbp.connect'))
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith('/lbp/auth/initiate', {
+        customerId: '9876543210',
+        rememberIdentifier: true,
+      }),
     )
   })
 

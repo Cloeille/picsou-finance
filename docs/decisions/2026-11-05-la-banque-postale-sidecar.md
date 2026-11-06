@@ -134,8 +134,13 @@ account never sits in the `CHECKING` bucket waiting for the name-based detector.
   concrete client with nested records, not a port), the `LBP` entry in
   `SidecarBank`, `LbpSyncService`, `LbpController`, `LbpSession`,
   `LbpSyncStatus`, `LbpSessionRepository`, the `lbpSyncExecutor` bean in
-  `SyncExecutorConfig`, and migration `V131` adding the `lbp_session` table.
-- New frontend Sync tab and keypad/mobile-approval panel.
+  `SyncExecutorConfig`, and migrations `V131` (session table) and `V132`
+  (optional encrypted remembered identifier).
+- `SavingsAutoConfigService` fills the regulated-livret configuration on import
+  (`LIVRET_A`, `LDDS`, `LEP`), so the accounts no longer arrive "to configure".
+- New frontend Sync tab, keypad/mobile-approval panel, Add-account entry and
+  first-run setup step. The identifier can be remembered (encrypted); the
+  password never can.
 - La Banque Postale accounts created by the sidecar are prefixed `lbp_`; the
   existing Enable Banking connection for this bank is deleted by the user.
 - New feature note: [docs/features/la-banque-postale.md](../features/la-banque-postale.md).

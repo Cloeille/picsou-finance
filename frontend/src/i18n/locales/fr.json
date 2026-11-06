@@ -1002,7 +1002,8 @@
       "amex": "Carte de crédit American Express : solde et transactions",
       "property": "Maison, appartement, terrain…",
       "fortuneo": "Synchroniser vos comptes Fortuneo",
-      "caisseEpargne": "Compte courant, Livret A, LDDS, PER, prêts et cartes à la Caisse d'Epargne"
+      "caisseEpargne": "Compte courant, Livret A, LDDS, PER, prêts et cartes à la Caisse d'Epargne",
+      "lbp": "Compte courant, Livret A, LEP et livrets à La Banque Postale"
     }
   },
   "sync": {
@@ -1430,6 +1431,8 @@
     "lbp": {
       "title": "La Banque Postale",
       "customerId": "Identifiant",
+      "rememberIdentifier": "Mémoriser l'identifiant",
+      "rememberIdentifierHint": "L'identifiant est conservé chiffré sur votre serveur. Le mot de passe n'est jamais enregistré.",
       "connect": "Se connecter",
       "connecting": "Connexion…",
       "sync": "Synchroniser",
@@ -2170,6 +2173,7 @@
       "corum": "Parts de SCPI CORUM",
       "sofidy": "Parts de SCPI Sofidy",
       "traderepublic": "Trade Republic",
+      "lbp": "La Banque Postale",
       "finary": "Finary",
       "crypto": "Crypto"
     },
@@ -2390,6 +2394,10 @@
         "fortuneo": {
           "title": "Fortuneo",
           "description": "Synchronisez votre PEA, compte-titres et comptes courants avec une authentification 2FA."
+        },
+        "lbp": {
+          "title": "La Banque Postale",
+          "description": "Synchronisez votre compte courant et vos livrets (Livret A, LEP) avec le clavier et la validation mobile."
         }
       },
       "hint": {
@@ -2555,6 +2563,13 @@
       "tip": "Picsou conserve uniquement une session chiffrée. Le mot de passe et le code 2FA ne sont jamais enregistrés. Les comptes restent rattachés à leur PEA, compte-titres ou compte courant.",
       "cta": "Activer Fortuneo",
       "skip": "Ne pas activer Fortuneo"
+    },
+    "lbp": {
+      "title": "La Banque Postale est prête.",
+      "body": "Connectez votre compte après l'installation depuis Comptes → Ajouter un compte. Vous saisirez votre identifiant, puis vos 6 chiffres sur le clavier de la banque.",
+      "tip": "Picsou conserve uniquement une session chiffrée et, si vous le demandez, votre identifiant. Le mot de passe et les positions du clavier ne sont jamais enregistrés.",
+      "cta": "Activer La Banque Postale",
+      "skip": "Ne pas activer La Banque Postale"
     }
   },
   "pockets": {

@@ -35,6 +35,15 @@ public class LbpSession extends AuditableEntity {
     @Column(name = "session_state", nullable = false, columnDefinition = "TEXT")
     private String sessionState;
 
+    /**
+     * Optional remembered customer identifier, encrypted via CryptoEncryption. It is not a
+     * password: the password and the keypad positions are still never stored.
+     */
+    @JsonIgnore
+    @ToString.Exclude
+    @Column(name = "encrypted_identifier", columnDefinition = "TEXT")
+    private String encryptedIdentifier;
+
     @Column(name = "last_validated_at")
     private Instant lastValidatedAt;
 
@@ -79,6 +88,11 @@ public class LbpSession extends AuditableEntity {
         this.sessionState = Objects.requireNonNull(encryptedState, "encryptedState");
         this.lastValidatedAt = Objects.requireNonNull(validatedAt, "validatedAt");
         this.active = true;
+    }
+
+    /** Stores or clears the optionally remembered customer identifier. */
+    public void updateEncryptedIdentifier(String encryptedIdentifier) {
+        this.encryptedIdentifier = encryptedIdentifier;
     }
 
     public void recordUnsupportedProducts(String json) {

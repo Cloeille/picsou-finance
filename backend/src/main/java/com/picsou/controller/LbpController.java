@@ -80,17 +80,18 @@ public class LbpController {
     @PostMapping("/auth/initiate")
     public ResponseEntity<?> initiate(@RequestBody JsonNode body, HttpServletRequest request) {
         // Read strictly: an unexpected field (a password, typically) is refused, never ignored.
-        requireOnlyFields(body, "customerId");
+        requireOnlyFields(body, "customerId", "rememberIdentifier");
         String customerId = text(body, "customerId");
         if (!CUSTOMER_ID.matcher(customerId).matches()) {
             throw invalidBody();
         }
+        boolean rememberIdentifier = bool(body, "rememberIdentifier");
         ConsumptionProbe probe = consumeToken(authBuckets, RateLimitConfig::createLbpAuthBucket, request);
         if (!probe.isConsumed()) {
             return authRateLimited(probe);
         }
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store")
-            .body(service.initiateAuth(customerId, userContext.currentMemberId()));
+            .body(service.initiateAuth(customerId, rememberIdentifier, userContext.currentMemberId()));
     }
 
     /**
@@ -170,7 +171,7 @@ public class LbpController {
         }
         Set<String> names = new HashSet<>();
         body.fieldNames().forEachRemaining(names::add);
-        if (!names.equals(Set.of(allowed))) {
+        if (!Set.of(allowed).containsAll(names)) {
             throw invalidBody();
         }
     }
@@ -181,6 +182,18 @@ public class LbpController {
             throw invalidBody();
         }
         return value.textValue();
+    }
+
+    /** An optional boolean flag; present but not a boolean is a malformed body. */
+    static boolean bool(JsonNode body, String field) {
+        JsonNode value = body.get(field);
+        if (value == null) {
+            return false;
+        }
+        if (!value.isBoolean()) {
+            throw invalidBody();
+        }
+        return value.booleanValue();
     }
 
     /** 6 to 12 positions, each an index on a ten-key pad, in the user's click order. */
@@ -243,14 +256,14 @@ public class LbpController {
     // --- contract ---------------------------------------------------------------
 
     /**
-     * One field only: the identifier. Its {@code toString} redacts it so a logged or
-     * exception-wrapped DTO cannot leak it, and there is no password field: the pad is clicked
-     * in the user's browser and only the positions come back.
+     * The identifier and the optional "remember it" flag. Its {@code toString} redacts the
+     * identifier so a logged or exception-wrapped DTO cannot leak it, and there is no password
+     * field: the pad is clicked in the user's browser and only the positions come back.
      */
-    record InitiateRequest(String customerId) {
+    record InitiateRequest(String customerId, Boolean rememberIdentifier) {
         @Override
         public String toString() {
-            return "InitiateRequest[customerId=***]";
+            return "InitiateRequest[customerId=***, rememberIdentifier=" + rememberIdentifier + "]";
         }
     }
 
