@@ -530,15 +530,6 @@ export function useIgnoreScpiFund() {
   })
 }
 
-export function useRestoreScpiFund() {
-  return useInvalidatingMutation({
-    mutationFn: ({ provider, fundCode }: { provider: ScpiProvider; fundCode: string }) =>
-      accountsApi.restoreScpiFund(provider, fundCode),
-    invalidates: [scpiFundsKey],
-    awaitRefresh: true,
-  })
-}
-
 export function useUpdateScpiPosition() {
   const queryClient = useQueryClient()
   return useMutation({

@@ -740,8 +740,6 @@ handlers.set(key('GET', '/goals'), () => mockGoals)
 const demoGoal = (id: string) => mockGoals.find(g => g.id === Number(id))
 handlers.set(key('GET', '/goals/:id'), (_config, { id }) => demoGoal(id))
 handlers.set(key('GET', '/goals/:id/months'), (_config, { id }) => mockGoalMonths[Number(id)] ?? [])
-handlers.set(key('GET', '/goals/:id/history'), (_config, { id }) =>
-  netWorthHistory(demoGoal(id)?.accounts.map(a => a.id) ?? [], 12, false, _demoAccounts))
 handlers.set(key('POST', '/goals/:id/history/extend'), (_config, { id }) => demoGoal(id))
 handlers.set(key('POST', '/goals/:id/history/extend/month'), (_config, { id }) => demoGoal(id))
 /** The holding name behind a ticker in a demo account, for the split's display. */
@@ -1043,7 +1041,6 @@ const demoIdleSyncProgress = {
 }
 handlers.set(key('GET', '/revolut/status'), () => ({ connected: false, remembered: false, lastSyncedAt: null }))
 handlers.set(key('GET', '/revolut/sync/progress'), () => demoIdleSyncProgress)
-handlers.set(key('GET', '/tr/sync/progress'), () => demoIdleSyncProgress)
 
 // Trade Republic - session status
 handlers.set(key('GET', '/tr/status'), () => ({ isActive: false, expiresAt: null }))
@@ -1288,11 +1285,6 @@ handlers.set(key('GET', '/family/sharing'), (config) => {
     sharedResourceIds: [],
   }
 })
-// A solo demo: whatever a goal holds, Demo put in.
-handlers.set(key('GET', '/family/goals/:id/contributions'), (_config, { id }) => {
-  const goal = mockGoals.find(g => g.id === Number(id))
-  return goal ? [{ memberName: 'Demo', amount: goal.currentTotal }] : []
-})
 
 handlers.set(key('GET', '/finary/configured'), () => true)
 
@@ -1374,9 +1366,6 @@ handlers.set(key('POST', '/categorization-rules'), (config) => {
   }
 })
 for (const r of mockRules) {
-  handlers.set(key('PUT', `/categorization-rules/${r.id}`), (config) => ({
-    ...r, ...JSON.parse(config.data || '{}'),
-  }))
   handlers.set(key('DELETE', `/categorization-rules/${r.id}`), () => ({}))
 }
 handlers.set(key('POST', '/categorization-rules/recategorize'), () => ({ categorized: 4 }))
@@ -1480,7 +1469,6 @@ handlers.set(key('POST', '/recurring'), (config) => {
 })
 handlers.set(key('GET', '/recurring/activity'), () => mockActivity)
 for (const s of mockRecurring) {
-  handlers.set(key('PUT', `/recurring/${s.id}`), (config) => ({ ...s, ...JSON.parse(config.data || '{}') }))
   handlers.set(key('POST', `/recurring/${s.id}/confirm`), () => ({ ...s, status: 'CONFIRMED' }))
   handlers.set(key('POST', `/recurring/${s.id}/ignore`), () => ({ ...s, status: 'IGNORED' }))
   handlers.set(key('DELETE', `/recurring/${s.id}`), () => ({}))

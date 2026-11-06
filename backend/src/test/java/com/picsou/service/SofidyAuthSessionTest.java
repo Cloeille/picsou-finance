@@ -4,7 +4,8 @@ import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.SofidySession;
-import com.picsou.port.SofidyPort;
+import com.picsou.port.SidecarInitiate;
+import com.picsou.adapter.SofidyAdapter;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.SofidySessionRepository;
@@ -34,7 +35,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("unchecked")
 class SofidyAuthSessionTest {
-    @Mock SofidyPort port;
+    @Mock SofidyAdapter port;
     @Mock SofidySessionRepository sessions;
     @Mock ScpiPositionRepository positions;
     @Mock ScpiPositionService positionService;
@@ -88,7 +89,7 @@ class SofidyAuthSessionTest {
     @Test
     void completeAuth_refusesAnotherMembersProcessBeforeCallingSidecar() {
         when(port.initiateAuth("associate", "password"))
-            .thenReturn(new SofidyPort.InitiateResult("process-A", true, "email", null));
+            .thenReturn(new SidecarInitiate("process-A", true, "email", null));
         service.initiateAuth("associate", "password", 7L);
 
         assertThatThrownBy(() -> service.completeAuth("process-A", "123456", 8L))
@@ -163,8 +164,8 @@ class SofidyAuthSessionTest {
             service.clearSession(7L);
             clearInvocations(sessions);
             return immediate
-                ? new SofidyPort.InitiateResult(null, false, null, "old-cookie-jar")
-                : new SofidyPort.InitiateResult("process-A", true, "email", null);
+                ? new SidecarInitiate(null, false, null, "old-cookie-jar")
+                : new SidecarInitiate("process-A", true, "email", null);
         });
 
         assertExpired(() -> service.initiateAuth("associate", "password", 7L));
@@ -177,13 +178,13 @@ class SofidyAuthSessionTest {
     @ValueSource(booleans = {false, true})
     void initiateAuth_cannotOverwriteNewAttemptDuringRemoteCall(boolean immediate) {
         when(port.initiateAuth("new-associate", "new-password"))
-            .thenReturn(new SofidyPort.InitiateResult("process-B", true, "email", null));
+            .thenReturn(new SidecarInitiate("process-B", true, "email", null));
         when(port.initiateAuth("associate", "password")).thenAnswer(inv -> {
             service.initiateAuth("new-associate", "new-password", 7L);
             clearInvocations(sessions);
             return immediate
-                ? new SofidyPort.InitiateResult(null, false, null, "old-cookie-jar")
-                : new SofidyPort.InitiateResult("process-A", true, "email", null);
+                ? new SidecarInitiate(null, false, null, "old-cookie-jar")
+                : new SidecarInitiate("process-A", true, "email", null);
         });
 
         assertExpired(() -> service.initiateAuth("associate", "password", 7L));
@@ -195,7 +196,7 @@ class SofidyAuthSessionTest {
     @Test
     void initiateAuth_storesImmediateSessionAndQueuesIt() {
         when(port.initiateAuth("associate", "password"))
-            .thenReturn(new SofidyPort.InitiateResult(null, false, null, "cookie-jar"));
+            .thenReturn(new SidecarInitiate(null, false, null, "cookie-jar"));
 
         assertThat(service.initiateAuth("associate", "password", 7L).isActive()).isTrue();
         assertThat(stored.get(7L).isActive()).isTrue();
@@ -204,7 +205,7 @@ class SofidyAuthSessionTest {
 
     private void initiatePending(String processId) {
         when(port.initiateAuth("associate", "password"))
-            .thenReturn(new SofidyPort.InitiateResult(processId, true, "email", null));
+            .thenReturn(new SidecarInitiate(processId, true, "email", null));
         assertThat(service.initiateAuth("associate", "password", 7L).isActive()).isFalse();
     }
 

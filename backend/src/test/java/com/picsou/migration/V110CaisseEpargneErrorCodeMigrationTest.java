@@ -1,17 +1,16 @@
 package com.picsou.migration;
 
-import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -23,30 +22,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Proves a database already at V109 can be upgraded in place to accept the current error enum.
  * Every statement is a constant with bound parameters: no value is concatenated into SQL.
  */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 class V110CaisseEpargneErrorCodeMigrationTest {
 
     private static final String INSERT_SESSION_ERROR =
         "INSERT INTO caisse_epargne_session (member_id, session_state, sync_status, last_sync_error) "
             + "VALUES (?, ?, ?, ?)";
 
-    static {
-        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
-    }
-
     @Container
-    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
-            throw new IllegalStateException(
-                "PICSOU_REQUIRE_DOCKER_TESTS is set but the V110 upgrade test cannot be skipped.");
-        }
-        return available;
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @BeforeAll
     static void migrateToV109() {
@@ -58,12 +42,8 @@ class V110CaisseEpargneErrorCodeMigrationTest {
             .migrate();
     }
 
-    private static Connection connection() throws SQLException {
-        return DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-    }
-
     private static void insertFailedSession(long member, String state, String error) throws SQLException {
-        try (Connection c = connection(); PreparedStatement st = c.prepareStatement(INSERT_SESSION_ERROR)) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); PreparedStatement st = c.prepareStatement(INSERT_SESSION_ERROR)) {
             st.setLong(1, member);
             st.setString(2, state);
             st.setString(3, "FAILED");
@@ -73,7 +53,7 @@ class V110CaisseEpargneErrorCodeMigrationTest {
     }
 
     private static long newMember(String name) throws SQLException {
-        try (Connection c = connection();
+        try (Connection c = PostgresContainers.connection(POSTGRES);
              PreparedStatement st = c.prepareStatement(
                  "INSERT INTO family_member (display_name) VALUES (?) RETURNING id")) {
             st.setString(1, name);
@@ -104,7 +84,7 @@ class V110CaisseEpargneErrorCodeMigrationTest {
         assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("110");
 
-        for (CaisseEpargneErrorCode code : CaisseEpargneErrorCode.values()) {
+        for (SidecarErrorCode code : SidecarBank.CAISSE_EPARGNE.codes()) {
             long acceptedMember = newMember("v110-accepts-" + code.name());
             insertFailedSession(acceptedMember, "x", code.name());
         }
@@ -112,7 +92,7 @@ class V110CaisseEpargneErrorCodeMigrationTest {
         assertThatThrownBy(() -> insertFailedSession(invalidMember, "x", "NOT_A_REAL_CODE"))
             .hasMessageContaining("ck_caisse_epargne_session_last_sync_error");
 
-        try (Connection c = connection();
+        try (Connection c = PostgresContainers.connection(POSTGRES);
              PreparedStatement st = c.prepareStatement(
                  "SELECT session_state, last_sync_error FROM caisse_epargne_session WHERE member_id = ?")) {
             st.setLong(1, member);

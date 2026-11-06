@@ -60,21 +60,21 @@ class SidecarWebClientFactoryTest {
     @NullSource
     @ValueSource(strings = {"", "   "})
     void sendsNoKeyHeaderWhenTheKeyIsBlank(String blank) {
-        ping(new SidecarWebClientFactory(blank).create("Test", baseUrl()));
+        ping(SidecarTestSupport.factory("test-auth", baseUrl(), blank).create("Test", "test-auth"));
 
         assertThat(keyHeaderPresent).containsExactly(false);
     }
 
     @Test
     void sendsTheTrimmedKeyWhenOneIsConfigured() {
-        ping(new SidecarWebClientFactory("  test-key \n").create("Test", baseUrl()));
+        ping(SidecarTestSupport.factory("test-auth", baseUrl(), "  test-key \n").create("Test", "test-auth"));
 
         assertThat(keyHeaders).containsExactly("test-key");
     }
 
     @Test
     void mapsSidecarKeyChallengeToAuthenticationFailureWhenTheKeyIsBlank() {
-        var client = new SidecarWebClientFactory("").create("Test", baseUrl());
+        var client = SidecarTestSupport.factory("test-auth", baseUrl(), "").create("Test", "test-auth");
 
         assertThatThrownBy(() -> client.get().uri("/challenge").retrieve()
             .bodyToMono(String.class).block())

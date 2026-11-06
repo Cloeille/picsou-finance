@@ -147,20 +147,6 @@ export function useSyncTradeRepublic() {
   })
 }
 
-export function useImportTrCsv() {
-  return useInvalidatingMutation({
-    mutationFn: (file: File) => trApi.importCsv(file),
-    invalidates: [syncKeys.tr(), ...ACCOUNT_VIEWS],
-  })
-}
-
-export function useClearTrSession() {
-  return useInvalidatingMutation({
-    mutationFn: () => trApi.clearSession(),
-    invalidates: [syncKeys.tr(), ...ACCOUNT_VIEWS],
-  })
-}
-
 // ---------------------------------------------------------------------------
 // Browser-sidecar providers (see `providers.ts`)
 // ---------------------------------------------------------------------------
@@ -285,10 +271,10 @@ export function useRevolutStatus() {
   })
 }
 
-export function useSyncProgress(provider: 'revolut' | 'tr', enabled: boolean) {
+export function useSyncProgress(provider: 'revolut', enabled: boolean) {
   return useQuery({
     queryKey: ['sync', provider, 'progress'],
-    queryFn: provider === 'revolut' ? revolutApi.getSyncProgress : trApi.getSyncProgress,
+    queryFn: revolutApi.getSyncProgress,
     enabled,
     refetchInterval: (q) => (q.state.data?.running ? 1500 : false),
   })

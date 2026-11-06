@@ -1,6 +1,6 @@
 # Lesson: Stop protocol surfaces false brief hypotheses before cargo-cult code
 
-> Brief assumptions ≠ reality. The stop protocol (diagnostic + STATUS.md + commit, don't guess) is better than inventing proxy code.
+> Brief assumptions ≠ reality. The stop protocol (diagnostic + written finding + commit, don't guess) is better than inventing proxy code.
 
 ## Context
 
@@ -22,8 +22,8 @@ But the /oauth2/token endpoint itself has nowhere to get the auth code or verifi
 The builder invoked the **stop protocol**: did NOT invent a proxy. Instead:
 
 1. **Diagnostic:** Read `AuthorizationServerConfig`, confirmed there was no per-user service.
-2. **STATUS.md:** Documented the root cause (Spring stock AS, one public client, no per-user override).
-3. **Committed:** Left the branch with a clean `STATUS.md` and decision (drop the scope).
+2. **Status note:** Documented the root cause (Spring stock AS, one public client, no per-user override).
+3. **Committed:** Left the branch clean, with the status note and decision (drop the scope).
 4. **Escalated:** Did not merge or push — let the orchestrator validate the decision and clean up.
 
 The orchestrator then:
@@ -39,7 +39,7 @@ The orchestrator then:
 1. Do not build a proxy, mock, or placeholder. That's cargo-cult code — it will never execute and confuses future readers.
 2. Invoke the stop protocol:
    - **Diagnostic:** Read the relevant source code and confirm the service is (or isn't) there.
-   - **Document:** Write the finding in `STATUS.md` (what you expected, what you found, why).
+   - **Document:** Write the finding in the PR description or the issue (what you expected, what you found, why). Do not commit a status file to the repository.
    - **Commit:** Leave the branch clean with your diagnostic. Do not push/merge.
    - **Escalate:** Let the orchestrator decide: is this a planning miss, an architecture gap, or a future work item?
 
@@ -59,5 +59,4 @@ It also makes the brief-writing process better: future briefs learn that assumpt
 
 - ADR: [Drop oauth2:token scope](../decisions/2026-07-06-drop-oauth2-token-scope.md)
 - Feature: [Budget + OAuth2 tools in MCP](../features/mcp-budget-oauth2.md)
-- Brief: `docs/briefs/oauth2-budget-mcp.md` (section "Out of scope" lists what was *not* built)
 - Commit: `fix(mcp): drop unused oauth2:token scope` (cleaned up after the discovery)

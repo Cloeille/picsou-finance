@@ -13,7 +13,7 @@ That left no honest way to record a jointly-owned property. Either one partner c
 full €400,000 and the other nothing, or both created their own entry and the household total
 counted the house twice.
 
-`TODO.txt` had asked for exactly this — family sharing with "immo [% détenu]" and the ability
+The project's to-do list had asked for exactly this — family sharing with "immo [% détenu]" and the ability
 to attach debt to an object.
 
 ## Decision

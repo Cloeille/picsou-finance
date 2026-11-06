@@ -1,12 +1,12 @@
 package com.picsou.migration;
 
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
+
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -22,26 +22,13 @@ import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 class ReleaseMigrationCliTest {
 
-    static {
-        System.setProperty("api.version", "1.44");
-    }
-
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer()
         .withUsername("release_cli_user_marker")
         .withPassword("release-cli-password-marker");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
-            throw new IllegalStateException("Docker is required but unavailable");
-        }
-        return available;
-    }
 
     @Test
     void migratesFreshDatabaseOnceAndVerifyIsReadOnly() throws Exception {
