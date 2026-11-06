@@ -27,21 +27,37 @@ class FakeBank:
         path = request.url.path
         query = request.url.params
 
+        if path == "/voscomptes/canalXHTML/identif.ea":
+            # A fresh client goes to the form; once the login form has set the
+            # session cookie, the same URL is the post-login chain.
+            if "XO1_SESSIONID" in request.headers.get("cookie", ""):
+                return httpx.Response(302, headers={"location": bank.SYNTHESE_CCP})
+            return httpx.Response(
+                302,
+                headers={
+                    "location": "/wsost/OstBrokerWeb/loginform"
+                    "?TAM_OP=login&ERROR_CODE=0x00000000"
+                    "&URL=%2Fvoscomptes%2FcanalXHTML%2Fidentif.ea%3Forigin%3Dparticuliers"
+                },
+            )
+
         if path == "/wsost/OstBrokerWeb/loginform":
-            if "TAM_OP" in query and "origin" not in query and "cu" in query:
+            if "ERROR_CODE" in query or "URL" in query:
+                return httpx.Response(
+                    200,
+                    text=fixtures.LOGIN_HTML,
+                    headers={"set-cookie": "XO1_SESSIONID=abc; Path=/; Secure; HttpOnly"},
+                )
+            if "cu" in query and "origin" in query:
+                return httpx.Response(200, text=fixtures.CHALLENGE_HTML)
+            if "cu" in query:
                 self.polls += 1
                 if self.polls < 2:
                     return httpx.Response(200, text="")
                 return httpx.Response(
                     302, headers={"location": "/voscomptes/canalXHTML/identif.ea?origin=particuliers"}
                 )
-            if "TAM_OP" in query:
-                return httpx.Response(200, text=fixtures.CHALLENGE_HTML)
-            return httpx.Response(
-                200,
-                text=fixtures.LOGIN_HTML,
-                headers={"set-cookie": "XO1_SESSIONID=abc; Path=/; Secure; HttpOnly"},
-            )
+            return httpx.Response(200, text=fixtures.LOGIN_HTML)
 
         if path == "/wsost/OstBrokerWeb/auth" and request.method == "POST":
             self.auth_body = request.content.decode()

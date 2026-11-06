@@ -27,6 +27,10 @@ import parsers
 log = logging.getLogger("lbp-auth")
 
 BASE = "https://voscomptesenligne.labanquepostale.fr"
+# The web client must enter through `identif.ea`: it sets the WAF/SSO cookies
+# and redirects to the login form. Hitting `loginform` on a fresh client answers
+# 403 and redirects to `transverse…/message.html`.
+IDENTIF = "/voscomptes/canalXHTML/identif.ea"
 LOGIN_FORM = "/wsost/OstBrokerWeb/loginform"
 AUTH = "/wsost/OstBrokerWeb/auth"
 SYNTHESE_CCP = "/voscomptes/canalXHTML/comptesCommun/synthese_ccp/afficheSyntheseCCP-synthese_ccp.ea"
@@ -103,8 +107,12 @@ class HttpxBankClient:
     async def initiate(self, customer_id: str) -> dict[str, Any]:
         client = self._new_client()
         try:
-            response = await client.get(LOGIN_FORM)
-            if response.status_code != 200:
+            # Enter through identif.ea: it issues the cookies the login form and
+            # the auth POST expect, then redirects to the form.
+            response = await client.get(
+                IDENTIF, params={"origin": "particuliers"}, follow_redirects=True
+            )
+            if response.status_code != 200 or "formAccesCompte" not in response.text:
                 raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
             form = parsers.parse_login_form(response.text)
             process_id = str(uuid.uuid4())
@@ -113,6 +121,7 @@ class HttpxBankClient:
                 "customer_id": customer_id,
                 "action": form["action"],
                 "hidden": form["hidden"],
+                "referer": str(response.url),
                 "created_at": time.time(),
             }
             await self.pending.put_or_raise(process_id, state, "TOO_MANY_PENDING")
@@ -148,7 +157,7 @@ class HttpxBankClient:
             response = await client.post(
                 state["action"],
                 data=data,
-                headers={"Origin": BASE, "Referer": BASE + LOGIN_FORM},
+                headers={"Origin": BASE, "Referer": state.get("referer", BASE + LOGIN_FORM)},
                 follow_redirects=False,
             )
 

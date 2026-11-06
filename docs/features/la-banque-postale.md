@@ -87,6 +87,10 @@ bank-specific.
 
 ### Login (built from two live captures)
 
+The client must enter through `identif.ea?origin=particuliers`: that page sets
+the WAF/SSO cookies and redirects to the login form. A direct
+`/wsost/OstBrokerWeb/loginform` request is refused (403, message page).
+
 The keypad is **ten text buttons shuffled on every page load**. The bank's own
 script writes the clicked **DOM positions**, not the digits, into the `password`
 field; the server maps them back with the per-load keypad. The sidecar therefore

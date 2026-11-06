@@ -79,9 +79,11 @@ the sidecar, for the statement request of the current session.
 
 ## How the login works
 
-1. `POST /initiate` GETs `/wsost/OstBrokerWeb/loginform`, reads the hidden
-   fields and the **ten shuffled digit labels**, and parks the HTTP client in
-   the pending store.
+1. `POST /initiate` GETs `/voscomptes/canalXHTML/identif.ea?origin=particuliers`.
+   That entry point sets the WAF/SSO cookies and redirects to the login form;
+   hitting `/wsost/OstBrokerWeb/loginform` on a fresh client is refused (403).
+   The sidecar then reads the hidden fields and the **ten shuffled digit
+   labels**, and parks the HTTP client in the pending store.
 2. `POST /keypad` POSTs the identifier and the clicked **positions** (the same
    values the bank's script writes into `password`) with the hidden fields.
 3. If the device is trusted, the POST redirects into the normal chain and the
