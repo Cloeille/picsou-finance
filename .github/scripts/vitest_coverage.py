@@ -19,7 +19,9 @@ def expected_files(src):
 
 def executed_files(report_dir, src):
     """Every test file named by a report, as a path relative to src, one entry per occurrence."""
-    src = Path(src).resolve().as_posix()
+    src = Path(src).resolve()
+    anchor = "/" + "/".join(src.parts[-2:]) + "/"
+    src = src.as_posix()
     executed = Counter()
     reports = sorted(Path(report_dir).rglob("*.json"))
     if not reports:
@@ -27,7 +29,7 @@ def executed_files(report_dir, src):
     for report in reports:
         for result in json.loads(report.read_text(encoding="utf-8"))["testResults"]:
             name = result["name"].replace("\\", "/")
-            executed[name.removeprefix(src + "/") if name.startswith(src + "/") else name.split("/src/", 1)[-1]] += 1
+            executed[name.removeprefix(src + "/") if name.startswith(src + "/") else name.rsplit(anchor, 1)[-1]] += 1
     return executed
 
 
