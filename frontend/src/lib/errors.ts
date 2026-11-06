@@ -140,6 +140,7 @@ export function trErrorMessage(t: TFunc, code: string | null | undefined): strin
     case 'AUTH_ATTEMPT_EXPIRED':
       return t('sync.tr.errors.authAttemptExpired')
     case 'SESSION_EXPIRED':
+    case 'INVALID_SESSION_STATE':
       return t('sync.tr.errors.sessionExpired')
     case 'RATE_LIMITED':
       return t('sync.tr.errors.tooManyAttempts')
