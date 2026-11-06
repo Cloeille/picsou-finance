@@ -1,6 +1,8 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.exception.SyncException;
+import com.picsou.port.SidecarErrorCode;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -8,7 +10,7 @@ import java.util.Objects;
 
 /**
  * Value helpers shared by the browser-sidecar sync services (Amundi, Bourse
- * Direct): string normalization, cost-basis arithmetic over possibly-unknown
+ * Direct, BoursoBank, CORUM): string normalization, cost-basis arithmetic over possibly-unknown
  * figures, and the reconciliation tolerance that decides whether an upstream
  * total agrees with its own lines.
  *
@@ -22,6 +24,8 @@ public final class SyncValues {
     private static final BigDecimal ABSOLUTE_RECONCILIATION_TOLERANCE = new BigDecimal("0.05");
     /** Additional tolerance proportional to the expected amount (0.1%). */
     private static final BigDecimal RELATIVE_RECONCILIATION_TOLERANCE = new BigDecimal("0.001");
+    /** Rounding drift of one amount rounded to the cent on its own. */
+    private static final BigDecimal PER_LINE_RECONCILIATION_TOLERANCE = new BigDecimal("0.01");
     /** Scale of derived per-unit figures, matching {@code HoldingComputeService}. */
     private static final int UNIT_PRICE_SCALE = 8;
 
@@ -80,23 +84,29 @@ public final class SyncValues {
         return actual.subtract(expected).abs().compareTo(tolerance) <= 0;
     }
 
+    /**
+     * Whether {@code lines} amounts, each rounded to the cent, add up to {@code expected}.
+     * Unlike {@link #moneyClose}, the allowance never grows with the total, so a support
+     * missing from a large contract cannot hide inside a relative tolerance.
+     */
+    public static boolean linesClose(BigDecimal actual, BigDecimal expected, int lines) {
+        BigDecimal tolerance = ABSOLUTE_RECONCILIATION_TOLERANCE.max(
+            PER_LINE_RECONCILIATION_TOLERANCE.multiply(BigDecimal.valueOf(lines))
+        );
+        return actual.subtract(expected).abs().compareTo(tolerance) <= 0;
+    }
+
     /** Unwraps a {@code TransactionTemplate.execute} result that a callback always fills in. */
     public static <T> T requireTransactionResult(T value) {
         return Objects.requireNonNull(value, "Transaction callback returned no result");
     }
 
     /**
-     * Maps a {@link SyncException}'s free-form code onto a provider error enum,
-     * falling back when the sidecar reports something this backend does not know.
+     * Maps a {@link SyncException}'s free-form code onto the bank's declared error codes, falling
+     * back when the sidecar reports something unknown or something this bank never declared: the
+     * bank's session table only accepts its own codes.
      */
-    public static <E extends Enum<E>> E errorCode(SyncException exception, Class<E> type, E fallback) {
-        if (exception.getCode() == null) {
-            return fallback;
-        }
-        try {
-            return Enum.valueOf(type, exception.getCode());
-        } catch (IllegalArgumentException ignored) {
-            return fallback;
-        }
+    public static SidecarErrorCode errorCode(SyncException exception, SidecarBank bank, SidecarErrorCode fallback) {
+        return bank.parse(exception.getCode()).orElse(fallback);
     }
 }

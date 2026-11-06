@@ -27,8 +27,6 @@
     "back": "Back",
     "next": "Next",
     "close": "Close",
-    "yes": "Yes",
-    "no": "No",
     "today": "Today",
     "currency": "EUR",
     "category": "Category",
@@ -53,9 +51,7 @@
     "managedProfile": "Managed profile",
     "switchProfile": "Switch profile",
     "unknownProfile": "Unknown profile",
-    "logout": "Logout",
     "admin": "Administration",
-    "admin.desc": "Instance settings",
     "analysis": "Analysis",
     "analysis.desc": "Allocation & diversification",
     "hideAmounts": "Hide amounts",
@@ -65,9 +61,6 @@
     "login": "Sign in",
     "loginTagline": "Picsou",
     "username": "Username",
-    "usernameTooShort": "Use at least 3 characters.",
-    "usernameInvalidChars": "Use only letters, numbers, dots, dashes and underscores.",
-    "usernameTaken": "This username is already taken.",
     "password": "Password",
     "loginButton": "Sign in",
     "loggingIn": "Signing in...",
@@ -113,7 +106,6 @@
     "fixConnections": "Fix connections",
     "invested": "Capital invested",
     "portfolioPerformance": "portfolio performance",
-    "netWorthChange": "Gain / loss",
     "marketsClosed": "Markets are closed — no intraday data available",
     "distribution": "Distribution",
     "accountsLabel": "accounts",
@@ -141,8 +133,6 @@
     "allHoldings": "All",
     "shares": "shares",
     "gainLoss": "Gain / Loss",
-    "recentAccounts": "Recent accounts",
-    "viewAll": "View all",
     "totalLiabilities": "Total liabilities",
     "totalAssets": "Total assets",
     "liabilities": "Liabilities",
@@ -155,9 +145,7 @@
       "net": "Net worth evolution",
       "gross": "Gross assets evolution",
       "financial": "Financial assets evolution"
-    },
-    "liabilitiesTitle": "Liabilities",
-    "liabilitiesDescription": "Outstanding debt by account"
+    }
   },
   "transactions": {
     "detail": "Transaction detail",
@@ -171,6 +159,30 @@
     "viewAll": "View all transactions"
   },
   "accounts": {
+    "corumLifeOperation": {
+      "scheduledPayment": "Scheduled payment",
+      "subscription": "Initial payment",
+      "couponDetachment": "Coupon",
+      "administrativeManagementCosts": "Management fees",
+      "profitParticipation": "Profit sharing",
+      "arbitrage": "Arbitrage",
+      "unknown": "Contract operation"
+    },
+    "inContract": "Inside the contract",
+    "inContractHint": "Internal operation of the life insurance contract: it does not count in your budget.",
+    "lifeContract": {
+      "title": "Contract",
+      "openedAt": "Opened on",
+      "taxAdvantageFrom": "Lighter taxation (8 years) from",
+      "paidIn": "Gross payments",
+      "netInvested": "Net invested",
+      "scheduledPayment": "Scheduled payment",
+      "perWeek": "/week",
+      "perTwoWeeks": "/2 weeks",
+      "perMonth": "/month",
+      "perQuarter": "/quarter",
+      "perYear": "/year"
+    },
     "title": "Accounts",
     "addAccount": "Add account",
     "editAccount": "Edit account",
@@ -183,7 +195,6 @@
     "lastValuation": "Last valuation",
     "syncStale": "Synced {{time}}",
     "syncStaleTooltip": "This account has not synced recently. Run a sync or reconnect the provider.",
-    "neverSynced": "Never synced",
     "holdings": "Holdings",
     "transactions": "Transactions",
     "noTransactions": "No transactions on this account.",
@@ -200,6 +211,12 @@
     "amount": "Amount",
     "tickerOrIsin": "Ticker or ISIN",
     "tickerOrIsinPlaceholder": "IWDA.AS, IE00B4L5Y983, BTC...",
+    "preciousMetalProduct": "Product",
+    "preciousMetalProductPlaceholder": "Choose a product",
+    "preciousMetalCatalogueLoading": "Loading catalogue…",
+    "preciousMetalCatalogueError": "Could not load the product catalogue.",
+    "quantityGrams": "Grams",
+    "quantityCoins": "Coins",
     "assetNamePlaceholder": "Example: iShares Core MSCI World",
     "priceLive": "Live price",
     "priceStale": "Price from {{time}}",
@@ -207,7 +224,6 @@
     "history": "History",
     "valueAndInvested": "Value and invested capital",
     "manual": "Manual",
-    "allTypes": "All types",
     "accountName": "Account name",
     "accountType": "Account type",
     "provider": "Provider",
@@ -263,10 +279,8 @@
     "importSuccessWithSkipped_other": "{{count}} transactions imported ({{skipped}} already present)",
     "importAlreadyDone": "No new transactions — CSV already imported.",
     "importError": "Import error: {{message}}",
-    "uncategorized": "Uncategorized",
     "addSnapshot": "Save",
     "monthlyHistory": "Month-end balance",
-    "evolution": "Balance evolution",
     "pnl": "Gain / Loss",
     "filters": {
       "ALL": "All",
@@ -276,7 +290,8 @@
       "CHECKING": "Current accounts",
       "CRYPTO": "Crypto",
       "REAL_ESTATE": "Real estate",
-      "DEBTS": "Debts"
+      "DEBTS": "Debts",
+      "OTHER": "Other"
     },
     "fees": "Fees",
     "export": {
@@ -286,7 +301,7 @@
       "selectAll": "Select all",
       "selectNone": "Clear selection",
       "selected": "{{count}} account selected",
-      "selected_plural": "{{count}} accounts selected",
+      "selected_other": "{{count}} accounts selected",
       "submit": "Export",
       "success": "Export complete: {{filename}}",
       "empty": "No account to export"
@@ -416,14 +431,12 @@
       "holdingCount": "across {{count}} holding",
       "holdingCount_other": "across {{count}} holdings",
       "others": "and {{count}} other",
-      "others_other": "and {{count}} others",
-      "hint": "Select a slice to see what makes it up."
+      "others_other": "and {{count}} others"
     },
     "alerts": {
       "SINGLE_ASSET_CONCENTRATION": "{{label}} is {{percent}} of your wealth — a single asset carries most of the risk.",
       "EMPTY_TIER": "Nothing at all in {{label}}: this tier is empty, not merely under target.",
-      "CUSHION_OVERFUNDED": "{{value}} beyond your cushion target — money available to put elsewhere.",
-      "title": "Worth noting"
+      "CUSHION_OVERFUNDED": "{{value}} beyond your cushion target — money available to put elsewhere."
     }
   },
   "accountTypes": {
@@ -444,6 +457,7 @@
     "employeeSavings": "Employee savings",
     "assuranceVie": "Life insurance",
     "per": "PER (retirement savings)",
+    "preciousMetals": "Precious metals",
     "scpi": "SCPI",
     "creditCard": "Credit card"
   },
@@ -516,23 +530,6 @@
     "seenFundHint": "Fills the name and the fund code, so the next sync updates this account.",
     "seenFundIgnored": "ignored — picking it syncs it again"
   },
-  "realEstate": {
-    "purchasePrice": "Purchase price",
-    "purchaseDate": "Purchase date",
-    "surfaceArea": "Area (m²)",
-    "address": "Address",
-    "propertyType": "Property type",
-    "rentalIncome": "Monthly rent",
-    "currentValue": "Current value",
-    "appreciation": "Appreciation",
-    "propertyTypes": {
-      "APARTMENT": "Apartment",
-      "HOUSE": "House",
-      "LAND": "Land",
-      "PARKING": "Parking",
-      "COMMERCIAL": "Commercial"
-    }
-  },
   "debt": {
     "borrowedAmount": "Borrowed amount",
     "interestRate": "Interest rate",
@@ -542,8 +539,6 @@
     "startDate": "Start date",
     "endDate": "End date",
     "remaining": "Remaining capital",
-    "repaid": "Capital repaid",
-    "progress": "Repayment progress",
     "insurance": "Insurance",
     "insuranceMonthly": "Monthly insurance",
     "fileFees": "File fees",
@@ -559,7 +554,6 @@
     "remainingBalance": "Remaining principal",
     "remainingToRepay": "Remaining to repay",
     "remainingToRepayPct": "Remaining to repay (%)",
-    "editLoan": "Edit loan details",
     "amortizationChart": "Amortization curve",
     "today": "Today",
     "loanProgress": "Loan progress",
@@ -568,17 +562,8 @@
     "linkedAssetHint": "Linking this loan to a property is what makes net property wealth computable."
   },
   "portfolio": {
-    "title": "Detailed Portfolio",
-    "searchPlaceholder": "Search holdings or tickers...",
-    "all": "All",
     "cash": "Cash",
-    "sortByValue": "By value",
-    "sortByPnl": "By PnL",
-    "shares": "shares",
-    "value": "Value",
-    "pnl": "PnL",
-    "totalValue": "Total:",
-    "noHoldings": "No holdings"
+    "value": "Value"
   },
   "holdings": {
     "totalValue": "Total value",
@@ -688,8 +673,6 @@
     "monthsLeft": "months left",
     "monthlyNeeded": "needed/month",
     "avgContribution": "avg. contribution/month",
-    "surplus": "surplus",
-    "deficit": "deficit",
     "noGoals": "No goals defined",
     "waiting": "In progress",
     "calendar": "Calendar",
@@ -702,8 +685,6 @@
     "calculatedObjective": "Calculated objective",
     "actual": "Actual",
     "fromAccounts": "from accounts",
-    "manualDeclaration": "Manual declaration",
-    "overrideObjective": "Override objective",
     "saveManual": "Save",
     "saveOverride": "Apply",
     "resetManual": "Reset",
@@ -711,15 +692,12 @@
     "modified": "modified",
     "declared": "declared",
     "achieved": "Achieved",
-    "of": "of",
     "clickMonthHint": "Click a month to see details",
     "backfillHint": "Add past contributions from before the goal was created.",
     "addYear": "+ Add {{year}}",
     "addPreviousMonth": "Earlier month",
     "noData": "—",
-    "futureMonth": "···",
     "linkedAccounts": "Linked accounts",
-    "history": "History",
     "atCurrentPace": "At current pace",
     "goalType": "Goal type",
     "namePlaceholder": "House deposit",
@@ -767,7 +745,6 @@
       "overview": "Overview",
       "envelopes": "Envelopes",
       "cashflow": "Cashflow",
-      "allocation": "Allocation",
       "recurring": "Recurring",
       "categorize": "To categorize",
       "transactions": "Transactions",
@@ -797,8 +774,7 @@
       "cycle": "Cycle",
       "ytd": "Year",
       "prev": "Previous period",
-      "next": "Next period",
-      "jump": "Jump to…"
+      "next": "Next period"
     },
     "asset": {
       "current": "Checking",
@@ -831,13 +807,9 @@
       "capitalizedOutside": "capitalized, outside the budget"
     },
     "cashflow": {
-      "subtitle": "Money in, money out and net balance (transfers excluded).",
       "income": "Income",
       "expense": "Expense",
-      "net": "Net",
-      "byCycle": "By cycle",
-      "empty": "No transactions in this period.",
-      "error": "Could not load cashflow."
+      "net": "Net"
     },
     "flow": {
       "subtitle": "How your money moves.",
@@ -847,7 +819,6 @@
       "outflows": "Income allocation",
       "empty": "No flow to show for this period.",
       "error": "Could not load the flow diagram.",
-      "ariaSummary": "Flow diagram: {{income}} in, {{expense}} out, net {{net}}.",
       "dataTableCaption": "Cashflow breakdown: {{income}} in, {{expense}} out, net {{net}}.",
       "colDirection": "Direction",
       "colName": "Item",
@@ -912,7 +883,6 @@
       "noSeries": "No recurring series detected yet.",
       "noUpcoming": "No upcoming payments",
       "noUpcomingHint": "Upcoming charges will appear here once detected.",
-      "creditCardPayment": "Credit card payment",
       "error": "Couldn't load recurring items.",
       "label": "Label",
       "counterparty": "Counterparty",
@@ -951,7 +921,6 @@
       "categorizeAi": "Categorize with AI",
       "aiSuggested": "AI: {{name}} · {{confidence}}",
       "selectCategory": "Pick a category",
-      "learnRule": "Remember a rule",
       "assign": "Assign",
       "empty": "Everything is categorized",
       "emptyHint": "New transactions to classify will appear here.",
@@ -1005,7 +974,6 @@
       "previewCount_other": "{{count}} transactions will change",
       "previewCapped": "Showing first 200 of {{count}} matches",
       "createRule": "Create rule",
-      "editRule": "Edit rule",
       "ruleActive": "Rule: {{pattern}}"
     },
     "settings": {
@@ -1038,14 +1006,9 @@
   "addAccount": {
     "title": "Add account",
     "manual": "Manual",
-    "or": "or",
-    "bankConnected": "Complete the connection in the new tab",
     "exchangeConnected": "Exchange connected!",
     "walletConnected": "Wallet tracked!",
     "trConnected": "Trade Republic connected!",
-    "revolutConnected": "Revolut connected!",
-    "syncing": "Syncing your accounts",
-    "syncingDesc": "We're pulling in your latest transactions. This usually takes a few seconds.",
     "desc": {
       "banks": "Connect your banks via OAuth",
       "exchanges": "Binance, Meria...",
@@ -1061,6 +1024,8 @@
       "manual": "Create an account manually",
       "amundi": "PEE, PEG, PERCO, PER held at Amundi",
       "amex": "American Express credit card: balance and transactions",
+      "corum": "CORUM SCPI and CORUM Life insurance: units, valuation and operations",
+      "sofidy": "Sofidy SCPI units, at the withdrawal price",
       "property": "House, apartment, land…",
       "fortuneo": "Sync your Fortuneo accounts",
       "caisseEpargne": "Current account, Livret A, LDDS, PER, loans and cards at Caisse d'Epargne"
@@ -1134,11 +1099,9 @@
       "remember": "Remember my credentials (encrypted)",
       "sync": "Sync Revolut",
       "syncing": "Syncing...",
-      "approveOnPhone": "Approve the connection in your Revolut app…",
       "connected": "Connected",
       "forget": "Forget credentials",
       "lastSync": "Last sync",
-      "approvalTimeout": "Approval not received. Try again.",
       "notConnected": "Not connected",
       "syncSuccess": "Your accounts are up to date.",
       "phase": {
@@ -1218,7 +1181,6 @@
       "connect": "Connect",
       "connectError": "Failed to connect exchange. Check your API key and secret.",
       "connectErrorKeyOnly": "Failed to connect exchange. Check your API key.",
-      "sync": "Synchronize",
       "remove": "Remove",
       "removeConfirm": "Remove this exchange?",
       "noExchanges": "No exchanges connected",
@@ -1234,7 +1196,6 @@
       "connectError": "Failed to add wallet. Check the address and try again.",
       "syncError": "Sync failed. Check the address or try again later.",
       "removeError": "Could not remove this wallet. Please try again.",
-      "sync": "Synchronize",
       "remove": "Remove",
       "removeConfirm": "Remove this wallet?",
       "noWallets": "No wallets tracked",
@@ -1312,14 +1273,11 @@
       "title": "Finary",
       "uploadFile": "Import Finary file (.xlsx)",
       "uploadHint": "Drag your file here or click to browse",
-      "apiSync": "Sync via API",
-      "apiNotConfigured": "Finary API is not configured",
       "totpRequired": "2FA code required",
       "totp": "TOTP code",
       "step1": "File",
       "step2": "Mapping",
       "step3": "Results",
-      "next": "Next",
       "back": "Back",
       "import": "Import",
       "done": "Done",
@@ -1334,8 +1292,6 @@
       "emailPlaceholder": "your@email.com",
       "password": "Password",
       "login": "Connect to Finary",
-      "loggingIn": "Connecting...",
-      "loginSuccess": "Connected successfully",
       "connected": "Connected",
       "notConnected": "Not connected",
       "lastSync": "Last sync",
@@ -1344,12 +1300,9 @@
       "syncing": "Syncing...",
       "deleteConnection": "Disconnect",
       "deleteConnectionConfirm": "Remove stored Finary credentials? Accounts already imported will be kept.",
-      "newAccounts": "New accounts detected",
       "accountsSyncedToast": "Accounts synced: {{count}}",
-      "allAccountsMapped": "All accounts already mapped, syncing...",
       "serviceUnavailable": "Finary service is temporarily unavailable. Please try again in a few minutes.",
-      "syncFailed": "Finary sync failed",
-      "authFailed": "Invalid Finary credentials. Please check your email and password."
+      "syncFailed": "Finary sync failed"
     },
     "homebank": {
       "title": "HomeBank import",
@@ -1500,7 +1453,6 @@
         "clear": "Clear",
         "cancel": "Cancel",
         "validate": "Validate",
-        "sending": "Sending…",
         "countdownLabel": "Time left:"
       }
     },
@@ -1678,11 +1630,19 @@
       "sync": "Sync",
       "queued": "Sync queued…",
       "syncing": "Syncing…",
-      "syncSuccess": "SCPI shares synced.",
+      "syncSuccess": "CORUM sync complete.",
       "clearSession": "Disconnect",
+      "remember": "Remember my credentials (encrypted)",
+      "credentialsRemembered": "Credentials remembered (encrypted): Picsou signs in again by itself when the session expires. Disconnect to forget them.",
       "noSession": "No active session",
       "sessionActive": "Session active",
-      "scope": "Syncs the SCPI shares in your CORUM contracts, valued at the withdrawal price. A fund without an account gets one, or is linked to the SCPI account with the same name.",
+      "scope": "Syncs the SCPI shares and the CORUM Life life-insurance (assurance-vie) contracts in your CORUM contracts (SCPI at the withdrawal price, life insurance at its valuation). A fund without an account gets one, or is linked to the SCPI account with the same name.",
+      "life": {
+        "synced_one": "1 life-insurance contract synced",
+        "synced_other": "{{count}} life-insurance contracts synced",
+        "ambiguous_one": "1 life-insurance contract not synced: a life-insurance account entered by hand (named \"CORUM Life\" or with CORUM as its provider) could not be matched to it. Delete that account, or rename it and change its provider, then sync again.",
+        "ambiguous_other": "{{count}} life-insurance contracts not synced: a life-insurance account entered by hand (named \"CORUM Life\" or with CORUM as its provider) could not be matched to them. Delete that account, or rename it and change its provider, then sync again."
+      },
       "errors": {
         "tooManyAttempts": "Too many attempts. Please wait.",
         "invalidCredentials": "Invalid CORUM credentials.",
@@ -1807,11 +1767,7 @@
     "themeLight": "Light",
     "themeDark": "Dark",
     "themeSystem": "System",
-    "changePassword": "Change password",
     "currentPassword": "Current password",
-    "newPassword": "New password",
-    "confirmPassword": "Confirm password",
-    "passwordChanged": "Password updated",
     "appearanceDescription": "Customize the application appearance",
     "dateFormat": "Date format",
     "dateFormatLocale": "Localized",
@@ -1883,11 +1839,8 @@
     "sessionsUnknownDevice": "Unknown device",
     "sessionsBrowser": "Browser",
     "sessionsLastUsed": "Last used",
-    "sessionsCreated": "Created",
-    "sessionsExpires": "Expires",
     "sessionsRevoke": "Revoke",
     "sessionsRevokeAllOthers": "Sign out other devices",
-    "sessionsRevoking": "Revoking...",
     "amounts": "Amounts",
     "amountsVisible": "Visible",
     "amountsHidden": "Hidden",
@@ -2093,8 +2046,7 @@
     "lastUsedNever": "Never used",
     "revoke": "Revoke",
     "revokeTitle": "Revoke access for this app?",
-    "revokeDescription": "This app immediately loses access to your data. You can reconnect it later from the app.",
-    "error": "Could not revoke access. Please try again."
+    "revokeDescription": "This app immediately loses access to your data. You can reconnect it later from the app."
   },
   "telemetry": {
     "consent": {
@@ -2203,7 +2155,7 @@
       "boursedirect": "Bourse Direct",
       "fortuneo": "Fortuneo",
       "amex": "Sync your American Express cards",
-      "corum": "CORUM SCPI holdings",
+      "corum": "CORUM SCPI and life-insurance holdings",
       "sofidy": "Sofidy SCPI holdings",
       "traderepublic": "Trade Republic",
       "finary": "Finary",
@@ -2215,7 +2167,6 @@
       "createUser": "Create user",
       "createUserPlaceholder": "Member name",
       "displayName": "Display name",
-      "loginName": "Login",
       "noLogin": "—",
       "you": "(you)",
       "statusAdmin": "Administrator",
@@ -2531,8 +2482,6 @@
       "ok": "Sidecar is up and ready.",
       "downTitle": "We couldn't reach the sidecar.",
       "downHint": "Make sure the bourso-auth container is running. Docker Compose starts it by default.",
-      "advanced": "Advanced: custom URL",
-      "url": "Sidecar URL",
       "retry": "Retry",
       "continue": "Continue",
       "skip": "Skip for now"
@@ -2620,18 +2569,15 @@
     "saveConfig": "Save configuration",
     "deleteConfig": "Remove configuration",
     "deleteConfigConfirm": "Remove savings configuration?",
-    "configSaved": "Configuration saved",
     "regulatedNet": "Regulated product — interest is net of tax by law",
     "projectionTitle": "Estimated interest {{year}}",
     "projectionYtd": "YTD",
     "projectionFullYear": "Full year estimate",
     "projectionNextCapitalization": "Next capitalization",
     "projectionDisclaimer": "This is an estimate. The bank's annual credit is authoritative.",
-    "projectionBasis": "{{basis}} rate",
     "suggestionsBanner": "{{count}} savings account to configure",
     "suggestionsBanner_other": "{{count}} savings accounts to configure",
-    "configureSavings": "Configure",
-    "uncertain": "Uncertain classification — please verify"
+    "configureSavings": "Configure"
   },
   "import": {
     "importCsv": "Import CSV",
@@ -2810,8 +2756,6 @@
     },
     "chart": {
       "title": "Estimate over time",
-      "estimate": "Estimate",
-      "range": "Range",
       "costBasis": "Total cost"
     },
     "adjustments": {

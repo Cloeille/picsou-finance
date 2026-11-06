@@ -1,6 +1,6 @@
 # Feature: Dashboard Liabilities Card
 
-> Last updated: 2026-10-05
+> Last updated: 2026-11-05
 
 ## Context
 
@@ -40,7 +40,8 @@ BigDecimal totalMonthlyPayment  // null if no loan has a Debt row
 **New fields on each `LiabilityEntryDto`** (extends existing liability list entry):
 ```java
 BigDecimal monthlyPayment  // null if no Debt row
-Double percentPaid         // null if no Debt row — (borrowedAmount - abs(balance)) / borrowedAmount * 100
+Double percentPaid         // null if no Debt row or borrowedAmount <= 0 — (borrowedAmount - remaining capital) / borrowedAmount * 100,
+                           // both unweighted: the loan's own progress, whatever the member's share (even 0)
 BigDecimal paymentDueAmountEur  // CREDIT_CARD only: account.paymentDueAmount in EUR, weighted by the member's share
 LocalDate paymentDueDate        // CREDIT_CARD only: account.paymentDueDate
 ```
@@ -162,6 +163,7 @@ LiabilitiesCard renders if liabilities.length > 0
 ## Gotchas / Pitfalls
 
 - **`totalLiabilities` is already negative** in the existing DTO (loan balances are stored negative). `totalMonthlyPayment` is a positive absolute value (payment amount).
+- **`percentPaid` is the loan's own progress, not the member's.** The formula is `(borrowedAmount - the loan's remaining capital) / borrowedAmount`, both unweighted (the remaining capital is the account value before `AccountAccessResolver.weigh`, not `balanceEur`). Dividing the weighted `balanceEur` by the full borrowed amount showed a half-owned loan with 25% repaid as 62.5%. Weighing both sides would cancel out for a partial share but give 0/0 for a zero share, which rendered "Parameters not configured" on a configured loan. With unweighted figures every co-owner, including a zero-share owner, sees the same progress; `null` only means no Debt row or `borrowedAmount <= 0`.
 - **`percentPaid` formula uses stored balance**, not the amortization schedule. For Finary loans with manually-updated balances this is accurate enough. For loans with a Debt row, the stored balance is the computed remaining capital (updated daily by the snapshot job), so the formula is consistent.
 - **Monthly payment may be stored or computed.** Check `debt.monthlyPayment != null` first; if null, apply `M = P·r / (1−(1+r)^-n)`. This mirrors `LoanAmortizationService` — do not duplicate, extract to a shared method or call the service's helper.
 - **Check nullable fields with `!= null`, never `!== null`.** The API omits null fields, so they arrive as `undefined`. A strict `!== null` once sent a credit card down the configured-loan branch and rendered `NaN% · NaN €/mo` (issue #197).

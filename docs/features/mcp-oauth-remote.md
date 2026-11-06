@@ -66,8 +66,8 @@ Properties B (no `?memberId=` override) and C (scope-only authorities, never `RO
 ### Consent, registration, persistence
 
 - **Consent** is interactive: the AS `consentPage("/consent")` redirects to a React page (SPA route
-  `/consent`, served by nginx `try_files` — it is deliberately NOT under `/oauth2`, which nginx
-  routes to the backend). The page reads the requested scopes via `GET /api/oauth2/consent-info` and
+  `/consent`, served by Spring's SPA fallback — it is deliberately NOT under `/oauth2`, which
+  `SpaPaths.isBackend` keeps for the backend). The page reads the requested scopes via `GET /api/oauth2/consent-info` and
   submits a native form POST to `/oauth2/authorize` with one `scope` field per approved scope (deny =
   submit with none → `access_denied`). Only the logged-in user (password + TOTP) can approve, and
   the consent narrows scopes — it can never widen past `Scopes.ALL`.
@@ -100,7 +100,7 @@ Properties B (no `?memberId=` override) and C (scope-only authorities, never `RO
 - `features/connectedApps/` + `pages/settings/sections/ConnectedAppsSection.tsx`.
 
 **Reverse proxy**
-- `docker/nginx.conf` — `location /.well-known/oauth-` → backend.
+- None in the app image since #342: `/.well-known/oauth-` is a backend prefix in `SpaPaths.isBackend`, so Spring answers it instead of the SPA fallback.
 
 ## Gotchas / Pitfalls
 
@@ -108,8 +108,8 @@ Properties B (no `?memberId=` override) and C (scope-only authorities, never `RO
   only binds a column as binary when its JDBC-reported type is `Types.BLOB`; pgjdbc reports `bytea`
   as `Types.BINARY`, so a `bytea` column breaks the String write path. The vendor
   `oauth2-authorization-schema.sql` says so in its own comment. The migration keeps `text`.
-- **Consent page must live outside `/oauth2`.** nginx routes `/oauth2/*` to the backend; the SPA
-  consent page is at `/consent` so `location /` serves `index.html`.
+- **Consent page must live outside `/oauth2`.** `SpaPaths.isBackend` keeps `/oauth2/*` for the
+  backend; the SPA consent page is at `/consent` so the SPA fallback serves `index.html`.
 - **`McpAuthenticationEntryPoint` uses `ServletUriComponentsBuilder.fromContextPath(request)`**, not
   `fromCurrentContextPath()` — `RequestContextHolder` is not bound when `ExceptionTranslationFilter`
   calls `commence()`. It is wired via two `defaultAuthenticationEntryPointFor(...)` mappings; a plain
@@ -143,11 +143,11 @@ for the HTTP client config and rollback. SSE remains the default for existing in
 
 ## Tests
 
-Backend (`mvn test`, Testcontainers Postgres where DB fidelity matters): schema migration, JDBC repo
+Backend (`make test-backend`, Testcontainers Postgres where DB fidelity matters): schema migration, JDBC repo
 wiring + `picsou-ios` seed, MCP-token claim shape, `authenticateMcpToken` path-scoping, `/mcp` JWT →
 `AccessKeyAuthentication` + Property A denial, `/mcp` 401 challenge header, PRM/DCR/metadata
 endpoints, consent-info, connected-apps list/revoke isolation, `OAuth2Tools` MCP-JWT session.
-Frontend (`vitest` + clean `bun run build`): consent page scope selection + form submission,
+Frontend (`make test-frontend`): consent page scope selection + form submission,
 connected-apps list/revoke.
 
 **Not unit-testable** (needs a live public instance + the homelab edge): the full claude.ai
@@ -157,4 +157,3 @@ handshake — covered by the runbook above.
 
 - ADR: [2026-07-12 remote-MCP OAuth authorization](../decisions/2026-07-12-remote-mcp-oauth-authorization.md)
 - Related: [MCP server + access-keys](./mcp-server.md), [Budget + OAuth2 MCP tools](./mcp-budget-oauth2.md), [OAuth2 AS for iOS](../decisions/2026-07-03-oauth2-authorization-server-for-native-app.md)
-- Design brief: `docs/briefs/2026-07-12-remote-mcp-oauth-design.md`

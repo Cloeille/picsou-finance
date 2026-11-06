@@ -1,6 +1,6 @@
 # Feature: 2FA (TOTP) and Remember Me
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-04 (SSO-born Remember-Me series and local 2FA)
 > Status: ✅ Implemented (2026-04-26)
 >
 > Implementation notes vs. original design:
@@ -100,11 +100,12 @@ AppUser (id, username, password_hash, role, member_id, ...)
 | `access_token` | 15 min | API auth (existing) | login, refresh, mfa/verify, persistent-filter | logout; login (severs a pending/foreign session) |
 | `refresh_token` | 7 days | Rotate access token (existing) | login, refresh, mfa/verify, persistent-filter | logout, password change, mfa change; login (sever) |
 | `mfa_challenge` | 5 min | Single-purpose token to call `/api/auth/mfa/verify` | login (when 2FA on) | mfa/verify success, mfa/verify rate-limit lockout |
-| `persistent_token` | 90 days | Remember Me / trusted-device | login, mfa/verify (if rememberMe), persistent-filter rotation | logout, password change, mfa change, session revoke; login (foreign "Remember Me") |
+| `persistent_token` | 90 days | Remember Me / trusted-device | login, mfa/verify (if rememberMe), SSO callback (if rememberMe), persistent-filter rotation | logout, password change, mfa change, session revoke; login (foreign "Remember Me") |
+| `reauth_proof` | 5 min | Proof of a fresh re-authentication for credential changes and the export | `POST /api/auth/reauth`, SSO `reauth` callback | logout; expiry |
 
 All cookies share the same attributes: `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` controlled by `SECURE_COOKIES` env (existing).
 
-**`access_token`/`refresh_token` are only written with the TTLs above when the browser has a "Remember Me" session** (i.e. a `persistent_token` cookie owned by the same user is present on the request, or the login/mfa-verify call itself set `rememberMe`/`trustDevice`). Otherwise `AuthCookieWriter.setAccessAndRefresh` omits `Max-Age` entirely, making them **browser-session cookies**: closing the browser deletes them outright, regardless of the 15-minute/7-day validity still encoded in the JWT itself. This matters specifically because `RequireAuth`'s session-probe (below) actively calls `/auth/refresh` on every mount — without this, a non-"Remember Me" login's 7-day `refresh_token` would let the probe silently resurrect the session after the browser was closed, defeating the whole point of not ticking "Remember Me". `AuthController` derives this per request/response via `isPersistentDevice()`; it is never a static "did this login request tick the box" flag, so persistence is re-evaluated on every rotation (login, refresh, mfa/verify, username change).
+**`access_token`/`refresh_token` are only written with the TTLs above when the browser has a "Remember Me" session** (i.e. a `persistent_token` cookie owned by the same user is present on the request, or the login/mfa-verify call itself set `rememberMe`/`trustDevice`). Otherwise `AuthCookieWriter.setAccessAndRefresh` omits `Max-Age` entirely, making them **browser-session cookies**: closing the browser deletes them outright, regardless of the 15-minute/7-day validity still encoded in the JWT itself. This matters specifically because `RequireAuth`'s session-probe (below) actively calls `/auth/refresh` on every mount — without this, a non-"Remember Me" login's 7-day `refresh_token` would let the probe silently resurrect the session after the browser was closed, defeating the whole point of not ticking "Remember Me". `SessionIssuer` (used by `AuthController`) derives this per request/response via `isPersistentDevice()`; it is never a static "did this login request tick the box" flag, so persistence is re-evaluated on every rotation (login, refresh, mfa/verify, username change).
 
 ### `mfa_challenge` JWT
 
@@ -170,6 +171,8 @@ These endpoints require the current user's password to be re-submitted in the re
 
 The reauth check is a `passwordEncoder.matches(request.currentPassword, user.passwordHash)` call inline in the controller (same pattern as `change-password`). No separate "step-up token". This is enough because all three endpoints are state-changing and the attacker would already need a valid session cookie to reach them.
 
+The SSO sign-in-method changes (turning password login off or on, unlinking an identity, linking one) and the data export use a step-up token instead, because an account may have no password: the 5-minute `reauth_proof` cookie, minted by `POST /api/auth/reauth` (password **and** TOTP when 2FA is on) or by an IdP round trip with a fresh `auth_time`. See [sso-login.md](./sso-login.md#password-less-accounts-and-re-authentication).
+
 ### Cascading invalidations
 
 | Trigger | Effect |
@@ -181,6 +184,7 @@ The reauth check is a `passwordEncoder.matches(request.currentPassword, user.pas
 | Regenerate recovery codes | No session impact (only revokes the codes themselves). |
 | Admin force-disables target's 2FA | Same as user-initiated disable: wipe target's persistent sessions. |
 | Logout | Revoke only the current device's persistent session. |
+| Turn password login off / set a password (`/api/auth/password`) | Bump `tokenVersion`, revoke all persistent sessions, re-issue session-scoped cookies for the current browser. Turning it off also disables 2FA. |
 
 ### Cross-identity session bleed at login
 
@@ -189,9 +193,26 @@ On a **shared family browser**, login cookies from a *previous* user can outlive
 `AuthController.login` closes this at the instant the password is verified:
 
 1. **MFA-required branch** — before issuing the `mfa_challenge`, it calls `AuthCookieWriter.clearSessionCookies` (access + refresh + persistent). The caller has proven a password but is **not** authenticated yet; any session cookies present must not bleed through while the second factor is pending or abandoned. A genuinely **trusted device** is detected first (`PersistentSessionService.isTrustedDeviceFor`, user-scoped) and is exempt — it falls through to a normal session.
-2. **Session-completion without Remember Me** — `completeAuthenticatedSession` drops a leftover `persistent_token` whose `series_id` resolves to a **different** `AppUser` (`PersistentSessionService.ownerUserId`, a series-only lookup that never validates the token hash and never grants access). A cookie belonging to the *same* user (a trusted device logging in without re-ticking Remember Me) is left intact so the device stays trusted.
+2. **Session-completion without Remember Me** — `SessionIssuer.issue` (shared by password, MFA and SSO sign-ins) drops a leftover `persistent_token` whose `series_id` resolves to a **different** `AppUser` (`PersistentSessionService.ownerUserId`, a series-only lookup that never validates the token hash and never grants access). A cookie belonging to the *same* user (a trusted device logging in without re-ticking Remember Me) is left intact so the device stays trusted.
 
 This is the server-side half of the shared-browser fix; the client-side half — resetting the cache + impersonation target when the new identity is written — lives in [multi-account-family.md](./multi-account-family.md#client-state-isolation-across-the-login-boundary).
+
+### SSO sessions and local 2FA
+
+Picsou's TOTP protects the password only, so it is never asked on an SSO sign-in (MFA is the
+IdP's job) and it is removed when an account turns password login off or activates through SSO.
+The MFA card is hidden in Settings for an account without a password.
+
+An SSO sign-in with Remember Me creates a normal series whose `sso_authenticated_at` is set and
+whose `trusted_for_2fa` is always `false`:
+
+- `PersistentTokenAuthFilter` restores such a series without the local 2FA re-check, and revokes
+  it instead once it is older than `SSO_SESSION_REVALIDATE_AFTER` (or SSO is disabled); refresh
+  then answers 401 `SSO_REVALIDATE` and the SPA sends the user through the IdP again;
+- because it is never trusted, the series does not let a later **password** login on the same
+  browser skip TOTP.
+
+See [sso-login.md](./sso-login.md#session-marker-and-re-validation).
 
 ### Endpoints
 
@@ -407,7 +428,7 @@ All UIs are mobile-responsive (per repo convention).
 - **The JS-readable "logged in" signal must not be tab-scoped**: the frontend has no read access to the HttpOnly cookies, so `RequireAuth` (`frontend/src/features/auth/guards.tsx`) relies on a client-side flag (`sessionStorage['picsou_user']`, mirrored in `useAuthStore`) to decide whether to render or redirect to `/login`. `sessionStorage` is cleared on every tab/browser close, which is *unrelated* to the 90-day `persistent_token` lifetime — a bug fixed on 2026-07-02 had `RequireAuth` redirect to `/login` on an empty flag without ever giving the cookie-backed session a chance, defeating "Remember Me" and forcing daily re-logins. `RequireAuth` now probes `POST /api/auth/refresh` once when the flag is empty (rehydrating the store on success) before redirecting, so a valid `refresh_token` or `persistent_token` (re-minted by `PersistentTokenAuthFilter`) is honoured.
 - **`/auth/refresh` resolves the account by the token's `uid` claim, never by the username in `sub`**, exactly as `JwtAuthenticationFilter` does for access tokens. A username is mutable (`change-username`) and can be freed and given to a new member; resolving by name logged the old refresh token's holder into whoever now carried that name (as long as `tokenVersion` happened to match, and a fresh account starts at the same version) and locked a renamed user out at their next refresh. Every refresh token already carries `uid` (`JwtUtil.generateToken`), so nothing changes for existing sessions.
 - **`AuthController.refresh` must fall back to the `PersistentTokenAuthFilter`-set principal, and must honour it over a stale `refresh_token`**: fixed alongside the gotcha above. `refresh` accepts `@AuthenticationPrincipal AppUser` and, whenever no `refresh_token` cookie yields a valid rotation (missing, expired, wrong `tokenVersion`, deactivated user), falls back to that principal instead of an immediate 401 — this is also what lets a `tokenVersion` bump that didn't also revoke persistent sessions (e.g. `AdminRecoveryRunner`) still resolve to a valid session instead of a dead end. The endpoint always (re)mints access/refresh cookies whenever it returns 200 — never a "phantom" 200 with zero `Set-Cookie` — and never calls `clearAuthCookies` in that fallback path, since `PersistentTokenAuthFilter` may have *just* rotated `persistent_token` on the very same response; clearing it there would silently destroy Remember Me for a request that was otherwise fine.
-- **`access_token`/`refresh_token` persistence is derived per request, not just "did rememberMe get ticked at login"**: `AuthController.isPersistentDevice()` checks whether the *current* request carries a `persistent_token` owned by the authenticated user. `change-password` always forces `persistent=false` (it also revokes all persistent sessions in the same call), `change-username` preserves whatever persistence the browser already had, and `refresh`/login derive it from the request each time.
+- **`access_token`/`refresh_token` persistence is derived per request, not just "did rememberMe get ticked at login"**: `SessionIssuer.isPersistentDevice()` checks whether the *current* request carries a `persistent_token` owned by the authenticated user. `change-password` always forces `persistent=false` (it also revokes all persistent sessions in the same call), `change-username` preserves whatever persistence the browser already had, and `refresh`/login derive it from the request each time.
 - **Revoking a device cuts its `refresh_token` chain, not only its `persistent_token`**: the `refresh_token` is an independent 7-day JWT, so on its own a session revoke (`/auth/sessions`) would not stop a device that keeps rotating it. To close that, a Remember-Me `refresh_token` carries the persistent session's `series_id` in a `sid` claim (`JwtUtil.generateRefreshToken(user, seriesId)`, propagated on every persistent mint: login/mfa-verify, the persistent-token filter, `refresh` rotation, `change-username`). `/auth/refresh` then enforces revocation two ways — a front guard on the request's `persistent_token` series, and a check on the refresh_token's own `sid` — both via `PersistentSessionService.isSeriesActive` (false when `revoked_at` is set or past the 90-day cap). The `sid` check is **decisive** (401 + clear, no fall-through to the access-principal re-mint), otherwise a still-valid `access_token` on the same device would re-establish the session. The `access_token` deliberately stays `sid`-free so its validation remains a pure signature/`tokenVersion` check with no per-request session lookup; the cost is that revocation lands within one access-token lifetime (≤15 min), not instantly. Non-"Remember Me" (session-scoped) refresh tokens carry no `sid` and are unaffected.
 - **`persistent_token` and `?memberId=X` are independent**: the persistent token authenticates the `AppUser`; `?memberId=X` is the admin's profile-switch overlay. Don't confuse them.
 - **A no-MFA "Remember Me" cookie survives someone else's login**: `PersistentTokenAuthFilter` only auto-clears a stale `persistent_token` for 2FA-enabled owners, so a no-MFA account's leftover cookie would re-authenticate it under the next person. `AuthController.login` therefore severs lingering session cookies on the MFA-required branch (`clearSessionCookies`) and drops a *foreign* `persistent_token` on no-Remember-Me completion (`ownerUserId` series check); a trusted device's **own** cookie is preserved. See "Cross-identity session bleed at login".
@@ -463,4 +484,5 @@ All UIs are mobile-responsive (per repo convention).
 - Related ADR: `docs/decisions/2026-03-01-aes-gcm-crypto-secrets.md` (reused for `totp_secret_enc`)
 - Related feature: `docs/features/security-cors-cookies.md` (cookie semantics)
 - Related feature: `docs/features/multi-account-family.md` (admin force-disable on members)
+- Related feature: [sso-login.md](./sso-login.md) (SSO series, password-less accounts, `reauth_proof`)
 - ADR: `docs/decisions/2026-04-26-totp-2fa-and-persistent-sessions.md` (active).

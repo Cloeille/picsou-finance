@@ -60,6 +60,14 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
      */
     List<Transaction> findByAccountIdAndIsManualFalse(Long accountId);
 
+    /** The synced rows of one account, scoped to the member who owns it. */
+    @Query("""
+        SELECT t FROM Transaction t
+        WHERE t.account.id = :accountId AND t.account.member.id = :memberId AND t.isManual = false
+        """)
+    List<Transaction> findByAccountIdAndAccountMemberIdAndIsManualFalse(@Param("accountId") Long accountId,
+                                                                        @Param("memberId") Long memberId);
+
     @Query("SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t WHERE t.account.id = :accountId AND t.date > :date")
     BigDecimal sumAmountByAccountIdAndDateAfter(@Param("accountId") Long accountId, @Param("date") LocalDate date);
 
@@ -141,7 +149,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     /** Transactions belonging to a member that have no managed category yet. */
     @Query("""
         SELECT t FROM Transaction t
-        WHERE t.account.member.id = :memberId AND t.categoryRef IS NULL
+        WHERE t.account.member.id = :memberId AND t.categoryRef IS NULL AND t.budgetNeutral = false
         ORDER BY t.date DESC, t.id DESC
         """)
     List<Transaction> findUncategorizedByMemberId(@Param("memberId") Long memberId);
@@ -154,6 +162,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @Query("""
         SELECT t FROM Transaction t
         WHERE t.account.member.id = :memberId AND t.categoryRef IS NOT NULL AND t.merchantLabel IS NOT NULL
+          AND t.budgetNeutral = false
         ORDER BY t.date DESC, t.id DESC
         """)
     List<Transaction> findRecentCategorizedByMemberId(@Param("memberId") Long memberId,
@@ -164,12 +173,17 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     // Hidden accounts are left out of every query below, like the dashboard and allocation
     // views already do: an account is typically hidden because a second connector syncs the
     // same bank account, and counting both copies would double the member's spending.
+    //
+    // Budget-neutral rows (money moving inside an investment wrapper, see
+    // Transaction#budgetNeutral) are left out too, including from the global search: they
+    // belong on their account's ledger only, which reads findByAccountIdOrderByDateDesc.
 
     /** All member transactions in a date range (cashflow / detection input). */
     @Query("""
         SELECT t FROM Transaction t
         JOIN FETCH t.account
         WHERE t.account.member.id = :memberId AND t.account.hidden = false
+        AND t.budgetNeutral = false
         AND t.date BETWEEN :from AND :to
         ORDER BY t.date ASC, t.id ASC
         """)
@@ -186,6 +200,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
         JOIN FETCH t.account
         LEFT JOIN FETCH t.categoryRef
         WHERE t.account.member.id = :memberId
+        AND t.budgetNeutral = false
         AND t.date BETWEEN :from AND :to
         AND ((:accountId IS NULL AND t.account.hidden = false) OR t.account.id = :accountId)
         AND (:categoryId IS NULL OR t.categoryRef.id = :categoryId)
@@ -201,6 +216,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @Query("""
         SELECT t FROM Transaction t
         WHERE t.account.member.id = :memberId AND t.account.hidden = false
+        AND t.budgetNeutral = false
         AND t.categoryRef.id = :categoryId AND t.date BETWEEN :from AND :to
         ORDER BY t.date DESC, t.id DESC
         """)
@@ -213,6 +229,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @Query("""
         SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t
         WHERE t.categoryRef.id = :categoryId AND t.account.hidden = false
+        AND t.budgetNeutral = false
         AND t.date BETWEEN :from AND :to
         """)
     BigDecimal sumByCategoryIdAndDateBetween(@Param("categoryId") Long categoryId,
@@ -223,6 +240,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @Query("""
         SELECT t FROM Transaction t
         WHERE t.account.member.id = :memberId AND t.account.hidden = false
+        AND t.budgetNeutral = false
         AND t.categoryRef.id IN :categoryIds AND t.date BETWEEN :from AND :to
         ORDER BY t.date DESC, t.id DESC
         """)
@@ -235,6 +253,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @Query("""
         SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t
         WHERE t.categoryRef.id IN :categoryIds AND t.account.hidden = false
+        AND t.budgetNeutral = false
         AND t.date BETWEEN :from AND :to
         """)
     BigDecimal sumByCategoryIdInAndDateBetween(@Param("categoryIds") Collection<Long> categoryIds,
@@ -245,6 +264,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     @Query("""
         SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t
         WHERE t.account.member.id = :memberId AND t.account.hidden = false
+        AND t.budgetNeutral = false
         AND t.categoryRef.kind = :kind AND t.date BETWEEN :from AND :to
         """)
     BigDecimal sumByMemberIdAndKindAndDateBetween(@Param("memberId") Long memberId,
@@ -257,6 +277,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
         SELECT t FROM Transaction t
         JOIN FETCH t.account
         WHERE t.account.member.id = :memberId AND t.account.hidden = false
+        AND t.budgetNeutral = false
         AND t.categoryRef.kind = :kind AND t.date BETWEEN :from AND :to
         """)
     List<Transaction> findByMemberIdAndKindAndDateBetween(@Param("memberId") Long memberId,
@@ -279,6 +300,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
         SELECT t FROM Transaction t
         WHERE t.account.member.id = :memberId
           AND (t.categoryRef IS NULL OR t.categoryManual = false)
+          AND t.budgetNeutral = false
         ORDER BY t.date DESC, t.id DESC
         """)
     List<Transaction> findChangeable(@Param("memberId") Long memberId);

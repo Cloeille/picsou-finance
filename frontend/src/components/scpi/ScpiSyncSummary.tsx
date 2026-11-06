@@ -12,12 +12,18 @@ const NOTABLE: readonly ScpiFundOutcome[] = ['PRICE_INCOMPLETE', 'AMBIGUOUS', 'I
  * What the last CORUM or Sofidy sync did with each fund (GH issue #232). A sync that
  * found funds but applied none is shown as a warning, never as a plain success.
  */
-export function ScpiSyncSummary({ provider, completedAt }: { provider: ScpiProvider; completedAt?: string | null }) {
+export function ScpiSyncSummary({ provider, completedAt, hideWhenEmpty = false }: {
+  provider: ScpiProvider
+  completedAt?: string | null
+  /** A login holding no fund but other contracts (CORUM Life) is not a warning. */
+  hideWhenEmpty?: boolean
+}) {
   const { t } = useTranslation()
   const funds = useScpiFunds()
   if (!funds.data || !completedAt) return null
 
   const run = syncRun(funds.data, provider, completedAt)
+  if (hideWhenEmpty && run.length === 0) return null
   const count = (outcome: ScpiFundOutcome) => run.filter(fund => fund.lastOutcome === outcome).length
   const listed = run.filter(fund => fund.lastOutcome !== 'MISSING_AT_PROVIDER')
   const applied = run.filter(fund => APPLIED.has(fund.lastOutcome!)).length

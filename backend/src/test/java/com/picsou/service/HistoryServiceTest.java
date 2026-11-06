@@ -1,13 +1,14 @@
 package com.picsou.service;
 
-import com.picsou.adapter.CoinGeckoPriceProvider;
-import com.picsou.adapter.CompositePriceProvider;
+import com.picsou.adapter.CoinGeckoStubs;
+import com.picsou.adapter.PreciousMetalStubs;
 import com.picsou.adapter.YahooFinancePriceProvider;
 import com.picsou.adapter.YahooFinanceStubs;
 import com.picsou.dto.DashboardResponse.NetWorthIntradayPoint;
 import com.picsou.dto.DashboardResponse.NetWorthPoint;
 import com.picsou.dto.PnlResponse;
 import com.picsou.exception.ResourceNotFoundException;
+import com.picsou.model.ScpiProvider;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
@@ -26,8 +27,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -893,6 +897,64 @@ class HistoryServiceTest {
         });
     }
 
+    /**
+     * CORUM Life: the contract's own cost goes through valuation(), the figure the daily chart
+     * uses too, even when every line carries a cost of its own: within the allowance the lines'
+     * costs may still differ from the contract's by a few cents.
+     */
+    @Test
+    void buildIntradayHistory_contractLevelCost_takesTheValuationCost() {
+        Account life = corumLife(1L);
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(life));
+        // Lines' own costs: 480 + 1000.
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(
+            AccountHolding.builder().account(life).ticker("CORUM-LIFE-XL").quantity(new BigDecimal("2.65955"))
+                .providerValueEur(new BigDecimal("518.61")).providerPnlEur(new BigDecimal("38.61")).build(),
+            AccountHolding.builder().account(life).ticker("CORUM-LIFE-FGCORUM").quantity(new BigDecimal("1015.76"))
+                .providerValueEur(new BigDecimal("1015.76")).providerPnlEur(new BigDecimal("15.76")).build()));
+        stubValuation(life, "1534.37", "1480.05");
+
+        List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        assertThat(result).isNotEmpty().allSatisfy(p -> {
+            assertThat(p.total()).isEqualByComparingTo("1534.37");
+            assertThat(p.invested()).isEqualByComparingTo("1480.05");
+        });
+    }
+
+    @Test
+    void buildIntradayHistory_contractLevelCost_isWeighedOnASharedAccount() {
+        Account life = corumLife(1L);
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(life));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(corumLifeLines(life));
+        stubValuation(life, "1534.37", "1580");
+        doReturn(java.util.Map.of(1L, new BigDecimal("50")))
+            .when(accessResolver).sharesFor(any(), any());
+
+        List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        assertThat(result).isNotEmpty().allSatisfy(p -> {
+            assertThat(p.total()).isEqualByComparingTo("767.185");
+            assertThat(p.invested()).isEqualByComparingTo("790");
+        });
+    }
+
+    private static Account corumLife(Long id) {
+        return Account.builder().id(id).name("CORUM Life").type(AccountType.ASSURANCE_VIE)
+            .provider(ScpiProvider.CORUM.displayName()).isManual(false).currency("EUR")
+            .currentBalance(new BigDecimal("1534.37")).cashBalance(BigDecimal.ZERO)
+            .providerInvestedEur(new BigDecimal("1580")).member(MEMBER).build();
+    }
+
+    /** Lines whose own costs were dropped because they did not add up to the contract's. */
+    private static List<AccountHolding> corumLifeLines(Account life) {
+        return List.of(
+            AccountHolding.builder().account(life).ticker("CORUM-LIFE-XL").quantity(new BigDecimal("2.65955"))
+                .providerValueEur(new BigDecimal("518.61")).build(),
+            AccountHolding.builder().account(life).ticker("CORUM-LIFE-FGCORUM").quantity(new BigDecimal("1015.76"))
+                .providerValueEur(new BigDecimal("1015.76")).build());
+    }
+
     @Test
     void buildIntradayHistory_entirelyUnknownCost_takesTheDailyNeutralBaseline() {
         Account account = brokerage(1L, "CTO");
@@ -919,6 +981,36 @@ class HistoryServiceTest {
     }
 
     @Test
+    void buildIntradayHistory_aCoinHolding_isWorthItsQuoteAtEveryHourIncludingTheFirst() {
+        // Loomis quotes a coin once a day and publishes no intraday series: the provider holds
+        // the quote flat, from the hour before `from`, where this grid begins.
+        String quotes = """
+            <div class="raterow"><div class="col col_date">Cotation du <span>05/11/2026</span> :</div>
+            <div class="col col_price">700,00&nbsp;€</div>
+            <a href="https://www.loomis-fxgs.fr/produit/20-francs-napoleon/">Détail produit</a></div>
+            """;
+        Clock dayOfTheQuote = Clock.fixed(Instant.parse("2026-11-05T12:00:00Z"), ZoneOffset.UTC);
+        YahooFinancePriceProvider yahoo = YahooFinanceStubs.provider(url -> null);
+        PriceService realPrices = new PriceService(
+            CoinGeckoStubs.composite(yahoo, CoinGeckoStubs.registry(java.util.Map.of()),
+                PreciousMetalStubs.provider(yahoo, quotes, dayOfTheQuote)), priceSnapshotRepository);
+        HistoryService service = new HistoryService(accountRepository, snapshotRepository, holdingRepository,
+            realPrices, priceSnapshotRepository, accountService, accessResolver);
+        Account safe = Account.builder().id(9L).name("Safe").type(AccountType.PRECIOUS_METALS)
+            .currency("EUR").currentBalance(BigDecimal.ZERO).member(MEMBER).build();
+        AccountHolding napoleons = AccountHolding.builder()
+            .account(safe).ticker("GOLD:NAPOLEON-20F").quantity(new BigDecimal("3"))
+            .averageBuyIn(new BigDecimal("650")).build();
+        when(accountRepository.findAllById(List.of(9L))).thenReturn(List.of(safe));
+        when(holdingRepository.findByAccount_Id(9L)).thenReturn(List.of(napoleons));
+
+        List<NetWorthIntradayPoint> result = service.buildIntradayHistory(List.of(9L), MEMBER_ID);
+
+        assertThat(result).hasSizeGreaterThanOrEqualTo(24)
+            .allSatisfy(p -> assertThat(p.total()).isEqualByComparingTo("2100"));
+    }
+
+    @Test
     void buildIntradayHistory_anImportedTokenSharingAStockSymbol_keepsItsProviderValue() {
         // REG is RealToken's governance token and Regency Centers on Nasdaq. CoinGecko's catalogue
         // does not map it, and Yahoo's hourly series quotes the company at 60 EUR a share.
@@ -929,7 +1021,7 @@ class HistoryServiceTest {
               "indicators":{"quote":[{"close":[60.0]}]}}]}}""".formatted(twoHoursAgo)
             : null);
         PriceService realPrices = new PriceService(
-            new CompositePriceProvider(new CoinGeckoPriceProvider(), yahoo), priceSnapshotRepository);
+            CoinGeckoStubs.composite(yahoo, CoinGeckoStubs.registry(java.util.Map.of())), priceSnapshotRepository);
         HistoryService service = new HistoryService(accountRepository, snapshotRepository, holdingRepository,
             realPrices, priceSnapshotRepository, accountService, accessResolver);
         // What a verified-EUR Finary crypto snapshot stores: 10 REG that Finary values at 10 EUR.

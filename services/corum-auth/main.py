@@ -1,4 +1,4 @@
-"""Read-only CORUM client-space authentication and SCPI positions sidecar.
+"""Read-only CORUM client-space authentication, SCPI and CORUM Life sidecar.
 
 Playwright drives the login form, then the session cookie is harvested off
 the requests the SPA itself makes. CORUM gates nothing behind a captcha and,
@@ -12,6 +12,10 @@ per-fund call is the only place a withdrawal price appears. `positions_parser`
 owns that split and the arithmetic; this file only owns the browser, the
 session and the HTTP.
 
+CORUM Life contracts are read from a third payload, one call per contract,
+and `life_parser` owns that one. `/portfolio` reads both kinds in a single
+browser session; `/positions` is the SCPI-only read the backend used before.
+
 Credentials, session cookies and raw financial responses are never logged.
 """
 
@@ -19,7 +23,7 @@ import asyncio
 import json
 from decimal import Decimal
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from fastapi import HTTPException
 from picsou_sidecar import configure_logging, create_app
@@ -32,6 +36,7 @@ from playwright.async_api import (
     Page,
     async_playwright,
 )
+from life_parser import parse_life, parse_operations
 from positions_parser import PositionsFormatError, parse_snapshot
 
 log = configure_logging("corum-auth")
@@ -61,6 +66,11 @@ CONTRACT_PATH = "/api/contract/active"
 # reads like a missing fund.
 CONTRACT_DETAIL_PATH = "/api/contract/realEstate/{code}/{investment_type}"
 PRODUCT_PATH = "/api/contract/{code}/{investment_type}/product/{product}"
+# Verified live: 200, the whole contract (pockets, NAVs, euro fund) in one read.
+LIFE_DETAIL_PATH = "/api/contract/life/{code}"
+# Verified live: 200, every contract's operations split by year, in one read.
+# There is no per-operation detail endpoint.
+OPERATIONS_PATH = "/api/operations/"
 
 LOGIN_FORM_TIMEOUT_SECONDS = 25
 SUBMIT_TIMEOUT_SECONDS = 30
@@ -68,6 +78,11 @@ SUBMIT_TIMEOUT_SECONDS = 30
 # first authenticated call the dashboard makes, so the wait is bounded by how
 # long that dashboard takes to fire rather than by any user prompt.
 SESSION_CAPTURE_TIMEOUT_SECONDS = 30
+# One in-page API read. Below the 30 s navigation bound: a stalled response
+# must give its browser slot back rather than hold it until CORUM answers.
+READ_TIMEOUT_SECONDS = 20
+# The evaluation's own bound, past the in-page abort, for a page that is wedged.
+READ_EVALUATE_GRACE_SECONDS = 5
 
 # Every login starts a Playwright driver and a Chromium process, and the
 # backend throttles per IP, which does not bound this service in aggregate.
@@ -135,10 +150,81 @@ class SnapshotPayload(BaseModel):
     totalValuationEur: Decimal
     valuationDate: str | None = Field(default=None, max_length=10)
     snapshotComplete: bool
-    # `holdings`, not `positions`: this is the key `CorumPort.Snapshot` decodes.
+    # `holdings`, not `positions`: this is the key `CorumAdapter.Snapshot` decodes.
     # `extra="forbid"` on both sides means a mismatch surfaces as a 502 rather
     # than as a snapshot that silently carries no funds.
     holdings: list[HoldingPayload]
+
+
+class LifeHoldingPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    productCode: str = Field(min_length=1, max_length=40)
+    label: str = Field(min_length=1, max_length=200)
+    quantity: Decimal
+    unitPrice: Decimal
+    valueEur: Decimal
+    netInvestedEur: Decimal | None
+    valuationDate: str | None = Field(max_length=10)
+    # Invested in the euro fund: 1-euro units, quantity = valueEur.
+    euroFund: bool
+    # The code's `chartSections` section name (`realEstate`, `bondFund`,
+    # `euroLife`, ...), raw; null when the asset-class view does not list it.
+    assetClass: str | None = Field(max_length=40)
+
+
+class ScheduledPaymentPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    amountEur: Decimal
+    # CORUM's own word (`monthly`, ...); the backend maps it to a cadence.
+    frequency: str = Field(min_length=1, max_length=40)
+
+
+class LifeOperationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # CORUM's own id, the string of an integer; the backend's dedup key.
+    operationId: str = Field(min_length=1, max_length=40)
+    # CORUM's own words (`scheduledPayment`, `couponDetachment`...), raw: the
+    # backend maps the ones it knows and keeps the rest as neutral rows.
+    type: str = Field(min_length=1, max_length=60)
+    category: str | None = Field(max_length=60)
+    date: str = Field(min_length=10, max_length=10)
+    # Signed: a fee is negative, an arbitrage has one leg each way.
+    amountEur: Decimal
+    fundCodes: list[str] | None
+
+
+class LifeSnapshotPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contractCode: str = Field(min_length=1, max_length=100)
+    currency: str = Field(min_length=3, max_length=3)
+    totalValuationEur: Decimal
+    valuationDate: str | None = Field(max_length=10)
+    # The backend re-runs the reconciliation, and its tolerance scales with
+    # the raw line count, which the aggregated holdings no longer show.
+    valuationLineCount: int = Field(ge=0)
+    # Contract-level cost basis: the lines' own costs leave out switched money.
+    netInvestedEur: Decimal
+    paidInEur: Decimal | None
+    openedAt: str | None = Field(max_length=10)
+    scheduledPayment: ScheduledPaymentPayload | None
+    snapshotComplete: bool
+    holdings: list[LifeHoldingPayload]
+    # Null when the operation list could not be read: the backend then keeps
+    # the rows it already stored, and the valuation above is synced all the same.
+    operations: list[LifeOperationPayload] | None
+
+
+class PortfolioPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Null, not absent, when the login holds no SCPI contract: the backend
+    # must be told there is nothing there rather than left to guess.
+    realEstate: SnapshotPayload | None
+    life: list[LifeSnapshotPayload]
 
 
 class SessionCollector:
@@ -458,16 +544,40 @@ async def _get_json(
     So the reads go through `fetch` in the page. That also means no cookie
     header is assembled here: a missing or stale token shows up as the API's
     own 401 rather than as a bot-wall 403 we would have to guess about.
+
+    The fetch is aborted after `READ_TIMEOUT_SECONDS`, body included, and the
+    evaluation itself is bounded a little later in case the page is wedged: a
+    stalled read raises, so `_read_in_portal` closes and frees its slot.
     """
-    result = await page.evaluate(
-        """async (path) => {
-            const response = await fetch(path, {credentials: 'include'});
-            let body = null;
-            try { body = await response.json(); } catch (e) { body = null; }
-            return {status: response.status, body};
-        }""",
-        path,
-    )
+    try:
+        result = await asyncio.wait_for(
+            page.evaluate(
+                """async ([path, timeoutMs]) => {
+                    const controller = new AbortController();
+                    const timer = setTimeout(() => controller.abort(), timeoutMs);
+                    try {
+                        const response = await fetch(path, {credentials: 'include', signal: controller.signal});
+                        let body = null;
+                        try { body = await response.json(); } catch (e) { body = null; }
+                        if (controller.signal.aborted) return {status: null, body: null, timedOut: true};
+                        return {status: response.status, body};
+                    } catch (e) {
+                        if (controller.signal.aborted) return {status: null, body: null, timedOut: true};
+                        throw e;
+                    } finally {
+                        clearTimeout(timer);
+                    }
+                }""",
+                [path, READ_TIMEOUT_SECONDS * 1000],
+            ),
+            timeout=READ_TIMEOUT_SECONDS + READ_EVALUATE_GRACE_SECONDS,
+        )
+    except asyncio.TimeoutError as exc:
+        log.warning("CORUM request timed out")
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
+    if result.get("timedOut"):
+        log.warning("CORUM request timed out")
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
     status = result.get("status")
     if status in (401, 403):
         # 401 is the API refusing the session. 403 here is Cloudflare rather
@@ -490,41 +600,191 @@ async def _get_json(
     return status, result["body"]
 
 
-def _select_real_estate_contract(active: Any) -> tuple[str, str]:
-    """Pick the real-estate contract out of `/contract/active`.
+def _select_contracts(active: Any, *, reads_life: bool = False) -> tuple[str | None, list[str]]:
+    """Pick the contracts this service reads out of `/contract/active`.
 
-    One login can also see CORUM Life, PER and capitalisation. Those are
-    insurance, not shares, and folding them into a SCPI snapshot would invent
-    a position that does not exist.
+    Returns the real-estate contract code, if any, and every CORUM Life code
+    as listed; `/portfolio` refuses a duplicate code, `/positions` never reads them.
+    With `reads_life` (`/portfolio`), a Life or real-estate entry without a
+    usable code is refused rather than skipped: skipping it would report a
+    successful sync that silently left that contract (or the SCPI funds) stale.
+    PER and capitalisation are still left out: they are insurance this service
+    has no parser for, and folding them in would invent positions.
     """
     entries = active if isinstance(active, list) else [active]
-    contracts: list[tuple[str, str]] = []
+    real_estate: list[str] = []
+    life: list[str] = []
     for entry in entries:
         if not isinstance(entry, dict):
             continue
         code = entry.get("contractCode")
         contract_type = entry.get("contractType")
-        if (
-            isinstance(code, str)
-            and code
-            and isinstance(contract_type, str)
-            and contract_type.casefold() == "real_estate"
-        ):
-            contracts.append((code, contract_type))
+        if not isinstance(contract_type, str):
+            continue
+        if not (isinstance(code, str) and code):
+            if reads_life and contract_type.casefold() in ("life", "real_estate"):
+                raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+            continue
+        if contract_type.casefold() == "real_estate":
+            real_estate.append(code)
+        elif contract_type.casefold() == "life":
+            life.append(code)
 
-    if not contracts:
-        raise HTTPException(status_code=502, detail="PORTFOLIO_INCOMPLETE")
-    if len(contracts) > 1:
+    if len(real_estate) > 1:
         # Ambiguous: a user with two real-estate contracts gets one account per
         # fund, so this service cannot pick a contract for them. Fail loudly
-        # rather than syncing the wrong one.
+        # rather than syncing the wrong one -- and refuse the Life part too,
+        # because the backend commits both or neither.
         raise HTTPException(status_code=409, detail="MULTIPLE_CONTRACTS")
-    return contracts[0]
+    if not real_estate and not life:
+        raise HTTPException(status_code=502, detail="PORTFOLIO_INCOMPLETE")
+    return (real_estate[0] if real_estate else None), life
 
 
-@app.post("/positions", response_model=SnapshotPayload)
-async def positions(req: SessionRequest) -> dict:
-    storage_state, _cookie = _decode_session(req.sessionState)
+def _segment(value: str) -> str:
+    """One upstream-supplied value as a single URL path segment.
+
+    Contract and fund codes come from CORUM's own payloads and go straight into
+    a same-origin fetch. Encoding them keeps a value such as `../profile` from
+    reaching another client-space endpoint with the session's cookies. A bare
+    `.` or `..` survives encoding and is resolved by the browser as a dot
+    segment, so it is refused outright.
+    """
+    if value in {"", ".", ".."}:
+        raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+    return quote(value, safe="")
+
+
+async def _read_real_estate(page: Any, code: str) -> dict[str, Any]:
+    """The SCPI snapshot of one real-estate contract, already parsed."""
+    _, contract = await _get_json(
+        page,
+        CONTRACT_DETAIL_PATH.format(code=_segment(code), investment_type="FULL_PROPERTY"),
+    )
+    if not isinstance(contract, dict):
+        raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+
+    # The withdrawal price lives only in the per-fund call, so every fund
+    # in the contract needs its own read. A fund that fails to come back is
+    # a partial portfolio, and the parser refuses the whole snapshot.
+    products = []
+    for entry in contract.get("productsData") or []:
+        if not isinstance(entry, dict):
+            raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+        fund_code = entry.get("productCode")
+        if not isinstance(fund_code, str) or not fund_code:
+            raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+        _, product = await _get_json(
+            page,
+            PRODUCT_PATH.format(
+                code=_segment(code), investment_type="FULL_PROPERTY", product=_segment(fund_code)
+            ),
+        )
+        products.append(product)
+
+    return parse_snapshot(contract, products)
+
+
+async def _read_life(page: Any, code: str) -> dict[str, Any]:
+    """The snapshot of one CORUM Life contract, already parsed."""
+    _, payload = await _get_json(page, LIFE_DETAIL_PATH.format(code=_segment(code)))
+    snapshot = parse_life(payload)
+    # The account is keyed by this code. A payload for another contract would
+    # write one contract's money under another's name.
+    if snapshot["contractCode"] != code:
+        raise PositionsFormatError("UPSTREAM_FORMAT_CHANGED")
+    return snapshot
+
+
+async def _read_operations(page: Any, life_codes: list[str]) -> dict[str, Any]:
+    """Every Life contract's operations, or None for all of them on failure.
+
+    The operation list is secondary to the valuation: a read or format failure
+    here must not fail a sync whose balances were read fine. It is logged by
+    cause only -- never the payload -- and every contract then reports no
+    operations, which the backend reads as "keep what is stored".
+    """
+    try:
+        _, payload = await _get_json(page, OPERATIONS_PATH)
+        return parse_operations(payload, life_codes)
+    except HTTPException as exc:
+        log.warning("CORUM Life operations not read (code=%s)", exc.detail)
+    except PositionsFormatError as exc:
+        log.warning("CORUM Life operations rejected (code=%s)", exc.code)
+    except PlaywrightError:
+        # The page died mid-fetch. The message may quote the page, so only the cause is logged.
+        log.warning("CORUM Life operations not read (code=BROWSER_ERROR)")
+    return {code: None for code in life_codes}
+
+
+def _active_totals(active: Any) -> dict[str, Any]:
+    """Valuation per contract code from the active list, which may hold a single entry."""
+    entries = active if isinstance(active, list) else [active]
+    return {
+        entry["contractCode"]: entry.get("valuationAmount")
+        for entry in entries
+        # A non-string code is no key to look up, and a list is no key at all.
+        if isinstance(entry, dict) and isinstance(entry.get("contractCode"), str)
+    }
+
+
+async def _read_portfolio(page: Any) -> dict:
+    """Read the real-estate snapshot and every life contract of the login in one pass. A
+    repeated life code is refused, since it would write one account from two reads; a
+    gap between the listed and detailed total is only logged."""
+    _, active = await _get_json(page, CONTRACT_PATH)
+    real_estate_code, life_codes = _select_contracts(active, reads_life=True)
+    if len(set(life_codes)) != len(life_codes):
+        # A Life account is keyed by its contract code. The same code twice
+        # would write one account from two reads.
+        raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+    real_estate = (
+        await _read_real_estate(page, real_estate_code)
+        if real_estate_code is not None
+        else None
+    )
+    totals = _active_totals(active)
+    life = []
+    for code in life_codes:
+        snapshot = await _read_life(page, code)
+        # The summary list is rounded and cached on CORUM's side, so it is not
+        # a gate -- but a drift worth noticing. No figure is logged.
+        listed = totals.get(code)
+        if (
+            isinstance(listed, (int, float))
+            and not isinstance(listed, bool)
+            and abs(Decimal(str(listed)) - snapshot["totalValuationEur"]) > Decimal("0.05")
+        ):
+            log.warning("CORUM Life active total differs from the contract detail")
+        life.append(snapshot)
+    if life:
+        operations = await _read_operations(page, life_codes)
+        for snapshot in life:
+            snapshot["operations"] = operations.get(snapshot["contractCode"])
+    return PortfolioPayload.model_validate(
+        {"realEstate": real_estate, "life": life}
+    ).model_dump()
+
+
+async def _read_positions(page: Any) -> dict:
+    """Read the SCPI snapshot alone. A login with only CORUM Life has none, so it is
+    refused as PORTFOLIO_INCOMPLETE."""
+    _, active = await _get_json(page, CONTRACT_PATH)
+    code, _life = _select_contracts(active)
+    if code is None:
+        # The SCPI-only read: a login with only CORUM Life has no SCPI snapshot.
+        raise HTTPException(status_code=502, detail="PORTFOLIO_INCOMPLETE")
+    snapshot = await _read_real_estate(page, code)
+    return SnapshotPayload.model_validate(snapshot).model_dump()
+
+
+async def _read_in_portal(session_state: str, read: Any) -> dict:
+    """Open the client space with a stored session, run `read` on it, close.
+
+    The one place the read endpoints open a browser, so the error mapping and
+    the cleanup cannot drift between them.
+    """
+    storage_state, _cookie = _decode_session(session_state)
 
     pw: Playwright | None = None
     browser: Browser | None = None
@@ -534,40 +794,10 @@ async def positions(req: SessionRequest) -> dict:
         browser, live, _ = await _new_browser(pw, storage_state=storage_state)
         context = live
         page = await _new_page(live)
-        # The reads below happen in this page, so it has to be on the client
-        # space itself: a same-origin fetch is what Cloudflare accepts.
+        # The reads happen in this page, so it has to be on the client space
+        # itself: a same-origin fetch is what Cloudflare accepts.
         await page.goto(f"{BASE_URL}/", wait_until="domcontentloaded", timeout=30_000)
-
-        _, active = await _get_json(page, CONTRACT_PATH)
-        code, _contract_type = _select_real_estate_contract(active)
-
-        _, contract = await _get_json(
-            page,
-            CONTRACT_DETAIL_PATH.format(code=code, investment_type="FULL_PROPERTY"),
-        )
-        if not isinstance(contract, dict):
-            raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
-
-        # The withdrawal price lives only in the per-fund call, so every fund
-        # in the contract needs its own read. A fund that fails to come back is
-        # a partial portfolio, and the parser refuses the whole snapshot.
-        products = []
-        for entry in contract.get("productsData") or []:
-            if not isinstance(entry, dict):
-                raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
-            fund_code = entry.get("productCode")
-            if not isinstance(fund_code, str) or not fund_code:
-                raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
-            _, product = await _get_json(
-                page,
-                PRODUCT_PATH.format(
-                    code=code, investment_type="FULL_PROPERTY", product=fund_code
-                ),
-            )
-            products.append(product)
-
-        snapshot = parse_snapshot(contract, products)
-        return SnapshotPayload.model_validate(snapshot).model_dump()
+        return await read(page)
     except PositionsFormatError as exc:
         log.warning("CORUM payload rejected (code=%s)", exc.code)
         raise HTTPException(status_code=502, detail=exc.code) from exc
@@ -576,10 +806,24 @@ async def positions(req: SessionRequest) -> dict:
     except HTTPException:
         raise
     except PlaywrightError as exc:
-        log.warning("CORUM positions browser failed")
+        log.warning("CORUM read browser failed")
         raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
     except Exception as exc:
-        log.error("Unexpected CORUM positions failure")
+        log.error("Unexpected CORUM read failure")
         raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
     finally:
         await _close_resources(context, browser, pw)
+
+
+@app.post("/positions", response_model=SnapshotPayload)
+async def positions(req: SessionRequest) -> dict:
+    """SCPI only. Kept for one release so a backend not yet on `/portfolio`
+    keeps syncing; it answers exactly what it did before CORUM Life."""
+    return await _read_in_portal(req.sessionState, _read_positions)
+
+
+@app.post("/portfolio", response_model=PortfolioPayload)
+async def portfolio(req: SessionRequest) -> dict:
+    """SCPI and every CORUM Life contract, read in one browser session so both
+    parts describe the same moment and the backend can commit them together."""
+    return await _read_in_portal(req.sessionState, _read_portfolio)

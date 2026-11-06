@@ -13,8 +13,8 @@ same published images, same configuration surface, Kubernetes-native exposure an
 
 One release creates:
 
-- **app** — a `Recreate` Deployment of `ghcr.io/cloeille/picsou-finance` (nginx + Spring Boot
-  under supervisord), a `/data` PVC and a `ClusterIP` Service on 8080. Rendering
+- **app** — a `Recreate` Deployment of `ghcr.io/cloeille/picsou-finance` (one non-root Spring Boot
+  process), a `/data` PVC and a `ClusterIP` Service on 8080. Rendering
   rejects more than one replica; zero is supported for maintenance. Custom pod labels
   cannot override the three selector labels on the app or migration pod.
 - **sidecars** — one Deployment and Service per entry of `sidecars` (the `*-auth` services of
@@ -30,7 +30,7 @@ One release creates:
   `externalDatabase` for an operator-managed cluster.
 - **Secret** — `sidecar-api-key` and `postgres-password`, generated once and preserved through
   `lookup`, or an `existingSecret`. `jwt-secret` and `crypto-encryption-key` are optional keys;
-  when absent the image entrypoint generates them under `/data/.secrets` as on Compose.
+  when absent the app generates them under `/data/.secrets` as on Compose.
   Disabling app persistence requires both inline keys or an existing Secret; in the latter
   case both key references become mandatory at pod startup so a missing key cannot be regenerated.
 - **migration Job** — `pre-upgrade` hook running `ReleaseMigrationCli migrate` then `verify`
@@ -107,7 +107,7 @@ pod templates across inline secret changes.
 - `charts/picsou/templates/secret.yaml` — generated Secret
 - `charts/picsou/templates/migration-job.yaml` — pre-upgrade migration and verification
 - `charts/picsou/templates/networkpolicy.yaml` — isolation of sidecars and database
-- `charts/picsou/sync-sidecars.sh` — compares the Compose sidecars with `values.yaml` (URL variable and port read from `app.*.url` in
+- `charts/picsou/sync-sidecars.sh` — compares the Compose sidecars with `values.yaml` (URL variable and port read from `app.sidecars.*.url` in
   `backend/src/main/resources/application.yml`), adds the
   standard ones and disables stale or broken entries on `--apply` with warnings
 - `.github/workflows/docker.yml` (`chart` job) — packages and publishes the chart
@@ -129,14 +129,14 @@ helm upgrade
 |--------|-----|----------------------|
 | TLS on the Ingress/Gateway, no Caddy | Clusters already have a controller and a certificate source (cert-manager, internal CA); the chart only needs `X-Forwarded-Proto` | Shipping the Caddy terminator of the `tls` Compose profile |
 | Sidecar Services named `<release>-<sidecar>`, URLs without a domain | `SidecarBaseUrl` accepts plain HTTP only on a single-label host; the fullname starts with a lowercase letter for Java URI parsing and is capped at 40 characters (a 33-character prefix plus a six-character hash for longer names) so the longest name stays a valid DNS label | Cluster FQDNs (`*.svc.cluster.local`), which would require HTTPS between pods |
-| JWT and encryption keys left to the entrypoint by default | Matches Compose and keeps the encryption key off any value the chart could regenerate | Generating them in the chart Secret, which a `helm template` renderer would rotate on every sync and make stored secrets unreadable |
+| JWT and encryption keys left to the app by default | Matches Compose and keeps the encryption key off any value the chart could regenerate | Generating them in the chart Secret, which a `helm template` renderer would rotate on every sync and make stored secrets unreadable |
 | `lookup` + `helm.sh/resource-policy: keep` for the generated Secret | Values survive upgrades and uninstall | Regenerating on each upgrade |
 | Chart version and `appVersion` stamped at publish time | One chart per release and per commit of main, each pinned to its own images, without a manual bump | A version kept in `Chart.yaml` and bumped by hand |
 | Main channel pinned to `sha-<short>` images | A chart version always deploys the same code | `nightly`, which moves under an installed chart |
 | Standard sidecars added at publish time, never committed | New sidecars reach the main channel without a chart PR, and CI never writes to the repository | Failing pull requests that add a sidecar; a bot committing to main |
 | Pre-upgrade migration Job with the release CLI | Applies the [migration ADR](../decisions/2026-10-08-rehearse-release-migrations.md): migrate and verify before replacing the API | Relying on startup Flyway only, which fails after the old pod is gone |
 | Bundled `postgres:16-alpine` StatefulSet | Same image as Compose, no dependency on a third-party chart | Bitnami PostgreSQL subchart |
-| Liveness on TCP, readiness on `/actuator/health`, no app startup probe | Health includes the database; a database outage must not restart the app in a loop. supervisord restarts a dead JVM. Liveness is a TCP check on nginx (port 8080, the JVM listens on 9090), which answers at once, so a TCP startup probe adds nothing, and one on `/actuator/health` would restart the pod when the database is down at startup | Liveness on `/actuator/health`; `/actuator/health/liveness` is not permitted by `SecurityConfig`/`SetupFilter` |
+| Startup and liveness on `/actuator/health/liveness`, readiness on `/actuator/health` | Health includes the database; once the app has started, a database outage must not restart it in a loop. The liveness group ignores the database, and `SecurityConfig`/`SetupFilter` permit it. The JVM is the only process, so a hung one is now detected (the old TCP check on nginx answered while Java was dead). Startup allows five minutes before liveness starts | Liveness on `/actuator/health`; TCP liveness; no startup probe |
 | Startup probe on the bundled PostgreSQL | Crash recovery after an unclean stop can outlast the liveness window; liveness starts once it succeeds | Longer `initialDelaySeconds` on liveness, which would also delay detecting a hung database |
 | `shareProcessNamespace` for `amex-auth` | Equivalent of Compose `init: true`: the pause container reaps orphaned browser processes | Patching the image with an init |
 
@@ -183,9 +183,13 @@ helm upgrade
   Offline client previews skip the guard when neither the Secret data nor the namespace
   is visible through `lookup`, so `helm template --is-upgrade`, client dry-runs and
   `helm diff` remain usable. Use a server dry-run to validate live credentials.
-- **App readiness has no startup deadline.** The default `app.startupProbe` is `{}`,
-  so slow migrations and database outages hold readiness without restarting the app.
-  TCP liveness remains enabled. PostgreSQL uses `pg_isready` startup checks every
+- **App startup has a five-minute budget.** The default `app.startupProbe` checks
+  `/actuator/health/liveness` every 10 s and allows 30 failures. Flyway runs during
+  startup: if PostgreSQL is unreachable then, startup fails, the JVM exits and the kubelet
+  restarts the container, with back-off, until the database answers. Once the app has
+  started, the liveness endpoint ignores the database, so an outage does not restart it,
+  and readiness on `/actuator/health` holds traffic instead. Liveness uses the liveness
+  endpoint too. PostgreSQL uses `pg_isready` startup checks every
   ten seconds, with 60 failures allowed before liveness takes over during recovery.
 - **Fullnames must start with a lowercase letter.** Java cannot parse a single-label
   sidecar URL host starting with a digit; rendering fails with a clear error. Set a
@@ -217,9 +221,10 @@ helm upgrade
 - **Migration database context matches the app.** Shared helpers render datasource defaults
   and `app.env`/`app.extraEnv` overrides; explicit overrides replace defaults by name.
   The Job also inherits `app.envFrom`, extra volumes/mounts (including database CA files),
+  the pod security context (`fsGroup` applies to those volumes as it does to the app's),
   pod labels, pod annotations (including mesh injection opt-outs) and node selector, tolerations and affinity. It keeps its `migrate` component
   label and does not attach the app's `/data` PVC. The CLI password falls back from
-  `SPRING_DATASOURCE_PASSWORD` to `POSTGRES_PASSWORD`, as the app entrypoint does.
+  `SPRING_DATASOURCE_PASSWORD` to `POSTGRES_PASSWORD`, as the app does.
   Explicit env entries take precedence over `envFrom`, so generated datasource values
   must be overridden through `app.env` or `app.extraEnv`. Hook dependencies must exist
   before the upgrade, before Helm applies ordinary resources.
@@ -253,8 +258,9 @@ helm upgrade
   `X-Forwarded-Proto` is honoured regardless, so HTTPS same-origin detection works without it.
 - **NetworkPolicies need an enforcing CNI.** On Flannel (Talos default) they are created and
   ignored: a pod in the namespace still reaches the sidecars and PostgreSQL.
-- **Pod Security `baseline` is required**, `restricted` rejects the app (root under supervisord),
-  PostgreSQL and the sidecars (non-numeric users).
+- **Pod Security `baseline` is required**, `restricted` rejects PostgreSQL and the sidecars
+  (non-numeric users). The app and migration Job run as uid 1000 with `runAsNonRoot`; the app pod sets
+  `fsGroup: 1000` with `OnRootMismatch` for `/data`.
 - **Annotation values are quoted** in pod templates: `--set app.podAnnotations.x=1` would
   otherwise send a number, which the API server rejects.
 - **A missing sidecar that is not standard** (volumes, networks, `init`, extra variables) is left out of

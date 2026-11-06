@@ -5,7 +5,7 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/picsou}
     username: ${SPRING_DATASOURCE_USERNAME:picsou}
-    password: ${SPRING_DATASOURCE_PASSWORD:picsou}
+    password: ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:picsou}}
     hikari:
       maximum-pool-size: 10
       connection-timeout: 30000
@@ -91,13 +91,15 @@ spring:
 
 server:
   port: 8080
-  # Resolve forwarded addresses and the public origin only from known nginx peers.
-  # Bundled nginx connects over loopback. Do not use Tomcat's broad private-network proxy defaults.
+  # Tomcat is the edge of the container. It takes the client address (X-Forwarded-For) only from
+  # PICSOU_PROXY_IP, or from an explicit server.tomcat.remoteip.internal-proxies (see
+  # TrustedProxyBootstrap); with neither it trusts nobody, not Tomcat's private-network default.
+  # The public origin (X-Forwarded-Proto/Host/Port) is applied from any peer by
+  # ForwardedOriginCustomizer, as the bundled nginx did.
   # All rate limiters and audit readers share this container-resolved remote address.
   forward-headers-strategy: native
   tomcat:
     remoteip:
-      internal-proxies: '127\.0\.0\.1|::1|0:0:0:0:0:0:0:1'
       remote-ip-header: X-Forwarded-For
       protocol-header: X-Forwarded-Proto
       host-header: X-Forwarded-Host
@@ -107,6 +109,10 @@ server:
     include-message: never
   compression:
     enabled: true
+    # The bundled nginx used to compress; Spring does now. Same types and threshold, so SVG and
+    # images stay uncompressed.
+    mime-types: text/html,text/plain,text/css,text/javascript,application/javascript,application/json
+    min-response-size: 20B
 
 management:
   endpoints:
@@ -117,6 +123,10 @@ management:
   endpoint:
     health:
       show-details: never
+      # /actuator/health/liveness and /readiness for the Helm probes. Once started, liveness
+      # ignores the database, so an outage does not restart the pod.
+      probes:
+        enabled: true
   info:
     # Expose `info.*` properties (below) via /actuator/info. The env info
     # contributor is disabled by default since Spring Boot 2.6, so without this
@@ -175,45 +185,63 @@ app:
     redirect-uri: ${OAUTH_IOS_REDIRECT_URI:picsou://callback}
     access-token-ttl-minutes: ${OAUTH_ACCESS_TTL_MINUTES:15}
     refresh-token-ttl-days: ${OAUTH_REFRESH_TTL_DAYS:30}
+  # OIDC single sign-on (optional). On only when issuer-uri and client-id are both set; invalid
+  # values log an ERROR and disable SSO, never fail startup. See docs/briefs/2026-10-31-sso-login-design.md.
+  sso:
+    issuer-uri: ${SSO_ISSUER_URI:}
+    client-id: ${SSO_CLIENT_ID:}
+    client-secret: ${SSO_CLIENT_SECRET:}
+    provider-name: ${SSO_PROVIDER_NAME:SSO}
+    scopes: ${SSO_SCOPES:openid,profile,email}
+    groups-claim: ${SSO_GROUPS_CLAIM:groups}
+    admin-group: ${SSO_ADMIN_GROUP:}
+    session-revalidate-after: ${SSO_SESSION_REVALIDATE_AFTER:24h}
+    idp-logout: ${SSO_IDP_LOGOUT:false}
   user:
     username: ${APP_USERNAME:}
     password-hash: ${APP_PASSWORD_HASH:}
   cors:
     allowed-origins: ${ALLOWED_ORIGINS:}
   secure-cookies: ${SECURE_COOKIES:true}
-  # Strict-Transport-Security. Off by default and read from the same env var as the
-  # nginx-side gate (docker/entrypoint.sh), so one flag controls the header on both
-  # the SPA/static responses and the /api responses. Enable only behind a
+  # Strict-Transport-Security. Off by default; one flag controls the header on every response
+  # (SPA, /api and the OAuth2 endpoints). Enable only behind a
   # publicly-trusted certificate — see docs/features/docker-deployment.md.
   hsts-enabled: ${HSTS_ENABLED:false}
+  spa:
+    # Directory holding the built React app (index.html and assets). The Docker image sets it to
+    # /app/spa. Blank (the default) serves nothing: development uses the Vite dev server.
+    location: ${SPA_LOCATION:}
   crypto:
     encryption-key: ${CRYPTO_ENCRYPTION_KEY:}
-  tr-auth:
-    url: ${TR_AUTH_URL:http://tr-auth:8001}
-  bourso-auth:
-    url: ${BOURSO_AUTH_URL:http://bourso-auth:8001}
-  caisse-epargne-auth:
-    url: ${CAISSE_EPARGNE_AUTH_URL:http://caisse-epargne-auth:8001}
-  revolut-auth:
-    url: ${REVOLUT_AUTH_URL:http://revolut-auth:8002}
-  bourse-direct-auth:
-    url: ${BOURSE_DIRECT_AUTH_URL:http://bourse-direct-auth:8001}
-  degiro-auth:
-    url: ${DEGIRO_AUTH_URL:http://degiro-auth:8001}
-  amundi-auth:
-    url: ${AMUNDI_AUTH_URL:http://amundi-auth:8001}
-  cmes-auth:
-    url: ${CMES_AUTH_URL:http://cmes-auth:8001}
-  cic-auth:
-    url: ${CIC_AUTH_URL:http://cic-auth:8001}
-  amex-auth:
-    url: ${AMEX_AUTH_URL:http://amex-auth:8001}
-  fortuneo-auth:
-    url: ${FORTUNEO_AUTH_URL:http://fortuneo-auth:8001}
-  corum-auth:
-    url: ${CORUM_AUTH_URL:http://corum-auth:8001}
-  sofidy-auth:
-    url: ${SOFIDY_AUTH_URL:http://sofidy-auth:8001}
+  # One entry per connector sidecar, keyed by its compose service name. This is the only
+  # place the URLs are defined; SidecarProperties fails startup if a consumer asks for a missing one.
+  sidecars:
+    tr-auth:
+      url: ${TR_AUTH_URL:http://tr-auth:8001}
+    bourso-auth:
+      url: ${BOURSO_AUTH_URL:http://bourso-auth:8001}
+    caisse-epargne-auth:
+      url: ${CAISSE_EPARGNE_AUTH_URL:http://caisse-epargne-auth:8001}
+    revolut-auth:
+      url: ${REVOLUT_AUTH_URL:http://revolut-auth:8002}
+    bourse-direct-auth:
+      url: ${BOURSE_DIRECT_AUTH_URL:http://bourse-direct-auth:8001}
+    degiro-auth:
+      url: ${DEGIRO_AUTH_URL:http://degiro-auth:8001}
+    amundi-auth:
+      url: ${AMUNDI_AUTH_URL:http://amundi-auth:8001}
+    cmes-auth:
+      url: ${CMES_AUTH_URL:http://cmes-auth:8001}
+    cic-auth:
+      url: ${CIC_AUTH_URL:http://cic-auth:8001}
+    amex-auth:
+      url: ${AMEX_AUTH_URL:http://amex-auth:8001}
+    fortuneo-auth:
+      url: ${FORTUNEO_AUTH_URL:http://fortuneo-auth:8001}
+    corum-auth:
+      url: ${CORUM_AUTH_URL:http://corum-auth:8001}
+    sofidy-auth:
+      url: ${SOFIDY_AUTH_URL:http://sofidy-auth:8001}
   # Latest GitHub release, checked at most once per 6 h when an admin opens the app.
   # APP_UPDATE_CHECK_ENABLED=false skips the call entirely.
   update-check:

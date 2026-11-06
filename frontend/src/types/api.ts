@@ -1,15 +1,19 @@
+/** One entry of `GET /prices/precious-metals`: GRAM prices per fine gram, COIN per piece. */
+export interface PreciousMetalProduct {
+  ticker: string
+  name: string
+  unit: 'GRAM' | 'COIN'
+}
+
 export type AccountType =
   | 'LEP' | 'LIVRET_A' | 'LDDS' | 'LIVRET_JEUNE' | 'PEL' | 'CEL'
   | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
-  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'PER' | 'OTHER'
+  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'PER' | 'PRECIOUS_METALS' | 'OTHER'
 
 export type PropertyKind = 'HOUSE' | 'APARTMENT' | 'BUILDING' | 'LAND' | 'PARKING' | 'COMMERCIAL'
 
 export type PropertyCategory =
   | 'PRIMARY_RESIDENCE' | 'SECONDARY_RESIDENCE' | 'RENTAL' | 'LAND' | 'OTHER'
-
-/** Only houses and apartments have a reliable price per m² in the open data. */
-export const ESTIMABLE_PROPERTY_KINDS: PropertyKind[] = ['HOUSE', 'APARTMENT']
 
 export type ValuationMode = 'ESTIMATED' | 'MANUAL'
 
@@ -391,6 +395,21 @@ export interface Account {
   isOwner?: boolean | null
   /** Present only for a SCPI account. */
   scpi?: ScpiPosition | null
+  /** Insurer-reported contract figures (a synced assurance-vie); null when the provider reports none. */
+  contract?: LifeContract | null
+}
+
+/**
+ * What the insurer reports about a life-insurance contract as a whole. Each field is null when
+ * the provider does not report it. `netInvestedEur` is the contract's cost basis: the gain is
+ * the balance minus it, never a sum over the fund lines (see `docs/features/corum-life.md`).
+ */
+export interface LifeContract {
+  /** Gross payments, entry fees included. */
+  paidInEur: number | null
+  netInvestedEur: number | null
+  scheduledPaymentEur: number | null
+  scheduledPaymentCadence: RecurringCadence | null
 }
 
 export interface AccountRequest {
@@ -738,6 +757,11 @@ export interface HoldingResponse {
   // marked, instead of leaving the line blank.
   priceAsOf: string | null
   priceStale: boolean
+  /**
+   * The wealth tier the provider's own classification implies (a CORUM Life real-estate fund
+   * line → REAL_ESTATE), or null when it implies none. A member override still wins.
+   */
+  providerWealthTier?: WealthTier | null
 }
 
 // --- Security insight (asset type + ETF composition) ---
@@ -900,6 +924,8 @@ export interface SidecarSessionStatus {
   lastSyncError: string | null
   /** Set by providers that can log in again from stored credentials. */
   canReconnect?: boolean
+  /** Set by providers whose login form offers to remember the credentials (CORUM). Never the credentials. */
+  credentialsRemembered?: boolean
 }
 
 /** `auth/initiate` answer of a sidecar provider; `MfaType` narrows the kinds of second factor it can ask for. */
@@ -1179,7 +1205,16 @@ export type CorumErrorCode =
   | 'INVALID_DATA'
   | 'INTERNAL_ERROR'
 
-export type CorumSessionStatus = SidecarSessionStatusOf<CorumErrorCode>
+/**
+ * `lifeAmbiguousCount`: CORUM Life contracts the last successful sync wrote nowhere, because
+ * a manual "CORUM Life" account could not be adopted (several, or holdings typed by hand).
+ * `credentialsRemembered`: the member ticked "remember" at login, so an expired session logs in
+ * again by itself.
+ */
+export type CorumSessionStatus = SidecarSessionStatusOf<
+  CorumErrorCode,
+  { lifeAmbiguousCount: number; credentialsRemembered: boolean }
+>
 
 /**
  * CORUM needs no second factor, so its `authenticate` response is the session
@@ -1290,6 +1325,8 @@ export interface Transaction {
   accountName?: string | null
   /** Per-trade broker fees folded into the PMP cost basis (null when none recorded). */
   fees: number | null
+  /** True for CORUM Life contract operations: shown on the account, excluded from the budget. */
+  budgetNeutral: boolean
 }
 
 export interface TransactionRequest {

@@ -1,17 +1,15 @@
 package com.picsou.migration;
 
-import org.flywaydb.core.Flyway;
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -35,30 +33,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * functions, {@code DELETE ... USING} and row-value comparison, none of which H2 reproduces
  * faithfully enough to be worth trusting.
  */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 class DuplicateSyncAccountMergeMigrationTest {
 
-    static {
-        // See AccountLogoKeyMigrationTest: docker-java otherwise negotiates down to API 1.32,
-        // which Engine >= 28 refuses, and that failure looks exactly like "no Docker here".
-        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
-    }
-
     @Container
-    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
-            throw new IllegalStateException(
-                "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
-                    + "The V77 migration test cannot be skipped here. "
-                    + "Needs Docker Engine >= 25.0.");
-        }
-        return available;
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     private static long liveDuplicateId;
     private static long oldDuplicateId;
@@ -75,9 +54,9 @@ class DuplicateSyncAccountMergeMigrationTest {
     /** Brings the schema to V76 — a deployed instance — reproduces the damage, then applies V77. */
     @BeforeAll
     static void migrateAndSeed() throws SQLException {
-        migrateTo("76");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "76");
 
-        try (Connection conn = connect()) {
+        try (Connection conn = PostgresContainers.connection(POSTGRES)) {
             long memberId = insertReturningId(conn,
                 "INSERT INTO family_member (display_name) VALUES ('Test') RETURNING id");
 
@@ -158,7 +137,7 @@ class DuplicateSyncAccountMergeMigrationTest {
             insertSnapshot(conn, allDeletedOldestId, "2026-06-02", "7");
         }
 
-        migrateTo("77");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "77");
     }
 
     @Test
@@ -277,21 +256,6 @@ class DuplicateSyncAccountMergeMigrationTest {
 
     // ─── helpers ──────────────────────────────────────────────────────────────
 
-    private static void migrateTo(String version) {
-        Flyway.configure()
-            .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-            .locations("classpath:db/migration")
-            .target(version)
-            .outOfOrder(true) // mirrors application.yml
-            .load()
-            .migrate();
-    }
-
-    private static Connection connect() throws SQLException {
-        return DriverManager.getConnection(
-            POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-    }
-
     private static long insertAccount(
         Connection conn, long memberId, String name, String externalId, boolean manual,
         String createdAt, String deletedAt
@@ -358,7 +322,7 @@ class DuplicateSyncAccountMergeMigrationTest {
 
     private static String queryString(String sql) throws SQLException {
         if (readConn == null || readConn.isClosed()) {
-            readConn = connect();
+            readConn = PostgresContainers.connection(POSTGRES);
         }
         try (PreparedStatement ps = readConn.prepareStatement(sql); ResultSet rs = ps.executeQuery()) {
             assertThat(rs.next()).as("query returned no row: %s", sql).isTrue();

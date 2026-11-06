@@ -1,6 +1,6 @@
 # Feature: Wealth pyramid (Analysis)
 
-> Last updated: 2026-08-16
+> Last updated: 2026-11-05
 
 ## Context
 
@@ -28,7 +28,7 @@ silently vanish from a chart. A `Map` cannot have this property; a switch expres
 | `REAL_ESTATE` | `REAL_ESTATE`, `SCPI` (and `LOAN`, only so the switch stays total — loans never enter as assets) |
 | `EQUITY` | `PEA`, `COMPTE_TITRES`, `EMPLOYEE_SAVINGS`, `ASSURANCE_VIE`, `PER` |
 | `CRYPTO` | `CRYPTO` |
-| `ALTERNATIVE` | `OTHER` |
+| `ALTERNATIVE` | `PRECIOUS_METALS`, `OTHER` |
 
 This is **not** `AccountsPage.ASSET_FILTER_MAP`, and PR1 does not touch it: the filters group
 accounts the way a user browses them, the pyramid groups them by the role they play. To avoid a
@@ -41,7 +41,12 @@ first and **never a network call** (this endpoint renders a page):
 2. `CoinGeckoPriceProvider.supports(ticker)` → `CRYPTO` — an in-memory map lookup, the same first
    test `SecurityInsightService.classify()` uses. This is what puts a bitcoin ETP held in a CTO in
    the crypto tier;
-3. `holding_classification.wealth_tier` for `(memberId, ticker)`, which beats both.
+3. `account_holding.provider_wealth_tier`, the tier the provider's own asset-class view gives the
+   line (`HoldingResponse.providerWealthTier`), which beats both. Only the
+   [CORUM Life](./corum-life.md) sync writes it: an SCPI unit inside the contract is
+   `REAL_ESTATE`; bond funds and the euro fund stay null, so they keep the account's `EQUITY`;
+4. `holding_classification.wealth_tier` for `(memberId, ticker)`, which beats all three. No sync
+   writes it.
 
 Whatever the lines do not account for — cash inside the envelope, and any position the price
 providers dropped — stays with the account's own tier as a **residual**. Without it, a
@@ -194,7 +199,7 @@ GET /api/analysis/pyramid
        ├─ accessResolver.readableAccounts + sharesFor          (the dashboard's contract)
        ├─ per account, skipping LOAN:
        │    ├─ no holdings → valuation().liveEur() × share → account's tier
-       │    └─ holdings    → per line: override ▸ CoinGecko ▸ account tier
+       │    └─ holdings    → per line: override ▸ provider tier ▸ CoinGecko ▸ account tier
        │                     + residual (envelope cash, unpriced lines) → account tier
        ├─ RealEstateSummaryService.summarize → subtract mortgage debt from REAL_ESTATE
        └─ assemble(): safety target → allocatable → tier vector → half-L1 → score
@@ -216,7 +221,8 @@ GET /api/analysis/pyramid
 | Static top-ten coin list | CoinGecko's `/coins/markets` works, but that free tier is hostile enough that `CoinGeckoPriceProvider` carries a 429 cooldown for it — a score that flips between two page loads is worse than one slightly stale | A live market-cap ranking on the read path |
 | Column-per-tier targets table | Lets `sum = 100` be a database CHECK; a CHECK cannot aggregate across rows | A normalised `(member, tier, pct)` table |
 | Override keyed `(member, ticker)`, own table | The sync paths delete `account_holding` rows a provider stops reporting, so an override stored there would evaporate at the first transient gap | A `wealth_tier` column on `account_holding` |
-| `ASSURANCE_VIE` is an investment type | No connector syncs one, so manual line entry is the only route to instrument-level detail — without it, all life insurance would be invisible to PR2's sector breakdown | Treating it as a balance |
+| Provider tier on the holding row, under the override | It is the provider's statement, rewritten with the line on every sync, so losing it with the row is right; the member's verdict stays in its own table and wins | Writing the provider's tier into `holding_classification`, which would overwrite the member's choice |
+| `ASSURANCE_VIE` is an investment type | Only BoursoBank and [CORUM Life](./corum-life.md) sync one; for any other insurer manual line entry is the only route to instrument-level detail — without it, that life insurance would be invisible to PR2's sector breakdown | Treating it as a balance |
 | `SCPI` is **not** an investment type | SCPI shares have no Yahoo ticker; per-line valuation would take the "held but unpriced" branch and report the account as worth zero | Symmetry with `ASSURANCE_VIE` |
 | `VARCHAR` + `CHECK` for the new enums | Only V1/V3/V20 create native PG enums; everything since V24 uses this. It also sidesteps the `ALTERNATE TYPE … ADD VALUE` transaction restriction | `CREATE TYPE`, which `docs/conventions/database.md` still prescribes — see Gotchas |
 
@@ -261,8 +267,8 @@ GET /api/analysis/pyramid
 
 - `WealthTierTest` — every `AccountType` maps; the family placements that carry a decision
 - `AccountTypeTest` — `ASSURANCE_VIE` and `PER` hold positions, `SCPI` does not
-- `WealthPyramidServiceTest` (19) — classification incl. the crypto-in-a-CTO case and the manual
-  override, envelope cash residual, shares applied once, property net of debt, the three
+- `WealthPyramidServiceTest` — classification incl. the crypto-in-a-CTO case, the provider tier
+  beating the account tier and the manual override beating the provider tier, envelope cash residual, shares applied once, property net of debt, the three
   safety-net regimes, the excess entering the vector, half-L1 on a known vector, crypto penalty
   scaled by weight, a balance-only crypto account drawing none, the leverage curve at 30/60/85/100
 - `EssentialExpenseEstimatorTest` (19) — current month excluded, divisor is months observed,

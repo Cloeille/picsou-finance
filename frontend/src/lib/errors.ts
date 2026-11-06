@@ -67,12 +67,6 @@ export function getErrorDetail(err: unknown): string | undefined {
   return typeof detail === 'string' ? detail : undefined
 }
 
-/** True for a client-side axios timeout (ECONNABORTED) or an explicit 408 from the backend. */
-export function isTimeoutError(err: unknown): boolean {
-  if (getErrorStatus(err) === 408) return true
-  return (err as { code?: string })?.code === 'ECONNABORTED'
-}
-
 /** Stable machine-readable code attached to a ProblemDetail response. */
 export function getErrorCode(err: unknown): string | undefined {
   const code = (err as { response?: { data?: ApiErrorBody } })?.response?.data?.code

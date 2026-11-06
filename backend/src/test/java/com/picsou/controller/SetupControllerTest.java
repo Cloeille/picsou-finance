@@ -1,6 +1,8 @@
 package com.picsou.controller;
 
 import com.picsou.dto.BoursoBankHealthResponse;
+import com.picsou.config.SsoProperties;
+import com.picsou.exception.SignInMethodException;
 import com.picsou.dto.CryptoKeyGenerateResponse;
 import com.picsou.dto.EnableBankingConfigRequest;
 import com.picsou.dto.EnableBankingKeypairResponse;
@@ -24,6 +26,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -54,6 +59,7 @@ class SetupControllerTest {
     @Mock EnableBankingKeyPairService keyPairService;
     @Mock CryptoKeyGeneratorService cryptoKeyService;
     @Mock SetupAuditService auditService;
+    @Spy SsoProperties ssoProperties = new SsoProperties();
 
     private Map<String, Bucket> buckets;
     private SetupController controller;
@@ -63,7 +69,7 @@ class SetupControllerTest {
         buckets = new ConcurrentHashMap<>();
         controller = new SetupController(
             setupService, integrationsService, healthService, keyPairService,
-            cryptoKeyService, auditService, buckets
+            cryptoKeyService, auditService, ssoProperties, buckets
         );
     }
 
@@ -84,6 +90,23 @@ class SetupControllerTest {
         assertThat(body.username()).isEqualTo("alice");
         assertThat(body.displayName()).isEqualTo("Alice");
         verify(setupService).seedAdmin("alice", "$2a$12$hashed", "Alice", "#ff0000");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://idp.test", "not-a-url"})
+    void seedAdmin_refusesPasswordBootstrapWhenAdminGroupIsSetEvenWithInvalidIssuer(String issuer) {
+        ssoProperties.setIssuerUri(issuer);
+        ssoProperties.setClientId("picsou");
+        ssoProperties.setAdminGroup("picsou-admin");
+
+        assertThatThrownBy(() -> controller.seedAdmin(
+            new SetupAdminRequest("alice", "password", "Alice", null), request("10.0.0.1")))
+            .isInstanceOfSatisfying(SignInMethodException.class, error -> {
+                assertThat(error.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+                assertThat(error.getCode()).isEqualTo("SSO_ADMIN_REQUIRED");
+            });
+
+        org.mockito.Mockito.verifyNoInteractions(setupService, auditService);
     }
 
     @Test

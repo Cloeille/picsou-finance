@@ -7,26 +7,180 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The app image is one non-root Java process.** nginx, supervisord and the shell entrypoint are
+  gone. The container runs as uid 1000 on port 8080; Compose and Helm hand `/data` to that user
+  (`data-permissions` service, `fsGroup`). Tomcat trusts forwarded headers only from
+  `PICSOU_PROXY_IP` for the client address, and no longer trusts loopback; the public scheme,
+  host and port are applied from any peer as nginx did, so an undeclared HTTPS proxy keeps
+  working. Helm probes use `/actuator/health/liveness`. An explicit
+  `SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES` takes precedence over `PICSOU_PROXY_IP`, and the
+  datasource password follows Spring's usual order (`--spring.datasource.password`, `-D`,
+  `SPRING_DATASOURCE_PASSWORD`, then `POSTGRES_PASSWORD`).
+  **Upgrade:** `data-permissions` runs `chown -R 1000:1000 /data` before each app start
+  (`deploy.sh` runs it too). A bind mount where `chown` is ignored (SMB/CIFS) needs the mount
+  options `uid=1000,gid=1000`. Without Compose (plain `docker run`), run once before the first
+  start of the new image: `docker run --rm --user 0 --entrypoint chown -v <your-data-volume>:/data
+  ghcr.io/cloeille/picsou-finance:<tag> -R 1000:1000 /data`; until then the app refuses to start
+  (`Cannot write secret file … AccessDeniedException`) and generates nothing.
+  Behaviour changes: authenticated uploads follow Spring's 10 MB multipart limit instead of
+  nginx's 1 MB body limit, while the anonymous endpoints (`/api/setup`, `/api/auth/`,
+  `/oauth2/register`) keep a 1 MB cap (`AnonymousBodyLimitFilter`, HTTP 413), no proxy timeout cuts
+  slow requests any more, and a stopped backend is a refused connection instead of an nginx 502.
+
 ### Added
+
+- **Sign in with your identity provider (SSO).** Set `SSO_ISSUER_URI` and `SSO_CLIENT_ID` to add
+  a "Sign in with <provider>" button that works with any OpenID Connect provider (Zitadel,
+  Authentik, Keycloak, Authelia, Pocket ID...). It sits alongside passwords: without these
+  variables nothing changes. Picsou still issues its own session cookies, Remember Me included,
+  and links an account to the provider's identity only, never by email or username. With
+  `SSO_ADMIN_GROUP`, a fresh instance can be set up without any password (the first member of
+  that group to sign in becomes the administrator), and the group keeps managing who is an admin.
+  Invited members can activate with SSO, and from Settings you can link or unlink an identity
+  and turn password login off. Sensitive actions such as the data export then re-authenticate
+  through the provider. SSO sessions pass through the provider again after
+  `SSO_SESSION_REVALIDATE_AFTER` (24 hours by default), and `SSO_IDP_LOGOUT=true` also ends the
+  provider session on logout. The data export gains a `linked_identities` table. See
+  [docs/features/sso-login.md](docs/features/sso-login.md).
+- **CORUM re-logs in by itself and syncs daily.** The CORUM login form gains an opt-in, unticked
+  "Remember my credentials (encrypted)" checkbox. Ticked, the credentials are stored encrypted and
+  a sync whose session expired logs in again once before reading; a rejected password clears them
+  and asks to reconnect, and "Disconnect" forgets them. So does deleting the last CORUM account
+  (no CORUM Life account and no SCPI account linked to a CORUM fund left): the
+  confirmation names CORUM and the session goes with its credentials. Unticked, nothing is
+  stored, as before.
+  CORUM now runs in the daily 08:00 sync, in `trigger_full_sync`/`trigger_broker_sync` and in
+  `get_sync_status`. Migration V127. See
+  [CORUM session and remembered credentials](docs/features/scpi.md#corum-session-and-remembered-credentials).
+
+- **CORUM Life (assurance-vie) sync.** A CORUM login holding a CORUM Life contract no longer
+  fails with `PORTFOLIO_INCOMPLETE`: each contract becomes an assurance-vie account, synced with
+  the SCPI funds in one all-or-nothing run. Holdings are CORUM's funds (aggregated across
+  management pockets, euro fund included); performance uses the contract's net invested amount,
+  so it matches CORUM; the account page shows the opening date, 8-year tax date, payments and
+  scheduled payment; the contract's operations are imported as transactions (payments as
+  investment transfers, coupons as dividends, fees and switches marked "in the contract" and kept
+  out of the budget). SCPI units held in the policy count as real estate in the wealth pyramid.
+  An existing manual "CORUM Life" account is adopted, or reported instead of duplicated.
+  Migrations V124–V126. Deploy the `app` and `corum-auth` images together. See
+  [CORUM Life sync](docs/features/corum-life.md).
+
+- **Budget-neutral transactions.** Money moving inside an investment wrapper (coupons, fees,
+  switches) can be flagged `budget_neutral`: it stays on the account's ledger and export but is
+  left out of budget, cashflow, categorisation and the global transactions view.
+
+- **Precious metals.** A new *Métaux précieux* account type holds physical gold as positions:
+  bullion in grams, priced at spot (COMEX `GC=F` converted to euros), and gold coins (Napoléon,
+  Krugerrand, Souverain, …) priced at their daily Loomis FXGS (ex-CPoR) quote, premium included.
+  It counts in net worth and in the *Alternative* tier. The accounts page's *Métaux* filter now
+  lists these accounts only; `OTHER` accounts get their own filter. See
+  [Precious metals](docs/features/precious-metals.md). (#448)
 
 - **AI categorization over MCP.** `start_ai_categorization` starts the inbox's AI job and
   `get_ai_categorization_status` reports its progress as counters only, under a new
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
   browser session. See [Budget + OAuth2 tools in MCP](docs/features/mcp-budget-oauth2.md).
+
+### Changed
+
+- **Smaller first load.** The demo mode and the English, German and Spanish translations no
+  longer ship in the main script: the demo is fetched only by demo builds, and a language only
+  when it is selected. The entry chunk drops from about 373 KB to 245 KB gzipped. Behaviour is
+  unchanged.
+- **Unused-file check for the frontend.** `frontend/knip.jsonc` lets
+  `bunx knip --production` report unused files under `src/`. German and Spanish strings still
+  in English are listed for translators in `docs/features/i18n-untranslated.md`.
+
 ### Fixed
 
 - **Caisse d'Epargne remembers your identifier.** A reconnect after the bank session
   expired no longer asks for the identifier again: the one from the last successful login is
-  stored encrypted, like BoursoBank's (migration `V124`). The password and the Sécur'Pass
+  stored encrypted, like BoursoBank's (migration `V129`). The password and the Sécur'Pass
   approval are still never stored, and "Disconnect" forgets everything. See
   [Caisse d'Epargne](docs/features/caisse-epargne.md#remembered-identifier).
+- **Crypto coins outside the built-in list get a price.** NEXO and CRO are now priced
+  ([#419](https://github.com/Cloeille/picsou-finance/issues/419)). Beyond them, a coin held in a
+  crypto account that Picsou does not know yet is looked up on CoinGecko and remembered once it is
+  identified, provided Yahoo Finance does not quote the same symbol as a stock and one coin clearly
+  dominates that symbol. The lookup runs with the hourly price refresh, the startup backfill or an
+  exchange sync, never while a page loads, so a newly held coin is priced from the next one of
+  those. An ambiguous symbol such as ONE stays unpriced and is logged. A refused
+  symbol is asked again after 24 hours, an undecided one (provider down or rate-limited) after
+  15 minutes; these windows are kept in memory, so a restart asks again. Past daily snapshots
+  keep their recorded values.
+- **Budget: the allocation stock is valued in euros.** The stock donut and the Overview total
+  added each account's stored balance as if it were euros: a USD account counted its dollars, an
+  account with a ticker its coin quantity, and an account with holdings the last stored figure
+  rather than the live value of its holdings. Revolut pockets and money-boxes were also counted on
+  top of their wallet, whose balance already includes them. `AllocationService` now uses the same
+  EUR valuation as the dashboard (`liveBalanceEur`); a sub-account is counted in its own class and
+  the same amount, at most what is left of the wallet, is taken out of its wallet's, so a money-box
+  shows as savings and nothing is counted twice. A sub-account in its wallet's own class stays in
+  the wallet, a negative one moves nothing, and an account that is skipped is not valued, so a
+  failing price lookup on it no longer breaks the view. Contributions are unchanged.
+- **A co-owned loan shows its real repayment progress.** The dashboard's liabilities card
+  compared the member's share of the remaining capital to the whole borrowed amount, so a
+  half-owned 200,000 EUR loan with 150,000 left showed 62.5% repaid instead of 25%. Progress
+  now uses the loan's own figures whatever the member's share, including a zero share. See
+  [Ownership shares](docs/features/account-ownership-shares.md).
+
+- **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar
+  read the whole transaction history and refused it past 1,000 rows (`UPSTREAM_FORMAT_CHANGED`).
+  It now asks for rows ordered by date and stops paging past the last 365 days when they come
+  newest first; older rows already imported stay. (#397)
+
+- **The account export dialog says "2 accounts selected".** Its count key used the legacy
+  `_plural` suffix, which i18next ignores, so every language showed the singular form.
 
 - **Trade Republic bond values no longer use percentage quotes as euro prices.** EUR bond
   ticker prices are divided by 100. Non-EUR or unknown bond currencies keep the position's
   current price empty and value it at its average buy-in. A sync updates current holdings and
   today's snapshot; earlier daily snapshots keep their recorded values.
 
+- **Loan monthly payments count the insurance once.** When the monthly payment is left empty,
+  the dashboard's liabilities card now adds the insurance to the computed annuity, as the loan
+  page does. The XLSX export's monthly total no longer adds the insurance on top of an entered
+  payment, and no longer shows only the insurance when the payment is empty. See
+  [Loans](docs/features/loans.md).
+
 ### Changed
+
+- **Diversification leaves out lines classified outside equity.** A holding whose wealth tier
+  (your override, or the provider's) is not equity — for example a money-market ETF set to
+  safety net — is no longer counted in the sector and geography breakdown, matching the
+  wealth pyramid.
+- **Secret generation moved from shell into the app.** `SecretBootstrap`, a Spring Boot
+  `EnvironmentPostProcessor`, resolves or generates `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY`
+  under `PICSOU_SECRETS_DIR` (`/data/.secrets` in the image) with the same rules as the old
+  entrypoint: env var first, then the file, never regenerated. The entrypoint no longer touches
+  secrets. The app no longer generates a database password: it reads `POSTGRES_PASSWORD`, else
+  an existing `postgres_password` file, else uses `picsou` like Compose. A standalone
+  `docker run` without `POSTGRES_PASSWORD` and without that file now uses `picsou`, so set
+  `POSTGRES_PASSWORD` there. **Bare metal:** `backend/scripts/picsou-init.sh` is gone; set
+  `PICSOU_SECRETS_DIR` (for example `.local/secrets`) and the app creates the two keys on
+  first start; the database password stays `picsou` unless you set one.
+- **Spring Boot serves the web app; nginx only forwards.** The built SPA, its caching, gzip and
+  every security header now come from the backend (`SPA_LOCATION`, `/app/spa` in the image).
+  nginx keeps client-address and port forwarding and the long timeouts. HSTS has a single
+  emitter, so the OAuth2 endpoints no longer send it when `HSTS_ENABLED` is off. Only the
+  hashed files under `/assets/` stay cached for a year; `index.html` and the unhashed public files
+  (`/favicon.svg`, `/theme-init.js`, `/providers/*`) are now revalidated on each load. See
+  [the ADR](docs/decisions/2026-11-03-spring-serves-the-spa.md) (#342).
+- **One command per task for contributors (#344).** A root `Makefile`: `make dev` starts
+  PostgreSQL, the backend and Vite, `make test` runs the backend, frontend, e2e and sidecar suites, `make build`
+  builds the images, `make release VERSION=x.y.z` checks the CHANGELOG and pushes the tag.
+  CI calls the same targets, and `CONTRIBUTING.md` is the one place that lists commands.
+- **Sidecar URLs live under one `app.sidecars` map.** `app.bourso-auth.url` and its 12
+  siblings are now `app.sidecars.<service>.url`. The environment variables (`BOURSO_AUTH_URL`,
+  `TR_AUTH_URL`, …) and their defaults are unchanged, so a Docker or Helm install needs nothing.
+  Only an install that set the old Spring property itself must rename it: in its own YAML,
+  as `-Dapp.bourso-auth.url`, or through relaxed binding (`APP_BOURSO_AUTH_URL` becomes
+  `APP_SIDECARS_BOURSO_AUTH_URL`). The URLs now come only from the packaged `application.yml`, with no
+  fallback in code: an install that replaces it through `spring.config.location` must copy
+  the `app.sidecars` block, or the backend stops at startup naming the missing key. Behind it, the backend talks to the ten `detail`-code connectors through one client and
+  one error-code enum; stored `last_sync_error` values are unchanged (#336).
 
 - **Caisse d'Epargne: a failed account import says where it failed.** The sidecar's
   `accounts fetch failed` line now names the step (synthesis, transactions,
@@ -69,6 +223,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   See [testing conventions](docs/conventions/testing.md#sidecar-tests).
 
 ### Removed
+
+- **Unreachable frontend code.** `PortfolioView`, `CashflowTab`, `types/app.ts`, thirteen hooks
+  and helpers and three constants with no caller, the API functions only they called, the
+  Trade Republic sync-progress client stub (the backend never served it) and 94 translation
+  keys nothing reads. No screen changes.
 
 - **Split Docker stack.** The root `docker-compose.yml`, `backend/Dockerfile`,
   `frontend/Dockerfile`, `frontend/nginx.conf`, `frontend/picsou-realip.conf`, both
@@ -907,6 +1066,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#197](https://github.com/Cloeille/picsou-finance/issues/197))
 - **Deleting an account through the MCP assistant now also disconnects the bank, wallet or broker when it was the last account on that connection, and says which one.** ([#176](https://github.com/Cloeille/picsou-finance/issues/176))
 - **A BoursoBank access with a personal and a business identity now syncs the personal one.** BoursoBank shows such an access an identity selector before the dashboard, which the connector used to report as a site format change. It now switches to the personal identity on each sync, and says so plainly when it cannot tell which identity is personal. Business identities are not synced. ([#153](https://github.com/Cloeille/picsou-finance/issues/153))
+- **Amounts like `12.500,50` or `1.000.000` are saved in full.** Amount fields dropped every
+  separator after the first one, so `12.500,50` (German or Spanish) or `12,500.50` (English)
+  was saved as 12.5005 and `1.000.000` as 1. Thousands are now read when the digits are
+  grouped by three. A single separator is still the decimal one, so `12,50` gives 12.5 and
+  `1.000` on its own still gives 1.
 - **A 1.1.0 database that applied migrations before they were renumbered starts again.**
   The old V80, V81 and V86–V88 rows are moved to V93–V99 before Flyway validates, matched on
   version, description and checksum, so the boot no longer fails and those migrations do not run

@@ -1,20 +1,40 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.port.SofidyErrorCode;
-import com.picsou.port.SofidyPort;
+import com.picsou.port.SidecarInitiate;
+import com.picsou.port.SidecarErrorCode;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 
+/**
+ * Read-only access to a Sofidy Espace Associé account.
+ *
+ * <p>Sofidy has no public API. Its client space is server-rendered PHP behind a
+ * six-digit associate code, and after the password it always asks for a
+ * verification code by e-mail, so authentication is always interactive:
+ * {@link #initiateAuth} starts it and {@link #completeAuth} finishes it once
+ * the user has typed the code. The state is opaque to the domain -- it is
+ * whatever the sidecar needs to replay the account, and it is only ever stored
+ * encrypted.
+ *
+ * <p>The portal publishes the withdrawal price itself: its "Valeur unitaire"
+ * column is the redemption value for a capital-variable fund, which is the one
+ * figure allowed to become a balance. Unlike CORUM there is no subscription
+ * price and no displayed value to misread, so there is nothing else to carry.
+ */
 @Component
-public class SofidyAdapter implements SofidyPort {
+public class SofidyAdapter {
     private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
     /**
      * The sidecar holds the pending login open for as long as its own TTL and
@@ -24,7 +44,7 @@ public class SofidyAdapter implements SofidyPort {
     private static final Duration DEFAULT_VALIDATION_TIMEOUT = Duration.ofSeconds(150);
     private static final Duration DEFAULT_POSITIONS_TIMEOUT = Duration.ofSeconds(90);
 
-    private final SidecarErrorTranslator<SofidyErrorCode> sidecar;
+    private final SidecarClient sidecar;
     private final Duration authTimeout;
     private final Duration validationTimeout;
     private final Duration positionsTimeout;
@@ -32,11 +52,10 @@ public class SofidyAdapter implements SofidyPort {
     @Autowired
     public SofidyAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.sofidy-auth.url:http://sofidy-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Sofidy", url),
+            clients.create(SidecarBank.SOFIDY.label(), SidecarBank.SOFIDY.serviceName()),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,
@@ -55,45 +74,34 @@ public class SofidyAdapter implements SofidyPort {
         Duration validationTimeout,
         Duration positionsTimeout
     ) {
-        this.sidecar = new SidecarErrorTranslator<>(
-            client,
-            objectMapper,
-            SofidyErrorCode.class,
-            "Sofidy",
-            SofidyErrorCode.UPSTREAM_UNAVAILABLE,
-            SofidyErrorCode.AUTH_ATTEMPT_EXPIRED,
-            SofidyAdapter::friendlyMessage
-        );
+        this.sidecar = new SidecarClient(client, objectMapper, SidecarBank.SOFIDY, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
         this.authTimeout = authTimeout;
         this.validationTimeout = validationTimeout;
         this.positionsTimeout = positionsTimeout;
     }
 
-    @Override
-    public InitiateResult initiateAuth(String associateCode, String password) {
+    public SidecarInitiate initiateAuth(String associateCode, String password) {
         return sidecar.post(
             "/initiate",
             Map.of("associateCode", associateCode, "password", password),
-            InitiateResult.class,
+            SidecarInitiate.class,
             authTimeout,
             "Could not initiate Sofidy authentication",
-            SofidyErrorCode.INVALID_CREDENTIALS
+            SidecarErrorCode.INVALID_CREDENTIALS
         );
     }
 
-    @Override
     public String completeAuth(String processId, String code) {
         return sidecar.post(
             "/complete",
             Map.of("processId", processId, "code", code),
-            SessionResponse.class,
+            SidecarSession.class,
             validationTimeout,
             "Could not complete Sofidy authentication",
-            SofidyErrorCode.MFA_INVALID
+            SidecarErrorCode.MFA_INVALID
         ).sessionState();
     }
 
-    @Override
     public Snapshot fetchSnapshot(String sessionState) {
         Snapshot snapshot = sidecar.post(
             "/positions",
@@ -105,7 +113,7 @@ public class SofidyAdapter implements SofidyPort {
             // credentials and the code were already checked at authentication.
             // Without this a 401 whose body carries no code would fall through to
             // UPSTREAM_UNAVAILABLE and read as an outage rather than a reconnect.
-            SofidyErrorCode.SESSION_EXPIRED
+            SidecarErrorCode.SESSION_EXPIRED
         );
         if (!snapshot.snapshotComplete()) {
             // The sidecar refuses a portfolio whose lines do not add up to the
@@ -113,7 +121,7 @@ public class SofidyAdapter implements SofidyPort {
             // not trustworthy either. Refuse rather than write a partial portfolio
             // over a real balance.
             throw sidecar.coded(
-                SofidyErrorCode.PORTFOLIO_INCOMPLETE,
+                SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "Sofidy returned an incomplete portfolio",
                 null
             );
@@ -121,22 +129,40 @@ public class SofidyAdapter implements SofidyPort {
         return snapshot;
     }
 
-    private static String friendlyMessage(SofidyErrorCode code) {
-        return switch (code) {
-            case INVALID_CREDENTIALS -> "Sofidy rejected the associate code or the password";
-            case MFA_INVALID -> "Sofidy rejected the verification code";
-            case FIRST_VISIT_PENDING -> "Finish your first visit on the Sofidy client space first";
-            case EMAIL_UNREACHABLE -> "No e-mail address is attached to this Sofidy account";
-            case ACCOUNT_INACTIVE -> "This Sofidy account is inactive";
-            case RATE_LIMITED -> "Sofidy is rate-limiting this login, try again later";
-            case AUTH_ATTEMPT_EXPIRED -> "The Sofidy authentication attempt expired";
-            case SESSION_EXPIRED -> "The Sofidy session expired";
-            case PORTFOLIO_INCOMPLETE -> "Sofidy returned an incomplete portfolio";
-            case UPSTREAM_FORMAT_CHANGED -> "The Sofidy website format changed";
-            case INVALID_DATA -> "Sofidy returned invalid portfolio data";
-            case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Sofidy is temporarily unavailable";
-        };
+    /**
+     * One fund line of the Sofidy portfolio. Everything is EUR: the funds are
+     * French-domiciled and quoted in euros.
+     *
+     * <p>{@code withdrawalPrice} is the fund's redemption value and the only
+     * price that may become a balance. A null value means Sofidy is not quoting
+     * that fund today -- it is not a zero, and the caller must keep the previous
+     * balance rather than clear it.
+     *
+     * <p>{@code fundCode} is Sofidy's own {@code Code_Produit} (DY for
+     * SOFIDYNAMIC), the identifier an account is linked to. It is stable and
+     * short where the fund's marketing name is neither.
+     */
+    public record Holding(String fundCode, String label, BigDecimal quantity,
+                          BigDecimal withdrawalPrice, BigDecimal totalEur) {
+
+        /** Null when the withdrawal price is absent; never falls back to another price. */
+        public BigDecimal withdrawalValue() {
+            if (quantity == null || withdrawalPrice == null) {
+                return null;
+            }
+            return quantity.multiply(withdrawalPrice);
+        }
     }
 
-    private record SessionResponse(String sessionState) {}
+    /**
+     * One read of the Sofidy portfolio. {@code snapshotComplete} is a contract,
+     * not a courtesy: a portfolio whose lines do not add up to the total Sofidy
+     * itself prints is refused upstream, so a true value means every line was
+     * read.
+     *
+     * <p>There is no envelope here, unlike CORUM: Sofidy serves one portfolio per
+     * login, so the account is never ambiguous.
+     */
+    public record Snapshot(String currency, BigDecimal totalEur, LocalDate valuationDate,
+                           boolean snapshotComplete, List<Holding> holdings) {}
 }

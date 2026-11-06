@@ -17,4 +17,3 @@ secrets/
 docker/Dockerfile
 docker-compose*.yml
 *.md
-!frontend/README.md

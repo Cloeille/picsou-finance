@@ -1,16 +1,15 @@
 package com.picsou.migration;
 
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
+
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -23,27 +22,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * status trustworthy: the read path hands the UI a URL for every STORED row, so a STORED row
  * without bytes would be a mark that 404s on every render.
  */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 class V107InstrumentLogoMigrationTest {
 
-    static {
-        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
-    }
-
     @Container
-    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
-            throw new IllegalStateException(
-                "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
-                    + "The V107 migration test cannot be skipped. Needs Docker Engine >= 25.0.");
-        }
-        return available;
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @BeforeAll
     static void migrate() {
@@ -55,12 +38,8 @@ class V107InstrumentLogoMigrationTest {
             .migrate();
     }
 
-    private static Connection connection() throws SQLException {
-        return DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-    }
-
     private static void exec(String sql) throws SQLException {
-        try (Connection c = connection(); Statement st = c.createStatement()) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement()) {
             st.execute(sql);
         }
     }
@@ -75,7 +54,7 @@ class V107InstrumentLogoMigrationTest {
         exec("INSERT INTO instrument_logo (ticker, status, attempted_at) VALUES ('NOLOGO', 'ABSENT', NOW())");
         exec("INSERT INTO instrument_logo (ticker, status, attempted_at) VALUES ('DOWN', 'FAILED', NOW())");
 
-        try (Connection c = connection(); Statement st = c.createStatement();
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement();
              ResultSet rs = st.executeQuery("SELECT octet_length(image) FROM instrument_logo WHERE ticker = 'AAPL'")) {
             rs.next();
             assertThat(rs.getInt(1)).isEqualTo(4);

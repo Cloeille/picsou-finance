@@ -1,6 +1,6 @@
 # Feature: Admin password recovery
 
-> Last updated: 2026-05-29
+> Last updated: 2026-11-04 (password-less SSO admins)
 
 ## Context
 
@@ -19,10 +19,19 @@ The 403 message depends on whether the recovery flag is still set, so a fumbling
 - **`ADMIN_RECOVERY_ENABLED=true` + the user is a deactivated `ADMIN`** → "Admin recovery mode is active: the password reset link was printed to the server console/logs — open it to set a new password. Remember to set `ADMIN_RECOVERY_ENABLED=false` before the next restart." This check runs **before** the password comparison, so the operator gets the hint even if they mistype the old password, and the response is identical for right and wrong passwords (no password oracle). The reset link itself is never echoed in the HTTP response — only its location (the console) — so nothing secret leaves over HTTP.
 - **Any other deactivated account** (flag off, or a non-admin pending activation) → the generic "Account not activated. Use your activation link to set a password."
 
+**Password-less SSO admins.** An admin created through SSO (first admin, admin-group provisioning)
+or one who turned password login off has an empty password hash. Recovery works the same way and
+is the way back in when the IdP is broken or misconfigured: the activation link sets a **new
+password** on the account, after which the password form works again. While recovery is on, an
+SSO sign-in of a deactivated admin is refused with `ssoError=ADMIN_RECOVERY_ACTIVE` (the same
+message as the password form), so the activation link remains the only path. See
+[sso-login.md](./sso-login.md).
+
 ### Key files
 
 - `backend/src/main/java/com/picsou/config/AdminRecoveryRunner.java` — the boot-time runner
 - `backend/src/main/java/com/picsou/controller/AuthController.java#activate` — consumes the token
+- `backend/src/main/java/com/picsou/service/ActivationService.java` — shared activation sink (token cleared, `tokenVersion` bump, Remember-Me revocation, `admin.recovery.completed` audit)
 - `backend/src/main/java/com/picsou/service/SetupAuditService.java` — records the audit entries
 - `backend/src/main/resources/application.yml` — `app.admin-recovery.enabled` binding
 - `.env.example` — `ADMIN_RECOVERY_ENABLED` variable documented
@@ -44,7 +53,7 @@ AdminRecoveryRunner.run()
 operator: opens URL in browser
    ↓
 POST /api/auth/activate/{token}
-  ├─ user.passwordHash = bcrypt(newPassword)
+  ├─ user.passwordHash = bcrypt(newPassword)   (also for a password-less SSO admin)
   ├─ user.activated = true
   ├─ user.tokenVersion++  (revokes any access/refresh JWT minted before the reset)
   ├─ persistentSessionService.revokeAllForUser(user.id)  (wipes Remember-Me cookies)
@@ -75,7 +84,7 @@ operator: set ADMIN_RECOVERY_ENABLED=false, restart
 
 ## Tests
 
-- Automated: `AuthControllerTest` (Mockito) — login with a deactivated account ⇒ `403` and no cookies set; login while the recovery flag is on ⇒ `403` whose detail points to the console link and the disable-the-flag reminder, before any password check; refresh with a deactivated account (matching `tv`) ⇒ `401` + cookies cleared; the activated happy paths still issue/rotate tokens; `activate()` bumps `tokenVersion` and calls `PersistentSessionService.revokeAllForUser` so completing a reset/recovery invalidates every pre-existing session (CWE-613/640).
+- Automated: `AuthControllerTest` (Mockito) — login with a deactivated account ⇒ `403` and no cookies set; login while the recovery flag is on ⇒ `403` whose detail points to the console link and the disable-the-flag reminder, before any password check; refresh with a deactivated account (matching `tv`) ⇒ `401` + cookies cleared; the activated happy paths still issue/rotate tokens; `activate()` bumps `tokenVersion` and calls `PersistentSessionService.revokeAllForUser` so completing a reset/recovery invalidates every pre-existing session (CWE-613/640). `ActivationServiceTest` covers the shared sink; `SsoAuthenticationSuccessHandlerTest` covers `ADMIN_RECOVERY_ACTIVE` for an SSO sign-in.
 - Manual:
   1. Set `ADMIN_RECOVERY_ENABLED=true`, boot → expect WARN banner with valid URL.
   2. Before activating, try to log in with the old password **or a wrong one** → expect `403` pointing to the console reset link and the "set `ADMIN_RECOVERY_ENABLED=false`" reminder; no infinite loop.

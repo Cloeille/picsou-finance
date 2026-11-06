@@ -10,11 +10,11 @@ import { nextIntegrationRoute } from './navigation'
 type Phase = 'idle' | 'running' | 'existed' | 'created' | 'error'
 
 /**
- * The happy path in Docker-land is "key already exists" — the entrypoint
- * wrote it before Spring even booted, so the backend responds with
- * `existed: true` and we immediately mark the integration done. The UI
- * still shows the idle-then-action flow because bare-metal installs land
- * in the `created: true` branch.
+ * The happy path in Docker-land is "key already exists" — the app
+ * (SecretBootstrap) creates it at startup before any bean exists, so the
+ * backend responds with `existed: true` and we immediately mark the
+ * integration done. The UI still shows the idle-then-action flow because
+ * bare-metal installs land in the `created: true` branch.
  */
 export function SetupStepCrypto() {
   const { t } = useTranslation()
@@ -53,9 +53,9 @@ export function SetupStepCrypto() {
 
   /**
    * Auto-fire on mount: most self-hosters land here with the key already
-   * created by the Docker entrypoint, so eagerly triggering the idempotent
-   * endpoint gives them a single-click "Continue" experience. Bare-metal
-   * users will still see the regular success state after ~100ms.
+   * created by the app (SecretBootstrap) at startup, so eagerly triggering
+   * the idempotent endpoint gives them a single-click "Continue" experience.
+   * Bare-metal users will still see the regular success state after ~100ms.
    */
   useEffect(() => {
     check()

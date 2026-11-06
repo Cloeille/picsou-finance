@@ -2,17 +2,11 @@ package com.picsou.adapter;
 
 import com.picsou.exception.WalletRpcException;
 import com.picsou.port.WalletPort.WalletBalance;
+import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFunction;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -69,15 +63,7 @@ class SolanaWalletAdapterTest {
      * call order rather than routed by URL.
      */
     private SolanaWalletAdapter adapterReturning(String... jsonInOrder) {
-        AtomicInteger index = new AtomicInteger();
-        ExchangeFunction exchange = request -> {
-            String body = jsonInOrder[index.getAndIncrement()];
-            return Mono.just(ClientResponse.create(HttpStatus.OK)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                .body(body)
-                .build());
-        };
-        return new SolanaWalletAdapter(WebClient.builder().exchangeFunction(exchange).build());
+        return new SolanaWalletAdapter(WebClientStubs.sequence(jsonInOrder));
     }
 
     @Test

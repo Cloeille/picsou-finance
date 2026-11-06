@@ -1,7 +1,7 @@
 # ADR: Estimate property value from French open data
 
 > Date: 2026-08-01
-> Status: ✅ Active
+> Status: ✅ Active — the port seam is superseded by [Ports only for swappable providers](./2026-11-02-ports-only-for-swappable-providers.md)
 
 ## Context
 
