@@ -24,6 +24,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -204,12 +205,26 @@ public class CorumSyncService {
     /**
      * Deletes the session and the credentials stored with it. A login still
      * waiting on CORUM is cancelled too: it stores nothing once it lands.
+     *
+     * @return whether there was a session to delete
      */
     @Transactional
-    public void clearSession(Long memberId) {
+    public boolean clearSession(Long memberId) {
         lockMember(memberId);
         authGenerations.merge(memberId, 1L, Long::sum);
-        sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+        Optional<CorumSession> session = sessionRepository.findByMemberIdForUpdate(memberId);
+        session.ifPresent(sessionRepository::delete);
+        return session.isPresent();
+    }
+
+    /**
+     * Takes the member lock {@link #commitPortfolio} takes before it writes the accounts, so a
+     * deletion of a CORUM account locks in the same order as the sync and the two cannot
+     * deadlock. Joins the caller's transaction; the lock is held until it ends.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockMemberForAccountDeletion(Long memberId) {
+        lockMember(memberId);
     }
 
     /**

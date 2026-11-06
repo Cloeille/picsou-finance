@@ -94,7 +94,13 @@ Revolut's. Ticked, the credentials are stored encrypted through `CryptoEncryptio
 nothing is stored and a login replaces any session (and credentials) stored before. The status
 exposes `credentialsRemembered`, a boolean, and never the credentials. The panel says so under
 the session badge; "Disconnect" (`DELETE /api/corum/session`) deletes the session with its
-credentials, and is the way to forget them.
+credentials, and is the way to forget them. Deleting the member's last CORUM account does the
+same: `AccountConnectionService` resolves to the CORUM connection both a `corum_life_*` account
+and an SCPI account whose position is linked to a CORUM fund (`scpi_position.corum_fund_code`,
+read before the delete clears it; such an account is manual and has no external id). It calls
+`clearSession` once no other live account of either kind remains. It takes the member lock
+(`lockMemberForAccountDeletion`) before writing the account, the same order as the sync's
+`commitPortfolio`, so a deletion and a running sync cannot deadlock.
 
 The sync follows `CmesSyncService`: when the sidecar answers `SESSION_EXPIRED` to the portfolio
 read and credentials are stored, `reauthenticateAndFetch` logs in again through the sidecar's

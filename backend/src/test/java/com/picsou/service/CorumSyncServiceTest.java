@@ -406,9 +406,18 @@ class CorumSyncServiceTest {
             .sessionState("encrypted").encryptedCredentials(REMEMBERED).build();
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
 
-        service.clearSession(7L);
+        assertThat(service.clearSession(7L)).isTrue();
 
         verify(sessionRepository).delete(session);
+    }
+
+    @org.junit.jupiter.api.Test
+    void clearSession_reportsThatThereWasNoSession() {
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+
+        assertThat(service.clearSession(7L)).isFalse();
+
+        verify(sessionRepository, never()).delete(any());
     }
 
     @org.junit.jupiter.api.Test
