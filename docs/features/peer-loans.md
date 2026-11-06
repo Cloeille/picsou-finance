@@ -38,7 +38,8 @@ page, the way a `SCPI` position is.
 ```sql
 -- V135: ALTER TYPE account_type ADD VALUE 'PEER_LOAN' BEFORE 'OTHER';
 -- V136: tables below.  V137: the two cash-leg links.  V138: cash_leg_owned.
--- V139: rate_period.
+-- V139: rate_period.  V140: widen annual_rate for high short-term rates.
+-- V141: drop the 100 % cap so the widened column is usable.
 
 peer_counterparty (id, member_id, name, note)
     UNIQUE (member_id, lower(name))

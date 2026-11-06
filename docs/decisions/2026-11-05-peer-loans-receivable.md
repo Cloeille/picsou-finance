@@ -45,11 +45,13 @@ peer_counterparty (id, member_id, name, note)
 peer_loan_terms (
     account_id, counterparty_id, principal, lent_at, expected_back,
     annual_rate,                          -- 0 = interest-free (the common case)
+    rate_period,                          -- ANNUAL | MONTHLY, display only
     planned_monthly_amount, planned_months, -- forecast, nullable
     linked_account_id, note, closed_at,
     lending_transaction_id                -- the cash movement we own or linked
 )
-peer_loan_repayment (account_id, paid_on, amount, kind, note, cash_transaction_id)
+peer_loan_repayment (account_id, paid_on, amount, kind, note, cash_transaction_id,
+    cash_leg_owned)                       -- false when linked from an existing row
 -- kind: PRINCIPAL | INTEREST | WRITE_OFF
 ```
 
@@ -105,10 +107,11 @@ Accrued but unpaid interest is **displayed, never counted in net worth**. Counti
 that has not been received would reintroduce the optimism this ADR rejects. At closure,
 unpaid accrued interest simply disappears.
 
-A repayment's cash leg is `CategoryKind.TRANSFER` (an asset swap, excluded from the
-budget). The interest part is tracked in the ledger but not booked as income: one cash
-movement carries one category. An explicit interest-only API entry still uses
-`CategoryKind.INCOME`.
+A repayment's cash leg is `CategoryKind.TRANSFER` when it is linked from an existing
+transaction (an asset swap, excluded from the budget). A manual repayment leg leaves an
+explicit interest row uncategorised so the cashflow counts it by sign as income; the
+interest part of any other repayment lives in the ledger but is not booked as income:
+one cash movement carries one category.
 
 ### 6. The plan is a forecast, explicitly non-binding
 
