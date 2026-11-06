@@ -72,6 +72,12 @@ PriceService ──► CompositePriceProvider ──► PreciousMetalPriceProvid
 - The page is HTML. A redesign of the Loomis page drops coin prices, it does not break the app;
   bullion keeps its spot price. A page that is fetched but yields no quote logs a `WARN` naming
   Loomis (markup change or maintenance page).
+- Each Loomis row carries its own `Cotation du dd/MM/yyyy` date. A quote dated more than 7 days
+  back (`MAX_QUOTE_AGE_DAYS`) is dropped with a `WARN`, so `PriceService` falls back to its last
+  recorded price, flagged stale, rather than showing a frozen quote as live. A row without a
+  readable date keeps its quote: the age check is a guard against a stuck page, not a parser
+  contract. The check does not touch `PriceProviderPort`: the provider never reports an age, it
+  only withholds a quote it no longer trusts.
 
 ## Tests
 

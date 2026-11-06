@@ -17,8 +17,10 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -65,15 +67,33 @@ class PreciousMetalPriceProviderTest {
         }
     }
 
+    /** The day after the fixture's quotes, so they are fresh whatever the calendar says. */
+    private static final LocalDate TODAY = LocalDate.of(2026, 11, 6);
+    private static final LocalDate FIXTURE_QUOTE_DATE = LocalDate.of(2026, 11, 5);
+
     private PreciousMetalPriceProvider provider(Supplier<Optional<String>> page) {
-        return new PreciousMetalPriceProvider(yahoo, page);
+        return provider(page, TODAY);
+    }
+
+    private PreciousMetalPriceProvider provider(Supplier<Optional<String>> page, LocalDate today) {
+        Clock clock = Clock.fixed(today.atStartOfDay(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
+        return new PreciousMetalPriceProvider(yahoo, page, clock);
+    }
+
+    /** One priced product row, in the shape of the live page. */
+    private static String row(String slug, String quoteDate, String price) {
+        return """
+            <div class="raterow"><div class="col col_date">Cotation du <span class="color asc">%s</span> :</div>
+            <div class="col col_price">%s</div>
+            <a href="https://www.loomis-fxgs.fr/produit/%s/">Détail produit</a></div>
+            """.formatted(quoteDate, price, slug);
     }
 
     // ── parser ──────────────────────────────────────────────────────────
 
     @Test
     void parseQuotes_readsPricedProductsFromTheFixture() {
-        Map<String, BigDecimal> quotes = PreciousMetalPriceProvider.parseQuotes(fixture());
+        Map<String, BigDecimal> quotes = PreciousMetalPriceProvider.parseQuotes(fixture(), TODAY);
 
         assertThat(quotes)
             .containsEntry("20-francs-napoleon", new BigDecimal("709.90"))
@@ -85,21 +105,59 @@ class PreciousMetalPriceProviderTest {
 
     @Test
     void parseQuotes_aSuspendedQuoteIsAbsentNotZero() {
-        assertThat(PreciousMetalPriceProvider.parseQuotes(fixture()))
+        assertThat(PreciousMetalPriceProvider.parseQuotes(fixture(), TODAY))
             .doesNotContainKey("10-dollars")
             .hasSize(3);
     }
 
     @Test
     void parseQuotes_pageWithoutRowsGivesNothing_andSaysSo() {
-        assertThat(PreciousMetalPriceProvider.parseQuotes("<html><body>maintenance</body></html>")).isEmpty();
+        assertThat(PreciousMetalPriceProvider.parseQuotes("<html><body>maintenance</body></html>", TODAY)).isEmpty();
 
         assertThat(warnings()).singleElement().asString().contains("Loomis FXGS").contains("no readable quote");
     }
 
     @Test
+    void parseQuotes_dropsAQuoteDatedMoreThanAWeekBack_andWarns() {
+        String html = row("20-francs-napoleon", "01/10/2026", "709,90&nbsp;€")
+            + row("krugerrand-sud-afrique", "05/11/2026", "3&nbsp;875,00&nbsp;€");
+
+        assertThat(PreciousMetalPriceProvider.parseQuotes(html, TODAY))
+            .containsOnlyKeys("krugerrand-sud-afrique");
+
+        assertThat(warnings()).singleElement().asString()
+            .contains("Loomis FXGS").contains("20-francs-napoleon").contains("2026-10-01");
+    }
+
+    @Test
+    void parseQuotes_aWeekOldQuoteIsStillFresh_aDayOlderIsNot() {
+        String html = row("20-francs-napoleon", "05/11/2026", "709,90&nbsp;€");
+
+        assertThat(PreciousMetalPriceProvider.parseQuotes(html, FIXTURE_QUOTE_DATE.plusDays(7)))
+            .containsKey("20-francs-napoleon");
+        assertThat(PreciousMetalPriceProvider.parseQuotes(html, FIXTURE_QUOTE_DATE.plusDays(8))).isEmpty();
+    }
+
+    @Test
+    void parseQuotes_aRowWithoutAReadableDateKeepsItsQuote() {
+        String html = row("20-francs-napoleon", "n/a", "709,90&nbsp;€")
+            + row("krugerrand-sud-afrique", "31/02/2026", "3&nbsp;875,00&nbsp;€");
+
+        assertThat(PreciousMetalPriceProvider.parseQuotes(html, TODAY))
+            .containsOnlyKeys("20-francs-napoleon", "krugerrand-sud-afrique");
+        assertThat(warnings()).isEmpty();
+    }
+
+    @Test
+    void getPricesEur_aFrozenPageLeavesCoinsUnpriced() {
+        PreciousMetalPriceProvider provider = provider(() -> Optional.of(fixture()), FIXTURE_QUOTE_DATE.plusDays(30));
+
+        assertThat(provider.getPricesEur(Set.of("GOLD:NAPOLEON-20F", "GOLD:KRUGERRAND"))).isEmpty();
+    }
+
+    @Test
     void parseQuotes_aPageWithQuotesLogsNothing() {
-        PreciousMetalPriceProvider.parseQuotes(fixture());
+        PreciousMetalPriceProvider.parseQuotes(fixture(), TODAY);
 
         assertThat(warnings()).isEmpty();
     }

@@ -11,9 +11,13 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -51,16 +55,26 @@ public class PreciousMetalPriceProvider implements PriceProviderPort {
     static final BigDecimal GRAMS_PER_TROY_OUNCE = new BigDecimal("31.1034768");
     /** Matches the {@code NUMERIC(20, 8)} price columns. */
     static final int PRICE_SCALE = 8;
+    /**
+     * A quote dated further back than this is dropped. Loomis publishes on business days, so a
+     * long weekend plus a holiday stays inside it; beyond it the page is serving a frozen quote.
+     */
+    static final int MAX_QUOTE_AGE_DAYS = 7;
 
     private static final Pattern PRODUCT_LINK = Pattern.compile("/produit/([a-z0-9-]+)/");
     private static final Pattern PRICE_CELL =
         Pattern.compile("class=\"col col_price\">(.*?)</div>", Pattern.DOTALL);
+    private static final Pattern QUOTE_DATE =
+        Pattern.compile("Cotation du\\s*<span[^>]*>\\s*(\\d{2}/\\d{2}/\\d{4})\\s*</span>");
+    private static final DateTimeFormatter QUOTE_DATE_FORMAT =
+        DateTimeFormatter.ofPattern("dd/MM/uuuu").withResolverStyle(ResolverStyle.STRICT);
     private static final Pattern ENTITY_SPACE =
         Pattern.compile("&(?:nbsp|#160|#xa0|#8239|#x202f|thinsp|#8201);", Pattern.CASE_INSENSITIVE);
     private static final Pattern FRENCH_AMOUNT = Pattern.compile("\\d+(?:,\\d+)?");
 
     private final YahooFinancePriceProvider yahoo;
     private final Supplier<Optional<String>> quotesPage;
+    private final Clock clock;
 
     @Autowired
     public PreciousMetalPriceProvider(YahooFinancePriceProvider yahoo) {
@@ -79,8 +93,14 @@ public class PreciousMetalPriceProvider implements PriceProviderPort {
 
     // Package-private for tests — inject the page body directly.
     PreciousMetalPriceProvider(YahooFinancePriceProvider yahoo, Supplier<Optional<String>> quotesPage) {
+        this(yahoo, quotesPage, Clock.systemDefaultZone());
+    }
+
+    // Package-private for tests — also pin "today", which the quote dates are checked against.
+    PreciousMetalPriceProvider(YahooFinancePriceProvider yahoo, Supplier<Optional<String>> quotesPage, Clock clock) {
         this.yahoo = yahoo;
         this.quotesPage = quotesPage;
+        this.clock = clock;
     }
 
     private static Optional<String> fetchPage(WebClient webClient) {
@@ -193,7 +213,8 @@ public class PreciousMetalPriceProvider implements PriceProviderPort {
 
     private Map<String, BigDecimal> quotesBySlug() {
         try {
-            return quotesPage.get().map(PreciousMetalPriceProvider::parseQuotes).orElse(Map.of());
+            LocalDate today = LocalDate.now(clock);
+            return quotesPage.get().map(html -> parseQuotes(html, today)).orElse(Map.of());
         } catch (Exception ex) {
             log.warn("Loomis FXGS quote page unusable: {}", LogSanitizer.safe(ex.getMessage()));
             return Map.of();
@@ -202,22 +223,45 @@ public class PreciousMetalPriceProvider implements PriceProviderPort {
 
     /**
      * Product slug to EUR quote, from the Loomis quote page. A product with no price cell
-     * (suspended quote) is absent.
+     * (suspended quote) is absent, and so is one whose {@code Cotation du dd/MM/yyyy} date is more
+     * than {@link #MAX_QUOTE_AGE_DAYS} before {@code today}: a frozen quote must not be passed off
+     * as live, and its absence lets {@code PriceService} fall back to its last recorded price,
+     * flagged stale. A row with no readable date is kept.
      */
-    static Map<String, BigDecimal> parseQuotes(String html) {
+    static Map<String, BigDecimal> parseQuotes(String html, LocalDate today) {
         Map<String, BigDecimal> quotes = new HashMap<>();
+        boolean anyPriced = false;
         String[] rows = html.split("<div class=\"raterow\">");
         // rows[0] is everything before the first product.
         for (int i = 1; i < rows.length; i++) {
             Matcher link = PRODUCT_LINK.matcher(rows[i]);
             Matcher price = PRICE_CELL.matcher(rows[i]);
             if (!link.find() || !price.find()) continue;
-            parseFrenchAmount(price.group(1)).ifPresent(amount -> quotes.putIfAbsent(link.group(1), amount));
+            Optional<BigDecimal> amount = parseFrenchAmount(price.group(1));
+            if (amount.isEmpty()) continue;
+            anyPriced = true;
+            Optional<LocalDate> quoted = parseQuoteDate(rows[i]);
+            if (quoted.isPresent() && quoted.get().isBefore(today.minusDays(MAX_QUOTE_AGE_DAYS))) {
+                log.warn("Loomis FXGS quote for {} is dated {}, older than {} days: ignoring it",
+                    link.group(1), quoted.get(), MAX_QUOTE_AGE_DAYS);
+                continue;
+            }
+            quotes.putIfAbsent(link.group(1), amount.get());
         }
-        if (quotes.isEmpty()) {
+        if (!anyPriced) {
             log.warn("Loomis FXGS quote page has no readable quote: markup change or maintenance page?");
         }
         return quotes;
+    }
+
+    private static Optional<LocalDate> parseQuoteDate(String row) {
+        Matcher date = QUOTE_DATE.matcher(row);
+        if (!date.find()) return Optional.empty();
+        try {
+            return Optional.of(LocalDate.parse(date.group(1), QUOTE_DATE_FORMAT));
+        } catch (DateTimeParseException ex) {
+            return Optional.empty();
+        }
     }
 
     /** {@code "3&nbsp;875,00&nbsp;€"} (any space flavour, comma decimal) to {@code 3875.00}. */
