@@ -1648,7 +1648,7 @@ const demoTrStatus = {
   lastSyncStartedAt: null,
   lastSyncCompletedAt: null,
   lastSyncError: null,
-  maskedPhone: '+33 6 ** ** 56 78',
+  maskedPhone: '+33 * ** ** ** 78',
 }
 handlers.set(key('GET', '/tr/status'), () => demoTrStatus)
 

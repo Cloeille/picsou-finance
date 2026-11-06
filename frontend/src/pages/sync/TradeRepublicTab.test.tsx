@@ -297,7 +297,7 @@ describe('TradeRepublicTab reconnect', () => {
     isActive: false,
     syncStatus: 'FAILED',
     lastSyncError: 'SESSION_EXPIRED',
-    maskedPhone: '+33 6 ** ** 56 78',
+    maskedPhone: '+33 * ** ** ** 78',
   }
 
   beforeEach(() => {
@@ -318,7 +318,7 @@ describe('TradeRepublicTab reconnect', () => {
     renderTab()
 
     expect(await screen.findByText('sync.tr.errors.sessionExpired')).toBeInTheDocument()
-    expect(screen.getByTestId('tr-masked-phone')).toHaveTextContent('+33 6 ** ** 56 78')
+    expect(screen.getByTestId('tr-masked-phone')).toHaveTextContent('+33 * ** ** ** 78')
     expect(screen.queryByLabelText('sync.tr.phone')).not.toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('sync.tr.pin'), { target: { value: 'my password' } })
     fireEvent.click(screen.getByRole('button', { name: 'sync.tr.connect' }))

@@ -1289,7 +1289,7 @@
       "openFinary": "Finary-Seite zum Synchronisieren öffnen",
       "sessionExpired": "Sitzung abgelaufen",
       "reconnect": "Im Tab des Anbieters neu verbinden",
-      "trManualInfo": "Trade Republic ist die einzige Bank, die eine manuelle erneute Authentifizierung erfordert. Du musst bei jeder Synchronisierung deine Telefonnummer und PIN oder Passwort neu eingeben.",
+      "trManualInfo": "Trade-Republic-Sitzungen enden nach etwa 24 Stunden. Gib zum erneuten Verbinden deine PIN oder dein Passwort ein; die Telefonnummer bleibt gespeichert.",
       "trSlowWarning": "Die Verbindung kann einen Moment dauern, das ist normal.",
       "openRevolut": "Open the Revolut page to connect",
       "revolutManualInfo": "Revolut requires approval on your phone. Click the icon to enter your credentials."

@@ -1598,7 +1598,7 @@
       "openRevolut": "Ouvrir la page Revolut pour se connecter",
       "sessionExpired": "Session expirée",
       "reconnect": "Se reconnecter depuis l'onglet du fournisseur",
-      "trManualInfo": "Trade Republic est la seule banque qui nécessite une reconnexion manuelle. Vous devrez ressaisir votre numéro et PIN ou mot de passe à chaque synchronisation.",
+      "trManualInfo": "Les sessions Trade Republic expirent au bout d'environ 24 heures. Pour vous reconnecter, ressaisissez votre PIN ou mot de passe ; le numéro est conservé.",
       "trSlowWarning": "La connexion peut prendre quelques instants, c'est normal.",
       "revolutManualInfo": "Revolut nécessite une approbation sur votre téléphone. Cliquez sur l'icône pour saisir vos identifiants."
     },
