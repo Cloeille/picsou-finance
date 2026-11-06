@@ -81,6 +81,7 @@
 | 2026-10-31 | [Helm chart in the repository, published by CI next to the images](./decisions/2026-10-31-helm-chart-published-from-ci.md) | Active |
 | 2026-11-01 | [Sidecars share one Python package for their plumbing](./decisions/2026-11-01-shared-sidecar-package.md) | Active |
 | 2026-11-02 | [Ports only for swappable providers](./decisions/2026-11-02-ports-only-for-swappable-providers.md) | Active |
+| 2026-11-06 | [Natixis Interépargne through a browserless sidecar that keeps only the refresh token](./decisions/2026-11-06-natixis-interepargne-httpx-sidecar.md) | Active |
 
 ## Feature notes
 
@@ -109,6 +110,7 @@
 | DEGIRO sync | 2026-08-05 | [degiro-sync.md](./features/degiro-sync.md) |
 | Amundi Épargne Salariale sync | 2026-08-09 | [amundi-epargne-salariale.md](./features/amundi-epargne-salariale.md) |
 | Crédit Mutuel / CIC Épargne Salariale sync | 2026-10-24 | [cmes-epargne-salariale.md](./features/cmes-epargne-salariale.md) |
+| Natixis Interépargne sync | 2026-11-06 | [natixis-interepargne.md](./features/natixis-interepargne.md) |
 | CIC online-banking sync (livrets) | 2026-10-24 | [cic-banking.md](./features/cic-banking.md) |
 | American Express France credit-card sidecar | 2026-10-31 | [amex-sidecar.md](./features/amex-sidecar.md) |
 | Trade Republic — Holdings deduplication | 2026-05-18 | [trade-republic-holding-deduplication.md](./features/trade-republic-holding-deduplication.md) |
