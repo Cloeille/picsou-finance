@@ -72,6 +72,8 @@ public class TradeRepublicSyncService {
     private static final ZoneId PARIS = ZoneId.of("Europe/Paris");
     private static final int FIRST_IMPORT_YEARS = 3;
     private static final int OVERLAP_DAYS = 14;
+    /** The longest window tr-auth's {@code /transactions} accepts ({@code EXPORT_MAX_DAYS} there). */
+    private static final int EXPORT_MAX_DAYS = 1830;
 
     private final TradeRepublicAdapter          trPort;
     private final AccountRepository             accountRepository;
@@ -164,8 +166,8 @@ public class TradeRepublicSyncService {
                     }
                 });
                 if (result != null) {
-                    log.info("Trade Republic transactions imported (member={}; tx={}; skipped={})",
-                        job.memberId(), result.inserted(), result.skipped());
+                    log.info("Trade Republic transactions imported (member={}; tx={}; skipped={}; nonEur={})",
+                        job.memberId(), result.inserted(), result.skipped(), result.nonEur());
                 }
             } catch (RuntimeException ex) {
                 log.warn("Trade Republic transactions import failed (member={}; type={})",
@@ -214,7 +216,12 @@ public class TradeRepublicSyncService {
             .findFirst()
             .map(a -> transactionRepository.findLatestSyncedDateByAccountId(a.getId()))
             .orElse(null);
-        return latest == null ? today.minusYears(FIRST_IMPORT_YEARS) : latest.minusDays(OVERLAP_DAYS);
+        LocalDate start = latest == null ? today.minusYears(FIRST_IMPORT_YEARS) : latest.minusDays(OVERLAP_DAYS);
+        // A newest entry over five years old would ask for a window the sidecar refuses with
+        // INVALID_DATA on every sync, so the export never comes back. Older activity is out of
+        // what one export returns; the manual upload still takes it.
+        LocalDate oldest = today.minusDays(EXPORT_MAX_DAYS);
+        return start.isBefore(oldest) ? oldest : start;
     }
 
     // --- Auth ---
@@ -338,7 +345,8 @@ public class TradeRepublicSyncService {
     /** Slug of the EXPENSE category under which imported securities purchases are booked. */
     private static final String INVESTMENT_PURCHASE_SLUG = "investissement-titres";
 
-    public record ImportResult(int inserted, int skipped) {}
+    /** {@code nonEur}: rows the export states in a currency other than EUR, left out. */
+    public record ImportResult(int inserted, int skipped, int nonEur) {}
 
     /**
      * Parses the full Trade Republic CSV export and creates double-entry transactions:
@@ -389,7 +397,7 @@ public class TradeRepublicSyncService {
 
         if (trCash == null) {
             log.warn("TR CSV Import: No CHECKING account (TR Cash) found for member {}. Create TR accounts first by syncing or importing the accounts CSV.", memberId);
-            return new ImportResult(0, 0);
+            return new ImportResult(0, 0, 0);
         }
 
         // Investment leg → seeded "investissement" TRANSFER category: excluded from cashflow (so
@@ -409,6 +417,8 @@ public class TradeRepublicSyncService {
         boolean firstLine = true;
         int insertedCount = 0;
         int skippedCount = 0;
+        int nonEurCount = 0;
+        int currencyColumn = -1;
 
         while ((line = reader.readLine()) != null) {
             line = line.trim();
@@ -417,12 +427,22 @@ public class TradeRepublicSyncService {
             if (firstLine) {
                 firstLine = false;
                 if (line.toLowerCase().contains("datetime") || line.toLowerCase().startsWith("\"datetime\"")) {
+                    currencyColumn = parseCsvLine(line.toLowerCase()).indexOf("currency");
                     continue;
                 }
             }
 
             List<String> parts = parseCsvLine(line);
             if (parts.size() < 19) {
+                continue;
+            }
+
+            // Every amount is stored as EUR: a row the export states in another currency is left
+            // out rather than booked at the wrong value. original_currency is not checked: it names
+            // what a card payment abroad was charged in, while amount stays the EUR debit.
+            if (currencyColumn >= 0 && currencyColumn < parts.size()
+                    && !parts.get(currencyColumn).isBlank() && !"EUR".equalsIgnoreCase(parts.get(currencyColumn))) {
+                nonEurCount++;
                 continue;
             }
 
@@ -463,7 +483,7 @@ public class TradeRepublicSyncService {
                 log.debug("TR CSV Import: skipping row with unparseable date '{}'", dateStr);
                 continue;
             }
-            
+
             // Build a readable description for the transaction
             String finalDescription = (description != null && !description.isBlank()) ? description : type;
             if ("BUY".equalsIgnoreCase(type) || "SELL".equalsIgnoreCase(type)) {
@@ -551,8 +571,11 @@ public class TradeRepublicSyncService {
                 skippedCount++;
             }
         }
+        if (nonEurCount > 0) {
+            log.warn("TR CSV import: {} rows not in EUR left out", nonEurCount);
+        }
         log.info("TR CSV import complete: {} inserted, {} skipped (already present)", insertedCount, skippedCount);
-        return new ImportResult(insertedCount, skippedCount);
+        return new ImportResult(insertedCount, skippedCount, nonEurCount);
     }
 
     /**
