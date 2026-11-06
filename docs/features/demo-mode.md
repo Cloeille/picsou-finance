@@ -1,6 +1,6 @@
 # Feature: Demo mode
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-05
 
 ## Context
 
@@ -18,9 +18,11 @@ At startup, if `VITE_DEMO_MODE === 'true'`, a custom Axios adapter replaces the 
 
 ```
 VITE_DEMO_MODE=true
-  → api-client.ts injects createDemoAdapter() on api.defaults.adapter
+  → api-client.ts dynamically imports @/demo and installs createDemoAdapter() on api.defaults.adapter
   → every Axios request is intercepted, resolved with mock data after a random delay (200–600 ms)
 ```
+
+The import is dynamic and sits behind the build-time flag. A production build (`VITE_DEMO_MODE=false`) drops the branch, so the handler table and `demo/data/` never reach any chunk. A demo build fetches them as a separate chunk; requests sent before it arrives wait for it instead of reaching the network. If the chunk fails to load, those requests reject and the next request fetches it again. Never import `@/demo` statically from app code: it would pull the fixtures back into the entry chunk.
 
 Register handlers only for supported backend routes, using their response shapes.
 
@@ -79,6 +81,7 @@ transpiles TypeScript without checking for unused imports. An unused import in
 `src/demo/index.ts` fails both checks and blocks `bun run build`, including the
 demo build used by the Docker image.
 
+- `frontend/src/lib/api-client.demo.test.ts` checks that a request issued before the chunk arrives is held and then answered by the demo adapter (nothing reaches XHR), that the adapter is built once for concurrent requests, and that a failed chunk load rejects the request and is retried by the next one.
 - `frontend/src/demo/cic.test.ts` checks all six CIC session routes through the adapter, including authentication, reconnect, sync, and deletion response shapes.
 - `frontend/src/demo/coverage.test.ts` scans the source for every `api.get('/...')` call, expands each path parameter over every demo account, goal and category id, and fails on any URL the demo adapter has no handler for. Mutations are not checked: an unhandled one still answers `200 {}` by design.
 - `frontend/src/demo/fixtures.test.ts` freezes the clock before the fixtures load and checks that they agree across pages (dashboard against Accounts, allocation stock against the accounts, an account's history against its edited balance, family against accounts and goals, goal badge against its calendar), that the calendar is identical between loads, and that the budget opens on the current month in a UTC+ zone. Categorization checks cover invalid IDs, removal from the inbox, ledger and spending updates, previously unused categories, and TRANSFER exclusion.
