@@ -682,4 +682,3 @@ async def positions(req: PositionsRequest) -> dict:
                 "operationsFrom": read["operationsFrom"],
                 "operations": [OperationPayload.model_validate(o) for o in operations or []],
             }
-
