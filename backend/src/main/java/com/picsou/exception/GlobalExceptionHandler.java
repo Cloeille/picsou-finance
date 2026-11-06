@@ -42,6 +42,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
+    @ExceptionHandler(SignInMethodException.class)
+    ProblemDetail handleSignInMethod(SignInMethodException ex) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(ex.getStatus(), ex.getMessage());
+        detail.setProperty("code", ex.getCode());
+        return detail;
+    }
+
     @ExceptionHandler(TotpRequiredException.class)
     ProblemDetail handleTotpRequired(TotpRequiredException ex) {
         log.info("TOTP required: {}", ex.getMessage());
@@ -110,6 +117,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail handleReAuthFailed(com.picsou.service.ReAuthService.ReAuthFailedException ex) {
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, ex.getMessage());
         pd.setTitle("REAUTH_FAILED");
+        pd.setProperty("code", "REAUTH_FAILED");
         return pd;
     }
 

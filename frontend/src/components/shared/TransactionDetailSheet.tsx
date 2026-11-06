@@ -31,8 +31,15 @@ interface TransactionDetailSheetProps {
   onCategorize?: (txId: number, categoryId: number) => void
   onEdit?: (tx: Transaction) => void
   onDelete?: (txId: number) => void
+  /** The provider of the transaction's account, when the caller knows it. */
+  accountProvider?: string | null
 }
 
+/**
+ * One transaction in detail: a bottom sheet on mobile, a dialog elsewhere. Categorize applies to
+ * synced rows only, edit and delete to manual rows only, and each shows only when the caller
+ * passes its handler. The heading is the merchant label, else the displayed description.
+ */
 export function TransactionDetailSheet({
   transaction: tx,
   open,
@@ -42,6 +49,7 @@ export function TransactionDetailSheet({
   onCategorize,
   onEdit,
   onDelete,
+  accountProvider,
 }: TransactionDetailSheetProps) {
   const { t, i18n } = useTranslation()
   const isMobile = useIsMobile()
@@ -64,7 +72,7 @@ export function TransactionDetailSheet({
 
   if (!tx) return null
 
-  const label = tx.merchantLabel || transactionDescription(tx, t)
+  const label = tx.merchantLabel || transactionDescription(tx, t, accountProvider)
   const canCategorize = !tx.isManual && !!onCategorize && !!categories
 
   function confirmCategory() {

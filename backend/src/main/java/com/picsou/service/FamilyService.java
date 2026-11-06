@@ -13,13 +13,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.security.SecureRandom;
-import java.text.Normalizer;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 @Service
 @Transactional(readOnly = true)
@@ -28,42 +29,55 @@ public class FamilyService {
     private final FamilyMemberRepository memberRepository;
     private final AppUserRepository userRepository;
     private final UserMfaRepository userMfaRepository;
+    private final UserIdentityRepository identityRepository;
     private final SharingSettingsRepository sharingSettingsRepository;
     private final SharedResourceRepository sharedResourceRepository;
     private final AccountRepository accountRepository;
     private final GoalRepository goalRepository;
     private final PasswordEncoder passwordEncoder;
+    private final UsernameDeriver usernameDeriver;
 
     public FamilyService(
         FamilyMemberRepository memberRepository,
         AppUserRepository userRepository,
         UserMfaRepository userMfaRepository,
+        UserIdentityRepository identityRepository,
         SharingSettingsRepository sharingSettingsRepository,
         SharedResourceRepository sharedResourceRepository,
         AccountRepository accountRepository,
         GoalRepository goalRepository,
-        PasswordEncoder passwordEncoder
+        PasswordEncoder passwordEncoder,
+        UsernameDeriver usernameDeriver
     ) {
         this.memberRepository = memberRepository;
         this.userRepository = userRepository;
         this.userMfaRepository = userMfaRepository;
+        this.identityRepository = identityRepository;
         this.sharingSettingsRepository = sharingSettingsRepository;
         this.sharedResourceRepository = sharedResourceRepository;
         this.accountRepository = accountRepository;
         this.goalRepository = goalRepository;
         this.passwordEncoder = passwordEncoder;
+        this.usernameDeriver = usernameDeriver;
     }
 
     public List<FamilyMemberResponse> listMembers() {
-        return memberRepository.findAllByOrderByCreatedAtAsc().stream()
-            .map(m -> {
-                AppUser user = userRepository.findByMemberId(m.getId()).orElse(null);
-                boolean mfaEnabled = user != null && userMfaRepository.findByUserId(user.getId())
-                    .map(UserMfa::isEnabled)
-                    .orElse(false);
-                return FamilyMemberResponse.from(m, user, mfaEnabled);
-            })
+        List<FamilyMember> members = memberRepository.findAllByOrderByCreatedAtAsc();
+        List<AppUser> users = members.stream()
+            .map(m -> userRepository.findByMemberId(m.getId()).orElse(null))
             .toList();
+        Set<Long> linkedUserIds = identityRepository.findUserIdsWithIdentity(
+            users.stream().filter(Objects::nonNull).map(AppUser::getId).toList());
+        List<FamilyMemberResponse> responses = new ArrayList<>();
+        for (int i = 0; i < members.size(); i++) {
+            AppUser user = users.get(i);
+            boolean mfaEnabled = user != null && userMfaRepository.findByUserId(user.getId())
+                .map(UserMfa::isEnabled)
+                .orElse(false);
+            boolean ssoLinked = user != null && linkedUserIds.contains(user.getId());
+            responses.add(FamilyMemberResponse.from(members.get(i), user, mfaEnabled, ssoLinked));
+        }
+        return responses;
     }
 
     @Transactional
@@ -74,7 +88,7 @@ public class FamilyService {
             .managed(true)
             .build();
         member = memberRepository.save(member);
-        return FamilyMemberResponse.from(member, null, false);
+        return FamilyMemberResponse.from(member, null, false, false);
     }
 
     @Transactional
@@ -87,7 +101,8 @@ public class FamilyService {
         boolean mfaEnabled = user != null && userMfaRepository.findByUserId(user.getId())
             .map(UserMfa::isEnabled)
             .orElse(false);
-        return FamilyMemberResponse.from(member, user, mfaEnabled);
+        boolean ssoLinked = user != null && identityRepository.countByUserId(user.getId()) > 0;
+        return FamilyMemberResponse.from(member, user, mfaEnabled, ssoLinked);
     }
 
     /**
@@ -120,7 +135,7 @@ public class FamilyService {
         }
         AppUser user = userRepository.findByMemberId(id).orElse(null);
         if (user != null && user.getRole() == UserRole.ADMIN
-            && userRepository.countByRole(UserRole.ADMIN) <= 1) {
+            && userRepository.findAllByRoleForUpdate(UserRole.ADMIN).size() <= 1) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot delete the last administrator");
         }
         if (user != null) {
@@ -170,7 +185,7 @@ public class FamilyService {
             userRepository.save(existingUser);
         } else {
             AppUser user = AppUser.builder()
-                .username(deriveUsername(member.getDisplayName()))
+                .username(usernameDeriver.derive(member.getDisplayName()))
                 .passwordHash("")
                 .member(member)
                 .role(UserRole.MEMBER)
@@ -183,33 +198,6 @@ public class FamilyService {
         }
 
         return token;
-    }
-
-    /**
-     * Derives a readable, login-safe username from a member's display name
-     * (e.g. "Jean Dupont" -> "jean.dupont"), replacing the legacy "member_<id>"
-     * scheme. Accents are stripped, non-alphanumeric runs collapse to a dot, and
-     * a numeric suffix (".2", ".3", ...) guarantees uniqueness on collision.
-     */
-    private String deriveUsername(String displayName) {
-        String base = Normalizer
-            .normalize(displayName == null ? "" : displayName, Normalizer.Form.NFD)
-            .replaceAll("\\p{M}+", "")        // strip accent marks
-            .toLowerCase()
-            .replaceAll("[^a-z0-9]+", ".")     // any separator run -> single dot
-            .replaceAll("^\\.+|\\.+$", "");    // trim leading/trailing dots
-        if (base.isBlank()) {
-            base = "user";
-        }
-        if (base.length() > 45) {
-            base = base.substring(0, 45);      // leave room for a numeric suffix
-        }
-        String candidate = base;
-        int n = 2;
-        while (userRepository.existsByUsername(candidate)) {
-            candidate = base + "." + n++;
-        }
-        return candidate;
     }
 
     public SharingSettingsResponse getSharingSettings(Long memberId, String resourceType) {

@@ -7,7 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The app image is one non-root Java process.** nginx, supervisord and the shell entrypoint are
+  gone. The container runs as uid 1000 on port 8080; Compose and Helm hand `/data` to that user
+  (`data-permissions` service, `fsGroup`). Tomcat trusts forwarded headers only from
+  `PICSOU_PROXY_IP` for the client address, and no longer trusts loopback; the public scheme,
+  host and port are applied from any peer as nginx did, so an undeclared HTTPS proxy keeps
+  working. Helm probes use `/actuator/health/liveness`. An explicit
+  `SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES` takes precedence over `PICSOU_PROXY_IP`, and the
+  datasource password follows Spring's usual order (`--spring.datasource.password`, `-D`,
+  `SPRING_DATASOURCE_PASSWORD`, then `POSTGRES_PASSWORD`).
+  **Upgrade:** `data-permissions` runs `chown -R 1000:1000 /data` before each app start
+  (`deploy.sh` runs it too). A bind mount where `chown` is ignored (SMB/CIFS) needs the mount
+  options `uid=1000,gid=1000`. Without Compose (plain `docker run`), run once before the first
+  start of the new image: `docker run --rm --user 0 --entrypoint chown -v <your-data-volume>:/data
+  ghcr.io/cloeille/picsou-finance:<tag> -R 1000:1000 /data`; until then the app refuses to start
+  (`Cannot write secret file … AccessDeniedException`) and generates nothing.
+  Behaviour changes: authenticated uploads follow Spring's 10 MB multipart limit instead of
+  nginx's 1 MB body limit, while the anonymous endpoints (`/api/setup`, `/api/auth/`,
+  `/oauth2/register`) keep a 1 MB cap (`AnonymousBodyLimitFilter`, HTTP 413), no proxy timeout cuts
+  slow requests any more, and a stopped backend is a refused connection instead of an nginx 502.
+
 ### Added
+
+- **Sign in with your identity provider (SSO).** Set `SSO_ISSUER_URI` and `SSO_CLIENT_ID` to add
+  a "Sign in with <provider>" button that works with any OpenID Connect provider (Zitadel,
+  Authentik, Keycloak, Authelia, Pocket ID...). It sits alongside passwords: without these
+  variables nothing changes. Picsou still issues its own session cookies, Remember Me included,
+  and links an account to the provider's identity only, never by email or username. With
+  `SSO_ADMIN_GROUP`, a fresh instance can be set up without any password (the first member of
+  that group to sign in becomes the administrator), and the group keeps managing who is an admin.
+  Invited members can activate with SSO, and from Settings you can link or unlink an identity
+  and turn password login off. Sensitive actions such as the data export then re-authenticate
+  through the provider. SSO sessions pass through the provider again after
+  `SSO_SESSION_REVALIDATE_AFTER` (24 hours by default), and `SSO_IDP_LOGOUT=true` also ends the
+  provider session on logout. The data export gains a `linked_identities` table. See
+  [docs/features/sso-login.md](docs/features/sso-login.md).
+- **CORUM re-logs in by itself and syncs daily.** The CORUM login form gains an opt-in, unticked
+  "Remember my credentials (encrypted)" checkbox. Ticked, the credentials are stored encrypted and
+  a sync whose session expired logs in again once before reading; a rejected password clears them
+  and asks to reconnect, and "Disconnect" forgets them. So does deleting the last CORUM account
+  (no CORUM Life account and no SCPI account linked to a CORUM fund left): the
+  confirmation names CORUM and the session goes with its credentials. Unticked, nothing is
+  stored, as before.
+  CORUM now runs in the daily 08:00 sync, in `trigger_full_sync`/`trigger_broker_sync` and in
+  `get_sync_status`. Migration V127. See
+  [CORUM session and remembered credentials](docs/features/scpi.md#corum-session-and-remembered-credentials).
+
+- **CORUM Life (assurance-vie) sync.** A CORUM login holding a CORUM Life contract no longer
+  fails with `PORTFOLIO_INCOMPLETE`: each contract becomes an assurance-vie account, synced with
+  the SCPI funds in one all-or-nothing run. Holdings are CORUM's funds (aggregated across
+  management pockets, euro fund included); performance uses the contract's net invested amount,
+  so it matches CORUM; the account page shows the opening date, 8-year tax date, payments and
+  scheduled payment; the contract's operations are imported as transactions (payments as
+  investment transfers, coupons as dividends, fees and switches marked "in the contract" and kept
+  out of the budget). SCPI units held in the policy count as real estate in the wealth pyramid.
+  An existing manual "CORUM Life" account is adopted, or reported instead of duplicated.
+  Migrations V124–V126. Deploy the `app` and `corum-auth` images together. See
+  [CORUM Life sync](docs/features/corum-life.md).
+
+- **Budget-neutral transactions.** Money moving inside an investment wrapper (coupons, fees,
+  switches) can be flagged `budget_neutral`: it stays on the account's ledger and export but is
+  left out of budget, cashflow, categorisation and the global transactions view.
 
 - **Precious metals.** A new *Métaux précieux* account type holds physical gold as positions:
   bullion in grams, priced at spot (COMEX `GC=F` converted to euros), and gold coins (Napoléon,
@@ -80,6 +142,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Diversification leaves out lines classified outside equity.** A holding whose wealth tier
+  (your override, or the provider's) is not equity — for example a money-market ETF set to
+  safety net — is no longer counted in the sector and geography breakdown, matching the
+  wealth pyramid.
+- **Secret generation moved from shell into the app.** `SecretBootstrap`, a Spring Boot
+  `EnvironmentPostProcessor`, resolves or generates `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY`
+  under `PICSOU_SECRETS_DIR` (`/data/.secrets` in the image) with the same rules as the old
+  entrypoint: env var first, then the file, never regenerated. The entrypoint no longer touches
+  secrets. The app no longer generates a database password: it reads `POSTGRES_PASSWORD`, else
+  an existing `postgres_password` file, else uses `picsou` like Compose. A standalone
+  `docker run` without `POSTGRES_PASSWORD` and without that file now uses `picsou`, so set
+  `POSTGRES_PASSWORD` there. **Bare metal:** `backend/scripts/picsou-init.sh` is gone; set
+  `PICSOU_SECRETS_DIR` (for example `.local/secrets`) and the app creates the two keys on
+  first start; the database password stays `picsou` unless you set one.
+- **Spring Boot serves the web app; nginx only forwards.** The built SPA, its caching, gzip and
+  every security header now come from the backend (`SPA_LOCATION`, `/app/spa` in the image).
+  nginx keeps client-address and port forwarding and the long timeouts. HSTS has a single
+  emitter, so the OAuth2 endpoints no longer send it when `HSTS_ENABLED` is off. Only the
+  hashed files under `/assets/` stay cached for a year; `index.html` and the unhashed public files
+  (`/favicon.svg`, `/theme-init.js`, `/providers/*`) are now revalidated on each load. See
+  [the ADR](docs/decisions/2026-11-03-spring-serves-the-spa.md) (#342).
 - **One command per task for contributors (#344).** A root `Makefile`: `make dev` starts
   PostgreSQL, the backend and Vite, `make test` runs the backend, frontend, e2e and sidecar suites, `make build`
   builds the images, `make release VERSION=x.y.z` checks the CHANGELOG and pushes the tag.

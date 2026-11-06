@@ -80,7 +80,7 @@ such as `/var/backups/picsou`, not a shared directory like `/var/backups` or `$H
    The candidate also validates every ORM-mapped table/column, with Spring Boot's naming
    strategies, and the labels of every PostgreSQL enum an entity maps (for example
    `account_type` with `CREDIT_CARD`). A missing physical object fails even if history claims success.
-   No Spring server, scheduler, banking request, or secret-bootstrap entrypoint starts.
+   No Spring server, scheduler, banking request, or secret bootstrap starts.
 4. Only after clone migration and verification pass, migrate and verify the live database with
    the same image. Flyway executes packaged SQL, with strict validation, out-of-order migrations,
    and the existing narrowly matched legacy-renumbering callback. No baseline, clean, or broad

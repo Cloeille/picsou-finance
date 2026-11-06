@@ -1,6 +1,7 @@
 package com.picsou.service;
 
 import com.picsou.config.SidecarProperties;
+import com.picsou.config.SsoProperties;
 import com.picsou.dto.SidecarIssue;
 import com.picsou.dto.SidecarIssueCode;
 import com.picsou.model.AppSetting;
@@ -20,6 +21,7 @@ import com.picsou.repository.FortuneoSessionRepository;
 import com.picsou.repository.RevolutSessionRepository;
 import com.picsou.repository.SofidySessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
+import com.picsou.repository.UserIdentityRepository;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -409,7 +411,8 @@ class InstanceStatusServiceTest {
         InstanceStatusService wired = new InstanceStatusService(
             disabledReleases(),
             new SetupService(mock(AppSettingRepository.class), mock(AppUserRepository.class),
-                mock(FamilyMemberRepository.class), mock(PasswordEncoder.class)),
+                mock(FamilyMemberRepository.class), mock(PasswordEncoder.class),
+                new SsoProperties(), mock(UserIdentityRepository.class), Clock.systemUTC()),
             SidecarProperties.of(Map.of()),
             mock(TradeRepublicSessionRepository.class), mock(BoursoSessionRepository.class),
             mock(CaisseEpargneSessionRepository.class), mock(RevolutSessionRepository.class),
@@ -429,7 +432,8 @@ class InstanceStatusServiceTest {
         when(settings.findByKey(SetupService.KEY_BOURSO_AUTH_URL))
             .thenReturn(Optional.of(setting("http://setup-bourso")));
         SetupService setup = new SetupService(
-            settings, mock(AppUserRepository.class), mock(FamilyMemberRepository.class), mock(PasswordEncoder.class));
+            settings, mock(AppUserRepository.class), mock(FamilyMemberRepository.class), mock(PasswordEncoder.class),
+            new SsoProperties(), mock(UserIdentityRepository.class), Clock.systemUTC());
         SidecarProperties sidecars = SidecarProperties.of(Map.ofEntries(
             Map.entry("bourso-auth", "http://property-bourso"),
             Map.entry("sofidy-auth", "http://sofidy"),
@@ -443,7 +447,8 @@ class InstanceStatusServiceTest {
             Map.entry("fortuneo-auth", "http://fortuneo"),
             Map.entry("corum-auth", "http://corum"),
             Map.entry("amex-auth", "http://amex"),
-            Map.entry("revolut-auth", "http://revolut")));        var tr = mock(TradeRepublicSessionRepository.class);
+            Map.entry("revolut-auth", "http://revolut")));
+        var tr = mock(TradeRepublicSessionRepository.class);
         var bourso = mock(BoursoSessionRepository.class);
         var caisse = mock(CaisseEpargneSessionRepository.class);
         var revolut = mock(RevolutSessionRepository.class);

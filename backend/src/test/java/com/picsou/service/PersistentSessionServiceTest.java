@@ -44,6 +44,31 @@ class PersistentSessionServiceTest {
     // ─── issue ─────────────────────────────────────────────────────────────
 
     @Test
+    void issue_storesSsoAuthenticationTime() {
+        Instant ssoAt = NOW.minusSeconds(3600);
+
+        service.issue(user, false, "browser", "10.0.0.1", ssoAt);
+
+        ArgumentCaptor<PersistentSession> captor = ArgumentCaptor.forClass(PersistentSession.class);
+        verify(repository).save(captor.capture());
+        assertThat(captor.getValue().getSsoAuthenticatedAt()).isEqualTo(ssoAt);
+    }
+
+    @Test
+    void ssoAuthenticatedAtOf_readsStoredMarker_andIsEmptyForUnknownOrPasswordSeries() {
+        UUID sso = UUID.randomUUID();
+        UUID password = UUID.randomUUID();
+        UUID unknown = UUID.randomUUID();
+        when(repository.findBySeriesId(sso)).thenReturn(Optional.of(
+            PersistentSession.builder().ssoAuthenticatedAt(NOW).build()));
+        when(repository.findBySeriesId(password)).thenReturn(Optional.of(PersistentSession.builder().build()));
+
+        assertThat(service.ssoAuthenticatedAtOf(sso)).contains(NOW);
+        assertThat(service.ssoAuthenticatedAtOf(password)).isEmpty();
+        assertThat(service.ssoAuthenticatedAtOf(unknown)).isEmpty();
+    }
+
+    @Test
     void issue_persistsSessionWithHashedTokenAndExpiry() {
         when(repository.save(any(PersistentSession.class))).thenAnswer(inv -> inv.getArgument(0));
 

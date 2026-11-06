@@ -60,4 +60,44 @@ class AuthCookieWriterTest {
         assertThat(cookies).isNotEmpty();
         assertThat(cookies).allSatisfy(c -> assertThat(c).contains("Max-Age=0"));
     }
+
+    @Test
+    void setReauthProof_writesTheCookieWithTheProofLifetimeAndStandardAttributes() {
+        when(jwtUtil.getReauthProofExpirySeconds()).thenReturn(300L);
+        AuthCookieWriter writer = new AuthCookieWriter(secureCookieProvider, jwtUtil);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        writer.setReauthProof(response, "proof");
+
+        assertThat(response.getHeaders("Set-Cookie")).singleElement()
+            .satisfies(c -> assertThat(c)
+                .contains("reauth_proof=proof")
+                .contains("Max-Age=300")
+                .contains("Path=/")
+                .contains("HttpOnly")
+                .contains("SameSite=Lax"));
+    }
+
+    @Test
+    void clearReauthProof_expiresTheCookie() {
+        AuthCookieWriter writer = new AuthCookieWriter(secureCookieProvider, jwtUtil);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        writer.clearReauthProof(response);
+
+        assertThat(response.getHeaders("Set-Cookie")).singleElement()
+            .satisfies(c -> assertThat(c).contains("reauth_proof=").contains("Max-Age=0"));
+    }
+
+    @Test
+    void clearAuthCookies_alsoClearsReauthProof() {
+        // logout runs clearAuthCookies: the re-authentication proof must die with the session.
+        AuthCookieWriter writer = new AuthCookieWriter(secureCookieProvider, jwtUtil);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        writer.clearAuthCookies(response);
+
+        assertThat(response.getHeaders("Set-Cookie"))
+            .anySatisfy(c -> assertThat(c).contains("reauth_proof=").contains("Max-Age=0"));
+    }
 }

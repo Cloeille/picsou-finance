@@ -45,6 +45,7 @@ function transaction(overrides: Partial<Transaction>): Transaction {
     quantity: null,
     pricePerUnit: null,
     fees: null,
+    budgetNeutral: false,
     ...overrides,
   }
 }
@@ -131,6 +132,21 @@ describe('TransactionsList', () => {
 
     expect(screen.getByText('Provider dividend payment')).toBeInTheDocument()
     expect(screen.queryByText('Dividende AAPL')).not.toBeInTheDocument()
+  })
+
+  it('labels a CORUM Life payment only on the CORUM account it belongs to', () => {
+    const payment = transaction({ type: 'scheduledPayment', description: 'Scheduled payment' })
+    const { unmount } = render(<TransactionsList transactions={[payment]} accountProvider="CORUM" />)
+    expect(screen.getByText('accounts.corumLifeOperation.scheduledPayment')).toBeInTheDocument()
+    fireEvent.change(screen.getByPlaceholderText('common.search'), {
+      target: { value: 'corumLifeOperation' },
+    })
+    expect(screen.getByText('accounts.corumLifeOperation.scheduledPayment')).toBeInTheDocument()
+    unmount()
+
+    // A list spanning accounts does not know the row's provider: the synced description stays.
+    render(<TransactionsList transactions={[payment]} />)
+    expect(screen.getByText('Scheduled payment')).toBeInTheDocument()
   })
 
   it('searches the localized fallback description', () => {

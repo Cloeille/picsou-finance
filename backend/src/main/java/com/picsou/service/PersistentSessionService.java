@@ -50,6 +50,12 @@ public class PersistentSessionService {
 
     @Transactional
     public IssueResult issue(AppUser user, boolean trustedFor2fa, String userAgent, String remoteAddr) {
+        return issue(user, trustedFor2fa, userAgent, remoteAddr, null);
+    }
+
+    @Transactional
+    public IssueResult issue(AppUser user, boolean trustedFor2fa, String userAgent, String remoteAddr,
+                             Instant ssoAuthenticatedAt) {
         UUID seriesId = UUID.randomUUID();
         String token = generateToken();
         Instant now = Instant.now(clock);
@@ -60,6 +66,7 @@ public class PersistentSessionService {
             .userAgent(truncate(userAgent, 255))
             .ipPrefix(ipPrefix(remoteAddr))
             .trustedFor2fa(trustedFor2fa)
+            .ssoAuthenticatedAt(ssoAuthenticatedAt)
             .createdAt(now)
             .lastUsedAt(now)
             .expiresAt(now.plus(expiryDays, ChronoUnit.DAYS))
@@ -174,6 +181,10 @@ public class PersistentSessionService {
 
     public Optional<UUID> seriesFromCookie(String cookieValue) {
         return parseCookie(cookieValue).map(ParsedCookie::seriesId);
+    }
+
+    public Optional<Instant> ssoAuthenticatedAtOf(UUID seriesId) {
+        return repository.findBySeriesId(seriesId).map(PersistentSession::getSsoAuthenticatedAt);
     }
 
     /**

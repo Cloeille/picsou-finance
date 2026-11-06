@@ -1,6 +1,6 @@
 import type { Transaction } from '@/types/api'
 
-const t = (fields: Omit<Transaction, 'isManual' | 'txType' | 'ticker' | 'name' | 'quantity' | 'pricePerUnit' | 'fees'>): Transaction => ({
+const t = (fields: Omit<Transaction, 'isManual' | 'txType' | 'ticker' | 'name' | 'quantity' | 'pricePerUnit' | 'fees' | 'budgetNeutral'>): Transaction => ({
   ...fields,
   isManual: false,
   txType: null,
@@ -9,6 +9,7 @@ const t = (fields: Omit<Transaction, 'isManual' | 'txType' | 'ticker' | 'name' |
   quantity: null,
   pricePerUnit: null,
   fees: null,
+  budgetNeutral: false,
 })
 
 export const mockTransactions: Record<number, Transaction[]> = {
