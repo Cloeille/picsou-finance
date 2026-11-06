@@ -91,17 +91,26 @@ finished releases, and a release is tagged from it (`make release`).
 | A feature, refactor or major dependency bump (`feature/xxx`, `refactor/xxx`) | the next minor branch | `release/1.2.0` |
 
 - **Which branch.** The open `release/x.y.z` whose version is the next patch (fixes) or the next
-  minor (features) after the latest tag. List them with `git branch -r --list 'origin/release/*'`;
-  if none matches, ask in the issue. A fix that is large or changes behaviour goes to the minor
-  branch. A follow-up to an open pull request goes to the same branch as its parent.
-- **Branch and sync from the target**, not from `main`: `git switch -c fix/xxx origin/release/1.1.1`,
-  then merge `origin/release/1.1.1` into your branch (a merge, not a rebase). Compare your diff
+  minor (features) after the latest stable tag (ignore prerelease tags such as `1.2.0-rc.1`). List
+  them with `git fetch origin && git branch -r --list 'origin/release/*'`; if none matches, ask in
+  the issue. A fix that is large or changes behaviour goes to the minor branch. A follow-up to an
+  open pull request goes to the same branch as its parent.
+- **Branch and sync from the target**, not from `main`: `git fetch origin`, then
+  `git switch -c fix/xxx origin/release/1.1.1`; to sync, `git fetch origin` again and merge
+  `origin/release/1.1.1` into your branch (a merge, not a rebase). Compare your diff
   against the same branch.
-- **Migrations** take the next free `V<n>` across `main` and both open release branches, so two
-  releases never ship the same version.
+- **Migrations** take the next free `V<n>` across `main` and every open release branch, so two
+  releases never ship the same version. Two pull requests on different release branches can still
+  pick the same number, each green on its own branch, and the collision would only surface when
+  `main` is merged into the minor branch. So before merging a pull request that adds a migration,
+  a maintainer runs `git fetch origin` and checks that its version is on no other open release
+  branch (`git ls-tree --name-only origin/<branch> backend/src/main/resources/db/migration/ | grep
+  '/V<n>__'` prints nothing); if it is on one, the pull request renumbers
+  first. Merges are done one at a time, which serialises the check.
 - **`CHANGELOG.md`**: your entry goes under `[Unreleased]` on the target branch. Before the merge
-  into `main`, a maintainer renames that section to `## [x.y.z]` on the release branch (`make
-  release` requires it) and leaves an empty `[Unreleased]` above it.
+  into `main`, a maintainer freezes the release branch (nothing else merges into it), renames that
+  section to `## [x.y.z]` on it (`make release` requires it) and leaves an empty `[Unreleased]`
+  above it. A fix that misses the freeze waits for the next release branch.
 - **Release flow (maintainers).**
   1. Merge `release/1.1.1` into `main` (a merge commit), push `main`, and run
      `make release VERSION=1.1.1` (`HEAD` must be on `origin/main`).
@@ -110,8 +119,9 @@ finished releases, and a release is tagged from it (`make release`).
      `## [1.1.1]` section from `main` and every entry under `[Unreleased]`.
   3. When 1.2.0 is ready, merge `release/1.2.0` into `main` and run `make release VERSION=1.2.0`.
 - **Exception.** A change to the release workflow itself (these rules, the CI triggers) targets
-  `main`, so that every branch inherits it. Ask a maintainer before you open any other pull request
-  against `main`.
+  `main`. Once it is merged, a maintainer merges `main` into every open release branch, because a
+  push to a release branch runs the workflow files of that branch. Ask a maintainer before you open
+  any other pull request against `main`.
 - CI runs on pull requests to any branch, and on pushes to `main` and `release/**` (pushes to a
   release branch run the checks and publish nothing).
 
@@ -162,7 +172,7 @@ the checklist below.
    maintainer agreed. A squash merge rewrites the lower pull request, and the upper one then
    conflicts in every file they share. If you do stack: base the upper pull request on the target branch
    and say which one must merge first. After the lower one is squash-merged, move yours onto
-   `main` with `git rebase --onto origin/<target branch> <last commit of the lower branch> <your branch>`
+   the target branch with `git rebase --onto origin/<target branch> <last commit of the lower branch> <your branch>`
    and `git push --force-with-lease`.
 9. **Bank connectors** (`services/*-auth`, adapters, importers): use synthetic fixtures only.
    Never commit or paste a real account number, IBAN, balance, name, session, cookie, token,
