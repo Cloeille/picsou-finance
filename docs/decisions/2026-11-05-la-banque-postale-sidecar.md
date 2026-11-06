@@ -110,9 +110,10 @@ account never sits in the `CHECKING` bucket waiting for the name-based detector.
   to the savings products.
 - **Human presence at login** if the bank asks for a mobile approval every time.
   The sync stays on demand.
-- **A short web session.** The bank logged the session out within 9 minutes of
-  inactivity: a sync after that window needs a new login + A2F. Keeping it warm
-  would mean scheduled requests, which this connector does not do.
+- **A short web session.** An immediate second sync reuses the stored cookies,
+  but the bank logs the session out after a few minutes of inactivity: a sync
+  after that window needs a new login + A2F. Keeping it warm would mean
+  scheduled requests, which this connector does not do.
 - **No PSD2 guarantee.** The bank may rate-limit, challenge or block automated
   access. Failures must be typed so they are diagnosable.
 - **A larger sidecar image.** The login needs Chromium, so `lbp-auth` builds on
@@ -149,8 +150,8 @@ account never sits in the `CHECKING` bucket waiting for the name-based detector.
 
 ## Remaining unknowns
 
-1. The exact idle timeout: the session survived the first sync and was refused
-   at 9 minutes. The client no longer assumes a 600 s lifetime.
+1. The exact idle timeout: an immediate re-sync works, a 9-minute idle gap does
+   not. The client no longer assumes a 600 s lifetime.
 2. How the bank behaves under repeated automated logins over time (one live run
    passed; headless Chromium was not detected on 2026-11-06).
 3. How to parse the `telechargementMouvements.ea` export for history beyond the

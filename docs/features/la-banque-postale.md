@@ -9,8 +9,9 @@
 > strong-authentication notice (**Continuer**), which is what sends the mobile
 > notification, then waits for the approval. The session cookies are replayed
 > with `httpx` for the server-rendered pages. A live run on 2026-11-06 imported
-> the current account, a Livret A and a LEP with 27 transactions. The bank's web
-> session is short-lived: a second sync 9 minutes later was refused, so the
+> the current account, a Livret A and a LEP with 27 transactions, and a second
+> sync 15 seconds later reused the stored cookies. The bank's web session is
+> short-lived: a sync after ~9 minutes of inactivity was refused, so the
 > connector needs a fresh login + A2F once the bank has logged out.
 
 ## Context
@@ -190,11 +191,13 @@ Two real sessions were captured (trusted device and new device):
    plus `init-releve_ccp` / `init-releve_cne`.
 4. **Anti-bot** — `fruprem.js` / `loreo.js` set a 52-character `iscdName`; no
    CAPTCHA observed.
-5. **Session lifetime** — short. A first sync right after login succeeded; a
-   second one 9 minutes later was refused with 401, so the bank logs the web
-   session out after a few minutes of inactivity (public guidance says ~5 min).
-   A dead session is detected on the next read and requires a new login + A2F.
-   The connector stays on demand; it does not keep the session warm.
+5. **Session lifetime** — short, and idle-based. A sync immediately after login
+   succeeds, and so does a second one 15 seconds later with the same stored
+   cookies, so the replay and the cookie jar are sound. A sync 9 minutes after
+   login was refused with 401: the bank logs the web session out after a few
+   minutes of inactivity (public guidance says ~5 min). A dead session requires
+   a new login + A2F. The connector stays on demand; it does not keep the
+   session warm.
 6. **Transaction history** — `init-releve_ccp` returns about 90 days;
    `telechargementMouvements.ea` is the export path; the `relevePdf` history
    holds monthly statements.
@@ -266,7 +269,8 @@ The live run on 2026-11-06 exercised the whole path on an isolated stack: the
 headless keypad, the notice's **Continuer** click, the mobile approval, the
 cookie serialization, the `afficheSyntheseCCP` / `afficheSyntheseEP` import and
 the write of the current account, a Livret A and a LEP with 27 transactions.
-The session row was `SUCCESS` and active afterwards.
+A second sync 15 seconds later reused the stored cookies and returned the same
+three accounts. The session row was `SUCCESS` and active afterwards.
 
 ## Not in this slice
 
