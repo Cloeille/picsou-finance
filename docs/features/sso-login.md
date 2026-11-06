@@ -160,6 +160,9 @@ Active only when SSO is enabled and `SSO_ADMIN_GROUP` is set (`SsoProperties.adm
   (`DELETE /api/admin/members/{memberId}/identities`, no proof, not on themselves). It bumps the
   member's `tv` and revokes their series. Self-targeting returns a 403 ProblemDetail with
   `code=SELF_UNLINK_FORBIDDEN`; the admin UI hides this action for the current member.
+- A password reset does not remove linked identities: the member can still sign in with the IdP
+  after it. If the IdP account is the thing to cut off, the admin removes the identities with
+  `DELETE /api/admin/members/{memberId}/identities`.
 
 ### Configuration
 
