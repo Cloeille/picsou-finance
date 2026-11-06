@@ -2961,7 +2961,7 @@
     "REAUTH_WRONG_ACCOUNT": "Vous avez confirmé un autre compte que celui avec lequel vous êtes connecté. Veuillez utiliser le même compte.",
     "ACCOUNT_INACTIVE": "Ce compte est inactif. Contactez votre administrateur.",
     "ADMIN_RECOVERY_ACTIVE": "Une récupération administrateur est en cours pour ce compte. Terminez-la avant de vous connecter avec le SSO.",
-    "ACTIVATION_INVALID": "Ce lien d'activation est invalide ou a expiré.",
+    "ACTIVATION_INVALID": "La connexion unique n'est pas disponible avec ce lien. S'il s'agit d'un lien de réinitialisation du mot de passe, choisissez plutôt un nouveau mot de passe avec le formulaire. Sinon, le lien est invalide, a expiré ou a déjà servi : demandez-en un nouveau à votre administrateur.",
     "SETUP_ALREADY_CLAIMED": "La configuration initiale a déjà été prise en charge par un autre administrateur.",
     "IDP_UNAVAILABLE": "Le fournisseur de connexion est injoignable. Veuillez réessayer dans quelques minutes.",
     "IDP_ERROR": "Le fournisseur de connexion a renvoyé une erreur. Veuillez réessayer.",

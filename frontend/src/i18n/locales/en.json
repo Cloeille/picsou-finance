@@ -2961,7 +2961,7 @@
     "REAUTH_WRONG_ACCOUNT": "You confirmed a different account than the one you are signed in with. Please use the same account.",
     "ACCOUNT_INACTIVE": "This account is inactive. Contact your administrator.",
     "ADMIN_RECOVERY_ACTIVE": "An administrator recovery is in progress for this account. Finish it before signing in with SSO.",
-    "ACTIVATION_INVALID": "This activation link is invalid or has expired.",
+    "ACTIVATION_INVALID": "Single sign-on isn't available with this link. If it's a password reset link, set a new password with the form instead. Otherwise the link is invalid, has expired or was already used: ask your administrator for a new one.",
     "SETUP_ALREADY_CLAIMED": "The initial setup has already been claimed by another administrator.",
     "IDP_UNAVAILABLE": "The sign-in provider is unreachable. Please try again in a few minutes.",
     "IDP_ERROR": "The sign-in provider returned an error. Please try again.",

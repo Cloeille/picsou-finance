@@ -2961,7 +2961,7 @@
     "REAUTH_WRONG_ACCOUNT": "Has confirmado una cuenta distinta de la que tienes abierta. Usa la misma cuenta.",
     "ACCOUNT_INACTIVE": "Esta cuenta está inactiva. Contacta con tu administrador.",
     "ADMIN_RECOVERY_ACTIVE": "Hay una recuperación de administrador en curso para esta cuenta. Termínala antes de iniciar sesión con SSO.",
-    "ACTIVATION_INVALID": "Este enlace de activación no es válido o ha caducado.",
+    "ACTIVATION_INVALID": "El inicio de sesión único no está disponible con este enlace. Si es un enlace para restablecer la contraseña, elige una nueva contraseña con el formulario. Si no, el enlace no es válido, ha caducado o ya se ha usado: pide uno nuevo a tu administrador.",
     "SETUP_ALREADY_CLAIMED": "La configuración inicial ya ha sido reclamada por otro administrador.",
     "IDP_UNAVAILABLE": "No se puede contactar con el proveedor de inicio de sesión. Inténtalo de nuevo en unos minutos.",
     "IDP_ERROR": "El proveedor de inicio de sesión ha devuelto un error. Inténtalo de nuevo.",

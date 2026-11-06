@@ -2961,7 +2961,7 @@
     "REAUTH_WRONG_ACCOUNT": "Du hast ein anderes Konto bestätigt als das, mit dem du angemeldet bist. Bitte verwende dasselbe Konto.",
     "ACCOUNT_INACTIVE": "Dieses Konto ist inaktiv. Wende dich an deine Administratorin oder deinen Administrator.",
     "ADMIN_RECOVERY_ACTIVE": "Für dieses Konto läuft eine Administrator-Wiederherstellung. Schließe sie ab, bevor du dich mit SSO anmeldest.",
-    "ACTIVATION_INVALID": "Dieser Aktivierungslink ist ungültig oder abgelaufen.",
+    "ACTIVATION_INVALID": "Mit diesem Link ist kein Single Sign-on möglich. Wenn es ein Link zum Zurücksetzen des Passworts ist, lege stattdessen im Formular ein neues Passwort fest. Andernfalls ist der Link ungültig, abgelaufen oder bereits verwendet worden: Bitte deine Administratorin oder deinen Administrator um einen neuen.",
     "SETUP_ALREADY_CLAIMED": "Die Ersteinrichtung wurde bereits von einem anderen Administrator übernommen.",
     "IDP_UNAVAILABLE": "Der Anmeldeanbieter ist nicht erreichbar. Bitte versuche es in einigen Minuten erneut.",
     "IDP_ERROR": "Der Anmeldeanbieter hat einen Fehler gemeldet. Bitte versuche es erneut.",
