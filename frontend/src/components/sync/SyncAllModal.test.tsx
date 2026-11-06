@@ -365,6 +365,22 @@ describe('SyncAllModal session providers', () => {
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/simplefin/sync'))
   })
 
+  it('spins a row while its server-side sync job is queued or running', async () => {
+    // A sidecar sync is accepted at once and runs on the server: the spinner must follow the
+    // polled job state, not the request that started it.
+    corumStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'RUNNING', lastSyncCompletedAt: '2026-08-10T08:00:00Z' }
+    amundiStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS', lastSyncCompletedAt: '2026-08-10T08:00:00Z' }
+    renderModal()
+
+    const corumRow = (await screen.findByText('CORUM')).closest('[data-slot="card"]') as HTMLElement
+    const corumButton = within(corumRow).getByRole('button')
+    expect(corumButton).toBeDisabled()
+    expect(corumButton.querySelector('.animate-spin')).not.toBeNull()
+
+    const amundiRow = screen.getByText('Amundi').closest('[data-slot="card"]') as HTMLElement
+    expect(within(amundiRow).getByRole('button').querySelector('.animate-spin')).toBeNull()
+  })
+
   it('lists a provider whose session is live', async () => {
     amundiStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS', lastSyncCompletedAt: '2026-08-10T08:00:00Z' }
     renderModal()

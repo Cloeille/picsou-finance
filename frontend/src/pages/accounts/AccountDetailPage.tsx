@@ -29,6 +29,7 @@ import { SavingsConfigSection } from '@/features/savings/SavingsConfigSection'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
 import { PropertyDetailSection } from '@/components/property/PropertyDetailSection'
 import { ScpiDetailSection } from '@/components/scpi/ScpiDetailSection'
+import { LifeContractSection } from '@/components/accounts/LifeContractSection'
 import { AccountDividendsSection } from '@/components/dividends/AccountDividendsSection'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -41,6 +42,10 @@ import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import type { HoldingResponse, Transaction } from '@/types/api'
 
 
+/**
+ * One account's page: value history, holdings and positions, transactions, and the sections that
+ * only apply to its type (property, SCPI, a synced CORUM Life contract, dividends).
+ */
 export function AccountDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -195,6 +200,7 @@ export function AccountDetailPage() {
               </Button>
             </>}
             transactions={transactions}
+            accountProvider={account?.provider}
             onDelete={(txId) => deleteTxMutation.mutate(txId)}
             onEdit={(tx) => setEditingTx(tx)}
             categories={categories}
@@ -340,6 +346,9 @@ export function AccountDetailPage() {
       {isRealEstate && account && <PropertyDetailSection account={account} />}
 
       {isScpi && account && <ScpiDetailSection account={account} />}
+
+      {/* Contract figures the insurer reports (a synced assurance-vie). */}
+      {account?.type === 'ASSURANCE_VIE' && account.contract && <LifeContractSection account={account} />}
 
       {/* Upcoming dividends for a libre securities account or a PEA only. Other wrappers
           (assurance vie, PER, employee savings) and a checking account stay off this view.

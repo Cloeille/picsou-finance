@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
  *   <li>{@code refresh_token} — rotates access token at /api/auth/refresh</li>
  *   <li>{@code mfa_challenge_token} — single-purpose token for /api/auth/mfa/verify</li>
  *   <li>{@code persistent_token} — long-lived "Remember Me" / trusted-device</li>
+ *   <li>{@code reauth_proof} — short-lived proof of a fresh re-authentication</li>
  * </ul>
  */
 @Component
@@ -24,6 +25,7 @@ public class AuthCookieWriter {
     public static final String REFRESH_COOKIE = "refresh_token";
     public static final String MFA_CHALLENGE_COOKIE = "mfa_challenge_token";
     public static final String PERSISTENT_COOKIE = "persistent_token";
+    public static final String REAUTH_PROOF_COOKIE = "reauth_proof";
 
     private final SecureCookieProvider secureCookieProvider;
     private final JwtUtil jwtUtil;
@@ -51,6 +53,14 @@ public class AuthCookieWriter {
 
     public void clearMfaChallenge(HttpServletResponse response) {
         addCookie(response, MFA_CHALLENGE_COOKIE, "", 0);
+    }
+
+    public void setReauthProof(HttpServletResponse response, String token) {
+        addCookie(response, REAUTH_PROOF_COOKIE, token, (int) jwtUtil.getReauthProofExpirySeconds());
+    }
+
+    public void clearReauthProof(HttpServletResponse response) {
+        addCookie(response, REAUTH_PROOF_COOKIE, "", 0);
     }
 
     public void setPersistent(HttpServletResponse response, String cookieValue, long maxAgeSeconds) {
@@ -81,6 +91,7 @@ public class AuthCookieWriter {
         addCookie(response, REFRESH_COOKIE, "", 0);
         addCookie(response, MFA_CHALLENGE_COOKIE, "", 0);
         addCookie(response, PERSISTENT_COOKIE, "", 0);
+        addCookie(response, REAUTH_PROOF_COOKIE, "", 0);
     }
 
     /** {@code maxAge == null} omits the Max-Age attribute entirely, producing a browser-session cookie. */

@@ -21,6 +21,7 @@ public class DataSeeder implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(DataSeeder.class);
 
     private final SetupService setupService;
+    private final SsoProperties ssoProperties;
 
     @Value("${app.user.username:}")
     private String username;
@@ -28,8 +29,9 @@ public class DataSeeder implements ApplicationRunner {
     @Value("${app.user.password-hash:}")
     private String passwordHash;
 
-    public DataSeeder(SetupService setupService) {
+    public DataSeeder(SetupService setupService, SsoProperties ssoProperties) {
         this.setupService = setupService;
+        this.ssoProperties = ssoProperties;
     }
 
     @Override
@@ -37,6 +39,9 @@ public class DataSeeder implements ApplicationRunner {
         if (username.isBlank() || passwordHash.isBlank()) {
             log.info("APP_USERNAME or APP_PASSWORD_HASH not set — skipping auto-seed, setup wizard will take over");
             return;
+        }
+        if (ssoProperties.adminGroupConfigured()) {
+            log.warn("APP_USERNAME and APP_PASSWORD_HASH are set together with SSO_ADMIN_GROUP; the environment admin wins");
         }
         setupService.seedAdmin(username, passwordHash, username, null);
         setupService.markComplete();

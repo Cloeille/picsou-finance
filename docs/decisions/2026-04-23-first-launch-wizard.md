@@ -117,3 +117,17 @@ Key design properties we got by accepting the split:
 Implicitly replaces the "edit 13 env vars by hand" onboarding documented previously
 in [`docs/features/docker-deployment.md`](../features/docker-deployment.md); that
 document has been updated to point to the new wizard path as the default.
+
+## Update 2026-11-03: secrets bootstrap moved into the app
+
+Layer 0 is no longer a shell script. `SecretBootstrap`, a Spring Boot `EnvironmentPostProcessor`,
+resolves `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY` and `POSTGRES_PASSWORD` from `PICSOU_SECRETS_DIR`
+(`/data/.secrets` in the Docker image) with the same rules as before: an explicit env var wins,
+else the existing file, else a generated value, never regenerated once the file exists.
+`backend/scripts/picsou-init.sh` is removed; bare-metal installs set `PICSOU_SECRETS_DIR`
+instead. The text above is kept as written at the time.
+
+`POSTGRES_PASSWORD` is the exception: it is no longer generated. The app cannot set the
+database's password, so a generated one could only mismatch it (bare metal against the
+`picsou` database of CONTRIBUTING.md, a standalone `docker run`). Without the variable or an
+existing file, the datasource uses `application.yml`'s default `picsou`, as Compose does.

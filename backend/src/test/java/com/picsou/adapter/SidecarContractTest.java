@@ -130,7 +130,7 @@ class SidecarContractTest {
         }, PORTFOLIO_INCOMPLETE, APP_VALIDATION_TIMEOUT, null);
         rig(SidecarBank.CORUM, (c, t) -> {
             var a = new CorumAdapter(c, JSON, t, t);
-            return new Calls(() -> a.fetchSnapshot(STATE), () -> a.authenticate("000000", "password"), null);
+            return new Calls(() -> a.fetchPortfolio(STATE), () -> a.authenticate("000000", "password"), null);
         }, null, null, SESSION_EXPIRED);
         rig(SidecarBank.FORTUNEO, (c, t) -> {
             var a = new FortuneoAdapter(c, JSON, t, t);

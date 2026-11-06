@@ -32,7 +32,7 @@ abstract class BpceSidecarAdapter implements BpcePort {
     /** The sidecar waits up to 150 s for the human to approve the push: stay above it. */
     static final Duration INITIATE_TIMEOUT = Duration.ofSeconds(90);
     static final Duration COMPLETE_TIMEOUT = Duration.ofSeconds(170);
-    /** The sidecar gives /keypad 60 s (clicks, Valider, Sécur'Pass page): stay above it, below nginx's 90 s. */
+    /** The sidecar gives /keypad 60 s (clicks, Valider, Sécur'Pass page): stay above it. */
     static final Duration KEYPAD_TIMEOUT = Duration.ofSeconds(70);
 
     private final SidecarBank bank;

@@ -488,9 +488,10 @@ export const fortuneoApi = {
  * required" -- see `SidecarSessionPanel`'s `TInit` contract.
  */
 export const corumApi = {
-  authenticate: (login: string, password: string) =>
+  /** `remember` stores the credentials encrypted for the unattended re-login; false clears them. */
+  authenticate: (login: string, password: string, remember = false) =>
     api
-      .post<CorumSessionStatus>('/corum/auth', { login, password })
+      .post<CorumSessionStatus>('/corum/auth', { login, password, remember })
       .then(r => r.data),
 
   sync: () => api.post<CorumSessionStatus>('/corum/sync').then(r => r.data),

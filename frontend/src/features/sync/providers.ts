@@ -26,9 +26,13 @@ import type {
 /** Login form of the providers that ask for an identifier and a password. */
 type LoginCredentials = { login: string; password: string }
 
-/** What the shared panel submits: the login form plus any extra choice (`SidecarExtraField`). */
+/**
+ * What the shared panel submits: the login form, the "remember" checkbox of a panel that offers
+ * it, plus any extra choice (`SidecarExtraField`).
+ */
 export interface Credentials extends LoginCredentials {
-  [key: string]: string
+  remember?: boolean
+  [key: string]: string | boolean | undefined
 }
 
 export type SecondFactor = { processId: string; code?: string }
@@ -198,8 +202,9 @@ export const sidecarProviders = {
     queryKey: syncKeys.corum(),
     refreshOnSuccess: PORTFOLIO_VIEWS,
     getStatus: () => corumApi.getStatus(),
-    initiate: async ({ login, password }: LoginCredentials): Promise<CorumSessionStatus & CorumAuthInitResponse> => ({
-      ...(await corumApi.authenticate(login, password)),
+    initiate: async ({ login, password, remember }: LoginCredentials & { remember?: boolean }):
+      Promise<CorumSessionStatus & CorumAuthInitResponse> => ({
+      ...(await corumApi.authenticate(login, password, remember === true)),
       processId: null,
       mfaRequired: false as const,
       mfaType: null,

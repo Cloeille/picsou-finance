@@ -13,7 +13,7 @@ Banque Populaire runs the BPCE platform that Caisse d'Epargne runs, so this conn
 
 - `services/banque-populaire-auth/main.py`: routes and the Banque Populaire `Site`. See its README for what was observed live.
 - `services/base/bpce/`: login, replay, fetcher and parsers shared with Caisse d'Epargne.
-- `BanquePopulaireController` (`/api/banque-populaire`), `BanquePopulaireSyncService` (on `BpceSyncEngine` with the Banque Populaire `BpceBank`), `BanquePopulaireAdapter`, `BanquePopulaireSession` (table `banque_populaire_session`, migration `V124`), `BanquePopulaireRegion`; its error codes are `SidecarBank.BANQUE_POPULAIRE` (the same 11 as Caisse d'Epargne).
+- `BanquePopulaireController` (`/api/banque-populaire`), `BanquePopulaireSyncService` (on `BpceSyncEngine` with the Banque Populaire `BpceBank`), `BanquePopulaireAdapter`, `BanquePopulaireSession` (table `banque_populaire_session`, migration `V129`), `BanquePopulaireRegion`; its error codes are `SidecarBank.BANQUE_POPULAIRE` (the same 11 as Caisse d'Epargne).
 - `frontend/src/components/sync/BanquePopulairePanel.tsx` (on `BpceSessionPanel`), `pages/sync/BanquePopulaireTab.tsx`, `banquePopulaireApi`, i18n `sync.banquePopulaire.*`.
 
 ### Login
@@ -28,11 +28,11 @@ Banque Populaire runs the BPCE platform that Caisse d'Epargne runs, so this conn
 - `region` is one of the 12 regional banks offered on the bank's identifier page: `ALSACE_LORRAINE_CHAMPAGNE`, `AQUITAINE_CENTRE_ATLANTIQUE`, `AUVERGNE_RHONE_ALPES`, `BOURGOGNE_FRANCHE_COMTE`, `BRED`, `GRAND_OUEST`, `MEDITERRANEE`, `NORD`, `OCCITANE`, `RIVES_DE_PARIS`, `SUD`, `VAL_DE_FRANCE`. A missing or unknown value is refused before the sidecar is called. It picks the option on the bank's page, and is kept server side with the pending login: `/auth/complete` stores it on the session it opens and never reads one from the request (see [Storage](#storage) and [Branding](#branding)).
 - The sidecar opens `https://www.icgauth.banquepopulaire.fr/se-connecter/sso?service=cyber`. The `service=dei` entry used for Caisse d'Epargne lands on `/se-connecter/erreur` for Banque Populaire. It dismisses the consent banner if one shows, picks the region in the establishment combobox and checks that the combobox shows it. The rest is the Caisse d'Epargne flow: identifier, keypad, Sécur'Pass.
 - Rate limits per IP use separate buckets from Caisse d'Epargne: `/auth/initiate` 3 per 15 minutes (`banquePopulaireAuthBuckets`), `/auth/keypad` 5 per 15 minutes (`banquePopulaireKeypadBuckets`).
-- nginx gives `/api/banque-populaire/auth/complete` 180 s, `/auth/keypad` 90 s and `/auth/initiate` 100 s, like Caisse d'Epargne. The region option is matched on its exact text once its Unicode form and spacing are made canonical; case and accents still count.
+- Timeouts are Caisse d'Epargne's: the backend waits 90 s for `/auth/initiate`, 70 s for `/auth/keypad` and 170 s for `/auth/complete`, and the shared sidecar answers within 80 s, 60 s and 160 s. No proxy timeout sits in front of them. The region option is matched on its exact text once its Unicode form and spacing are made canonical; case and accents still count.
 
 ### Storage
 
-Table `banque_populaire_session` (migration `V124`) has the Caisse d'Epargne table's shape and the full 11-code `last_sync_error` CHECK, plus `region` (`VARCHAR(32) NOT NULL`, CHECK listing the 12 `BanquePopulaireRegion` names). It stores the cookies encrypted; no password and no Sécur'Pass approval is stored. The region is stored in clear: it is not a secret, it names the bank. A new login replaces the row, region included. External ids are prefixed `bp_`.
+Table `banque_populaire_session` (migration `V129`) has the Caisse d'Epargne table's shape and the full 11-code `last_sync_error` CHECK, plus `region` (`VARCHAR(32) NOT NULL`, CHECK listing the 12 `BanquePopulaireRegion` names). It stores the cookies encrypted; no password and no Sécur'Pass approval is stored. The region is stored in clear: it is not a secret, it names the bank. A new login replaces the row, region included. External ids are prefixed `bp_`.
 
 ### Branding
 
@@ -83,7 +83,7 @@ The bank answers a wrong identifier or password with a modal titled "Identifiant
 ## Tests
 
 - Sidecar: `services/banque-populaire-auth/test_*.py` (region picker against a synthetic page in real Chromium, login, `/initiate` validation, accounts), `services/base/test_bpce.py` (Site, allow-lists, Livret Jeune / LEP rules, unsupported families).
-- Backend: `BanquePopulaire*Test` (region kept from the pending login, provider label and logo rules, catalog miss and Enable Banking not configured), `BanquePopulaireRegionTest` (the 12 names), `V124BanquePopulaireSessionMigrationTest` (Testcontainers, region column and CHECK), plus the Caisse d'Epargne suites that cover `BpceSyncEngine` (label unchanged, no logo).
+- Backend: `BanquePopulaire*Test` (region kept from the pending login, provider label and logo rules, catalog miss and Enable Banking not configured), `BanquePopulaireRegionTest` (the 12 names), `V129BanquePopulaireSessionMigrationTest` (Testcontainers, region column and CHECK), plus the Caisse d'Epargne suites that cover `BpceSyncEngine` (label unchanged, no logo).
 - Frontend: `BanquePopulaireTab.test.tsx`, `banque-populaire-scope.test.ts`, `demo/banque-populaire.test.ts`, SyncAllModal (each regional label keeps the row) / AddAccountModal / providers tests.
 
 ## Verification boundaries

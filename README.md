@@ -67,7 +67,7 @@ Modules, data flows and key constraints: [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 | Backend | Java 21, Spring Boot 3.5, Maven |
 | Frontend | React 19, TypeScript 5.9, Vite 7, Tailwind v4, Bun |
 | Database | PostgreSQL 16, Flyway |
-| Runtime | Docker (Nginx + Spring Boot + supervisor) |
+| Runtime | Docker (one non-root Spring Boot process) |
 
 ## Getting started
 
@@ -124,7 +124,7 @@ docker compose -f docker/docker-compose.yml up -d
 >
 > Building from source instead of pulling? Run `docker compose -f docker/docker-compose.yml up --build` — the `build:` sections are kept for contributors.
 
-On first launch the entrypoint auto-generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` (persisted to the `picsou_data` volume under `/data/.secrets/`).
+On first launch the app auto-generates `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` (persisted to the `picsou_data` volume under `/data/.secrets/`). The database password defaults to `picsou` for both the app and PostgreSQL; set `POSTGRES_PASSWORD` in `docker/.env` before the first start to change it.
 
 > [!IMPORTANT]
 > **Planning to sync bank accounts? Set up HTTPS now, before opening the wizard — jump to
@@ -276,15 +276,15 @@ curl -sI https://picsou.example.com/ | grep -i strict-transport
 
 Exactly one `Strict-Transport-Security` line when enabled, none when disabled.
 
-In this image nginx is the only emitter the browser ever sees: it adds the header to every response
-including proxied ones, and strips the backend's copy on `/api` and `/actuator`
-(`proxy_hide_header`) so it is never sent twice. The backend has its own gate on the same variable,
-which is what a bare-metal deployment behind your own proxy relies on — to check that one, ask the backend directly,
-bypassing nginx:
+In this image Spring Boot is the only emitter, gated by `HSTS_ENABLED`, and it sends the header
+once on every response over HTTPS. To check the backend without the proxy in front, ask it
+directly from inside the container (`curl` is in the base image). The backend applies
+`X-Forwarded-Proto` from any peer, so the loopback request below counts as HTTPS; it prints one
+line when `HSTS_ENABLED` is on and nothing when it is off:
 
 ```bash
 docker compose -f docker/docker-compose.yml exec app \
-  curl -sI -H 'X-Forwarded-Proto: https' http://127.0.0.1:9090/actuator/health \
+  curl -sI -H 'X-Forwarded-Proto: https' http://127.0.0.1:8080/actuator/health \
   | grep -i strict-transport
 ```
 
@@ -299,7 +299,7 @@ docker compose -f docker/docker-compose.yml exec app \
 Skip the profile entirely and point Traefik / Nginx Proxy Manager / a Cloudflare Tunnel at the app
 container's `:8080`. Your proxy **must** forward `X-Forwarded-Proto: https` (all of the above do by
 default). Set `PICSOU_PROXY_IP` in `docker/.env` to the proxy's exact IPv4 address as seen by
-Picsou's nginx, then recreate the app. nginx accepts forwarded client addresses only from that
+the app, then recreate the app. The app accepts forwarded client addresses only from that
 peer; direct connections retain their connection address. The bundled `tls` profile configures
 its dedicated proxy address automatically. See [proxy configuration](docs/features/docker-deployment.md#trusted-proxy-client-addresses)
 for subnet overrides.
@@ -370,7 +370,7 @@ cp docker/.env.example docker/.env
 |----------|-------------|-------------|
 | `COMPOSE_PROFILES` | To enable connectors or TLS | Comma-separated connector profiles (`bourso,revolut`), optionally including `tls`, or `all-connectors`. Empty: app and database only |
 | `APP_SIDECAR_API_KEY` | When a connector is enabled | `openssl rand -base64 32`. Shared by the app and every enabled `*-auth` sidecar; recreate them together after a rotation |
-| `POSTGRES_PASSWORD` | Override auto-gen | Strong random password |
+| `POSTGRES_PASSWORD` | Before the first start | Strong random password, shared by the app and PostgreSQL (default `picsou`) |
 | `JWT_SECRET` | Override auto-gen | `openssl rand -base64 48` |
 | `CRYPTO_ENCRYPTION_KEY` | Override auto-gen | `openssl rand -base64 32` |
 | `APP_USERNAME` / `APP_PASSWORD_HASH` | Skip wizard | `htpasswd -bnBC 12 "" YOUR_PASSWORD \| tr -d ':\r\n'` |
@@ -386,6 +386,17 @@ cp docker/.env.example docker/.env
 | `CIC_AUTH_URL` | Custom sidecar | Defaults to `http://cic-auth:8001`. Set it to reach a `cic-auth` sidecar run elsewhere (CIC online banking) |
 | `PICSOU_DOMAIN` | TLS profile | Hostname Caddy serves — see [step 3](#3-https-decide-before-the-first-launch) |
 | `HSTS_ENABLED` | Trusted cert | `true` only with a publicly-trusted certificate |
+| `SSO_ISSUER_URI` | Single sign-on | OIDC issuer, exactly as the IdP discovery document spells it. SSO is on when this and `SSO_CLIENT_ID` are set. No default. An invalid value logs an error and leaves SSO off. Register the redirect URI `https://<host>/login/sso/callback` at the IdP |
+| `SSO_CLIENT_ID` | Single sign-on | Client ID registered at the IdP. No default |
+| `SSO_CLIENT_SECRET` | Confidential client | Blank (default): public client, PKCE only. Set: `client_secret_basic` plus PKCE |
+| `SSO_PROVIDER_NAME` | Single sign-on | Button label ("Sign in with Zitadel"), at most 40 characters. Defaults to `SSO` |
+| `SSO_SCOPES` | Single sign-on | Defaults to `openid,profile,email`; `openid` is always added. Add `groups` for IdPs that need it (Pocket ID, Authelia), but not with Zitadel and its groups Action |
+| `SSO_GROUPS_CLAIM` | Single sign-on | Literal claim name holding the groups, e.g. `urn:zitadel:iam:org:project:roles`. Defaults to `groups` |
+| `SSO_ADMIN_GROUP` | SSO admins | Turns on the SSO first admin, admin provisioning and role sync. While set, the password first-admin form is refused. No default |
+| `SSO_SESSION_REVALIDATE_AFTER` | Single sign-on | Maximum age of an SSO session before it must pass through the IdP again. Defaults to `24h` |
+| `SSO_IDP_LOGOUT` | Single sign-on | `true` also ends the IdP session on logout (RP-initiated logout with `client_id` and `post_logout_redirect_uri`; register `https://<host>/login` as post-logout URI). Defaults to `false` |
+
+Single sign-on, the admin group and a step-by-step Zitadel setup are described in [docs/features/sso-login.md](docs/features/sso-login.md).
 
 > **Note:** The bcrypt hash contains `$` characters. In `.env`, write it as-is without quotes. Never export it in a shell without single quotes: `export APP_PASSWORD_HASH='$2a$12$...'`.
 
