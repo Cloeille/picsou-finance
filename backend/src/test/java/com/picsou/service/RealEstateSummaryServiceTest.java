@@ -320,4 +320,35 @@ class RealEstateSummaryServiceTest {
             assertThat(line.grossValue()).isEqualByComparingTo("12351.85");
         });
     }
+
+    @Test
+    void summarizeVisible_leavesOutHiddenPropertiesAndHiddenLoans() {
+        Account house = property(10L, "400000");
+        Account hiddenLoan = loanAccount(20L, ALICE);
+        hiddenLoan.setHidden(true);
+        Account hiddenFlat = property(11L, "200000");
+        hiddenFlat.setHidden(true);
+        Debt debt = Debt.builder().account(hiddenLoan).linkedAccount(house).member(ALICE)
+            .lenderName("BNP").build();
+
+        when(accessResolver.readableAccounts(1L)).thenReturn(List.of(house, hiddenLoan, hiddenFlat));
+        when(accessResolver.sharesFor(any(), eq(1L)))
+            .thenReturn(Map.of(10L, FULL, 11L, FULL, 20L, FULL));
+        when(accountService.liveBalanceEur(house)).thenReturn(new BigDecimal("400000"));
+        lenient().when(accountService.liveBalanceEur(hiddenFlat)).thenReturn(new BigDecimal("200000"));
+        when(debtRepository.findByLinkedAccountId(10L)).thenReturn(List.of(debt));
+
+        RealEstateSummaryResponse visible = service.summarizeVisible(1L);
+
+        assertThat(visible.grossValue()).isEqualByComparingTo("400000");
+        assertThat(visible.outstandingDebt()).isEqualByComparingTo("0");
+        assertThat(visible.loanToValue()).isEqualByComparingTo("0");
+        assertThat(visible.properties()).singleElement()
+            .satisfies(line -> assertThat(line.accountId()).isEqualTo(10L));
+
+        // The property card's own summary is unchanged: it still lists both, with the loan.
+        RealEstateSummaryResponse all = service.summarize(1L);
+        assertThat(all.grossValue()).isEqualByComparingTo("600000");
+        assertThat(all.outstandingDebt()).isEqualByComparingTo("150000");
+    }
 }

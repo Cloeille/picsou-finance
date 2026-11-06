@@ -120,6 +120,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   half-owned 200,000 EUR loan with 150,000 left showed 62.5% repaid instead of 25%. Progress
   now uses the loan's own figures whatever the member's share, including a zero share. See
   [Ownership shares](docs/features/account-ownership-shares.md).
+- **The wealth pyramid counts the same accounts as the dashboard.** A Revolut pocket was
+  added again on top of its wallet, whose balance already holds it, and hidden accounts still
+  counted. Both moved total assets away from the dashboard's figure for the same money and skewed
+  the safety net and the score. The pyramid, its MCP tool and the projection built on it now skip
+  pockets and hidden accounts, as the dashboard does; the property side follows, so a hidden
+  property and a hidden loan account no longer enter the property tier's net value or the LTV.
 
 - **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar
   read the whole transaction history and refused it past 1,000 rows (`UPSTREAM_FORMAT_CHANGED`).
