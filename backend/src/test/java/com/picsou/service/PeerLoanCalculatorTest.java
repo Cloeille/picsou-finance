@@ -213,6 +213,29 @@ class PeerLoanCalculatorTest {
     }
 
     @Test
+    void simulateByMonthsRefusesMoreThanACentury() {
+        assertThatThrownBy(() -> PeerLoanCalculator.simulateByMonths(
+            new BigDecimal("1000"), BigDecimal.ZERO, 1201))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("1200");
+    }
+
+    @Test
+    void simulateByPaymentRefusesATermAboveTheCeiling() {
+        // Just above the monthly interest, so it amortises -- but over centuries.
+        assertThatThrownBy(() -> PeerLoanCalculator.simulateByPayment(
+            new BigDecimal("100"), new BigDecimal("0.000001"), new BigDecimal("0.01")))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("1200");
+
+        // A zero-rate loan with a tiny payment has the same unbounded term.
+        assertThatThrownBy(() -> PeerLoanCalculator.simulateByPayment(
+            new BigDecimal("1000000"), BigDecimal.ZERO, new BigDecimal("0.01")))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("1200");
+    }
+
+    @Test
     void repaidPercentExcludesWriteOffs() {
         assertThat(PeerLoanCalculator.repaidPct(new BigDecimal("500"), new BigDecimal("300")))
             .isEqualByComparingTo("60.00");

@@ -278,6 +278,60 @@ class PeerLoanServiceTest {
     }
 
     @Test
+    void saveTermsRejectsANonEurLinkedAccount() {
+        Account account = loanAccount("Jean");
+        Account linked = Account.builder()
+            .id(CASH_ID).name("USD checking").type(AccountType.CHECKING)
+            .member(member()).currency("USD").isManual(true)
+            .currentBalance(BigDecimal.ZERO).build();
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(accountRepository.findByIdAndMemberId(CASH_ID, MEMBER_ID)).thenReturn(Optional.of(linked));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.saveTerms(ACCOUNT_ID, MEMBER_ID, new PeerLoanTermsRequest(
+            new BigDecimal("500"), LocalDate.now().minusDays(10), null, BigDecimal.ZERO, null,
+            null, null, CASH_ID, null)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("EUR");
+    }
+
+    @Test
+    void createFromTransactionRefusesAnotherMembersTransaction() {
+        FamilyMember other = FamilyMember.builder().id(99L).build();
+        Account foreignCash = Account.builder()
+            .id(77L).name("Other").type(AccountType.CHECKING)
+            .member(other).currency("EUR").currentBalance(BigDecimal.ZERO).build();
+        Transaction transaction = Transaction.builder()
+            .id(60L).account(foreignCash).date(LocalDate.now().minusDays(1))
+            .amount(new BigDecimal("-100")).build();
+        when(transactionRepository.findById(60L)).thenReturn(Optional.of(transaction));
+
+        assertThatThrownBy(() -> service.createFromTransaction(
+            MEMBER_ID, new PeerLoanFromTransactionRequest(60L, null)))
+            .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void addRepaymentFromTransactionRefusesAnotherMembersTransaction() {
+        Account account = loanAccount("Jean");
+        Account foreignCash = Account.builder()
+            .id(77L).name("Other").type(AccountType.CHECKING)
+            .member(FamilyMember.builder().id(99L).build()).currency("EUR")
+            .currentBalance(BigDecimal.ZERO).build();
+        Transaction transaction = Transaction.builder()
+            .id(60L).account(foreignCash).date(LocalDate.now().minusDays(1))
+            .amount(new BigDecimal("100")).build();
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID))
+            .thenReturn(Optional.of(terms(account, new BigDecimal("500"), null)));
+        when(transactionRepository.findById(60L)).thenReturn(Optional.of(transaction));
+
+        assertThatThrownBy(() -> service.addRepaymentFromTransaction(
+            ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentFromTransactionRequest(60L, null)))
+            .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
     void addRepaymentIsRefusedOnAClosedLoan() {
         Account account = loanAccount("Jean");
         PeerLoanTerms terms = terms(account, new BigDecimal("500"), LocalDate.parse("2026-06-01"));

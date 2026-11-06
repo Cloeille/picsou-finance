@@ -1,7 +1,9 @@
 package com.picsou.dto;
 
 import com.picsou.model.PeerLoanRatePeriod;
+import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -21,13 +23,19 @@ import java.time.LocalDate;
  */
 public record PeerLoanTermsRequest(
     @NotNull @DecimalMin(value = "0.01", message = "Principal must be greater than zero")
+    @Digits(integer = 12, fraction = 2, message = "Principal is too large")
     BigDecimal principal,
     @NotNull LocalDate lentAt,
     LocalDate expectedBack,
-    @DecimalMin("0") BigDecimal annualRate,
+    // The cap is deliberate: the rate is exponentiated by the forecast, and an unbounded
+    // value is both a CPU sink and a NUMERIC(12,6) overflow. 1 000 is already 100 000 %/yr.
+    @DecimalMin("0") @DecimalMax(value = "1000", message = "The rate is too high")
+    @Digits(integer = 6, fraction = 6, message = "The rate has too many digits")
+    BigDecimal annualRate,
     /** How the rate was stated; it defaults to annual. The stored rate is annual either way. */
     PeerLoanRatePeriod ratePeriod,
-    @DecimalMin("0") BigDecimal plannedMonthlyAmount,
+    @DecimalMin("0") @Digits(integer = 12, fraction = 2, message = "The planned payment is too large")
+    BigDecimal plannedMonthlyAmount,
     /** Capped so the forecast curve cannot be asked for an unbounded number of points. */
     @Min(1) @Max(1200) Integer plannedMonths,
     @NotNull Long linkedAccountId,

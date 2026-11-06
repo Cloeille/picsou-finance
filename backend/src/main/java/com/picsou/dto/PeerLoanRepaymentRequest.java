@@ -2,6 +2,7 @@ package com.picsou.dto;
 
 import com.picsou.model.PeerLoanRepaymentKind;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
@@ -11,6 +12,7 @@ import java.time.LocalDate;
 public record PeerLoanRepaymentRequest(
     @NotNull LocalDate paidOn,
     @NotNull @DecimalMin(value = "0.01", message = "Amount must be greater than zero")
+    @Digits(integer = 12, fraction = 2, message = "Amount is too large")
     BigDecimal amount,
     /** Null defaults to a payment (interest first, then capital). */
     PeerLoanRepaymentKind kind,

@@ -36,9 +36,9 @@ page, the way a `SCPI` position is.
 ### Data model
 
 ```sql
--- V122: ALTER TYPE account_type ADD VALUE 'PEER_LOAN' BEFORE 'OTHER';
--- V123: tables below.  V124: the two cash-leg links.  V125: cash_leg_owned.
--- V126: rate_period.
+-- V124: ALTER TYPE account_type ADD VALUE 'PEER_LOAN' BEFORE 'OTHER';
+-- V125: tables below.  V126: the two cash-leg links.  V127: cash_leg_owned.
+-- V128: rate_period.
 
 peer_counterparty (id, member_id, name, note)
     UNIQUE (member_id, lower(name))
@@ -105,7 +105,9 @@ Edge cases:
 - the linked cash account must be in EUR, because the principal and the ledger are EUR
   figures that are never converted a second time;
 - a repayment date cannot be in the future: the ledger records completed payments, and the
-  forecast belongs to `planned_*`.
+  forecast belongs to `planned_*`;
+- the lending date cannot be in the future either: the receivable would count before the
+  money left.
 
 ### Closure
 
@@ -194,8 +196,10 @@ installments. The same card compares the total interest the plan implies
 The rate can be entered **per year or per month**. `annual_rate` always stores the
 normalized annual fraction the calculator uses; `rate_period` only remembers how the
 member stated it, so a loan agreed at 0.5 %/month reopens as 0.5 %/month rather than 6 %/year.
-There is **no annual cap**: a short-term loan may carry a high nominal rate (10 %/month is
-120 %/year), and the column stores it with six decimals.
+There is **no low cap**: a short-term loan may carry a high nominal rate (10 %/month is
+120 %/year), and the column stores it with six decimals. The API still bounds the input
+(rate ≤ 1 000, six integer and six fraction digits; amounts ≤ 12 integer digits) so the
+annuity cannot be exponentiated into a CPU sink or overflow the `NUMERIC` columns.
 
 ### REST endpoints
 

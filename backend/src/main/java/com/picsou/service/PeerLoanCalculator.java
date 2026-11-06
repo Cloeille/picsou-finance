@@ -32,6 +32,8 @@ public final class PeerLoanCalculator {
     private static final BigDecimal HUNDRED = new BigDecimal("100");
     private static final int MONEY_SCALE = 2;
     private static final int INTERNAL_SCALE = 8;
+    /** A century of monthly instalments: the same ceiling the request validation applies. */
+    private static final int MAX_MONTHS = 1200;
 
     private PeerLoanCalculator() {
     }
@@ -155,7 +157,9 @@ public final class PeerLoanCalculator {
         }
         BigDecimal principal = nonNull(terms.getPrincipal());
         BigDecimal monthly = terms.getPlannedMonthlyAmount();
-        int totalMonths = terms.getPlannedMonths();
+        // Clamp on read: a value stored before the request bound existed must not make a GET
+        // walk a million-month annuity.
+        int totalMonths = Math.min(terms.getPlannedMonths(), MAX_MONTHS);
         BigDecimal monthlyRate = nonNull(terms.getAnnualRate()).divide(new BigDecimal("12"), MC);
 
         LocalDate start = terms.getLentAt();
@@ -195,6 +199,9 @@ public final class PeerLoanCalculator {
         if (months <= 0) {
             throw new IllegalArgumentException("months must be greater than zero");
         }
+        if (months > MAX_MONTHS) {
+            throw new IllegalArgumentException("A simulation cannot exceed " + MAX_MONTHS + " months");
+        }
         BigDecimal p = nonNull(principal);
         BigDecimal monthlyRate = nonNull(annualRate).divide(new BigDecimal("12"), MC);
         BigDecimal monthly;
@@ -225,8 +232,10 @@ public final class PeerLoanCalculator {
         BigDecimal p = nonNull(principal);
         BigDecimal monthlyRate = nonNull(annualRate).divide(new BigDecimal("12"), MC);
         if (monthlyRate.signum() == 0) {
-            int months = Math.max(1,
-                (int) Math.ceil(p.divide(monthlyPayment, INTERNAL_SCALE, RoundingMode.HALF_UP).doubleValue()));
+            double rawMonths =
+                p.divide(monthlyPayment, INTERNAL_SCALE, RoundingMode.HALF_UP).doubleValue();
+            requireReachableTerm(rawMonths);
+            int months = Math.max(1, (int) Math.ceil(rawMonths));
             // No interest: the last payment is whatever is left, so the cost is exactly the principal.
             return new Simulation(
                 scale(monthlyPayment),
@@ -243,8 +252,13 @@ public final class PeerLoanCalculator {
         double ratio = BigDecimal.ONE
             .subtract(p.multiply(monthlyRate, MC).divide(monthlyPayment, MC))
             .doubleValue();
-        int months = Math.max(1,
-            (int) Math.ceil(-Math.log(ratio) / Math.log(1 + monthlyRate.doubleValue())));
+        double logBase = Math.log(1 + monthlyRate.doubleValue());
+        if (ratio <= 0 || logBase <= 0) {
+            throw new IllegalArgumentException("The monthly payment does not amortise the loan");
+        }
+        double rawMonths = -Math.log(ratio) / logBase;
+        requireReachableTerm(rawMonths);
+        int months = Math.max(1, (int) Math.ceil(rawMonths));
 
         // The final installment is not a full monthly payment: it clears the balance left
         // after the preceding ones, plus the interest that balance accrued. Multiplying the
@@ -261,6 +275,18 @@ public final class PeerLoanCalculator {
             months,
             scale(total.subtract(p).max(BigDecimal.ZERO)),
             scale(total));
+    }
+
+    /**
+     * A payment that would need centuries (or a non-finite term) is refused as bad input,
+     * not answered with {@link Integer#MAX_VALUE}: the annuity that follows would overflow.
+     */
+    private static void requireReachableTerm(double months) {
+        if (!Double.isFinite(months) || months > MAX_MONTHS) {
+            throw new IllegalArgumentException(
+                "The monthly payment is too small: repayment would take more than "
+                    + MAX_MONTHS + " months");
+        }
     }
 
     /** Percent of the original principal actually repaid (write-offs excluded). */

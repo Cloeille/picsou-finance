@@ -325,6 +325,9 @@ public class PeerLoanService {
         Account account = requireAccount(accountId, memberId);
         requireType(account);
         validatePlan(request);
+        if (request.lentAt().isAfter(LocalDate.now())) {
+            throw new IllegalArgumentException("The lending date cannot be in the future");
+        }
         if (request.expectedBack() != null && request.expectedBack().isBefore(request.lentAt())) {
             throw new IllegalArgumentException("The expected return date cannot precede the lending date");
         }
@@ -350,6 +353,7 @@ public class PeerLoanService {
         if (!CASH_TYPES.contains(linked.getType())) {
             throw new IllegalArgumentException("A peer loan must be linked to a cash account");
         }
+        requireEur(linked, "be linked to a peer loan");
 
         // The cash movement is a fact. Once it exists, changing the amount or the source
         // would silently rewrite it; deleting and recreating the loan is the honest path.

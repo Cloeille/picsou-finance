@@ -173,8 +173,9 @@ public class AccountService {
         boolean scpi = req.type() == AccountType.SCPI;
         boolean peerLoan = req.type() == AccountType.PEER_LOAN;
         // A typed balance belongs to a cash account. On a SCPI it would be snapshotted as if
-        // it were a withdrawal value, which it is not.
-        BigDecimal opening = scpi
+        // it were a withdrawal value, and on a peer loan it would compete with the repayment
+        // ledger that is the only source of that receivable.
+        BigDecimal opening = scpi || peerLoan
             ? BigDecimal.ZERO
             : (req.currentBalance() != null ? signedBalance(req.type(), req.currentBalance()) : BigDecimal.ZERO);
         Account account = Account.builder()
