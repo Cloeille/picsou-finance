@@ -5,6 +5,8 @@ import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.sidecar.SidecarClient;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.SidecarErrorCode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -33,6 +35,7 @@ import java.util.Map;
  */
 @Component
 public class LbpAdapter {
+    private static final Logger log = LoggerFactory.getLogger(LbpAdapter.class);
     private static final Duration DEFAULT_CHECK_TIMEOUT = Duration.ofSeconds(45);
     /** One session replay, then the account and transaction reads. */
     private static final Duration DEFAULT_ACCOUNTS_TIMEOUT = Duration.ofSeconds(120);
@@ -191,8 +194,27 @@ public class LbpAdapter {
                         "Too many La Banque Postale logins are pending. Please wait a few minutes.", null);
                 }
             }
+            if (isDecodingFailure(ex)) {
+                // A malformed (or empty) sidecar response: keep the shared "unavailable"
+                // mapping, but never hand the raw exception to the logger — Jackson can
+                // quote cookie tokens in its parse error text.
+                log.warn("{}: sidecar returned an undecodable response", message);
+                throw authSidecar.coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE, message, null);
+            }
             throw authSidecar.mapError(message, ex, authenticationFailure);
         }
+    }
+
+    private static boolean isDecodingFailure(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof org.springframework.core.codec.DecodingException
+                || current instanceof com.fasterxml.jackson.core.JacksonException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /** The identifier never leaves {@code toString}, so a logged DTO cannot leak it. */
