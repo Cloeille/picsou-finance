@@ -32,8 +32,9 @@ import { getErrorCode, getErrorDetail, getErrorStatus } from "@/lib/errors"
 
 /**
  * `KEYPAD` is a pop-up showing the bank's virtual keypad: the user reads the
- * pad and clicks his own digits. Picsou never sees the password, only the
- * positions of the clicked keys, held in component state until Validate.
+ * pad and clicks their own digits. Picsou never stores the password; it only
+ * holds the shuffled labels and the clicked positions in transit (together
+ * password-equivalent), and keeps the positions in component state until Validate.
  * `AWAITING_APP` has no form: the bank pushes a Sécur'Pass notification and the
  * completion request stays open until the user approves it on their phone.
  *
@@ -147,6 +148,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
   // state only: no query, no mutation cache, no storage, no log.
   const [positions, setPositions] = useState<number[]>([])
   const [keypadSecondsLeft, setKeypadSecondsLeft] = useState(0)
+  const [keypadDeadlineAt, setKeypadDeadlineAt] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [secondsLeft, setSecondsLeft] = useState(0)
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
@@ -228,12 +230,10 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
     setCustomerId(null)
     setConfirmingDisconnect(false)
     void refetchStatus()
-    // A fresh session holds no accounts yet. Both completion paths queue one
-    // first sync, and the caller is told only once its accounts exist.
+    // Armed before the call, not in its onSuccess: if the first attempt fails, the
+    // manual retry must still tell the caller "connected" once the import succeeds.
+    notifyConnectedOnSuccess.current = true
     syncMutate(undefined, {
-      onSuccess: () => {
-        notifyConnectedOnSuccess.current = true
-      },
       onError: (value) => setError(formatError(value)),
     })
   }, [formatError, refetchStatus, syncMutate])
@@ -277,6 +277,15 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
   const syncStatus = status.data?.syncStatus ?? "IDLE"
   const isSyncing = syncStatus === "QUEUED" || syncStatus === "RUNNING"
   const requestingSync = sync.isPending || isSyncing
+
+  // If the panel was unmounted while the login completed in the background (the
+  // modal closed during approval), the first sync still needs queueing on the next
+  // mount: the stored session holds no accounts until then.
+  useEffect(() => {
+    if (!connected || status.data?.lastSyncCompletedAt || isSyncing) return
+    startFirstSync()
+  }, [connected, status.data?.lastSyncCompletedAt, isSyncing, startFirstSync])
+
   const backgroundError =
     syncStatus === "FAILED"
       ? (messageForCode(status.data?.lastSyncError) ??
@@ -299,11 +308,18 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
 
   // The pad is stable for a short time only: once it is out of date nothing may
   // be sent, so the pop-up closes and everything the user clicked is dropped.
+  // The countdown is recomputed from an absolute deadline, so a suspended or
+  // backgrounded tab shows the true remaining time when it resumes.
   useEffect(() => {
     if (authState !== "KEYPAD") return
-    const timer = setInterval(() => setKeypadSecondsLeft((value) => Math.max(0, value - 1)), 1_000)
+    const tick = () =>
+      setKeypadSecondsLeft(
+        keypadDeadlineAt === null ? 0 : Math.max(0, Math.ceil((keypadDeadlineAt - Date.now()) / 1_000)),
+      )
+    tick()
+    const timer = setInterval(tick, 250)
     return () => clearInterval(timer)
-  }, [authState])
+  }, [authState, keypadDeadlineAt])
 
   const expired = authState === "KEYPAD" && keypadSecondsLeft <= 0
   if (expired) {
@@ -311,6 +327,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
     setPad(null)
     setPositions([])
     setKeypadSecondsLeft(0)
+    setKeypadDeadlineAt(null)
     setError(t("sync.lbp.errors.keypadExpired"))
     setAuthState("ERROR")
   }
@@ -319,6 +336,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
     setPad(null)
     setPositions([])
     setKeypadSecondsLeft(0)
+    setKeypadDeadlineAt(null)
   }
 
   const cancelKeypad = () => {
@@ -359,6 +377,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
     submitting.current = true
     authAttempt.current += 1
     firstSyncStarted.current = false
+    notifyConnectedOnSuccess.current = false
     setLostCompletionAt(null)
     setError(null)
     setAuthState("SUBMITTING")
@@ -371,13 +390,15 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
         return
       }
       const columns = Number(result.keypad.columns)
+      const expires = Math.max(0, Math.floor(result.expiresInSeconds ?? 0))
       setPad({
         processId: result.processId,
         keys,
         columns: Number.isInteger(columns) && columns >= 1 && columns <= 10 ? columns : DEFAULT_COLUMNS,
       })
       setPositions([])
-      setKeypadSecondsLeft(Math.max(0, Math.floor(result.expiresInSeconds ?? 0)))
+      setKeypadSecondsLeft(expires)
+      setKeypadDeadlineAt(Date.now() + expires * 1_000)
       setAuthState("KEYPAD")
     } catch (value) {
       setError(formatError(value))
@@ -395,6 +416,13 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
   const validateKeypad = async () => {
     if (!pad || authState !== "KEYPAD" || submitting.current) return
     if (positions.length < MIN_POSITIONS || positions.length > MAX_POSITIONS) return
+    if (keypadDeadlineAt !== null && Date.now() > keypadDeadlineAt) {
+      // The browser was suspended past the TTL: the backend would refuse it anyway.
+      resetKeypad()
+      setError(t("sync.lbp.errors.keypadExpired"))
+      setAuthState("ERROR")
+      return
+    }
     submitting.current = true
     const { processId } = pad
     const sent = positions
@@ -467,21 +495,23 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
         </Card>
       )}
 
-      {connected && (
+      {(connected || savedIdentifier !== null) && (
         <>
           <div className="flex flex-wrap gap-3">
-            <Button
-              onClick={() => {
-                setError(null)
-                sync.mutate(undefined, {
-                  onError: (value) => setError(formatError(value)),
-                })
-              }}
-              disabled={requestingSync}
-            >
-              <RefreshCw className={requestingSync ? "animate-spin" : undefined} />
-              {requestingSync ? t("sync.lbp.syncing") : t("sync.lbp.sync")}
-            </Button>
+            {connected && (
+              <Button
+                onClick={() => {
+                  setError(null)
+                  sync.mutate(undefined, {
+                    onError: (value) => setError(formatError(value)),
+                  })
+                }}
+                disabled={requestingSync}
+              >
+                <RefreshCw className={requestingSync ? "animate-spin" : undefined} />
+                {requestingSync ? t("sync.lbp.syncing") : t("sync.lbp.sync")}
+              </Button>
+            )}
             {!confirmingDisconnect && (
               <Button
                 variant="destructive"
@@ -527,7 +557,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
             </Card>
           )}
 
-          {(status.data?.unsupported.length ?? 0) > 0 && (
+          {connected && (status.data?.unsupported.length ?? 0) > 0 && (
             <Card size="sm">
               <CardContent className="space-y-2 py-4">
                 <p className="text-sm font-medium">{t("sync.lbp.unsupportedTitle")}</p>
