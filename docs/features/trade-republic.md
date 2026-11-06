@@ -35,7 +35,7 @@ failures:
 
 ### Session persistence
 
-Sessions live in the shared `sidecar_session` table (bank `TRADE_REPUBLIC`), like the other sidecar banks; see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md). `V123__trade_republic_sidecar_session.sql` widens the table's two CHECK constraints with the Trade Republic branch and drops `trade_republic_session`.
+Sessions live in the shared `sidecar_session` table (bank `TRADE_REPUBLIC`), like the other sidecar banks; see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md). `V130__trade_republic_sidecar_session.sql` widens the table's two CHECK constraints with the Trade Republic branch and drops `trade_republic_session`.
 
 **Members reconnect Trade Republic once after this upgrade.** The old rows are not copied: their refresh token only worked with the v1 refresh route, which Trade Republic now answers with 401. The member sees the connection as needing re-authentication and confirms once in the app.
 
@@ -140,7 +140,7 @@ The two legs are strict mirrors: the investment leg always carries the **opposit
 - `backend/src/main/java/com/picsou/service/TradeRepublicSyncService.java` -- Auth flow, `SidecarSyncStrategy`, CSV import, session management
 - `backend/src/main/java/com/picsou/controller/TradeRepublicController.java` -- REST endpoints under `/api/tr/`
 - `backend/src/main/java/com/picsou/model/SidecarSession.java` -- the shared session entity (bank `TRADE_REPUBLIC`)
-- `backend/src/main/resources/db/migration/V123__trade_republic_sidecar_session.sql` -- CHECK constraints + drop of the old table
+- `backend/src/main/resources/db/migration/V130__trade_republic_sidecar_session.sql` -- CHECK constraints + drop of the old table
 
 ### Flow
 
@@ -244,7 +244,7 @@ Without rule 2, Playwright installs to `/root/.cache/ms-playwright/`, which the 
 - `TradeRepublicSyncServiceTest#completeAuth_*`, `#sync_*` -- session stored encrypted, tombstones lifted, expired session deactivated, transient failure keeps it connected
 - `TradeRepublicAdapterTest#initiateAuth_*`, `#completeAuth_*`, `#openSession_*` -- the sidecar's `detail` codes, bare-status fallbacks, explicit-null `tan`, the 150 s completion wait
 - `TradeRepublicAdapterTest#fetchAccounts_*` -- against a fake TR WebSocket: the `tr_session` cookie on the handshake, accounts read from the claims, the ticker subscribed on the venue the `instrument` answer lists, `LSX` when it lists none, and a refused ticker leaves `currentPrice` null with the account total at cost (#268)
-- `SidecarSyncContractTest`, `SidecarBankCodesTest`, `V123TradeRepublicSidecarSessionMigrationTest` -- the shared sync scenarios, the Java/SQL code lists, the migration
+- `SidecarSyncContractTest`, `SidecarBankCodesTest`, `V130TradeRepublicSidecarSessionMigrationTest` -- the shared sync scenarios, the Java/SQL code lists, the migration
 - `frontend/src/pages/sync/TradeRepublicTab.test.tsx` and `frontend/src/components/shared/AddAccountModal.test.tsx` -- frontend regression tests for initiation failure staying on phone/PIN and a failed confirmation staying on the confirmation step
 - Manual integration testing against real TR accounts (auth flow, CSV import)
 
