@@ -508,6 +508,7 @@ class CiJobSelectionTest(unittest.TestCase):
             "all": "${{ steps.filter.outcome == 'skipped' }}",
             "jobs": "${{ steps.sidecars.outputs.jobs }}",
             "sidecar-matrix": "${{ steps.sidecars.outputs.matrix }}",
+            "backend-timings-key": "${{ steps.backend-timings.outputs.cache-matched-key }}",
         })
         self.assertEqual(set(_filters(jobs)) - {"workflows"}, _selectable(jobs))
         self.assertEqual(
@@ -705,15 +706,29 @@ class CiJobSelectionTest(unittest.TestCase):
         steps = jobs[GATE]["steps"]
         self.assertEqual(steps[0]["name"], "Every selected job succeeded")
         self.assertNotIn("if", steps[0])
-        gated = steps[1:]
+        gated = [step for step in steps if "needs.backend" in step.get("if", "")]
         for step in gated:
             with self.subTest(step=step["name"]):
                 self.assertIn("needs.backend.result == 'success'", step["if"])
+        self.assertLessEqual({
+            "Download the backend test reports", "Require every backend test class to run exactly once",
+            "Require the PostgreSQL tests",
+        }, {step["name"] for step in gated})
         download = next(step for step in gated if "download-artifact" in step.get("uses", ""))
-        self.assertEqual(download["with"], {"pattern": "surefire-*", "path": "surefire"})
+        self.assertEqual(download["with"], {"pattern": "surefire-*", "path": "${{ runner.temp }}/surefire"})
         commands = "\n".join(step.get("run", "") for step in gated)
-        self.assertIn("python3 .github/scripts/backend_shards.py --check surefire", commands)
+        self.assertIn('python3 .github/scripts/backend_shards.py --check "$RUNNER_TEMP/surefire"', commands)
         self.assertIn("11 service.ScpiSyncSessionPostgresTest", commands)
+
+        # One lookup in `changes`; the shards restore exactly that key, so a re-run splits the same.
+        lookup = next(step for step in jobs[SELECTOR]["steps"] if step.get("id") == "backend-timings")
+        self.assertIn("restore-keys", lookup["with"])
+        restore = next(step for step in backend["steps"] if "actions/cache/restore" in step.get("uses", ""))
+        self.assertEqual(restore["if"], "needs.changes.outputs.backend-timings-key != ''")
+        self.assertEqual(restore["with"]["key"], "${{ needs.changes.outputs.backend-timings-key }}")
+        self.assertNotIn("restore-keys", restore["with"])
+        save = next(step for step in steps if "actions/cache/save" in step.get("uses", ""))
+        self.assertEqual({lookup["with"]["path"], restore["with"]["path"]}, {save["with"]["path"]})
         self.assertNotIn("PostgresTest", "\n".join(step.get("run", "") for step in backend["steps"]))
 
     def test_ci_runs_the_make_targets_contributors_run(self):

@@ -190,6 +190,19 @@ classes share a JVM changes with the timings, so a test must not count what othe
 in shared places such as the system temp directory: give such code a root a `@TempDir` can
 replace (`ActualBudgetFileParser` does).
 
+To reproduce a shard locally (the `--out` folder must be absolute: Maven runs in `backend/`):
+
+```bash
+python3 .github/scripts/backend_shards.py --shards 3 --shard 2 --out /tmp/s
+make test-backend SHARD_INCLUDES=/tmp/s/backend-shard-2.includes
+# The last shard runs everything the others do not:
+python3 .github/scripts/backend_shards.py --shards 3 --shard 3 --out /tmp/s
+make test-backend SHARD_EXCLUDES=/tmp/s/backend-shard-3.excludes
+```
+
+Without `--timings <file.json>` the split is by hash, so a shard's classes differ from CI's
+timed split; `--write-timings <reports-dir> <file.json>` builds that file from surefire reports.
+
 Keep **one fresh container per test class** (`@Container static final`, never shared across
 classes): migration tests migrate to specific versions and seed rows, so a shared database would
 leak state between them. Helpers: `migrateTo` / `migrateToOutOfOrder` (the latter mirrors
