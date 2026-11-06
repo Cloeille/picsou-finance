@@ -3002,7 +3002,7 @@
     "SESSION_EXPIRED": "Votre tentative de connexion a expiré. Veuillez recommencer.",
     "RATE_LIMITED": "Trop de tentatives. Veuillez patienter un instant et réessayer.",
     "SSO_ADMIN_REQUIRED": "La première configuration nécessite un administrateur issu de votre fournisseur de connexion. Utilisez le SSO pour créer le compte administrateur.",
-    "IDENTITY_NOT_USED_YET": "Vous ne vous êtes pas encore connecté avec le SSO. Connectez-vous une première fois avec avant de désactiver la connexion par mot de passe.",
+    "IDENTITY_NOT_USED_YET": "Vous ne vous êtes pas encore connecté avec le SSO. Connectez-vous une première fois avec le SSO avant de désactiver la connexion par mot de passe.",
     "LAST_SIGN_IN_METHOD": "C'est votre dernière méthode de connexion. Ajoutez-en une autre avant de la retirer.",
     "PASSWORD_ALREADY_SET": "Un mot de passe est déjà défini pour ce compte.",
     "REAUTH_FAILED": "La nouvelle authentification a échoué. Vérifiez vos identifiants et réessayez.",
