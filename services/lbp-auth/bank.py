@@ -17,6 +17,7 @@ import logging
 import time
 import uuid
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import HTTPException
@@ -113,6 +114,11 @@ class HttpxBankClient:
                 IDENTIF, params={"origin": "particuliers"}, follow_redirects=True
             )
             if response.status_code != 200 or "formAccesCompte" not in response.text:
+                log.warning(
+                    "La Banque Postale login form unavailable status=%s path=%s",
+                    response.status_code,
+                    urlparse(str(response.url)).path,
+                )
                 raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
             form = parsers.parse_login_form(response.text)
             process_id = str(uuid.uuid4())
@@ -154,10 +160,29 @@ class HttpxBankClient:
             # The bank's script stores the clicked DOM positions in `password`;
             # the server maps them back to digits with the per-load keypad.
             data["password"] = "".join(str(position) for position in positions)
+            # The CVVS script sets clt=1 on a browser session; the captured
+            # successful POST carried 1, not the form's initial 0.
+            data["cltName"] = "1"
+            # Lengths only: the values are the identifier, the keypad positions
+            # and the anti-fraud fingerprint. Never log them.
+            log.info(
+                "La Banque Postale login fields iscd_len=%d clt=%s cv=%s cvvs_len=%d",
+                len(data.get("iscdName", "")),
+                data.get("cltName"),
+                data.get("cv"),
+                len(data.get("cvvs", "")),
+            )
             response = await client.post(
                 state["action"],
                 data=data,
-                headers={"Origin": BASE, "Referer": state.get("referer", BASE + LOGIN_FORM)},
+                headers={
+                    "Origin": BASE,
+                    "Referer": state.get("referer", BASE + LOGIN_FORM),
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "same-origin",
+                    "Sec-Fetch-User": "?1",
+                },
                 follow_redirects=False,
             )
 
@@ -169,6 +194,10 @@ class HttpxBankClient:
                 if "identif.ea" in location:
                     await self._park_session(process_id, state, client, location)
                     return
+                log.warning(
+                    "La Banque Postale login redirected unexpectedly path=%s",
+                    urlparse(location).path,
+                )
                 raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
 
             if response.status_code in (401, 403):
@@ -176,17 +205,26 @@ class HttpxBankClient:
             if response.status_code == 200:
                 # The bank re-renders the login form with an error banner.
                 raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
+            log.warning("La Banque Postale login answered status=%s", response.status_code)
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
         except parsers.FormatError as exc:
+            log.warning("La Banque Postale login payload rejected code=%s", exc.code)
             await self._dispose(state)
             raise HTTPException(status_code=502, detail=exc.code) from None
         except HTTPException:
             await self._dispose(state)
             raise
-        except httpx.HTTPError:
+        except httpx.HTTPError as exc:
+            log.warning(
+                "La Banque Postale login request failed error_type=%s", type(exc).__name__
+            )
             await self._dispose(state)
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from None
-        except Exception:
+        except Exception as exc:
+            log.error(
+                "La Banque Postale login failed unexpectedly error_type=%s",
+                type(exc).__name__,
+            )
             await self._dispose(state)
             raise
 
@@ -198,6 +236,10 @@ class HttpxBankClient:
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
         pph, polling = parsers.parse_polling(challenge.text)
         if not polling:
+            log.warning(
+                "La Banque Postale challenge page has no polling URL path=%s",
+                urlparse(str(challenge.url)).path,
+            )
             raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
         state["poll_url"] = (pph or BASE + "/wsost").rstrip("/") + polling
         state.pop("hidden", None)
@@ -216,6 +258,11 @@ class HttpxBankClient:
                 state.pop("hidden", None)
                 await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
                 return
+            log.warning(
+                "La Banque Postale post-login page is not a session status=%s path=%s",
+                final.status_code,
+                urlparse(str(final.url)).path,
+            )
             raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
         state["session_ready"] = True
         state.pop("hidden", None)
@@ -327,6 +374,9 @@ class HttpxBankClient:
             headers={
                 "User-Agent": USER_AGENT,
                 "Accept-Language": "fr-FR,fr;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-GPC": "1",
             },
         )
 
