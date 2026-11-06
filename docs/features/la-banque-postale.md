@@ -9,7 +9,9 @@
 > strong-authentication notice (**Continuer**), which is what sends the mobile
 > notification, then waits for the approval. The session cookies are replayed
 > with `httpx` for the server-rendered pages. A live run on 2026-11-06 imported
-> the current account, a Livret A and a LEP with 27 transactions.
+> the current account, a Livret A and a LEP with 27 transactions. The bank's web
+> session is short-lived: a second sync 9 minutes later was refused, so the
+> connector needs a fresh login + A2F once the bank has logged out.
 
 ## Context
 
@@ -188,8 +190,11 @@ Two real sessions were captured (trusted device and new device):
    plus `init-releve_ccp` / `init-releve_cne`.
 4. **Anti-bot** — `fruprem.js` / `loreo.js` set a 52-character `iscdName`; no
    CAPTCHA observed.
-5. **Session lifetime** — still not measured. `check` returns a conservative
-   600 s and a dead session is detected on the next read.
+5. **Session lifetime** — short. A first sync right after login succeeded; a
+   second one 9 minutes later was refused with 401, so the bank logs the web
+   session out after a few minutes of inactivity (public guidance says ~5 min).
+   A dead session is detected on the next read and requires a new login + A2F.
+   The connector stays on demand; it does not keep the session warm.
 6. **Transaction history** — `init-releve_ccp` returns about 90 days;
    `telechargementMouvements.ea` is the export path; the `relevePdf` history
    holds monthly statements.
@@ -265,8 +270,9 @@ The session row was `SUCCESS` and active afterwards.
 
 ## Not in this slice
 
-- A second sync that reuses the stored session: the replay path is implemented
-  and unit-tested, but the live run started from a fresh login.
+- A long-lived session: the bank logs the web session out after a few minutes of
+  inactivity, so a sync after that window requires a new login + A2F. Keeping
+  the session warm would need a scheduled request and is deliberately not done.
 - Card, loan, life-insurance and PER parsing.
 - History beyond roughly 90 days: the export and the monthly PDFs are not
   parsed.
