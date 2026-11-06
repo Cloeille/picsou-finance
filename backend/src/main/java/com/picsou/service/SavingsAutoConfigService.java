@@ -6,6 +6,7 @@ import com.picsou.model.RateBasis;
 import com.picsou.model.SavingsInterestConfig;
 import com.picsou.model.SavingsProduct;
 import com.picsou.repository.SavingsInterestConfigRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -48,14 +49,20 @@ public class SavingsAutoConfigService {
         if (configRepository.findByAccountId(account.getId()).isPresent()) {
             return false;
         }
-        configRepository.save(SavingsInterestConfig.builder()
-            .account(account)
-            .product(defaults.product())
-            .annualRate(defaults.annualRate())
-            .rateBasis(RateBasis.NET)
-            .ceiling(defaults.ceiling())
-            .build());
-        return true;
+        try {
+            configRepository.save(SavingsInterestConfig.builder()
+                .account(account)
+                .product(defaults.product())
+                .annualRate(defaults.annualRate())
+                .rateBasis(RateBasis.NET)
+                .ceiling(defaults.ceiling())
+                .build());
+            return true;
+        } catch (DataIntegrityViolationException ex) {
+            // A concurrent save (a manual configuration or another sync) won the race for
+            // the unique account_id: the row already exists, so nothing more to do.
+            return false;
+        }
     }
 
     private static Defaults defaultsFor(AccountType type) {

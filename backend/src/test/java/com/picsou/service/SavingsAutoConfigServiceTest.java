@@ -43,7 +43,7 @@ class SavingsAutoConfigServiceTest {
 
         SavingsInterestConfig saved = capture();
         assertThat(saved.getProduct()).isEqualTo(SavingsProduct.LIVRET_A);
-        assertThat(saved.getAnnualRate()).isEqualByComparingTo(new BigDecimal("2.40"));
+        assertThat(saved.getAnnualRate()).isEqualByComparingTo(new BigDecimal("1.70"));
         assertThat(saved.getRateBasis()).isEqualTo(RateBasis.NET);
         assertThat(saved.getCeiling()).isEqualByComparingTo(new BigDecimal("22950.00"));
     }
@@ -79,6 +79,16 @@ class SavingsAutoConfigServiceTest {
 
         assertThat(service.configureIfMissing(account, AccountType.LIVRET_A)).isFalse();
         verify(repository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void treatsAConcurrentInsertAsAlreadyConfigured() {
+        when(repository.findByAccountId(42L)).thenReturn(Optional.empty());
+        when(repository.save(org.mockito.ArgumentMatchers.any()))
+            .thenThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate account_id"));
+
+        // A manual save that wins the race must not fail the LBP sync.
+        assertThat(service.configureIfMissing(account, AccountType.LIVRET_A)).isFalse();
     }
 
     private SavingsInterestConfig capture() {
