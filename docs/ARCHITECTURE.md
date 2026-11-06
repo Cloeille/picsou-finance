@@ -19,9 +19,9 @@ com.picsou/
 ├── model/          JPA entities — financial: Account, AccountHolding, Transaction,
 │                   BalanceSnapshot, Goal, GoalManualContribution, GoalContributor,
 │                   Debt, RealEstateMetadata, PropertyValuation, AccountOwnership, WalletAddress;
-│                   integrations: Requisition, TradeRepublicSession, CryptoExchangeSession,
-│                   FinarySession, BoursoSession, BourseDirectSession, DegiroSession,
-│                   AmundiSession,
+│                   integrations: Requisition, CryptoExchangeSession,
+│                   FinarySession, DegiroSession, RevolutSession,
+│                   SidecarSession (one row per sidecar bank and member, Trade Republic included),
 │                   PriceSnapshot;
 │                   identity & sharing: AppUser, FamilyMember, UserRole, SharingSettings,
 │                   SharingLevel, SharedResource, UserMfa, UserMfaRecoveryCode,
@@ -137,7 +137,7 @@ After the prices, the same pass queues a background lookup of share and ETF logo
 Client → TradeRepublicController → TRSyncService → TRAdapter → tr-auth (Python) → TR WebSocket
 ```
 
-Broker sync via Python microservice (Playwright automation). Two modes: automatic WebSocket sync and CSV import fallback. Session persisted in `TradeRepublicSession` entity.
+Broker sync via the `tr-auth` Python sidecar (login confirmed in the Trade Republic app, session refresh); the backend reads the portfolio over the WebSocket. Two modes: automatic sync and CSV import fallback. The session is a `SidecarSession` row (bank `TRADE_REPUBLIC`), synced through `SidecarSyncTemplate` like the other sidecar banks.
 
 ### 4. Bourse Direct
 
@@ -151,7 +151,7 @@ modern/legacy portfolio streams. It returns only strict, reconciled snapshots.
 The Java service queues imports, performs external calls outside database
 transactions, then atomically replaces holdings and writes the daily account
 snapshot. The encrypted browser state and observable job status live in
-`BourseDirectSession`. See the [Bourse Direct ADR](./decisions/2026-07-21-bourse-direct-isolated-atomic-sync.md).
+`SidecarSession`, shared with the other sidecar banks ([ADR](./decisions/2026-11-02-one-sidecar-session-table.md)). See the [Bourse Direct ADR](./decisions/2026-07-21-bourse-direct-isolated-atomic-sync.md).
 
 ### 5. Amundi Épargne Salariale
 
@@ -166,7 +166,7 @@ step, and normalization of the `dispositifsMulti` payload; it returns only stric
 reconciled snapshots. The Java service queues imports, calls upstream outside
 database transactions, then atomically replaces each plan's holdings and writes
 the daily snapshot. One Picsou account per *dispositif*, typed `EMPLOYEE_SAVINGS`.
-Encrypted session and job status live in `AmundiSession`. See the
+Encrypted session and job status live in `SidecarSession`. See the
 [Amundi ADR](./decisions/2026-08-09-amundi-epargne-salariale-sidecar.md).
 
 A SCPI share is not this, and it is not a house either. It is an `SCPI` account valued at
@@ -188,7 +188,7 @@ snapshots and follows securities-history pagination to the declared row count.
 The Java service performs upstream I/O before one atomic persistence phase,
 backfills market prices and reconstructs value and invested history from batched
 inputs. Encrypted browser state and observable job status live in
-`FortuneoSession`. See the
+`SidecarSession`. See the
 [Fortuneo ADR](./decisions/2026-07-26-fortuneo-isolated-atomic-history-sync.md).
 
 ### 7. Crypto exchange

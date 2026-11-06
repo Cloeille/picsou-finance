@@ -14,6 +14,8 @@ import type {
   FinaryImportResultResponse,
   FinaryAutoSyncResponse,
   BoursoSessionStatus,
+  TrAuthInitResponse,
+  TrSessionStatus,
   BoursoAuthInitResponse,
   CaisseEpargneSessionStatus,
   CaisseEpargneAuthInitResponse,
@@ -91,24 +93,42 @@ export const bankSyncApi = {
 
 // --- Trade Republic ---
 
+const TR_COMPLETE_TIMEOUT_MS = 180_000
+
 export const trApi = {
   initiateAuth: (phoneNumber: string, pin: string) =>
     api
-      .post<{ processId: string }>('/tr/auth/initiate', { phoneNumber, pin })
+      .post<TrAuthInitResponse>('/tr/auth/initiate', { phoneNumber, pin })
       .then(r => r.data),
 
-  completeAuth: (processId: string, tan: string) =>
+  /**
+   * With no `tan` the request stays open while the member confirms in the Trade Republic app
+   * (up to ~150 s), hence the long timeout. With a `tan` it answers at once.
+   */
+  completeAuth: (processId: string, tan?: string) =>
     api
-      .post<Account[]>('/tr/auth/complete', { processId, tan })
+      .post<TrSessionStatus>(
+        '/tr/auth/complete',
+        tan === undefined ? { processId } : { processId, tan },
+        { timeout: TR_COMPLETE_TIMEOUT_MS },
+      )
       .then(r => r.data),
 
+  /** The sync is queued, not finished: poll {@link trApi.getSessionStatus}. */
   sync: () =>
-    api.post<Account[]>('/tr/sync').then(r => r.data),
+    api.post<TrSessionStatus>('/tr/sync').then(r => r.data),
 
   getSessionStatus: () =>
-    api
-      .get<{ isActive: boolean; expiresAt: string | null }>('/tr/status')
-      .then(r => r.data),
+    api.get<TrSessionStatus>('/tr/status').then(r => r.data),
+
+  importCsv: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<Account[]>('/tr/import', form).then(r => r.data)
+  },
+
+  clearSession: () =>
+    api.delete('/tr/session'),
 }
 
 // --- Crypto Exchanges ---

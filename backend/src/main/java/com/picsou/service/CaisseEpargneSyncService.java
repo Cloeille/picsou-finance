@@ -10,8 +10,8 @@ import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
-import com.picsou.model.CaisseEpargneSession;
-import com.picsou.model.CaisseEpargneSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.CardNature;
 import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
@@ -21,7 +21,7 @@ import com.picsou.model.Transaction;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
@@ -96,7 +96,7 @@ public class CaisseEpargneSyncService {
     private static final java.util.regex.Pattern BASE64 = java.util.regex.Pattern.compile("[A-Za-z0-9+/]+={0,2}");
 
     private final CaisseEpargnePort port;
-    private final CaisseEpargneSessionRepository sessionRepository;
+    private final SidecarSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final FamilyMemberRepository memberRepository;
@@ -106,7 +106,7 @@ public class CaisseEpargneSyncService {
     private final CategoryService categoryService;
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
-    private final Executor syncExecutor;
+    private final SidecarSyncTemplate<PreparedSnapshot> sync;
     private final CaisseEpargnePerService perService;
     private final Clock clock;
     /**
@@ -119,7 +119,7 @@ public class CaisseEpargneSyncService {
     @org.springframework.beans.factory.annotation.Autowired
     public CaisseEpargneSyncService(
         CaisseEpargnePort port,
-        CaisseEpargneSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
@@ -139,7 +139,7 @@ public class CaisseEpargneSyncService {
 
     CaisseEpargneSyncService(
         CaisseEpargnePort port,
-        CaisseEpargneSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
@@ -166,7 +166,61 @@ public class CaisseEpargneSyncService {
         this.categorizationService = categorizationService;
         this.encryption = encryption;
         this.txTemplate = txTemplate;
-        this.syncExecutor = syncExecutor;
+        this.sync = new SidecarSyncTemplate<>(SidecarBank.CAISSE_EPARGNE, new Strategy(), sessionRepository,
+            memberRepository, encryption, txTemplate, syncExecutor, false);
+    }
+
+    private final class Strategy implements SidecarSyncStrategy<PreparedSnapshot> {
+        @Override
+        public PreparedSnapshot fetch(SidecarSyncJob job) {
+            return prepare(port.fetchAccounts(job.plainState()));
+        }
+
+        @Override
+        public void commit(SidecarSyncJob job, PreparedSnapshot prepared, Instant syncedAt) {
+            FamilyMember member = memberRepository.findById(job.memberId())
+                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
+            Map<String, Map<String, Transaction>> rowsByAccount = new LinkedHashMap<>();
+            Map<String, Account> savedById = new LinkedHashMap<>();
+            for (PreparedAccount data : prepared.accounts()) {
+                Map<String, Transaction> rows = upsertAccount(data, member, job.memberId(), syncedAt, savedById);
+                if (rows != null) {
+                    rowsByAccount.put(data.externalId(), rows);
+                }
+            }
+            upsertLoanDebts(prepared, savedById, member, job.memberId());
+            tagCardSettlements(prepared, rowsByAccount, job.memberId());
+            tagLoanRows(prepared, rowsByAccount, job.memberId());
+            sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+                .ifPresent(session -> session.recordUnsupportedContracts(serializeUnsupported(prepared.unsupported())));
+        }
+
+        @Override
+        public void afterCommit(SidecarSyncJob job, PreparedSnapshot prepared) {
+            for (PreparedAccount account : prepared.accounts()) {
+                if (account.per() == null) continue;
+                try {
+                    perService.backfill(account.per());
+                } catch (RuntimeException ex) {
+                    // Market/identity enrichment is optional and runs after the account
+                    // transaction. A proxy commit failure must not mark that import failed
+                    // or prevent enrichment for later PER accounts.
+                    log.warn("Caisse d'Epargne PER post-sync enrichment failed (member={}; type={})",
+                        job.memberId(), ex.getClass().getSimpleName());
+                }
+            }
+        }
+
+        @Override
+        public String describe(PreparedSnapshot prepared) {
+            return "accounts=" + prepared.accounts().size();
+        }
+
+        /** The exception type only: its message could carry a value from the payload. */
+        @Override
+        public boolean redactsUnexpectedFailures() {
+            return true;
+        }
     }
 
     /**
@@ -301,134 +355,16 @@ public class CaisseEpargneSyncService {
         requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+            sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, memberId).ifPresent(sessionRepository::delete);
             sessionRepository.flush();
             return sessionRepository.saveAndFlush(
-                CaisseEpargneSession.create(member, encryption.encrypt(plainState), Instant.now()));
+                SidecarSession.create(SidecarBank.CAISSE_EPARGNE, member, encryption.encrypt(plainState), Instant.now()));
         }));
         return getStatus(memberId);
     }
 
     public SessionStatusResponse queueSync(Long memberId) {
-        QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
-            CaisseEpargneSession session = sessionRepository.findByMemberIdForUpdate(memberId)
-                .orElseThrow(() -> error(
-                    SidecarErrorCode.SESSION_EXPIRED,
-                    "No active Caisse d'Epargne session. Please reconnect.",
-                    null
-                ));
-            if (!session.isActive()) {
-                throw error(
-                    SidecarErrorCode.SESSION_EXPIRED,
-                    "The Caisse d'Epargne session expired. Please reconnect.",
-                    null
-                );
-            }
-            if (session.isSyncInFlight()) {
-                return new QueueDecision(null, toStatus(session), null);
-            }
-
-            String plainState;
-            try {
-                plainState = encryption.decrypt(session.getSessionState());
-            } catch (RuntimeException ex) {
-                // Unreadable (wrong key, corrupted): the session is dead, not a server fault.
-                // Recorded inside the transaction, then thrown after it so the row is committed.
-                session.markQueued();
-                session.markFailed(SidecarErrorCode.INVALID_SESSION_STATE, Instant.now());
-                sessionRepository.save(session);
-                log.warn("Stored Caisse d'Epargne session is unreadable (member={}; type={})",
-                    memberId, ex.getClass().getSimpleName());
-                return new QueueDecision(null, null, error(
-                    SidecarErrorCode.INVALID_SESSION_STATE,
-                    "The stored Caisse d'Epargne session is unusable. Please reconnect.",
-                    null
-                ));
-            }
-            session.markQueued();
-            sessionRepository.save(session);
-            return new QueueDecision(new SyncJob(session.getId(), memberId, plainState), toStatus(session), null);
-        }));
-
-        if (decision.failure() != null) {
-            throw decision.failure();
-        }
-
-        if (decision.job() != null) {
-            submit(decision.job());
-            return getStatus(memberId);
-        }
-        return decision.status();
-    }
-
-    private void submit(SyncJob job) {
-        try {
-            syncExecutor.execute(() -> executeJob(job));
-        } catch (RuntimeException ex) {
-            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
-            throw error(
-                SidecarErrorCode.INTERNAL_ERROR,
-                "Could not schedule the Caisse d'Epargne synchronization",
-                ex
-            );
-        }
-    }
-
-    private void executeJob(SyncJob job) {
-        if (!markRunning(job)) {
-            return;
-        }
-        try {
-            CaisseEpargnePort.AccountsSnapshot fetched = port.fetchAccounts(job.plainState());
-            PreparedSnapshot prepared = prepare(fetched);
-            if (commit(job, prepared)) {
-                for (PreparedAccount account : prepared.accounts()) {
-                    if (account.per() == null) continue;
-                    try {
-                        perService.backfill(account.per());
-                    } catch (RuntimeException ex) {
-                        // Market/identity enrichment is optional and runs after the account
-                        // transaction. A proxy commit failure must not mark that import failed
-                        // or prevent enrichment for later PER accounts.
-                        log.warn("Caisse d'Epargne PER post-sync enrichment failed (member={}; type={})",
-                            job.memberId(), ex.getClass().getSimpleName());
-                    }
-                }
-                log.info("Caisse d'Epargne sync completed (member={}; accounts={})",
-                    job.memberId(), prepared.accounts().size());
-            } else {
-                log.info("Discarded stale Caisse d'Epargne sync result (member={})", job.memberId());
-            }
-        } catch (SyncException ex) {
-            SidecarErrorCode code = codeOf(ex);
-            markFailed(job, code);
-            log.warn("Caisse d'Epargne sync failed (member={}; code={})", job.memberId(), code);
-        } catch (Exception ex) {
-            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
-            // The exception type only: its message could carry a value from the payload.
-            log.error("Caisse d'Epargne sync failed unexpectedly (member={}; type={})",
-                job.memberId(), ex.getClass().getSimpleName());
-        }
-    }
-
-    private boolean markRunning(SyncJob job) {
-        return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<CaisseEpargneSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
-                job.sessionId(), job.memberId());
-            if (current.isEmpty()) {
-                log.info("Caisse d'Epargne sync session disappeared before execution (member={})", job.memberId());
-                return false;
-            }
-            CaisseEpargneSession session = current.get();
-            if (!session.isActive() || session.getSyncStatus() != CaisseEpargneSyncStatus.QUEUED) {
-                log.warn("Caisse d'Epargne sync cannot start from state {} (member={}; active={})",
-                    session.getSyncStatus(), job.memberId(), session.isActive());
-                return false;
-            }
-            session.markRunning(Instant.now());
-            sessionRepository.save(session);
-            return true;
-        }));
+        return toStatus(sync.queue(memberId, false));
     }
 
     /**
@@ -527,47 +463,6 @@ public class CaisseEpargneSyncService {
                 limit(tx.label(), 255, "Caisse d'Epargne transaction"), clean(tx.typeCode())));
         }
         return List.copyOf(byId.values());
-    }
-
-    private boolean commit(SyncJob job, PreparedSnapshot prepared) {
-        return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<CaisseEpargneSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
-                job.sessionId(), job.memberId());
-            if (current.isEmpty()) {
-                log.info("Caisse d'Epargne sync session disappeared before commit (member={})", job.memberId());
-                return false;
-            }
-            CaisseEpargneSession session = current.get();
-            if (!session.isActive()) {
-                log.warn("Caisse d'Epargne sync session became inactive before commit (member={})", job.memberId());
-                return false;
-            }
-            if (session.getSyncStatus() != CaisseEpargneSyncStatus.RUNNING) {
-                log.warn("Caisse d'Epargne sync cannot commit from state {} (member={})",
-                    session.getSyncStatus(), job.memberId());
-                return false;
-            }
-
-            FamilyMember member = memberRepository.findById(job.memberId())
-                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            Instant syncedAt = Instant.now();
-            Map<String, Map<String, Transaction>> rowsByAccount = new LinkedHashMap<>();
-            Map<String, Account> savedById = new LinkedHashMap<>();
-            for (PreparedAccount data : prepared.accounts()) {
-                Map<String, Transaction> rows = upsertAccount(data, member, job.memberId(), syncedAt, savedById);
-                if (rows != null) {
-                    rowsByAccount.put(data.externalId(), rows);
-                }
-            }
-            upsertLoanDebts(prepared, savedById, member, job.memberId());
-            tagCardSettlements(prepared, rowsByAccount, job.memberId());
-            tagLoanRows(prepared, rowsByAccount, job.memberId());
-
-            session.recordUnsupportedContracts(serializeUnsupported(prepared.unsupported()));
-            session.markSuccessful(syncedAt);
-            sessionRepository.save(session);
-            return true;
-        }));
     }
 
     /** The account's upserted rows by prefixed external id, or null when the user deleted it. */
@@ -962,52 +857,18 @@ public class CaisseEpargneSyncService {
         return upserted;
     }
 
-    private void markFailed(SyncJob job, SidecarErrorCode code) {
-        try {
-            txTemplate.executeWithoutResult(status -> {
-                Optional<CaisseEpargneSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
-                    job.sessionId(), job.memberId());
-                if (current.isEmpty()) {
-                    log.info("Caisse d'Epargne sync session disappeared before failure was recorded (member={})",
-                        job.memberId());
-                    return;
-                }
-                CaisseEpargneSession session = current.get();
-                if (!session.isSyncInFlight()) {
-                    log.warn("Caisse d'Epargne sync failure ignored from state {} (member={}; code={})",
-                        session.getSyncStatus(), job.memberId(), code);
-                    return;
-                }
-                session.markFailed(code, Instant.now());
-                sessionRepository.save(session);
-            });
-        } catch (RuntimeException ex) {
-            log.error("Could not persist Caisse d'Epargne sync failure (member={}; code={})", job.memberId(), code);
-        }
-    }
-
     /**
      * Queued jobs live in a process-local executor and cannot survive a backend restart. Turn
      * persisted in-flight states into a retryable failure instead of leaving the UI polling.
      */
     @Transactional
     public void recoverInterruptedSyncs() {
-        int recovered = sessionRepository.markInterruptedSyncsFailed(
-            List.of(CaisseEpargneSyncStatus.QUEUED, CaisseEpargneSyncStatus.RUNNING),
-            CaisseEpargneSyncStatus.FAILED,
-            Instant.now(),
-            SidecarErrorCode.INTERNAL_ERROR
-        );
-        if (recovered > 0) {
-            log.warn("Recovered {} interrupted Caisse d'Epargne sync job(s)", recovered);
-        }
+        sync.recoverInterrupted();
     }
 
     @Transactional(readOnly = true)
     public SessionStatusResponse getStatus(Long memberId) {
-        return sessionRepository.findByMemberId(memberId)
-            .map(this::toStatus)
-            .orElseGet(SessionStatusResponse::inactive);
+        return sync.find(memberId).map(this::toStatus).orElseGet(SessionStatusResponse::inactive);
     }
 
     /**
@@ -1016,14 +877,10 @@ public class CaisseEpargneSyncService {
      * expires. Returns whether a stored session was there to delete.
      */
     public boolean clearSession(Long memberId) {
-        return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            var session = sessionRepository.findByMemberIdForUpdate(memberId);
-            session.ifPresent(sessionRepository::delete);
-            return session.isPresent();
-        }));
+        return sync.clear(memberId);
     }
 
-    private SessionStatusResponse toStatus(CaisseEpargneSession session) {
+    private SessionStatusResponse toStatus(SidecarSession session) {
         return new SessionStatusResponse(
             session.isActive(),
             session.getSyncStatus(),
@@ -1117,7 +974,7 @@ public class CaisseEpargneSyncService {
     }
 
     private SidecarErrorCode codeOf(SyncException exception) {
-        return SyncValues.errorCode(exception, SidecarBank.CAISSE_EPARGNE, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
+        return sync.codeOf(exception);
     }
 
     private static SyncException error(SidecarErrorCode code, String message, Throwable cause) {
@@ -1165,18 +1022,18 @@ public class CaisseEpargneSyncService {
 
     public record SessionStatusResponse(
         boolean isActive,
-        CaisseEpargneSyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError,
         List<UnsupportedContract> unsupported
-    ) {
+    ) implements SidecarSessionView {
         public SessionStatusResponse {
             unsupported = unsupported == null ? List.of() : List.copyOf(unsupported);
         }
 
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, CaisseEpargneSyncStatus.IDLE, null, null, null, List.of());
+            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null, List.of());
         }
 
         @JsonProperty("unsupportedCount")
@@ -1185,8 +1042,6 @@ public class CaisseEpargneSyncService {
         }
     }
 
-    private record QueueDecision(SyncJob job, SessionStatusResponse status, SyncException failure) {}
-    private record SyncJob(Long sessionId, Long memberId, String plainState) {}
     private record PreparedSnapshot(List<PreparedAccount> accounts, List<UnsupportedContract> unsupported) {}
     private record PreparedAccount(
         String externalId,

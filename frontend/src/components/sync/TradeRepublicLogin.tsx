@@ -8,13 +8,15 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp
 import { MaskedOTPSlot } from '@/components/sync/MaskedOTPSlot'
 import { AlertTriangle, Loader2, Lock, ShieldCheck, Smartphone } from 'lucide-react'
 import { useInitiateTrAuth, useCompleteTrAuth } from '@/features/sync/hooks'
-import { formatTrAuthError } from '@/lib/errors'
+import { TrAppConfirmation } from '@/components/sync/TrAppConfirmation'
+import { formatTrAuthError, isTrAttemptOverError } from '@/lib/errors'
 import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 
-type TrAuthState = 'IDLE' | 'AWAITING_TAN'
+/** `AWAITING_APP` has no form: `auth/complete` stays open until the member confirms in the app. */
+type TrAuthState = 'IDLE' | 'AWAITING_APP' | 'AWAITING_TAN'
 
 interface TradeRepublicLoginProps {
-  /** Called once the TAN is accepted. */
+  /** Called once the login is confirmed (in the app or with the code). */
   onConnected?: () => void
   /** `page`: Sync tab (cards, plain inputs). `modal`: add-account wizard (masked OTP PIN, spinners). */
   variant: 'page' | 'modal'
@@ -28,10 +30,42 @@ export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginP
   const [pin, setPin] = useState('')
   const [tan, setTan] = useState('')
   const [processId, setProcessId] = useState<string | null>(null)
+  const [countdown, setCountdown] = useState(0)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   const initiateMutation = useInitiateTrAuth()
   const completeMutation = useCompleteTrAuth()
+
+  function finishLogin() {
+    setTan('')
+    setPhone('')
+    setPin('')
+    setProcessId(null)
+    setErrorMsg(null)
+    setAuthState('IDLE')
+    onConnected?.()
+  }
+
+  function completeLogin(id: string, code?: string) {
+    completeMutation.mutate(
+      { processId: id, tan: code },
+      {
+        onSuccess: finishLogin,
+        onError: (err: unknown) => {
+          setErrorMsg(formatTrAuthError(err, t))
+          setTan('')
+          // A dead attempt (refused, timed out, ...) cannot be completed any more: start over.
+          // A mistyped code leaves the attempt alive, so the code field stays.
+          if (code === undefined || isTrAttemptOverError(err)) {
+            setProcessId(null)
+            setAuthState('IDLE')
+            return
+          }
+          setAuthState('AWAITING_TAN')
+        },
+      },
+    )
+  }
 
   function handleInitiate(e: React.FormEvent) {
     e.preventDefault()
@@ -42,8 +76,15 @@ export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginP
         onSuccess: (data) => {
           setProcessId(data.processId)
           setTan('')
-          setAuthState('AWAITING_TAN')
           setErrorMsg(null)
+          if (data.flow === 'confirmInApp') {
+            // Nothing to type: hold the completion request open while the member confirms in the app.
+            setCountdown(data.countdownInSeconds)
+            setAuthState('AWAITING_APP')
+            completeLogin(data.processId)
+            return
+          }
+          setAuthState('AWAITING_TAN')
         },
         onError: (err: unknown) => {
           setErrorMsg(formatTrAuthError(err, t))
@@ -58,25 +99,7 @@ export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginP
   function handleTan(e: React.FormEvent) {
     e.preventDefault()
     if (!processId || tan.length !== TR_VERIFICATION_CODE_LENGTH) return
-    completeMutation.mutate(
-      { processId, tan },
-      {
-        onSuccess: () => {
-          setTan('')
-          setPhone('')
-          setPin('')
-          setProcessId(null)
-          setErrorMsg(null)
-          setAuthState('IDLE')
-          onConnected?.()
-        },
-        onError: (err: unknown) => {
-          setErrorMsg(formatTrAuthError(err, t))
-          setTan('')
-          setAuthState('AWAITING_TAN')
-        },
-      },
-    )
+    completeLogin(processId, tan)
   }
 
   // Only dismiss the banner: the mutations' onError handlers already reset
@@ -210,7 +233,17 @@ export function TradeRepublicLogin({ onConnected, variant }: TradeRepublicLoginP
     </Card>
   ))
 
-  const form = authState === 'AWAITING_TAN' ? (
+  const form = authState === 'AWAITING_APP' ? (
+    modal ? (
+      <TrAppConfirmation countdownInSeconds={countdown} />
+    ) : (
+      <Card size="sm">
+        <CardContent className="py-4">
+          <TrAppConfirmation countdownInSeconds={countdown} />
+        </CardContent>
+      </Card>
+    )
+  ) : authState === 'AWAITING_TAN' ? (
     <form key="tan" onSubmit={handleTan} className="space-y-4">
       {modal ? (
         <>
