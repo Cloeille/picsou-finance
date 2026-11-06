@@ -103,10 +103,10 @@ finished releases, and a release is tagged from it (`make release`).
   releases never ship the same version. Two pull requests on different release branches can still
   pick the same number, each green on its own branch, and the collision would only surface when
   `main` is merged into the minor branch. So before merging a pull request that adds a migration,
-  a maintainer runs `git fetch origin` and checks that its version is on no other open release
-  branch (`git ls-tree --name-only origin/<branch> backend/src/main/resources/db/migration/ | grep
-  '/V<n>__'` prints nothing); if it is on one, the pull request renumbers
-  first. Merges are done one at a time, which serialises the check.
+  a maintainer runs `git fetch origin` and checks that its version is neither on `main` nor on any
+  other open release branch (for each such `<branch>`, `git ls-tree --name-only origin/<branch>
+  backend/src/main/resources/db/migration/ | grep '/V<n>__'` prints nothing); if it is on one, the
+  pull request renumbers first. Merges are done one at a time, which serialises the check.
 - **`CHANGELOG.md`**: your entry goes under `[Unreleased]` on the target branch. Before the merge
   into `main`, a maintainer freezes the release branch (nothing else merges into it), renames that
   section to `## [x.y.z]` on it (`make release` requires it) and leaves an empty `[Unreleased]`
