@@ -599,6 +599,7 @@ docker pull ghcr.io/cloeille/picsou-finance/bourse-direct-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/amundi-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/bourso-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/banque-populaire-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/fortuneo-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/corum-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/sofidy-auth:1.1.0

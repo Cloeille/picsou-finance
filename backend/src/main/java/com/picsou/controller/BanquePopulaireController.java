@@ -76,7 +76,8 @@ public class BanquePopulaireController {
      * Starts the login at the customer's regional bank and answers with the bank's keypad for the
      * user to click. Throttled at 3 per 15 minutes per IP: a wrong pad costs a bank attempt. The
      * body is validated first, so a malformed request spends neither an attempt nor a browser
-     * slot. Never retried here. The region is passed to the sidecar, never stored.
+     * slot. Never retried here. The region is passed to the sidecar and kept with the pending
+     * login; {@code /auth/complete} stores it on the session row.
      */
     @PostMapping("/auth/initiate")
     public ResponseEntity<?> initiate(@RequestBody JsonNode body, HttpServletRequest request) {
