@@ -278,6 +278,7 @@ jobs:
       - name: Probe a headless Chromium launch
         id: chromium-probe
         continue-on-error: true
+        timeout-minutes: 3
         working-directory: frontend
         # Node, as the Playwright CLI runs under it (its shebang), not bun's runtime.
         run: node -e "require('@playwright/test').chromium.launch().then((browser) => browser.close())"
