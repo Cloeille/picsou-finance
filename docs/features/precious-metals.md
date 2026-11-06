@@ -39,7 +39,7 @@ understate them by that premium, so they are priced as coins, not as metal.
 - `backend/.../adapter/PreciousMetalPriceProvider.java`: spot and coin quotes behind `PriceProviderPort`
 - `backend/.../adapter/CompositePriceProvider.java`: routes `GOLD:` tickers to it
 - `backend/.../controller/PriceController.java`: `GET /api/prices/precious-metals` (the catalogue)
-- `backend/src/main/resources/db/migration/V122__account_type_precious_metals.sql`
+- `backend/src/main/resources/db/migration/V123__account_type_precious_metals.sql`
 - `frontend/src/components/shared/AddTransactionModal.tsx`: product picker on a metals account
 
 ### Flow
