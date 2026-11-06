@@ -16,9 +16,6 @@ class EntrypointDatasourcePasswordTest(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
         self.root = Path(self.temp_dir.name)
-        self.data_dir = self.root / "data"
-        self.data_dir.mkdir()
-        self.secrets_dir = self.data_dir / ".secrets"
         self.nginx_dir = self.root / "nginx" / "snippets"
         self.nginx_dir.mkdir(parents=True)
         self.trusted_proxy_snippet = self.nginx_dir / "picsou-trusted-proxy.generated.conf"
@@ -29,18 +26,16 @@ class EntrypointDatasourcePasswordTest(unittest.TestCase):
             "import json, os\n"
             "with open(os.environ['RESULT_FILE'], 'w') as result:\n"
             "    json.dump({key: os.environ.get(key) for key in ("
-            "'POSTGRES_PASSWORD', 'SPRING_DATASOURCE_PASSWORD')}, result)\n",
+            "'JWT_SECRET', 'POSTGRES_PASSWORD', 'SPRING_DATASOURCE_PASSWORD')}, result)\n",
             encoding="utf-8",
         )
         self.supervisord_stub.chmod(0o755)
 
         source = ENTRYPOINT.read_text(encoding="utf-8")
         replacements = (
-            ('SECRETS_DIR="/data/.secrets"', f'SECRETS_DIR="{self.secrets_dir}"'),
             ('mkdir -p /etc/nginx/snippets', f'mkdir -p "{self.nginx_dir}"'),
             ('TRUSTED_PROXY_SNIPPET="/etc/nginx/snippets/picsou-trusted-proxy.generated.conf"',
              f'TRUSTED_PROXY_SNIPPET="{self.trusted_proxy_snippet}"'),
-            ('HSTS_SNIPPET="/etc/nginx/snippets/picsou-hsts.conf"', f'HSTS_SNIPPET="{self.nginx_dir}/picsou-hsts.conf"'),
         )
         for original, replacement in replacements:
             self.assertEqual(source.count(original), 1, f"expected one sandbox replacement for {original!r}")
@@ -54,7 +49,6 @@ class EntrypointDatasourcePasswordTest(unittest.TestCase):
         env = {
             "PATH": os.environ["PATH"],
             "RESULT_FILE": str(self.result_file),
-            "HSTS_ENABLED": "false",
         }
         env.update(overrides)
         completed = subprocess.run(
@@ -98,59 +92,16 @@ class EntrypointDatasourcePasswordTest(unittest.TestCase):
             resolved = configured_password or expression.partition(":-")[2].removesuffix("}")
             self.assertEqual(resolved, "picsou")
 
-    def test_postgres_password_is_used_by_spring_when_no_override_exists(self):
-        password = "p; $pecial'\"\\pass"
-        result = self.run_entrypoint(POSTGRES_PASSWORD=password)
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.captured_environment()["SPRING_DATASOURCE_PASSWORD"], password)
-        self.assertNotIn(password, result.stdout + result.stderr)
-
-    def test_nonempty_spring_password_override_is_preserved(self):
-        result = self.run_entrypoint(
-            POSTGRES_PASSWORD="postgres-special; $value",
-            SPRING_DATASOURCE_PASSWORD="spring-override",
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.captured_environment()["SPRING_DATASOURCE_PASSWORD"], "spring-override")
-
-    def test_empty_spring_override_falls_back_to_postgres_password(self):
-        password = "postgres-special; $value"
-        result = self.run_entrypoint(
-            POSTGRES_PASSWORD=password,
-            SPRING_DATASOURCE_PASSWORD="",
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.captured_environment()["SPRING_DATASOURCE_PASSWORD"], password)
-
-    def test_persisted_postgres_password_is_used_by_spring(self):
-        self.secrets_dir.mkdir()
-        (self.secrets_dir / "postgres_password").write_text("fixture-postgres-password", encoding="utf-8")
+    def test_entrypoint_leaves_secrets_to_the_application(self):
         result = self.run_entrypoint()
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.captured_environment()["SPRING_DATASOURCE_PASSWORD"], "fixture-postgres-password")
-
-    def test_generated_postgres_password_is_stable_and_used_by_spring(self):
-        first = self.run_entrypoint()
-        self.assertEqual(first.returncode, 0, first.stderr)
-        first_environment = self.captured_environment()
-        second = self.run_entrypoint()
-        self.assertEqual(second.returncode, 0, second.stderr)
-        second_environment = self.captured_environment()
-
-        self.assertTrue(first_environment["POSTGRES_PASSWORD"])
-        self.assertEqual(first_environment["SPRING_DATASOURCE_PASSWORD"], first_environment["POSTGRES_PASSWORD"])
-        self.assertEqual(second_environment["POSTGRES_PASSWORD"], first_environment["POSTGRES_PASSWORD"])
-        self.assertEqual(second_environment["SPRING_DATASOURCE_PASSWORD"], first_environment["POSTGRES_PASSWORD"])
-
-    def test_explicit_picsou_password_is_preserved(self):
-        result = self.run_entrypoint(POSTGRES_PASSWORD="picsou")
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.captured_environment()["SPRING_DATASOURCE_PASSWORD"], "picsou")
+        self.assertNotIn("openssl", self.entrypoint_script)
+        self.assertNotIn("bootstrap_secret", self.entrypoint_script)
+        self.assertNotIn("SECRETS_DIR=", self.entrypoint_script)
+        captured = self.captured_environment()
+        self.assertIsNone(captured["JWT_SECRET"])
+        self.assertIsNone(captured["SPRING_DATASOURCE_PASSWORD"])
 
     def test_standalone_image_has_no_trusted_proxy_by_default(self):
         result = self.run_entrypoint()

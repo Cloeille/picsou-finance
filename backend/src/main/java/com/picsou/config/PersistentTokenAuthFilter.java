@@ -73,6 +73,15 @@ public class PersistentTokenAuthFilter extends OncePerRequestFilter {
         this.clock = clock;
     }
 
+    /**
+     * SPA files are public and carry no user data. Authenticating them would cost a user lookup per
+     * asset and could rotate the persistent token, sending Set-Cookie on a public, cacheable response.
+     */
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        return !SpaPaths.isBackend(SpaPaths.requestPath(request));
+    }
+
     @Override
     protected void doFilterInternal(
         HttpServletRequest request,

@@ -180,7 +180,7 @@ kubectl -n picsou create secret generic picsou-secrets \
 ```
 
 **Existing installs moving to `secrets.existingSecret` (including Argo CD):**
-do not run the random-key command above. The entrypoint gives environment values
+do not run the random-key command above. The app gives environment values
 priority over `/data/.secrets/crypto_key` and `/data/.secrets/jwt_secret`. Copy the
 exact contents of those files into `crypto-encryption-key` and `jwt-secret`, or
 leave both keys out of the new Secret and keep the persistent `/data` volume.
@@ -310,7 +310,7 @@ by `externalDatabase.jdbcParams`. It keeps its own `migrate` component label
 and does not mount the app's `/data` volume, which may still be in use.
 Datasource defaults and explicit overrides are shared with the app. The CLI uses
 `SPRING_DATASOURCE_PASSWORD` when nonempty, otherwise `POSTGRES_PASSWORD`, just
-like the image entrypoint. Kubernetes gives explicit `env` entries precedence over
+like the app does. Kubernetes gives explicit `env` entries precedence over
 `envFrom`; use `app.env` or `app.extraEnv` to override generated datasource values.
 Use `app.podAnnotations` for mesh opt-outs such as `sidecar.istio.io/inject: "false"`
 so the migration pod can finish without a long-running injected proxy.

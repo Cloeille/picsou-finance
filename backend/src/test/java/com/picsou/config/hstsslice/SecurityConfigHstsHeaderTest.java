@@ -39,9 +39,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Verifies that the {@code app.hsts-enabled} gate actually controls whether Spring Security
  * <em>emits</em> {@code Strict-Transport-Security}, not merely how the flag is parsed.
  *
- * <p>{@link SecurityConfigHstsParsingTest} covers the parsing and pins it against
- * {@code docker/entrypoint.sh}. This test covers the other half: that {@code hsts.disable()} is
- * really wired to the flag. An inverted condition, or a dropped {@code disable()} call, would leave
+ * <p>{@link SecurityConfigHstsParsingTest} covers the parsing. This test covers the other half:
+ * that {@code hsts.disable()} is really wired to the flag. An inverted condition, or a dropped {@code disable()} call, would leave
  * every HTTPS response pinning HSTS for a year — on a locally-issued certificate that is the
  * browser lockout the whole feature exists to prevent, and no parsing test would catch it.
  *

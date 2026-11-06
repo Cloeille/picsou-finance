@@ -330,7 +330,7 @@ class ReviewRegressionsTest(unittest.TestCase):
                     self.assertIn(app["extraVolumes"][0], pod["volumes"])
                     self.assertIn(app["extraVolumeMounts"][0], container["volumeMounts"])
 
-    def test_migration_password_fallback_matches_entrypoint(self):
+    def test_migration_password_fallback_matches_the_app(self):
         job = next(r for r in self.resources() if r["kind"] == "Job")
         script = job["spec"]["template"]["spec"]["containers"][0]["args"][0]
         with tempfile.TemporaryDirectory() as tmp:

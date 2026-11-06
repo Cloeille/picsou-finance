@@ -25,7 +25,7 @@ global:
 #   sidecar-api-key    APP_SIDECAR_API_KEY, sent by the app to every sidecar
 #   postgres-password  password of the bundled or external PostgreSQL
 #
-# Two more are optional; when absent, the app entrypoint generates them on first
+# Two more are optional; when absent, the app generates them on first
 # boot and keeps them on the /data volume, exactly as the Compose stack does:
 #   jwt-secret             JWT_SECRET            (openssl rand -base64 48)
 #   crypto-encryption-key  CRYPTO_ENCRYPTION_KEY (openssl rand -base64 32)

@@ -62,7 +62,8 @@ class PersistentTokenAuthFilterTest {
         properties.setSessionRevalidateAfter("1m");
         filter = new PersistentTokenAuthFilter(persistentSessionService, userRepository, jwtUtil, cookieWriter, mfaService,
             properties, Clock.fixed(NOW, ZoneOffset.UTC));
-        request = new MockHttpServletRequest();
+        request = new MockHttpServletRequest("GET", "/api/accounts");
+        request.setServletPath("/api/accounts");
         response = new MockHttpServletResponse();
         user = AppUser.builder().id(7L).username("alice").role(UserRole.MEMBER).activated(true).build();
         SecurityContextHolder.clearContext();
@@ -84,6 +85,19 @@ class PersistentTokenAuthFilterTest {
 
         verify(chain).doFilter(request, response);
         verifyNoInteractions(persistentSessionService, userRepository, jwtUtil, cookieWriter);
+    }
+
+    @Test
+    void spaPath_neverRotatesThePersistentToken() throws Exception {
+        request.setRequestURI("/assets/chunk-abc.js");
+        request.setServletPath("/assets/chunk-abc.js");
+        request.setCookies(new Cookie("persistent_token", "series:token"));
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        verifyNoInteractions(persistentSessionService, userRepository, jwtUtil, cookieWriter);
+        assertThat(response.getHeader("Set-Cookie")).isNull();
     }
 
     @Test
