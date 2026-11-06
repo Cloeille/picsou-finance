@@ -24,6 +24,7 @@ describe('safeRedirect', () => {
     expect(safeRedirect('')).toBe('/')
     expect(safeRedirect('settings')).toBe('/')
     expect(safeRedirect('https://evil.com')).toBe('/')
+    expect(safeRedirect('javascript:alert(1)')).toBe('/')
   })
 
   it('keeps same-origin absolute paths, including the OAuth authorize endpoint', () => {
@@ -34,6 +35,7 @@ describe('safeRedirect', () => {
   it('rejects protocol-relative and backslash-prefixed targets (open redirect)', () => {
     expect(safeRedirect('//evil.com')).toBe('/')
     expect(safeRedirect('/\\evil.com')).toBe('/')
+    expect(safeRedirect('\t//evil.com')).toBe('/')
     expect(safeRedirect('//evil.com', '/login')).toBe('/login')
     expect(safeRedirect('/\\evil.com', '/login')).toBe('/login')
   })
