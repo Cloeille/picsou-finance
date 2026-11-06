@@ -971,6 +971,33 @@ handlers.set(key('DELETE', '/caisse-epargne/session'), () => ({
   removed: true, bankSessionRevoked: false, message: '',
 }))
 
+// La Banque Postale — the mobile approval is a human step, so the demo answers
+// the keypad then a completed session; the session status is otherwise idle.
+const demoLbpStatus = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+  unsupported: [],
+  unsupportedCount: 0,
+  savedIdentifier: null,
+}
+handlers.set(key('GET', '/lbp/status'), () => demoLbpStatus)
+handlers.set(key('POST', '/lbp/auth/initiate'), () => ({
+  processId: 'demo',
+  keypad: { keys: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'], columns: 5 },
+  expiresInSeconds: 300,
+}))
+handlers.set(key('POST', '/lbp/auth/keypad'), () => ({
+  processId: 'demo', status: 'APPROVAL_PENDING',
+}))
+handlers.set(key('POST', '/lbp/auth/complete'), () => demoLbpStatus)
+handlers.set(key('POST', '/lbp/sync'), () => demoLbpStatus)
+handlers.set(key('DELETE', '/lbp/session'), () => ({
+  removed: true, bankSessionRevoked: false, message: '',
+}))
+
 // Demo authentication bypasses the bank's mobile/SMS confirmation.
 const demoCicStatus: CicSessionStatus = {
   isActive: false,
