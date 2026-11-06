@@ -1,4 +1,14 @@
 # ─────────────────────────────────────────────────────────────────────────
+# Select the configured site's certificate when a client connects without SNI.
+# This is important for IP-literal URLs: clients commonly omit SNI for IPs.
+# PICSOU_DOMAIN is also the site address below, so Caddy can select the matching
+# automatically managed certificate (ACME for public names, local CA otherwise).
+# ─────────────────────────────────────────────────────────────────────────
+{
+	default_sni {$PICSOU_DOMAIN:picsou.localhost}
+}
+
+# ─────────────────────────────────────────────────────────────────────────
 # Picsou — optional TLS terminator (compose profile `tls`).
 #
 # Why this exists: Enable Banking rejects plain-HTTP callback URLs for

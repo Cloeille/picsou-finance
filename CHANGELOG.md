@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **HTTPS access by LAN IP.** The bundled Caddy proxy now uses `PICSOU_DOMAIN` as its default TLS SNI when a client omits SNI, allowing it to select the certificate for the configured site address.
+
 ### Changed
 
 - **The app image is one non-root Java process.** nginx, supervisord and the shell entrypoint are
@@ -95,6 +99,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Finary file import reaches the preview again.** The upload was sent as JSON
+  (`{"file":{}}`) instead of multipart, so the file was lost and the server answered
+  415 Unsupported Media Type.
+
 - **Crypto coins outside the built-in list get a price.** NEXO and CRO are now priced
   ([#419](https://github.com/Cloeille/picsou-finance/issues/419)). Beyond them, a coin held in a
   crypto account that Picsou does not know yet is looked up on CoinGecko and remembered once it is
@@ -120,6 +128,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   half-owned 200,000 EUR loan with 150,000 left showed 62.5% repaid instead of 25%. Progress
   now uses the loan's own figures whatever the member's share, including a zero share. See
   [Ownership shares](docs/features/account-ownership-shares.md).
+- **The wealth pyramid counts the same accounts as the dashboard.** A Revolut pocket was
+  added again on top of its wallet, whose balance already holds it, and hidden accounts still
+  counted. Both moved total assets away from the dashboard's figure for the same money and skewed
+  the safety net and the score. The pyramid, its MCP tool and the projection built on it now skip
+  pockets and hidden accounts, as the dashboard does; the property side follows, so a hidden
+  property and a hidden loan account no longer enter the property tier's net value or the LTV.
 
 - **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar
   read the whole transaction history and refused it past 1,000 rows (`UPSTREAM_FORMAT_CHANGED`).
@@ -139,6 +153,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   page does. The XLSX export's monthly total no longer adds the insurance on top of an entered
   payment, and no longer shows only the insurance when the payment is empty. See
   [Loans](docs/features/loans.md).
+
+- **"Financial wealth" no longer includes real estate.** The dashboard's financial mode
+  only excluded checking accounts and loans, so a property made it read the same as gross
+  wealth. It now also leaves out real estate, physical precious metals and `OTHER`
+  accounts; SCPI shares stay in as exchangeable securities. The history curve and the
+  distribution donut follow the same filter, with donut shares recomputed over the
+  filtered total.
+  ([#445](https://github.com/Cloeille/picsou-finance/issues/445))
 
 ### Changed
 
