@@ -56,6 +56,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -220,6 +221,41 @@ class TradeRepublicSyncServiceTest {
     }
 
     @Test
+    void completeAuth_aDisconnectDuringTheWaitStoresNothing() {
+        // The member clicks Disconnect while the in-app confirmation is still pending.
+        when(trPort.completeAuth("p1", null)).thenAnswer(invocation -> {
+            service.clearSession(7L);
+            return "plain-state";
+        });
+
+        assertThatThrownBy(() -> service.completeAuth("p1", null, 7L))
+            .isInstanceOfSatisfying(SyncException.class,
+                ex -> assertThat(ex.getCode()).isEqualTo("AUTH_ATTEMPT_EXPIRED"));
+
+        verify(sessionRepository, never()).saveAndFlush(any());
+        verify(accountRepository, never()).restoreSoftDeletedTrAccounts(anyLong());
+        verify(trPort, never()).fetchAccounts(any(), any());
+    }
+
+    @Test
+    void completeAuth_aDisconnectBeforeANewLoginDoesNotBlockIt() {
+        service.clearSession(7L);
+        when(trPort.completeAuth("p1", null)).thenReturn("plain-state");
+        when(encryption.encrypt("plain-state")).thenReturn("encrypted");
+        when(familyMemberRepository.findById(7L))
+            .thenReturn(Optional.of(FamilyMember.builder().id(7L).displayName("Owner").build()));
+        when(sessionRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+            SidecarSession session = invocation.getArgument(0);
+            org.springframework.test.util.ReflectionTestUtils.setField(session, "id", 3L);
+            return session;
+        });
+
+        service.completeAuth("p1", null, 7L);
+
+        verify(sessionRepository).saveAndFlush(any());
+    }
+
+    @Test
     void completeAuth_aRejectedSecondFactorStoresNothing() {
         when(trPort.completeAuth("p1", "1234"))
             .thenThrow(new SyncException("rejected", null, "INVALID_OTP"));
@@ -288,6 +324,47 @@ class TradeRepublicSyncServiceTest {
         // VWAP: (2*10 + 3*20) / 5 = 16  -- scale-8 representation 16.00000000
         assertThat(saved.getAverageBuyIn()).isEqualByComparingTo("16.00000000");
         assertThat(saved.getProviderValueEur()).isEqualByComparingTo("530");
+    }
+
+    /**
+     * OpenFIGI can take seconds per ISIN, so the tickers are resolved while fetching, before the
+     * commit transaction takes the session row lock: no resolve() runs inside a transaction.
+     */
+    @Test
+    void sync_resolvesIsinsBeforeTheCommitTransaction() {
+        Long memberId = 7L;
+        FamilyMember member = FamilyMember.builder().id(memberId).displayName("Owner").build();
+        arrangeSession(member);
+        TrPosition pos = new TrPosition("IE00ISIN_A", bd("2"), bd("10"), bd("100"));
+        when(trPort.fetchAccounts("cookie", CLAIMS)).thenReturn(List.of(new TrAccountData(
+            "tr_cto", "TR Titres", AccountType.COMPTE_TITRES, bd("200"), List.of(pos))));
+        boolean[] inTransaction = {false};
+        doAnswer(invocation -> {
+            inTransaction[0] = true;
+            try {
+                return ((TransactionCallback<Object>) invocation.getArgument(0)).doInTransaction(transactionStatus);
+            } finally {
+                inTransaction[0] = false;
+            }
+        }).when(txTemplate).execute(any(TransactionCallback.class));
+        List<Boolean> resolvedInTransaction = new java.util.ArrayList<>();
+        when(isinConverter.resolve("IE00ISIN_A")).thenAnswer(inv -> {
+            resolvedInTransaction.add(inTransaction[0]);
+            return new TickerResult("RKLB", "Rocket Lab");
+        });
+        when(accountRepository.findByExternalAccountIdAndMemberId("tr_cto", memberId)).thenReturn(Optional.empty());
+        when(accountRepository.save(any(Account.class))).thenAnswer(inv -> {
+            Account a = inv.getArgument(0);
+            a.setId(1L);
+            return a;
+        });
+
+        service.queueSync(memberId);
+
+        assertThat(resolvedInTransaction).containsExactly(false);
+        ArgumentCaptor<AccountHolding> captor = ArgumentCaptor.forClass(AccountHolding.class);
+        verify(holdingRepository).save(captor.capture());
+        assertThat(captor.getValue().getTicker()).isEqualTo("RKLB");
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.picsou.service;
 
 import com.picsou.adapter.OpenFigiIsinConverter;
+import com.picsou.adapter.OpenFigiIsinConverter.TickerResult;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.dto.AccountResponse;
 import com.picsou.exception.ResourceNotFoundException;
@@ -54,7 +55,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+
+import static com.picsou.service.SyncValues.requireTransactionResult;
 
 @Service
 public class TradeRepublicSyncService {
@@ -72,7 +76,11 @@ public class TradeRepublicSyncService {
     private final SecurityIdentityService       identityService;
     private final CategorizationService         categorizationService;
     private final CategoryRepository            categoryRepository;
-    private final SidecarSyncTemplate<List<TrAccountData>> sync;
+    private final SidecarSyncTemplate<Prepared> sync;
+    private final TransactionTemplate           txTemplate;
+    /** Bumped by every disconnect, so a login that was waiting meanwhile stores nothing. */
+    private final Map<Long, Long> authGenerations = new ConcurrentHashMap<>();
+    private final Object sessionWriteLock = new Object();
 
     public TradeRepublicSyncService(
         TradeRepublicAdapter trPort,
@@ -100,25 +108,37 @@ public class TradeRepublicSyncService {
         this.identityService   = identityService;
         this.categorizationService = categorizationService;
         this.categoryRepository = categoryRepository;
+        this.txTemplate        = txTemplate;
         this.sync = new SidecarSyncTemplate<>(SidecarBank.TRADE_REPUBLIC, new Strategy(), sessionRepository,
             familyMemberRepository, encryption, txTemplate, syncExecutor, false);
     }
 
-    private final class Strategy implements SidecarSyncStrategy<List<TrAccountData>> {
+    /** The fetched accounts and their resolved tickers, so the commit makes no network call. */
+    private record Prepared(List<TrAccountData> accounts, Map<String, TickerResult> tickers) {}
+
+    private final class Strategy implements SidecarSyncStrategy<Prepared> {
         @Override
-        public List<TrAccountData> fetch(SidecarSyncJob job) {
+        public Prepared fetch(SidecarSyncJob job) {
             TrSession session = trPort.openSession(job.plainState());
-            return trPort.fetchAccounts(session.sessionToken(), session.claims());
+            List<TrAccountData> accounts = trPort.fetchAccounts(session.sessionToken(), session.claims());
+            // OpenFIGI can take seconds per ISIN: resolve here, outside the commit's row lock.
+            Map<String, TickerResult> tickers = new HashMap<>();
+            for (TrAccountData data : accounts) {
+                for (TrPosition p : data.positions()) {
+                    tickers.computeIfAbsent(p.isin(), isinConverter::resolve);
+                }
+            }
+            return new Prepared(accounts, tickers);
         }
 
         @Override
-        public void commit(SidecarSyncJob job, List<TrAccountData> prepared, Instant syncedAt) {
-            prepared.forEach(data -> upsertAccount(data, job.memberId(), true));
+        public void commit(SidecarSyncJob job, Prepared prepared, Instant syncedAt) {
+            prepared.accounts().forEach(data -> upsertAccount(data, job.memberId(), prepared.tickers()));
         }
 
         @Override
-        public String describe(List<TrAccountData> prepared) {
-            return "accounts=" + prepared.size();
+        public String describe(Prepared prepared) {
+            return "accounts=" + prepared.accounts().size();
         }
     }
 
@@ -138,11 +158,21 @@ public class TradeRepublicSyncService {
      * first import. Returns as soon as the import is queued.
      */
     public SessionStatusResponse completeAuth(String processId, String tan, Long memberId) {
+        long generation = authGenerations.getOrDefault(memberId, 0L);
         String plainState = trPort.completeAuth(processId, tan);
-        // The member re-authenticated on purpose: lift soft-delete tombstones in the same
-        // transaction as the new session so the first sync updates, not skips, their accounts.
-        sync.replaceAndQueue(memberId, plainState, false,
-            session -> accountRepository.restoreSoftDeletedTrAccounts(memberId));
+        SidecarSyncJob job;
+        synchronized (sessionWriteLock) {
+            // The wait can last two minutes: a disconnect clicked meanwhile wins over the login.
+            if (authGenerations.getOrDefault(memberId, 0L) != generation) {
+                throw new SyncException("The Trade Republic connection was removed during the login", null,
+                    SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name());
+            }
+            // The member re-authenticated on purpose: lift soft-delete tombstones in the same
+            // transaction as the new session so the first sync updates, not skips, their accounts.
+            job = requireTransactionResult(txTemplate.execute(status -> sync.insertQueued(memberId, plainState, false,
+                session -> accountRepository.restoreSoftDeletedTrAccounts(memberId))));
+        }
+        sync.submit(job);
         log.info("Trade Republic session stored for member {}, import queued", memberId);
         return getStatus(memberId);
     }
@@ -218,7 +248,7 @@ public class TradeRepublicSyncService {
                     .replaceAll("[^a-z0-9]", "_")
                     .replaceAll("_+", "_");
 
-                upsertAccount(new TrAccountData(externalId, name, type, balance, List.of()), memberId, false)
+                upsertAccount(new TrAccountData(externalId, name, type, balance, List.of()), memberId, null)
                     .ifPresent(responses::add);
             }
 
@@ -497,7 +527,11 @@ public class TradeRepublicSyncService {
 
     /** Returns whether a stored session was there to delete. */
     public boolean clearSession(Long memberId) {
-        boolean removed = sync.clear(memberId);
+        boolean removed;
+        synchronized (sessionWriteLock) {
+            authGenerations.merge(memberId, 1L, Long::sum);
+            removed = sync.clear(memberId);
+        }
         log.info("Trade Republic session cleared for member {}", memberId);
         return removed;
     }
@@ -534,7 +568,13 @@ public class TradeRepublicSyncService {
 
     // --- Private ---
 
-    private Optional<AccountResponse> upsertAccount(TrAccountData data, Long memberId, boolean replaceHoldings) {
+    /**
+     * @param tickers the resolved ticker of every position's ISIN, or null for a CSV import that
+     *                keeps the account's holdings as they are
+     */
+    private Optional<AccountResponse> upsertAccount(TrAccountData data, Long memberId,
+                                                    Map<String, TickerResult> tickers) {
+        boolean replaceHoldings = tickers != null;
         log.debug("TR upsertAccount: looking for externalId={} memberId={}", data.externalId(), memberId);
         Optional<Account> existing = accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), memberId);
         log.debug("TR upsertAccount: found existing={}", existing.isPresent());
@@ -610,7 +650,7 @@ public class TradeRepublicSyncService {
             Set<String> incompleteProviderValues = new HashSet<>();
             Map<String, String> isinByTicker = new HashMap<>();
             for (TrPosition p : data.positions()) {
-                var result = isinConverter.resolve(p.isin());
+                TickerResult result = tickers.get(p.isin());
                 String ticker = result.ticker();
                 isinByTicker.put(ticker, p.isin());
                 String name = result.name();
