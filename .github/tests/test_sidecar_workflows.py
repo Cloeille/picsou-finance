@@ -150,8 +150,8 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
 
     def test_every_compose_sidecar_has_a_url_in_both_spring_profiles(self):
         sidecars = {name for name in _load(DOCKER_COMPOSE)["services"] if name.endswith("-auth")}
-        default = _load(APPLICATION_YML)["app"]
-        dev = _load(APPLICATION_DEV_YML)["app"]
+        default = _load(APPLICATION_YML)["app"]["sidecars"]
+        dev = _load(APPLICATION_DEV_YML)["app"]["sidecars"]
         for name in sorted(sidecars):
             with self.subTest(sidecar=name):
                 self.assertIn(name, default, "missing from application.yml")

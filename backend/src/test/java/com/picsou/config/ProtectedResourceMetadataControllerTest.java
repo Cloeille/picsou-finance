@@ -4,6 +4,7 @@ import com.picsou.mcp.Scopes;
 import com.picsou.model.AppSetting;
 import com.picsou.model.SetupState;
 import com.picsou.repository.AppSettingRepository;
+import com.picsou.support.PostgresContainers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,7 +37,7 @@ class ProtectedResourceMetadataControllerTest {
 
     @Container
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @DynamicPropertySource
     static void secrets(DynamicPropertyRegistry registry) {

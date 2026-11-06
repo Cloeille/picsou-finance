@@ -56,15 +56,15 @@ listPositionsSalarieDispositifsDto[]          one entry per plan (dispositif)
   `/complete`, `/positions`, `/health`
 - `services/amundi-auth/positions_parser.py` — payload normalisation, kept free
   of FastAPI and Playwright so the rules that silently break are unit-testable
-- `backend/.../port/AmundiPort.java` — typed contract (`InitiateResult`,
-  `PlanData`, `Position`) and `AmundiErrorCode.java` — stable failure codes
-- `backend/.../adapter/AmundiAdapter.java` — WebClient onto the sidecar, maps
-  its `detail` onto `AmundiErrorCode`, wraps everything in `SyncException`
+- `backend/.../port/SidecarInitiate.java`, `SidecarErrorCode.java` (stable failure codes) and
+  `adapter/sidecar/SidecarBank.AMUNDI` (the codes Amundi declares)
+- `backend/.../adapter/AmundiAdapter.java` — nests `PlanData` and `Position`; WebClient onto the sidecar, maps
+  its `detail` onto `SidecarErrorCode` through `SidecarClient`, wraps everything in `SyncException`
 - `backend/.../service/AmundiSyncService.java` — job state machine, validation,
   reconciliation, atomic persistence
 - `backend/.../controller/AmundiController.java` — `/api/amundi/*`
 - `backend/.../model/AmundiSession.java`, `AmundiSyncStatus.java`
-- `backend/.../config/AmundiSyncConfig.java` (single-thread executor),
+- `backend/.../config/SyncExecutorConfig.java` (single-thread executor),
   `AmundiSyncRecovery.java` (fails interrupted jobs at boot)
 - `backend/src/main/resources/db/migration/V69__account_type_employee_savings.sql`,
   `V70__amundi_session.sql`

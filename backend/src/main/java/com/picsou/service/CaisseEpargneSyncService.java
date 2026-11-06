@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
@@ -17,7 +18,7 @@ import com.picsou.model.CategoryKind;
 import com.picsou.model.Debt;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
-import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
@@ -177,7 +178,7 @@ public class CaisseEpargneSyncService {
         CaisseEpargnePort.InitiateResult result = port.initiateAuth(customerId);
         if (result == null || result.processId() == null || result.processId().isBlank()
             || result.keypad() == null || result.expiresInSeconds() <= 0) {
-            throw error(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED,
+            throw error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
                 "Caisse d'Epargne did not return a usable sign-in challenge", null);
         }
         requireSafeKeypad(result.keypad());
@@ -207,7 +208,7 @@ public class CaisseEpargneSyncService {
             }
         }
         if (!safe) {
-            throw error(CaisseEpargneErrorCode.KEYPAD_CHANGED,
+            throw error(SidecarErrorCode.KEYPAD_CHANGED,
                 "Caisse d'Epargne changed its login page. Nothing was sent.", null);
         }
     }
@@ -235,12 +236,12 @@ public class CaisseEpargneSyncService {
         PendingLogin pending = takePending(processId, memberId);
         if (pending.approvalExpiresAt() != null) {
             // The digits were already sent for this process: nothing more to click.
-            throw error(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This Caisse d'Epargne sign-in attempt expired. Please start again.", null);
         }
         if (!pending.keypadExpiresAt().isAfter(clock.instant())) {
             // Nothing was clicked anywhere: the user just took too long.
-            throw error(CaisseEpargneErrorCode.KEYPAD_EXPIRED,
+            throw error(SidecarErrorCode.KEYPAD_EXPIRED,
                 "The Caisse d'Epargne keypad expired. Start again.", null);
         }
         port.submitKeypad(processId, positions);
@@ -257,11 +258,11 @@ public class CaisseEpargneSyncService {
         if (pending != null && !pending.memberId().equals(memberId)) {
             // Someone else probing a process id must not burn the owner's attempt.
             pendingLogins.putIfAbsent(processId, pending);
-            throw error(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This Caisse d'Epargne sign-in attempt expired. Please start again.", null);
         }
         if (pending == null) {
-            throw error(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This Caisse d'Epargne sign-in attempt expired. Please start again.", null);
         }
         return pending;
@@ -278,12 +279,12 @@ public class CaisseEpargneSyncService {
         // The keypad must have been submitted: without it there is no approval to wait for.
         if (pending.approvalExpiresAt() == null
             || !pending.approvalExpiresAt().isAfter(clock.instant())) {
-            throw error(CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED,
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This Caisse d'Epargne sign-in attempt expired. Please start again.", null);
         }
         String plainState = port.completeAuth(processId);
         if (plainState == null || plainState.isBlank()) {
-            throw error(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED,
+            throw error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
                 "Caisse d'Epargne did not return a session", null);
         }
         return storeSession(plainState, memberId);
@@ -295,7 +296,7 @@ public class CaisseEpargneSyncService {
      */
     public SessionStatusResponse storeSession(String plainState, Long memberId) {
         if (plainState == null || plainState.isBlank()) {
-            throw error(CaisseEpargneErrorCode.INVALID_SESSION_STATE, "No Caisse d'Epargne session was provided", null);
+            throw error(SidecarErrorCode.INVALID_SESSION_STATE, "No Caisse d'Epargne session was provided", null);
         }
         requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = memberRepository.findById(memberId)
@@ -312,13 +313,13 @@ public class CaisseEpargneSyncService {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
             CaisseEpargneSession session = sessionRepository.findByMemberIdForUpdate(memberId)
                 .orElseThrow(() -> error(
-                    CaisseEpargneErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "No active Caisse d'Epargne session. Please reconnect.",
                     null
                 ));
             if (!session.isActive()) {
                 throw error(
-                    CaisseEpargneErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "The Caisse d'Epargne session expired. Please reconnect.",
                     null
                 );
@@ -334,12 +335,12 @@ public class CaisseEpargneSyncService {
                 // Unreadable (wrong key, corrupted): the session is dead, not a server fault.
                 // Recorded inside the transaction, then thrown after it so the row is committed.
                 session.markQueued();
-                session.markFailed(CaisseEpargneErrorCode.INVALID_SESSION_STATE, Instant.now());
+                session.markFailed(SidecarErrorCode.INVALID_SESSION_STATE, Instant.now());
                 sessionRepository.save(session);
                 log.warn("Stored Caisse d'Epargne session is unreadable (member={}; type={})",
                     memberId, ex.getClass().getSimpleName());
                 return new QueueDecision(null, null, error(
-                    CaisseEpargneErrorCode.INVALID_SESSION_STATE,
+                    SidecarErrorCode.INVALID_SESSION_STATE,
                     "The stored Caisse d'Epargne session is unusable. Please reconnect.",
                     null
                 ));
@@ -364,9 +365,9 @@ public class CaisseEpargneSyncService {
         try {
             syncExecutor.execute(() -> executeJob(job));
         } catch (RuntimeException ex) {
-            markFailed(job, CaisseEpargneErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             throw error(
-                CaisseEpargneErrorCode.INTERNAL_ERROR,
+                SidecarErrorCode.INTERNAL_ERROR,
                 "Could not schedule the Caisse d'Epargne synchronization",
                 ex
             );
@@ -399,11 +400,11 @@ public class CaisseEpargneSyncService {
                 log.info("Discarded stale Caisse d'Epargne sync result (member={})", job.memberId());
             }
         } catch (SyncException ex) {
-            CaisseEpargneErrorCode code = codeOf(ex);
+            SidecarErrorCode code = codeOf(ex);
             markFailed(job, code);
             log.warn("Caisse d'Epargne sync failed (member={}; code={})", job.memberId(), code);
         } catch (Exception ex) {
-            markFailed(job, CaisseEpargneErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             // The exception type only: its message could carry a value from the payload.
             log.error("Caisse d'Epargne sync failed unexpectedly (member={}; type={})",
                 job.memberId(), ex.getClass().getSimpleName());
@@ -436,7 +437,7 @@ public class CaisseEpargneSyncService {
      */
     private PreparedSnapshot prepare(CaisseEpargnePort.AccountsSnapshot fetched) {
         if (fetched == null || fetched.accounts().isEmpty()) {
-            throw error(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED, "Caisse d'Epargne returned no account", null);
+            throw error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED, "Caisse d'Epargne returned no account", null);
         }
 
         Set<String> externalIds = new HashSet<>();
@@ -961,7 +962,7 @@ public class CaisseEpargneSyncService {
         return upserted;
     }
 
-    private void markFailed(SyncJob job, CaisseEpargneErrorCode code) {
+    private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
                 Optional<CaisseEpargneSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
@@ -995,7 +996,7 @@ public class CaisseEpargneSyncService {
             List.of(CaisseEpargneSyncStatus.QUEUED, CaisseEpargneSyncStatus.RUNNING),
             CaisseEpargneSyncStatus.FAILED,
             Instant.now(),
-            CaisseEpargneErrorCode.INTERNAL_ERROR
+            SidecarErrorCode.INTERNAL_ERROR
         );
         if (recovered > 0) {
             log.warn("Recovered {} interrupted Caisse d'Epargne sync job(s)", recovered);
@@ -1115,23 +1116,16 @@ public class CaisseEpargneSyncService {
         return externalId;
     }
 
-    private CaisseEpargneErrorCode codeOf(SyncException exception) {
-        if (exception.getCode() == null) {
-            return CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE;
-        }
-        try {
-            return CaisseEpargneErrorCode.valueOf(exception.getCode());
-        } catch (IllegalArgumentException ignored) {
-            return CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE;
-        }
+    private SidecarErrorCode codeOf(SyncException exception) {
+        return SyncValues.errorCode(exception, SidecarBank.CAISSE_EPARGNE, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
-    private static SyncException error(CaisseEpargneErrorCode code, String message, Throwable cause) {
+    private static SyncException error(SidecarErrorCode code, String message, Throwable cause) {
         return new SyncException(message, cause, code.name());
     }
 
     private static SyncException invalid(String what) {
-        return error(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED, "Caisse d'Epargne returned " + what, null);
+        return error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED, "Caisse d'Epargne returned " + what, null);
     }
 
     private static String clean(String value) {
@@ -1174,7 +1168,7 @@ public class CaisseEpargneSyncService {
         CaisseEpargneSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        CaisseEpargneErrorCode lastSyncError,
+        SidecarErrorCode lastSyncError,
         List<UnsupportedContract> unsupported
     ) {
         public SessionStatusResponse {

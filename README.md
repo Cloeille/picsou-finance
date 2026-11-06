@@ -58,7 +58,7 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
                (PSD2/OAuth)     (crypto)       (stocks/ETF)    (WebSocket)
 ```
 
-- **Ports & Adapters** — `BankConnectorPort`, `PriceProviderPort`, `TradeRepublicPort`, `BoursoPort`, etc. Swap providers without touching business logic.
+- **Ports & Adapters** — `BankConnectorPort`, `PriceProviderPort`, `CryptoExchangePort`, `WalletPort`, etc. Swap providers without touching business logic.
 - **Two-tier identity** — `AppUser` (auth) → `FamilyMember` (domain). Every entity is scoped by `member_id`; admins can act on behalf of a managed profile via `?memberId=X`.
 - **Flyway** — Versioned database migrations
 - **JWT auth** — HttpOnly cookies, SameSite=Lax (Safari iOS compatibility), refresh token rotation
