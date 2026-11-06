@@ -1,6 +1,7 @@
 # lbp-auth — La Banque Postale sidecar
 
-> Status: **live-validated on a test stack (2026-11-06).** The login runs in
+> Status: **live-validated by the author on a test stack (2026-11-06); the
+> maintainer's live run is still pending.** The login runs in
 > headless Chromium (base `chromium`), so the bank's anti-fraud scripts set the
 > `iscdName` device fingerprint naturally; the keypad is clicked in that browser
 > and the password never leaves it. After the keypad, the sidecar clicks the
@@ -134,7 +135,9 @@ must be diagnosed from the sidecar's typed error, never by replaying it.
 3. **Account data** — server-rendered XHTML, no account JSON.
 4. **Anti-bot** — the `fruprem.js` / `loreo.js` scripts set `iscdName`; no
    CAPTCHA was observed.
-5. **Session lifetime** — not measured; `check` returns a conservative 600 s.
+5. **Session lifetime** - short and idle-based: an immediate second sync reuses the stored
+   cookies, a sync 9 minutes later is refused. `/token-check` still reports a conservative
+   600 s, but the next read detects the expiry.
 6. **History** — `init-releve_ccp.ea` returns roughly 90 days of operations;
    `telechargementMouvements.ea` is the export path, and the `relevePdf`
    history holds monthly statements.

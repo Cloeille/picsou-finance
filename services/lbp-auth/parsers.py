@@ -181,7 +181,8 @@ def parse_transactions(source: str) -> list[dict]:
         return []
     rows = re.findall(r'<tr class="row btn-full-lightbox".*?</tr>', table.group(0), re.S | re.I)
     transactions: list[dict] = []
-    for index, row in enumerate(rows):
+    occurrences: dict[tuple[str, str, str], int] = {}
+    for row in rows:
         date_part = re.search(r'class="sorted-value"[^>]*>([^<]+)<', row, re.I)
         label_part = re.search(r'class="col label col-libelle"[^>]*>(.*?)</td>', row, re.S | re.I)
         amount_part = re.search(r'class="col label col-montant-brut[^"]*"[^>]*>(.*?)</td>', row, re.S | re.I)
@@ -191,12 +192,17 @@ def parse_transactions(source: str) -> list[dict]:
             when = datetime.strptime(date_part.group(1).strip(), "%d/%m/%Y").date()
         except ValueError as exc:
             raise FormatError() from exc
-        label = text(label_part.group(1))
+        label = text(label_part.group(1)) or "La Banque Postale operation"
         amount = _amount(amount_part.group(1))
         # The rows carry no bank id. A deterministic hash over the visible fields
-        # plus the row's position in the page keeps re-syncs idempotent.
+        # plus an occurrence counter among identical rows keeps re-syncs idempotent
+        # when a new operation is prepended: the page index is not part of the key,
+        # so every existing row keeps its id.
+        key = (when.isoformat(), label, str(amount))
+        occurrence = occurrences.get(key, 0)
+        occurrences[key] = occurrence + 1
         external_id = hashlib.sha1(
-            f"{when.isoformat()}|{label}|{amount}|{index}".encode("utf-8")
+            f"{key[0]}|{key[1]}|{key[2]}|{occurrence}".encode("utf-8")
         ).hexdigest()
         transactions.append(
             {
@@ -205,7 +211,7 @@ def parse_transactions(source: str) -> list[dict]:
                 "dueDate": None,
                 "amount": str(amount),
                 "currency": "EUR",
-                "label": label or "La Banque Postale operation",
+                "label": label,
                 "typeCode": None,
             }
         )

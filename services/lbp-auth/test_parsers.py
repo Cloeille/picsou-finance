@@ -1,4 +1,4 @@
-"""The XHTML parsers, against the real page structure (anonymized)."""
+"""The XHTML parsers, against synthetic fixtures modelled on the real page structure."""
 
 import hashlib
 import unittest
@@ -90,6 +90,28 @@ class TransactionsTest(unittest.TestCase):
 
         self.assertEqual(first, second)
         self.assertEqual(len(set(first)), 2)
+
+    def test_a_new_row_does_not_renumber_the_existing_ones(self):
+        before = parsers.parse_transactions(fixtures.STATEMENT_HTML)
+        new_row = (
+            '<tr class="row btn-full-lightbox">'
+            '<td class="col label col-date" data-label="Date">'
+            '<span class="sorted-value">03/10/2026</span></td>'
+            '<td class="col label col-libelle" data-label="Libellé">NOUVELLE OPERATION</td>'
+            '<td class="col label col-montant-brut sr-only" aria-hidden="true"> -10.0 </td>'
+            "</tr>"
+        )
+        with_new_row = fixtures.STATEMENT_HTML.replace(
+            '<tr class="row btn-full-lightbox">', new_row + '<tr class="row btn-full-lightbox">', 1
+        )
+
+        after = parsers.parse_transactions(with_new_row)
+
+        before_by_date = {t["date"]: t["externalId"] for t in before}
+        after_by_date = {t["date"]: t["externalId"] for t in after}
+        self.assertEqual(len(after), 3)
+        for date, external_id in before_by_date.items():
+            self.assertEqual(after_by_date[date], external_id)
 
     def test_an_account_without_a_table_has_no_transactions(self):
         self.assertEqual(parsers.parse_transactions("<html><body>no operations</body></html>"), [])

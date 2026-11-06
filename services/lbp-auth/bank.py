@@ -2,13 +2,12 @@
 
 The login is a normal HTML form: identifier + a six-position virtual keypad,
 where the bank's own script writes the clicked **positions** (not the digits)
-into the `password` field. A new device then gets a mobile-approval page that
-the page polls every 3 s until the bank redirects. The account pages are
-server-rendered XHTML, so a cookie jar is enough to replay them.
-
-Everything here can be replayed with `httpx`. The one unverified risk is
-`iscdName`, a 52-character device fingerprint the bank's anti-fraud scripts put
-in the form; if the server insists on it, only the login layer needs a browser.
+into the `password` field. The page also runs anti-fraud scripts that set a
+52-character `iscdName` device fingerprint, so the login is driven in headless
+Chromium (the keypad is clicked there and the password never leaves it). A new
+device then gets a mobile-approval page the page polls until the bank redirects.
+The account pages are server-rendered XHTML, so the resulting cookie jar is
+enough to replay them with `httpx`.
 """
 
 import asyncio
@@ -585,7 +584,7 @@ class BrowserBankClient(HttpxBankClient):
                 param = parse_qs(urlparse(url).query).get("param", [""])[0]
                 if param != "AuthentInfoAF":
                     log.warning("La Banque Postale login refused param=%s", param)
-                    await self._log_bank_message(page, "login-refused")
+                    self._log_failure_page("login-refused")
                     if param == "0x132120c8":
                         raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
                     raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
@@ -614,7 +613,7 @@ class BrowserBankClient(HttpxBankClient):
                     "La Banque Postale approval failed param=%s",
                     parse_qs(urlparse(url).query).get("param", [""])[0],
                 )
-                await self._log_bank_message(page, "approval-error")
+                self._log_failure_page("approval-error")
                 raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
 
             # The form may have re-rendered (refused identifier or password), the
@@ -635,7 +634,7 @@ class BrowserBankClient(HttpxBankClient):
                 await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
                 log.info("La Banque Postale browser login awaits mobile approval")
                 return
-            await self._log_bank_message(page, "unexpected")
+            self._log_failure_page("unexpected")
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
         except HTTPException:
             await self._dispose(state)
@@ -667,7 +666,7 @@ class BrowserBankClient(HttpxBankClient):
                         "La Banque Postale approval failed param=%s",
                         parse_qs(urlparse(url).query).get("param", [""])[0],
                     )
-                    await self._log_bank_message(page, "approval-error")
+                    self._log_failure_page("approval-error")
                     raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
                 await asyncio.sleep(2)
             raise HTTPException(status_code=408, detail="APP_VALIDATION_TIMEOUT")
@@ -723,7 +722,7 @@ class BrowserBankClient(HttpxBankClient):
             log.debug("La Banque Postale Continuer button not usable", exc_info=True)
         retour = parse_qs(urlparse(url).query).get("url_retour", [""])[0]
         if not retour:
-            await BrowserBankClient._log_bank_message(page, "no-continue")
+            BrowserBankClient._log_failure_page("no-continue")
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
         await page.goto(retour, wait_until="domcontentloaded", timeout=45_000)
 
@@ -748,27 +747,12 @@ class BrowserBankClient(HttpxBankClient):
         return page.url
 
     @staticmethod
-    async def _log_bank_message(page: Any, label: str) -> None:
-        """Log the bank's own message on a failure page.
+    def _log_failure_page(label: str) -> None:
+        """Record which failure page the login hit, never its text.
 
-        The message pages fill their body with JavaScript, so give them a
-        moment. Never logs a password, a keypad position or a cookie.
+        The page body is a raw bank payload; the README forbids logging it.
         """
-        # The bank's message pages render their body with JavaScript after the
-        # JSON fetch; read too early and the text is empty.
-        try:
-            await page.wait_for_timeout(1_500)
-        except Exception:
-            pass
-        try:
-            body_text = await page.locator("body").inner_text(timeout=3_000)
-        except Exception:
-            body_text = ""
-        log.warning(
-            "La Banque Postale %s message=%s",
-            label,
-            " ".join(body_text.split())[:300],
-        )
+        log.warning("La Banque Postale failure page %s", label)
 
     @staticmethod
     async def _close_browser(pw: Any, browser: Any, context: Any) -> None:

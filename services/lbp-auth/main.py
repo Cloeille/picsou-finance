@@ -1,10 +1,10 @@
 """La Banque Postale sidecar: session replay and normalized account snapshot.
 
-Status: **browser-assisted login implemented, not validated against a live bank
-session by the project.** The login runs in headless Chromium so the bank's
-anti-fraud scripts set the `iscdName` device fingerprint naturally; the keypad
-is clicked in that browser, and the password never leaves it. The session cookies
-are then replayed with `httpx` for the server-rendered pages.
+Status: **browser-assisted login implemented and live-validated by the author;
+the maintainer's live run is still pending.** The login runs in headless Chromium
+so the bank's anti-fraud scripts set the `iscdName` device fingerprint naturally;
+the keypad is clicked in that browser, and the password never leaves it. The
+session cookies are then replayed with `httpx` for the server-rendered pages.
 
 Sign-in is identifier → shuffled virtual keypad → **approval in the bank's
 mobile app** (Certicode is no longer the flow for a modern account). The UI

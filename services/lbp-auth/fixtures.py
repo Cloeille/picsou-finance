@@ -1,7 +1,8 @@
-"""Anonymized XHTML fixtures taken from the two real captures.
+"""Synthetic XHTML fixtures modelled on La Banque Postale's login and account pages.
 
-Only the structure is kept; account numbers, balances and labels are synthetic.
-This module is test-only and is not copied into the production image.
+The structure follows the pages the sidecar parses; identifiers, balances, labels
+and account numbers are invented. This module is test-only and is not copied into
+the production image.
 """
 
 KEYS = ["5", "3", "9", "8", "6", "1", "0", "7", "2", "4"]

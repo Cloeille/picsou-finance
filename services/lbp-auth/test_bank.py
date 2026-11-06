@@ -22,6 +22,7 @@ class FakeBank:
         self.polls = 0
         self.expired = False
         self.auth_body = ""
+        self.statement_html = fixtures.STATEMENT_HTML
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -62,8 +63,10 @@ class FakeBank:
         if path == "/wsost/OstBrokerWeb/auth" and request.method == "POST":
             self.auth_body = request.content.decode()
             data = parse_qs(self.auth_body)
-            assert data["username"] == [CUSTOMER]
-            assert data["password"] == [PASSWORD]
+            if data.get("username") != [CUSTOMER]:
+                raise AssertionError("the identifier was not submitted")
+            if data.get("password") != [PASSWORD]:
+                raise AssertionError("the keypad positions were not submitted")
             if self.mode == "two_factor":
                 return httpx.Response(
                     302,
@@ -76,9 +79,6 @@ class FakeBank:
                 302, headers={"location": "/voscomptes/canalXHTML/identif.ea?origin=particuliers"}
             )
 
-        if path == "/voscomptes/canalXHTML/identif.ea":
-            return httpx.Response(302, headers={"location": bank.SYNTHESE_CCP})
-
         if path == bank.SYNTHESE_CCP:
             if self.expired:
                 return httpx.Response(302, headers={"location": "/wsost/OstBrokerWeb/loginform"})
@@ -88,7 +88,7 @@ class FakeBank:
             return httpx.Response(200, text=fixtures.SYNTHESE_EP_HTML)
 
         if path in (bank.RELEVE_CCP, bank.RELEVE_CNE, bank.FRAME_CNE):
-            return httpx.Response(200, text=fixtures.STATEMENT_HTML)
+            return httpx.Response(200, text=self.statement_html)
 
         return httpx.Response(404)
 
@@ -160,11 +160,12 @@ class BankTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_balance_page_without_a_table_has_no_transactions(self):
         self.fake.expired = False
+        self.fake.statement_html = "<html><body>no operations</body></html>"
         state = await self.login()
 
         snapshot = await self.client.accounts(state)
 
-        self.assertTrue(all(isinstance(a["transactions"], list) for a in snapshot["accounts"]))
+        self.assertTrue(all(a["transactions"] == [] for a in snapshot["accounts"]))
 
 
 if __name__ == "__main__":

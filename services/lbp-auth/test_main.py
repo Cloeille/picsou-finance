@@ -12,14 +12,14 @@ import main
 KEY = "lbp-contract-test-key"
 HEADERS = {KEY_HEADER: KEY}
 
-IMAGE = "data:image/png;base64,iVBORw0KGgo="
+KEYS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
 
 class FakeBank:
     async def initiate(self, customer_id):
         return {
             "processId": "proc-1",
-            "keypad": {"images": [IMAGE] * 10, "columns": 5},
+            "keypad": {"keys": KEYS, "columns": 5},
             "expiresInSeconds": 90,
         }
 
@@ -94,7 +94,7 @@ class LbpSidecarContractTest(unittest.TestCase):
             self.assertEqual(initiated.status_code, 200)
             self.assertEqual(initiated.json()["processId"], "proc-1")
             self.assertEqual(initiated.json()["keypad"]["columns"], 5)
-            self.assertEqual(len(initiated.json()["keypad"]["images"]), 10)
+            self.assertEqual(len(initiated.json()["keypad"]["keys"]), 10)
 
             keypad = self.post("/keypad", {"processId": "proc-1", "positions": [7, 3, 0, 9, 4, 1]})
             self.assertEqual(keypad.status_code, 200)
