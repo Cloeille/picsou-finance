@@ -1,0 +1,106 @@
+"""The savings mapping, on anonymized responses captured from a real saver space."""
+
+import copy
+import unittest
+from decimal import Decimal
+
+from fixtures import EMPLOYEE_ID, FUND_DETAIL, PRODUCTS, SAVINGS
+from savings_parser import SavingsFormatError, fund_code, fund_ids, money_close, parse_plans
+
+
+def plans(savings=SAVINGS, products=PRODUCTS, codes=None):
+    return parse_plans(copy.deepcopy(savings), copy.deepcopy(products), EMPLOYEE_ID, codes or {})
+
+
+class ParsePlansTest(unittest.TestCase):
+    def test_captured_plans_reconcile(self):
+        result = plans()
+        self.assertEqual([p["planKind"] for p in result], ["PEE", "PER"])
+        pee, perco = result
+        self.assertEqual(pee["externalId"], f"natixis_{EMPLOYEE_ID}_PEE-4242")
+        self.assertEqual(pee["name"], "Plan d'Épargne Entreprise")
+        self.assertEqual(pee["employer"], "UES ACME")
+        self.assertEqual(len(pee["positions"]), 6)
+        self.assertTrue(money_close(sum(p["valueEur"] for p in pee["positions"]), pee["balanceEur"]))
+        self.assertEqual(perco["balanceEur"], Decimal("0.0"))
+        self.assertEqual(perco["positions"], [])
+
+    def test_position_fields(self):
+        line = next(p for p in plans(codes={1002: "QS0000001002"})[0]["positions"]
+                    if p["label"] == "FONDS ACTIONS EUROPE I")
+        self.assertIsNone(line["isin"])
+        self.assertEqual(line["fundCode"], "QS0000001002")
+        self.assertGreater(line["quantity"], 0)
+        self.assertEqual(line["unitValue"], Decimal("49.69513"))
+        self.assertIsNotNone(line["pnlEur"])
+        self.assertTrue(money_close(line["quantity"] * line["unitValue"], line["valueEur"]))
+
+    def test_fund_held_in_two_compartments_is_one_line(self):
+        savings = copy.deepcopy(SAVINGS)
+        pee = savings["items"][0]
+        employee, voluntary = pee["compartments"]
+        moved = copy.deepcopy(employee["investmentOptions"][0])
+        half = moved["amount"]["value"] / 2
+        employee["investmentOptions"][0]["amount"]["value"] = half
+        employee["investmentOptions"][0]["units"] = moved["units"] / 2
+        moved["amount"]["value"] = half
+        moved["units"] = moved["units"] / 2
+        voluntary["investmentOptions"] = [moved]
+        result = plans(savings)[0]["positions"]
+        self.assertEqual(len(result), 6)
+        merged = next(p for p in result if p["label"] == moved["label"])
+        self.assertTrue(money_close(merged["valueEur"], Decimal(str(half * 2))))
+
+    def test_missing_line_is_incomplete(self):
+        savings = copy.deepcopy(SAVINGS)
+        savings["items"][0]["compartments"][0]["investmentOptions"].pop()
+        with self.assertRaises(SavingsFormatError) as caught:
+            plans(savings)
+        self.assertEqual(caught.exception.code, "PORTFOLIO_INCOMPLETE")
+
+    def test_missing_plan_against_products_is_incomplete(self):
+        savings = copy.deepcopy(SAVINGS)
+        savings["items"].pop(0)
+        with self.assertRaises(SavingsFormatError) as caught:
+            plans(savings)
+        self.assertEqual(caught.exception.code, "PORTFOLIO_INCOMPLETE")
+
+    def test_drift_within_tolerance_is_accepted(self):
+        savings = copy.deepcopy(SAVINGS)
+        savings["items"][0]["compartments"][0]["investmentOptions"][0]["amount"]["value"] += 0.04
+        self.assertEqual(len(plans(savings)), 2)
+
+    def test_unexpected_shape_is_format_changed(self):
+        for mutate in (
+            lambda s: s.pop("items"),
+            lambda s: s["items"][0].pop("amount"),
+            lambda s: s["items"][0]["compartments"][0]["investmentOptions"][0].update(units="many"),
+            lambda s: s["items"][0]["compartments"][0]["investmentOptions"][0].update(type="CASH"),
+            lambda s: s["items"][0].pop("id"),
+        ):
+            savings = copy.deepcopy(SAVINGS)
+            mutate(savings)
+            with self.subTest(mutate=mutate), self.assertRaises(SavingsFormatError) as caught:
+                plans(savings)
+            self.assertEqual(caught.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_products_without_totals_is_format_changed(self):
+        with self.assertRaises(SavingsFormatError) as caught:
+            plans(products={"items": []})
+        self.assertEqual(caught.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+
+class FundTest(unittest.TestCase):
+    def test_fund_ids_once_in_order(self):
+        ids = fund_ids(SAVINGS)
+        self.assertEqual(len(ids), 6)
+        self.assertEqual(len(set(ids)), 6)
+
+    def test_fund_code(self):
+        self.assertEqual(fund_code(FUND_DETAIL), "QS0000001002")
+        self.assertIsNone(fund_code({"identifiers": [{"type": "ISIN", "value": "FR0000000000"}]}))
+        self.assertIsNone(fund_code({}))
+
+
+if __name__ == "__main__":
+    unittest.main()

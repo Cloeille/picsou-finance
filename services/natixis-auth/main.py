@@ -1,0 +1,550 @@
+"""Read-only Natixis Interépargne authentication and positions sidecar.
+
+The saver space (epargnants.interepargne.natixis.fr) is an Angular SPA over a
+JSON API. Nothing in its login needs a browser: no captcha, no script
+challenge, and the on-screen keypad only displays the digits, which the API
+receives in clear. So this service speaks plain HTTPS.
+
+Auth flow (an OAuth2 authorization code with PKCE, bridged over SAML):
+  POST /initiate {email, password}
+    authorize → SAML SSO (its page carries the CSRF token) → login modes
+    → password → strong authentication required → code sent by SMS/voice/e-mail
+    → {processId, mfaRequired: true, mfaType}
+  POST /complete {processId, code}
+    → code verified → SAML response posted back → authorization code
+    → tokens → {sessionState}
+  POST /positions {sessionState}
+    → refresh-token grant → savings + products → {plans, sessionState}
+
+The refresh token (`offline_access`) is what lets the backend sync without
+anyone at the phone, until Natixis ends the session. It is the only secret
+returned to Java, which encrypts it before storage. The password and the code
+live in memory for one request; neither they nor any token, cookie or
+financial value is ever logged.
+"""
+
+import asyncio
+import base64
+import hashlib
+import json
+import re
+import secrets
+import time
+import uuid
+from contextlib import asynccontextmanager
+from decimal import Decimal
+from html import unescape
+from typing import Any, Literal
+from urllib.parse import parse_qs, urljoin, urlsplit
+
+import httpx
+from fastapi import HTTPException
+from picsou_sidecar import PendingStore, configure_logging, create_app, otp_field_detail
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from savings_parser import SavingsFormatError, fund_code, fund_ids, parse_plans
+
+# httpx logs every URL at INFO, and the redirect after login carries the code.
+log = configure_logging("natixis-auth", quiet=("httpx",))
+
+CLIENT_ID = "ad7e6480-cb40-4b44-9149-1738a24460fc"
+REDIRECT_URI = "https://epargnants.interepargne.natixis.fr/"
+SCOPE = (
+    "readActiris readUsers readDistribution readInvestment manageAccount readSaving readCms "
+    "readAccount readProfitSharing readTransfer readFunds readSaverGuide readConfidential offline_access"
+)
+OAUTH = "https://nie-auth.api.natixis.com/api/oauth"
+IDP = "https://auth-nie.natixis.com"
+API = "https://nie.api.natixis.com"
+# Hosts a redirect or a form may send the login to.
+TRUSTED_HOSTS = frozenset({"nie-auth.api.natixis.com", "auth-nie.natixis.com", "epargnants.interepargne.natixis.fr"})
+
+# Second factors in order of preference; the saver space offers the ones set up on the account.
+OTP_MODES = ("SMS", "EMAIL", "VOICE")
+PENDING_TTL_SECONDS = 600
+# Wrong codes one login attempt may take before it is dropped; Natixis locks the
+# account on its own after a few more, which would lock the saver out.
+MAX_CODE_ATTEMPTS = 5
+MAX_PENDING = 16
+REQUEST_TIMEOUT_SECONDS = 15.0
+# Each route gives up before the backend's 45 s adapter timeout, so a slow
+# Natixis never leaves a code sent or tokens minted that the backend no longer
+# waits for.
+ROUTE_DEADLINE_SECONDS = 40.0
+SESSION_STATE_VERSION = 1
+
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+)
+
+_FORM_ACTION_RE = re.compile(r'<form[^>]*\baction="([^"]+)"', re.I)
+_INPUT_RE = re.compile(r'<input[^>]*\bname="([^"]+)"[^>]*\bvalue="([^"]*)"', re.I)
+_CSRF_RE = re.compile(r'<meta\s+name="_csrf"\s+content="([^"]+)"', re.I)
+
+
+class NatixisError(Exception):
+    """An outcome with a contract code; the message is for logs and never holds secrets."""
+
+    def __init__(self, status: int, code: str, message: str):
+        super().__init__(message)
+        self.status = status
+        self.code = code
+
+
+# ─── Contract ───────────────────────────────────────────────────────────────
+
+
+class InitiateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=1, max_length=254)
+    password: str = Field(min_length=1, max_length=100)
+
+
+class InitiateResponse(BaseModel):
+    processId: str
+    mfaRequired: Literal[True]
+    mfaType: Literal["SMS", "EMAIL", "VOICE"]
+
+
+class CompleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    processId: str = Field(min_length=1, max_length=100)
+    code: str = Field(pattern=r"^[0-9]{4,12}$")
+
+
+class SessionResponse(BaseModel):
+    sessionState: str
+
+
+class PositionsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sessionState: str = Field(min_length=2, max_length=10_000)
+
+
+class PositionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    isin: None = None
+    fundCode: str | None = Field(default=None, max_length=20)
+    label: str = Field(min_length=1, max_length=200)
+    quantity: Decimal
+    unitValue: Decimal | None = None
+    valueEur: Decimal
+    pnlEur: Decimal | None = None
+
+
+class PlanPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    externalId: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=200)
+    planKind: str | None = Field(default=None, max_length=30)
+    employer: str | None = Field(default=None, max_length=200)
+    balanceEur: Decimal
+    positions: list[PositionPayload]
+    snapshotComplete: Literal[True]
+
+
+class PositionsResponse(BaseModel):
+    sessionState: str
+    plans: list[PlanPayload]
+
+
+# ─── Plumbing ───────────────────────────────────────────────────────────────
+
+
+async def _dispose(state: dict[str, Any]) -> None:
+    client = state.get("client")
+    if client is not None:
+        try:
+            await client.aclose()
+        except Exception:
+            log.warning("Could not close a pending Natixis client")
+
+
+_pending = PendingStore(dispose=_dispose, log=log, ttl_seconds=PENDING_TTL_SECONDS, max_size=MAX_PENDING)
+app = create_app(
+    request_log=(log, "Natixis Interépargne"),
+    background=_pending,
+    validation_detail=otp_field_detail("INVALID_OTP"),
+)
+
+
+def _new_client() -> httpx.AsyncClient:
+    """Tests replace this to plug in a mock transport."""
+    return httpx.AsyncClient(
+        headers={"User-Agent": USER_AGENT, "Accept-Language": "fr-FR,fr;q=0.9"},
+        timeout=REQUEST_TIMEOUT_SECONDS,
+        follow_redirects=False,
+    )
+
+
+@asynccontextmanager
+async def _errors(step: str):
+    """Turn every failure into the `{"detail": CODE}` contract."""
+    try:
+        async with asyncio.timeout(ROUTE_DEADLINE_SECONDS):
+            yield
+    except HTTPException:
+        raise
+    except NatixisError as exc:
+        log.warning("Natixis %s failed code=%s: %s", step, exc.code, exc)
+        raise HTTPException(status_code=exc.status, detail=exc.code) from exc
+    except SavingsFormatError as exc:
+        log.warning("Natixis %s answer rejected code=%s: %s", step, exc.code, exc)
+        raise HTTPException(status_code=502, detail=exc.code) from exc
+    except TimeoutError as exc:
+        log.warning("Natixis %s took longer than %ss", step, ROUTE_DEADLINE_SECONDS)
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
+    except (AttributeError, KeyError, TypeError, ValueError, ValidationError) as exc:
+        log.warning("Natixis %s answer has an unexpected shape error_type=%s", step, type(exc).__name__)
+        raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED") from exc
+    except httpx.HTTPError as exc:
+        log.warning("Natixis %s unreachable error_type=%s", step, type(exc).__name__)
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
+    except Exception as exc:
+        log.error("Unexpected Natixis %s failure error_type=%s", step, type(exc).__name__)
+        raise HTTPException(status_code=500, detail="INTERNAL_ERROR") from exc
+
+
+def _trusted(url: str) -> str:
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.hostname not in TRUSTED_HOSTS:
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", "Login sent to an unexpected host")
+    return url
+
+
+def _upstream(response: httpx.Response, what: str) -> None:
+    """Fail on what no step expects: a 5xx or a throttle."""
+    if response.status_code == 429:
+        raise NatixisError(429, "RATE_LIMITED", f"{what} throttled")
+    if response.status_code >= 500:
+        raise NatixisError(502, "UPSTREAM_UNAVAILABLE", f"{what} answered {response.status_code}")
+
+
+def _json(response: httpx.Response, what: str) -> Any:
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"{what} is not JSON") from exc
+
+
+def _error_codes(response: httpx.Response) -> list[str]:
+    try:
+        errors = response.json().get("errors") or []
+    except (ValueError, AttributeError):
+        return []
+    return [e.get("code") for e in errors if isinstance(e, dict) and isinstance(e.get("code"), str)]
+
+
+def _pkce() -> tuple[str, str]:
+    verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    return verifier, challenge
+
+
+def _idp_headers(state: dict[str, Any]) -> dict[str, str]:
+    return {
+        "x-csrf-token": state["csrf"],
+        "x-device-id": state["deviceId"],
+        "Origin": IDP,
+        "Referer": IDP + "/",
+        "Accept": "application/json, text/plain, */*",
+    }
+
+
+# ─── Login ──────────────────────────────────────────────────────────────────
+
+
+async def _open_login(client: httpx.AsyncClient) -> dict[str, Any]:
+    """authorize → the SAML request it auto-posts → the IdP page and its CSRF token."""
+    verifier, challenge = _pkce()
+    oauth_state = secrets.token_urlsafe(24)
+    response = await client.get(f"{OAUTH}/authorize", params={
+        "response_type": "code",
+        "client_id": CLIENT_ID,
+        "state": oauth_state,
+        "redirect_uri": REDIRECT_URI,
+        "scope": SCOPE,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "additionalData": "language=fr",
+    })
+    _upstream(response, "authorize")
+    action = _FORM_ACTION_RE.search(response.text)
+    fields = {name: unescape(value) for name, value in _INPUT_RE.findall(response.text)}
+    if response.status_code != 200 or action is None or "SAMLRequest" not in fields:
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", "authorize did not hand out a SAML request")
+
+    target = _trusted(urljoin(str(response.url), unescape(action.group(1))))
+    response = await client.post(target, data=fields)
+    _upstream(response, "SAML SSO")
+    csrf = _CSRF_RE.search(response.text)
+    if response.status_code != 200 or csrf is None:
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", "SAML SSO page carries no CSRF token")
+    return {
+        "verifier": verifier,
+        "oauthState": oauth_state,
+        "csrf": csrf.group(1),
+        "deviceId": str(uuid.uuid4()),
+    }
+
+
+async def _password_login(client: httpx.AsyncClient, state: dict[str, Any], email: str, password: str) -> None:
+    headers = _idp_headers(state)
+    response = await client.post(f"{IDP}/auth/v1/authenticationModes/search",
+                                 json={"emailOrServerCode": email}, headers=headers)
+    _upstream(response, "login modes")
+    if 400 <= response.status_code < 500:
+        raise NatixisError(401, "INVALID_CREDENTIALS", f"login modes answered {response.status_code}")
+    modes = {item.get("mode") for item in _json(response, "login modes").get("items") or [] if isinstance(item, dict)}
+    if not modes:
+        raise NatixisError(401, "INVALID_CREDENTIALS", "No login mode for this e-mail")
+    if "PASSWORD" not in modes:
+        raise NatixisError(501, "MFA_TYPE_UNSUPPORTED", "This account has no password login")
+
+    response = await client.post(f"{IDP}/auth/v1/authenticate", json={"password": password}, headers=headers)
+    _upstream(response, "password")
+    if response.status_code in (401, 403, 400, 404):
+        raise NatixisError(401, "INVALID_CREDENTIALS", f"password answered {response.status_code}")
+    if response.status_code == 423:
+        raise NatixisError(429, "RATE_LIMITED", "account locked")
+    if response.status_code not in (200, 201):
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"password answered {response.status_code}")
+
+
+async def _send_code(client: httpx.AsyncClient, state: dict[str, Any]) -> str:
+    """Natixis always asks a second factor: start it on the preferred channel."""
+    headers = _idp_headers(state)
+    response = await client.post(f"{IDP}/auth/v1/multiFactorsAuthenticate", headers=headers)
+    _upstream(response, "second factor check")
+    if response.status_code != 403 or "strong_authentication_required" not in _error_codes(response):
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"second factor check answered {response.status_code}")
+
+    response = await client.get(f"{IDP}/auth/v1/strongAuthenticationModes", headers=headers)
+    _upstream(response, "second factor modes")
+    if response.status_code != 200:
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"second factor modes answered {response.status_code}")
+    offered = {
+        item.get("id")
+        for item in _json(response, "second factor modes").get("items") or []
+        if isinstance(item, dict) and item.get("status") == "VALID"
+    }
+    mode = next((m for m in OTP_MODES if m in offered), None)
+    if mode is None:
+        raise NatixisError(501, "MFA_TYPE_UNSUPPORTED", "No SMS, e-mail or voice second factor")
+
+    response = await client.post(f"{IDP}/auth/v1/strongAuthentications", json={"mode": mode}, headers=headers)
+    _upstream(response, "code request")
+    if response.status_code not in (200, 201):
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"code request answered {response.status_code}")
+    href = _json(response, "code request")["_links"]["verification"]["href"]
+    state["verificationUrl"] = _trusted(urljoin(IDP + "/", href))
+    return mode
+
+
+async def _verify_code(client: httpx.AsyncClient, state: dict[str, Any], code: str) -> None:
+    headers = _idp_headers(state)
+    response = await client.post(state["verificationUrl"], json={"code": code}, headers=headers)
+    _upstream(response, "code check")
+    if response.status_code == 410:
+        raise NatixisError(410, "AUTH_ATTEMPT_EXPIRED", "code expired")
+    if response.status_code == 423:
+        raise NatixisError(429, "RATE_LIMITED", "too many codes")
+    if 400 <= response.status_code < 500:
+        raise NatixisError(400, "INVALID_OTP", f"code check answered {response.status_code}")
+    if response.status_code not in (200, 201):
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"code check answered {response.status_code}")
+    strong = _json(response, "code check")["id"]
+
+    response = await client.post(f"{IDP}/auth/v1/multiFactorsAuthenticate",
+                                 headers={**headers, "strong-authentication": strong})
+    _upstream(response, "second factor")
+    if response.status_code not in (200, 201):
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"second factor answered {response.status_code}")
+
+
+async def _finish_login(client: httpx.AsyncClient, state: dict[str, Any]) -> dict[str, Any]:
+    """Profile check → SAML response posted back → authorization code → tokens."""
+    response = await client.post(f"{IDP}/auth/v1/profiles/me/verifications", headers=_idp_headers(state))
+    _upstream(response, "profile check")
+    if response.status_code not in (200, 201):
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"profile check answered {response.status_code}")
+    saml = _json(response, "profile check")["saml"]
+    # The SPA posts the RelayState the IdP leaves out as the string "undefined"; the
+    # authorization server expects that field, so it is mirrored as such.
+    response = await client.post(_trusted(saml["serviceProviderUrl"]), data={
+        "SAMLResponse": saml["encodedValue"],
+        "RelayState": saml.get("relayState") or "undefined",
+    })
+    _upstream(response, "SAML response")
+    location = response.headers.get("location", "")
+    query = parse_qs(urlsplit(location).query)
+    if response.status_code not in (302, 303) or not location.startswith(REDIRECT_URI) or "code" not in query:
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", "SAML response gave no authorization code")
+    if query.get("state", [None])[0] != state["oauthState"]:
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", "Authorization state mismatch")
+
+    tokens = await _token(client, {
+        "grant_type": "authorization_code",
+        "code": query["code"][0],
+        "redirect_uri": REDIRECT_URI,
+        "code_verifier": state["verifier"],
+    }, refused="AUTH_ATTEMPT_EXPIRED")
+    employee_id = await _employee_id(client, tokens["access_token"])
+    return {"tokens": tokens, "employeeId": employee_id}
+
+
+async def _token(client: httpx.AsyncClient, grant: dict[str, str], refused: str = "SESSION_EXPIRED") -> dict[str, Any]:
+    response = await client.post(f"{OAUTH}/token", data={**grant, "client_id": CLIENT_ID},
+                                 headers={"Accept": "application/json"})
+    _upstream(response, "token")
+    if response.status_code in (400, 401):
+        status = 401 if refused == "SESSION_EXPIRED" else 410
+        raise NatixisError(status, refused, f"token grant refused ({response.status_code})")
+    if response.status_code != 200:
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"token answered {response.status_code}")
+    tokens = _json(response, "token")
+    if not isinstance(tokens.get("access_token"), str) or not isinstance(tokens.get("refresh_token"), str):
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", "token answer lacks a token")
+    return tokens
+
+
+async def _api_get(client: httpx.AsyncClient, access_token: str, path: str, params: dict | None = None) -> Any:
+    response = await client.get(f"{API}{path}", params=params,
+                                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"})
+    _upstream(response, "API")
+    if response.status_code == 401:
+        raise NatixisError(401, "SESSION_EXPIRED", "API answered 401")
+    if response.status_code != 200:
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"API answered {response.status_code}")
+    return _json(response, "API")
+
+
+async def _employee_id(client: httpx.AsyncClient, access_token: str) -> str:
+    employee_id = (await _api_get(client, access_token, "/auth/v3/users/me")).get("id")
+    if not isinstance(employee_id, str) or not re.fullmatch(r"[0-9A-Za-z-]{1,40}", employee_id):
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", "users/me carries no usable id")
+    return employee_id
+
+
+# ─── Session state ──────────────────────────────────────────────────────────
+
+
+def serialize_session(refresh_token: str, device_id: str, employee_id: str) -> str:
+    return json.dumps({
+        "v": SESSION_STATE_VERSION,
+        "refreshToken": refresh_token,
+        "deviceId": device_id,
+        "employeeId": employee_id,
+    }, separators=(",", ":"))
+
+
+def parse_session(raw: str) -> dict[str, str]:
+    try:
+        state = json.loads(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="INVALID_DATA") from exc
+    if (
+        not isinstance(state, dict)
+        or state.get("v") != SESSION_STATE_VERSION
+        or not all(isinstance(state.get(k), str) and state[k] for k in ("refreshToken", "deviceId", "employeeId"))
+        or not re.fullmatch(r"[0-9A-Za-z-]{1,40}", state["employeeId"])
+    ):
+        raise HTTPException(status_code=400, detail="INVALID_DATA")
+    return state
+
+
+# ─── Positions ──────────────────────────────────────────────────────────────
+
+
+async def collect_plans(client: httpx.AsyncClient, access_token: str, employee_id: str) -> list[dict]:
+    base = f"/saving/v1/employees/{employee_id}"
+    savings = await _api_get(client, access_token, f"{base}/savings", {"gainsOrLosses": "true"})
+    products = await _api_get(client, access_token, f"{base}/products",
+                              {"includeGainsOrLosses": "true", "includeExternalAccounts": "true"})
+    codes: dict[int, str | None] = {}
+    for fund_id in fund_ids(savings):
+        try:
+            codes[fund_id] = fund_code(await _api_get(client, access_token, f"/fund/v1/funds/{fund_id}"))
+        except NatixisError:
+            # The AMF code only labels the line; its absence never blocks a sync,
+            # nor ends a session the savings read just proved alive.
+            codes[fund_id] = None
+    return parse_plans(savings, products, employee_id, codes)
+
+
+# ─── Routes ─────────────────────────────────────────────────────────────────
+
+
+@app.post("/initiate", response_model=InitiateResponse)
+async def initiate(req: InitiateRequest) -> dict:
+    await _pending.expire()
+    client = _new_client()
+    parked = False
+    try:
+        async with _errors("login"):
+            state = await _open_login(client)
+            await _password_login(client, state, req.email, req.password)
+            mode = await _send_code(client, state)
+            process_id = str(uuid.uuid4())
+            await _pending.put_or_raise(process_id, {**state, "client": client, "created_at": time.time()})
+            parked = True
+            return {"processId": process_id, "mfaRequired": True, "mfaType": mode}
+    finally:
+        if not parked:
+            await client.aclose()
+
+
+@app.post("/complete", response_model=SessionResponse)
+async def complete(req: CompleteRequest) -> dict:
+    state = await _pending.take(req.processId)
+    if state is None:
+        raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
+    client: httpx.AsyncClient = state["client"]
+    retry = False
+    try:
+        async with _errors("code check"):
+            try:
+                await _verify_code(client, state, req.code)
+            except NatixisError as exc:
+                if exc.code == "INVALID_OTP":
+                    state["codeAttempts"] = state.get("codeAttempts", 0) + 1
+                    if state["codeAttempts"] >= MAX_CODE_ATTEMPTS:
+                        # Saying "wrong code" here would invite a retry the attempt no longer allows.
+                        raise NatixisError(410, "AUTH_ATTEMPT_EXPIRED", "too many wrong codes") from exc
+                    # A mistyped code keeps the attempt: the saver retries with the same processId.
+                    await _pending.repark(req.processId, state)
+                    retry = True
+                raise
+            result = await _finish_login(client, state)
+            return {"sessionState": serialize_session(
+                result["tokens"]["refresh_token"], state["deviceId"], result["employeeId"])}
+    finally:
+        if not retry:
+            await _dispose(state)
+
+
+@app.post("/positions", response_model=PositionsResponse)
+async def positions(req: PositionsRequest) -> dict:
+    session = parse_session(req.sessionState)
+    async with _new_client() as client:
+        async with _errors("positions"):
+            tokens = await _token(client, {"grant_type": "refresh_token", "refresh_token": session["refreshToken"]})
+            try:
+                plans = await collect_plans(client, tokens["access_token"], session["employeeId"])
+            except Exception:
+                if tokens["refresh_token"] != session["refreshToken"]:
+                    # The error contract carries no session state, so a rotated
+                    # token is lost here and the next sync will need a new code.
+                    log.warning("Natixis rotated the refresh token and the read failed: the session will need a new code")
+                raise
+            # Natixis hands back the same refresh token today; storing whatever it
+            # returns keeps the session alive if it ever starts rotating them.
+            state = serialize_session(tokens["refresh_token"], session["deviceId"], session["employeeId"])
+            return {"sessionState": state, "plans": [PlanPayload.model_validate(p) for p in plans]}
+
