@@ -40,7 +40,6 @@ class EntrypointDatasourcePasswordTest(unittest.TestCase):
             ('mkdir -p /etc/nginx/snippets', f'mkdir -p "{self.nginx_dir}"'),
             ('TRUSTED_PROXY_SNIPPET="/etc/nginx/snippets/picsou-trusted-proxy.generated.conf"',
              f'TRUSTED_PROXY_SNIPPET="{self.trusted_proxy_snippet}"'),
-            ('HSTS_SNIPPET="/etc/nginx/snippets/picsou-hsts.conf"', f'HSTS_SNIPPET="{self.nginx_dir}/picsou-hsts.conf"'),
         )
         for original, replacement in replacements:
             self.assertEqual(source.count(original), 1, f"expected one sandbox replacement for {original!r}")
@@ -54,7 +53,6 @@ class EntrypointDatasourcePasswordTest(unittest.TestCase):
         env = {
             "PATH": os.environ["PATH"],
             "RESULT_FILE": str(self.result_file),
-            "HSTS_ENABLED": "false",
         }
         env.update(overrides)
         completed = subprocess.run(

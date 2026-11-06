@@ -111,6 +111,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (your override, or the provider's) is not equity — for example a money-market ETF set to
   safety net — is no longer counted in the sector and geography breakdown, matching the
   wealth pyramid.
+- **Spring Boot serves the web app; nginx only forwards.** The built SPA, its caching, gzip and
+  every security header now come from the backend (`SPA_LOCATION`, `/app/spa` in the image).
+  nginx keeps client-address and port forwarding and the long timeouts. HSTS has a single
+  emitter, so the OAuth2 endpoints no longer send it when `HSTS_ENABLED` is off. Only the
+  hashed files under `/assets/` stay cached for a year; `index.html` and the unhashed public files
+  (`/favicon.svg`, `/theme-init.js`, `/providers/*`) are now revalidated on each load. See
+  [the ADR](docs/decisions/2026-11-03-spring-serves-the-spa.md) (#342).
 - **One command per task for contributors (#344).** A root `Makefile`: `make dev` starts
   PostgreSQL, the backend and Vite, `make test` runs the backend, frontend, e2e and sidecar suites, `make build`
   builds the images, `make release VERSION=x.y.z` checks the CHANGELOG and pushes the tag.

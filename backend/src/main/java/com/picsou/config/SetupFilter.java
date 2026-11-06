@@ -37,8 +37,8 @@ public class SetupFilter extends OncePerRequestFilter {
             return;
         }
 
-        String path = request.getRequestURI();
-        if (isAllowedDuringSetup(path)) {
+        String path = SpaPaths.requestPath(request);
+        if (isAllowedDuringSetup(path) || !SpaPaths.isBackend(path)) {
             chain.doFilter(request, response);
             return;
         }
@@ -55,7 +55,6 @@ public class SetupFilter extends OncePerRequestFilter {
         return path.startsWith("/api/setup/")
             || path.equals("/api/setup")
             || path.equals("/actuator/health")
-            || path.equals("/actuator/info")
-            || path.equals("/error");
+            || path.equals("/actuator/info");
     }
 }
