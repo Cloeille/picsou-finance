@@ -213,4 +213,24 @@ describe('LbpTab', () => {
     expect(await screen.findByText('sync.lbp.errors.keypadChanged')).toBeInTheDocument()
     expect(apiPost).toHaveBeenCalledTimes(2)
   })
+
+  it('queues the first sync for a stored session that never synced', async () => {
+    apiGet.mockResolvedValue({ data: ACTIVE })
+    apiPost.mockResolvedValue({ data: { ...ACTIVE, syncStatus: 'QUEUED' } })
+
+    renderTab()
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/lbp/sync'))
+  })
+
+  it('does not re-queue a first sync after a failed one', async () => {
+    apiGet.mockResolvedValue({
+      data: { ...ACTIVE, syncStatus: 'FAILED', lastSyncError: 'UPSTREAM_UNAVAILABLE' },
+    })
+
+    renderTab()
+
+    await screen.findByText('sync.lbp.sessionActive')
+    expect(apiPost).not.toHaveBeenCalledWith('/lbp/sync')
+  })
 })

@@ -280,11 +280,24 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
 
   // If the panel was unmounted while the login completed in the background (the
   // modal closed during approval), the first sync still needs queueing on the next
-  // mount: the stored session holds no accounts until then.
+  // mount: the stored session holds no accounts until then. Only decide from a
+  // settled, fresh status: on remount the query serves cached data first, and a
+  // lost sync response can leave a stale IDLE that would queue a second bank read
+  // before the refetch lands. Only a session that never synced (IDLE) is recovered;
+  // a FAILED first sync waits for the user's explicit retry.
   useEffect(() => {
-    if (!connected || status.data?.lastSyncCompletedAt || isSyncing) return
+    if (!status.isFetched || status.isFetching || status.isError) return
+    if (!connected || syncStatus !== "IDLE" || status.data?.lastSyncCompletedAt) return
     startFirstSync()
-  }, [connected, status.data?.lastSyncCompletedAt, isSyncing, startFirstSync])
+  }, [
+    connected,
+    syncStatus,
+    status.data?.lastSyncCompletedAt,
+    status.isError,
+    status.isFetched,
+    status.isFetching,
+    startFirstSync,
+  ])
 
   const backgroundError =
     syncStatus === "FAILED"
