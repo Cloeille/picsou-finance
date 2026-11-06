@@ -20,7 +20,7 @@ Phone number and PIN are never stored: they are used for the `/initiate` call an
 
 Failures keep the code the sidecar declared, restricted to `SidecarBank.TRADE_REPUBLIC`'s list: `INVALID_CREDENTIALS`, `INVALID_OTP`, `APP_VALIDATION_TIMEOUT`, `APP_VALIDATION_CANCELLED`, `AUTH_ATTEMPT_EXPIRED`, `SESSION_EXPIRED`, `INVALID_SESSION_STATE`, `RATE_LIMITED`, `UPSTREAM_FORMAT_CHANGED`, `INVALID_DATA`, `UPSTREAM_UNAVAILABLE`, `INTERNAL_ERROR`. A code outside the list, and a timeout, become `UPSTREAM_UNAVAILABLE`. A bare 401 means `INVALID_CREDENTIALS` on `/initiate`, `INVALID_OTP` on `/complete` and `SESSION_EXPIRED` on `/session`; a bare 410 means `AUTH_ATTEMPT_EXPIRED`.
 
-`POST /api/tr/auth/complete` blocks for as long as the confirmation takes, so `docker/nginx.conf` gives it its own `proxy_read_timeout 180s`, like the CIC login.
+`POST /api/tr/auth/complete` blocks for as long as the confirmation takes. Tomcat has no response timeout (see [Docker deployment](./docker-deployment.md)), so only the 150 s backend wait bounds it; a reverse proxy in front of Picsou needs a read timeout above 150 s on this path, like the CIC login.
 
 Frontend auth state deliberately separates initiation failures from verification
 failures:
