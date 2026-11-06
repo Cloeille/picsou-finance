@@ -108,7 +108,7 @@ public class LbpSyncService {
         @Qualifier("lbpSyncExecutor") Executor syncExecutor
     ) {
         this(adapter, sessionRepository, accountRepository, transactionRepository, memberRepository, accountService,
-            savingsAutoConfig, encryption, txTemplate, syncExecutor, Clock.systemUTC());
+            savingsAutoConfig, encryption, txTemplate, syncExecutor, Clock.systemDefaultZone());
     }
 
     LbpSyncService(
@@ -157,18 +157,21 @@ public class LbpSyncService {
                 "La Banque Postale did not return a usable sign-in challenge", null);
         }
         requireSafeKeypad(result.keypad());
-        if (generation != authGenerations.getOrDefault(memberId, 0L)) {
-            // The member disconnected while the browser was launching: do not register a
-            // process the keypad could still drive a real login through.
-            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
-                "This La Banque Postale sign-in attempt expired. Please start again.", null);
-        }
         Instant now = clock.instant();
-        // Swept on every start: a stale process id must never be reachable again.
-        pendingLogins.values().removeIf(pending -> !pending.deadline().isAfter(now));
-        pendingLogins.put(result.processId(),
-            new PendingLogin(memberId, now.plusSeconds(result.expiresInSeconds()), null,
-                rememberIdentifier ? customerId : null, rememberIdentifier, generation));
+        synchronized (sessionWriteLock) {
+            // The generation re-check and the registration are atomic with disconnect: a
+            // clearSession between the two could otherwise hand out a keypad that still
+            // drives a real login after the member asked to disconnect.
+            if (generation != authGenerations.getOrDefault(memberId, 0L)) {
+                throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
+                    "This La Banque Postale sign-in attempt expired. Please start again.", null);
+            }
+            // Swept on every start: a stale process id must never be reachable again.
+            pendingLogins.values().removeIf(pending -> !pending.deadline().isAfter(now));
+            pendingLogins.put(result.processId(),
+                new PendingLogin(memberId, now.plusSeconds(result.expiresInSeconds()), null,
+                    rememberIdentifier ? customerId : null, rememberIdentifier, generation));
+        }
         return new InitiateResponse(result.processId(), result.keypad(), result.expiresInSeconds());
     }
 
@@ -203,9 +206,18 @@ public class LbpSyncService {
      * the password in disguise and are never logged.
      */
     public void submitKeypad(String processId, List<Integer> positions, Long memberId) {
+        PendingLogin current = pendingLogins.get(processId);
+        if (current != null && current.memberId().equals(memberId) && current.approvalExpiresAt() != null) {
+            // The digits were already sent for this process: reject without removing the
+            // approval-phase entry, so the later /complete can still collect the session.
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
+                "This La Banque Postale sign-in attempt expired. Please start again.", null);
+        }
         PendingLogin pending = takePending(processId, memberId);
         if (pending.approvalExpiresAt() != null) {
-            // The digits were already sent for this process: nothing more to click.
+            // A duplicate slipped past the peek and took the entry out: restore it so the
+            // approval still collects, then refuse this caller.
+            pendingLogins.putIfAbsent(processId, pending);
             throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This La Banque Postale sign-in attempt expired. Please start again.", null);
         }
@@ -251,16 +263,20 @@ public class LbpSyncService {
      * Shared by the keypad and OTP steps so both are single use and member-scoped.
      */
     private PendingLogin takePending(String processId, Long memberId) {
-        PendingLogin pending = pendingLogins.remove(processId);
+        PendingLogin pending = pendingLogins.get(processId);
         if (pending != null && !pending.memberId().equals(memberId)) {
             // Someone else probing a process id must not burn the owner's attempt.
-            pendingLogins.putIfAbsent(processId, pending);
             throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This La Banque Postale sign-in attempt expired. Please start again.", null);
         }
         if (pending == null) {
             throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This La Banque Postale sign-in attempt expired. Please start again.", null);
+        }
+        if (!pendingLogins.remove(processId, pending)) {
+            // The entry changed between the read and the removal (a disconnect swept it);
+            // re-evaluate the current entry instead of guessing.
+            return takePending(processId, memberId);
         }
         return pending;
     }
@@ -385,7 +401,18 @@ public class LbpSyncService {
     }
 
     private void executeJob(SyncJob job) {
-        if (!markRunning(job)) {
+        boolean started;
+        try {
+            started = markRunning(job);
+        } catch (RuntimeException ex) {
+            // A failed status update must not leave the session stuck QUEUED: record a
+            // retryable failure instead of letting the runnable die silently.
+            log.error("La Banque Postale sync could not start (member={}; type={})",
+                job.memberId(), ex.getClass().getSimpleName());
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
+            return;
+        }
+        if (!started) {
             return;
         }
         try {

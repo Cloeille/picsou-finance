@@ -123,4 +123,34 @@ class LbpSyncServiceAuthTest {
             .isInstanceOfSatisfying(SyncException.class, error ->
                 assertThat(error.getCode()).isEqualTo("KEYPAD_CHANGED"));
     }
+
+    @Test
+    void aDuplicateKeypadCallKeepsTheApprovalWaitingForComplete() {
+        keypad(List.of("5", "3", "9", "8", "6", "1", "0", "7", "2", "4"));
+        LbpSyncService.InitiateResponse response = service.initiateAuth("1234567890", MEMBER);
+        service.submitKeypad(response.processId(), List.of(0, 1, 2, 3, 4, 5), MEMBER);
+
+        assertThatThrownBy(() -> service.submitKeypad(response.processId(), List.of(0, 1, 2, 3, 4, 5), MEMBER))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo("AUTH_ATTEMPT_EXPIRED"));
+
+        // The approval-phase entry survived the duplicate: /complete proceeds past the
+        // pending lookup and fails on the missing session state, not on a lost login.
+        assertThatThrownBy(() -> service.completeAuth(response.processId(), MEMBER))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo("UPSTREAM_FORMAT_CHANGED"));
+    }
+
+    @Test
+    void aForeignProbeDoesNotBurnTheOwnersAttempt() {
+        keypad(List.of("5", "3", "9", "8", "6", "1", "0", "7", "2", "4"));
+        LbpSyncService.InitiateResponse response = service.initiateAuth("1234567890", MEMBER);
+
+        assertThatThrownBy(() -> service.completeAuth(response.processId(), 999L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo("AUTH_ATTEMPT_EXPIRED"));
+
+        // The owner can still submit their keypad afterwards.
+        service.submitKeypad(response.processId(), List.of(0, 1, 2, 3, 4, 5), MEMBER);
+    }
 }
