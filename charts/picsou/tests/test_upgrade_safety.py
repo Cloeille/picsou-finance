@@ -58,7 +58,7 @@ class UpgradeSafetyTest(unittest.TestCase):
                            "--set", "secrets.existingSecret=stable-keys")
         self.assert_required_keys(pod, "stable-keys")
 
-    def test_persistent_data_still_allows_entrypoint_generated_keys(self):
+    def test_persistent_data_still_allows_app_generated_keys(self):
         pod = self.app_pod()
         env = {entry["name"]: entry for entry in pod["containers"][0]["env"]}
         for var in ("JWT_SECRET", "CRYPTO_ENCRYPTION_KEY"):

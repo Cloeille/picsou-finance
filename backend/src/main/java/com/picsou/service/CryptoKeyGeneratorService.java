@@ -20,14 +20,14 @@ import java.util.Set;
 /**
  * Idempotent AES-256 key writer for the wizard's Crypto step.
  *
- * <p>The common case is that the Docker entrypoint has already generated
- * {@code /data/.secrets/crypto_key} before the app started (because
+ * <p>The common case is that {@link com.picsou.config.SecretBootstrap} has already
+ * generated {@code crypto_key} in {@code PICSOU_SECRETS_DIR} before any bean existed (because
  * {@link com.picsou.config.CryptoEncryption} reads the key at bean
  * construction time — it must exist pre-boot). In that case this service
  * just reports {@code existed=true} and the wizard shows a "You're all set"
  * state.
  *
- * <p>For bare-metal installs where an operator skipped the init script,
+ * <p>For bare-metal installs where {@code PICSOU_SECRETS_DIR} is not set,
  * when {@code CRYPTO_ENCRYPTION_KEY} is already present in the runtime
  * environment, the setup step treats that as the source of truth and never
  * tries to write Docker's {@code /data} path. That keeps bare-metal dev
