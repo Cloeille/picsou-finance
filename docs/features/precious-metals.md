@@ -23,6 +23,12 @@ priced positions. Each position's ticker comes from a closed catalogue (`Preciou
   quote for gold coins in France), read from its public page
   `https://www.loomis-fxgs.fr/fr/or/cotation-produits/`.
 
+The catalogue is enforced on every write: a transaction carrying a ticker on a `PRECIOUS_METALS`
+account must name a catalogue product, or the request fails with a 400 (a per-row error in a CSV
+import). The stored ticker is the catalogue's spelling (`PreciousMetal.canonicalTickerFor`, shared
+by `ManualTransactionService` and `TransactionRowMapper`). Tickers stay within 20 characters,
+the account-level ticker limit (`GOLD:SOVEREIGN-EII` for the Elizabeth II sovereign).
+
 A coin's quote includes its premium over the metal it contains. On 2026-11-05 a Napoléon 20 F
 contained about 678 € of gold and was quoted 709.90 €. Valuing coins at weight × spot would
 understate them by that premium, so they are priced as coins, not as metal.
@@ -71,6 +77,8 @@ PriceService ──► CompositePriceProvider ──► PreciousMetalPriceProvid
 - `PreciousMetalPriceProviderTest`: page parsing (French amounts, suspended coin), spot per gram,
   upstream failure returns nothing
 - `CompositePriceProviderTest`: `GOLD:` routing next to crypto and equities
+- `PreciousMetalTest`: catalogue contract, ticker length, `canonicalTickerFor`
+- `ManualTransactionServiceTest`, `TransactionRowMapperTest`: the catalogue enforced on both write paths
 - `AccountTypeTest`, `AssetClassTest`, `WealthTierTest`: the new type's placement
 - `AddTransactionModal.test.tsx`, `constants.test.ts`: product picker and type lists
 

@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PreciousMetalTest {
 
@@ -54,5 +55,20 @@ class PreciousMetalTest {
         assertThat(PreciousMetal.fromTicker(" GOLD:GRAM ")).contains(PreciousMetal.GOLD_GRAM);
         assertThat(PreciousMetal.fromTicker("GOLD")).isEmpty();
         assertThat(PreciousMetal.fromTicker(null)).isEmpty();
+    }
+
+    @Test
+    void canonicalTickerFor_metalsAccountTakesCatalogueTickersOnly() {
+        assertThat(PreciousMetal.canonicalTickerFor(AccountType.PRECIOUS_METALS, " gold:gram ")).isEqualTo("GOLD:GRAM");
+        assertThatThrownBy(() -> PreciousMetal.canonicalTickerFor(AccountType.PRECIOUS_METALS, "AAPL"))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("AAPL");
+    }
+
+    @Test
+    void canonicalTickerFor_leavesCashMovementsAndOtherAccountTypesAlone() {
+        assertThat(PreciousMetal.canonicalTickerFor(AccountType.PRECIOUS_METALS, null)).isNull();
+        assertThat(PreciousMetal.canonicalTickerFor(AccountType.PRECIOUS_METALS, " ")).isEqualTo(" ");
+        assertThat(PreciousMetal.canonicalTickerFor(AccountType.COMPTE_TITRES, "aapl")).isEqualTo("aapl");
     }
 }

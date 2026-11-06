@@ -73,4 +73,19 @@ public enum PreciousMetal {
         String upper = ticker.trim().toUpperCase(Locale.ROOT);
         return Arrays.stream(values()).filter(m -> m.ticker.equals(upper)).findFirst();
     }
+
+    /**
+     * The ticker a transaction on an account of {@code type} may carry. A
+     * {@link AccountType#PRECIOUS_METALS} account holds catalogue products only, so its ticker is
+     * returned in the catalogue's canonical spelling, or rejected: an unknown ticker would
+     * become a holding no provider can price. A blank ticker (a cash movement) and any other
+     * account type pass through untouched.
+     *
+     * @throws IllegalArgumentException when a metals account is given a ticker outside the catalogue
+     */
+    public static String canonicalTickerFor(AccountType type, String ticker) {
+        if (type != AccountType.PRECIOUS_METALS || ticker == null || ticker.isBlank()) return ticker;
+        return fromTicker(ticker).map(PreciousMetal::ticker).orElseThrow(() ->
+            new IllegalArgumentException("'" + ticker.trim() + "' is not a precious metals product"));
+    }
 }
