@@ -395,6 +395,105 @@ class YahooFinancePriceProviderTest {
         assertThat(calls.get()).isZero();
     }
 
+    // ─── probeQuote: quoted, unknown, or cannot tell ─────────────────────────────
+    // The crypto registry only learns a ticker Yahoo definitively does not carry; "cannot tell"
+    // must never be read as "unknown".
+
+    private static YahooFinancePriceProvider providerAnswering(HttpStatus status, String body,
+                                                               YahooCooldown cooldown, AtomicInteger calls) {
+        ExchangeFunction exchange = request -> {
+            calls.incrementAndGet();
+            return Mono.just(ClientResponse.create(status)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(body).build());
+        };
+        return new YahooFinancePriceProvider(WebClient.builder().exchangeFunction(exchange).build(), cooldown);
+    }
+
+    private static YahooCooldown cooldown() {
+        return new YahooCooldown(java.time.Clock.fixed(
+            java.time.Instant.parse("2026-11-02T08:00:00Z"), java.time.ZoneOffset.UTC));
+    }
+
+    @Test
+    void probeQuote_isQuoted_whenYahooReturnsAPrice() {
+        var provider = providerWith(url -> url.contains("/AAPL") ? AAPL_USD : null, null);
+
+        assertThat(provider.probeQuote("AAPL")).isEqualTo(YahooFinancePriceProvider.QuoteProbe.QUOTED);
+    }
+
+    @Test
+    void probeQuote_isUnknownSymbol_onA404() {
+        var provider = providerWith(url -> null, null);
+
+        assertThat(provider.probeQuote("NEXO")).isEqualTo(YahooFinancePriceProvider.QuoteProbe.UNKNOWN_SYMBOL);
+    }
+
+    @Test
+    void probeQuote_isUnknownSymbol_whenTheChartHasNoResult() {
+        var provider = providerAnswering(HttpStatus.OK, "{\"chart\":{\"result\":[],\"error\":null}}",
+            cooldown(), new AtomicInteger());
+
+        assertThat(provider.probeQuote("NEXO")).isEqualTo(YahooFinancePriceProvider.QuoteProbe.UNKNOWN_SYMBOL);
+    }
+
+    @Test
+    void probeQuote_isUnavailable_whenTheChartCarriesNoPositivePrice() {
+        // A halted or delisted listing still owns its symbol: it must not be learned as a coin.
+        var provider = providerAnswering(HttpStatus.OK,
+            "{\"chart\":{\"result\":[{\"meta\":{\"currency\":\"USD\",\"regularMarketPrice\":0}}],\"error\":null}}",
+            cooldown(), new AtomicInteger());
+
+        assertThat(provider.probeQuote("HALT")).isEqualTo(YahooFinancePriceProvider.QuoteProbe.UNAVAILABLE);
+    }
+
+    @Test
+    void probeQuote_isUnavailable_whenTheChartHasAResultWithoutMeta() {
+        // Yahoo answered with a series for the symbol: unreadable, but not "no such symbol".
+        var provider = providerAnswering(HttpStatus.OK, "{\"chart\":{\"result\":[{}],\"error\":null}}",
+            cooldown(), new AtomicInteger());
+
+        assertThat(provider.probeQuote("NEXO")).isEqualTo(YahooFinancePriceProvider.QuoteProbe.UNAVAILABLE);
+    }
+
+    @Test
+    void probeQuote_isUnavailable_onA5xx() {
+        var provider = providerAnswering(HttpStatus.BAD_GATEWAY, "{}", cooldown(), new AtomicInteger());
+
+        assertThat(provider.probeQuote("NEXO")).isEqualTo(YahooFinancePriceProvider.QuoteProbe.UNAVAILABLE);
+    }
+
+    @Test
+    void probeQuote_isUnavailable_onA429_andArmsTheCooldown() {
+        YahooCooldown cooldown = cooldown();
+        var provider = providerAnswering(HttpStatus.TOO_MANY_REQUESTS, "{}", cooldown, new AtomicInteger());
+
+        assertThat(provider.probeQuote("NEXO")).isEqualTo(YahooFinancePriceProvider.QuoteProbe.UNAVAILABLE);
+        assertThat(cooldown.active()).isTrue();
+    }
+
+    @Test
+    void probeQuote_isUnavailableWithoutCallingYahoo_whileTheCooldownIsActive() {
+        YahooCooldown cooldown = cooldown();
+        cooldown.arm(new org.springframework.http.HttpHeaders());
+        AtomicInteger calls = new AtomicInteger();
+        var provider = providerAnswering(HttpStatus.OK, AAPL_USD, cooldown, calls);
+
+        assertThat(provider.probeQuote("AAPL")).isEqualTo(YahooFinancePriceProvider.QuoteProbe.UNAVAILABLE);
+        assertThat(calls.get()).isZero();
+    }
+
+    @Test
+    void probeQuote_asksYahooAboutAnySymbol_evenOneSupportsWouldFilter() {
+        // supports() rejects the coin tickers Yahoo defers to CoinGecko; the probe exists to ask
+        // exactly that question, so it must not be gated by it.
+        AtomicInteger calls = new AtomicInteger();
+        var provider = providerWith(url -> null, calls);
+
+        assertThat(provider.probeQuote("BTC")).isEqualTo(YahooFinancePriceProvider.QuoteProbe.UNKNOWN_SYMBOL);
+        assertThat(calls.get()).isEqualTo(1);
+    }
+
     @Test
     void searchSymbols_returnsYahoosOwnSymbolsForAnIsin_inItsRelevanceOrder() {
         var provider = providerWith(url -> url.contains("/v1/finance/search") ? SEARCH_IE000BI8OT95 : null, null);
