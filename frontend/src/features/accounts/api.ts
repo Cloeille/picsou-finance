@@ -39,8 +39,6 @@ export const accountsApi = {
   scpiFunds: () => api.get<ScpiFund[]>('/scpi/funds').then(r => r.data),
   ignoreScpiFund: (provider: ScpiProvider, fundCode: string) =>
     api.post(`/scpi/funds/${provider}/${encodeURIComponent(fundCode)}/ignore`),
-  restoreScpiFund: (provider: ScpiProvider, fundCode: string) =>
-    api.post(`/scpi/funds/${provider}/${encodeURIComponent(fundCode)}/restore`),
   updateDebtMetadata: (id: number, data: DebtRequest) =>
     api.put<DebtInfo>(`/accounts/${id}/debt`, data).then(r => r.data),
   loanSummary: (id: number) =>

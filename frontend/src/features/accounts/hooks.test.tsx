@@ -14,9 +14,8 @@ const { holdings, prices, list, updateScpiPosition, get, accountHistory } = vi.h
   accountHistory: vi.fn(),
 }))
 
-const { getHistory, getPnl } = vi.hoisted(() => ({
+const { getHistory } = vi.hoisted(() => ({
   getHistory: vi.fn(),
-  getPnl: vi.fn(),
 }))
 
 const { dashboardGet, dashboardGetPnl, dashboardGetIntraday } = vi.hoisted(() => ({
@@ -29,14 +28,14 @@ vi.mock('./api', () => ({
   accountsApi: { holdings, prices, list, updateScpiPosition, get, history: accountHistory },
 }))
 
-vi.mock('@/features/history/api', () => ({ historyApi: { getHistory, getPnl } }))
+vi.mock('@/features/history/api', () => ({ historyApi: { getHistory } }))
 vi.mock('@/features/dashboard/api', () => ({
   dashboardApi: { get: dashboardGet, getPnl: dashboardGetPnl, getIntraday: dashboardGetIntraday },
 }))
 
 const { useAccount, useAccountHistory, useHoldingsWithLivePrices, usePortfolio, useUpdateScpiPosition } = await import('./hooks')
-const { useHistory, usePnl } = await import('@/features/history/hooks')
-const { useDashboard, usePnl: useDashboardPnl } = await import('@/features/dashboard/hooks')
+const { useHistory } = await import('@/features/history/hooks')
+const { useDashboard, usePnl } = await import('@/features/dashboard/hooks')
 
 function makeWrapper() {
   const client = new QueryClient({
@@ -165,7 +164,7 @@ describe('useHoldingsWithLivePrices', () => {
 
 describe('useHoldingsWithLivePrices price polling', () => {
   it('refreshes balances, history, and P&L only when the live quote changes', async () => {
-    for (const mock of [holdings, prices, get, accountHistory, getHistory, getPnl]) mock.mockReset()
+    for (const mock of [holdings, prices, get, accountHistory, getHistory, dashboardGetPnl]) mock.mockReset()
     vi.useFakeTimers()
     const liveQuote = { value: undefined as number | undefined }
     const balance = () => liveQuote.value == null ? 950 : liveQuote.value * 10
@@ -211,7 +210,7 @@ describe('useHoldingsWithLivePrices price polling', () => {
       const total = accountIds.includes(42) ? balance() : 500
       return [{ date: '2026-08-19', total, invested: 900, pnl: total - 900 }]
     })
-    getPnl.mockImplementation(async (accountIds: number[]) => {
+    dashboardGetPnl.mockImplementation(async (accountIds: number[]) => {
       const total = accountIds.includes(42) ? balance() : 500
       return { total, invested: 900, pnl: total - 900, pnlPercent: ((total - 900) / 900) * 100 }
     })
@@ -285,9 +284,9 @@ describe('useHoldingsWithLivePrices price polling', () => {
     expect(get).toHaveBeenCalledTimes(2)
     expect(accountHistory).toHaveBeenCalledTimes(2)
     expect(getHistory).toHaveBeenCalledTimes(3)
-    expect(getPnl).toHaveBeenCalledTimes(3)
+    expect(dashboardGetPnl).toHaveBeenCalledTimes(3)
     expect(getHistory.mock.calls.filter(([ids]) => ids.includes(99))).toHaveLength(1)
-    expect(getPnl.mock.calls.filter(([ids]) => ids.includes(99))).toHaveLength(1)
+    expect(dashboardGetPnl.mock.calls.filter(([ids]) => ids.includes(99))).toHaveLength(1)
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(QUERY_STALE_TIMES.accountDetail)
@@ -296,7 +295,7 @@ describe('useHoldingsWithLivePrices price polling', () => {
     expect(get).toHaveBeenCalledTimes(2)
     expect(accountHistory).toHaveBeenCalledTimes(2)
     expect(getHistory).toHaveBeenCalledTimes(3)
-    expect(getPnl).toHaveBeenCalledTimes(3)
+    expect(dashboardGetPnl).toHaveBeenCalledTimes(3)
   })
 })
 
@@ -306,7 +305,6 @@ describe('usePortfolio', () => {
     prices.mockReset()
     list.mockReset()
     getHistory.mockReset()
-    getPnl.mockReset()
     dashboardGet.mockReset()
     dashboardGetPnl.mockReset()
     dashboardGetIntraday.mockReset()
@@ -596,9 +594,6 @@ describe('usePortfolio', () => {
       date: '2026-08-19',
       total: accountIds.includes(1) ? livePrice : 1,
     }]))
-    getPnl.mockImplementation(async (accountIds: number[]) => ({
-      total: accountIds.includes(1) ? livePrice : 1,
-    }))
 
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const wrapper = ({ children }: { children: ReactNode }) => (
@@ -609,10 +604,8 @@ describe('usePortfolio', () => {
       dashboard: useDashboard('1Y'),
       history: useHistory([1]),
       unrelatedHistory: useHistory([99]),
-      dashboardPnl: useDashboardPnl([1], '2026-01-01'),
-      unrelatedDashboardPnl: useDashboardPnl([99], '2026-01-01'),
-      historyPnl: usePnl([1]),
-      unrelatedHistoryPnl: usePnl([99]),
+      dashboardPnl: usePnl([1], '2026-01-01'),
+      unrelatedDashboardPnl: usePnl([99], '2026-01-01'),
     }), { wrapper })
 
     await act(async () => {
@@ -622,14 +615,11 @@ describe('usePortfolio', () => {
     expect(result.current.dashboard.data?.totalNetWorth).toBe(10)
     expect(result.current.history.data?.[0].total).toBe(10)
     expect(result.current.dashboardPnl.data?.total).toBe(10)
-    expect(result.current.historyPnl.data?.total).toBe(10)
     expect(result.current.unrelatedHistory.data).toBeDefined()
     expect(result.current.unrelatedDashboardPnl.data).toBeDefined()
-    expect(result.current.unrelatedHistoryPnl.data).toBeDefined()
     expect(dashboardGet).toHaveBeenCalledTimes(1)
     expect(getHistory).toHaveBeenCalledTimes(2)
     expect(dashboardGetPnl).toHaveBeenCalledTimes(2)
-    expect(getPnl).toHaveBeenCalledTimes(2)
 
     livePrice = 12
     await act(async () => {
@@ -640,15 +630,12 @@ describe('usePortfolio', () => {
       expect(result.current.dashboard.data?.totalNetWorth).toBe(12)
       expect(result.current.history.data?.[0].total).toBe(12)
       expect(result.current.dashboardPnl.data?.total).toBe(12)
-      expect(result.current.historyPnl.data?.total).toBe(12)
     })
     expect(dashboardGet).toHaveBeenCalledTimes(2)
     expect(getHistory).toHaveBeenCalledTimes(3)
     expect(dashboardGetPnl).toHaveBeenCalledTimes(3)
-    expect(getPnl).toHaveBeenCalledTimes(3)
     expect(result.current.unrelatedHistory.data?.[0].total).toBe(1)
     expect(result.current.unrelatedDashboardPnl.data?.total).toBe(1)
-    expect(result.current.unrelatedHistoryPnl.data?.total).toBe(1)
     expect(list).toHaveBeenCalledTimes(2)
     expect(holdings).toHaveBeenCalledTimes(2)
     expect(prices).toHaveBeenCalledTimes(2)
@@ -662,7 +649,6 @@ describe('usePortfolio', () => {
     expect(dashboardGet).toHaveBeenCalledTimes(2)
     expect(getHistory).toHaveBeenCalledTimes(3)
     expect(dashboardGetPnl).toHaveBeenCalledTimes(3)
-    expect(getPnl).toHaveBeenCalledTimes(3)
   })
 })
 
