@@ -22,12 +22,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Proves a database at V127 keeps every sidecar session through V128: same member, cookies,
+ * Proves a database at V128 keeps every sidecar session through V129: same member, cookies,
  * stored login, unsupported contracts, CORUM Life ambiguous count, sync state and timestamps,
  * so nobody has to reconnect.
  */
 @RequiresPostgres
-class V128SidecarSessionMigrationTest {
+class V129SidecarSessionMigrationTest {
 
     private static final String[] TABLES = {
         "amex", "amundi", "bourse_direct", "bourso", "caisse_epargne",
@@ -50,8 +50,8 @@ class V128SidecarSessionMigrationTest {
     static long dave;
 
     @BeforeAll
-    static void seedV127AndMigrate() throws SQLException {
-        PostgresContainers.migrateToOutOfOrder(POSTGRES, "127");
+    static void seedV128AndMigrate() throws SQLException {
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "128");
         try (Connection c = PostgresContainers.connection(POSTGRES)) {
             alice = newMember(c, "alice");
             bob = newMember(c, "bob");
@@ -82,7 +82,7 @@ class V128SidecarSessionMigrationTest {
                     + "VALUES (" + dave + ", 'dave', 'FAILED')");
             }
         }
-        PostgresContainers.migrateToOutOfOrder(POSTGRES, "128");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "129");
     }
 
     @Test

@@ -16,7 +16,7 @@ existed for some banks and not others (issue #337, part of #326).
 ## Decision
 
 - **One table, `sidecar_session`**, keyed by `(bank, member_id)`, created by
-  `V128__sidecar_session.sql`. V128 copies the ten tables row for row,
+  `V129__sidecar_session.sql`. V129 copies the ten tables row for row,
   including the encrypted state as stored, and drops them in the same
   transaction. One entity `SidecarSession`, one enum `SidecarSyncStatus`, one
   `SidecarSessionRepository`.
@@ -77,10 +77,10 @@ PostgreSQL.
 
 - Adding a sidecar bank means one `SidecarBank` constant, one strategy, and
   one CHECK branch generated from the enum.
-- Rolling back past V128 needs a database restore. V128 drops the old tables.
+- Rolling back past V129 needs a database restore. V129 drops the old tables.
   It is a destructive change, so it needs the planned offline upgrade of the
   [safe release deployment](../features/release-deployment.md): stop the old app
   first, or a session it writes after the copy is dropped with its table.
 - The CORUM and Sofidy tables never enforced "FAILED requires an error code".
-  V128 repairs a row that breaks it before the copy (stale error cleared,
+  V129 repairs a row that breaks it before the copy (stale error cleared,
   missing one set to `INTERNAL_ERROR`) instead of failing the boot.
