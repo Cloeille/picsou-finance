@@ -77,6 +77,16 @@ class AccountCardsTest(unittest.TestCase):
         with self.assertRaises(parsers.FormatError):
             parsers.parse_account_cards(changed)
 
+    def test_finds_the_card_when_the_marker_is_not_the_first_class(self):
+        reordered = fixtures.SYNTHESE_CCP_HTML.replace(
+            'class="account-resume2020 account-resume--ccp"',
+            'class="account-resume--ccp account-resume2020"',
+        )
+        accounts = parsers.parse_account_cards(reordered)
+
+        self.assertEqual(len(accounts), 1)
+        self.assertEqual(accounts[0]["kind"], "CURRENT_ACCOUNT")
+
 
 class TransactionsTest(unittest.TestCase):
     def test_reads_dates_labels_and_the_raw_signed_amount(self):
@@ -120,6 +130,36 @@ class TransactionsTest(unittest.TestCase):
 
     def test_an_account_without_a_table_has_no_transactions(self):
         self.assertEqual(parsers.parse_transactions("<html><body>no operations</body></html>"), [])
+
+    def test_a_page_without_a_table_or_empty_marker_is_a_format_error(self):
+        with self.assertRaises(parsers.FormatError):
+            parsers.parse_transactions("<html><body>something else</body></html>")
+
+    def test_identical_rows_get_distinct_stable_ids(self):
+        row = (
+            '<tr class="row btn-full-lightbox">'
+            '<td class="col label col-date" data-label="Date">'
+            '<span class="sorted-value">05/10/2026</span></td>'
+            '<td class="col label col-libelle" data-label="Libellé">FRAIS</td>'
+            '<td class="col label col-montant-brut sr-only" aria-hidden="true"> -2.0 </td>'
+            "</tr>"
+        )
+        with_duplicates = fixtures.STATEMENT_HTML.replace(
+            '<tr class="row btn-full-lightbox">', row + row + '<tr class="row btn-full-lightbox">', 1
+        )
+        first = parsers.parse_transactions(with_duplicates)
+        ids = [t["externalId"] for t in first]
+        self.assertEqual(len(ids), 4)
+        self.assertEqual(len(set(ids)), 4)
+
+        with_another = fixtures.STATEMENT_HTML.replace(
+            '<tr class="row btn-full-lightbox">',
+            row + row + row + '<tr class="row btn-full-lightbox">',
+            1,
+        )
+        second_ids = {t["externalId"] for t in parsers.parse_transactions(with_another)}
+        self.assertTrue(set(ids).issubset(second_ids))
+        self.assertEqual(len(second_ids - set(ids)), 1)
 
 
 if __name__ == "__main__":

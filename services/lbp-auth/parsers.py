@@ -118,7 +118,12 @@ def parse_polling(source: str) -> tuple[str | None, str | None]:
 
 def parse_account_cards(source: str) -> list[dict]:
     """Accounts shown on a synthesis page, with balance and statement coordinates."""
-    starts = [m.start() for m in re.finditer(r'<div class="account-resume2020', source, re.I)]
+    starts = [
+        m.start()
+        for m in re.finditer(
+            r'<div\s+class="(?=[^"]*\baccount-resume2020\b)[^"]*"', source, re.I
+        )
+    ]
     accounts: list[dict] = []
     seen: set[str] = set()
     for index, start in enumerate(starts):
@@ -177,11 +182,23 @@ def parse_account_cards(source: str) -> list[dict]:
 # ─── operations table ────────────────────────────────────────────────────────
 
 
+# A statement page with no operations carries no table; only an explicit message
+# makes that an empty history rather than a changed page.
+_EMPTY_OPERATIONS = re.compile(
+    r"aucun(?:e|es)?\s+(?:op[ée]ration|mouvement)|pas d['’]op[ée]ration|no operations?",
+    re.I,
+)
+
+
 def parse_transactions(source: str) -> list[dict]:
-    """Rows of `#mouvementsTable`, or an empty list when the account has none."""
+    """Rows of `#mouvementsTable`, or an empty list on an explicit no-operations page."""
     table = re.search(r'<table[^>]*id="mouvementsTable".*?</table>', source, re.S | re.I)
     if not table:
-        return []
+        # Returning [] for any 200 would mark a changed statement page as a complete
+        # empty history; fail closed unless the page explicitly says there is nothing.
+        if _EMPTY_OPERATIONS.search(text(source)):
+            return []
+        raise FormatError()
     rows = re.findall(r'<tr class="row btn-full-lightbox".*?</tr>', table.group(0), re.S | re.I)
     transactions: list[dict] = []
     occurrences: dict[tuple[str, str, str], int] = {}
