@@ -190,6 +190,7 @@
     "preciousMetalProduct": "Producto",
     "preciousMetalProductPlaceholder": "Elegir un producto",
     "preciousMetalCatalogueLoading": "Cargando catálogo…",
+    "preciousMetalCatalogueError": "No se pudo cargar el catálogo de productos.",
     "quantityGrams": "Gramos",
     "quantityCoins": "Monedas",
     "assetNamePlaceholder": "Ej.: iShares Core MSCI World",

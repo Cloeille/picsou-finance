@@ -19,7 +19,8 @@ vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: undefined }),
 }))
 
-const usePreciousMetals = vi.fn<(enabled: boolean) => { data: unknown }>(() => ({ data: undefined }))
+type CatalogueQuery = { data: unknown; isError?: boolean; refetch?: () => unknown }
+const usePreciousMetals = vi.fn<(enabled: boolean) => CatalogueQuery>(() => ({ data: undefined }))
 vi.mock('@/features/accounts/hooks', () => ({
   usePreciousMetals: (enabled: boolean) => usePreciousMetals(enabled),
 }))
@@ -143,6 +144,27 @@ describe('AddTransactionModal precious metals', () => {
     render(<AddTransactionModal open onOpenChange={vi.fn()} accountId={9} accountType="PRECIOUS_METALS" onSubmit={vi.fn()} />)
 
     expect(screen.getAllByRole('option')).toHaveLength(3)
+  })
+
+  it('says the catalogue failed to load instead of "Loading", and retries it', () => {
+    const refetch = vi.fn()
+    usePreciousMetals.mockReturnValue({ data: undefined, isError: true, refetch })
+    render(<AddTransactionModal open onOpenChange={vi.fn()} accountId={9} accountType="PRECIOUS_METALS" onSubmit={vi.fn()} />)
+
+    expect(screen.getByText('accounts.preciousMetalCatalogueError')).toBeInTheDocument()
+    expect(screen.queryByText('accounts.preciousMetalCatalogueLoading')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'common.retry' }))
+    expect(refetch).toHaveBeenCalledOnce()
+  })
+
+  it('still says Loading while the catalogue is on its way', () => {
+    usePreciousMetals.mockReturnValue({ data: undefined, isError: false })
+    render(<AddTransactionModal open onOpenChange={vi.fn()} accountId={9} accountType="PRECIOUS_METALS" onSubmit={vi.fn()} />)
+
+    expect(screen.getByText('accounts.preciousMetalCatalogueLoading')).toBeInTheDocument()
+    expect(screen.queryByText('accounts.preciousMetalCatalogueError')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'common.retry' })).not.toBeInTheDocument()
   })
 
   it('keeps the free ticker input on a securities account and skips the catalogue fetch', () => {

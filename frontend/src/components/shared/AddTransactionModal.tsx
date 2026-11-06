@@ -84,7 +84,7 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
     enabled: isInvestment && !!accountId,
   })
 
-  const { data: preciousMetals } = usePreciousMetals(isPreciousMetals)
+  const { data: preciousMetals, isError: catalogueFailed, refetch: retryCatalogue } = usePreciousMetals(isPreciousMetals)
 
   const { data: categories } = useQuery({
     queryKey: ['categories'],
@@ -228,13 +228,21 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
                 required
               >
                 <option value="">
-                  {preciousMetals ? t('accounts.preciousMetalProductPlaceholder') : t('accounts.preciousMetalCatalogueLoading')}
+                  {preciousMetals || catalogueFailed ? t('accounts.preciousMetalProductPlaceholder') : t('accounts.preciousMetalCatalogueLoading')}
                 </option>
                 {(preciousMetals ?? []).map(p => (
                   <option key={p.ticker} value={p.ticker}>{p.name}</option>
                 ))}
                 {ticker.trim() !== '' && !selectedProduct && <option value={ticker}>{ticker}</option>}
               </select>
+              {catalogueFailed && (
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-destructive">{t('accounts.preciousMetalCatalogueError')}</p>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void retryCatalogue()}>
+                    {t('common.retry')}
+                  </Button>
+                </div>
+              )}
             </div>
           ) : (
             <>
