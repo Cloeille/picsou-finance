@@ -61,7 +61,11 @@ On Kubernetes, the Helm chart in `charts/picsou` deploys the same images; the `c
 
 1. **`frontend-build`** — `oven/bun:alpine`. `bun install --frozen-lockfile`, `bun run build`. Output: `dist/`.
 2. **`backend-build`** — `maven:3.9-eclipse-temurin-21-alpine`. `mvn dependency:go-offline` (layer cache), then `mvn package -DskipTests`. Output: fat JAR.
-3. **Runtime** — `eclipse-temurin:21-jre-jammy`. Installs Nginx + supervisor + openssl. Copies `dist/` and JAR from build stages plus `docker/{nginx.conf,supervisord.conf,entrypoint.sh}`.
+3. **Runtime** — `eclipse-temurin:21-jre-jammy`. Installs Nginx + supervisor + openssl. Copies `dist/` to `/app/spa` (served by Spring Boot, `SPA_LOCATION=/app/spa`) and the JAR from build stages, plus `docker/{nginx.conf,supervisord.conf,entrypoint.sh}`.
+
+Spring Boot serves the SPA, the API and every response header. nginx is only a forwarding proxy in front of it: it resolves the client address and public scheme/host/port, and sets the per-endpoint timeouts. See [the ADR](../decisions/2026-11-03-spring-serves-the-spa.md).
+
+SPA caching: files under `/assets/` (Vite's content-hashed output) are cached for a year (`immutable`); every other file, `index.html` and the client-route fallbacks included, is `no-cache` and revalidated by ETag, so a redeploy reaches browsers at once. The ETag of every one of those revalidated files is a digest of its content (`frontend/public` is about 47 KB in total, so reading them on every GET or HEAD costs nothing measurable, one read for the tag and one for the body); hashed assets use last-modified seconds and length, so a bundle is never read to build a tag.
 
 The two build stages run on `--platform=$BUILDPLATFORM`: `dist/` and the JAR are the same on
 every architecture, so the multi-platform publish builds them once, natively, and only the
@@ -75,8 +79,8 @@ the legacy builder rejects the empty `$BUILDPLATFORM`.
 
 | Process | Port | Role |
 |---------|------|------|
-| Nginx | 8080 (public) | Serves SPA, proxies `/api/*` and `/actuator` to backend |
-| Java (Spring Boot) | 9090 (internal) | Backend API |
+| Nginx | 8080 (public) | Forwarding proxy: resolves the client address and public scheme/host/port, sets per-endpoint timeouts, proxies every request to the backend |
+| Java (Spring Boot) | 9090 (internal) | Serves the SPA, the API and every response header |
 
 ### Shared sidecar bases — `services/base/Dockerfile`
 
@@ -317,39 +321,22 @@ in `.env`. README step 3f documents the recovery path.
 
 ### HSTS is opt-in (`HSTS_ENABLED`, default off)
 
-The header has **two independent emitters**, and both must be gated or the flag is a lie:
+Spring Security is the **only** emitter. Both of its filter chains (the API chain in
+`SecurityConfig` and the OAuth2 authorization-server chain in `AuthorizationServerConfig`) use one
+shared header customizer, so the gate applies to the SPA, `/api`, `/actuator`, `/mcp`, `/oauth2`
+and `/.well-known/oauth-*` alike. nginx adds no headers and `entrypoint.sh` writes no HSTS snippet.
 
-1. **nginx**, for SPA/static responses. `nginx.conf` includes
-   `/etc/nginx/snippets/picsou-hsts.conf` in the server block and the static-asset `location`
-   block; `entrypoint.sh` rewrites that snippet on every boot (header line when enabled, empty file
-   otherwise). `Dockerfile` creates it empty at build time so `nginx -t` is valid without the
-   entrypoint.
-2. **Spring Security**, for `/api/*` and `/actuator`. `SecurityConfig` reads
-   `app.hsts-enabled` (`${HSTS_ENABLED:false}`) and calls `hsts.disable()` when off.
+**Accepted values:** `true`, `1`, `yes`, `on`, case-insensitive, surrounding whitespace tolerated.
+Anything else disables the header. A value that is neither one of those nor `false`, `0`, `no`,
+`off` or blank logs `HSTS_ENABLED='...' not understood, HSTS disabled.` once at startup, so a typo
+is visible rather than silent. Interior whitespace is deliberately *not* stripped, so `t rue`
+warns instead of enabling. `SecurityConfigHstsParsingTest` pins the tokens and the warning rule.
 
-**Accepted values** (both gates, identical by construction): `true`, `1`, `yes`, `on` —
-case-insensitive, surrounding whitespace tolerated. Anything else disables the header, and
-`entrypoint.sh` logs `WARNING: HSTS_ENABLED=... not understood` so a typo is visible rather than
-silent. Interior whitespace is deliberately *not* stripped, so `t rue` warns instead of enabling.
-`SecurityConfigHstsParsingTest` parses the token list out of `entrypoint.sh` and asserts it equals
-`SecurityConfig.HSTS_TRUTHY`, so the Java and shell parsers cannot drift apart unnoticed.
-
-Gating only nginx is **not sufficient** — a mistake worth not repeating. Spring Security's
-`HstsHeaderWriter` fires on any request where `isSecure()` is true, and
+Spring Security's `HstsHeaderWriter` fires on any request where `isSecure()` is true, and
 `forward-headers-strategy: native` makes that true from `X-Forwarded-Proto: https` sent by a
-configured proxy. Since the SPA calls the API on load, an ungated backend pins the
-policy on the very first page view no matter what nginx was told.
-
-**Which emitter the browser actually sees, per deployment:**
-
-| Deployment | Browser-visible emitter |
-|---|---|
-| All-in-one image | **nginx only.** Its `add_header` covers proxied responses too, and `proxy_hide_header Strict-Transport-Security` on `/api` and `/actuator` discards the backend's copy so it is never sent twice |
-| Bare metal behind an operator's proxy | **Spring only.** |
-
-So in the all-in-one image the Spring gate is defence in depth rather than the operative control —
-verifying it requires querying the backend directly on `:9090`, because nginx strips its header on
-the way out. Both gates read the same `HSTS_ENABLED`, so the two never disagree in practice.
+configured proxy. Since the SPA calls the API on load, an ungated response pins the policy on the
+very first page view. Before the single-process change the OAuth2 chain was ungated (it sent HSTS
+on `/oauth2/jwks` over HTTPS with the flag off); the shared customizer closes that.
 
 It was previously emitted unconditionally, which is a **lockout trap** once a locally-issued
 certificate is in play: the browser stores the HSTS policy, then refuses to offer the "proceed
@@ -357,8 +344,7 @@ anyway" bypass for the untrusted cert — leaving no in-app recovery, only clear
 browser internals. Enable it only behind a publicly-trusted certificate.
 
 Because `HSTS_ENABLED` only reaches the app through `env_file`, changing it may not recreate the
-container. Use `up -d --force-recreate app` so the entrypoint re-runs and Spring re-reads the
-property. **`restart app` does not work** — it reuses the existing container, whose environment was
+container. Use `up -d --force-recreate app` so Spring re-reads the property. **`restart app` does not work** — it reuses the existing container, whose environment was
 fixed at create time, so the new value is never seen.
 
 > **Behavior change:** deployments already behind a TLS proxy stop receiving HSTS until they set
@@ -446,15 +432,15 @@ and HTTPS API response through the deployment script.
 - `services/tr-auth/Dockerfile` — tr-auth sidecar image
 - `services/bourse-direct-auth/Dockerfile` — Bourse Direct sidecar image
 - `services/fortuneo-auth/Dockerfile` — Fortuneo sidecar image
-- `docker/nginx.conf` — Nginx reverse proxy config (`/api`, `/actuator`, `/mcp` → backend)
+- `docker/nginx.conf` — Nginx forwarding proxy (everything → backend, with real-IP and `X-Forwarded-*` handling and per-endpoint timeouts)
 - `docker/supervisord.conf` — supervisor (nginx + backend)
-- `docker/entrypoint.sh` — secret bootstrap + trusted-proxy/HSTS snippets + exec supervisord
+- `docker/entrypoint.sh` — secret bootstrap + trusted-proxy snippet + exec supervisord
 
 ### Flow
 
 ```
 docker compose -f docker/docker-compose.yml up        # COMPOSE_PROFILES selects the connectors
-  → picsou:latest  (nginx:8080 → backend:9090 for /api, /actuator, /mcp)
+  → picsou:latest  (nginx:8080 → backend:9090 for everything; Spring serves the SPA)
   → postgres:16-alpine (:5432)
   enabled connectors only:
   → docker-tr-auth (uvicorn:8001)
@@ -472,8 +458,9 @@ docker compose -f docker/docker-compose.yml up        # COMPOSE_PROFILES selects
   → degiro-auth (uvicorn:8001, internal only)
 ```
 
-`/mcp` is the embedded MCP HTTP+SSE transport (access-key auth). It must be proxied like
-`/api`; if nginx only has SPA `try_files`, MCP clients get HTML instead of the protocol.
+`/mcp` is the embedded MCP HTTP+SSE transport (access-key auth). It keeps its own nginx
+location (buffering off, one-hour read timeout). Spring never answers a backend prefix with
+`index.html`, so a missing MCP route is a 404, not HTML.
 
 ### Moving the stack to another machine
 
@@ -737,11 +724,14 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - **`.dockerignore` must NOT exclude `docker/` entirely.** The runtime stage copies `docker/nginx.conf`, `docker/supervisord.conf`, and `docker/entrypoint.sh` from the build context.
 - **Frontend lock file is `bun.lock`.** The Dockerfile must use `oven/bun` and `bun install --frozen-lockfile`. npm will fail.
 - **`VITE_DEMO_MODE` build arg** defaults to `false`. Pass `--build-arg VITE_DEMO_MODE=true` for a demo build.
-- **Nginx listens on 8080**, backend on 9090. The backend port is set via `SERVER_PORT` in `entrypoint.sh`, not `application.yml`.
+- **Nginx listens on 8080**, backend on 9090. Nothing is served from nginx's own docroot any more.
+- **`SPA_LOCATION` blank means no SPA.** `app.spa.location` registers nothing when empty (development uses Vite, backend tests are unaffected). A SPA file that Spring cannot read gives `index.html` for routes and a 404 for any path with a static extension. An unreadable `index.html` itself gives a 404 for every route, since there is no page to fall back to.
+- **`docker/tests/header_diff.py BASE CANDIDATE`** compares status and headers of two running instances, path by path, plain and with `X-Forwarded-Proto: https`. Use it against a pre-change image to prove nothing observable changed.
+- **The backend port is set via `SERVER_PORT` in `entrypoint.sh`**, not `application.yml`.
 - **`caddy_data` must persist.** It holds issued certificates *and the internal CA's root key*. Deleting the volume regenerates the root, invalidating the certificate every device was told to trust — everyone has to re-install it.
 - **Closing the plain-HTTP `:8080` publish uses an overlay file**, `docker/docker-compose.no-http.yml` (`ports: !reset []`), not an env var. Compose cannot vary `ports` by profile, and two env-var forms were tried and rejected: `${VAR:-0.0.0.0}:8080:8080` binds IPv4 only and silently drops the `[::]` binding the unqualified short form gives (breaking IPv6 clients on *every* deployment), while the prefix form `${VAR:-}8080:8080` turns a value missing its trailing colon into `127.0.0.18080:8080` — an opaque "invalid published port" that aborts the whole stack, db and tr-auth included. Long-syntax `host_ip: ""` is rejected as an invalid IP. Requires Compose v2.24+ for `!reset`.
 - **`picsou.localhost` (the `PICSOU_DOMAIN` default) only resolves on the Docker host itself** — browsers map `*.localhost` to loopback. Fine for verifying the profile works; set a LAN IP or a real domain for access from other devices. Enable Banking's portal may also refuse to register a `.localhost` redirect URL.
-- **Enabling the `tls` profile against a pre-built GHCR image does not get the HSTS fix.** `HSTS_ENABLED` gating lives in `nginx.conf` + `entrypoint.sh`, so an image built before that change still sends HSTS unconditionally — which is precisely the lockout combination with an internal-CA certificate. Pull a current image, or rebuild with `--build`.
+- **Enabling the `tls` profile against a pre-built GHCR image does not get the HSTS fix.** An image built before the HSTS gate existed still sends HSTS unconditionally — which is precisely the lockout combination with an internal-CA certificate. Pull a current image, or rebuild with `--build`.
 - **Sidecar URLs live only in `application.yml`.** Compose and `entrypoint.sh` set no `*_AUTH_URL`; an operator `.env` value still overrides the default.
 - **Bourse Direct 2FA state is process-local.** Keep `bourse-direct-auth` at one replica unless request affinity or shared pending state is added.
 - **Secrets are never regenerated.** If `/data/.secrets/jwt_secret` exists, it is reused. Deleting it will log out all users and invalidate all encrypted secrets in the DB.

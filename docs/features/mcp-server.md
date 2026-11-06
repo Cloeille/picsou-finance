@@ -308,11 +308,10 @@ sessions/credentials as the documented side effect of deleting a connection's la
 - **Transport selection requires recreating the app container.** SSE uses `GET /mcp` and `POST /mcp/message`.
   Streamable HTTP uses `POST`, `GET`, and `DELETE /mcp`. Switching modes requires updating SSE-only
   clients. Both stay under `/mcp/**` so Property A's prefix check covers them.
-- **Nginx must proxy `/mcp`, not only `/api`.** The image's nginx serves the SPA via
-  `try_files` for unmatched paths. Without an explicit `location /mcp`
-  block, clients receive `index.html` (HTTP 200 HTML) instead of the MCP transport.
-  `docker/nginx.conf` proxies `/mcp` to the backend with SSE-friendly
-  settings (`proxy_buffering off`, long `proxy_read_timeout`).
+- **`/mcp` must stay a backend path.** Spring serves `index.html` for unmatched paths, except the
+  prefixes in `SpaPaths.isBackend`. Dropping `/mcp` from that list would give clients
+  `index.html` (HTTP 200 HTML) instead of the MCP transport. `docker/nginx.conf` proxies `/mcp`
+  with SSE-friendly settings (`proxy_buffering off`, long `proxy_read_timeout`).
 - **The SSE stream needs the server keep-alive.** Between two replies the stream carries nothing, and
   clients abort a response body that stays silent: Bun's `fetch` (Claude Code) after ~6 min, the
   Python MCP SDK's SSE client after 300 s. The server keeps accepting `POST /mcp/message` for the

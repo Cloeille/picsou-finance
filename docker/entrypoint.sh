@@ -110,49 +110,7 @@ else
     : > "$TRUSTED_PROXY_SNIPPET"
 fi
 
-# ── HSTS (opt-in) ────────────────────────────────────────────────────────
-# nginx.conf includes this snippet; empty means the header is never sent.
-#
-# Opt-in rather than always-on because Picsou is commonly served with a
-# locally-issued certificate (Caddy's internal CA via the `tls` compose
-# profile, or mkcert). Sending HSTS with a certificate the browser does not
-# trust is a one-way trap: the policy is remembered, the "proceed anyway"
-# bypass disappears, and the user is locked out of their own app with no
-# recovery short of clearing HSTS state in browser internals.
-#
-# Enable it only once the certificate is publicly trusted — i.e. the `tls`
-# profile with a real domain (Let's Encrypt), or an upstream proxy holding a
-# publicly-trusted cert.
-HSTS_SNIPPET="/etc/nginx/snippets/picsou-hsts.conf"
-
-# Normalize: strip *surrounding* whitespace only, then lowercase, so True / TRUE
-# / "true " / 1 / yes are all accepted. Deliberately not stripping interior
-# whitespace — "t rue" must fall through to the warning rather than silently
-# enabling HSTS, which on an internal-CA deployment is the lockout this gate
-# exists to prevent. The accepted set must match SecurityConfig.hstsEnabled().
-hsts_raw="${HSTS_ENABLED:-false}"
-hsts_trimmed="${hsts_raw#"${hsts_raw%%[![:space:]]*}"}"
-hsts_trimmed="${hsts_trimmed%"${hsts_trimmed##*[![:space:]]}"}"
-
-hsts_line=""
-case "${hsts_trimmed,,}" in
-    true|1|yes|on)
-        hsts_line='add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'
-        echo "[entrypoint] HSTS enabled"
-        ;;
-    false|0|no|off|"")
-        ;;
-    *)
-        echo "[entrypoint] WARNING: HSTS_ENABLED='$hsts_raw' not understood — HSTS disabled." >&2
-        ;;
-esac
-
-# Single write point: empty file means the header is never sent.
-if [ -n "$hsts_line" ]; then
-    printf '%s\n' "$hsts_line" > "$HSTS_SNIPPET"
-else
-    : > "$HSTS_SNIPPET"
-fi
+# HSTS is emitted by Spring Boot alone (HSTS_ENABLED, opt-in); see SecurityConfig.
 
 # Defaults that never changed — keep backward compatibility with the old
 # single-line entrypoint.

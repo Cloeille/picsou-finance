@@ -7,7 +7,7 @@
 Picsou authenticates with HttpOnly JWT cookies. The CORS configuration controls which browser
 origins may make credentialed requests to the API. Getting it wrong either blocks legitimate
 clients or produces confusing silent failures. The standard deployment serves the SPA **and** the
-API from the **same origin** (nginx serves the static build and reverse-proxies `/api`), so normal
+API from the **same origin** (Spring Boot serves the static build and the API; nginx only forwards), so normal
 login/setup traffic is same-origin and must never be subject to CORS at all.
 
 ## How it works
