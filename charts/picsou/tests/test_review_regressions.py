@@ -171,17 +171,44 @@ class ReviewRegressionsTest(unittest.TestCase):
                 for key, value in workload["spec"]["selector"]["matchLabels"].items():
                     self.assertEqual(pod_labels[key], value)
 
-    def test_app_has_readiness_without_default_startup_deadline(self):
+    def test_app_probes_use_the_liveness_group_and_a_five_minute_startup_budget(self):
         resources = self.resources()
         app = next(r for r in resources if r["kind"] == "Deployment" and r["metadata"]["name"] == "picsou")
         container = app["spec"]["template"]["spec"]["containers"][0]
-        self.assertNotIn("startupProbe", container)
+        self.assertEqual(container["startupProbe"], {
+            "httpGet": {"path": "/actuator/health/liveness", "port": "http"},
+            "periodSeconds": 10, "failureThreshold": 30})
         self.assertEqual(container["readinessProbe"]["httpGet"]["path"], "/actuator/health")
-        self.assertEqual(container["livenessProbe"]["tcpSocket"]["port"], "http")
-        resources = self.configured_resources({"app": {"startupProbe": {"tcpSocket": {"port": "http"}}}})
+        self.assertEqual(container["livenessProbe"]["httpGet"],
+                         {"path": "/actuator/health/liveness", "port": "http"})
+        self.assertNotIn("tcpSocket", container["livenessProbe"])
+        resources = self.configured_resources({"app": {"startupProbe": {"failureThreshold": 90}}})
         app = next(r for r in resources if r["kind"] == "Deployment" and r["metadata"]["name"] == "picsou")
-        self.assertEqual(app["spec"]["template"]["spec"]["containers"][0]["startupProbe"],
-                         {"tcpSocket": {"port": "http"}})
+        self.assertEqual(app["spec"]["template"]["spec"]["containers"][0]["startupProbe"]["failureThreshold"], 90)
+
+    def test_app_and_migration_job_run_as_the_image_user(self):
+        resources = self.resources()
+        app = next(r for r in resources if r["kind"] == "Deployment" and r["metadata"]["name"] == "picsou")
+        pod = app["spec"]["template"]["spec"]["securityContext"]
+        self.assertEqual(pod, {"runAsNonRoot": True, "runAsUser": 1000, "runAsGroup": 1000,
+                               "fsGroup": 1000, "fsGroupChangePolicy": "OnRootMismatch"})
+        job = next(r for r in self.resources("--is-upgrade") if r["kind"] == "Job")
+        container = job["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(container["securityContext"], {
+            "allowPrivilegeEscalation": False, "runAsNonRoot": True, "runAsUser": 1000, "runAsGroup": 1000})
+        # The pod-level context carries fsGroup, which is what makes app.extraVolumes writable here.
+        self.assertEqual(job["spec"]["template"]["spec"]["securityContext"], pod)
+
+    def test_migration_job_pod_follows_the_app_pod_security_context(self):
+        resources = self.configured_resources({"app": {
+            "podSecurityContext": {"fsGroup": 2000},
+            "extraVolumes": [{"name": "db-ca", "secret": {"secretName": "db-ca"}}]}})
+        job = next(r for r in resources if r["kind"] == "Job")
+        self.assertEqual(job["spec"]["template"]["spec"]["securityContext"]["fsGroup"], 2000)
+        self.assertEqual(job["spec"]["template"]["spec"]["volumes"][0]["name"], "db-ca")
+        resources = self.configured_resources({"app": {"podSecurityContext": None}})
+        job = next(r for r in resources if r["kind"] == "Job")
+        self.assertNotIn("securityContext", job["spec"]["template"]["spec"])
 
     def test_postgresql_startup_allows_ten_minutes_for_recovery(self):
         container = self.database_pod()["spec"]["containers"][0]

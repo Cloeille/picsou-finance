@@ -1,6 +1,6 @@
 # Feature: GDPR-friendly data export (JSON + CSV)
 
-> Last updated: 2026-07-20
+> Last updated: 2026-11-04 (re-authentication with the `reauth_proof` cookie, accounts without a password)
 > Status: ✅ Implemented
 
 ## Context
@@ -15,7 +15,7 @@ The export is **self-only**: a user exports their own data plus resources shared
 - Export is delivered as a single `picsou-export-<username>-YYYYMMDD-HHmmss.zip` (UTC timestamp; any username character outside `[A-Za-z0-9._-]` becomes `_` so the quoted header value stays valid) containing both a hierarchical `data.json` and a flat `csv/` directory (one file per entity).
 - Export contains every domain field tied to the user, with explicit exclusion of secrets (passwords, MFA secrets, recovery codes, encrypted bank-session credentials, persistent-session tokens, requisition tokens).
 - A toggle lets the user opt in to including their `BalanceSnapshot` history (off by default — keeps the ZIP small for the common case).
-- The action is gated by re-authentication (TOTP if 2FA is enabled, otherwise password) and rate-limited to 5 exports/hour per user.
+- The action is gated by re-authentication (a valid `reauth_proof` cookie, else TOTP if 2FA is enabled, otherwise password) and rate-limited to 5 exports/hour per user.
 - Each export is logged server-side via SLF4J at `WARN` level (no dedicated audit table — same approach as MFA-sensitive ops).
 
 ## Non-goals (v1)
@@ -38,17 +38,22 @@ Settings → Security & Privacy
    │  user clicks "Export my data"
    ▼
 ExportDataDialog (frontend)
+   ├─ account without a password (SSO only): ReauthPanel first
+   │     → IdP round trip (intent=reauth, redirect=/settings?resume=export)
+   │     → reauth_proof cookie → the dialog reopens on the form step
    ├─ checkbox "Include balance history"  (default OFF)
-   ├─ password input  (if user.mfaEnabled === false)
+   ├─ password input  (if user.mfaEnabled === false and the account has a password)
    │  TOTP input      (if user.mfaEnabled === true)
    └─ submit
    │
    │  POST /api/me/export
-   │     body: { reAuth: { password? | totpCode? }, includeBalanceSnapshots: boolean }
+   │     body: { reAuth?: { password? | totpCode? }, includeBalanceSnapshots: boolean }
+   │     (reAuth omitted when the reauth_proof cookie authorizes the export)
    ▼
 MeExportController
    ├─ Bucket4j rate limit (5/h, keyed on userId)         → 429 if exceeded
-   ├─ ReAuthService.verify(currentUser, body.reAuth)     → 401 if mismatch
+   ├─ ReAuthService.verify(currentUser, body.reAuth, request)
+   │     valid reauth_proof cookie → accepted; else inline check → 401 REAUTH_FAILED
    ├─ log.warn("export.requested userId={} username={} ip={} includeBalanceSnapshots={}")
    │    (username and ip through LogSanitizer.safe)
    └─ return ResponseEntity<StreamingResponseBody>
@@ -63,7 +68,7 @@ DataExportService.streamExport(user, options, OutputStream out)
    │     ProfileExporter, FamilyMembersExporter,
    │     AccountsExporter, HoldingsExporter, TransactionsExporter,
    │     GoalsExporter (with contributors / manual contribs / month overrides),
-   │     DebtsExporter, WalletAddressesExporter, SharedResourcesExporter,
+   │     DebtsExporter, WalletAddressesExporter, LinkedIdentitiesExporter, SharedResourcesExporter,
    │     BankConnectionsMetadataExporter,
    │     BalanceSnapshotsExporter      (gated by options.includeBalanceSnapshots)
    ├─ writes data.json (hierarchical, assembled from all exporters)
@@ -131,6 +136,7 @@ RFC 4180: UTF-8 (no BOM), comma-separated, CRLF line endings, fields containing 
 | `goal_month_overrides.csv`     | `GoalMonthOverride`                    | id, **goalId**, month, amount                          |
 | `debts.csv`                    | `Debt`                                 | id, lender, principal, interestRate, ...               |
 | `wallet_addresses.csv`         | `WalletAddress`                        | id, chain, address, label                              |
+| `linked_identities.csv`        | `UserIdentity` (own SSO identities)    | id, issuer, subject, email, display_name, created_at, last_login_at |
 | `shared_resources.csv`         | `SharedResource`                       | id, resourceType, resourceId, sharedWithMemberId       |
 | `bank_connections.csv`         | aggregator (Bourso / TR / Finary / EB) | provider, connectedAt, lastSyncAt, status              |
 | `balance_snapshots.csv`        | `BalanceSnapshot` (only if toggle on)  | date, **accountId**, balance, currency                 |
@@ -163,7 +169,7 @@ Backend:
 
 - `backend/src/main/java/com/picsou/controller/MeExportController.java` — REST endpoint at `/api/me/export`, re-auth gate, rate limit, audit log
 - `backend/src/main/java/com/picsou/export/DataExportService.java` — orchestrator: opens ZIP, drives all exporters
-- `backend/src/main/java/com/picsou/service/ReAuthService.java` — verifies password OR TOTP based on `user.mfaEnabled` (reusable for future sensitive operations)
+- `backend/src/main/java/com/picsou/service/ReAuthService.java` — accepts a valid `reauth_proof` cookie (same user id and token version), else verifies password OR TOTP based on `user.mfaEnabled`; also backs `POST /api/auth/reauth` and the SSO sign-in-method changes
 - `backend/src/main/java/com/picsou/export/EntityExporter.java` — interface: `void writeJson(JsonGenerator g)` + `void writeCsv(Writer w)` + `String csvFileName()` + `String jsonKey()`
 - `backend/src/main/java/com/picsou/export/{Profile,Accounts,Holdings,Transactions,Goals,Debts,WalletAddresses,SharedResources,BankConnections,BalanceSnapshots}Exporter.java` — one per entity root (family members are folded into `ProfileExporter`)
 - `backend/src/main/java/com/picsou/dto/ExportRequest.java` — record `(ReAuthDto reAuth, boolean includeBalanceSnapshots)`
@@ -173,7 +179,8 @@ Backend:
 Frontend:
 
 - `frontend/src/pages/settings/security/SecuritySection.tsx` — section card hosting the "Export my data" button
-- `frontend/src/pages/settings/security/ExportDataDialog.tsx` — modal with toggle + re-auth field + download trigger
+- `frontend/src/pages/settings/security/ExportDataDialog.tsx` — modal with toggle + re-auth field + download trigger; for an account without a password it shows `ReauthPanel` (IdP re-authentication) first
+- `frontend/src/pages/settings/security/ReauthPanel.tsx` — mints the `reauth_proof` (password + TOTP, or an IdP round trip that returns with `resume=export`)
 - `frontend/src/features/export/api.ts` — `requestExport(opts)` returning a `Blob`
 - `frontend/src/features/export/hooks.ts` — `useExportData()` mutation (TanStack Query) wrapping the fetch + blob download
 
@@ -186,7 +193,7 @@ Frontend:
 | `EntityExporter` interface, one class per root entity | Each exporter is small, testable in isolation, asserts no-secret-leak independently. New entity = new exporter, no reshuffling. | Single monolithic `DataExportService.exportEverything()` method |
 | SLF4J WARN audit (no dedicated table)                 | Consistent with MFA feature decision (2026-04-26). Keeps schema lean. Logs are good enough for a self-hosted single-tenant app. | New `audit_log` table + Flyway migration              |
 | Bucket4j keyed on `userId`                            | A user stays limited even if their IP changes. Existing pattern (`RateLimitConfig`).              | IP-based — easily bypassed by a logged-in user        |
-| Re-auth required (TOTP > password)                    | Defense against stolen session cookie. RGPD export = high-impact action.                          | Trust the JWT alone — too risky for full data dump    |
+| Re-auth required (proof cookie, else TOTP > password) | Defense against stolen session cookie. RGPD export = high-impact action. The proof cookie lets accounts without a password re-authenticate through the IdP. | Trust the JWT alone — too risky for full data dump    |
 | `BalanceSnapshot` toggle, off by default              | Keeps the common-case ZIP small (typical user: tens of MB → KB). Power users opt in.              | Always include → bloats the export                    |
 | Secrets exclusion test asserted by raw byte-grep      | Cheap, catches accidental leak via any new field added to a JPA entity later                      | Field-by-field manual assertion — drifts as schema evolves |
 
@@ -197,6 +204,7 @@ Frontend:
 - **No `BeanSerializer` shortcut.** Do **not** serialize `AppUser` directly with Jackson — that risks leaking `passwordHash` or future secret fields. Each exporter explicitly enumerates the fields it writes.
 - **Currency separation.** Money is always written as `(decimal-string, currency-code)` — never as a localized string like `"1 234,56 €"` and never as a `Double`.
 - **`SharedResource` direction.** Only export rows where the AppUser's member is the **recipient** (data shared *with* me); rows where they share *outwards* are also relevant since they describe how my data is shared — both directions are exported, but always anchored on "my member id" so we never include third-party data we shouldn't.
+- **A 401 for a password-less export carries a Blob body** (`responseType: 'blob'`), so the dialog cannot read `REAUTH_FAILED` from it: it resets `ReauthPanel` on the status alone, and asks for a new IdP re-authentication (the proof lasts 5 minutes).
 - **Managed-profile detour.** The export endpoint ignores any `?memberId=` query/cookie context — always anchors on the authenticated `AppUser`.
 - **`BalanceSnapshotsExporter` streams per account.** `writeCsv`/`writeJson` each iterate the member's accounts and, per account, query `balanceSnapshotRepository.findByAccountIdOrderByDateAsc` — instead of collecting the member's *entire* snapshot history into one list before writing anything. This is the table the class's own Javadoc calls out as able to "dwarf the rest of the archive" (years × many accounts), so heap must stay bounded to one account's history at a time rather than growing with total history size. Cost: each of the 2 passes (CSV, JSON) re-runs the same per-account queries — 2 passes total, unchanged from before. Accepted: the goal is bounded heap, not minimal query count. Row order (account insertion order, then date within account) is unchanged.
 
@@ -208,6 +216,9 @@ Backend:
 - `DataExportServiceTest` — verifies ZIP file list given options, presence/absence of `balance_snapshots.csv` based on toggle, presence of `README.txt`. Wires **all** `EntityExporter` beans (matching production Spring injection, not a subset) with one fixture per entity carrying a unique tripwire literal in every sensitive, non-exported field (e.g. `Requisition.authLink`); asserts none of the tripwires appear anywhere in the archive bytes. **New exporter ⇒ new wiring + new tripwire(s) in this test** — the net only protects what it exercises, and a partial exporter list (as this test shipped with for a while) silently blinds it to whichever exporters are missing.
 - `BalanceSnapshotsExporterTest` — drives the exporter directly (2 accounts × 3 snapshots): asserts CSV/JSON row order (account, then date) and, via `Mockito.verify`, exactly one `balanceSnapshotRepository.findByAccountIdOrderByDateAsc` call per account per pass (2 passes) — never a whole-member collecting call.
 - `MeExportControllerTest` (`@WebMvcTest`) — happy path, re-auth fail (password), re-auth fail (TOTP), missing body, rate-limit exceeded.
+- `MeExportControllerTest#export_withAValidProofAndNoInlinePayload_isAccepted` / `#export_withoutProofOrInlinePayload_isRefused` — the `reauth_proof` cookie replaces the inline payload.
+- `ReAuthServiceTest` — proof accepted only for the same user id and token version; `SsoLoginIntegrationTest` (scenario 10) — an SSO re-authentication's proof authorizes the export.
+- `LinkedIdentitiesExporterTest` — the `linked_identities` table (issuer, subject, email, display name, dates).
 - `DataExportIntegrationTest` (`@SpringBootTest` + H2) — seed an `AppUser` with **all** entity types populated **and** every secret-bearing entity (MFA secret, recovery codes, SidecarSession ciphertext, requisition tokens, persistent session). Hit the endpoint, parse the ZIP in memory, assert:
   - all expected files present
   - row counts match seeded entity counts
@@ -229,4 +240,5 @@ Frontend:
 
 - Related: [`docs/features/encryption-at-rest.md`](./encryption-at-rest.md) — the data we exclude is what `encryption-at-rest` protects.
 - Related: [`docs/features/mfa-and-remember-me.md`](./mfa-and-remember-me.md) — re-auth pattern reused.
+- Related: [`docs/features/sso-login.md`](./sso-login.md) — `reauth_proof` and re-authentication through the IdP.
 - Related: [`docs/features/multi-account-family.md`](./multi-account-family.md) — sharing model that defines the self-only scope.

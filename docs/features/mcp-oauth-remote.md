@@ -100,7 +100,7 @@ Properties B (no `?memberId=` override) and C (scope-only authorities, never `RO
 - `features/connectedApps/` + `pages/settings/sections/ConnectedAppsSection.tsx`.
 
 **Reverse proxy**
-- `docker/nginx.conf` — `location /.well-known/oauth-` → backend.
+- None in the app image since #342: `/.well-known/oauth-` is a backend prefix in `SpaPaths.isBackend`, so Spring answers it instead of the SPA fallback.
 
 ## Gotchas / Pitfalls
 

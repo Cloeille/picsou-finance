@@ -1,6 +1,6 @@
 # Feature: Multi-account family system
 
-> Last updated: 2026-07-07
+> Last updated: 2026-11-06 (password-less members, activation with SSO, group-managed admins)
 
 ## Context
 
@@ -16,6 +16,9 @@ Two-tier identity: `AppUser` (authentication) → `FamilyMember` (domain identit
 - `AppUser` — login credentials, links to exactly one FamilyMember via `member_id`
 - `managed=false` → has login (active member)
 - `managed=true` → no login, managed by admin (child, shared account)
+- An `AppUser` may have **no password** (`password_hash = ''`) when it signs in only through SSO.
+  Its linked identities live in `user_identity`, keyed by `(issuer, subject)`. See
+  [sso-login.md](./sso-login.md).
 
 Every data entity (Account, Goal, Requisition, etc.) has a `member_id` FK. All service methods take `Long memberId` and use repository methods like `findByIdAndMemberId()`.
 
@@ -71,11 +74,18 @@ The `FamilyViewService` aggregates shared data for the family dashboard.
 2. Admin clicks "Create login" → generates an activation token stored on `AppUser`.
    The login **username is derived from the display name** ("Jean Dupont" →
    `jean.dupont`, slugified + made unique with a `.N` suffix) instead of the legacy
-   `member_<id>`. See `FamilyService.deriveUsername` and [admin-page.md](./admin-page.md).
+   `member_<id>`. See `UsernameDeriver` (extracted from `FamilyService`, also used for SSO
+   accounts) and [admin-page.md](./admin-page.md).
 3. Admin shares the activation link (`/activate/{token}`)
 4. The managed person opens the link, sets a password
 5. `AppUser.isManaged` is set to false, `isActivated` to true
 6. The person can now log in independently
+
+When SSO is enabled, the activation page also offers **"Activate with SSO"** (after the same
+acknowledgement). The invitation token, never the identity's email or username, selects the
+account: the IdP identity is bound to it, the account is activated **without a password** (any
+old password and local TOTP are removed), and the person lands signed in. Both paths finish in
+`ActivationService.complete`, so they bump `tokenVersion` and revoke Remember-Me sessions alike.
 
 Once activated, a managed member becomes **independent** (`isManaged=true && hasLogin && activated`). The admin can no longer regenerate their activation link (`generateActivationToken` rejects activated users) or **impersonate** them. The admin **can** still delete an independent member — see "Member deletion" below.
 
@@ -117,6 +127,27 @@ users (`FamilyService.generateActivationToken` line 92).
 
 `FamilyMemberResponse` now exposes `loginName` (= `AppUser.username` or `null`)
 so the admin UI can show both the display name and the login side-by-side.
+
+A reset link is also how a **password-less** (SSO-only) member gets a password back if the IdP
+is unavailable: activating it sets a password like any reset. It only ever sets a password: the
+SSO activation (`intent=activate`) refuses a token whose account is already activated
+(`ACTIVATION_INVALID`), because it would otherwise replace the password and the second factor with
+the IdP identity of whoever holds the link. A reset does not unlink SSO identities either; the admin
+does that with **Unlink SSO** below.
+
+### Sign-in methods and SSO-managed admins
+
+`FamilyMemberResponse` also carries `hasPassword` and `ssoLinked`; Admin → Members shows them as
+badges. **Unlink SSO** (`DELETE /api/admin/members/{memberId}/identities`, admin only, never on
+oneself) removes every identity of a member, bumps their `tokenVersion` and revokes their
+Remember-Me sessions, e.g. after an IdP account was compromised. A password-less member then
+needs a reset link to sign in again.
+
+With `SSO_ADMIN_GROUP` set, the IdP group manages admins: a group member without an account gets
+a new admin account at their first SSO sign-in, and every SSO sign-in promotes or demotes
+(password sign-ins do not). Deleting such an admin in Picsou deletes their data, but if they are
+still in the group they come back as a new, empty admin at their next SSO sign-in: remove people
+at the IdP.
 
 ### Member deletion
 
@@ -167,8 +198,10 @@ requesterMemberId)` keeps only two guards so the instance stays usable:
 1. **Self-delete** — an admin cannot delete their own member (`id == requesterMemberId`
    → 403 "Cannot delete your own account"), avoiding a lock-out.
 2. **Last administrator** — if the target's `AppUser.role == ADMIN` and
-   `AppUserRepository.countByRole(ADMIN) <= 1`, deletion is refused (403 "Cannot
-   delete the last administrator").
+   `AppUserRepository.findAllByRoleForUpdate(ADMIN)` returns at most one row, deletion is
+   refused (403 "Cannot delete the last administrator"). The admin rows are locked
+   (`PESSIMISTIC_WRITE`) while counting, the same lock the SSO role sync takes, so a deletion
+   and a concurrent SSO demotion cannot remove the last two admins.
 
 Frontend: both member-management UIs (`frontend/src/pages/admin/sections/MembersSection.tsx` and
 `frontend/src/pages/settings/FamilySettingsPage.tsx`) show the delete action for any non-self member.
@@ -269,7 +302,9 @@ Admin selects their own account
 - `HistoryServiceTest` — history scoped by memberId, incl. `buildHistory_rejectsAccountsOwnedByAnotherMember` and `buildHistory_rejectsNullMemberId`
 - `api-client.test.ts` (frontend) — `?memberId` is attached only for admins, never for a non-admin with a stale `activeMemberId`
 - `frontend/src/features/mfa/hooks.test.ts` (frontend) — login-side `resetClientState`: wipes the cache + impersonation target on a non-MFA login and on MFA verify, and performs **no** reset on the `mfaRequired` branch
-- `FamilyServiceTest` — username derivation, activation/reset, and **member deletion**:
+- `UsernameDeriverTest` — username derivation; `ActivationServiceTest` — the shared activation sink
+- `AdminIdentityControllerTest` — admin unlink of a member's SSO identities
+- `FamilyServiceTest` — activation/reset, `hasPassword`/`ssoLinked`, and **member deletion**:
   `deleteMember_withLogin_deletesUserBeforeMember` (Mockito `InOrder` guard for the
   `TransientObjectException` fix), `deleteMember_managedWithoutLogin_deletesOnlyMember`,
   `deleteMember_self_throwsForbidden`, `deleteMember_lastAdmin_throwsForbidden`,

@@ -138,7 +138,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         self.assertIn("python -m pip install PyYAML==6.0.3", commands)
 
     def test_application_yml_is_the_only_place_sidecar_urls_are_set(self):
-        for path in (DOCKER_COMPOSE, ROOT / "docker/entrypoint.sh", ROOT / ".env.example",
+        for path in (DOCKER_COMPOSE, ROOT / ".env.example",
                      ROOT / "docker/.env.example"):
             with self.subTest(path=path.relative_to(ROOT)):
                 self.assertNotRegex(path.read_text(encoding="utf-8"), r"(?m)^[^#]*_AUTH_URL")
@@ -146,7 +146,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
     def test_connectors_are_opt_in_through_compose_profiles(self):
         services = _load(DOCKER_COMPOSE)["services"]
         sidecars = sorted(name for name in services if name.endswith("-auth"))
-        self.assertEqual(services["app"]["depends_on"], ["db"])
+        self.assertEqual(sorted(services["app"]["depends_on"]), ["data-permissions", "db"])
         for name in sidecars:
             with self.subTest(sidecar=name):
                 self.assertEqual(services[name]["profiles"], [name.removesuffix("-auth"), "all-connectors"])
@@ -549,12 +549,10 @@ class CiJobSelectionTest(unittest.TestCase):
             "CHANGELOG.md": set(),
             "frontend/src/App.tsx": {"frontend", "e2e", "release-deployment"},
             "backend/src/main/java/com/picsou/App.java": {"backend", "release-deployment"},
-            "docker/entrypoint.sh": {
-                "backend", "docker-entrypoint", "release-deployment", "workflow-inventory",
-            },
+            "docker/deploy.sh": {"docker-compose", "release-deployment"},
             ".env.example": {"workflow-inventory"},
-            "docker/Dockerfile": {"docker-entrypoint", "release-deployment", "workflow-inventory"},
-            "docker/docker-compose.yml": {"docker-entrypoint", "release-deployment", "helm-chart"} | services,
+            "docker/Dockerfile": {"docker-compose", "release-deployment", "workflow-inventory"},
+            "docker/docker-compose.yml": {"docker-compose", "release-deployment", "helm-chart"} | services,
             "backend/src/main/resources/application.yml": {
                 "backend", "helm-chart", "release-deployment", "workflow-inventory",
             },

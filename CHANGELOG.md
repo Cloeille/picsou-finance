@@ -7,8 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The app image is one non-root Java process.** nginx, supervisord and the shell entrypoint are
+  gone. The container runs as uid 1000 on port 8080; Compose and Helm hand `/data` to that user
+  (`data-permissions` service, `fsGroup`). Tomcat trusts forwarded headers only from
+  `PICSOU_PROXY_IP` for the client address, and no longer trusts loopback; the public scheme,
+  host and port are applied from any peer as nginx did, so an undeclared HTTPS proxy keeps
+  working. Helm probes use `/actuator/health/liveness`. An explicit
+  `SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES` takes precedence over `PICSOU_PROXY_IP`, and the
+  datasource password follows Spring's usual order (`--spring.datasource.password`, `-D`,
+  `SPRING_DATASOURCE_PASSWORD`, then `POSTGRES_PASSWORD`).
+  **Upgrade:** `data-permissions` runs `chown -R 1000:1000 /data` before each app start
+  (`deploy.sh` runs it too). A bind mount where `chown` is ignored (SMB/CIFS) needs the mount
+  options `uid=1000,gid=1000`. Without Compose (plain `docker run`), run once before the first
+  start of the new image: `docker run --rm --user 0 --entrypoint chown -v <your-data-volume>:/data
+  ghcr.io/cloeille/picsou-finance:<tag> -R 1000:1000 /data`; until then the app refuses to start
+  (`Cannot write secret file … AccessDeniedException`) and generates nothing.
+  Behaviour changes: authenticated uploads follow Spring's 10 MB multipart limit instead of
+  nginx's 1 MB body limit, while the anonymous endpoints (`/api/setup`, `/api/auth/`,
+  `/oauth2/register`) keep a 1 MB cap (`AnonymousBodyLimitFilter`, HTTP 413), no proxy timeout cuts
+  slow requests any more, and a stopped backend is a refused connection instead of an nginx 502.
+
 ### Added
 
+- **Sign in with your identity provider (SSO).** Set `SSO_ISSUER_URI` and `SSO_CLIENT_ID` to add
+  a "Sign in with <provider>" button that works with any OpenID Connect provider (Zitadel,
+  Authentik, Keycloak, Authelia, Pocket ID...). It sits alongside passwords: without these
+  variables nothing changes. Picsou still issues its own session cookies, Remember Me included,
+  and links an account to the provider's identity only, never by email or username. With
+  `SSO_ADMIN_GROUP`, a fresh instance can be set up without any password (the first member of
+  that group to sign in becomes the administrator), and the group keeps managing who is an admin.
+  Invited members can activate with SSO, and from Settings you can link or unlink an identity
+  and turn password login off. Sensitive actions such as the data export then re-authenticate
+  through the provider. SSO sessions pass through the provider again after
+  `SSO_SESSION_REVALIDATE_AFTER` (24 hours by default), and `SSO_IDP_LOGOUT=true` also ends the
+  provider session on logout. The data export gains a `linked_identities` table. See
+  [docs/features/sso-login.md](docs/features/sso-login.md).
 - **CORUM re-logs in by itself and syncs daily.** The CORUM login form gains an opt-in, unticked
   "Remember my credentials (encrypted)" checkbox. Ticked, the credentials are stored encrypted and
   a sync whose session expired logs in again once before reading; a rejected password clears them

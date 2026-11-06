@@ -25,7 +25,7 @@ import java.io.IOException;
  * ExceptionTranslationFilter}), which short-circuits the response before the request ever reaches
  * {@code DispatcherServlet}, so {@code RequestContextHolder} has no thread-bound attributes yet at
  * this point. Reading straight off the request works regardless. Tomcat's native forwarding
- * support resolves the public origin from configured nginx peers before the security chain.
+ * support resolves the public origin from the configured trusted proxy before the security chain.
  */
 public class McpAuthenticationEntryPoint implements AuthenticationEntryPoint {
 

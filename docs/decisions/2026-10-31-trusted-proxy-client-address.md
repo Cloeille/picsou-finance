@@ -1,7 +1,7 @@
 # ADR: Resolve client addresses only through explicit proxy peers
 
 > Date: 2026-10-31
-> Status: Active
+> Status: Active (nginx parts superseded by [one non-root process](./2026-11-03-one-non-root-process.md))
 
 ## Context
 

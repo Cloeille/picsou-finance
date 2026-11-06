@@ -18,6 +18,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
@@ -41,6 +43,8 @@ import java.util.Optional;
  */
 public class PersistentTokenAuthFilter extends OncePerRequestFilter {
 
+    public static final String SSO_REVALIDATE_ATTRIBUTE = "picsou.sso.revalidate";
+
     private static final Logger log = LoggerFactory.getLogger(PersistentTokenAuthFilter.class);
 
     private final PersistentSessionService persistentSessionService;
@@ -48,19 +52,25 @@ public class PersistentTokenAuthFilter extends OncePerRequestFilter {
     private final JwtUtil jwtUtil;
     private final AuthCookieWriter cookieWriter;
     private final MfaService mfaService;
+    private final SsoProperties ssoProperties;
+    private final Clock clock;
 
     public PersistentTokenAuthFilter(
         PersistentSessionService persistentSessionService,
         AppUserRepository userRepository,
         JwtUtil jwtUtil,
         AuthCookieWriter cookieWriter,
-        MfaService mfaService
+        MfaService mfaService,
+        SsoProperties ssoProperties,
+        Clock clock
     ) {
         this.persistentSessionService = persistentSessionService;
         this.userRepository = userRepository;
         this.jwtUtil = jwtUtil;
         this.cookieWriter = cookieWriter;
         this.mfaService = mfaService;
+        this.ssoProperties = ssoProperties;
+        this.clock = clock;
     }
 
     /**
@@ -116,10 +126,21 @@ public class PersistentTokenAuthFilter extends OncePerRequestFilter {
             return;
         }
 
+        Instant ssoAt = session.getSsoAuthenticatedAt();
+        if (ssoAt != null && (!ssoProperties.enabled()
+            || ssoAt.plus(ssoProperties.revalidateAfter()).isBefore(clock.instant()))) {
+            persistentSessionService.revokeBySeriesId(session.getSeriesId());
+            cookieWriter.clearPersistent(response);
+            request.setAttribute(SSO_REVALIDATE_ATTRIBUTE, Boolean.TRUE);
+            chain.doFilter(request, response);
+            return;
+        }
+
         // Honour the trusted-device promise: if the user has 2FA enabled but this
         // session was issued without trust, the cookie alone must not bypass MFA.
         // Clear it so the browser stops auto-attempting silent re-login.
-        if (mfaService.isEnabled(user) && !session.isTrustedFor2fa()) {
+        // SSO delegates MFA to the IdP, not the local trusted-device setting.
+        if (ssoAt == null && mfaService.isEnabled(user) && !session.isTrustedFor2fa()) {
             cookieWriter.clearPersistent(response);
             chain.doFilter(request, response);
             return;
@@ -130,8 +151,9 @@ public class PersistentTokenAuthFilter extends OncePerRequestFilter {
         // The refresh token is bound to this series (sid) so /auth/refresh can cut its
         // chain the moment the session is revoked ("log out this device").
         cookieWriter.setAccessAndRefresh(response,
-            jwtUtil.generateAccessToken(user),
-            jwtUtil.generateRefreshToken(user, session.getSeriesId()),
+            ssoAt == null ? jwtUtil.generateAccessToken(user) : jwtUtil.generateAccessToken(user, ssoAt),
+            ssoAt == null ? jwtUtil.generateRefreshToken(user, session.getSeriesId())
+                : jwtUtil.generateRefreshToken(user, session.getSeriesId(), ssoAt),
             true);
         long secondsUntilExpiry = Math.max(
             ChronoUnit.SECONDS.between(java.time.Instant.now(), session.getExpiresAt()),

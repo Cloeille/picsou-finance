@@ -34,7 +34,9 @@ class SetupServiceAiTest {
 
     @BeforeEach
     void setUp() {
-        service = new SetupService(settingRepository, userRepository, memberRepository, passwordEncoder);
+        service = new SetupService(settingRepository, userRepository, memberRepository, passwordEncoder,
+            new com.picsou.config.SsoProperties(), org.mockito.Mockito.mock(com.picsou.repository.UserIdentityRepository.class),
+            java.time.Clock.systemUTC());
     }
 
     @Test

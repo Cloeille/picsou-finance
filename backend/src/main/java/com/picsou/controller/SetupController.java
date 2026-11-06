@@ -2,6 +2,7 @@ package com.picsou.controller;
 
 import com.picsou.config.ClientIp;
 import com.picsou.config.RateLimitConfig;
+import com.picsou.config.SsoProperties;
 import com.picsou.dto.BoursoBankHealthResponse;
 import com.picsou.dto.CryptoKeyGenerateResponse;
 import com.picsou.dto.EnableBankingConfigRequest;
@@ -12,6 +13,7 @@ import com.picsou.dto.SetupAdminRequest;
 import com.picsou.dto.SetupAdminResponse;
 import com.picsou.dto.SetupSecurityRequest;
 import com.picsou.dto.SetupStatusResponse;
+import com.picsou.exception.SignInMethodException;
 import com.picsou.model.AppUser;
 import com.picsou.service.CryptoKeyGeneratorService;
 import com.picsou.service.EnableBankingKeyPairService;
@@ -55,7 +57,7 @@ import java.util.Map;
  * {@link RateLimitConfig}). {@code GET /status} is polled by the frontend
  * and is exempt. The key is {@link com.picsou.config.ClientIp#resolve}, which
  * uses the container-resolved address shared with audit logging. Native forwarding
- * accepts client addresses only from the explicitly configured nginx peers.
+ * accepts client addresses only from the configured trusted proxy.
  */
 @RestController
 @RequestMapping("/api/setup")
@@ -68,6 +70,7 @@ public class SetupController {
     private final CryptoKeyGeneratorService cryptoKeyService;
     private final SetupAuditService auditService;
     private final Map<String, Bucket> setupBuckets;
+    private final SsoProperties ssoProperties;
 
     public SetupController(SetupService setupService,
                            IntegrationsService integrationsService,
@@ -75,6 +78,7 @@ public class SetupController {
                            EnableBankingKeyPairService keyPairService,
                            CryptoKeyGeneratorService cryptoKeyService,
                            SetupAuditService auditService,
+                           SsoProperties ssoProperties,
                            @Qualifier("setupBuckets") Map<String, Bucket> setupBuckets) {
         this.setupService = setupService;
         this.integrationsService = integrationsService;
@@ -83,6 +87,7 @@ public class SetupController {
         this.cryptoKeyService = cryptoKeyService;
         this.auditService = auditService;
         this.setupBuckets = setupBuckets;
+        this.ssoProperties = ssoProperties;
     }
 
     @GetMapping("/status")
@@ -94,6 +99,10 @@ public class SetupController {
     public ResponseEntity<?> seedAdmin(@Valid @RequestBody SetupAdminRequest request,
                                        HttpServletRequest httpRequest) {
         if (!consumeRateLimitToken(httpRequest)) return rateLimited();
+        if (ssoProperties.adminGroupConfigured()) {
+            throw new SignInMethodException(HttpStatus.CONFLICT, "SSO_ADMIN_REQUIRED",
+                "The first admin must sign in through the configured SSO admin group.");
+        }
         requireNotComplete();
 
         String bcryptHash = setupService.hashPassword(request.password());

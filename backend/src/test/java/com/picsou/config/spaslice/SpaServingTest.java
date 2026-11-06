@@ -106,6 +106,8 @@ class SpaServingTest {
     }
 
     @MockitoBean JwtUtil jwtUtil;
+    @MockitoBean com.picsou.config.SsoProperties ssoProperties;
+    @MockitoBean java.time.Clock clock;
     @MockitoBean JwtTokenAuthenticator jwtTokenAuthenticator;
     @MockitoBean AppUserRepository appUserRepository;
     @MockitoBean SetupFilter setupFilter;
@@ -290,6 +292,18 @@ class SpaServingTest {
             MvcResult result = mvc.perform(get(path)).andReturn();
             assertThat(body(result)).as(path).doesNotContain("picsou-spa-index");
             assertThat(result.getResponse().getStatus()).as(path).isIn(401, 404);
+        }
+    }
+
+    /** The Helm probes reach these before setup and without credentials; other actuator paths stay closed. */
+    @Test
+    void healthProbes_areOpenAndOtherActuatorPathsAreNot() throws Exception {
+        for (String path : new String[] {"/actuator/health", "/actuator/health/liveness",
+            "/actuator/health/readiness"}) {
+            assertThat(mvc.perform(get(path)).andReturn().getResponse().getStatus()).as(path).isEqualTo(404);
+        }
+        for (String path : new String[] {"/actuator/env", "/actuator/health/other"}) {
+            assertThat(mvc.perform(get(path)).andReturn().getResponse().getStatus()).as(path).isEqualTo(401);
         }
     }
 
