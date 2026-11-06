@@ -147,7 +147,7 @@ authorizations first; otherwise a removed member's app would keep access indefin
 
 ## Consequences
 
-- New schema (`V122__sso_identities.sql`): table `user_identity` with a unique `(issuer, subject)`,
+- New schema (`V124__sso_identities.sql`): table `user_identity` with a unique `(issuer, subject)`,
   and `persistent_session.sso_authenticated_at`.
 - A third `SecurityFilterChain` at `@Order(0)` matching `/oauth2/sso/**`, disjoint from the
   Authorization Server's endpoints.

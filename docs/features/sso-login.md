@@ -223,7 +223,7 @@ Backend (`backend/src/main/java/com/picsou/`):
 - `controller/SignInMethodsController.java` (`/api/auth/sso`, `sign-in-methods`, `reauth`,
   `password`, `identities/{id}`), `controller/AdminIdentityController.java`.
 - `model/UserIdentity.java`, `repository/UserIdentityRepository.java`,
-  `export/LinkedIdentitiesExporter.java`, `db/migration/V122__sso_identities.sql`.
+  `export/LinkedIdentitiesExporter.java`, `db/migration/V124__sso_identities.sql`.
 
 Frontend (`frontend/src/`):
 
