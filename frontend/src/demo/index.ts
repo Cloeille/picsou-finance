@@ -1,5 +1,18 @@
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
-import type { CicSessionStatus, PreciousMetalProduct, ScpiPosition, ScpiPositionRequest } from '@/types/api'
+import type {
+  CicSessionStatus,
+  PeerLoanDetail,
+  PeerLoanFromTransactionRequest,
+  PeerLoanRepayment,
+  PeerLoanRepaymentFromTransactionRequest,
+  PeerLoanRepaymentRequest,
+  PeerLoanSimulationRequest,
+  PeerLoanSimulationResponse,
+  PeerLoanTermsRequest,
+  PreciousMetalProduct,
+  ScpiPosition,
+  ScpiPositionRequest,
+} from '@/types/api'
 import { mockAccounts } from './data/accounts'
 import {
   mockAllocationTargets,
@@ -37,7 +50,7 @@ import {
 import { mockUpcomingDividends } from './data/dividends'
 import type { CashflowPeriod, CategorizeRequest } from '@/types/api'
 import { demoLoanSchedule } from './data/loans'
-import { demoPeerLoan, demoPeerLoans, demoPeerLoansOpen } from './data/peer-loans'
+import { demoPeerLoans, demoPeerLoansOpen } from './data/peer-loans'
 
 function randomDelay(): number {
   return 200 + Math.random() * 400
@@ -311,24 +324,243 @@ const demoExchangePositions = (() => {
 handlers.set(key('GET', '/accounts/6/positions'), () => demoExchangePositions)
 handlers.set(key('GET', '/accounts/:id/positions'), () => [])
 
-// Peer loans: accounts 16 and 17 carry the configured fixtures. Every other id keeps the
-// unconfigured shape so the route still answers if a new PEER_LOAN is created.
-handlers.set(key('GET', '/accounts/16/peer-loan'), () => demoPeerLoan)
-handlers.set(key('GET', '/accounts/17/peer-loan'), () => demoPeerLoans[1])
-handlers.set(key('GET', '/accounts/:id/peer-loan'), (_config, { id }) => ({
-  accountId: Number(id),
-  accountName: '',
-  configured: false,
-  principal: 0,
-  principalRemaining: 0,
-  interestAccrued: 0,
-  interestReceived: 0,
-  principalRepaid: 0,
-  totalRepaid: 0,
-  writtenOff: 0,
-  repaidPct: 0,
-  repayments: [],
-}))
+// Peer loans: accounts 16 and 17 carry the configured fixtures. The demo keeps a mutable
+// copy so Save, a repayment, Simulate and close behave like the API instead of falling
+// through to the permissive 200 {} fallback.
+const _peerLoanDetails = new Map<number, PeerLoanDetail>(
+  demoPeerLoans.map((loan) => [loan.accountId, JSON.parse(JSON.stringify(loan)) as PeerLoanDetail]),
+)
+
+const round2 = (value: number): number => Math.round(value * 100) / 100
+
+function demoPeerLoanDetail(accountId: number): PeerLoanDetail {
+  const existing = _peerLoanDetails.get(accountId)
+  if (existing) return existing
+  const account = _demoAccounts.find((candidate) => candidate.id === accountId)
+  return {
+    accountId,
+    accountName: account?.name ?? '',
+    configured: false,
+    principal: 0,
+    principalRemaining: 0,
+    interestAccrued: 0,
+    interestReceived: 0,
+    principalRepaid: 0,
+    totalRepaid: 0,
+    writtenOff: 0,
+    repaidPct: 0,
+    repayments: [],
+    curve: [],
+  }
+}
+
+/** Mirrors PeerLoanCalculator's annuity so the dialog gets finite figures in demo mode. */
+function demoPeerLoanSimulation(data: PeerLoanSimulationRequest): PeerLoanSimulationResponse {
+  const principal = data.principal
+  const monthlyRate = (data.annualRate ?? 0) / 12
+  if (data.months != null && data.months > 0) {
+    const months = data.months
+    const monthly = monthlyRate === 0
+      ? principal / months
+      : principal * monthlyRate / (1 - (1 + monthlyRate) ** -months)
+    const total = monthly * months
+    return {
+      monthlyPayment: round2(monthly),
+      months,
+      totalInterest: round2(Math.max(0, total - principal)),
+      totalCost: round2(total),
+    }
+  }
+  const payment = data.monthlyPayment ?? 0
+  if (monthlyRate === 0) {
+    const months = Math.max(1, Math.ceil(principal / payment))
+    return { monthlyPayment: round2(payment), months, totalInterest: 0, totalCost: round2(principal) }
+  }
+  const ratio = 1 - principal * monthlyRate / payment
+  if (ratio <= 0) throw new Error('The monthly payment does not cover the monthly interest')
+  const months = Math.max(1, Math.ceil(-Math.log(ratio) / Math.log(1 + monthlyRate)))
+  const growth = (1 + monthlyRate) ** (months - 1)
+  const beforeFinal = principal * growth - payment * (growth - 1) / monthlyRate
+  const final = Math.max(0, beforeFinal) * (1 + monthlyRate)
+  const total = payment * (months - 1) + final
+  return {
+    monthlyPayment: round2(payment),
+    months,
+    totalInterest: round2(Math.max(0, total - principal)),
+    totalCost: round2(total),
+  }
+}
+
+function demoNewPeerLoanAccount(accountId: number, name: string): void {
+  if (_demoAccounts.some((account) => account.id === accountId)) return
+  _demoAccounts = [..._demoAccounts, {
+    ...mockAccounts[0],
+    id: accountId,
+    name,
+    type: 'PEER_LOAN',
+    currentBalance: 0,
+    currentBalanceEur: 0,
+    isManual: true,
+    color: '#0d9488',
+  }]
+}
+
+function demoTransactionById(transactionId: number) {
+  return Object.values(mockTransactions).flat().find((transaction) => transaction.id === transactionId)
+}
+
+handlers.set(key('GET', '/accounts/:id/peer-loan'), (_config, { id }) =>
+  demoPeerLoanDetail(Number(id)))
+
+handlers.set(key('PUT', '/accounts/:id/peer-loan'), (config, { id }) => {
+  const accountId = Number(id)
+  const data: PeerLoanTermsRequest = JSON.parse(config.data || '{}')
+  const current = demoPeerLoanDetail(accountId)
+  const linked = _demoAccounts.find((account) => account.id === data.linkedAccountId)
+  const detail: PeerLoanDetail = {
+    ...current,
+    configured: true,
+    accountName: current.accountName || linked?.name || 'Prêt',
+    principal: data.principal,
+    lentAt: data.lentAt,
+    expectedBack: data.expectedBack ?? null,
+    annualRate: data.annualRate ?? 0,
+    ratePeriod: data.ratePeriod ?? 'ANNUAL',
+    plannedMonthlyAmount: data.plannedMonthlyAmount ?? null,
+    plannedMonths: data.plannedMonths ?? null,
+    linkedAccountId: data.linkedAccountId,
+    linkedAccountName: linked?.name ?? null,
+    note: data.note ?? null,
+    principalRemaining: round2(Math.max(0, data.principal - current.principalRepaid)),
+    repaidPct: data.principal > 0 ? round2(current.principalRepaid * 100 / data.principal) : 0,
+  }
+  _peerLoanDetails.set(accountId, detail)
+  return detail
+})
+
+handlers.set(key('POST', '/accounts/:id/peer-loan/repayments'), (config, { id }) => {
+  const accountId = Number(id)
+  const data: PeerLoanRepaymentRequest = JSON.parse(config.data || '{}')
+  const current = demoPeerLoanDetail(accountId)
+  const repayment: PeerLoanRepayment = {
+    id: Date.now(),
+    paidOn: data.paidOn,
+    amount: data.amount,
+    kind: data.kind ?? 'PRINCIPAL',
+    note: data.note ?? null,
+    interestPart: 0,
+    capitalPart: data.amount,
+  }
+  const applied = Math.min(data.amount, current.principalRemaining)
+  const repaid = current.principalRepaid + applied
+  _peerLoanDetails.set(accountId, {
+    ...current,
+    principalRemaining: round2(current.principalRemaining - applied),
+    principalRepaid: round2(repaid),
+    totalRepaid: round2(current.totalRepaid + data.amount),
+    repaidPct: current.principal > 0 ? round2(repaid * 100 / current.principal) : 0,
+    repayments: [...current.repayments, repayment],
+  })
+  return repayment
+})
+
+handlers.set(key('PUT', '/accounts/:id/peer-loan/repayments/:repaymentId'), (config, { id, repaymentId }) => {
+  const accountId = Number(id)
+  const target = Number(repaymentId)
+  const data: PeerLoanRepaymentRequest = JSON.parse(config.data || '{}')
+  const current = demoPeerLoanDetail(accountId)
+  const updated = current.repayments.map((repayment) => repayment.id === target
+    ? { ...repayment, paidOn: data.paidOn, amount: data.amount, kind: data.kind ?? repayment.kind, note: data.note ?? null }
+    : repayment)
+  _peerLoanDetails.set(accountId, { ...current, repayments: updated })
+  return updated.find((repayment) => repayment.id === target)
+})
+
+handlers.set(key('DELETE', '/accounts/:id/peer-loan/repayments/:repaymentId'), (_config, { id, repaymentId }) => {
+  const accountId = Number(id)
+  const target = Number(repaymentId)
+  const current = demoPeerLoanDetail(accountId)
+  const removed = current.repayments.find((repayment) => repayment.id === target)
+  if (removed) {
+    const restored = current.principalRemaining + (removed.capitalPart ?? removed.amount)
+    _peerLoanDetails.set(accountId, {
+      ...current,
+      principalRemaining: round2(Math.min(current.principal, restored)),
+      principalRepaid: round2(Math.max(0, current.principalRepaid - (removed.capitalPart ?? removed.amount))),
+      repayments: current.repayments.filter((repayment) => repayment.id !== target),
+    })
+  }
+  return {}
+})
+
+handlers.set(key('POST', '/accounts/:id/peer-loan/close'), (config, { id }) => {
+  const accountId = Number(id)
+  const current = demoPeerLoanDetail(accountId)
+  const date = (config.params as Record<string, string> | undefined)?.date
+    ?? new Date().toISOString().slice(0, 10)
+  const detail: PeerLoanDetail = {
+    ...current,
+    closedAt: date,
+    writtenOff: round2(current.writtenOff + current.principalRemaining),
+    principalRemaining: 0,
+  }
+  _peerLoanDetails.set(accountId, detail)
+  return detail
+})
+
+handlers.set(key('POST', '/peer-loans/simulate'), (config) =>
+  demoPeerLoanSimulation(JSON.parse(config.data || '{}')))
+
+handlers.set(key('POST', '/peer-loans/from-transaction'), (config) => {
+  const body: PeerLoanFromTransactionRequest = JSON.parse(config.data || '{}')
+  const transaction = demoTransactionById(body.transactionId)
+  const accountId = 1000 + _peerLoanDetails.size
+  const name = body.beneficiary?.trim() || transaction?.merchantLabel || transaction?.description || 'Prêt'
+  demoNewPeerLoanAccount(accountId, name)
+  const detail: PeerLoanDetail = {
+    ...demoPeerLoanDetail(accountId),
+    accountName: name,
+    configured: true,
+    principal: Math.abs(transaction?.amount ?? 0),
+    lentAt: transaction?.date ?? new Date().toISOString().slice(0, 10),
+    annualRate: 0,
+    ratePeriod: 'ANNUAL',
+    principalRemaining: Math.abs(transaction?.amount ?? 0),
+    repayments: [],
+    curve: [],
+  }
+  _peerLoanDetails.set(accountId, detail)
+  return detail
+})
+
+handlers.set(key('POST', '/accounts/:id/peer-loan/repayments/from-transaction'), (config, { id }) => {
+  const accountId = Number(id)
+  const body: PeerLoanRepaymentFromTransactionRequest = JSON.parse(config.data || '{}')
+  const transaction = demoTransactionById(body.transactionId)
+  const current = demoPeerLoanDetail(accountId)
+  const amount = Math.abs(transaction?.amount ?? 0)
+  const repayment: PeerLoanRepayment = {
+    id: Date.now(),
+    paidOn: transaction?.date ?? new Date().toISOString().slice(0, 10),
+    amount,
+    kind: body.kind ?? 'PRINCIPAL',
+    note: transaction?.description ?? null,
+    interestPart: 0,
+    capitalPart: amount,
+  }
+  const applied = Math.min(amount, current.principalRemaining)
+  const repaid = current.principalRepaid + applied
+  const detail: PeerLoanDetail = {
+    ...current,
+    principalRemaining: round2(current.principalRemaining - applied),
+    principalRepaid: round2(repaid),
+    totalRepaid: round2(current.totalRepaid + amount),
+    repaidPct: current.principal > 0 ? round2(repaid * 100 / current.principal) : 0,
+    repayments: [...current.repayments, repayment],
+  }
+  _peerLoanDetails.set(accountId, detail)
+  return detail
+})
 handlers.set(key('GET', '/peer-loans/open'), () => demoPeerLoansOpen)
 handlers.set(key('GET', '/peer-loans/overview'), () => {
   const loans = demoPeerLoans.map((loan) => ({
