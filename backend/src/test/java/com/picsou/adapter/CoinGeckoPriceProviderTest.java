@@ -45,6 +45,21 @@ import static org.assertj.core.api.Assertions.entry;
  */
 class CoinGeckoPriceProviderTest {
 
+    /** Only the coins these tests price; the seeded table itself is pinned by the migration test. */
+    private static final CryptoAssetRegistry REGISTRY = CryptoAssetRegistry.of(Map.ofEntries(
+        coin("BTC", "bitcoin", "Bitcoin"),
+        coin("ETH", "ethereum", "Ethereum"),
+        coin("SOL", "solana", "Solana"),
+        coin("POL", "polygon-ecosystem-token", "POL (ex-MATIC)"),
+        coin("USDT", "tether", "Tether"),
+        coin("USDC", "usd-coin", "USDC"),
+        coin("DAI", "dai", "Dai"),
+        coin("EURC", "euro-coin", "EURC")));
+
+    private static Map.Entry<String, CryptoAssetRegistry.Coin> coin(String ticker, String id, String name) {
+        return Map.entry(ticker, new CryptoAssetRegistry.Coin(id, name));
+    }
+
     private ListAppender<ILoggingEvent> logs;
     private ch.qos.logback.classic.Logger logger;
 
@@ -62,7 +77,7 @@ class CoinGeckoPriceProviderTest {
     }
 
     private CoinGeckoPriceProvider providerReturning(WebClient client) {
-        return new CoinGeckoPriceProvider(client);
+        return new CoinGeckoPriceProvider(client, REGISTRY);
     }
 
     private CoinGeckoPriceProvider providerWithJson(String json) {
@@ -81,29 +96,58 @@ class CoinGeckoPriceProviderTest {
         return logs.list.stream().filter(e -> e.getLevel() == level).toList();
     }
 
-    // ── Ticker coverage ───────────────────────────────────────────────────────
+    // ── Seeded registry ───────────────────────────────────────────────────────
 
-    @Test
-    void supports_coversTheCoinsReachableThroughMeria() {
-        // An unmapped ticker is left unpriced by refreshCryptoPrices, so dropping an entry here
-        // shrinks a balance without failing anything.
-        var provider = providerWithJson("{}");
+    private static String seedMigration() throws IOException {
+        try (var in = CoinGeckoPriceProviderTest.class.getResourceAsStream("/db/migration/V122__crypto_asset.sql")) {
+            assertThat(in).as("V122__crypto_asset.sql on the classpath").isNotNull();
+            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
 
-        assertThat(List.of("EGLD", "XTZ", "ALGO", "KSM", "TIA", "INJ", "ROSE", "KAVA",
-                "ZEC", "ETC", "XLM", "TRX", "BCH", "MINA", "OSMO", "AKT", "DYDX", "CELO",
-                "BAND", "XMR", "VET", "HBAR", "GRT"))
-            .allSatisfy(ticker -> assertThat(provider.supports(ticker)).as(ticker).isTrue());
+    private static boolean seeds(String migration, String ticker) {
+        return migration.contains("('" + ticker + "', '");
     }
 
     @Test
-    void supports_rejectsSymbolsSharedWithListedEquities() {
-        // This map routes PriceService: claiming a symbol here sends the *stock* of the same name
+    void seed_coversTheCoinsReachableThroughMeria_andTheTwoLearnedFromIssue419() throws IOException {
+        // An unseeded ticker is left unpriced by refreshCryptoPrices (until it is learned), so
+        // dropping a row here shrinks a balance without failing anything.
+        String migration = seedMigration();
+
+        assertThat(List.of("EGLD", "XTZ", "ALGO", "KSM", "TIA", "INJ", "ROSE", "KAVA",
+                "ZEC", "ETC", "XLM", "TRX", "BCH", "MINA", "OSMO", "AKT", "DYDX", "CELO",
+                "BAND", "XMR", "VET", "HBAR", "GRT", "NEXO", "CRO"))
+            .allSatisfy(ticker -> assertThat(seeds(migration, ticker)).as(ticker).isTrue());
+    }
+
+    @Test
+    void seed_rejectsSymbolsSharedWithListedEquities_andTheAmbiguousONE() throws IOException {
+        // The registry routes PriceService: seeding a symbol sends the *stock* of the same name
         // to CoinGecko too. Seagate (STX), TD SYNNEX (SNX), Solaris Energy (SEI) and Alpha Pro
-        // Tech (APT) must keep going to Yahoo, even though Meria offers coins with those symbols.
+        // Tech (APT) must keep going to Yahoo; six coins share ONE and none dominates.
+        String migration = seedMigration();
+
+        assertThat(List.of("STX", "SNX", "SEI", "APT", "ONE"))
+            .allSatisfy(ticker -> assertThat(seeds(migration, ticker)).as(ticker).isFalse());
+    }
+
+    @Test
+    void supports_isDrivenByTheRegistry_caseInsensitively() {
         var provider = providerWithJson("{}");
 
-        assertThat(List.of("STX", "SNX", "SEI", "APT"))
-            .allSatisfy(ticker -> assertThat(provider.supports(ticker)).as(ticker).isFalse());
+        assertThat(provider.supports("btc")).isTrue();
+        assertThat(provider.supportsCrypto("ETH")).isTrue();
+        assertThat(provider.supports("STX")).isFalse();
+        assertThat(provider.supports(null)).isFalse();
+    }
+
+    @Test
+    void displayName_isTheStoredName() {
+        var provider = providerWithJson("{}");
+
+        assertThat(provider.displayName("pol")).isEqualTo("POL (ex-MATIC)");
+        assertThat(provider.displayName("STX")).isNull();
     }
 
     // ── Happy path ────────────────────────────────────────────────────────────
@@ -166,7 +210,7 @@ class CoinGeckoPriceProviderTest {
                     .body("{\"" + coinId + "\":{\"eur\":1.0}}").build());
             };
             var provider = new CoinGeckoPriceProvider(
-                WebClient.builder().exchangeFunction(exchange).build());
+                WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
 
             Map<String, BigDecimal> prices = provider.getPricesEur(Set.of(ticker));
 
@@ -200,7 +244,7 @@ class CoinGeckoPriceProviderTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body("{\"status\":\"rate limited\"}").build());
         };
-        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build());
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
 
         provider.getPricesEur(Set.of("BTC"));
         provider.getPricesEur(Set.of("ETH"));
@@ -251,7 +295,7 @@ class CoinGeckoPriceProviderTest {
 
     @Test
     void notFound_returnsNoPrices_andErrors() {
-        // A 404 points at a bad TICKER_TO_ID coin id -- something we can actually fix.
+        // A 404 points at a bad crypto_asset coin id -- something we can actually fix.
         var provider = providerWithStatus(HttpStatus.NOT_FOUND, "{\"error\":\"unknown coin\"}");
 
         assertThat(provider.getPricesEur(Set.of("BTC"))).isEmpty();
@@ -349,7 +393,7 @@ class CoinGeckoPriceProviderTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body("[]").build());
         };
-        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build());
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
 
         assertThat(provider.getLogoUrls(Set.of("AAPL"))).isEmpty();
         assertThat(requests.get()).isZero();
@@ -379,7 +423,7 @@ class CoinGeckoPriceProviderTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body("{\"status\":\"rate limited\"}").build());
         };
-        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build());
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
 
         assertThat(provider.getLogoUrls(Set.of("BTC"))).isEmpty();
         assertThat(provider.getPricesEur(Set.of("ETH"))).isEmpty();
@@ -401,6 +445,384 @@ class CoinGeckoPriceProviderTest {
         assertThatThrownBy(() -> provider.getLogoUrls(Set.of("BTC")))
             .isInstanceOf(IllegalStateException.class)
             .hasMessage("a real bug");
+    }
+
+    // ── resolveBySymbol: learning a coin from its symbol ──────────────────────
+
+    private static String market(String id, String symbol, String name, Integer rank, Long cap) {
+        return "{\"id\":\"" + id + "\",\"symbol\":\"" + symbol + "\",\"name\":\"" + name
+            + "\",\"market_cap_rank\":" + rank + ",\"market_cap\":" + cap + "}";
+    }
+
+    @Test
+    void resolveBySymbol_acceptsTheOnlyRankedCoin() {
+        var provider = providerWithJson("[" + market("nexo", "nexo", "NEXO", 105, 600000000L) + "]");
+
+        Map<String, CryptoAssetRegistry.Coin> coins = provider.resolveBySymbol(Set.of("NEXO")).accepted();
+
+        assertThat(coins).containsOnly(entry("NEXO", new CryptoAssetRegistry.Coin("nexo", "NEXO")));
+    }
+
+    @Test
+    void resolveBySymbol_acceptsCro_whenTheBridgedHomonymHasNoRank() {
+        var provider = providerWithJson("[" + market("crypto-com-chain", "cro", "Cronos", 33, 5000000000L) + ","
+            + market("bridged-cro", "cro", "Bridged CRO", null, null) + "]");
+
+        assertThat(provider.resolveBySymbol(Set.of("CRO")).accepted())
+            .containsOnly(entry("CRO", new CryptoAssetRegistry.Coin("crypto-com-chain", "Cronos")));
+    }
+
+    @Test
+    void resolveBySymbol_ignoresUnrankedHomonyms_soTheRealCoinWins() {
+        var provider = providerWithJson("[" + market("ethereum-classic", "etc", "Ethereum Classic", 60, 2000000000L) + ","
+            + market("etc-fake", "etc", "ETC Fake", null, 1000000L) + "]");
+
+        assertThat(provider.resolveBySymbol(Set.of("ETC")).accepted())
+            .containsOnly(entry("ETC", new CryptoAssetRegistry.Coin("ethereum-classic", "Ethereum Classic")));
+    }
+
+    @Test
+    void resolveBySymbol_acceptsTheLeaderAtExactlyTenTimesTheRunnerUp() {
+        var provider = providerWithJson("[" + market("small", "xyz", "Small", 900, 10000000L) + ","
+            + market("big", "xyz", "Big", 100, 100000000L) + "]");
+
+        assertThat(provider.resolveBySymbol(Set.of("XYZ")).accepted()).containsOnlyKeys("XYZ");
+        assertThat(provider.resolveBySymbol(Set.of("XYZ")).accepted().get("XYZ").id()).isEqualTo("big");
+    }
+
+    @Test
+    void resolveBySymbol_rejectsONE_whenSixCoinsShareTheSymbolAndNoneDominates_andWarnsWithTheRatio() {
+        var provider = providerWithJson("[" + market("harmony", "one", "Harmony", 387, 52700000L) + ","
+            + market("bigone-token", "one", "BigONE Token", 947, 14500000L) + "]");
+
+        assertThat(provider.resolveBySymbol(Set.of("ONE")).accepted()).isEmpty();
+        assertThat(eventsAt(Level.WARN)).singleElement().satisfies(e ->
+            assertThat(e.getFormattedMessage()).contains("ONE").contains("ambiguous").contains("2 coins").contains("3.6"));
+    }
+
+    @Test
+    void resolveBySymbol_rejectsASymbolWithNoRankedCoin_andWarns() {
+        var provider = providerWithJson("[" + market("matic-bridged", "matic", "MATIC bridged", null, null) + "]");
+
+        assertThat(provider.resolveBySymbol(Set.of("MATIC")).accepted()).isEmpty();
+        assertThat(eventsAt(Level.WARN)).singleElement().satisfies(e ->
+            assertThat(e.getFormattedMessage()).contains("MATIC").contains("no ranked coin"));
+    }
+
+    @Test
+    void resolveBySymbol_ignoresCandidatesWhoseSymbolIsAnotherTicker() {
+        // The symbols filter is a batch: the API may return neighbours of the requested symbol.
+        var provider = providerWithJson("[" + market("nexo", "nexo", "NEXO", 105, 600000000L) + ","
+            + market("cardano", "ada", "Cardano", 10, 20000000000L) + "]");
+
+        assertThat(provider.resolveBySymbol(Set.of("NEXO")).accepted()).containsOnlyKeys("NEXO");
+    }
+
+    @Test
+    void resolveBySymbol_sendsOneBatchedRequest_withLowerCaseSymbolsAndAllTokens() {
+        var captured = new java.util.concurrent.atomic.AtomicReference<String>();
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        ExchangeFunction exchange = request -> {
+            requests.incrementAndGet();
+            captured.set(request.url().toString());
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE).body("[]").build());
+        };
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
+
+        provider.resolveBySymbol(Set.of("NEXO", "CRO"));
+
+        assertThat(requests.get()).isEqualTo(1);
+        assertThat(captured.get())
+            .contains("/coins/markets").contains("vs_currency=eur").contains("symbols=cro%2Cnexo")
+            .contains("include_tokens=all").contains("per_page=250")
+            .contains("order=market_cap_desc").contains("page=1");
+    }
+
+    @Test
+    void resolveBySymbol_encodesATickerHoldingBraces_insteadOfParsingItAsAUriTemplate() {
+        var urls = new java.util.ArrayList<String>();
+        ExchangeFunction exchange = request -> {
+            urls.add(request.url().toString());
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("[" + market("nexo", "nexo", "NEXO", 105, 600000000L) + "]").build());
+        };
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
+
+        var resolution = provider.resolveBySymbol(Set.of("NEXO", "{X}"));
+
+        assertThat(resolution.answered()).isTrue();
+        assertThat(resolution.accepted()).containsOnlyKeys("NEXO");
+        assertThat(urls).singleElement().satisfies(url -> assertThat(url).contains("symbols=nexo%2C%7Bx%7D"));
+    }
+
+    @Test
+    void resolveBySymbol_queriesAtMostFiftySymbolsPerRequest() {
+        var urls = new java.util.ArrayList<String>();
+        var provider = providerPaging(List.of(), urls);
+        Set<String> tickers = java.util.stream.IntStream.rangeClosed(1, 51)
+            .mapToObj(i -> String.format("T%02d", i))
+            .collect(java.util.stream.Collectors.toSet());
+
+        var resolution = provider.resolveBySymbol(tickers);
+
+        assertThat(urls).hasSize(2);
+        assertThat(urls).allSatisfy(url -> {
+            String symbols = java.util.regex.Pattern.compile("symbols=([^&]*)").matcher(url).results()
+                .findFirst().orElseThrow().group(1);
+            assertThat(java.net.URLDecoder.decode(symbols, java.nio.charset.StandardCharsets.UTF_8).split(","))
+                .hasSizeLessThanOrEqualTo(50);
+        });
+        assertThat(resolution.answered()).isTrue();
+    }
+
+    @Test
+    void resolveBySymbol_keepsTheCoinsOfAnsweredGroups_butIsUnanswered_whenALaterGroupFails() {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        ExchangeFunction exchange = request -> {
+            boolean first = calls.getAndIncrement() == 0;
+            return Mono.just(ClientResponse.create(first ? HttpStatus.OK : HttpStatus.BAD_GATEWAY)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(first ? "[" + market("aaa-coin", "aaa", "Aaa", 10, 600000000L) + "]" : "{}").build());
+        };
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
+        // "AAA" sorts first, so it lands in the first group of 50; ZZZ is the 51st.
+        Set<String> tickers = new java.util.TreeSet<>(java.util.stream.IntStream.rangeClosed(1, 49)
+            .mapToObj(i -> String.format("B%02d", i)).toList());
+        tickers.add("AAA");
+        tickers.add("ZZZ");
+
+        var resolution = provider.resolveBySymbol(tickers);
+
+        assertThat(calls.get()).isEqualTo(2);
+        assertThat(resolution.answered()).isFalse();
+        assertThat(resolution.accepted()).containsOnlyKeys("AAA");
+    }
+
+    @Test
+    void resolveBySymbol_sendsNothing_whileCoolingDown() {
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        ExchangeFunction exchange = request -> {
+            requests.incrementAndGet();
+            return Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE).body("{}").build());
+        };
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
+        provider.getPricesEur(Set.of("BTC"));
+
+        assertThat(provider.resolveBySymbol(Set.of("NEXO")).accepted()).isEmpty();
+
+        assertThat(requests.get()).isEqualTo(1);
+    }
+
+    @Test
+    void resolveBySymbol_rateLimit_armsTheCooldownThePricePathReads() {
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        ExchangeFunction exchange = request -> {
+            requests.incrementAndGet();
+            return Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE).body("{}").build());
+        };
+        var provider = new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
+
+        assertThat(provider.resolveBySymbol(Set.of("NEXO")).accepted()).isEmpty();
+        assertThat(provider.getPricesEur(Set.of("BTC"))).isEmpty();
+
+        assertThat(requests.get()).isEqualTo(1);
+        assertThat(eventsAt(Level.WARN)).singleElement()
+            .satisfies(e -> assertThat(e.getFormattedMessage()).contains("429"));
+    }
+
+    @Test
+    void resolveBySymbol_reportsWhetherCoinGeckoAnswered_soAMissIsNotMistakenForARefusal() {
+        var rejected = providerWithJson("[]").resolveBySymbol(Set.of("NEXO"));
+        var failed = providerWithStatus(HttpStatus.BAD_GATEWAY, "<html>bad gateway</html>").resolveBySymbol(Set.of("NEXO"));
+
+        assertThat(rejected.answered()).isTrue();
+        assertThat(failed.answered()).isFalse();
+        assertThat(failed.accepted()).isEmpty();
+    }
+
+    /** A CoinGecko that serves {@code pages.get(n - 1)} for {@code page=n} and {@code []} past the end. */
+    private CoinGeckoPriceProvider providerPaging(List<String> pages, java.util.List<String> urls) {
+        ExchangeFunction exchange = request -> {
+            String url = request.url().toString();
+            urls.add(url);
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("[?&]page=(\\d+)").matcher(url);
+            int page = m.find() ? Integer.parseInt(m.group(1)) : 1;
+            String body = page <= pages.size() ? pages.get(page - 1) : "[]";
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE).body(body).build());
+        };
+        return new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY);
+    }
+
+    /** A full page of 250 capped, ranked coins under symbol {@code other}, ranks from {@code firstRank}. */
+    private static String fullPageOfOther(int firstRank, String leading) {
+        return java.util.stream.IntStream.range(0, 250)
+            .mapToObj(i -> i == 0 && leading != null ? leading
+                : market("other-" + (firstRank + i), "other", "Other " + i, firstRank + i, 1_000_000_000L - firstRank - i))
+            .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+    }
+
+    @Test
+    void resolveBySymbol_readsTheNextPage_soARunnerUpPastTheFirstPageStillCountsAgainstTheLeader() {
+        // NEXO's leader is on page 1, its close runner-up only on page 2: judged on page 1 alone it
+        // would pass as the only ranked coin.
+        String page1 = fullPageOfOther(2, market("nexo", "nexo", "NEXO", 1, 2_000_000_000L));
+        String page2 = "[" + market("nexo-clone", "nexo", "Nexo Clone", 400, 1_000_000_000L) + "]";
+        var urls = new java.util.ArrayList<String>();
+
+        var resolution = providerPaging(List.of(page1, page2), urls).resolveBySymbol(Set.of("NEXO", "OTHER"));
+
+        assertThat(urls).hasSize(2);
+        assertThat(urls.get(0)).contains("order=market_cap_desc").contains("page=1");
+        assertThat(urls.get(1)).contains("page=2");
+        assertThat(resolution.answered()).isTrue();
+        assertThat(resolution.accepted()).doesNotContainKey("NEXO");
+    }
+
+    @Test
+    void resolveBySymbol_acceptsADominantCoin_onceThePagesRunOut() {
+        String page1 = fullPageOfOther(2, market("nexo", "nexo", "NEXO", 1, 2_000_000_000L));
+        String page2 = "[" + market("nexo-dust", "nexo", "Nexo Dust", 900, 1_000_000L) + "]";
+        var urls = new java.util.ArrayList<String>();
+
+        var resolution = providerPaging(List.of(page1, page2), urls).resolveBySymbol(Set.of("NEXO"));
+
+        assertThat(urls).hasSize(2);
+        assertThat(resolution.accepted()).containsEntry("NEXO", new CryptoAssetRegistry.Coin("nexo", "NEXO"));
+    }
+
+    @Test
+    void resolveBySymbol_stopsPaging_whenAPageEndsOnCoinsWithNoMarketCap() {
+        // market_cap_desc puts uncapped entries last, and an uncapped entry has no rank: nothing
+        // past it can change the decision, so the next page is not worth a request.
+        String page1 = java.util.stream.IntStream.range(0, 250)
+            .mapToObj(i -> i == 0 ? market("nexo", "nexo", "NEXO", 1, 2_000_000_000L)
+                : market("bridged-" + i, "nexo", "Bridged " + i, null, 0L))
+            .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+        var urls = new java.util.ArrayList<String>();
+
+        var resolution = providerPaging(List.of(page1, fullPageOfOther(2, null)), urls).resolveBySymbol(Set.of("NEXO"));
+
+        assertThat(urls).hasSize(1);
+        assertThat(resolution.accepted()).containsKey("NEXO");
+    }
+
+    @Test
+    void resolveBySymbol_isUndecided_whenRankedCoinsStillFillTheLastAllowedPage() {
+        var pages = List.of(fullPageOfOther(1, null), fullPageOfOther(251, null),
+            fullPageOfOther(501, null), fullPageOfOther(751, null), fullPageOfOther(1001, null));
+        var urls = new java.util.ArrayList<String>();
+
+        var resolution = providerPaging(pages, urls).resolveBySymbol(Set.of("OTHER"));
+
+        assertThat(urls).hasSize(4);
+        assertThat(resolution.accepted()).isEmpty();
+        assertThat(resolution.answered()).isFalse();
+        assertThat(eventsAt(Level.WARN)).singleElement()
+            .satisfies(e -> assertThat(e.getFormattedMessage()).contains("after 4 pages"));
+    }
+
+    @Test
+    void resolveBySymbol_stopsPaging_whenAnotherCallArmsTheCooldownBetweenTwoPages() {
+        // A price call on another thread hits a 429 while page 1 is in flight. The free tier counts
+        // the requests it rejects, so page 2 must not be sent: the cooldown is read before every
+        // page, not once before the first one.
+        var urls = new java.util.ArrayList<String>();
+        var providerRef = new java.util.concurrent.atomic.AtomicReference<CoinGeckoPriceProvider>();
+        ExchangeFunction exchange = request -> {
+            String url = request.url().toString();
+            urls.add(url);
+            if (url.contains("/simple/price")) {
+                return Mono.just(ClientResponse.create(HttpStatus.TOO_MANY_REQUESTS)
+                    .header("Content-Type", MediaType.APPLICATION_JSON_VALUE).body("{}").build());
+            }
+            providerRef.get().getPricesEur(Set.of("BTC"));
+            return Mono.just(ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(fullPageOfOther(1, null)).build());
+        };
+        providerRef.set(new CoinGeckoPriceProvider(WebClient.builder().exchangeFunction(exchange).build(), REGISTRY));
+
+        var resolution = providerRef.get().resolveBySymbol(Set.of("OTHER"));
+
+        assertThat(urls).hasSize(2);
+        assertThat(urls.get(0)).contains("/coins/markets").contains("page=1");
+        assertThat(urls.get(1)).contains("/simple/price");
+        assertThat(resolution.answered()).isFalse();
+        assertThat(resolution.accepted()).isEmpty();
+    }
+
+    /**
+     * A CoinGecko whose page 1 (a full page, so a second one is needed) takes {@code page1Takes}
+     * on {@code clock} to arrive, without sleeping; page 2 is {@code []}, held back by a real
+     * {@code page2Delay}. Every requested URL lands in {@code urls}.
+     */
+    private CoinGeckoPriceProvider providerWithSlowFirstPage(
+            java.util.concurrent.atomic.AtomicLong clock, java.time.Duration page1Takes,
+            java.time.Duration page2Delay, java.util.List<String> urls) {
+        ExchangeFunction exchange = request -> {
+            String url = request.url().toString();
+            urls.add(url);
+            boolean first = url.contains("page=1");
+            if (first) clock.addAndGet(page1Takes.toNanos());
+            Mono<ClientResponse> response = Mono.just(ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body(first ? fullPageOfOther(1, null) : "[]").build());
+            return first ? response : response.delayElement(page2Delay);
+        };
+        return new CoinGeckoPriceProvider(
+            WebClient.builder().exchangeFunction(exchange).build(), REGISTRY, clock::get);
+    }
+
+    @Test
+    void resolveBySymbol_requestsNoFurtherPage_whenAPageSpendsTheWholeSharedBudget() {
+        // The lookup budget is one deadline for all pages, read on the injected monotonic clock.
+        // Page 1 takes the whole 10 s (the fake clock jumps, nothing sleeps), so there is nothing
+        // left for page 2: it is never sent, and the batch is undecided rather than refused.
+        var clock = new java.util.concurrent.atomic.AtomicLong(1_000L);
+        var urls = new java.util.ArrayList<String>();
+        var provider = providerWithSlowFirstPage(clock, java.time.Duration.ofSeconds(10),
+            java.time.Duration.ZERO, urls);
+
+        var resolution = provider.resolveBySymbol(Set.of("OTHER"));
+
+        assertThat(urls).hasSize(1);
+        assertThat(resolution.answered()).isFalse();
+        assertThat(resolution.accepted()).isEmpty();
+        assertThat(eventsAt(Level.WARN)).singleElement()
+            .satisfies(e -> assertThat(e.getFormattedMessage()).contains("ran out of its"));
+    }
+
+    @Test
+    void resolveBySymbol_givesALaterPageOnlyWhatIsLeftOfTheSharedBudget() {
+        // Page 1 leaves 0.1 s of the 10 s budget. Page 2 answers after a real 8 s: it fits a
+        // per-page 10 s timeout (answered() would be true after an 8 s wait) but not the 0.1 s
+        // that remains of the shared one, so it times out at once. The 7.9 s gap is the margin
+        // a stalled CI machine has before the two designs stop being told apart.
+        var clock = new java.util.concurrent.atomic.AtomicLong(1_000L);
+        var urls = new java.util.ArrayList<String>();
+        var provider = providerWithSlowFirstPage(clock, java.time.Duration.ofMillis(9_900),
+            java.time.Duration.ofSeconds(8), urls);
+
+        var resolution = provider.resolveBySymbol(Set.of("OTHER"));
+
+        assertThat(urls).hasSize(2);
+        assertThat(resolution.answered()).isFalse();
+        assertThat(resolution.accepted()).isEmpty();
+        assertThat(eventsAt(Level.WARN)).singleElement()
+            .satisfies(e -> assertThat(e.getFormattedMessage()).contains("timed out"));
+    }
+
+    @Test
+    void resolveBySymbol_propagatesAGenuineBug() {
+        var provider = providerFailingWith(new IllegalStateException("a real bug"));
+
+        assertThatThrownBy(() -> provider.resolveBySymbol(Set.of("NEXO")).accepted())
+            .isInstanceOf(IllegalStateException.class).hasMessage("a real bug");
     }
 
     // ── Defensive parsing of the history payload ──────────────────────────────

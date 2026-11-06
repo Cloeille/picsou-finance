@@ -293,12 +293,39 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
     @Override
     public boolean hasQuote(String ticker) {
         if (!supports(ticker)) return false;
+        return probeQuote(ticker) == QuoteProbe.QUOTED;
+    }
+
+    /** What a quote probe can conclude; {@link #UNAVAILABLE} is "cannot tell", never "no". */
+    public enum QuoteProbe { QUOTED, UNKNOWN_SYMBOL, UNAVAILABLE }
+
+    /**
+     * Whether Yahoo quotes {@code ticker}, distinguishing a definitive "no such symbol" (404 or an
+     * empty chart) from a failure to ask. The crypto registry learns a symbol only on the former:
+     * a rate-limited or unreachable Yahoo must not let a listed equity be taken for a coin.
+     *
+     * <p>No {@link #supports} gate: that filter drops the coin tickers Yahoo defers to CoinGecko
+     * and anything that looks like an ISIN, and this probe exists to ask Yahoo about exactly the
+     * symbols the rest of the code would not. While the shared cooldown is active nothing is sent.
+     */
+    public QuoteProbe probeQuote(String ticker) {
+        if (cooldown.active()) return QuoteProbe.UNAVAILABLE;
         try {
-            Meta meta = fetchMeta(ticker, VERIFY_TIMEOUT);
-            return meta != null && meta.regularMarketPrice() > 0;
+            ChartResult chart = fetchChart(VERIFY_TIMEOUT, "/v8/finance/chart/{ticker}?range=1d&interval=1d", ticker);
+            if (chart == null) return QuoteProbe.UNKNOWN_SYMBOL;
+            // Yahoo returned a series for the symbol: a missing meta is a payload we cannot read.
+            Meta meta = chart.meta();
+            if (meta == null) return QuoteProbe.UNAVAILABLE;
+            // A chart with no positive price is a halted or delisted listing, not a free symbol.
+            return meta.regularMarketPrice() > 0 ? QuoteProbe.QUOTED : QuoteProbe.UNAVAILABLE;
         } catch (Exception ex) {
-            log.debug("Yahoo quote probe failed for {}: {}", ticker, ex.getMessage());
-            return false;
+            Throwable cause = reactor.core.Exceptions.unwrap(ex);
+            if (cause instanceof WebClientResponseException http) {
+                if (http.getStatusCode().value() == 404) return QuoteProbe.UNKNOWN_SYMBOL;
+                if (http.getStatusCode().value() == 429) cooldown.arm(http.getHeaders());
+            }
+            log.debug("Yahoo quote probe failed for {}: {}", LogSanitizer.safe(ticker), LogSanitizer.safe(ex.getMessage()));
+            return QuoteProbe.UNAVAILABLE;
         }
     }
 
