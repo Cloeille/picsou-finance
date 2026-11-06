@@ -99,12 +99,15 @@ finished releases, and a release is tagged from it (`make release`).
   against the same branch.
 - **Migrations** take the next free `V<n>` across `main` and both open release branches, so two
   releases never ship the same version.
-- **`CHANGELOG.md`**: your entry goes under `[Unreleased]` on the target branch. A maintainer
-  renames that section to `## [x.y.z]` when the release is cut.
+- **`CHANGELOG.md`**: your entry goes under `[Unreleased]` on the target branch. Before the merge
+  into `main`, a maintainer renames that section to `## [x.y.z]` on the release branch (`make
+  release` requires it) and leaves an empty `[Unreleased]` above it.
 - **Release flow (maintainers).**
-  1. Merge `release/1.1.1` into `main` (a merge commit) and run `make release VERSION=1.1.1`.
+  1. Merge `release/1.1.1` into `main` (a merge commit), push `main`, and run
+     `make release VERSION=1.1.1` (`HEAD` must be on `origin/main`).
   2. Merge `main` into `release/1.2.0`, so every fix released in 1.1.1 reaches 1.2.0 (a merge,
-     not a rebase). Do this after every patch release.
+     not a rebase). Do this after every patch release. `CHANGELOG.md` conflicts there: keep the
+     `## [1.1.1]` section from `main` and every entry under `[Unreleased]`.
   3. When 1.2.0 is ready, merge `release/1.2.0` into `main` and run `make release VERSION=1.2.0`.
 - **Exception.** A change to the release workflow itself (these rules, the CI triggers) targets
   `main`, so that every branch inherits it. Ask a maintainer before you open any other pull request
@@ -159,7 +162,7 @@ the checklist below.
    maintainer agreed. A squash merge rewrites the lower pull request, and the upper one then
    conflicts in every file they share. If you do stack: base the upper pull request on the target branch
    and say which one must merge first. After the lower one is squash-merged, move yours onto
-   `main` with `git rebase --onto origin/main <last commit of the lower branch> <your branch>`
+   `main` with `git rebase --onto origin/<target branch> <last commit of the lower branch> <your branch>`
    and `git push --force-with-lease`.
 9. **Bank connectors** (`services/*-auth`, adapters, importers): use synthetic fixtures only.
    Never commit or paste a real account number, IBAN, balance, name, session, cookie, token,
