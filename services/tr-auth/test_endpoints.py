@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import os
+import time
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -188,6 +189,22 @@ class CompleteConfirmInAppTest(EndpointCase):
         pid = next(iter(main._pending._states))
 
         self.assertDetail(self.client.post("/complete", json={"processId": pid}), 408, "APP_VALIDATION_TIMEOUT")
+
+    def test_a_slow_waf_refresh_at_the_deadline_still_ends_as_a_timeout_within_the_budget(self):
+        # The poll answers with the WAF's empty 403, and the token refresh then hangs: the one
+        # deadline cancels it, so the member gets the timeout code, on time.
+        _, process_id = self.start({V2_POLL: reply(403)})
+
+        async def hanging_token():
+            await asyncio.sleep(5)
+            return "waf"
+
+        with patch.object(main, "get_waf_token", hanging_token):
+            started = time.monotonic()
+            response = self.client.post("/complete", json={"processId": process_id})
+
+        self.assertDetail(response, 408, "APP_VALIDATION_TIMEOUT")
+        self.assertLess(time.monotonic() - started, 1)
 
     def test_a_rejected_process_is_cancelled(self):
         for status in ("REJECTED", "EXPIRED", "CANCELLED"):
