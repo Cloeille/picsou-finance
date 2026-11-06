@@ -35,7 +35,9 @@ stack. The maintainer's own live run is still pending.
    imports the current account and its transactions, the regulated livrets
    (Livret A, LDDS, LEP), the commercial livret, and — as the parsers become
    available — the card and loans. Enable Banking is not used for La Banque
-   Postale any more; the user deletes that connection once the sidecar syncs.
+   Postale any more; the user deletes the old Enable Banking **account(s)** once
+   the sidecar syncs. Deleting only the connection would leave the account
+   orphaned and still counted (V76 links it with `ON DELETE SET NULL`).
 3. **The account product is explicit.** The normalized snapshot carries a
    `kind` (`CURRENT_ACCOUNT`, `LIVRET_A`, `LDDS`, `LEP`, `CSL`,
    `LIVRET_JEUNE`, `PEL`, `CEL`, `CARD`, `LOAN`) and the backend maps it to an
@@ -151,7 +153,10 @@ live feed.
   first-run setup step. The identifier can be remembered (encrypted); the
   password never can.
 - La Banque Postale accounts created by the sidecar are prefixed `lbp_`; the
-  existing Enable Banking connection for this bank is deleted by the user.
+  user deletes the old Enable Banking account(s) for this bank once the sidecar
+  syncs (deleting the last one also removes the connection). Deleting only the
+  connection is not enough: the account survives with `requisition_id` NULL and
+  its balance still counts.
 - New feature note: [docs/features/la-banque-postale.md](../features/la-banque-postale.md).
 
 ## Captures answered

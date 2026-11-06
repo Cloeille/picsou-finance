@@ -28,6 +28,11 @@ accounts, not a savings-only add-on: one source of ids, one sync history, no
 duplicate current account. See
 [the ADR](../decisions/2026-11-05-la-banque-postale-sidecar.md).
 
+When switching, delete the old Enable Banking **account(s)**, not just the
+connection: deleting a connection leaves its account orphaned (V76 sets
+`requisition_id` to NULL) and its balance still counts. Deleting the last account
+of a connection removes that connection too.
+
 ## Scope
 
 **Target scope**
