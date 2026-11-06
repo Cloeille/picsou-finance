@@ -415,6 +415,8 @@ SELECTOR = "changes"
 GATE = "ci-ok"
 PUBLISH = "docker"
 NON_BLOCKING = {"helm-chart"}
+# Path filters that select no job of their own.
+HELPER_FILTERS = {"workflows", "release-deps"}
 
 
 def _selectable(jobs):
@@ -464,7 +466,7 @@ def _selected(jobs, path):
     filtered = {
         name
         for name, patterns in _filters(jobs).items()
-        if name != "workflows" and any(_glob_matches(pattern, path) for pattern in patterns)
+        if name not in HELPER_FILTERS and any(_glob_matches(pattern, path) for pattern in patterns)
     }
     selection = _select_sidecars([path] if "sidecar" in filtered else [], changes=sorted(filtered))
     filtered = set(json.loads(selection["jobs"]))
@@ -478,7 +480,8 @@ def _selected(jobs, path):
 
 
 def _gate(needs):
-    script = _run_commands(_load(CI_WORKFLOW)["jobs"][GATE])
+    steps = _load(CI_WORKFLOW)["jobs"][GATE]["steps"]
+    script = _expand(next(s for s in steps if s.get("name") == "Every selected job succeeded")["run"])
     return subprocess.run(
         ["bash", "-c", script],
         env={**os.environ, "NEEDS": json.dumps(needs)},
@@ -506,8 +509,9 @@ class CiJobSelectionTest(unittest.TestCase):
             "all": "${{ steps.filter.outcome == 'skipped' }}",
             "jobs": "${{ steps.sidecars.outputs.jobs }}",
             "sidecar-matrix": "${{ steps.sidecars.outputs.matrix }}",
+            "release-cases": "${{ steps.release.outputs.release-cases }}",
         })
-        self.assertEqual(set(_filters(jobs)) - {"workflows"}, _selectable(jobs))
+        self.assertEqual(set(_filters(jobs)) - HELPER_FILTERS, _selectable(jobs))
         self.assertEqual(
             _filter_step(jobs)["if"],
             "github.event_name == 'pull_request' && github.event.pull_request.changed_files < 3000",
@@ -637,15 +641,6 @@ class CiJobSelectionTest(unittest.TestCase):
         self.assertEqual(set(jobs[GATE]["needs"]), _gated(jobs) | {SELECTOR})
         self.assertIn(GATE, jobs[PUBLISH]["needs"])
 
-    def test_every_job_has_a_timeout(self):
-        # A hung step otherwise holds a runner for GitHub's 6-hour default.
-        for name, job in _load(CI_WORKFLOW)["jobs"].items():
-            if "uses" in job:
-                continue  # a reusable workflow sets its own job limits
-            with self.subTest(job=name):
-                self.assertIsInstance(job.get("timeout-minutes"), int)
-                self.assertLessEqual(job["timeout-minutes"], 20)
-
     def test_helm_validation_does_not_block_ci_or_image_publishing(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         self.assertTrue(NON_BLOCKING <= _selectable(jobs))
@@ -697,8 +692,8 @@ class CiJobSelectionTest(unittest.TestCase):
         jobs = _load(CI_WORKFLOW)["jobs"]
         expected = {
             "backend": "make test-backend SOFIDY_PYTHON=python3",
-            "frontend": "make test-frontend",
-            "e2e": "make test-e2e PLAYWRIGHT_DEPS=--with-deps",
+            "frontend": "make lint-frontend",
+            "e2e": "make test-e2e",
             "sidecar-base": "make test-sidecar-base",
             "sidecar": "make test-sidecar SIDECAR=${{ matrix.service }} ARCH=${{ matrix.arch }}",
             "compose-sidecar-build": 'make build SERVICES="tr-auth bourso-auth amex-auth"',
@@ -707,6 +702,19 @@ class CiJobSelectionTest(unittest.TestCase):
             with self.subTest(job=job):
                 lines = [line.strip() for step in jobs[job]["steps"] for line in step.get("run", "").splitlines()]
                 self.assertIn(command, lines)
+
+    def test_frontend_ci_splits_lint_and_sharded_unit_tests(self):
+        job = _load(CI_WORKFLOW)["jobs"]["frontend"]
+        lines = [line.strip() for step in job["steps"] for line in step.get("run", "").splitlines()]
+
+        self.assertEqual(job["strategy"], {"fail-fast": False, "matrix": {"include": [
+            {"task": "lint"}, {"task": "test-1", "shard": 1, "total": 2}, {"task": "test-2", "shard": 2, "total": 2},
+        ]}})
+        self.assertIn(
+            "make unit-frontend SHARD=${{ matrix.shard }}/${{ matrix.total }}"
+            " VITEST_JSON=${{ runner.temp }}/vitest-${{ matrix.task }}.json",
+            lines,
+        )
 
     def test_the_demo_playwright_suite_runs_once(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
@@ -736,6 +744,28 @@ def _dockerfile_stages(path):
         if stages and line.strip() and not line.lstrip().startswith("#"):
             stages[-1].append(line)
     return stages
+
+
+class JobTimeoutTest(unittest.TestCase):
+    """A hung step otherwise holds a runner for GitHub's 6-hour default."""
+
+    # Minutes a job may be given: about twice its slowest observed run. Per job overrides the file's cap.
+    FILE_CAP = {"ci.yml": 20, "codeql.yml": 60, "docker.yml": 30}
+    JOB_CAP = {("ci.yml", "e2e"): 30}  # bimodal: most runs take 2 min, the slow tail 9-15 min
+
+    def test_every_job_has_a_bounded_timeout(self):
+        workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))
+        self.assertEqual({w.name for w in workflows} - set(self.FILE_CAP) - {"pr-size.yml"}, set(), "give the new workflow a cap")
+        for workflow in workflows:
+            for name, job in _load(workflow)["jobs"].items():
+                if "uses" in job:
+                    continue  # actionlint rejects timeout-minutes on a job that calls a reusable workflow
+                with self.subTest(workflow=workflow.name, job=name):
+                    timeout = job.get("timeout-minutes")
+                    self.assertIs(type(timeout), int)  # not a bool, a string or an expression
+                    self.assertGreater(timeout, 0)
+                    cap = self.JOB_CAP.get((workflow.name, name), self.FILE_CAP.get(workflow.name, 20))
+                    self.assertLessEqual(timeout, cap)
 
 
 class AppImageBuildTest(unittest.TestCase):

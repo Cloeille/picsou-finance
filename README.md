@@ -168,6 +168,11 @@ Caddy picks the certificate strategy from `PICSOU_DOMAIN` alone — there is no 
 | A LAN IP (`192.168.1.50`) or a `.local` / `.internal` name | Caddy's built-in CA | Install its root once per device (3c) |
 | `picsou.localhost` (the default) | Caddy's built-in CA | Resolves **only on the Docker host** — fine for a smoke test, useless from a phone |
 
+When you open HTTPS with a LAN IP, some clients omit TLS SNI because the URL host is an IP
+literal. The bundled Caddy configuration uses `PICSOU_DOMAIN` as its default SNI in that case,
+so it can select the certificate it manages for that same address. The certificate still needs
+to be trusted on each device as described in 3c.
+
 A real domain is worth the effort: it is the only option with no per-device step. It does not need
 to be publicly reachable for day-to-day use — only during certificate issuance.
 
@@ -434,7 +439,7 @@ Git holds the code, not your data or keys. To move an install, copy the Docker v
 
 Contributions are welcome: bug fixes, features, translations or documentation. Commands, conventions,
 the HTTPS dev certificate and the pull-request checklist are in [CONTRIBUTING.md](CONTRIBUTING.md).
-Keep pull requests to one concern and about 600 changed lines, synced with `main` and green before review;
+Keep pull requests to one concern and about 600 changed lines, synced with the release branch they target and green before review;
 open an issue first for a feature or a new bank connector.
 CI is described in [docker-deployment.md](docs/features/docker-deployment.md#pulling-from-ghcr).
 
