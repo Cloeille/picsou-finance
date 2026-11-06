@@ -991,7 +991,6 @@
         "invalidTan": "Der Bestätigungscode ist falsch oder abgelaufen. Verwende den zuletzt erhaltenen Code oder starte den Schritt neu, um einen neuen zu erhalten.",
         "authenticationFailed": "Trade-Republic-Authentifizierung fehlgeschlagen.",
         "serviceUnavailable": "Der lokale Trade-Republic-Dienst ist nicht verfügbar. Starte die Server neu und versuche es erneut.",
-        "temporarilyBlocked": "Trade Republic hat die Anfrage blockiert. Versuche es in einer Minute erneut.",
         "serverError": "Trade-Republic-Serverfehler. Bitte versuche es erneut.",
         "phoneNumberRequired": "Telefonnummer ist erforderlich.",
         "pinRequired": "PIN ist erforderlich.",
@@ -1009,7 +1008,7 @@
       "queued": "Synchronisierung eingeplant…",
       "syncing": "Synchronisierung läuft…",
       "syncSuccess": "Letzte Synchronisierung erfolgreich.",
-      "reconnect": "Erneut verbinden"
+      "staleAccounts": "Deine Trade-Republic-Konten werden nicht mehr aktualisiert: Ihre Sitzung ist beendet. Melde dich unten erneut an, um die tägliche Synchronisierung fortzusetzen."
     },
     "ibkr": {
       "title": "Interactive Brokers",

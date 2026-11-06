@@ -58,6 +58,11 @@ const DISCONNECTED = {
   lastSyncError: null,
 }
 
+/** Answers GET /tr/status with `status` and GET /accounts with `accounts`. */
+function serve(status: object, accounts: object[] = []) {
+  apiGet.mockImplementation((url: string) => Promise.resolve({ data: url === '/accounts' ? accounts : status }))
+}
+
 async function fillCredentials() {
   fireEvent.change(await screen.findByLabelText('sync.tr.phone'), {
     target: { value: '+33612345678' },
@@ -72,7 +77,7 @@ describe('TradeRepublicTab authentication flow', () => {
     apiGet.mockReset()
     apiPost.mockReset()
     apiDelete.mockReset()
-    apiGet.mockResolvedValue({ data: DISCONNECTED })
+    serve(DISCONNECTED)
   })
 
   it('keeps the phone and PIN form visible when initiation fails', async () => {
@@ -219,21 +224,37 @@ describe('TradeRepublicTab session status', () => {
     apiDelete.mockReset()
   })
 
-  it('shows the reconnect call to action when the session failed with SESSION_EXPIRED', async () => {
-    apiGet.mockResolvedValue({
-      data: { ...DISCONNECTED, isActive: true, syncStatus: 'FAILED', lastSyncError: 'SESSION_EXPIRED' },
-    })
-    apiDelete.mockResolvedValue({ data: null })
+  // The backend ends the session on SESSION_EXPIRED: the status comes back inactive, so the
+  // reconnection is the login form itself, under the expiry message.
+  it('offers the login form under the expiry message once the session expired', async () => {
+    serve({ ...DISCONNECTED, isActive: false, syncStatus: 'FAILED', lastSyncError: 'SESSION_EXPIRED' })
 
     renderTab()
 
     expect(await screen.findByText('sync.tr.errors.sessionExpired')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'sync.tr.reconnect' }))
-    await waitFor(() => expect(apiDelete).toHaveBeenCalledWith('/tr/session'))
+    expect(screen.getByLabelText('sync.tr.phone')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'sync.tr.clearSession' })).not.toBeInTheDocument()
+  })
+
+  it('says the imported accounts are no longer updated when no session is left', async () => {
+    serve(DISCONNECTED, [{ id: 1, provider: 'Trade Republic', isManual: false }])
+
+    renderTab()
+
+    expect(await screen.findByText('sync.tr.staleAccounts')).toBeInTheDocument()
+  })
+
+  it('stays quiet about stale accounts without any Trade Republic account', async () => {
+    serve(DISCONNECTED, [{ id: 2, provider: 'Trade Republic', isManual: true }])
+
+    renderTab()
+
+    expect(await screen.findByLabelText('sync.tr.phone')).toBeInTheDocument()
+    expect(screen.queryByText('sync.tr.staleAccounts')).not.toBeInTheDocument()
   })
 
   it('shows the queued state after a sync is requested', async () => {
-    apiGet.mockResolvedValue({ data: { ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' } })
+    serve({ ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' })
 
     renderTab()
 
