@@ -468,30 +468,6 @@ class BrowserBankClient(HttpxBankClient):
                 viewport={"width": 1280, "height": 900},
             )
             page = await context.new_page()
-            # Diagnostics only: paths and statuses, never query strings or bodies
-            # outside the failure helper below.
-            page.on(
-                "requestfailed",
-                lambda request: log.warning(
-                    "La Banque Postale request failed path=%s", urlparse(request.url).path
-                ),
-            )
-
-            def _response(response: Any) -> None:
-                if response.status >= 400 and "labanquepostale" in response.url:
-                    log.warning(
-                        "La Banque Postale response path=%s status=%s",
-                        urlparse(response.url).path,
-                        response.status,
-                    )
-
-            page.on("response", _response)
-            page.on(
-                "pageerror",
-                lambda error: log.warning(
-                    "La Banque Postale page error type=%s", type(error).__name__
-                ),
-            )
             await page.goto(
                 BASE + IDENTIF + "?origin=particuliers",
                 wait_until="domcontentloaded",
@@ -575,7 +551,6 @@ class BrowserBankClient(HttpxBankClient):
             # navigation destroys the JS context, so wait_for_function can hang.
             step = "navigation"
             url = await self._wait_for_url_change(page, page.url, 15)
-            log.warning("La Banque Postale after submit path=%s", urlparse(url).path)
 
             # A non-trusted device first gets the AuthentInfoAF notice ("Vous
             # allez devoir vous authentifier de façon renforcée"). Its Continuer
@@ -585,20 +560,14 @@ class BrowserBankClient(HttpxBankClient):
             if "message.html" in url:
                 param = parse_qs(urlparse(url).query).get("param", [""])[0]
                 if param != "AuthentInfoAF":
-                    log.warning(
-                        "La Banque Postale login refused path=%s param=%s",
-                        urlparse(url).path,
-                        param,
-                    )
-                    await self._page_diagnostics(page, "login-refused")
+                    log.warning("La Banque Postale login refused param=%s", param)
+                    await self._log_bank_message(page, "login-refused")
                     if param == "0x132120c8":
                         raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
                     raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
                 step = "authent-info"
-                log.info("La Banque Postale strong authentication notice, clicking Continuer")
                 await self._follow_continue(page, url)
                 url = await self._wait_for_challenge(page, 30, previous=url)
-                log.warning("La Banque Postale after continue path=%s", urlparse(url).path)
 
             if "afficheSynthese" in url or "synthese_ccp" in url:
                 state["session_ready"] = True
@@ -614,28 +583,22 @@ class BrowserBankClient(HttpxBankClient):
                 except Exception:
                     pass
                 try:
-                    title = await page.title()
                     body = await page.content()
                 except Exception:
-                    title, body = "", ""
+                    body = ""
                 if "appareil de confiance" in body or "URL_AF_POLLING" in body:
                     await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
-                    log.info("La Banque Postale browser login awaits mobile approval title=%s", title)
+                    log.info("La Banque Postale browser login awaits mobile approval")
                     return
-                log.warning(
-                    "La Banque Postale approval page is not the challenge title=%s generic_error=%s",
-                    title,
-                    "Erreur Technique" in body,
-                )
-                await self._page_diagnostics(page, "challenge")
+                log.warning("La Banque Postale approval page is not the challenge")
+                await self._log_bank_message(page, "challenge")
                 raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
             if "message.html" in url:
                 log.warning(
-                    "La Banque Postale approval failed path=%s param=%s",
-                    urlparse(url).path,
+                    "La Banque Postale approval failed param=%s",
                     parse_qs(urlparse(url).query).get("param", [""])[0],
                 )
-                await self._page_diagnostics(page, "approval-error")
+                await self._log_bank_message(page, "approval-error")
                 raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
 
             # The form may have re-rendered (refused identifier or password) or
@@ -651,7 +614,7 @@ class BrowserBankClient(HttpxBankClient):
                 return
             if "formAccesCompte" in body:
                 raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
-            await self._page_diagnostics(page, "unexpected")
+            await self._log_bank_message(page, "unexpected")
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
         except HTTPException:
             await self._dispose(state)
@@ -680,11 +643,10 @@ class BrowserBankClient(HttpxBankClient):
                     return self._serialize_browser(await state["context"].cookies())
                 if "message.html" in url:
                     log.warning(
-                        "La Banque Postale approval failed path=%s param=%s",
-                        urlparse(url).path,
+                        "La Banque Postale approval failed param=%s",
                         parse_qs(urlparse(url).query).get("param", [""])[0],
                     )
-                    await self._page_diagnostics(page, "approval-error")
+                    await self._log_bank_message(page, "approval-error")
                     raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
                 await asyncio.sleep(2)
             raise HTTPException(status_code=408, detail="APP_VALIDATION_TIMEOUT")
@@ -740,7 +702,7 @@ class BrowserBankClient(HttpxBankClient):
             log.debug("La Banque Postale Continuer button not usable", exc_info=True)
         retour = parse_qs(urlparse(url).query).get("url_retour", [""])[0]
         if not retour:
-            await BrowserBankClient._page_diagnostics(page, "no-continue")
+            await BrowserBankClient._log_bank_message(page, "no-continue")
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
         await page.goto(retour, wait_until="domcontentloaded", timeout=45_000)
 
@@ -765,18 +727,12 @@ class BrowserBankClient(HttpxBankClient):
         return page.url
 
     @staticmethod
-    async def _page_diagnostics(page: Any, label: str) -> None:
-        """Log the failure page's visible message and keep a screenshot.
+    async def _log_bank_message(page: Any, label: str) -> None:
+        """Log the bank's own message on a failure page.
 
-        Only called on a failure page (the bank's generic message, or a page
-        that should have been the approval page). The text is the bank's own
-        error wording; the screenshot may show the identifier field, never the
-        password.
+        The message pages fill their body with JavaScript, so give them a
+        moment. Never logs a password, a keypad position or a cookie.
         """
-        try:
-            title = await page.title()
-        except Exception:
-            title = ""
         # The bank's message pages render their body with JavaScript after the
         # JSON fetch; read too early and the text is empty.
         try:
@@ -787,29 +743,11 @@ class BrowserBankClient(HttpxBankClient):
             body_text = await page.locator("body").inner_text(timeout=3_000)
         except Exception:
             body_text = ""
-        parsed = urlparse(page.url)
-        params = parse_qs(parsed.query)
-        safe = {key: params[key][0] for key in ("param", "ERROR_CODE", "cu", "phase") if key in params}
-        if "url_retour" in params:
-            safe["has_return_url"] = True
-        try:
-            safe["has_continue"] = await page.locator("#back-link").count() > 0
-        except Exception:
-            safe["has_continue"] = False
         log.warning(
-            "La Banque Postale page %s title=%s path=%s params=%s text=%s",
+            "La Banque Postale %s message=%s",
             label,
-            title,
-            parsed.path,
-            safe,
-            " ".join(body_text.split())[:400],
+            " ".join(body_text.split())[:300],
         )
-        try:
-            path = f"/tmp/lbp-{label}.png"
-            await page.screenshot(path=path, full_page=True)
-            log.warning("La Banque Postale page %s screenshot=%s", label, path)
-        except Exception:
-            log.debug("La Banque Postale screenshot failed", exc_info=True)
 
     @staticmethod
     async def _close_browser(pw: Any, browser: Any, context: Any) -> None:
