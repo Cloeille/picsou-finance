@@ -186,4 +186,20 @@ describe('api-client SSO revalidation flag', () => {
 
     expect(calls).toEqual(['post /auth/reauth'])
   })
+
+  it.each([
+    ['put', '/auth/password'],
+    ['delete', '/auth/password'],
+    ['delete', '/auth/identities/7'],
+  ])('hands a refused re-authentication on %s %s straight to the caller, without a refresh', async (method, url) => {
+    const calls: string[] = []
+    api.defaults.adapter = async (config) => {
+      calls.push(`${config.method} ${config.url}`)
+      return Promise.reject({ config, response: { status: 401, data: { code: 'REAUTH_FAILED' } } })
+    }
+
+    await expect(api.request({ method, url })).rejects.toMatchObject({ response: { data: { code: 'REAUTH_FAILED' } } })
+
+    expect(calls).toEqual([`${method} ${url}`])
+  })
 })

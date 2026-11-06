@@ -135,10 +135,12 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
 
-    // 401: Unauthorized - token refresh
+    // 401: Unauthorized - token refresh. REAUTH_FAILED refuses the re-authentication of a signed-in
+    // user (an expired proof, a wrong password or code): a refresh cannot fix it.
     if (
       error.response?.status === 401 &&
       !originalRequest._retry &&
+      getErrorCode(error) !== 'REAUTH_FAILED' &&
       refreshesOn401(originalRequest.url)
     ) {
       if (isRefreshing) {
