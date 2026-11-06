@@ -75,9 +75,25 @@ EMPLOYEE_SAVINGS account per plan with its fund holdings
 - **The x-csrf-token is read from `<meta name="_csrf">`** on the SSO page and stays
   the same for the whole login. `x-device-id` is a random UUID per login.
 - **A fund held in two compartments** (employee savings and voluntary payments)
-  becomes one holding, with its units and amounts added up.
+  becomes one holding, with its units and amounts added up. Voluntary payments keep
+  their funds one level down, in `subCompartments`, which the parser walks too. A
+  fund line without a Natixis `fundId` whose label is already taken is rejected
+  (`UPSTREAM_FORMAT_CHANGED`) rather than merged on a guess.
+- **Every line has a stable `fundCode`:** the AMF `QS…` code when the fund detail
+  gives one, or else `NIE-<fundId>`. Fund details are read four at a time within a
+  10 s budget. Any failure there (an error, a timeout, a 401) only leaves the
+  `NIE-` id and never fails the sync.
+- **Plans are counted as well as summed.** `savings` must list as many plans as
+  `products` lists Natixis products. Within the 0.1 % tolerance, a small plan could
+  otherwise go missing, and the backend would close it at zero. A saver with no plan
+  left (an empty list, and a products total of 0) is a valid portfolio, and their
+  old accounts close.
 - **A plan at 0 €** (an empty PERCO) is still listed and gets an account at 0. A
   plan Natixis stops listing is closed at zero, as with CMES.
+- **A login slot is reserved before Natixis sends the code.** A full pending store
+  (16 attempts) refuses the login before any code goes out. `POST /cancel
+  {processId}` frees an abandoned attempt at once; the backend calls it when a
+  member disconnects during the second factor.
 - **A mistyped code keeps the login attempt open:** the saver retries with the same
   `processId` until the 10-minute TTL runs out.
 - **A missing fund detail** only leaves the line's `fundCode` empty and never blocks

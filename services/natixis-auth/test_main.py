@@ -5,7 +5,9 @@ live saver space used when the fixtures were captured.
 """
 
 import asyncio
+import base64
 import copy
+import hashlib
 import io
 import logging
 import os
@@ -59,6 +61,9 @@ class FakeNatixis:
         self.token_status = 200
         self.api_status = 200
         self.fund_status = 200
+        self.fund_error = None
+        self.code_challenge = None
+        self.exchanged_verifier = None
         self.service_provider_url = "https://nie-auth.api.natixis.com/api/oauth/authorize"
         self.savings = copy.deepcopy(SAVINGS)
         self.returned_refresh_token = REFRESH_TOKEN
@@ -74,7 +79,9 @@ class FakeNatixis:
         route = (request.method, url.hostname, url.path)
 
         if route == ("GET", "nie-auth.api.natixis.com", "/api/oauth/authorize"):
-            self.oauth_state = parse_qs(url.query)["state"][0]
+            query = parse_qs(url.query)
+            self.oauth_state = query["state"][0]
+            self.code_challenge = query["code_challenge"][0]
             return httpx.Response(200, html=self.authorize_html)
         if route == ("POST", "auth-nie.natixis.com", "/auth/nie-gateway/saml2/idp/sso"):
             return httpx.Response(200, html=SSO_HTML)
@@ -84,6 +91,14 @@ class FakeNatixis:
             location = f"https://epargnants.interepargne.natixis.fr/?code={AUTH_CODE}&state={self.oauth_state}"
             return httpx.Response(302, headers={"location": location})
         if route == ("POST", "nie-auth.api.natixis.com", "/api/oauth/token"):
+            form = parse_qs(request.content.decode())
+            if form["grant_type"] == ["authorization_code"]:
+                # A real authorization server only honours the verifier the challenge was made from.
+                verifier = form.get("code_verifier", [""])[0]
+                digest = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+                if digest != self.code_challenge:
+                    return httpx.Response(400, json={"error": "invalid_grant"})
+                self.exchanged_verifier = verifier
             if self.token_status != 200:
                 return httpx.Response(self.token_status, json={"error": "invalid_grant"})
             return httpx.Response(200, json={
@@ -138,9 +153,13 @@ class FakeNatixis:
         if path.endswith("/products"):
             return httpx.Response(200, json=PRODUCTS)
         if path.startswith("/fund/v1/funds/"):
+            if self.fund_error is not None:
+                raise self.fund_error
             if self.fund_status != 200:
                 return httpx.Response(self.fund_status, json={})
-            return httpx.Response(200, json=FUND_DETAIL)
+            fund_id = int(path.rsplit("/", 1)[1])
+            return httpx.Response(200, json={**FUND_DETAIL, "id": fund_id,
+                                             "identifiers": [{"type": "QS", "value": f"QS{fund_id:010d}"}]})
         return httpx.Response(404)
 
 
@@ -195,7 +214,13 @@ class HappyPathTest(SidecarTestCase):
         plans = response.json()["plans"]
         self.assertEqual([p["planKind"] for p in plans], ["PEE", "PER"])
         self.assertEqual(len(plans[0]["positions"]), 6)
-        self.assertEqual({p["fundCode"] for p in plans[0]["positions"]}, {"QS0000001002"})
+        codes = {p["label"]: p["fundCode"] for p in plans[0]["positions"]}
+        ids = {o["label"]: o["fundId"] for o in SAVINGS["items"][0]["compartments"][0]["investmentOptions"]}
+        self.assertEqual(codes, {label: f"QS{fund_id:010d}" for label, fund_id in ids.items()})
+
+    def test_login_exchanges_the_pkce_verifier(self):
+        self.assertEqual(self.login().status_code, 200)
+        self.assertIsNotNone(self.fake.exchanged_verifier)
 
     def test_positions_returns_a_rotated_refresh_token(self):
         session = self.login().json()["sessionState"]
@@ -213,7 +238,45 @@ class HappyPathTest(SidecarTestCase):
         self.fake.fund_status = 404
         response = self.post("/positions", {"sessionState": session})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual({p["fundCode"] for p in response.json()["plans"][0]["positions"]}, {None})
+        self.assertTrue(all(p["fundCode"].startswith("NIE-") for p in response.json()["plans"][0]["positions"]))
+
+    def test_unreachable_fund_details_do_not_block_the_sync(self):
+        session = self.login().json()["sessionState"]
+        self.fake.fund_error = httpx.ConnectError("unreachable")
+        response = self.post("/positions", {"sessionState": session})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(all(p["fundCode"].startswith("NIE-") for p in response.json()["plans"][0]["positions"]))
+
+    def test_slow_fund_details_are_dropped_not_the_sync(self):
+        session = self.login().json()["sessionState"]
+
+        async def slow(*_args, **_kwargs):
+            await asyncio.sleep(1)
+
+        real_get = self.main._api_get
+
+        async def api_get(client, token, path, params=None):
+            if path.startswith("/fund/"):
+                await slow()
+            return await real_get(client, token, path, params)
+
+        with mock.patch.object(self.main, "FUND_DETAIL_BUDGET_SECONDS", 0.05), \
+                mock.patch.object(self.main, "_api_get", api_get):
+            response = self.post("/positions", {"sessionState": session})
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_cancel_frees_a_waiting_login(self):
+        process_id = self.initiate().json()["processId"]
+        self.assertEqual(self.post("/cancel", {"processId": process_id}).status_code, 204)
+        self.assertEqual(self.post("/cancel", {"processId": process_id}).status_code, 204)
+        response = self.post("/complete", {"processId": process_id, "code": CODE})
+        self.assertEqual(response.json(), {"detail": "AUTH_ATTEMPT_EXPIRED"})
+
+    def test_full_store_refuses_before_a_code_is_sent(self):
+        with mock.patch.object(self.main._pending, "max_size", 0):
+            response = self.initiate()
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn(("POST", "auth-nie.natixis.com", "/auth/v1/strongAuthentications"), self.fake.requests)
 
 
 class ErrorCodeTest(SidecarTestCase):

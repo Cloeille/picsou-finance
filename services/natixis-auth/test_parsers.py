@@ -84,6 +84,48 @@ class ParsePlansTest(unittest.TestCase):
                 plans(savings)
             self.assertEqual(caught.exception.code, "UPSTREAM_FORMAT_CHANGED")
 
+    def test_funds_in_sub_compartments_are_read(self):
+        savings = copy.deepcopy(SAVINGS)
+        pee = savings["items"][0]
+        moved = pee["compartments"][0]["investmentOptions"].pop()
+        pee["compartments"][1]["subCompartments"][0]["investmentOptions"] = [moved]
+        lines = plans(savings)[0]["positions"]
+        self.assertIn(moved["label"], [p["label"] for p in lines])
+
+    def test_plan_missing_within_tolerance_is_incomplete(self):
+        products = copy.deepcopy(PRODUCTS)
+        products["items"].append({**products["items"][0], "id": "extra"})
+        with self.assertRaises(SavingsFormatError) as caught:
+            plans(products=products)
+        self.assertEqual(caught.exception.code, "PORTFOLIO_INCOMPLETE")
+
+    def test_same_label_without_fund_id_is_rejected(self):
+        savings = copy.deepcopy(SAVINGS)
+        options = savings["items"][0]["compartments"][0]["investmentOptions"]
+        for option in options[:2]:
+            option.pop("fundId")
+            option["label"] = "SAME FUND"
+        with self.assertRaises(SavingsFormatError) as caught:
+            plans(savings)
+        self.assertEqual(caught.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_fund_without_code_keeps_its_natixis_id(self):
+        line = plans()[0]["positions"][0]
+        self.assertTrue(line["fundCode"].startswith("NIE-"))
+
+    def test_too_long_plan_id_is_rejected_not_truncated(self):
+        savings = copy.deepcopy(SAVINGS)
+        savings["items"][0]["id"] = "P" * 120
+        with self.assertRaises(SavingsFormatError):
+            plans(savings)
+
+    def test_no_plan_left_is_a_valid_empty_portfolio(self):
+        products = copy.deepcopy(PRODUCTS)
+        products["items"] = []
+        for amounts in products["additionalInformation"].values():
+            amounts["total"]["value"] = 0
+        self.assertEqual(plans(savings={"items": []}, products=products), [])
+
     def test_products_without_totals_is_format_changed(self):
         with self.assertRaises(SavingsFormatError) as caught:
             plans(products={"items": []})

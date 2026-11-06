@@ -38,7 +38,7 @@ from typing import Any, Literal
 from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from picsou_sidecar import PendingStore, configure_logging, create_app, otp_field_detail
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -71,6 +71,10 @@ REQUEST_TIMEOUT_SECONDS = 15.0
 # Natixis never leaves a code sent or tokens minted that the backend no longer
 # waits for.
 ROUTE_DEADLINE_SECONDS = 40.0
+# Fund details only add the AMF code to a line: they get a slice of the route's
+# deadline, read a few at a time, and whatever is not back by then goes without.
+FUND_DETAIL_BUDGET_SECONDS = 10.0
+FUND_DETAIL_CONCURRENCY = 4
 SESSION_STATE_VERSION = 1
 
 USER_AGENT = (
@@ -113,6 +117,12 @@ class CompleteRequest(BaseModel):
 
     processId: str = Field(min_length=1, max_length=100)
     code: str = Field(pattern=r"^[0-9]{4,12}$")
+
+
+class CancelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    processId: str = Field(min_length=1, max_length=100)
 
 
 class SessionResponse(BaseModel):
@@ -467,15 +477,34 @@ async def collect_plans(client: httpx.AsyncClient, access_token: str, employee_i
     savings = await _api_get(client, access_token, f"{base}/savings", {"gainsOrLosses": "true"})
     products = await _api_get(client, access_token, f"{base}/products",
                               {"includeGainsOrLosses": "true", "includeExternalAccounts": "true"})
-    codes: dict[int, str | None] = {}
-    for fund_id in fund_ids(savings):
-        try:
-            codes[fund_id] = fund_code(await _api_get(client, access_token, f"/fund/v1/funds/{fund_id}"))
-        except NatixisError:
-            # The AMF code only labels the line; its absence never blocks a sync,
-            # nor ends a session the savings read just proved alive.
-            codes[fund_id] = None
+    codes = await _fund_codes(client, access_token, fund_ids(savings))
     return parse_plans(savings, products, employee_id, codes)
+
+
+async def _fund_codes(client: httpx.AsyncClient, access_token: str, ids: list[int]) -> dict[int, str | None]:
+    """The AMF code of each fund, best effort. It only labels a line, so no failure
+    here -- an error, a timeout, a 401 -- ever blocks a sync or ends a session the
+    savings read just proved alive; a fund left without one keeps its Natixis id."""
+    gate = asyncio.Semaphore(FUND_DETAIL_CONCURRENCY)
+
+    async def one(fund_id: int) -> tuple[int, str | None]:
+        async with gate:
+            try:
+                return fund_id, fund_code(await _api_get(client, access_token, f"/fund/v1/funds/{fund_id}"))
+            except (NatixisError, httpx.HTTPError, AttributeError, TypeError, ValueError):
+                return fund_id, None
+
+    if not ids:
+        return {}
+    tasks = [asyncio.ensure_future(one(fund_id)) for fund_id in ids]
+    done, late = await asyncio.wait(tasks, timeout=FUND_DETAIL_BUDGET_SECONDS)
+    for task in late:
+        task.cancel()
+    if late:
+        log.warning("Natixis fund details: %d of %d not back in time", len(late), len(ids))
+    codes: dict[int, str | None] = {fund_id: None for fund_id in ids}
+    codes.update(task.result() for task in done)
+    return codes
 
 
 # ─── Routes ─────────────────────────────────────────────────────────────────
@@ -484,26 +513,38 @@ async def collect_plans(client: httpx.AsyncClient, access_token: str, employee_i
 @app.post("/initiate", response_model=InitiateResponse)
 async def initiate(req: InitiateRequest) -> dict:
     await _pending.expire()
+    process_id = str(uuid.uuid4())
     client = _new_client()
-    parked = False
+    # The slot is reserved before Natixis is asked to send a code: a full store must
+    # refuse the login up front, not after the saver received a code nothing can use.
+    attempt: dict[str, Any] = {"client": client, "created_at": time.time(), "ready": False}
+    try:
+        await _pending.put_or_raise(process_id, attempt)
+    except BaseException:
+        await client.aclose()
+        raise
+    ready = False
     try:
         async with _errors("login"):
             state = await _open_login(client)
             await _password_login(client, state, req.email, req.password)
             mode = await _send_code(client, state)
-            process_id = str(uuid.uuid4())
-            await _pending.put_or_raise(process_id, {**state, "client": client, "created_at": time.time()})
-            parked = True
+            attempt.update(state)
+            attempt["ready"] = ready = True
             return {"processId": process_id, "mfaRequired": True, "mfaType": mode}
     finally:
-        if not parked:
-            await client.aclose()
+        if not ready:
+            await _pending.close(process_id)
 
 
 @app.post("/complete", response_model=SessionResponse)
 async def complete(req: CompleteRequest) -> dict:
     state = await _pending.take(req.processId)
     if state is None:
+        raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
+    if not state.get("ready"):
+        # Still initiating: hand the attempt back to /initiate untouched.
+        await _pending.repark(req.processId, state)
         raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
     client: httpx.AsyncClient = state["client"]
     retry = False
@@ -527,6 +568,13 @@ async def complete(req: CompleteRequest) -> dict:
     finally:
         if not retry:
             await _dispose(state)
+
+
+@app.post("/cancel", status_code=204)
+async def cancel(req: CancelRequest) -> Response:
+    """Drop a login waiting for its code, freeing its slot at once. Idempotent."""
+    await _pending.close(req.processId)
+    return Response(status_code=204)
 
 
 @app.post("/positions", response_model=PositionsResponse)
