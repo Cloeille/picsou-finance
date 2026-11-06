@@ -105,7 +105,10 @@ public class WealthPyramidService {
      * the total stays equal to the dashboard's; liabilities are left out.
      */
     public WealthPyramidResponse pyramid(Long memberId) {
-        List<Account> accounts = accessResolver.readableAccounts(memberId);
+        // Hidden accounts are out, as on the dashboard and every other user-facing total.
+        List<Account> accounts = accessResolver.readableAccounts(memberId).stream()
+            .filter(a -> !a.isHidden())
+            .toList();
         Map<Long, BigDecimal> shares = accessResolver.sharesFor(accounts, memberId);
         MemberAllocationProfile profile = allocationTargetService.profileFor(memberId);
 
@@ -141,6 +144,9 @@ public class WealthPyramidService {
             // debt financing it, via RealEstateSummaryService below, so counting a loan here
             // would subtract it twice.
             if (account.getType().isLiability()) continue;
+            // Pocket sub-accounts: balance already counted in the parent wallet, which is why the
+            // dashboard skips them too.
+            if (account.getParentAccountId() != null) continue;
 
             BigDecimal share = shares.get(account.getId());
             WealthTier accountTier = WealthTier.of(account.getType());
@@ -218,7 +224,9 @@ public class WealthPyramidService {
         // shares together. Re-deriving gross-minus-loans here would let this page and the
         // property card disagree about the same house. Paper-property loans contribute to the
         // same tier, but remain separate in the summary and do not affect the physical LTV.
-        RealEstateSummaryResponse property = realEstateSummaryService.summarize(memberId);
+        // Visible accounts only, like the loop above: a hidden house's mortgage would otherwise
+        // be subtracted without the house.
+        RealEstateSummaryResponse property = realEstateSummaryService.summarizeVisible(memberId);
         BigDecimal propertyDebt = property.outstandingDebt() == null
             ? BigDecimal.ZERO : property.outstandingDebt();
         BigDecimal paperDebt = property.paperDebt() == null
