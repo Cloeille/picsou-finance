@@ -519,37 +519,43 @@ class BrowserBankClient(HttpxBankClient):
         if state is None:
             raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
         page = state["page"]
+        step = "start"
         try:
-            await page.fill("#identifiant", state["customer_id"])
+            # The identifier was filled and the password panel revealed at
+            # /initiate. Do not fill it again: the page may have made it
+            # read-only, and the submit would be rejected.
+            step = "continue"
             continue_button = page.locator("#btnContinuer button")
             if await continue_button.is_visible():
                 await continue_button.click()
+
+            step = "keys"
             buttons = page.locator("div[data-tb-cvd-id='password'] button")
             count = await buttons.count()
             for position in positions:
                 if position < 0 or position >= count:
                     raise HTTPException(status_code=400, detail="INVALID_POSITIONS")
                 await buttons.nth(position).click()
+
+            step = "submit"
             await page.click("#btnConfirmer")
 
-            # The page waits 500 ms then submits. Either it navigates to the
-            # mobile-approval page or straight to the synthesis.
+            # The page waits 500 ms then submits. Read only the URL here: the DOM
+            # is replaced while the page navigates, and touching it throws.
+            step = "navigation"
             try:
                 await page.wait_for_function(
                     "() => location.href.includes('afficheSynthese')"
                     " || location.href.includes('synthese_ccp')"
-                    " || (location.href.includes('loginform') && location.href.includes('TAM_OP='))"
-                    " || document.body.innerText.includes('appareil de confiance')"
-                    " || document.body.innerText.includes('message.html')",
-                    timeout=20_000,
+                    " || (location.href.includes('loginform')"
+                    "     && (location.href.includes('phase=') || location.href.includes('cu=')))"
+                    " || location.href.includes('message.html')",
+                    timeout=15_000,
                 )
             except Exception:
                 pass
-            await page.wait_for_timeout(1_000)
             url = page.url
-            body = await page.content()
-
-            if "appareil de confiance" in body or "URL_AF_POLLING" in body:
+            if "loginform" in url and ("phase=" in url or "cu=" in url):
                 await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
                 log.info("La Banque Postale browser login awaits mobile approval")
                 return
@@ -559,6 +565,18 @@ class BrowserBankClient(HttpxBankClient):
                 return
             if "message.html" in url:
                 raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+
+            # The form may have re-rendered (refused identifier or password) or
+            # the page may not have submitted. Read the body only now.
+            step = "inspect"
+            try:
+                body = await page.content()
+            except Exception:
+                body = ""
+            if "appareil de confiance" in body or "URL_AF_POLLING" in body:
+                await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
+                log.info("La Banque Postale browser login awaits mobile approval")
+                return
             if "formAccesCompte" in body:
                 raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
@@ -566,7 +584,11 @@ class BrowserBankClient(HttpxBankClient):
             await self._dispose(state)
             raise
         except Exception as exc:
-            log.warning("La Banque Postale browser keypad failed error_type=%s", type(exc).__name__)
+            log.warning(
+                "La Banque Postale browser keypad failed step=%s error_type=%s",
+                step,
+                type(exc).__name__,
+            )
             await self._dispose(state)
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from None
 
