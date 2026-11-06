@@ -1872,7 +1872,7 @@
       "unlinkDesc": "Vous ne pourrez plus vous connecter avec ce compte {{provider}}.",
       "linkTitle": "Associer un compte {{provider}}",
       "linkDesc": "Confirmez votre identité, puis connectez-vous avec le compte {{provider}} à associer.",
-      "linkMfaNote": "Quand vous vous connectez avec {{provider}}, Picsou ne demande pas le code de votre application d'authentification : le second facteur relève alors du fournisseur de connexion. La connexion par mot de passe demande toujours le code."
+      "linkMfaNote": "Quand vous vous connectez avec {{provider}}, Picsou ne demande pas le code de votre application d'authentification : le second facteur relève alors du fournisseur de connexion. La connexion par mot de passe demande toujours le code, sauf sur un appareil de confiance."
     }
   },
   "accessKeys": {

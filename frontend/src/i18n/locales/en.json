@@ -1872,7 +1872,7 @@
       "unlinkDesc": "You will no longer be able to sign in with this {{provider}} account.",
       "linkTitle": "Link a {{provider}} account",
       "linkDesc": "Confirm your identity, then sign in with the {{provider}} account to link.",
-      "linkMfaNote": "When you sign in with {{provider}}, Picsou doesn't ask for your authenticator code: a second factor is then the sign-in provider's job. Password sign-ins still ask for the code."
+      "linkMfaNote": "When you sign in with {{provider}}, Picsou doesn't ask for your authenticator code: a second factor is then the sign-in provider's job. Password sign-ins still ask for the code, except on a trusted device."
     }
   },
   "accessKeys": {

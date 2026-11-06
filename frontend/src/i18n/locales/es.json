@@ -1596,7 +1596,7 @@
       "unlinkDesc": "Ya no podrás iniciar sesión con esta cuenta de {{provider}}.",
       "linkTitle": "Vincular una cuenta de {{provider}}",
       "linkDesc": "Confirma tu identidad y luego inicia sesión con la cuenta de {{provider}} que quieres vincular.",
-      "linkMfaNote": "Cuando inicias sesión con {{provider}}, Picsou no te pide el código de tu app de autenticación: el segundo factor queda entonces a cargo del proveedor de inicio de sesión. El inicio de sesión con contraseña sigue pidiendo el código."
+      "linkMfaNote": "Cuando inicias sesión con {{provider}}, Picsou no te pide el código de tu app de autenticación: el segundo factor queda entonces a cargo del proveedor de inicio de sesión. El inicio de sesión con contraseña sigue pidiendo el código, salvo en un dispositivo de confianza."
     }
   },
   "accessKeys": {
