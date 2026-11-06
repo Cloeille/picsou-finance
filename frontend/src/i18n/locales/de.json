@@ -187,6 +187,11 @@
     "amount": "Betrag",
     "tickerOrIsin": "Ticker oder ISIN",
     "tickerOrIsinPlaceholder": "IWDA.AS, IE00B4L5Y983, BTC...",
+    "preciousMetalProduct": "Produkt",
+    "preciousMetalProductPlaceholder": "Produkt wählen",
+    "preciousMetalCatalogueLoading": "Katalog wird geladen…",
+    "quantityGrams": "Gramm",
+    "quantityCoins": "Münzen",
     "assetNamePlaceholder": "z. B. iShares Core MSCI World",
     "priceLive": "Live-Kurs",
     "priceStale": "Kurs von {{time}}",
@@ -255,7 +260,8 @@
       "CHECKING": "Girokonten",
       "CRYPTO": "Krypto",
       "REAL_ESTATE": "Immobilien",
-      "DEBTS": "Schulden"
+      "DEBTS": "Schulden",
+      "OTHER": "Sonstiges"
     },
     "fees": "Gebühren",
     "export": {
@@ -433,6 +439,7 @@
     "employeeSavings": "Mitarbeitersparplan",
     "assuranceVie": "Lebensversicherung",
     "per": "PER (Altersvorsorge)",
+    "preciousMetals": "Edelmetalle",
     "scpi": "SCPI",
     "creditCard": "Kreditkarte"
   },

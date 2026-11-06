@@ -15,11 +15,12 @@ import type { AccountType, TransactionRequest } from '@/types/api'
 import { accountsApi } from '@/features/accounts/api'
 import { budgetApi } from '@/features/budget/api'
 import { QUERY_STALE_TIMES } from '@/lib/constants'
+import { usePreciousMetals } from '@/features/accounts/hooks'
 
 const SELECT_CLS =
   'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus:border-ring'
 
-const INVESTMENT_TYPES: AccountType[] = ['PEA', 'COMPTE_TITRES', 'CRYPTO']
+const INVESTMENT_TYPES: AccountType[] = ['PEA', 'COMPTE_TITRES', 'CRYPTO', 'PRECIOUS_METALS']
 
 type InitialValues = TransactionRequest & { id?: number }
 
@@ -73,6 +74,7 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
   const { t, i18n } = useTranslation()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const isInvestment = INVESTMENT_TYPES.includes(accountType)
+  const isPreciousMetals = accountType === 'PRECIOUS_METALS'
   const isInvestmentTx = initialValues?.txType === 'BUY' || initialValues?.txType === 'SELL'
 
   const { data: holdings } = useQuery({
@@ -81,6 +83,8 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
     staleTime: QUERY_STALE_TIMES.accountDetail,
     enabled: isInvestment && !!accountId,
   })
+
+  const { data: preciousMetals } = usePreciousMetals(isPreciousMetals)
 
   const { data: categories } = useQuery({
     queryKey: ['categories'],
@@ -119,6 +123,21 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
       if (match?.name) setName(match.name)
     }
   }
+
+  // The catalogue product drives both the ticker and the display name, and the unit the
+  // quantity is counted in.
+  function handleProductChange(value: string) {
+    const product = preciousMetals?.find(p => p.ticker === value)
+    setTicker(value)
+    setName(product?.name ?? '')
+  }
+
+  const selectedProduct = isPreciousMetals ? preciousMetals?.find(p => p.ticker === ticker) : undefined
+  const quantityLabel = selectedProduct?.unit === 'GRAM'
+    ? t('accounts.quantityGrams')
+    : selectedProduct?.unit === 'COIN'
+      ? t('accounts.quantityCoins')
+      : t('holdings.quantity')
 
   const total = quantity && pricePerUnit
     ? parseAmount(quantity) * parseAmount(pricePerUnit)
@@ -193,16 +212,38 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
               </Button>
             ))}
           </div>
+          {isPreciousMetals ? (
+            <div className="space-y-1">
+              <Label>{t('accounts.preciousMetalProduct')}</Label>
+              <select
+                aria-label={t('accounts.preciousMetalProduct')}
+                value={ticker}
+                onChange={e => handleProductChange(e.target.value)}
+                className={SELECT_CLS}
+                required
+              >
+                <option value="">
+                  {preciousMetals ? t('accounts.preciousMetalProductPlaceholder') : t('accounts.preciousMetalCatalogueLoading')}
+                </option>
+                {(preciousMetals ?? []).map(p => (
+                  <option key={p.ticker} value={p.ticker}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-1">
+                <Label>{t('accounts.tickerOrIsin')}</Label>
+                <Input placeholder={t('accounts.tickerOrIsinPlaceholder')} value={ticker} onChange={e => handleTickerChange(e.target.value)} required />
+              </div>
+              <div className="space-y-1">
+                <Label>{t('holdings.name')} <span className="text-muted-foreground text-xs">({t('common.optional')})</span></Label>
+                <Input placeholder={t('accounts.assetNamePlaceholder')} value={name} onChange={e => setName(e.target.value)} />
+              </div>
+            </>
+          )}
           <div className="space-y-1">
-            <Label>{t('accounts.tickerOrIsin')}</Label>
-            <Input placeholder={t('accounts.tickerOrIsinPlaceholder')} value={ticker} onChange={e => handleTickerChange(e.target.value)} required />
-          </div>
-          <div className="space-y-1">
-            <Label>{t('holdings.name')} <span className="text-muted-foreground text-xs">({t('common.optional')})</span></Label>
-            <Input placeholder={t('accounts.assetNamePlaceholder')} value={name} onChange={e => setName(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label>{t('holdings.quantity')}</Label>
+            <Label>{quantityLabel}</Label>
             <NumericInput value={quantity} onChange={e => setQuantity(e.target.value)} required />
           </div>
           <div className="space-y-1">
