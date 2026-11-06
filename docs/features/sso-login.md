@@ -31,7 +31,10 @@ only (registration id `oidc`). It is disjoint from the Authorization Server's en
   (`CrossSiteCookieRequestMatcher` in mode `false`), so a cross-site POST gets 403
   `Cross-site request rejected` even from an anonymous browser. An origin on the CORS allow-list
   passes, as on the API chain;
-- stores no `SecurityContext` (request-attribute repository), no saved request, and no IdP token.
+- stores no `SecurityContext` (request-attribute repository), no saved request, and no IdP token;
+- sends the same response headers as the API and authorization-server chains, through
+  `SecurityConfig`'s shared customizer (CSP, Permissions-Policy, frame and content-type options,
+  referrer policy, the HSTS gate, `no-store`).
 
 ### Flows
 

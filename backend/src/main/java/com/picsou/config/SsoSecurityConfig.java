@@ -9,12 +9,13 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.time.Clock;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
@@ -23,23 +24,20 @@ import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequest
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
-import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.util.StringUtils;
 
 @Configuration
 @Conditional(SsoEnabledCondition.class)
 public class SsoSecurityConfig {
-    @Value("${app.hsts-enabled:false}")
-    private String hstsEnabledRaw;
-
     @Bean
     @Order(0)
     public SecurityFilterChain ssoSecurityFilterChain(HttpSecurity http, SsoClientRegistrationRepository repository,
             SetupService setupService, @Qualifier("ssoStartBuckets") Map<String, Bucket> buckets, Clock clock,
             DynamicCorsConfigurationSource corsConfigurationSource, SsoAuthenticationSuccessHandler successHandler,
             SsoAuthenticationFailureHandler failureHandler, JwtTokenAuthenticator authenticator,
-            ReAuthService reAuthService, SsoProperties ssoProperties, AppUserRepository userRepository) throws Exception {
+            ReAuthService reAuthService, SsoProperties ssoProperties, AppUserRepository userRepository,
+            Customizer<HeadersConfigurer<HttpSecurity>> securityHeaders) throws Exception {
         var resolver = new SsoAuthorizationRequestResolver(repository);
         var requestRepository = new SsoAuthorizationRequestRepository();
         var guard = new SsoStartGuardFilter(repository, setupService, buckets, clock, authenticator, reAuthService,
@@ -63,15 +61,7 @@ public class SsoSecurityConfig {
             .csrf(c -> c.requireCsrfProtectionMatcher(new CrossSiteCookieRequestMatcher(request -> corsConfigurationSource.originPolicy(), false))
                 .csrfTokenRepository(new SecurityConfig.NoStoredCsrfTokenRepository()))
             .exceptionHandling(e -> e.accessDeniedHandler(SecurityConfig.crossSiteAwareAccessDeniedHandler()))
-            .headers(h -> h.frameOptions(f -> f.deny()).contentTypeOptions(c -> {})
-                .httpStrictTransportSecurity(hsts -> {
-                    if (SecurityConfig.parseHstsEnabled(hstsEnabledRaw)) {
-                        hsts.maxAgeInSeconds(31536000).includeSubDomains(true);
-                    } else {
-                        hsts.disable();
-                    }
-                })
-                .referrerPolicy(r -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)))
+            .headers(securityHeaders)
             .addFilterBefore(guard, OAuth2AuthorizationRequestRedirectFilter.class);
         return http.build();
     }

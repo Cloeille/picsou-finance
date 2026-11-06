@@ -176,6 +176,19 @@ class SsoSecurityConfigTest {
         }
 
         @Test
+        void startSendsTheSameSecurityHeadersAsTheApiChain() throws Exception {
+            var api = mvc.perform(get("/api/setup/sso-probe")).andReturn().getResponse();
+
+            var start = mvc.perform(post("/oauth2/sso/authorization/oidc"))
+                .andExpect(status().isFound()).andReturn().getResponse();
+
+            for (String name : java.util.List.of("Content-Security-Policy", "Permissions-Policy", "X-Frame-Options",
+                    "X-Content-Type-Options", "Referrer-Policy", "Cache-Control")) {
+                assertThat(start.getHeader(name)).as(name).isNotNull().isEqualTo(api.getHeader(name));
+            }
+        }
+
+        @Test
         void metadataRouteIsPermittedBeforeItsHandlerExists() throws Exception {
             mvc.perform(get("/api/auth/sso")).andExpect(status().isNotFound());
         }
