@@ -65,7 +65,7 @@ Before opening or updating a pull request, read [`CONTRIBUTING.md`](CONTRIBUTING
 - Sync with `main` (merge it in) and have CI green before asking for review. Never weaken a lint, test or convention to pass.
 - Every behaviour change has a test that fails without it. No test may depend on the current date: inject a `Clock`.
 - A new migration takes the next free `V<n>` on an up-to-date `main`; after another pull request merges first, renumber your own unmerged file. `MigrationVersionsTest` enforces unique versions. Never renumber one already on `main`.
-- Add one `CHANGELOG.md` entry under `[Unreleased]` as the last step, after your final sync. On a conflict there, keep both entries.
+- For a user-visible change, add one `CHANGELOG.md` entry under `[Unreleased]` as the last step, after your final sync. On a conflict there, keep both entries.
 - Bank connectors: synthetic fixtures only. Never put real account data, sessions, tokens, screenshots or logs in code, tests, fixtures or the pull request.
 - Before the first push and after every later one, review your whole diff against `main` with a reviewer agent (for example Claude Code's `/code-review`) and iterate until it reports no blocking issue. Do the impact analysis first (callers, docs, tests, migrations, i18n) and fix the whole bug class, not only the reported line. Put what the review found, and the design decisions, in the pull request description.
 - Recommended, not required: the open-source pstack playbooks (`poteto-mode` skill) and the `grilling` skill to settle design decisions before coding; links in [`CONTRIBUTING.md`](CONTRIBUTING.md#contributing-with-a-coding-agent).
