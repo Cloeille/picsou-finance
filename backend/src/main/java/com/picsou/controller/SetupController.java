@@ -209,11 +209,11 @@ public class SetupController {
     // ─── Crypto encryption key ──────────────────────────────────────────────
 
     /**
-     * Idempotent. In the normal Docker flow the entrypoint has already created
-     * the key file before Spring booted (otherwise {@code CryptoEncryption}
+     * Idempotent. In the normal Docker flow {@code SecretBootstrap} has already created
+     * the key file before any bean existed (otherwise {@code CryptoEncryption}
      * would have failed its constructor check), so this hits the
      * {@code existed=true} branch. Bare-metal installs usually provide
-     * {@code CRYPTO_ENCRYPTION_KEY} directly through {@code .env.local}; that
+     * {@code CRYPTO_ENCRYPTION_KEY} directly through the environment; that
      * is also treated as an existing encryption key and does not touch
      * Docker's {@code /data} path.
      */

@@ -1,6 +1,6 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-11-01 (connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
+> Last updated: 2026-11-04 (the app generates the JWT and encryption keys, never the database password; connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
 
 ## Context
 
@@ -61,7 +61,7 @@ On Kubernetes, the Helm chart in `charts/picsou` deploys the same images; the `c
 
 1. **`frontend-build`** — `oven/bun:alpine`. `bun install --frozen-lockfile`, `bun run build`. Output: `dist/`.
 2. **`backend-build`** — `maven:3.9-eclipse-temurin-21-alpine`. `mvn dependency:go-offline` (layer cache), then `mvn package -DskipTests`. Output: fat JAR.
-3. **Runtime** — `eclipse-temurin:21-jre-jammy`. Installs Nginx + supervisor + openssl. Copies `dist/` to `/app/spa` (served by Spring Boot, `SPA_LOCATION=/app/spa`) and the JAR from build stages, plus `docker/{nginx.conf,supervisord.conf,entrypoint.sh}`.
+3. **Runtime** — `eclipse-temurin:21-jre-jammy`. Installs Nginx + supervisor (no openssl: the app generates its secrets in Java). Copies `dist/` to `/app/spa` (served by Spring Boot, `SPA_LOCATION=/app/spa`) and the JAR from build stages, plus `docker/{nginx.conf,supervisord.conf,entrypoint.sh}`.
 
 Spring Boot serves the SPA, the API and every response header. nginx is only a forwarding proxy in front of it: it resolves the client address and public scheme/host/port, and sets the per-endpoint timeouts. See [the ADR](../decisions/2026-11-03-spring-serves-the-spa.md).
 
@@ -221,7 +221,7 @@ when it is missing or empty. Sidecar URLs are set in one place,
 `backend/src/main/resources/application.yml` (`app.<sidecar>.url`, Compose service
 name); `application-dev.yml` gives each one its own `127.0.0.1` port. Compose and the
 entrypoint set none. The AMEX service uses `init: true` so an init process reaps orphaned
-browser children during repeated logins. The entrypoint does not generate the
+browser children during repeated logins. The app does not generate the
 shared secret: the sidecars run in separate containers and
 cannot read the app's `/data/.secrets/` volume.
 
@@ -248,29 +248,50 @@ cannot read the app's `/data/.secrets/` volume.
   `docker compose -f docker/docker-compose.yml logs <bank>-auth`, then set the key and
   recreate the app and enabled sidecars.
 
-### Entrypoint (`docker/entrypoint.sh`)
+### Secrets (`SecretBootstrap`) and entrypoint (`docker/entrypoint.sh`)
 
-On first boot, auto-generates three secrets into `/data/.secrets/` (mounted named volume):
-- `JWT_SECRET` — 48-byte base64
-- `CRYPTO_ENCRYPTION_KEY` — 32-byte base64
-- `POSTGRES_PASSWORD` — 24-byte base64
+The image sets `PICSOU_SECRETS_DIR=/data/.secrets`. Before any bean exists, the Spring Boot app
+(`com.picsou.config.SecretBootstrap`, an `EnvironmentPostProcessor`) generates two secrets in
+that directory (mounted named volume) on first boot:
+- `JWT_SECRET` (`jwt_secret`): 48-byte base64
+- `CRYPTO_ENCRYPTION_KEY` (`crypto_key`): 32-byte base64
 
-On subsequent boots, re-reads from the files. If the env var is already set by the operator, it is respected and written to the file for consistency. Secrets are **never** regenerated once created — doing so would invalidate JWTs and corrupt all encrypted data in the DB.
+`POSTGRES_PASSWORD` (`postgres_password`) is never generated: the app cannot set the
+database's password, so a generated one could only mismatch it. It comes from the
+`POSTGRES_PASSWORD` variable, else from an existing `postgres_password` file written by an
+earlier version. The app never writes that file. With neither, `SecretBootstrap` publishes
+nothing and `application.yml`'s default `picsou` applies.
 
-After resolving these secrets, the entrypoint exports `SPRING_DATASOURCE_PASSWORD`
-from `POSTGRES_PASSWORD`, so Spring uses the supplied, persisted or generated
-password rather than its literal `picsou` fallback. An explicit non-empty
-`SPRING_DATASOURCE_PASSWORD` takes precedence; an empty value uses the resolved
-PostgreSQL password.
+On subsequent boots, re-reads from the files. If `JWT_SECRET` or `CRYPTO_ENCRYPTION_KEY` is already set by the operator, it is respected and written to the file for consistency (an existing file is never overwritten). Secrets are **never** regenerated once created: doing so would invalidate JWTs and corrupt all encrypted data in the DB. An empty secret file stops the app, naming the file and the variable, when the variable is unset. A set variable is used and the empty file is left as is, so the next start without it fails: delete the empty file to let the value be copied again. Files are written through a temp file and a hard link, mode `0600` in a `0700` directory, so the final name never shows a partial value and an existing file is never replaced. A filesystem without hard links (some NAS mounts) falls back to renaming the complete temp file into place under a `<file>.lock` created with `CREATE_NEW`: the final name still never shows a partial value and never replaces a file another process created first. A start that finds the lock waits up to 10 seconds for the other start's file; a lock left by a crashed start stops the app and names the lock to delete. A filesystem that cannot apply the modes only logs a warning. Without `PICSOU_SECRETS_DIR`, nothing is generated.
+
+`docker/entrypoint.sh` no longer touches secrets. It writes the nginx trusted-proxy snippet from
+`PICSOU_PROXY_IP`, sets `SERVER_PORT` and the `APP_STARTUP_SYNC_ENABLED` default, then execs supervisord.
+
+The datasource password follows Spring's ordinary precedence, through `application.yml`:
+`password: ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:picsou}}`. `SecretBootstrap`
+publishes the supplied or persisted `POSTGRES_PASSWORD`, so it feeds that
+placeholder instead of the literal `picsou` fallback, and `--spring.datasource.password`,
+`-Dspring.datasource.password`, `SPRING_APPLICATION_JSON` and a non-empty
+`SPRING_DATASOURCE_PASSWORD` all outrank it. An empty `SPRING_DATASOURCE_PASSWORD` or
+`POSTGRES_PASSWORD` (what a Compose-style file gives for an unset variable) behaves as unset,
+with or without `PICSOU_SECRETS_DIR`: `SecretBootstrap` publishes both names, in a source ahead
+of the environment, with the fallback password. That fallback is a `spring.datasource.password`
+from any source, a config file included, then a non-empty `POSTGRES_PASSWORD`, then the legacy
+`postgres_password` file, then `picsou`. Without `PICSOU_SECRETS_DIR`, `POSTGRES_PASSWORD` in the
+environment also reaches the datasource; with neither variable the password is still `picsou`.
+
+The Helm migration hook does not start Spring's environment: it maps `SPRING_DATASOURCE_PASSWORD`
+to `POSTGRES_PASSWORD` in the shell. A password given only through `SPRING_APPLICATION_JSON` is
+not seen there, so set `SPRING_DATASOURCE_PASSWORD` instead when the two differ.
 
 This does not synchronize or rotate the database container's password. Set
 `POSTGRES_PASSWORD` in `docker/.env` to the actual database password before
 starting the stack. Compose explicitly passes `${POSTGRES_PASSWORD:-picsou}`
 to both the app and PostgreSQL, so an unset or empty password retains their
-shared `picsou` default rather than generating a different app-side secret.
-Standalone image runs still generate a password when none is supplied; that
-password must match the external database. Changing an environment variable
-does not change the password of an already initialized database volume.
+shared `picsou` default. A standalone `docker run` without `POSTGRES_PASSWORD`
+and without an existing `postgres_password` file also uses `picsou`, so set
+`POSTGRES_PASSWORD` to the external database's password. Changing an environment
+variable does not change the password of an already initialized database volume.
 
 ### TLS — the optional `tls` compose profile
 
@@ -434,7 +455,7 @@ and HTTPS API response through the deployment script.
 - `services/fortuneo-auth/Dockerfile` — Fortuneo sidecar image
 - `docker/nginx.conf` — Nginx forwarding proxy (everything → backend, with real-IP and `X-Forwarded-*` handling and per-endpoint timeouts)
 - `docker/supervisord.conf` — supervisor (nginx + backend)
-- `docker/entrypoint.sh` — secret bootstrap + trusted-proxy snippet + exec supervisord
+- `docker/entrypoint.sh`: trusted-proxy snippet + exec supervisord (secrets: `SecretBootstrap`)
 
 ### Flow
 
@@ -716,7 +737,8 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 | Bun for frontend build | Project uses bun exclusively (`bun.lock`) | npm (would need a separate lock file) |
 | Browser connectors as separate containers | Keeps the main image slim (JRE only, no Python/Playwright) and isolates unofficial browser protocols | Embed browser automation in the main image via supervisord |
 | `python:3.12-slim` + Chromium only | Only Chromium is used (`p.chromium.launch()`); base image is ~5× smaller than `mcr.microsoft.com/playwright/python` which pre-installs all three browsers | `mcr.microsoft.com/playwright/python:v1.44.0-jammy` — included Firefox + WebKit unnecessarily (+~1.5GB uncompressed) |
-| Auto-generated secrets on first boot | Zero-config install: user runs `docker compose up` with no pre-configuration | Require operator to set secrets manually before first boot |
+| Auto-generated JWT and encryption keys on first boot | Zero-config install: user runs `docker compose up` with no pre-configuration | Require operator to set secrets manually before first boot |
+| Database password never generated by the app | The app cannot set the database's password, so a generated one could only mismatch it; Compose and Helm always pass one | Generating it like the other secrets, which broke bare-metal and standalone starts against an existing database |
 | `.dockerignore` excludes `docker/Dockerfile` | Prevents the Dockerfile from being part of its own build context | No exclusion (harmless but unnecessary) |
 
 ## Gotchas / Pitfalls
