@@ -95,6 +95,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Finary file import reaches the preview again.** The upload was sent as JSON
+  (`{"file":{}}`) instead of multipart, so the file was lost and the server answered
+  415 Unsupported Media Type.
+
 - **Crypto coins outside the built-in list get a price.** NEXO and CRO are now priced
   ([#419](https://github.com/Cloeille/picsou-finance/issues/419)). Beyond them, a coin held in a
   crypto account that Picsou does not know yet is looked up on CoinGecko and remembered once it is
