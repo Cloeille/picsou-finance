@@ -2,7 +2,7 @@ package com.picsou.repository;
 
 import com.picsou.model.LbpSession;
 import com.picsou.model.LbpSyncStatus;
-import com.picsou.port.LbpErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -29,7 +29,7 @@ public interface LbpSessionRepository extends JpaRepository<LbpSession, Long> {
         @Param("interrupted") Collection<LbpSyncStatus> interrupted,
         @Param("failed") LbpSyncStatus failed,
         @Param("completedAt") Instant completedAt,
-        @Param("errorCode") LbpErrorCode errorCode
+        @Param("errorCode") SidecarErrorCode errorCode
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

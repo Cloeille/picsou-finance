@@ -13,6 +13,7 @@ import com.picsou.repository.AccountRepository;
 import com.picsou.repository.AppSettingRepository;
 import com.picsou.repository.AppUserRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.support.PostgresContainers;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,7 +53,7 @@ class McpStreamableHttpTest {
 
     @Container
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @DynamicPropertySource
     static void secrets(DynamicPropertyRegistry registry) {

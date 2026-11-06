@@ -1,8 +1,8 @@
 package com.picsou.controller;
 
 import com.picsou.exception.GlobalExceptionHandler;
+import com.picsou.adapter.LbpAdapter;
 import com.picsou.model.LbpSyncStatus;
-import com.picsou.port.LbpPort;
 import com.picsou.service.LbpSyncService;
 import com.picsou.service.UserContext;
 import io.github.bucket4j.Bucket;
@@ -64,7 +64,7 @@ class LbpControllerTest {
 
     private static LbpSyncService.InitiateResponse initiate() {
         return new LbpSyncService.InitiateResponse("proc-1",
-            new LbpPort.Keypad(Collections.nCopies(10, IMAGE), 5), 90);
+            new LbpAdapter.Keypad(Collections.nCopies(10, IMAGE), 5), 90);
     }
 
     @Test

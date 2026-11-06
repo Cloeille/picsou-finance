@@ -2,7 +2,7 @@ package com.picsou.repository;
 
 import com.picsou.model.FortuneoSession;
 import com.picsou.model.FortuneoSyncStatus;
-import com.picsou.port.FortuneoErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -33,7 +33,7 @@ public interface FortuneoSessionRepository extends JpaRepository<FortuneoSession
         @Param("interrupted") Collection<FortuneoSyncStatus> interrupted,
         @Param("failed") FortuneoSyncStatus failed,
         @Param("completedAt") Instant completedAt,
-        @Param("errorCode") FortuneoErrorCode errorCode
+        @Param("errorCode") SidecarErrorCode errorCode
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

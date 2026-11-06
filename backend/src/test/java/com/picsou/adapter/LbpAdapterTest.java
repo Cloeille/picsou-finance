@@ -2,7 +2,7 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.exception.SyncException;
-import com.picsou.port.LbpErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -82,8 +82,8 @@ class LbpAdapterTest {
             assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS))
                 .isInstanceOfSatisfying(SyncException.class, error ->
                     assertThat(error.getCode()).isIn(
-                        LbpErrorCode.UPSTREAM_FORMAT_CHANGED.name(),
-                        LbpErrorCode.UPSTREAM_UNAVAILABLE.name()));
+                        SidecarErrorCode.UPSTREAM_FORMAT_CHANGED.name(),
+                        SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
         }
     }
 
@@ -102,12 +102,12 @@ class LbpAdapterTest {
 
     @Test
     void initiateAuth_mapsEverySidecarCodeToItsStableCode() {
-        record Case(HttpStatus status, String detail, LbpErrorCode code) {}
+        record Case(HttpStatus status, String detail, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", LbpErrorCode.INVALID_CREDENTIALS),
-            new Case(HttpStatus.CONFLICT, "KEYPAD_CHANGED", LbpErrorCode.KEYPAD_CHANGED),
-            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", LbpErrorCode.UPSTREAM_UNAVAILABLE),
-            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", LbpErrorCode.UPSTREAM_FORMAT_CHANGED))) {
+            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", SidecarErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.CONFLICT, "KEYPAD_CHANGED", SidecarErrorCode.KEYPAD_CHANGED),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", SidecarErrorCode.UPSTREAM_UNAVAILABLE),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", SidecarErrorCode.UPSTREAM_FORMAT_CHANGED))) {
             LbpAdapter adapter = returning(c.status(), "{\"detail\":\"" + c.detail() + "\"}");
 
             assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
@@ -121,17 +121,17 @@ class LbpAdapterTest {
     void completeMaps408ToAnApprovalTimeoutAndABare401ToInvalidCredentials() {
         assertThatThrownBy(() -> returning(HttpStatus.REQUEST_TIMEOUT, "").completeAuth("proc-1"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(LbpErrorCode.APP_VALIDATION_TIMEOUT.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.APP_VALIDATION_TIMEOUT.name()));
         assertThatThrownBy(() -> returning(HttpStatus.UNAUTHORIZED, "").completeAuth("proc-1"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(LbpErrorCode.INVALID_CREDENTIALS.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS.name()));
     }
 
     @Test
     void initiateStillMaps408AsAnApprovalTimeout() {
         assertThatThrownBy(() -> returning(HttpStatus.REQUEST_TIMEOUT, "").initiateAuth(CUSTOMER_ID))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(LbpErrorCode.APP_VALIDATION_TIMEOUT.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.APP_VALIDATION_TIMEOUT.name()));
     }
 
     @Test
@@ -169,7 +169,7 @@ class LbpAdapterTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(LbpErrorCode.UPSTREAM_UNAVAILABLE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getMessage()).contains("too long").doesNotContain(CUSTOMER_ID);
             });
         assertThatThrownBy(() -> adapter.completeAuth("proc-1")).isInstanceOf(SyncException.class);

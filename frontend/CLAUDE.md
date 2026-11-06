@@ -2,14 +2,7 @@
 
 ## Commands
 
-```bash
-bun run dev          # Dev server :5173, proxies /api/* → localhost:8080
-bun run build        # tsc + vite build (fails on type errors)
-bun run typecheck    # TypeScript only
-bun run lint         # ESLint (zero-warnings)
-bunx vitest run      # Unit tests
-bun run test:e2e     # Playwright E2E tests
-```
+See [`CONTRIBUTING.md`](../CONTRIBUTING.md#commands).
 
 ## Architecture (quick ref)
 

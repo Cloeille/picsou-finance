@@ -139,16 +139,21 @@ transient failure leaves it usable.
 
 ### Configuration
 
-`app.lbp-auth.url` (env `LBP_AUTH_URL`, default `http://lbp-auth:8001`). The
-shared sidecar key and URL validation come from `SidecarWebClientFactory`.
+`app.sidecars.lbp-auth.url` (env `LBP_AUTH_URL`, default
+`http://lbp-auth:8001`), read by `SidecarProperties`. `LbpAdapter` asks
+`SidecarWebClientFactory` for the `lbp-auth` service, which validates the URL and
+adds the shared key.
 
 ### Error codes
 
+`LbpAdapter` uses the shared `SidecarErrorCode`; the codes La Banque Postale may
+store are declared once by `SidecarBank.LBP`:
 `SESSION_EXPIRED`, `UPSTREAM_UNAVAILABLE`, `UPSTREAM_FORMAT_CHANGED`,
 `INVALID_SESSION_STATE`, `INTERNAL_ERROR`, plus the login codes
 `INVALID_CREDENTIALS`, `KEYPAD_CHANGED`, `KEYPAD_EXPIRED`, `INVALID_POSITIONS`,
 `APP_VALIDATION_TIMEOUT`, `AUTH_ATTEMPT_EXPIRED`.
-The `last_sync_error` CHECK enumerates them; adding one needs a migration.
+The `lbp_session.last_sync_error` CHECK enumerates exactly that set;
+`SidecarBankCodesTest` fails if the two drift apart.
 
 ## Recon checklist (blocking)
 
@@ -175,18 +180,23 @@ change.
 
 **Backend**
 
-- `port/LbpPort.java` — normalized snapshot and the keypad + mobile-approval login.
-- `port/LbpErrorCode.java`, `model/LbpSession.java`, `model/LbpSyncStatus.java`,
-  `repository/LbpSessionRepository.java`, `config/LbpSyncConfig.java`,
-  `config/LbpSyncRecovery.java`, migration `V122__lbp_session.sql`.
-- `adapter/LbpAdapter.java` — sidecar client, no retry, redacted request bodies.
+- `adapter/LbpAdapter.java` — concrete sidecar client (no port: one
+  implementation, one caller), normalized snapshot and nested records, no retry,
+  redacted request bodies.
+- `adapter/sidecar/SidecarBank.java` — `LBP` declares the label, the `lbp-auth`
+  service and the codes La Banque Postale may store.
+- `model/LbpSession.java`, `model/LbpSyncStatus.java`,
+  `repository/LbpSessionRepository.java`, `config/LbpSyncRecovery.java`,
+  `config/SyncExecutorConfig.java` (`lbpSyncExecutor`), migration
+  `V131__lbp_session.sql`.
 - `service/LbpSyncService.java` — validates the whole snapshot, then writes every
   account and its transactions in one transaction; maps `kind` to
   `AccountType` directly.
 - `controller/LbpController.java` — `/api/lbp/auth/{initiate,keypad,complete}`,
   `/sync`, `/status`, `/session`, with strict bodies and per-IP buckets.
-- Tests: `LbpSessionTest`, `LbpAdapterTest`, `LbpControllerTest`,
-  `V122LbpSessionMigrationTest`.
+- Tests: `LbpSessionTest`, `LbpAdapterTest`, `LbpControllerTest`, the shared
+  `SidecarContractTest` rig, `SidecarBankCodesTest`, and the
+  `V131LbpSessionMigrationTest`.
 
 **Sidecar**
 
@@ -198,10 +208,12 @@ change.
   client), run in the published image like every other sidecar.
 - Wired into Compose (`lbp` profile, `sidecar-python` base) and the Helm chart.
 
-**Verification** — 21 backend tests and 12 sidecar tests pass offline. The full
-backend suite has one unrelated, date-dependent failure in
-`DividendControllerAuthorizationTest` (its dividend events are all before the
-current date).
+**Verification** — 33 LBP backend tests pass, plus the shared
+`SidecarContractTest` (214 cases across every bank), `SidecarBankCodesTest`
+(23 cases, including the `lbp_session` CHECK) and the `V131` migration test on
+real PostgreSQL (5 cases). The 12 sidecar tests pass in the published image.
+The previous date-dependent `DividendControllerAuthorizationTest` failure was
+fixed upstream (relative ex-dates).
 
 ## Not in this slice
 

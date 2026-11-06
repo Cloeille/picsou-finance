@@ -1,6 +1,6 @@
 package com.picsou.model;
 
-import com.picsou.port.LbpErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -66,7 +66,7 @@ class LbpSessionTest {
 
         LbpSession expired = session();
         expired.markQueued();
-        expired.markFailed(LbpErrorCode.SESSION_EXPIRED, NOW);
+        expired.markFailed(SidecarErrorCode.SESSION_EXPIRED, NOW);
         assertThatThrownBy(expired::markQueued).isInstanceOf(IllegalStateException.class);
     }
 
@@ -84,7 +84,7 @@ class LbpSessionTest {
 
     @Test
     void failureRequiresAnInFlightSync() {
-        assertThatThrownBy(() -> session().markFailed(LbpErrorCode.INTERNAL_ERROR, NOW))
+        assertThatThrownBy(() -> session().markFailed(SidecarErrorCode.INTERNAL_ERROR, NOW))
             .isInstanceOf(IllegalStateException.class);
     }
 
@@ -94,17 +94,17 @@ class LbpSessionTest {
         session.markQueued();
         session.markRunning(NOW);
 
-        session.markFailed(LbpErrorCode.UPSTREAM_UNAVAILABLE, NOW);
+        session.markFailed(SidecarErrorCode.UPSTREAM_UNAVAILABLE, NOW);
 
         assertThat(session.getSyncStatus()).isEqualTo(LbpSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(LbpErrorCode.UPSTREAM_UNAVAILABLE);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
         assertThat(session.isActive()).isTrue();
     }
 
     @Test
     void anExpiredOrUnusableSessionIsDeactivated() {
-        for (LbpErrorCode code : new LbpErrorCode[] {
-            LbpErrorCode.SESSION_EXPIRED, LbpErrorCode.INVALID_SESSION_STATE}) {
+        for (SidecarErrorCode code : new SidecarErrorCode[] {
+            SidecarErrorCode.SESSION_EXPIRED, SidecarErrorCode.INVALID_SESSION_STATE}) {
             LbpSession session = session();
             session.markQueued();
             session.markFailed(code, NOW);
@@ -118,7 +118,7 @@ class LbpSessionTest {
     void queueingClearsThePreviousOutcome() {
         LbpSession session = session();
         session.markQueued();
-        session.markFailed(LbpErrorCode.UPSTREAM_FORMAT_CHANGED, NOW);
+        session.markFailed(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED, NOW);
 
         session.markQueued();
 
@@ -131,7 +131,7 @@ class LbpSessionTest {
     void updatingTheSessionStateReactivatesIt() {
         LbpSession session = session();
         session.markQueued();
-        session.markFailed(LbpErrorCode.SESSION_EXPIRED, NOW);
+        session.markFailed(SidecarErrorCode.SESSION_EXPIRED, NOW);
 
         session.updateSessionState("fresh", NOW.plusSeconds(60));
 
@@ -141,10 +141,10 @@ class LbpSessionTest {
 
     @Test
     void loginErrorCodesNeverDeactivateAnExistingSession() {
-        for (LbpErrorCode code : new LbpErrorCode[] {
-            LbpErrorCode.INVALID_CREDENTIALS, LbpErrorCode.KEYPAD_CHANGED,
-            LbpErrorCode.KEYPAD_EXPIRED, LbpErrorCode.INVALID_POSITIONS,
-            LbpErrorCode.APP_VALIDATION_TIMEOUT, LbpErrorCode.AUTH_ATTEMPT_EXPIRED}) {
+        for (SidecarErrorCode code : new SidecarErrorCode[] {
+            SidecarErrorCode.INVALID_CREDENTIALS, SidecarErrorCode.KEYPAD_CHANGED,
+            SidecarErrorCode.KEYPAD_EXPIRED, SidecarErrorCode.INVALID_POSITIONS,
+            SidecarErrorCode.APP_VALIDATION_TIMEOUT, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED}) {
             LbpSession session = session();
             session.markQueued();
             session.markFailed(code, NOW);

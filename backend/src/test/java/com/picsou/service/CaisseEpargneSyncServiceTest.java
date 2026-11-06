@@ -14,7 +14,7 @@ import com.picsou.model.CategoryKind;
 import com.picsou.model.Debt;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
-import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.AccountHoldingRepository;
@@ -66,6 +66,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.picsou.support.TestEntities.owner;
 
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("unchecked")
@@ -312,7 +313,7 @@ class CaisseEpargneSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
+        assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
     }
 
     @Test
@@ -322,7 +323,7 @@ class CaisseEpargneSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
+        assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
     }
 
     @Test
@@ -420,7 +421,7 @@ class CaisseEpargneSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
+        assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
     }
 
     @Test
@@ -524,7 +525,7 @@ class CaisseEpargneSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
+        assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
     }
 
     @Test
@@ -534,7 +535,7 @@ class CaisseEpargneSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
+        assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
     }
 
     @Test
@@ -545,7 +546,7 @@ class CaisseEpargneSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
+        assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
     }
 
     @Test
@@ -555,7 +556,7 @@ class CaisseEpargneSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
+        assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
     }
 
     @Test
@@ -565,7 +566,7 @@ class CaisseEpargneSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
+        assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
     }
 
     @Test
@@ -574,7 +575,7 @@ class CaisseEpargneSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
+        assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
     }
 
     @Test
@@ -585,7 +586,7 @@ class CaisseEpargneSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertFailedWithNothingWritten(session, CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED);
+        assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
     }
 
     /**
@@ -609,7 +610,7 @@ class CaisseEpargneSyncServiceTest {
         // exactly one transaction (the data write) rolled back; every other one committed
         verify(txManager, times(1)).rollback(any());
         assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(CaisseEpargneErrorCode.INTERNAL_ERROR);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR);
         assertThat(session.getLastSyncCompletedAt()).isNotNull();
     }
 
@@ -634,25 +635,25 @@ class CaisseEpargneSyncServiceTest {
 
         assertThatThrownBy(() -> service.queueSync(7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.SESSION_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name()));
     }
 
     @Test
     void queueSync_refusesToRunWithAnInactiveSession() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         session.markQueued();
-        session.markFailed(CaisseEpargneErrorCode.SESSION_EXPIRED, Instant.now());
+        session.markFailed(SidecarErrorCode.SESSION_EXPIRED, Instant.now());
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
 
         assertThatThrownBy(() -> service.queueSync(7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.SESSION_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name()));
         verify(port, never()).fetchAccounts(any());
     }
 
     @Test
     void queueSync_doesNotStackASecondJobOnAnInFlightSession() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         session.markQueued();
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
 
@@ -664,64 +665,64 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void anExpiredSessionIsDeactivatedSoTheUserIsToldToReconnect() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
-            new SyncException("gone", null, CaisseEpargneErrorCode.SESSION_EXPIRED.name()));
+            new SyncException("gone", null, SidecarErrorCode.SESSION_EXPIRED.name()));
 
         service.queueSync(7L);
 
         assertThat(session.isActive()).isFalse();
         assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(CaisseEpargneErrorCode.SESSION_EXPIRED);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         verify(accountRepository, never()).save(any());
     }
 
     @Test
     void queueSync_turnsAnUnreadableEncryptedSessionIntoInvalidSessionStateAndDeactivatesIt() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted")).thenThrow(new IllegalStateException("bad key"));
 
         assertThatThrownBy(() -> service.queueSync(7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.INVALID_SESSION_STATE.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_SESSION_STATE.name()));
 
         assertThat(session.isActive()).isFalse();
         assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(CaisseEpargneErrorCode.INVALID_SESSION_STATE);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_SESSION_STATE);
         verify(port, never()).fetchAccounts(any());
     }
 
     @Test
     void aTransientFailureKeepsTheSessionUsable() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
-            new SyncException("down", null, CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE.name()));
+            new SyncException("down", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
 
         service.queueSync(7L);
 
         assertThat(session.isActive()).isTrue();
-        assertThat(session.getLastSyncError()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
     @Test
     void anUnexpectedExceptionIsRecordedAsAnInternalErrorWithoutLeakingItsMessage() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(new IllegalStateException("cookie=secret"));
 
         service.queueSync(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(CaisseEpargneErrorCode.INTERNAL_ERROR);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR);
         assertThat(service.getStatus(7L).toString()).doesNotContain("secret");
     }
 
     @Test
     void queueSync_discardsAResultWhoseSessionDisappearedMidFlight() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
@@ -738,7 +739,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void storeSession_encryptsTheStateReplacesTheOldRowAndDoesNotSyncByItself() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         CaisseEpargneSession old = activeSession(member);
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(old));
@@ -763,13 +764,13 @@ class CaisseEpargneSyncServiceTest {
     void storeSession_refusesABlankState() {
         assertThatThrownBy(() -> service.storeSession("  ", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CaisseEpargneErrorCode.INVALID_SESSION_STATE.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_SESSION_STATE.name()));
         verify(sessionRepository, never()).saveAndFlush(any());
     }
 
     @Test
     void clearSessionReportsTheSessionItDeleted() {
-        CaisseEpargneSession session = activeSession(member());
+        CaisseEpargneSession session = activeSession(owner());
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
 
         assertThat(service.clearSession(7L)).isTrue();
@@ -806,7 +807,7 @@ class CaisseEpargneSyncServiceTest {
             eq(List.of(CaisseEpargneSyncStatus.QUEUED, CaisseEpargneSyncStatus.RUNNING)),
             eq(CaisseEpargneSyncStatus.FAILED),
             any(),
-            eq(CaisseEpargneErrorCode.INTERNAL_ERROR));
+            eq(SidecarErrorCode.INTERNAL_ERROR));
     }
 
     @Test
@@ -1572,7 +1573,7 @@ class CaisseEpargneSyncServiceTest {
 
     // -- helpers ------------------------------------------------------------
 
-    private void assertFailedWithNothingWritten(CaisseEpargneSession session, CaisseEpargneErrorCode code) {
+    private void assertFailedWithNothingWritten(CaisseEpargneSession session, SidecarErrorCode code) {
         assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(code);
         verify(accountRepository, never()).save(any());
@@ -1585,7 +1586,7 @@ class CaisseEpargneSyncServiceTest {
     }
 
     private CaisseEpargneSession arrangeCommittableSync(CaisseEpargnePort.AccountsSnapshot snapshot) {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         CaisseEpargneSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(snapshot);
@@ -1633,10 +1634,6 @@ class CaisseEpargneSyncServiceTest {
             .thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
-    }
-
-    private FamilyMember member() {
-        return FamilyMember.builder().id(7L).displayName("Owner").build();
     }
 
     private CaisseEpargneSession activeSession(FamilyMember member) {

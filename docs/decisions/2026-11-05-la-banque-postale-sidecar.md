@@ -115,10 +115,11 @@ account never sits in the `CHECKING` bucket waiting for the name-based detector.
 
 - New service `services/lbp-auth/` (shared base, Dockerfile, GHCR image, CI
   job) and a `lbp` Compose profile.
-- New backend pieces mirroring Caisse d'Epargne: `LbpPort`, `LbpAdapter`,
-  `LbpSyncService`, `LbpController`, `LbpSession`, `LbpSyncStatus`,
-  `LbpErrorCode`, `LbpSyncConfig`, `LbpSessionRepository`, migration adding the
-  `lbp_session` table.
+- New backend pieces on the shared sidecar architecture: `LbpAdapter` (a
+  concrete client with nested records, not a port), the `LBP` entry in
+  `SidecarBank`, `LbpSyncService`, `LbpController`, `LbpSession`,
+  `LbpSyncStatus`, `LbpSessionRepository`, the `lbpSyncExecutor` bean in
+  `SyncExecutorConfig`, and migration `V131` adding the `lbp_session` table.
 - New frontend Sync tab and login panel once the login flow is known.
 - La Banque Postale accounts created by the sidecar are prefixed `lbp_`; the
   existing Enable Banking connection for this bank is deleted by the user.

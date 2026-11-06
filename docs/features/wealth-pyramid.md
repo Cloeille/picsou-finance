@@ -28,7 +28,7 @@ silently vanish from a chart. A `Map` cannot have this property; a switch expres
 | `REAL_ESTATE` | `REAL_ESTATE`, `SCPI` (and `LOAN`, only so the switch stays total — loans never enter as assets) |
 | `EQUITY` | `PEA`, `COMPTE_TITRES`, `EMPLOYEE_SAVINGS`, `ASSURANCE_VIE`, `PER` |
 | `CRYPTO` | `CRYPTO` |
-| `ALTERNATIVE` | `OTHER` |
+| `ALTERNATIVE` | `PRECIOUS_METALS`, `OTHER` |
 
 This is **not** `AccountsPage.ASSET_FILTER_MAP`, and PR1 does not touch it: the filters group
 accounts the way a user browses them, the pyramid groups them by the role they play. To avoid a

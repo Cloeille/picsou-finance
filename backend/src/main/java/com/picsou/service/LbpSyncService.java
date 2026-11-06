@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.LbpAdapter;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
@@ -14,8 +15,7 @@ import com.picsou.model.FamilyMember;
 import com.picsou.model.LbpSession;
 import com.picsou.model.LbpSyncStatus;
 import com.picsou.model.Transaction;
-import com.picsou.port.LbpErrorCode;
-import com.picsou.port.LbpPort;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.LbpSessionRepository;
@@ -73,7 +73,7 @@ public class LbpSyncService {
     private static final int APPROVAL_WINDOW_SECONDS = 180;
     private static final java.util.regex.Pattern BASE64 = java.util.regex.Pattern.compile("[A-Za-z0-9+/]+={0,2}");
 
-    private final LbpPort port;
+    private final LbpAdapter adapter;
     private final LbpSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
@@ -92,7 +92,7 @@ public class LbpSyncService {
 
     @org.springframework.beans.factory.annotation.Autowired
     public LbpSyncService(
-        LbpPort port,
+        LbpAdapter adapter,
         LbpSessionRepository sessionRepository,
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
@@ -102,12 +102,12 @@ public class LbpSyncService {
         TransactionTemplate txTemplate,
         @Qualifier("lbpSyncExecutor") Executor syncExecutor
     ) {
-        this(port, sessionRepository, accountRepository, transactionRepository, memberRepository, accountService,
+        this(adapter, sessionRepository, accountRepository, transactionRepository, memberRepository, accountService,
             encryption, txTemplate, syncExecutor, Clock.systemUTC());
     }
 
     LbpSyncService(
-        LbpPort port,
+        LbpAdapter adapter,
         LbpSessionRepository sessionRepository,
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
@@ -118,7 +118,7 @@ public class LbpSyncService {
         Executor syncExecutor,
         Clock clock
     ) {
-        this.port = port;
+        this.adapter = adapter;
         this.sessionRepository = sessionRepository;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
@@ -136,10 +136,10 @@ public class LbpSyncService {
      * session already stored (valid or not) exactly as it was.
      */
     public InitiateResponse initiateAuth(String customerId, Long memberId) {
-        LbpPort.InitiateResult result = port.initiateAuth(customerId);
+        LbpAdapter.InitiateResult result = adapter.initiateAuth(customerId);
         if (result == null || result.processId() == null || result.processId().isBlank()
             || result.keypad() == null || result.expiresInSeconds() <= 0) {
-            throw error(LbpErrorCode.UPSTREAM_FORMAT_CHANGED,
+            throw error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
                 "La Banque Postale did not return a usable sign-in challenge", null);
         }
         requireSafeKeypad(result.keypad());
@@ -155,7 +155,7 @@ public class LbpSyncService {
      * Refuses a keypad that cannot be shown to a user as-is. Anything unexpected becomes
      * {@code KEYPAD_CHANGED} and the process is never registered, so nothing can be clicked.
      */
-    private void requireSafeKeypad(LbpPort.Keypad keypad) {
+    private void requireSafeKeypad(LbpAdapter.Keypad keypad) {
         boolean safe = keypad != null
             && keypad.columns() == KEYPAD_COLUMNS
             && keypad.images() != null
@@ -169,7 +169,7 @@ public class LbpSyncService {
             }
         }
         if (!safe) {
-            throw error(LbpErrorCode.KEYPAD_CHANGED,
+            throw error(SidecarErrorCode.KEYPAD_CHANGED,
                 "La Banque Postale changed its login page. Nothing was sent.", null);
         }
     }
@@ -196,15 +196,15 @@ public class LbpSyncService {
         PendingLogin pending = takePending(processId, memberId);
         if (pending.approvalExpiresAt() != null) {
             // The digits were already sent for this process: nothing more to click.
-            throw error(LbpErrorCode.AUTH_ATTEMPT_EXPIRED,
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This La Banque Postale sign-in attempt expired. Please start again.", null);
         }
         if (!pending.keypadExpiresAt().isAfter(clock.instant())) {
             // Nothing was clicked anywhere: the user just took too long.
-            throw error(LbpErrorCode.KEYPAD_EXPIRED,
+            throw error(SidecarErrorCode.KEYPAD_EXPIRED,
                 "The La Banque Postale keypad expired. Start again.", null);
         }
-        port.submitKeypad(processId, positions);
+        adapter.submitKeypad(processId, positions);
         pendingLogins.put(processId, new PendingLogin(memberId, null,
             clock.instant().plusSeconds(APPROVAL_WINDOW_SECONDS)));
     }
@@ -218,12 +218,12 @@ public class LbpSyncService {
         PendingLogin pending = takePending(processId, memberId);
         // The keypad must have been submitted: without it there is no approval to wait for.
         if (pending.approvalExpiresAt() == null || !pending.approvalExpiresAt().isAfter(clock.instant())) {
-            throw error(LbpErrorCode.AUTH_ATTEMPT_EXPIRED,
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This La Banque Postale sign-in attempt expired. Please start again.", null);
         }
-        String plainState = port.completeAuth(processId);
+        String plainState = adapter.completeAuth(processId);
         if (plainState == null || plainState.isBlank()) {
-            throw error(LbpErrorCode.UPSTREAM_FORMAT_CHANGED,
+            throw error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
                 "La Banque Postale did not return a session", null);
         }
         return storeSession(plainState, memberId);
@@ -238,11 +238,11 @@ public class LbpSyncService {
         if (pending != null && !pending.memberId().equals(memberId)) {
             // Someone else probing a process id must not burn the owner's attempt.
             pendingLogins.putIfAbsent(processId, pending);
-            throw error(LbpErrorCode.AUTH_ATTEMPT_EXPIRED,
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This La Banque Postale sign-in attempt expired. Please start again.", null);
         }
         if (pending == null) {
-            throw error(LbpErrorCode.AUTH_ATTEMPT_EXPIRED,
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This La Banque Postale sign-in attempt expired. Please start again.", null);
         }
         return pending;
@@ -254,7 +254,7 @@ public class LbpSyncService {
      */
     public SessionStatusResponse storeSession(String plainState, Long memberId) {
         if (plainState == null || plainState.isBlank()) {
-            throw error(LbpErrorCode.INVALID_SESSION_STATE,
+            throw error(SidecarErrorCode.INVALID_SESSION_STATE,
                 "No La Banque Postale session was provided", null);
         }
         requireTransactionResult(txTemplate.execute(status -> {
@@ -272,13 +272,13 @@ public class LbpSyncService {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
             LbpSession session = sessionRepository.findByMemberIdForUpdate(memberId)
                 .orElseThrow(() -> error(
-                    LbpErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "No active La Banque Postale session. Please reconnect.",
                     null
                 ));
             if (!session.isActive()) {
                 throw error(
-                    LbpErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "The La Banque Postale session expired. Please reconnect.",
                     null
                 );
@@ -293,12 +293,12 @@ public class LbpSyncService {
             } catch (RuntimeException ex) {
                 // Unreadable (wrong key, corrupted): the session is dead, not a server fault.
                 session.markQueued();
-                session.markFailed(LbpErrorCode.INVALID_SESSION_STATE, clock.instant());
+                session.markFailed(SidecarErrorCode.INVALID_SESSION_STATE, clock.instant());
                 sessionRepository.save(session);
                 log.warn("Stored La Banque Postale session is unreadable (member={}; type={})",
                     memberId, ex.getClass().getSimpleName());
                 return new QueueDecision(null, null, error(
-                    LbpErrorCode.INVALID_SESSION_STATE,
+                    SidecarErrorCode.INVALID_SESSION_STATE,
                     "The stored La Banque Postale session is unusable. Please reconnect.",
                     null
                 ));
@@ -322,9 +322,9 @@ public class LbpSyncService {
         try {
             syncExecutor.execute(() -> executeJob(job));
         } catch (RuntimeException ex) {
-            markFailed(job, LbpErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             throw error(
-                LbpErrorCode.INTERNAL_ERROR,
+                SidecarErrorCode.INTERNAL_ERROR,
                 "Could not schedule the La Banque Postale synchronization",
                 ex
             );
@@ -336,7 +336,7 @@ public class LbpSyncService {
             return;
         }
         try {
-            LbpPort.AccountsSnapshot fetched = port.fetchAccounts(job.plainState());
+            LbpAdapter.AccountsSnapshot fetched = adapter.fetchAccounts(job.plainState());
             PreparedSnapshot prepared = prepare(fetched);
             if (commit(job, prepared)) {
                 log.info("La Banque Postale sync completed (member={}; accounts={})",
@@ -345,11 +345,11 @@ public class LbpSyncService {
                 log.info("Discarded stale La Banque Postale sync result (member={})", job.memberId());
             }
         } catch (SyncException ex) {
-            LbpErrorCode code = codeOf(ex);
+            SidecarErrorCode code = codeOf(ex);
             markFailed(job, code);
             log.warn("La Banque Postale sync failed (member={}; code={})", job.memberId(), code);
         } catch (Exception ex) {
-            markFailed(job, LbpErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             // The exception type only: its message could carry a value from the payload.
             log.error("La Banque Postale sync failed unexpectedly (member={}; type={})",
                 job.memberId(), ex.getClass().getSimpleName());
@@ -381,14 +381,14 @@ public class LbpSyncService {
      * Validates the whole snapshot before anything is written: one doubtful account refuses the
      * lot, so a partial list can never overwrite a correct import.
      */
-    private PreparedSnapshot prepare(LbpPort.AccountsSnapshot fetched) {
+    private PreparedSnapshot prepare(LbpAdapter.AccountsSnapshot fetched) {
         if (fetched == null || fetched.accounts().isEmpty()) {
             throw invalid("no account");
         }
 
         Set<String> externalIds = new HashSet<>();
         List<PreparedAccount> accounts = new ArrayList<>();
-        for (LbpPort.AccountData account : fetched.accounts()) {
+        for (LbpAdapter.AccountData account : fetched.accounts()) {
             if (account == null || !account.snapshotComplete()) {
                 throw invalid("an incomplete snapshot");
             }
@@ -420,7 +420,7 @@ public class LbpSyncService {
         }
 
         List<UnsupportedProduct> unsupported = new ArrayList<>();
-        for (LbpPort.Unsupported item : fetched.unsupported()) {
+        for (LbpAdapter.Unsupported item : fetched.unsupported()) {
             if (item == null || clean(item.externalId()) == null || clean(item.familyCode()) == null
                 || unsupported.size() >= MAX_UNSUPPORTED) {
                 throw invalid("an invalid unsupported product list");
@@ -430,11 +430,11 @@ public class LbpSyncService {
         return new PreparedSnapshot(List.copyOf(accounts), List.copyOf(unsupported));
     }
 
-    private List<PreparedTransaction> prepareTransactions(List<LbpPort.Transaction> raw) {
+    private List<PreparedTransaction> prepareTransactions(List<LbpAdapter.Transaction> raw) {
         // A provider repeating an id inside one account is not a reason to fail the sync; the
         // last occurrence wins, exactly as the next sync would resolve it.
         Map<String, PreparedTransaction> byId = new LinkedHashMap<>();
-        for (LbpPort.Transaction tx : raw) {
+        for (LbpAdapter.Transaction tx : raw) {
             if (tx == null || tx.date() == null || tx.amount() == null) {
                 throw invalid("an incomplete transaction");
             }
@@ -553,7 +553,7 @@ public class LbpSyncService {
         transactionRepository.saveAllAndFlush(upserts);
     }
 
-    private void markFailed(SyncJob job, LbpErrorCode code) {
+    private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
                 Optional<LbpSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
@@ -588,7 +588,7 @@ public class LbpSyncService {
             List.of(LbpSyncStatus.QUEUED, LbpSyncStatus.RUNNING),
             LbpSyncStatus.FAILED,
             clock.instant(),
-            LbpErrorCode.INTERNAL_ERROR
+            SidecarErrorCode.INTERNAL_ERROR
         );
         if (recovered > 0) {
             log.warn("Recovered {} interrupted La Banque Postale sync job(s)", recovered);
@@ -604,7 +604,7 @@ public class LbpSyncService {
 
     /**
      * Deletes the stored session. This only forgets the cookies in Picsou: the bank session is
-     * not revoked (there is no confirmed logout call on the port) and may stay active until it
+     * not revoked (there is no confirmed logout call on the connector) and may stay active until it
      * expires. Returns whether a stored session was there to delete.
      */
     public boolean clearSession(Long memberId) {
@@ -712,23 +712,23 @@ public class LbpSyncService {
         return externalId;
     }
 
-    private LbpErrorCode codeOf(SyncException exception) {
+    private SidecarErrorCode codeOf(SyncException exception) {
         if (exception.getCode() == null) {
-            return LbpErrorCode.UPSTREAM_UNAVAILABLE;
+            return SidecarErrorCode.UPSTREAM_UNAVAILABLE;
         }
         try {
-            return LbpErrorCode.valueOf(exception.getCode());
+            return SidecarErrorCode.valueOf(exception.getCode());
         } catch (IllegalArgumentException ignored) {
-            return LbpErrorCode.UPSTREAM_UNAVAILABLE;
+            return SidecarErrorCode.UPSTREAM_UNAVAILABLE;
         }
     }
 
-    private static SyncException error(LbpErrorCode code, String message, Throwable cause) {
+    private static SyncException error(SidecarErrorCode code, String message, Throwable cause) {
         return new SyncException(message, cause, code.name());
     }
 
     private static SyncException invalid(String what) {
-        return error(LbpErrorCode.UPSTREAM_FORMAT_CHANGED, "La Banque Postale returned " + what, null);
+        return error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED, "La Banque Postale returned " + what, null);
     }
 
     private static String clean(String value) {
@@ -751,7 +751,7 @@ public class LbpSyncService {
     }
 
     /** The pending login to show: the bank's keypad, clicked by the user, and its lifetime. */
-    public record InitiateResponse(String processId, LbpPort.Keypad keypad, int expiresInSeconds) {}
+    public record InitiateResponse(String processId, LbpAdapter.Keypad keypad, int expiresInSeconds) {}
 
     /**
      * A login in flight. Only one of the two deadlines is set: the keypad's while the user
@@ -770,7 +770,7 @@ public class LbpSyncService {
         LbpSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        LbpErrorCode lastSyncError,
+        SidecarErrorCode lastSyncError,
         List<UnsupportedProduct> unsupported
     ) {
         public SessionStatusResponse {

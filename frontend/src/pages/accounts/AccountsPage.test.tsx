@@ -78,7 +78,7 @@ function property(id: number, balanceEur: number, costBasis?: number): Account {
   } as Account
 }
 
-function investmentAccount(id: number, type: 'PEA' | 'PER', balanceEur: number): Account {
+function investmentAccount(id: number, type: 'PEA' | 'PER' | 'PRECIOUS_METALS' | 'OTHER', balanceEur: number): Account {
   return {
     id,
     name: `Compte ${id}`,
@@ -230,5 +230,31 @@ describe('AccountsPage — card actions on touch screens', () => {
       const actions = screen.getByRole('button', { name }).parentElement
       expect(actions).toHaveClass('pointer-coarse:opacity-100', 'group-focus-within:opacity-100')
     }
+  })
+})
+
+describe('AccountsPage — Métaux and Autre filters', () => {
+  beforeEach(() => {
+    useAccounts.mockReset()
+    useHistory.mockReset()
+    const accounts = [investmentAccount(1, 'PRECIOUS_METALS', 5000), investmentAccount(2, 'OTHER', 700)]
+    useAccounts.mockReturnValue({ data: accounts, isLoading: false })
+    useHistory.mockReturnValue({ data: history(accounts), isLoading: false })
+  })
+
+  it('lists a PRECIOUS_METALS account under Métaux and no longer an OTHER one', () => {
+    render(<AccountsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'accounts.filters.METALS' }))
+
+    expect(screen.getByText('Compte 1')).toBeInTheDocument()
+    expect(screen.queryByText('Compte 2')).not.toBeInTheDocument()
+  })
+
+  it('keeps an OTHER account reachable under its own filter', () => {
+    render(<AccountsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'accounts.filters.OTHER' }))
+
+    expect(screen.getByText('Compte 2')).toBeInTheDocument()
+    expect(screen.queryByText('Compte 1')).not.toBeInTheDocument()
   })
 })

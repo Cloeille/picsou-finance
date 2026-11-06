@@ -1,7 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.picsou.port.LbpErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -55,7 +55,7 @@ public class LbpSession extends AuditableEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "last_sync_error", length = 40)
-    private LbpErrorCode lastSyncError;
+    private SidecarErrorCode lastSyncError;
 
     /** JSON array of {externalId, familyCode}: products seen but not imported. */
     @Column(name = "unsupported_products", columnDefinition = "TEXT")
@@ -119,17 +119,17 @@ public class LbpSession extends AuditableEntity {
         lastSyncError = null;
     }
 
-    public void markFailed(LbpErrorCode errorCode, Instant completedAt) {
+    public void markFailed(SidecarErrorCode errorCode, Instant completedAt) {
         if (!isSyncInFlight()) {
             throw new IllegalStateException("Only an in-flight La Banque Postale synchronization can fail");
         }
-        LbpErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
         syncStatus = LbpSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
         // The stored cookies cannot be silently renewed (no password is kept), so a session
         // the bank rejected or Picsou cannot read is dead; a transient failure leaves it usable.
-        if (error == LbpErrorCode.SESSION_EXPIRED || error == LbpErrorCode.INVALID_SESSION_STATE) {
+        if (error == SidecarErrorCode.SESSION_EXPIRED || error == SidecarErrorCode.INVALID_SESSION_STATE) {
             active = false;
         }
     }
