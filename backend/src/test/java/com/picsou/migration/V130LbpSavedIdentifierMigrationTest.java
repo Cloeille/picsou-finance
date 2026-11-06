@@ -80,10 +80,12 @@ class V130LbpSavedIdentifierMigrationTest {
         }
         try (Connection c = connection();
              PreparedStatement st = c.prepareStatement(
-                 "SELECT encrypted_identifier FROM lbp_session WHERE member_id = ?");
-             ResultSet rs = st.executeQuery()) {
-            assertThat(rs.next()).isTrue();
-            assertThat(rs.getString(1)).isEqualTo("encrypted-identifier");
+                 "SELECT encrypted_identifier FROM lbp_session WHERE member_id = ?")) {
+            st.setLong(1, member);
+            try (ResultSet rs = st.executeQuery()) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getString(1)).isEqualTo("encrypted-identifier");
+            }
         }
 
         long withoutIdentifier = newMember("lbp-v130-null");
@@ -96,10 +98,12 @@ class V130LbpSavedIdentifierMigrationTest {
         }
         try (Connection c = connection();
              PreparedStatement st = c.prepareStatement(
-                 "SELECT encrypted_identifier FROM lbp_session WHERE member_id = ?");
-             ResultSet rs = st.executeQuery()) {
-            assertThat(rs.next()).isTrue();
-            assertThat(rs.getString(1)).isNull();
+                 "SELECT encrypted_identifier FROM lbp_session WHERE member_id = ?")) {
+            st.setLong(1, withoutIdentifier);
+            try (ResultSet rs = st.executeQuery()) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getString(1)).isNull();
+            }
         }
     }
 
