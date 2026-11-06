@@ -54,7 +54,7 @@ stack. The maintainer's own live run is still pending.
    The login page also runs anti-fraud scripts that set a 52-character
    `iscdName` device fingerprint; a real browser is the only reliable way to
    produce it, so the sidecar drives Chromium on the `chromium` base. The user
-   clicks the keypad in that browser, so the password never leaves it. The
+   clicks the keypad in that browser, so the digits are never typed anywhere. The
    session cookies are then replayed with `httpx` for the server-rendered pages.
 7. **No retry on a login step.** A wrong password or second factor can lock the
    bank account. The adapter has no retry filter, the service calls the sidecar
@@ -109,7 +109,7 @@ auto-apply* rule, which remains true for the name-based detector: LBP reports
 `LIVRET_A`, `LDDS` or `LEP` directly in `kind`, so `SavingsAutoConfigService`
 writes the default product, `RegulatedRates` rate and legal ceiling when the
 account has no configuration. It never overwrites a user-saved config. The rates
-and ceilings are defaults dated 2025-02-01, editable by the user; they are not a
+and ceilings are defaults dated 2026-08-01, editable by the user; they are not a
 live feed.
 
 ## Trade-offs accepted

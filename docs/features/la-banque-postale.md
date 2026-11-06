@@ -5,8 +5,8 @@
 > live run is still pending.** The backend contract, storage, adapter, sync
 > service and REST endpoints are in place. `services/lbp-auth`
 > runs the login in headless Chromium (base `chromium`) so the bank's anti-fraud
-> scripts set `iscdName`; the keypad is clicked in that browser and the password
-> never leaves it. After the keypad, the sidecar clicks the bank's
+> scripts set `iscdName`; the keypad is clicked in that browser and the digits
+> are never typed anywhere. After the keypad, the sidecar clicks the bank's
 > strong-authentication notice (**Continuer**), which is what sends the mobile
 > notification, then waits for the approval. The session cookies are replayed
 > with `httpx` for the server-rendered pages. A live run on 2026-11-06 imported
@@ -101,9 +101,12 @@ the WAF/SSO cookies and redirects to the login form. A direct
 
 The keypad is **ten text buttons shuffled on every page load**. The bank's own
 script writes the clicked **DOM positions**, not the digits, into the `password`
-field; the server maps them back with the per-load keypad. The sidecar therefore
-returns the labels to the UI, the user clicks his digits, and only the positions
-travel onward: the password itself never reaches Picsou.
+field; the server maps them back with the per-load keypad. The sidecar returns
+the shuffled labels to the UI, the user clicks their digits, and the clicked
+positions travel back to the backend. The labels and the positions are together
+**password-equivalent** (the server maps positions to digits), so they are held
+only in transit and never logged or stored: Picsou keeps only the encrypted
+cookie session, never the password.
 
 A trusted device skips the second factor. A new device gets *Votre appareil de
 confiance* ("une notification a été envoyée vers …"), and the sidecar polls the
@@ -124,9 +127,9 @@ the box clears the remembered identifier on the next successful login.
 | `POST /token-check` | `{sessionState}` | `{ok, expiresIn}` |
 | `POST /accounts` | `{sessionState}` | `{accounts, unsupported}` |
 
-- A password never reaches Picsou: only clicked key positions.
-- The positions are never logged, echoed or stored; the approval carries no
-  secret at all.
+- Picsou never stores the password. The keypad labels and the clicked positions
+  — together password-equivalent — are held only in transit and never logged or
+  stored; the approval carries no secret at all.
 - No login step is retried: a wrong password can lock the bank account.
 - An unknown, used, expired or other-member `processId` is refused before the
   sidecar is called.
