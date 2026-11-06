@@ -22,16 +22,15 @@
 # certificate an HSTS entry is a one-way trap — the browser stops offering
 # the "proceed anyway" bypass and locks the user out with no in-app
 # recovery. HSTS is opt-in via HSTS_ENABLED once the cert is publicly
-# trusted; see docker/entrypoint.sh.
+# trusted; see SecurityConfig.
 # ─────────────────────────────────────────────────────────────────────────
 
 {$PICSOU_DOMAIN:picsou.localhost} {
-	# The app container serves nginx on 8080 (SPA + /api + /actuator).
+	# The app container serves Spring Boot on 8080 (SPA + /api + /actuator).
 	# app-tls resolves only on the dedicated Compose network, where Caddy has
-	# the exact address configured as nginx's trusted forwarded-address peer.
-	# Caddy sets X-Forwarded-Proto/Host/For by default; nginx resolves the
-	# client address, replaces the forwarded chain with that single value,
-	# and passes it to Tomcat's loopback-only RemoteIpValve.
+	# the exact address configured as Tomcat's trusted forwarded-address peer
+	# (PICSOU_PROXY_IP). Caddy sets X-Forwarded-Proto/Host/For by default and
+	# Tomcat's RemoteIpValve reads them from that one peer only.
 	# Do NOT add `header_up X-Forwarded-For {remote_host}` here. Caddy already
 	# sets X-Forwarded-For to the real peer address and ignores whatever the
 	# client sent because `trusted_proxies` is empty. Stating it explicitly is

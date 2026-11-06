@@ -13,19 +13,14 @@
 ## Architecture
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) -- Overview, modules, data flows
-
-## Release deliverables
-
-- [release/1.0.0/](./release/1.0.0/README.md) -- IEEE-style docs for 1.0.0:
-  [SRS](./release/1.0.0/SRS.md), [SDD](./release/1.0.0/SDD.md),
-  [SDS](./release/1.0.0/SDS.md), [STP](./release/1.0.0/STP.md),
-  [User Manual](./release/1.0.0/USER_MANUAL.md)
+- The IEEE-style 1.0.0 documents (SRS, SDD, SDS, STP, user manual) live in the `1.0.0` git tag:
+  `git show 1.0.0:docs/release/1.0.0/README.md`.
 
 ## Technical decisions (ADR)
 
 | Date | Decision | Status |
 |------|----------|--------|
-| 2026-01-01 | [Ports and adapters architecture](./decisions/2026-01-01-ports-and-adapters.md) | Active |
+| 2026-01-01 | [Ports and adapters architecture](./decisions/2026-01-01-ports-and-adapters.md) | Active — partially superseded |
 | 2026-01-01 | [Single user with JWT in HttpOnly cookies](./decisions/2026-01-01-single-user-jwt-cookies.md) | ⚠️ Superseded |
 | 2026-01-01 | [Flyway owns the schema](./decisions/2026-01-01-flyway-schema-ownership.md) | Active |
 | 2026-03-01 | [Dual bank provider](./decisions/2026-03-01-dual-bank-providers.md) | ⚠️ Revised — Powens experimental, disabled in 1.0.0 |
@@ -54,7 +49,7 @@
 | 2026-07-12 | [Remote-MCP OAuth authorization for third-party clients (claude.ai)](./decisions/2026-07-12-remote-mcp-oauth-authorization.md) | Active |
 | 2026-07-12 | [UI controls follow the shadcn theme radius, not a pill shape](./decisions/2026-07-12-ui-controls-follow-shadcn-theme-radius.md) | Active |
 | 2026-07-17 | [EVM multichain wallets — one address, many chains](./decisions/2026-07-17-evm-multichain-wallets.md) | Active |
-| 2026-07-19 | [Caddy as an opt-in TLS terminator for the Docker stack](./decisions/2026-07-19-caddy-opt-in-tls-profile.md) | Active |
+| 2026-07-19 | [Caddy as an opt-in TLS terminator for the Docker stack](./decisions/2026-07-19-caddy-opt-in-tls-profile.md) | Active (nginx details superseded) |
 | 2026-07-21 | [Bourse Direct isolated browser sidecar and atomic complete snapshots](./decisions/2026-07-21-bourse-direct-isolated-atomic-sync.md) | Active |
 | 2026-07-26 | [Fortuneo isolated browser sidecar and complete atomic history sync](./decisions/2026-07-26-fortuneo-isolated-atomic-history-sync.md) | Active |
 | 2026-07-19 | [Interactive Brokers via the Flex Web Service (read-only, EOD)](./decisions/2026-07-19-ibkr-flex-web-service.md) | Active |
@@ -75,7 +70,7 @@
 | 2026-09-17 | [Defer the MCP protocol upgrade until the Spring Boot 4 migration](./decisions/2026-09-17-defer-mcp-protocol-upgrade.md) | Superseded by opt-in Streamable HTTP |
 | 2026-10-31 | [Opt-in Streamable HTTP for modern MCP clients](./decisions/2026-10-31-opt-in-streamable-mcp.md) | Active |
 | 2026-09-23 | [A SCPI share is not a property](./decisions/2026-09-23-scpi-not-a-property.md) | Active |
-| 2026-09-26 | [CORUM client space fills existing SCPI accounts through a browser sidecar](./decisions/2026-09-26-corum-scpi-sidecar.md) | Active (point 5 superseded) |
+| 2026-09-26 | [CORUM client space fills existing SCPI accounts through a browser sidecar](./decisions/2026-09-26-corum-scpi-sidecar.md) | Active (points 5 and 7 superseded) |
 | 2026-09-27 | [Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar](./decisions/2026-09-27-sofidy-scpi-sidecar.md) | Active (point 5 superseded) |
 | 2026-10-04 | [SimpleFIN as its own connector, beside Enable Banking](./decisions/2026-10-04-simplefin-beside-enable-banking.md) | Active |
 | 2026-11-03 | [Wise jars through a personal API token, beside Enable Banking](./decisions/2026-11-03-wise-jars-beside-enable-banking.md) | Active |
@@ -86,6 +81,11 @@
 | 2026-10-31 | [Trusted proxy client addresses](./decisions/2026-10-31-trusted-proxy-client-address.md) | Active |
 | 2026-10-31 | [Helm chart in the repository, published by CI next to the images](./decisions/2026-10-31-helm-chart-published-from-ci.md) | Active |
 | 2026-11-01 | [Sidecars share one Python package for their plumbing](./decisions/2026-11-01-shared-sidecar-package.md) | Active |
+| 2026-11-02 | [Ports only for swappable providers](./decisions/2026-11-02-ports-only-for-swappable-providers.md) | Active |
+| 2026-11-03 | [Spring Boot serves the SPA and every response header](./decisions/2026-11-03-spring-serves-the-spa.md) | Active (nginx step superseded) |
+| 2026-11-03 | [One non-root Java process in the app image](./decisions/2026-11-03-one-non-root-process.md) | Active |
+| 2026-11-04 | [SSO login through an external OIDC provider, alongside passwords](./decisions/2026-11-04-sso-login-alongside-passwords.md) | Active |
+| 2026-11-05 | [CORUM Life contracts sync as one assurance-vie account each](./decisions/2026-11-05-corum-life-sync.md) | Active |
 
 ## Feature notes
 
@@ -94,15 +94,16 @@
 | MCP server + scoped access-keys | 2026-06-26 | [mcp-server.md](./features/mcp-server.md) |
 | Budget + OAuth2 tools in MCP | 2026-07-06 | [mcp-budget-oauth2.md](./features/mcp-budget-oauth2.md) |
 | Remote-MCP OAuth (claude.ai connector) | 2026-07-12 | [mcp-oauth-remote.md](./features/mcp-oauth-remote.md) |
-| Internationalization (FR/EN/DE/ES) | 2026-10-31 | [i18n.md](./features/i18n.md) |
-| Frontend utilities (lib/utils.ts) | 2026-10-31 | [frontend-utils.md](./features/frontend-utils.md) |
+| Internationalization (FR/EN/DE/ES) | 2026-11-03 | [i18n.md](./features/i18n.md) |
+| German and Spanish strings awaiting translation | 2026-11-03 | [i18n-untranslated.md](./features/i18n-untranslated.md) |
+| Frontend utilities (lib/utils.ts) | 2026-11-01 | [frontend-utils.md](./features/frontend-utils.md) |
 | Demo mode | 2026-10-31 | [demo-mode.md](./features/demo-mode.md) |
 | Theme (dark / light / system) + theme-adaptive rendering | 2026-10-31 | [theme-persistence.md](./features/theme-persistence.md) |
 | Dashboard — Time range isolation | 2026-04-13 | [dashboard-time-range-isolation.md](./features/dashboard-time-range-isolation.md) |
 | Bank sync | 2026-10-31 | [bank-sync.md](./features/bank-sync.md) |
 | SimpleFIN sync | 2026-10-04 | [simplefin-sync.md](./features/simplefin-sync.md) |
 | Wise jars | 2026-11-03 | [wise-jars.md](./features/wise-jars.md) |
-| Budget & Cashflow | 2026-06-28 | [budget.md](./features/budget.md) |
+| Budget & Cashflow | 2026-11-05 | [budget.md](./features/budget.md) |
 | Budget categorization rules (word-picker authoring UX) | 2026-06-28 | [budget-rules.md](./features/budget-rules.md) |
 | Optional AI transaction categorization | 2026-06-26 | [ai-categorization.md](./features/ai-categorization.md) |
 | Dashboard — Liabilities separated from performance | 2026-07-12 | [dashboard-liabilities-separation.md](./features/dashboard-liabilities-separation.md) |
@@ -120,8 +121,8 @@
 | ISIN → Ticker conversion | 2026-08-10 | [ISIN_TO_TICKER_CONVERSION.md](./features/ISIN_TO_TICKER_CONVERSION.md) |
 | Encryption at rest | 2026-04-08 | [encryption-at-rest.md](./features/encryption-at-rest.md) |
 | Crypto tracking | 2026-08-11 | [crypto-tracking.md](./features/crypto-tracking.md) |
-| Wealth pyramid (Analysis) | 2026-08-16 | [wealth-pyramid.md](./features/wealth-pyramid.md) |
-| Portfolio diversification (sector + geography) | 2026-08-15 | [portfolio-diversification.md](./features/portfolio-diversification.md) |
+| Wealth pyramid (Analysis) | 2026-11-05 | [wealth-pyramid.md](./features/wealth-pyramid.md) |
+| Portfolio diversification (sector + geography) | 2026-11-05 | [portfolio-diversification.md](./features/portfolio-diversification.md) |
 | Recurring investment plans + wealth projection | 2026-08-19 | [goal-recurring-investment.md](./features/goal-recurring-investment.md) |
 | Member profile (age, TMI, income) | 2026-08-19 | [member-profile.md](./features/member-profile.md) |
 | Savings goals | 2026-06-02 | [goals.md](./features/goals.md) |
@@ -132,16 +133,16 @@
 | Finary import + auto-sync | 2026-08-17 | [finary-import.md](./features/finary-import.md) |
 | HomeBank iOS and desktop history import (.hbk / encrypted .hbexport / .qif) | 2026-10-05 | [homebank-import.md](./features/homebank-import.md) |
 | Manual transactions + holdings derivation | 2026-09-02 | [manual-transactions.md](./features/manual-transactions.md) |
-| Transactions — global view (all accounts) | 2026-06-28 | [transactions-global-view.md](./features/transactions-global-view.md) |
+| Transactions — global view (all accounts) | 2026-11-05 | [transactions-global-view.md](./features/transactions-global-view.md) |
 | CSV transaction import (investment accounts) | 2026-07-11 | [csv-transaction-import.md](./features/csv-transaction-import.md) |
 | Actual Budget import | 2026-10-04 | [actual-budget-import.md](./features/actual-budget-import.md) |
 | Realized P&L on closed positions | 2026-07-11 | [realized-pnl.md](./features/realized-pnl.md) |
 | BoursoBank sync | 2026-09-28 | [bourso-bank.md](./features/bourso-bank.md) |
 | Caisse d'Epargne sync (sidecar and on-demand backend, no login yet) | 2026-10-07 | [caisse-epargne.md](./features/caisse-epargne.md) |
-| Accounts overview (PnL chart + summary card + filters + card anatomy + sortable positions) | 2026-08-19 | [accounts-overview.md](./features/accounts-overview.md) |
+| Accounts overview (PnL chart + summary card + filters + card anatomy + sortable positions) | 2026-11-05 | [accounts-overview.md](./features/accounts-overview.md) |
 | Savings livrets (classification + projected interest) | 2026-06-28 | [savings-livrets.md](./features/savings-livrets.md) |
-| Logos on account cards (catalog-resolved, bundled, wallet picker, property kind) | 2026-08-13 | [bank-logos.md](./features/bank-logos.md) |
-| Logos beside holding tickers (crypto: batched CoinGecko lookup; shares/ETFs: Yahoo quote page, stored in PostgreSQL) | 2026-10-03 | [holding-logos.md](./features/holding-logos.md) |
+| Logos on account cards (catalog-resolved, bundled, wallet picker, property kind) | 2026-11-05 | [bank-logos.md](./features/bank-logos.md) |
+| Logos beside holding tickers (crypto: batched CoinGecko lookup; shares/ETFs: Yahoo quote page, stored in PostgreSQL) | 2026-11-05 | [holding-logos.md](./features/holding-logos.md) |
 | Add Account modal (unified sync + manual) | 2026-08-13 | [add-account-modal.md](./features/add-account-modal.md) |
 | Account visibility (hidden accounts, `/sync` Comptes tab) | 2026-07-15 | [account-visibility.md](./features/account-visibility.md) |
 | Docker deployment and migration-safe releases | 2026-10-31 | [docker-deployment.md](./features/docker-deployment.md) |
@@ -150,26 +151,29 @@
 | Navigation (sidebar + mobile bottom nav) | 2026-07-12 | [sidebar-navigation.md](./features/sidebar-navigation.md) |
 | UI control shape (shadcn theme radius) | 2026-08-10 | [ui-control-shape-system.md](./features/ui-control-shape-system.md) |
 | Privacy mode (hiding amounts for demos) | 2026-10-31 | [privacy-mode.md](./features/privacy-mode.md) |
-| Multi-account family system | 2026-07-07 | [multi-account-family.md](./features/multi-account-family.md) |
-| CORS & cookie security | 2026-10-31 | [security-cors-cookies.md](./features/security-cors-cookies.md) |
+| Multi-account family system | 2026-11-04 | [multi-account-family.md](./features/multi-account-family.md) |
+| CORS & cookie security | 2026-11-04 | [security-cors-cookies.md](./features/security-cors-cookies.md) |
 | 24H Intraday net worth chart | 2026-04-18 | [intraday-chart.md](./features/intraday-chart.md) |
-| First-launch Setup Wizard | 2026-07-19 | [setup-wizard.md](./features/setup-wizard.md) |
+| First-launch Setup Wizard | 2026-11-04 | [setup-wizard.md](./features/setup-wizard.md) |
 | Admin page (instance settings) | 2026-05-29 | [admin-page.md](./features/admin-page.md) |
 | Admin instance-status alert (sidecar health, update available) | 2026-10-31 | [admin-instance-status.md](./features/admin-instance-status.md) |
-| Admin recovery (lost-admin console reset) | 2026-05-29 | [admin-recovery.md](./features/admin-recovery.md) |
+| Admin recovery (lost-admin console reset) | 2026-11-04 | [admin-recovery.md](./features/admin-recovery.md) |
 | Frontend error display (`extractErrorMessage`) | 2026-05-31 | [frontend-error-display.md](./features/frontend-error-display.md) |
 | Loan accounts (LOAN type, amortization view) | 2026-04-26 | [loans.md](./features/loans.md) |
 | Real estate valuation | 2026-08-11 | [real-estate-valuation.md](./features/real-estate-valuation.md) |
-| SCPI shares | 2026-10-31 | [scpi.md](./features/scpi.md) |
+| SCPI shares | 2026-11-05 | [scpi.md](./features/scpi.md) |
+| CORUM Life (assurance-vie) sync | 2026-11-05 | [corum-life.md](./features/corum-life.md) |
+| Precious metals (gold bullion and coins) | 2026-11-06 | [precious-metals.md](./features/precious-metals.md) |
 | Ownership shares | 2026-08-10 | [account-ownership-shares.md](./features/account-ownership-shares.md) |
-| 2FA (TOTP) and Remember Me | 2026-10-31 | [mfa-and-remember-me.md](./features/mfa-and-remember-me.md) |
+| 2FA (TOTP) and Remember Me | 2026-11-04 | [mfa-and-remember-me.md](./features/mfa-and-remember-me.md) |
+| SSO login (OIDC) alongside passwords | 2026-11-04 | [sso-login.md](./features/sso-login.md) |
 | Login timing equalization (username-enumeration defense, GHSA-ww5m-pxgq-8qq6) | 2026-06-27 | [login-timing-attack.md](./features/login-timing-attack.md) |
-| GDPR data export (JSON + CSV) | 2026-04-26 | [data-export.md](./features/data-export.md) |
+| GDPR data export (JSON + CSV) | 2026-11-04 | [data-export.md](./features/data-export.md) |
 | Opt-in anonymous telemetry & privacy (GlitchTip) | 2026-10-05 | [telemetry.md](./features/telemetry.md) |
 | Account spreadsheet export (xlsx) | 2026-08-18 | [account-xlsx-export.md](./features/account-xlsx-export.md) |
 | Revolut pockets (reconstruction from PSD2 internal-transfer rows) (removed, 2026-07-14) | 2026-06-28 | [revolut-pockets.md](./features/revolut-pockets.md) |
 | Revolut sidecar (assisted-enrolment login connector) | 2026-10-31 | [revolut-sidecar.md](./features/revolut-sidecar.md) |
-| Dividend forecast (shares, ETFs, SCPI) as upcoming capital income | 2026-10-20 | [dividend-forecast.md](./features/dividend-forecast.md) |
+| Dividend forecast (shares, ETFs, SCPI) as upcoming capital income | 2026-11-05 | [dividend-forecast.md](./features/dividend-forecast.md) |
 
 ## Lessons
 

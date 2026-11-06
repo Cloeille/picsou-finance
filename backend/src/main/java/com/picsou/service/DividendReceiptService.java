@@ -221,7 +221,8 @@ public class DividendReceiptService {
                 tx.getNativeCurrency(),
                 exDate,
                 event == null ? null : perShare(tx, event, source),
-                DividendForecastService.countsInBudget(account.getType(), false)));
+                // A budget-neutral row is left out of every budget query, whatever the account type.
+                !tx.isBudgetNeutral() && DividendForecastService.countsInBudget(account.getType(), false)));
         }
         out.sort(NEWEST_FIRST);
         return out;
@@ -252,12 +253,18 @@ public class DividendReceiptService {
         return sameProvider.size() == 1 ? sameProvider.getFirst() : credited;
     }
 
+    /**
+     * Whether a credit may be reclassified as a dividend: a positive row that is neither
+     * budget-neutral, nor a trade leg, nor a category the user chose.
+     */
     private static boolean isClassifiable(Transaction tx) {
         // A TRANSFER or EXPENSE auto category marks a trade leg (Trade Republic books a BUY
         // investment leg and a SELL cash leg as positive DEPOSITs): never a dividend.
         // A hand-entered row saved with a category before categoryManual was set on it carries
-        // the user's choice all the same.
+        // the user's choice all the same. A budget-neutral row stays out of every budget
+        // category, this one included: its importer already typed it.
         return tx.getAmount() != null && tx.getAmount().signum() > 0
+            && !tx.isBudgetNeutral()
             && !tx.isCategoryManual()
             && !(tx.isManual() && tx.getCategoryRef() != null)
             && replaceable(tx.getCategoryRef())

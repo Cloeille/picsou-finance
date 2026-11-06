@@ -1,15 +1,13 @@
 package com.picsou.migration;
 
-import org.flywaydb.core.Flyway;
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
+
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIf;
-import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -27,30 +25,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * they are the last line of defence for the ownership arithmetic, and H2 would not
  * reproduce the enum-typed schema this chain builds.
  */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 class RealEstateValuationMigrationTest {
 
-    static {
-        // Same reason as WalletEvmMigrationTest: docker-java negotiates down to an API
-        // version modern engines refuse, which is indistinguishable from "no Docker".
-        System.setProperty("api.version", System.getProperty("api.version", "1.44"));
-    }
-
     @Container
-    @SuppressWarnings("resource") // closed by the Testcontainers JUnit extension
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
-            throw new IllegalStateException(
-                "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
-                    + "The V66 migration test cannot be skipped -- it is the only check that "
-                    + "existing properties survive the ownership change. Needs Docker Engine >= 25.0.");
-        }
-        return available;
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @Test
     void v66_preservesExistingPropertiesAndEnforcesShareBounds() throws SQLException {
@@ -59,11 +38,11 @@ class RealEstateValuationMigrationTest {
         // not fail if that exact version is absent". It is, since the crypto branch's V65 was
         // renumbered to V72 when it merged around main's own V64 -- a hard "65" made this the
         // only test in the suite that a renumber elsewhere could break.
-        migrateTo("65?");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "65?");
 
         long memberId;
         long accountId;
-        try (Connection conn = connect()) {
+        try (Connection conn = PostgresContainers.connection(POSTGRES)) {
             memberId = insertReturningId(conn,
                 "INSERT INTO family_member (display_name) VALUES ('Alice') RETURNING id");
             accountId = insertReturningId(conn,
@@ -76,9 +55,9 @@ class RealEstateValuationMigrationTest {
                     + ", 300000, 120, '1 rue de la Paix', 'HOUSE')");
         }
 
-        migrateTo("66");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "66");
 
-        try (Connection conn = connect()) {
+        try (Connection conn = PostgresContainers.connection(POSTGRES)) {
             // The pre-existing property is intact, and the new columns took their defaults.
             try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT purchase_price, surface_area, address, property_type, country, "
@@ -145,9 +124,9 @@ class RealEstateValuationMigrationTest {
 
     @Test
     void v66_cascadesOnAccountDeletion() throws SQLException {
-        migrateTo("66");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "66");
 
-        try (Connection conn = connect()) {
+        try (Connection conn = PostgresContainers.connection(POSTGRES)) {
             long memberId = insertReturningId(conn,
                 "INSERT INTO family_member (display_name) VALUES ('Bob') RETURNING id");
             long accountId = insertReturningId(conn,
@@ -168,21 +147,6 @@ class RealEstateValuationMigrationTest {
             assertThat(count(conn, "SELECT COUNT(*) FROM property_valuation WHERE account_id = " + accountId))
                 .isZero();
         }
-    }
-
-    private static void migrateTo(String version) {
-        Flyway.configure()
-            .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-            .locations("classpath:db/migration")
-            .target(version)
-            .outOfOrder(true) // mirrors application.yml
-            .load()
-            .migrate();
-    }
-
-    private static Connection connect() throws SQLException {
-        return DriverManager.getConnection(
-            POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     private static long insertReturningId(Connection conn, String sql) throws SQLException {

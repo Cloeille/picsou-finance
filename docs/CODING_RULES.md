@@ -54,13 +54,15 @@ Radius, color, and control sizing come from `--radius` and the semantic color to
 ## 4. Migrations and versioning
 
 - Flyway owns the schema; migrations are append-only and never edited once merged.
-- Migration numbering spans branches — check the highest `V<n>` across **all** active branches before
-  adding one. — [database.md](./conventions/database.md)
+- Migration numbering spans branches: take the next free `V<n>` on an up-to-date `main`, and when
+  another pull request merges first, renumber your own *unmerged* file after syncing
+  (`MigrationVersionsTest` fails on a duplicate). Never renumber one already on `main`.
+  — [database.md](./conventions/database.md)
 
 ## 5. Tests are ground truth
 
-Don't claim work is done on assertion — run the verification and read the output. `bun run build`
-(typecheck) and `bun run lint` must stay green at zero warnings. — [testing.md](./conventions/testing.md)
+Don't claim work is done on assertion — run the verification and read the output. `make test-frontend`
+(lint at zero warnings, typecheck, Vitest) must stay green. — [testing.md](./conventions/testing.md)
 
 ## 6. i18n and docs
 

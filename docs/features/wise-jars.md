@@ -55,7 +55,7 @@ the line says the jars sync through Wise Jars, or, after a failed sync (`ERROR` 
 Daily refresh is the `wise` source in `MemberSyncService`, right after SimpleFIN. Manual sync and
 connect share a limit of 6 requests per minute per IP. Disconnect deletes the token and keeps
 the accounts. Deleting the last jar account also deletes the connection. The table is created
-by `V123__wise_connection.sql`.
+by `V131__wise_connection.sql`.
 
 ### Key files
 
@@ -69,7 +69,7 @@ by `V123__wise_connection.sql`.
 - `backend/src/main/java/com/picsou/service/WiseStatusWriter.java` — `ERROR` status in its own transaction
 - `backend/src/main/java/com/picsou/controller/WiseController.java` — `/api/wise`
 - `backend/src/main/java/com/picsou/model/WiseConnection.java`, `repository/WiseConnectionRepository.java`
-- `backend/src/main/resources/db/migration/V123__wise_connection.sql`
+- `backend/src/main/resources/db/migration/V131__wise_connection.sql`
 - Wiring: `RateLimitConfig` (`wiseRequestBuckets`), `MemberSyncService`, `SyncStatusService`,
   `mcp/tools/SyncTools.java`, `service/sync/SourceSyncResult.java`, `AccountConnectionService`
 

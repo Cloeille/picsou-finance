@@ -53,6 +53,10 @@ spec:
     spec:
       restartPolicy: Never
       automountServiceAccountToken: false
+      {{- with .Values.app.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with $.Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -65,7 +69,7 @@ spec:
           args:
             - |
               set -e
-              # Match the image entrypoint, which this CLI invocation bypasses.
+              # The app derives this at startup (SecretBootstrap); the CLI reads the environment only.
               export SPRING_DATASOURCE_PASSWORD="${SPRING_DATASOURCE_PASSWORD:-$POSTGRES_PASSWORD}"
               for op in migrate verify; do
                 java -XX:MaxRAMPercentage=75.0 -Dloader.main=com.picsou.migration.ReleaseMigrationCli \
@@ -73,6 +77,9 @@ spec:
               done
           securityContext:
             allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
           env:
             {{- include "picsou.database.env" . | nindent 12 }}
             {{- include "picsou.app.userEnv" . | nindent 12 }}

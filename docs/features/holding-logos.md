@@ -31,17 +31,32 @@ shared `HoldingLogo` renders them in:
 one (Apple's is black on the light variant, white on the dark one). `HoldingLogo` picks it when
 `<html>` carries `.dark`, via `useDarkTheme`, which follows the same class the CSS does.
 
+### Bundled marks for provider-only funds
+
+A CORUM Life fund line has no ISIN a market feed quotes, so no source above ever stores a mark
+for it and its `logoUrl` stays null. Its ticker is minted by `CorumLifeWriter` as
+`CORUM-LIFE-<code>`, so the frontend keys a bundled asset on that prefix:
+`HOLDING_PREFIX_LOGOS` in `frontend/src/lib/provider-logos.ts` maps `CORUM-LIFE-` to
+`/providers/corum.svg` (the same asset `PROVIDER_LOGOS` gives CORUM accounts, see
+[bank-logos.md](./bank-logos.md#bundled-provider-logos)), and `bundledHoldingLogoUrl(ticker)`
+resolves it case-insensitively. `HoldingLogo` picks
+`(dark && logoUrlDark) || logoUrl || bundledHoldingLogoUrl(ticker)`, so a mark the backend
+resolved always wins and only a line with nothing falls through to the manager's mark. Nothing is
+stored and no backend change is involved. The prefix is copied from
+`CorumLifeWriter.TICKER_PREFIX`; no test sees both sides, so renaming it on the backend silently
+falls back to the name's initials.
+
 ## Crypto: one batched call, no storage
 
 `CryptoLogoService.getLogoUrls` resolves a whole page's tickers in a single
 `LogoProviderPort.getLogoUrls` call, which reads `image` off `/coins/markets?ids=…`. The lookup is
-gated on the same `TICKER_TO_ID` registry the crypto *prices* come from, so an equity ticker
+gated on the same `crypto_asset` registry the crypto *prices* come from, so an equity ticker
 resolves to nothing rather than to an unrelated coin that happens to share its symbol. The same
 reason `quotesFor` resolves a `CRYPTO` account crypto-only, and why `AccountService.logosFor`
 never reads the share store for a `CRYPTO` account.
 
 The service depends on the **port**, not on `CoinGeckoPriceProvider`, per the ports & adapters
-rule in [`../CLAUDE.md`](../CLAUDE.md). `LogoProviderWiringTest` pins the seam.
+rule in [`backend/CLAUDE.md`](../../backend/CLAUDE.md). `LogoProviderWiringTest` pins the seam.
 
 **Nothing is stored.** A coin's image is a read-only attribute the provider already serves for
 free, and a batched call is already O(1) requests per page. The service caches in memory: a
@@ -262,6 +277,10 @@ Every failure mode is decoration-only: `logoUrl` is null and the ticker stands.
 - `AccountServiceTest`: a crypto holding carries its CoinGecko logo, a share its stored URLs,
   a share with nothing stored stays null, and a crypto account never reads the share store.
 - `HoldingLogo.test.tsx` / `HoldingsTable.test.tsx`: an internal URL, the dark variant and a
-  live theme switch, a stock row with mark and ticker, a share with no mark rendering as before.
+  live theme switch, a stock row with mark and ticker, a share with no mark rendering as before,
+  a `CORUM-LIFE-` line without a logo showing the bundled CORUM mark, and a backend logo winning
+  over it.
+- `provider-logos.test.ts`: every `HOLDING_PREFIX_LOGOS` asset exists under `public/`, and the
+  prefix lookup's matches and misses.
 
 `frontend/src/test/stubImage.ts` holds the global `Image` stub Radix needs.

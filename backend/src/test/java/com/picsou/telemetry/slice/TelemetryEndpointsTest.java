@@ -78,6 +78,8 @@ class TelemetryEndpointsTest {
 
     // SecurityConfig collaborators (same set as the CSRF slice)
     @MockitoBean JwtUtil jwtUtil;
+    @MockitoBean com.picsou.config.SsoProperties ssoProperties;
+    @MockitoBean java.time.Clock clock;
     @MockitoBean JwtTokenAuthenticator jwtTokenAuthenticator;
     @MockitoBean AppUserRepository appUserRepository;
     @MockitoBean SetupFilter setupFilter;

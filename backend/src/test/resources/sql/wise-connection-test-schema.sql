@@ -2,7 +2,7 @@
 --
 -- Same rationale as simplefin-status-writer-test-schema.sql: the real migrations are
 -- PostgreSQL-flavoured and cannot run on H2, so this stands up the two tables the test touches.
--- Mirrors V123__wise_connection.sql (api_token TEXT, status VARCHAR(20), one row per member).
+-- Mirrors V131__wise_connection.sql (api_token TEXT, status VARCHAR(20), one row per member).
 
 CREATE TABLE IF NOT EXISTS family_member (
     id           BIGINT AUTO_INCREMENT PRIMARY KEY,

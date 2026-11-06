@@ -3,7 +3,7 @@ package com.picsou.service.sync;
 import com.picsou.dto.FinaryAutoSyncResponse;
 import com.picsou.finary.FinaryApiSyncService;
 import com.picsou.exception.SyncException;
-import com.picsou.port.AmexErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.*;
 import com.picsou.service.WalletSyncService.ResyncSummary;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -35,6 +35,7 @@ class MemberSyncServiceTest {
     @Mock private AmundiSyncService amundiSyncService;
     @Mock private CmesSyncService cmesSyncService;
     @Mock private CicSyncService cicSyncService;
+    @Mock private CorumSyncService corumSyncService;
     @Mock private FortuneoSyncService fortuneoSyncService;
     @Mock private AmexSyncService amexSyncService;
     @Mock private IbkrSyncService ibkrSyncService;
@@ -54,7 +55,8 @@ class MemberSyncServiceTest {
             revolutSyncService, syncService, trSyncService, boursoSyncService,
             bourseDirectSyncService, amundiSyncService, fortuneoSyncService, amexSyncService,
             ibkrSyncService, simplefinSyncService, wiseSyncService, cryptoExchangeSyncService, walletSyncService,
-            finaryApiSyncService, degiroSyncService, new ReceivedDividendClassifier(dividendReceiptService), cmesSyncService, cicSyncService
+            finaryApiSyncService, degiroSyncService, new ReceivedDividendClassifier(dividendReceiptService), cmesSyncService, cicSyncService,
+            corumSyncService
         );
         lenient().when(cmesSyncService.resyncReporting(anyLong())).thenReturn(
             new SourceSyncResult("cmes", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
@@ -62,6 +64,8 @@ class MemberSyncServiceTest {
             new SourceSyncResult("cic", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
         lenient().when(wiseSyncService.resyncReporting(anyLong())).thenReturn(
             new SourceSyncResult("wise", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No connection"));
+        lenient().when(corumSyncService.resyncReporting(anyLong())).thenReturn(
+            new SourceSyncResult("corum", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
     }
 
     @Test
@@ -84,10 +88,13 @@ class MemberSyncServiceTest {
 
         List<SourceSyncResult> results = memberSyncService.resyncScheduled(memberId);
 
-        assertEquals(18, results.size());
+        assertEquals(19, results.size());
         assertEquals("cmes", results.get(16).source());
         verify(cmesSyncService).resyncReporting(memberId);
         assertEquals("cic", results.get(17).source());
+        // The daily 08:00 run includes CORUM, which logs in again with remembered credentials.
+        assertEquals("corum", results.get(18).source());
+        verify(corumSyncService).resyncReporting(memberId);
         assertEquals("revolut", results.get(0).source());
         assertEquals("enable-banking", results.get(1).source());
         assertEquals("enable-banking-retry", results.get(2).source());
@@ -314,7 +321,7 @@ class MemberSyncServiceTest {
         Long memberId = 46L;
         when(amexSyncService.resyncReporting(memberId))
             .thenReturn(SourceSyncResult.fromSyncException("amex", new SyncException(
-                "American Express session expired", null, AmexErrorCode.SESSION_EXPIRED.name())));
+                "American Express session expired", null, SidecarErrorCode.SESSION_EXPIRED.name())));
 
         List<SourceSyncResult> results = memberSyncService.resyncForUser(memberId, Set.of("amex"));
 

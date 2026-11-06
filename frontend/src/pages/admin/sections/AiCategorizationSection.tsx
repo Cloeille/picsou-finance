@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { BrainCircuit } from 'lucide-react'
@@ -48,7 +48,7 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
   const update = useUpdateAi()
   const testAi = useTestAi()
 
-  const { register, handleSubmit, reset, watch, getValues, setError, formState } = useForm<FormValues>({
+  const { register, handleSubmit, reset, control, getValues, setError, formState } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       provider: settings.provider,
@@ -69,7 +69,7 @@ export function AiCategorizationSection({ settings }: { settings: AdminAiSetting
     })
   }, [settings, reset])
 
-  const provider = watch('provider')
+  const provider = useWatch({ control, name: 'provider' })
   const defaults = PROVIDER_DEFAULTS[provider] ?? null
   const keyKept = settings.apiKeyPresent && provider === settings.provider
 

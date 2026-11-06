@@ -166,6 +166,30 @@ class LoanAmortizationServiceTest {
         assertThat(out.schedule().get(11).capital()).isEqualByComparingTo("1000.00");
     }
 
+    /**
+     * The dashboard and the XLSX total read resolveMonthlyPayment, the loan page reads compute():
+     * both must answer the same whole installment, insurance included.
+     */
+    @Test
+    void resolveMonthlyPayment_matchesTheComputedInstallment_insuranceIncluded() {
+        Debt debt = debt("200000", "0.036", null, "2025-01-01", "2045-01-01");
+        debt.setInsuranceMonthly(new BigDecimal("30"));
+
+        BigDecimal resolved = service.resolveMonthlyPayment(debt);
+
+        assertThat(resolved).isEqualByComparingTo("1200.22");
+        assertThat(resolved).isEqualByComparingTo(
+            service.compute(debt, LocalDate.parse("2025-01-01")).summary().monthlyPayment());
+    }
+
+    @Test
+    void resolveMonthlyPayment_returnsAnEnteredPaymentAsIs() {
+        Debt debt = debt("200000", "0.036", "1500", "2025-01-01", "2045-01-01");
+        debt.setInsuranceMonthly(new BigDecimal("30"));
+
+        assertThat(service.resolveMonthlyPayment(debt)).isEqualByComparingTo("1500");
+    }
+
     @Test
     void hasSchedule_needsAStartAndAnEndDateInOrder() {
         assertThat(LoanAmortizationService.hasSchedule(debt("12000", "0", "100", "2025-01-01", "2026-01-01"))).isTrue();

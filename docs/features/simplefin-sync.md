@@ -145,7 +145,7 @@ upsert Account + EUR snapshot + ledger rows
 
 ## Tests
 
-Backend (`mvn test`):
+Backend (`make test-backend`):
 - `SimplefinUrlsTest` — the single host, scheme, port and token matrix: only the Bridge host on
   the default port or 443 is accepted, for the claim URL and the access URL; refusals never echo
   the token or credentials; Basic auth leaves the request URI free of userinfo; a literal `+`
@@ -175,7 +175,7 @@ Backend (`mvn test`):
 - `DataExportServiceTest` — the export ZIP carries no access URL
 - `AccountConnectionServiceTest` — the connection is removed only with its last account
 
-Frontend (`bunx vitest run`, `bun run test:e2e`):
+Frontend (`make test-frontend`, `make test-e2e`):
 - `SimplefinPanel.test.tsx` — token form, connect failures, connected controls, sync, disconnect
   through the confirm dialog
 - `SimplefinTab.test.tsx` — smoke test

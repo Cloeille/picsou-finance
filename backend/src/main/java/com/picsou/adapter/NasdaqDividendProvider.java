@@ -3,7 +3,6 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.port.NasdaqDividend;
-import com.picsou.port.NasdaqDividendPort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.ExchangeStrategies;
@@ -25,9 +24,12 @@ import java.util.List;
  * are the ones that page sends. Empty rows are normal (a NYSE name or an ETF often has
  * none) and are an empty list, not an error. {@code status.rCode} other than 200 throws,
  * so the weekly pass can keep the Yahoo result it already stored.
+ *
+ * <p>Complements Yahoo, which publishes ex-dates and amounts but not payment dates, and not a
+ * dividend until the ex-date has passed. Nasdaq does both, but only for symbols it lists.
  */
 @Component
-public class NasdaqDividendProvider implements NasdaqDividendPort {
+public class NasdaqDividendProvider {
 
     static final String BASE_URL = "https://api.nasdaq.com";
     static final Duration TIMEOUT = Duration.ofSeconds(10);
@@ -61,7 +63,6 @@ public class NasdaqDividendProvider implements NasdaqDividendPort {
         this.webClient = webClient;
     }
 
-    @Override
     public List<NasdaqDividend> fetchDividends(String symbol) {
         if (symbol == null || symbol.isBlank()) {
             return List.of();

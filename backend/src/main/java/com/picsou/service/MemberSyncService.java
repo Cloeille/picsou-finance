@@ -39,7 +39,9 @@ public class MemberSyncService {
         // Last so the existing sources keep their order. Re-logs in with stored
         // credentials when its short session has expired.
         "cmes",
-        "cic"
+        "cic",
+        // Same: re-logs in with credentials the member chose to store.
+        "corum"
     );
 
     private final RevolutSyncService revolutSyncService;
@@ -60,6 +62,7 @@ public class MemberSyncService {
     private final ReceivedDividendClassifier dividendClassifier;
     private final CmesSyncService cmesSyncService;
     private final CicSyncService cicSyncService;
+    private final CorumSyncService corumSyncService;
 
     public MemberSyncService(
             RevolutSyncService revolutSyncService,
@@ -79,7 +82,8 @@ public class MemberSyncService {
             DegiroSyncService degiroSyncService,
             ReceivedDividendClassifier dividendClassifier,
             CmesSyncService cmesSyncService,
-            CicSyncService cicSyncService) {
+            CicSyncService cicSyncService,
+            CorumSyncService corumSyncService) {
         this.revolutSyncService = revolutSyncService;
         this.syncService = syncService;
         this.trSyncService = trSyncService;
@@ -98,6 +102,7 @@ public class MemberSyncService {
         this.dividendClassifier = dividendClassifier;
         this.cmesSyncService = cmesSyncService;
         this.cicSyncService = cicSyncService;
+        this.corumSyncService = corumSyncService;
     }
 
     public List<SourceSyncResult> resyncScheduled(Long memberId) {
@@ -137,6 +142,10 @@ public class MemberSyncService {
         return results;
     }
 
+    /**
+     * Runs one source and always returns a result: an unknown source is SKIPPED and an unexpected
+     * exception is FAILED, so one source never stops the others.
+     */
     private SourceSyncResult executeSource(String source, Long memberId) {
         try {
             switch (source) {
@@ -158,6 +167,8 @@ public class MemberSyncService {
                     return cmesSyncService.resyncReporting(memberId);
                 case "cic":
                     return cicSyncService.resyncReporting(memberId);
+                case "corum":
+                    return corumSyncService.resyncReporting(memberId);
                 case "fortuneo":
                     return fortuneoSyncService.resyncReporting(memberId);
                 case "amex":

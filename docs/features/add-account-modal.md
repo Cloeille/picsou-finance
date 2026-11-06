@@ -116,7 +116,7 @@ and the typed name is saved as before.
 `ACCOUNT_TYPES` and `accountTypeLabelKey()` (`frontend/src/lib/constants.ts`) are the only
 list of account types and the only way to get one's translation key. Five call sites used to
 carry their own copy — the two type dropdowns (this modal's manual form and its Finary mapping
-step), `AccountTypeBadge`, `HoldingsCard`, `PortfolioView` and `HoldingDetailModal` — and three
+step), `AccountTypeBadge`, `HoldingsCard`, a since-removed `PortfolioView` and `HoldingDetailModal` — and three
 of them derived the key from the type name (`type.toLowerCase()`, with special cases bolted on
 for `COMPTE_TITRES` and `REAL_ESTATE`).
 

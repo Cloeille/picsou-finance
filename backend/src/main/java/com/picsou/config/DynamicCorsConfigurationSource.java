@@ -40,9 +40,14 @@ public class DynamicCorsConfigurationSource implements CorsConfigurationSource {
 
     @Override
     public CorsConfiguration getCorsConfiguration(HttpServletRequest request) {
-        if (!request.getRequestURI().startsWith("/api/")) {
-            return null;
-        }
+        return request.getRequestURI().startsWith("/api/") ? originPolicy() : null;
+    }
+
+    /**
+     * The origin policy of the API routes, for callers outside them (the SSO chain's cross-site
+     * check) that must apply the same allow-list.
+     */
+    public CorsConfiguration originPolicy() {
         List<String> origins = resolveOrigins();
         if (origins.isEmpty()) {
             return null;

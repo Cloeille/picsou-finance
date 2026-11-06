@@ -1,5 +1,6 @@
 package com.picsou.config;
 
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
@@ -9,6 +10,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.Clock;
+import java.time.Instant;
 
 /**
  * Bridges the stateless cookie session into the OAuth2 authorization-server chain.
@@ -26,9 +29,16 @@ import java.io.IOException;
 public class CookieBridgeAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenAuthenticator authenticator;
+    private final JwtUtil jwtUtil;
+    private final SsoProperties ssoProperties;
+    private final Clock clock;
 
-    public CookieBridgeAuthenticationFilter(JwtTokenAuthenticator authenticator) {
+    public CookieBridgeAuthenticationFilter(JwtTokenAuthenticator authenticator, JwtUtil jwtUtil,
+                                            SsoProperties ssoProperties, Clock clock) {
         this.authenticator = authenticator;
+        this.jwtUtil = jwtUtil;
+        this.ssoProperties = ssoProperties;
+        this.clock = clock;
     }
 
     @Override
@@ -41,6 +51,19 @@ public class CookieBridgeAuthenticationFilter extends OncePerRequestFilter {
         if (SecurityContextHolder.getContext().getAuthentication() == null) {
             String token = extractAccessTokenFromCookie(request);
             if (token != null) {
+                if ("GET".equals(request.getMethod())) {
+                    Instant ssoAt = null;
+                    try {
+                        ssoAt = jwtUtil.getSsoAuthenticatedAt(jwtUtil.validateAndParse(token));
+                    } catch (JwtException ex) {
+                        // Keep invalid-token handling in the existing authenticator.
+                    }
+                    if (ssoAt != null && (!ssoProperties.enabled()
+                        || ssoAt.plus(ssoProperties.revalidateAfter()).isBefore(clock.instant()))) {
+                        chain.doFilter(request, response);
+                        return;
+                    }
+                }
                 authenticator.authenticate(token).ifPresent(auth ->
                     SecurityContextHolder.getContext().setAuthentication(auth));
             }
