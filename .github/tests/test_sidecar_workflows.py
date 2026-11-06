@@ -478,7 +478,8 @@ def _selected(jobs, path):
 
 
 def _gate(needs):
-    script = _run_commands(_load(CI_WORKFLOW)["jobs"][GATE])
+    steps = _load(CI_WORKFLOW)["jobs"][GATE]["steps"]
+    script = _expand(next(s for s in steps if s.get("name") == "Every selected job succeeded")["run"])
     return subprocess.run(
         ["bash", "-c", script],
         env={**os.environ, "NEEDS": json.dumps(needs)},
@@ -688,7 +689,7 @@ class CiJobSelectionTest(unittest.TestCase):
         jobs = _load(CI_WORKFLOW)["jobs"]
         expected = {
             "backend": "make test-backend SOFIDY_PYTHON=python3",
-            "frontend": "make test-frontend",
+            "frontend": "make lint-frontend",
             "e2e": "make test-e2e PLAYWRIGHT_DEPS=--with-deps",
             "sidecar-base": "make test-sidecar-base",
             "sidecar": "make test-sidecar SIDECAR=${{ matrix.service }} ARCH=${{ matrix.arch }}",
@@ -698,6 +699,19 @@ class CiJobSelectionTest(unittest.TestCase):
             with self.subTest(job=job):
                 lines = [line.strip() for step in jobs[job]["steps"] for line in step.get("run", "").splitlines()]
                 self.assertIn(command, lines)
+
+    def test_frontend_ci_splits_lint_and_sharded_unit_tests(self):
+        job = _load(CI_WORKFLOW)["jobs"]["frontend"]
+        lines = [line.strip() for step in job["steps"] for line in step.get("run", "").splitlines()]
+
+        self.assertEqual(job["strategy"], {"fail-fast": False, "matrix": {"include": [
+            {"task": "lint"}, {"task": "test-1", "shard": 1, "total": 2}, {"task": "test-2", "shard": 2, "total": 2},
+        ]}})
+        self.assertIn(
+            "make unit-frontend SHARD=${{ matrix.shard }}/${{ matrix.total }}"
+            " VITEST_JSON=${{ runner.temp }}/vitest-${{ matrix.task }}.json",
+            lines,
+        )
 
     def test_the_demo_playwright_suite_runs_once(self):
         jobs = _load(CI_WORKFLOW)["jobs"]

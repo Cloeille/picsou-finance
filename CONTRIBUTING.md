@@ -21,6 +21,8 @@ green `make test-…` locally is the CI job. `make help` lists them.
 | `make test` | Every suite below, in order. |
 | `make test-backend` | Backend Maven tests. `TEST=GoalServiceTest` or `TEST=GoalServiceTest#method` runs one class or method. The PostgreSQL tests need Docker and skip themselves without it. `SOFIDY_PYTHON=python3` also runs the Java/Python Sofidy contract test (`pip install -r services/base/requirements.txt` first). |
 | `make test-frontend` | ESLint (zero warnings), TypeScript, Vitest. |
+| `make lint-frontend` | ESLint (zero warnings) and TypeScript only. |
+| `make unit-frontend [SHARD=1/2]` | Vitest only, optionally one shard (CI runs two). |
 | `make test-e2e` | Playwright against demo mode; starts its own Vite, so stop `make dev` first (port 5173). |
 | `make test-sidecar SIDECAR=tr-auth` | Builds one connector's shared base and image, then runs its tests inside it. |
 | `make test-sidecars` | The `services/base` tests, then every connector. |
