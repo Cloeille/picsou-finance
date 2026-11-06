@@ -716,7 +716,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         if (data.per() != null) {
             perService.apply(saved, data.per(), syncedAt);
         }
-        LocalDate snapshotDate = data.per() != null ? data.per().valuationDate() : LocalDate.now();
+        LocalDate snapshotDate = data.per() != null ? data.per().valuationDate() : LocalDate.now(clock);
         if (data.per() != null) {
             // The bank NAV is an observation, not an acquisition cost. Pair it with itself so
             // this historical snapshot does not derive its baseline from today's market quote.

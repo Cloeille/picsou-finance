@@ -358,7 +358,7 @@ class CaisseEpargneSyncServiceTest {
         Account loan = accountCaptor.getValue();
         assertThat(loan.getCurrentBalance()).isEqualByComparingTo("9000.00");
         assertThat(loan.getType().isLiability()).isTrue();
-        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("9000.00")), eq(LocalDate.now()));
+        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("9000.00")), eq(TODAY));
     }
 
     @Test
@@ -400,8 +400,8 @@ class CaisseEpargneSyncServiceTest {
 
         service.queueSync(7L);
 
-        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("1234.56")), eq(LocalDate.now()));
-        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("-87.10")), eq(LocalDate.now()));
+        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("1234.56")), eq(TODAY));
+        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("-87.10")), eq(TODAY));
     }
 
     @Test
