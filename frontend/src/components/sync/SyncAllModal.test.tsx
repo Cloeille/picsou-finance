@@ -81,6 +81,8 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: corumStatus })
       case '/cmes/status':
         return Promise.resolve({ data: cmesStatus })
+      case '/natixis/status':
+        return Promise.resolve({ data: natixisStatus })
       case '/cic/status':
         return Promise.resolve({ data: cicStatus })
       case '/sofidy/status':
@@ -127,6 +129,7 @@ let caisseEpargneStatus: Record<string, unknown>
 let corumStatus: Record<string, unknown>
 let sofidyStatus: Record<string, unknown>
 let cmesStatus: Record<string, unknown>
+let natixisStatus: Record<string, unknown>
 let cicStatus: Record<string, unknown>
 
 const AMUNDI_INACTIVE = {
@@ -197,6 +200,7 @@ function resetFixtures() {
   corumStatus = AMUNDI_INACTIVE
   sofidyStatus = AMUNDI_INACTIVE
   cmesStatus = AMUNDI_INACTIVE
+  natixisStatus = AMUNDI_INACTIVE
   cicStatus = AMUNDI_INACTIVE
   accountsFixture = [TR_ACCOUNT]
   revolutStatus = REVOLUT_NOT_REMEMBERED
@@ -564,6 +568,28 @@ describe('SyncAllModal session providers', () => {
     fireEvent.click(within(row).getByRole('button'))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cmes'))
     expect(apiPost).not.toHaveBeenCalledWith('/cmes/sync')
+  })
+
+  it('lists and syncs a live Natixis Interépargne session', async () => {
+    natixisStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: natixisStatus })
+    renderModal()
+
+    const row = (await screen.findByText('Natixis Interépargne')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/natixis/sync'))
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  // The sync request only queues the import, so the row stays busy until the status says it ran.
+  it('keeps a row busy while its queued import is still running', async () => {
+    natixisStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'RUNNING' }
+    renderModal()
+
+    const row = (await screen.findByText('Natixis Interépargne')).closest('[data-slot="card"]') as HTMLElement
+    const button = within(row).getByRole('button')
+    expect(button).toBeDisabled()
+    expect(button.querySelector('.animate-spin')).not.toBeNull()
   })
 
   it('lists and syncs a live CIC (livrets) session', async () => {

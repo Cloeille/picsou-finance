@@ -84,6 +84,13 @@ type SyncConnection = {
   needsReauth?: boolean
   /** Its tab can log in again from stored credentials, so the row asks it to start at once. */
   canReconnect?: boolean
+  /** The backend still runs the import it queued: the sync request itself answered long ago. */
+  running?: boolean
+}
+
+/** Session providers only queue the import; it runs while their status says so. */
+function isInFlight(status: { syncStatus?: string } | undefined): boolean {
+  return status?.syncStatus === 'QUEUED' || status?.syncStatus === 'RUNNING'
 }
 
 
@@ -222,26 +229,31 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       type: 'amundi' as const, name: 'Amundi', provider: 'Amundi Épargne Salariale',
       active: amundiStatus?.isActive ?? false, lastSyncedAt: amundiStatus?.lastSyncCompletedAt ?? null,
       failed: amundiStatus?.syncStatus === 'FAILED',
+      running: isInFlight(amundiStatus),
     },
     {
       type: 'fortuneo' as const, name: 'Fortuneo', provider: 'Fortuneo',
       active: fortuneoStatus?.isActive ?? false, lastSyncedAt: fortuneoStatus?.lastSyncCompletedAt ?? null,
       failed: fortuneoStatus?.syncStatus === 'FAILED',
+      running: isInFlight(fortuneoStatus),
     },
     {
       type: 'bourso' as const, name: 'BoursoBank', provider: 'BoursoBank',
       active: boursoStatus?.isActive ?? false, lastSyncedAt: boursoStatus?.lastSyncCompletedAt ?? null,
       failed: boursoStatus?.syncStatus === 'FAILED',
+      running: isInFlight(boursoStatus),
     },
     {
       type: 'caisse-epargne' as const, name: "Caisse d'Epargne", provider: "Caisse d'Epargne",
       active: caisseEpargneStatus?.isActive ?? false, lastSyncedAt: caisseEpargneStatus?.lastSyncCompletedAt ?? null,
       failed: caisseEpargneStatus?.syncStatus === 'FAILED',
+      running: isInFlight(caisseEpargneStatus),
     },
     {
       type: 'bourse-direct' as const, name: 'Bourse Direct', provider: 'Bourse Direct',
       active: bourseDirectStatus?.isActive ?? false, lastSyncedAt: bourseDirectStatus?.lastSyncCompletedAt ?? null,
       failed: bourseDirectStatus?.syncStatus === 'FAILED',
+      running: isInFlight(bourseDirectStatus),
     },
     {
       type: 'degiro' as const, name: 'DEGIRO', provider: 'DEGIRO',
@@ -266,18 +278,21 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       type: 'amex' as const, name: 'American Express', provider: 'American Express',
       active: amexStatus?.isActive ?? false, lastSyncedAt: amexStatus?.lastSyncCompletedAt ?? null,
       failed: amexStatus?.syncStatus === 'FAILED',
+      running: isInFlight(amexStatus),
     },
     {
       type: 'corum' as const, name: 'CORUM', provider: 'CORUM',
       ownsAccount: (a: Account) => a.scpi?.corumFundCode != null,
       active: corumStatus?.isActive ?? false, lastSyncedAt: corumStatus?.lastSyncCompletedAt ?? null,
       failed: corumStatus?.syncStatus === 'FAILED',
+      running: isInFlight(corumStatus),
     },
     {
       type: 'sofidy' as const, name: 'Sofidy', provider: 'Sofidy',
       ownsAccount: (a: Account) => a.scpi?.sofidyFundCode != null,
       active: sofidyStatus?.isActive ?? false, lastSyncedAt: sofidyStatus?.lastSyncCompletedAt ?? null,
       failed: sofidyStatus?.syncStatus === 'FAILED',
+      running: isInFlight(sofidyStatus),
     },
     {
       type: 'cmes' as const, name: 'Crédit Mutuel / CIC Épargne Salariale', provider: 'Crédit Mutuel Épargne Salariale',
@@ -286,18 +301,21 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       // even before its first sync created an account, so the saver can reconnect from here.
       hasSession: cmesStatus != null && cmesStatus.syncStatus !== 'IDLE',
       failed: cmesStatus?.syncStatus === 'FAILED',
+      running: isInFlight(cmesStatus),
     },
     {
       type: 'natixis' as const, name: 'Natixis Interépargne', provider: 'Natixis Interépargne',
       active: natixisStatus?.isActive ?? false, lastSyncedAt: natixisStatus?.lastSyncCompletedAt ?? null,
       hasSession: natixisStatus != null && natixisStatus.syncStatus !== 'IDLE',
       failed: natixisStatus?.syncStatus === 'FAILED',
+      running: isInFlight(natixisStatus),
     },
     {
       type: 'cic' as const, name: 'CIC (livrets)', provider: 'CIC',
       active: cicStatus?.isActive ?? false, lastSyncedAt: cicStatus?.lastSyncCompletedAt ?? null,
       hasSession: cicStatus != null && cicStatus.syncStatus !== 'IDLE',
       failed: cicStatus?.syncStatus === 'FAILED',
+      running: isInFlight(cicStatus),
       canReconnect: cicStatus?.canReconnect === true,
     },
   ], [cicStatus, cmesStatus, natixisStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
@@ -422,6 +440,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         // session that is gone, or one the provider explicitly flags, goes to its tab.
         needsReauth: !provider.active || provider.reauth === true,
         canReconnect: provider.canReconnect,
+        running: provider.running,
       })
     }
     if (hasRevolutAccount) {
@@ -666,7 +685,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     connections
       .filter(isBatchSyncable)
       .forEach(connection => {
-        if (!syncingIds.has(connection.id)) {
+        if (!syncingIds.has(connection.id) && !connection.running) {
           syncInPlace(connection)
         }
       })
@@ -676,9 +695,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   // do, and an enabled button that quietly does nothing reads as a broken one.
   const hasBatchSyncable = connections.some(isBatchSyncable)
 
-  const isSyncAll = syncingIds.size > 0 && connections
+  const isSyncAll = connections.some(c => syncingIds.has(c.id) || c.running === true) && connections
     .filter(isBatchSyncable)
-    .every(c => syncingIds.has(c.id))
+    .every(c => syncingIds.has(c.id) || c.running === true)
 
   // --- TR inline auth ---
   // Error-state semantics (see docs/features/trade-republic.md): an initiate
@@ -774,7 +793,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
           <div className="-mx-1 min-h-0 flex-1 space-y-2 overflow-y-auto px-1">
             {connections.map(connection => {
               const Icon = ProviderIcon[connection.providerType]
-              const isSyncing = syncingIds.has(connection.id)
+              const isSyncing = syncingIds.has(connection.id) || connection.running === true
               const isTr = connection.providerType === 'tr'
               const isRevolut = connection.providerType === 'revolut'
               const revolutNeedsEnrolment = isRevolut && !revolutStatus?.remembered

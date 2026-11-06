@@ -77,6 +77,25 @@ describe('NatixisPanel', () => {
       expect(apiPost).toHaveBeenLastCalledWith('/natixis/auth/complete', { processId: 'p1', code: '123456' }))
   })
 
+  it('shows the sync as running until the queued import finishes', async () => {
+    const active = { ...NO_SESSION, isActive: true, syncStatus: 'SUCCESS', lastSyncCompletedAt: '2026-11-06T10:00:00Z' }
+    let status = active
+    apiGet.mockImplementation(() => Promise.resolve({ data: status }))
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/natixis/sync') {
+        status = { ...active, syncStatus: 'RUNNING' }
+        return Promise.resolve({ data: { ...active, syncStatus: 'QUEUED' } })
+      }
+      return Promise.reject(new Error(url))
+    })
+    renderPanel()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'sync.natixis.sync' }))
+
+    const running = await screen.findByRole('button', { name: 'sync.natixis.syncing' })
+    expect(running).toBeDisabled()
+  })
+
   it('drops the attempt on any other second-factor error', async () => {
     apiPost.mockImplementation((url: string) =>
       url === '/natixis/auth/initiate'
