@@ -168,7 +168,7 @@ All values come from environment variables, mapped in `application.yml` under `a
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `SSO_ISSUER_URI` | (none) | OIDC issuer, an absolute `http(s)` URI. SSO is on when this and `SSO_CLIENT_ID` are set |
+| `SSO_ISSUER_URI` | (none) | OIDC issuer, an absolute `http(s)` URI. SSO is on when this and `SSO_CLIENT_ID` are set. A plain `http` issuer is accepted, but logs a WARN at startup unless the host is loopback (`localhost`, `127.0.0.0/8`, `::1`): the client secret and tokens then cross the network unencrypted |
 | `SSO_CLIENT_ID` | (none) | Client ID registered at the IdP |
 | `SSO_CLIENT_SECRET` | (none) | Blank: public client, PKCE only. Set: `client_secret_basic` plus PKCE |
 | `SSO_PROVIDER_NAME` | `SSO` | Button label ("Sign in with Zitadel"), trimmed to 40 characters |

@@ -8,6 +8,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
@@ -257,6 +259,45 @@ class SsoPropertiesTest {
         assertThat(events.get(0).getLevel()).isEqualTo(Level.INFO);
         assertThat(events.get(0).getFormattedMessage())
             .isEqualTo("SSO enabled: issuer=" + ISSUER + " provider=SSO adminGroupManaged=true");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "http://idp.example.com/realm, true",
+        "http://192.168.1.10:8080, true",
+        "http://128.0.0.1, true",
+        "http://[2001:db8::1], true",
+        "http://127.0.0.1:8080/realm, false",
+        "http://127.1.2.3, false",
+        "http://localhost:9000, false",
+        "http://LOCALHOST, false",
+        "http://[::1]:9000, false",
+        "https://idp.example.com/realm, false",
+        "https://192.168.1.10, false",
+        "not-a-url, false"
+    })
+    void isInsecureIssuer_flagsPlainHttpOffLoopbackOnly(String issuer, boolean insecure) {
+        assertThat(SsoProperties.isInsecureIssuer(issuer)).isEqualTo(insecure);
+    }
+
+    @Test
+    void afterPropertiesSet_plainHttpIssuerOffLoopback_warnsOnceAtStartup() throws Exception {
+        SsoProperties p = props("http://idp.example.com/realm", "picsou");
+        p.afterPropertiesSet();
+        p.enabled();
+        p.enabled();
+
+        List<ILoggingEvent> warnings = snapshot().stream().filter(e -> e.getLevel() == Level.WARN).toList();
+        assertThat(warnings).hasSize(1);
+        assertThat(warnings.get(0).getFormattedMessage())
+            .contains("http://idp.example.com/realm", "plain http", "client secret");
+    }
+
+    @Test
+    void afterPropertiesSet_loopbackHttpIssuer_doesNotWarn() throws Exception {
+        props("http://127.0.0.1:9000", "picsou").afterPropertiesSet();
+
+        assertThat(snapshot()).noneMatch(e -> e.getLevel() == Level.WARN);
     }
 
     @Test

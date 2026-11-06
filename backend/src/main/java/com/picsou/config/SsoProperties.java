@@ -8,8 +8,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.convert.DurationStyle;
 import org.springframework.stereotype.Component;
 
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -110,6 +112,33 @@ public class SsoProperties implements InitializingBean {
         }
     }
 
+    /**
+     * A plain-http issuer is accepted (a local IdP on a trusted network is a legitimate setup), but
+     * off the loopback interface the authorization code, ID token and client secret cross the
+     * network in cleartext.
+     */
+    static boolean isInsecureIssuer(String issuerUri) {
+        try {
+            URI uri = new URI(issuerUri.trim());
+            return "http".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null && !isLoopbackHost(uri.getHost());
+        } catch (URISyntaxException e) {
+            return false;
+        }
+    }
+
+    /** Names resolve through DNS and so prove nothing: only {@code localhost} and loopback IP literals count. */
+    private static boolean isLoopbackHost(String host) {
+        if ("localhost".equalsIgnoreCase(host)) {
+            return true;
+        }
+        boolean ipLiteral = host.startsWith("[") || host.matches("\\d{1,3}(\\.\\d{1,3}){3}");
+        try {
+            return ipLiteral && InetAddress.getByName(host).isLoopbackAddress();
+        } catch (UnknownHostException e) {
+            return false;
+        }
+    }
+
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
     }
@@ -175,6 +204,11 @@ public class SsoProperties implements InitializingBean {
         } else if (evaluation.enabled()) {
             log.info("SSO enabled: issuer={} provider={} adminGroupManaged={}",
                 LogSanitizer.safe(issuerUri()), LogSanitizer.safe(providerName()), adminGroupManaged());
+            if (isInsecureIssuer(issuerUri())) {
+                log.warn("SSO issuer {} uses plain http on a non-loopback host: the authorization code, "
+                    + "ID token and client secret travel unencrypted. Use an https issuer.",
+                    LogSanitizer.safe(issuerUri()));
+            }
         }
     }
 }
