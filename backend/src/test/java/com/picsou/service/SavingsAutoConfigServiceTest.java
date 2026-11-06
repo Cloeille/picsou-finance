@@ -64,6 +64,13 @@ class SavingsAutoConfigServiceTest {
             .isEqualByComparingTo(new BigDecimal("10000.00"));
         assertThat(captor.getAllValues().get(1).getCeiling())
             .isEqualByComparingTo(new BigDecimal("12000.00"));
+        assertThat(captor.getAllValues().get(0).getAnnualRate())
+            .isEqualByComparingTo(new BigDecimal("2.50"));
+        assertThat(captor.getAllValues().get(1).getAnnualRate())
+            .isEqualByComparingTo(new BigDecimal("1.70"));
+        assertThat(captor.getAllValues())
+            .extracting(SavingsInterestConfig::getRateBasis)
+            .containsOnly(RateBasis.NET);
     }
 
     @Test

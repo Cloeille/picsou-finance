@@ -89,6 +89,19 @@ class LbpSyncServiceStoreSessionTest {
     }
 
     @Test
+    void replacingAPreviouslySavedIdentifierWithAnOptOutClearsIt() {
+        when(sessionRepository.findByMemberIdForUpdate(MEMBER))
+            .thenReturn(Optional.of(LbpSession.create(
+                FamilyMember.builder().id(MEMBER).build(), "old-encrypted", CLOCK.instant())));
+
+        LbpSyncService.SessionStatusResponse status =
+            service.storeSession("cookies", MEMBER, "1234567890", false);
+
+        assertThat(saved.getEncryptedIdentifier()).isNull();
+        assertThat(status.savedIdentifier()).isNull();
+    }
+
+    @Test
     void refusesASessionFromAnAttemptStartedBeforeADisconnect() {
         service.clearSession(MEMBER);
 

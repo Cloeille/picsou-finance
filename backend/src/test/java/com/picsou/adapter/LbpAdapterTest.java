@@ -179,6 +179,8 @@ class LbpAdapterTest {
     void theIdentifierAndThePositionsNeverReachToString() throws Exception {
         assertRedacted("InitiateBody", CUSTOMER_ID);
         assertRedacted("KeypadBody", "7,3,0,9,4,1");
+        // The Java list formatting must be redacted too, not only the unspaced form.
+        assertRedacted("KeypadBody", POSITIONS.toString());
     }
 
     private static void assertRedacted(String simpleName, String secret) throws Exception {
