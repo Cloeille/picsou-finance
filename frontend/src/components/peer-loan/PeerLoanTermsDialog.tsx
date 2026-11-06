@@ -85,9 +85,11 @@ export function PeerLoanTermsDialog({
       setExpectedBack(initial?.expectedBack ?? '')
       const period = initial?.ratePeriod ?? 'ANNUAL'
       setRatePeriod(period)
-      setRatePct(initial?.annualRate != null
-        ? String(period === 'MONTHLY' ? initial.annualRate * 100 / 12 : initial.annualRate * 100)
-        : '')
+      // Round the displayed value: a stored 0.029 renders as 2.9, not 2.9000000000000004.
+      const pct = initial?.annualRate != null
+        ? (period === 'MONTHLY' ? initial.annualRate * 100 / 12 : initial.annualRate * 100)
+        : null
+      setRatePct(pct == null || !Number.isFinite(pct) ? '' : String(Number(pct.toFixed(6))))
       setMonths(text(initial?.plannedMonths))
       setMonthly(text(initial?.plannedMonthlyAmount))
       setLinkedAccountId(text(initial?.linkedAccountId))
