@@ -1,5 +1,6 @@
 """Rendered-chart regressions for persistent keys and hostname-less exposure."""
 
+import base64
 import json
 from pathlib import Path
 import subprocess
@@ -64,6 +65,9 @@ class UpgradeSafetyTest(unittest.TestCase):
         for var in ("JWT_SECRET", "CRYPTO_ENCRYPTION_KEY"):
             self.assertTrue(env[var]["valueFrom"]["secretKeyRef"]["optional"])
         self.assertIn("persistentVolumeClaim", pod["volumes"][0])
+        # The app writes generated keys under /data/.secrets: that path must be the PVC.
+        mounts = {m["name"]: m["mountPath"] for m in pod["containers"][0]["volumeMounts"]}
+        self.assertEqual(mounts[pod["volumes"][0]["name"]], "/data")
 
     def test_exposure_with_empty_or_null_hostname_lists_renders(self):
         for exposure, field in (("httpRoute", "hostnames"), ("ingress", "hosts")):
@@ -110,6 +114,32 @@ class UpgradeSafetyTest(unittest.TestCase):
                 "backend": {"service": {"name": "picsou", "port": {"name": "http"}}},
             }]},
         }])
+
+    def test_sso_settings_reach_the_app_and_the_client_secret_stays_in_the_secret(self):
+        args = ["--set-string", "app.env.SSO_ISSUER_URI=https://idp.example.com",
+                "--set-string", "app.env.SSO_CLIENT_ID=picsou",
+                "--set-string", "app.env.SSO_IDP_LOGOUT=true",
+                "--set-string", "secrets.ssoClientSecret=synthetic-sso-secret"]
+        env = {e["name"]: e for e in self.app_pod(*args)["containers"][0]["env"]}
+        self.assertEqual(env["SSO_ISSUER_URI"]["value"], "https://idp.example.com")
+        self.assertEqual(env["SSO_CLIENT_ID"]["value"], "picsou")
+        self.assertEqual(env["SSO_IDP_LOGOUT"]["value"], "true")
+        self.assertEqual(env["SSO_CLIENT_SECRET"], {"name": "SSO_CLIENT_SECRET", "valueFrom": {
+            "secretKeyRef": {"name": "picsou", "key": "sso-client-secret", "optional": True},
+        }})
+        rendered = self.render(*args)
+        secret = subprocess.run(
+            ["yq", "-o=json", 'select(.kind == "Secret") | .data["sso-client-secret"]', "-"],
+            input=rendered.stdout, check=True, capture_output=True, text=True,
+        )
+        self.assertEqual(base64.b64decode(json.loads(secret.stdout)), b"synthetic-sso-secret")
+
+    def test_sso_client_secret_comes_from_an_existing_secret_when_provided(self):
+        pod = self.app_pod("--set", "secrets.existingSecret=external")
+        env = {e["name"]: e for e in pod["containers"][0]["env"]}
+        self.assertEqual(env["SSO_CLIENT_SECRET"]["valueFrom"]["secretKeyRef"], {
+            "name": "external", "key": "sso-client-secret", "optional": True,
+        })
 
     def test_exposure_with_hostnames_still_renders(self):
         for args in (

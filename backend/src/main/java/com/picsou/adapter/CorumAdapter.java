@@ -5,6 +5,7 @@ import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.sidecar.SidecarClient;
 import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
+import com.picsou.exception.SyncException;
 import com.picsou.port.SidecarErrorCode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -25,18 +26,21 @@ import java.util.Map;
  * state is opaque to the domain -- it is whatever the sidecar needs to replay
  * the account, and it is only ever stored encrypted.
  *
- * <p>One CORUM contract holds several funds, and Picsou models one account per
- * vehicle, so {@link #fetchSnapshot} returns one {@link Holding} per fund and
- * the caller maps each onto its own account.
+ * <p>One login reads the whole portfolio at once: {@link #fetchPortfolio}
+ * returns the real-estate contract, if any, and every CORUM Life
+ * (assurance-vie) contract. One real-estate contract holds several funds, and
+ * Picsou models one account per SCPI, so its {@link Snapshot} carries one
+ * {@link Holding} per fund and the caller maps each onto its own account. A
+ * life contract is one account, whose units are its holdings.
  */
 @Component
 public class CorumAdapter {
     /** CORUM asks for no second factor, so this is a single round-trip: the
      *  sidecar logs in, harvests the session cookie and hands it back. */
     private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(60);
-    /** One contract read plus one call per fund, so this scales with the
-     *  portfolio rather than being a single request. */
-    private static final Duration DEFAULT_POSITIONS_TIMEOUT = Duration.ofSeconds(90);
+    /** Every contract is read, plus one call per real-estate fund, so this
+     *  scales with the portfolio rather than being a single request. */
+    private static final Duration DEFAULT_POSITIONS_TIMEOUT = Duration.ofSeconds(120);
 
     private final SidecarClient sidecar;
     private final Duration authTimeout;
@@ -77,11 +81,16 @@ public class CorumAdapter {
         ).sessionState();
     }
 
-    public Snapshot fetchSnapshot(String sessionState) {
-        Snapshot snapshot = sidecar.post(
-            "/positions",
+    /**
+     * Reads the whole portfolio, real estate and life, in one sidecar call. A bare 401 is read as an expired
+     * session, and a contract flagged incomplete fails the read as PORTFOLIO_INCOMPLETE instead of being
+     * written partially.
+     */
+    public Portfolio fetchPortfolio(String sessionState) {
+        Portfolio portfolio = sidecar.post(
+            "/portfolio",
             Map.of("sessionState", sessionState),
-            Snapshot.class,
+            Portfolio.class,
             positionsTimeout,
             "Could not fetch the CORUM portfolio",
             // A bare 401 on this endpoint can only mean the session died: the
@@ -91,19 +100,95 @@ public class CorumAdapter {
             // reconnect.
             SidecarErrorCode.SESSION_EXPIRED
         );
-        if (!snapshot.snapshotComplete()) {
-            // The sidecar refuses a portfolio whose funds do not add up to the
-            // contract, so an incomplete flag means the flag is not trustworthy
-            // either. Refuse rather than write a partial portfolio over a real
-            // balance.
-            throw sidecar.coded(
-                SidecarErrorCode.PORTFOLIO_INCOMPLETE,
-                "CORUM returned an incomplete portfolio",
-                null
-            );
+        // The sidecar refuses a contract whose lines do not add up, so an
+        // incomplete flag means the flag is not trustworthy either. Refuse the
+        // whole read rather than write a partial portfolio over a real balance:
+        // one bad contract fails the sync, it never drops out of it silently.
+        if (portfolio.realEstate() != null && !portfolio.realEstate().snapshotComplete()) {
+            throw incomplete();
         }
-        return snapshot;
+        if (portfolio.life() != null) {
+            for (LifeContract contract : portfolio.life()) {
+                if (contract != null && !contract.snapshotComplete()) {
+                    throw incomplete();
+                }
+            }
+        }
+        return portfolio;
     }
+
+    private SyncException incomplete() {
+        return sidecar.coded(
+            SidecarErrorCode.PORTFOLIO_INCOMPLETE,
+            "CORUM returned an incomplete portfolio",
+            null
+        );
+    }
+
+    /**
+     * Everything one CORUM login holds. {@code realEstate} is null when the
+     * login has no real-estate contract; {@code life} is empty when it has no
+     * life contract. Both absent is not a valid read and is refused.
+     */
+    public record Portfolio(Snapshot realEstate, List<LifeContract> life) {}
+
+    /**
+     * One CORUM Life contract, keyed by {@code contractCode}. Every line is a
+     * holding, the euro fund included: it is invested money, not cash.
+     * {@code valuationLineCount} is the number of raw product rows the sidecar
+     * summed, each rounded to the cent on its own -- the reconciliation
+     * allowance is counted on it.
+     *
+     * <p>{@code snapshotComplete} has the same meaning as on {@link Snapshot}.
+     *
+     * <p>{@code netInvestedEur} is the contract's own net invested amount: the lines' costs
+     * leave out money switched between funds, so only this one gives the contract's gain.
+     * {@code paidInEur} is the gross amount paid in, {@code openedAt} the contract's opening
+     * date and {@code scheduledPayment} the programmed savings plan. All four are null from a
+     * sidecar that predates them, and the last three may be null on any contract.
+     *
+     * <p>{@code operations} is the contract's operation list as CORUM shows it. Null means it
+     * was not read (a sidecar that predates it, or a failed read of that list): the stored rows
+     * are then kept as they are, exactly as for an empty list.
+     */
+    public record LifeContract(String contractCode, String currency, BigDecimal totalValuationEur,
+                        LocalDate valuationDate, Integer valuationLineCount,
+                        BigDecimal netInvestedEur, BigDecimal paidInEur, LocalDate openedAt,
+                        ScheduledPayment scheduledPayment,
+                        boolean snapshotComplete, List<LifeHolding> holdings,
+                        List<LifeOperation> operations) {}
+
+    /**
+     * One operation of a life contract. {@code type} and {@code category} are CORUM's own words,
+     * raw ({@code scheduledPayment}, {@code couponDetachment}...); {@code amountEur} is signed as
+     * CORUM shows it (a fee is negative, a switch between funds has one leg each way).
+     * {@code operationId} is CORUM's id, unique per operation except for the two legs of a switch
+     * on some contracts, which the sign of the amount tells apart. A list in which two operations
+     * still share an id and a sign is not written: the contract's stored rows are kept, as for a
+     * null list. {@code fundCodes} names the funds a coupon came from, or is null.
+     */
+    public record LifeOperation(String operationId, String type, String category, LocalDate date,
+                         BigDecimal amountEur, List<String> fundCodes) {}
+
+    /** A programmed savings plan: an amount and CORUM's own frequency word ({@code monthly}...). */
+    public record ScheduledPayment(BigDecimal amountEur, String frequency) {}
+
+    /**
+     * One fund of a life contract, already summed across the
+     * management pockets that hold it. {@code valueEur} is CORUM's own
+     * valuation of the line; {@code netInvestedEur} is null when CORUM does not
+     * report what was paid in.
+     *
+     * <p>A {@code euroFund} line is counted in 1 EUR units: its quantity is its
+     * value and its unit price is 1, so it is worth exactly {@code valueEur}
+     * whichever way it is valued.
+     *
+     * <p>{@code assetClass} is CORUM's own section name for the fund ({@code realEstate},
+     * {@code bondFund}, {@code euroLife}), raw, or null.
+     */
+    public record LifeHolding(String productCode, String label, BigDecimal quantity, BigDecimal unitPrice,
+                       BigDecimal valueEur, BigDecimal netInvestedEur, LocalDate valuationDate,
+                       boolean euroFund, String assetClass) {}
 
     /**
      * One fund inside a CORUM contract. Everything is EUR: a real-estate line

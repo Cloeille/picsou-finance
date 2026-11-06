@@ -72,6 +72,8 @@ import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 const REVOLUT_CONNECTION_ID = 'revolut'
 
 type SyncConnection = {
+  /** The connector's server-side job is queued or running. */
+  running?: boolean
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
     | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin'
@@ -84,13 +86,6 @@ type SyncConnection = {
   needsReauth?: boolean
   /** Its tab can log in again from stored credentials, so the row asks it to start at once. */
   canReconnect?: boolean
-  /** The backend still runs the import it queued: the sync request itself answered long ago. */
-  running?: boolean
-}
-
-/** Session providers only queue the import; it runs while their status says so. */
-function isInFlight(status: { syncStatus?: string } | undefined): boolean {
-  return status?.syncStatus === 'QUEUED' || status?.syncStatus === 'RUNNING'
 }
 
 
@@ -170,11 +165,24 @@ function statusVariant(status: string): 'default' | 'secondary' | 'destructive' 
   }
 }
 
+/**
+ * A sidecar sync is asynchronous: the request is accepted at once and the job runs on the
+ * server, so the row's spinner follows the polled job state rather than the request.
+ */
+function isJobRunning(syncStatus: string | undefined): boolean {
+  return syncStatus === 'QUEUED' || syncStatus === 'RUNNING'
+}
+
 interface SyncAllModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
+/**
+ * Every provider connection with its status, synced in place from one dialog. A row that needs its
+ * own form (Finary, an expired session, Revolut without remembered credentials) opens its Sync
+ * tab instead, and a row spins while its server-side job is queued or running.
+ */
 export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -229,31 +237,31 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       type: 'amundi' as const, name: 'Amundi', provider: 'Amundi Épargne Salariale',
       active: amundiStatus?.isActive ?? false, lastSyncedAt: amundiStatus?.lastSyncCompletedAt ?? null,
       failed: amundiStatus?.syncStatus === 'FAILED',
-      running: isInFlight(amundiStatus),
+      running: isJobRunning(amundiStatus?.syncStatus),
     },
     {
       type: 'fortuneo' as const, name: 'Fortuneo', provider: 'Fortuneo',
       active: fortuneoStatus?.isActive ?? false, lastSyncedAt: fortuneoStatus?.lastSyncCompletedAt ?? null,
       failed: fortuneoStatus?.syncStatus === 'FAILED',
-      running: isInFlight(fortuneoStatus),
+      running: isJobRunning(fortuneoStatus?.syncStatus),
     },
     {
       type: 'bourso' as const, name: 'BoursoBank', provider: 'BoursoBank',
       active: boursoStatus?.isActive ?? false, lastSyncedAt: boursoStatus?.lastSyncCompletedAt ?? null,
       failed: boursoStatus?.syncStatus === 'FAILED',
-      running: isInFlight(boursoStatus),
+      running: isJobRunning(boursoStatus?.syncStatus),
     },
     {
       type: 'caisse-epargne' as const, name: "Caisse d'Epargne", provider: "Caisse d'Epargne",
       active: caisseEpargneStatus?.isActive ?? false, lastSyncedAt: caisseEpargneStatus?.lastSyncCompletedAt ?? null,
       failed: caisseEpargneStatus?.syncStatus === 'FAILED',
-      running: isInFlight(caisseEpargneStatus),
+      running: isJobRunning(caisseEpargneStatus?.syncStatus),
     },
     {
       type: 'bourse-direct' as const, name: 'Bourse Direct', provider: 'Bourse Direct',
       active: bourseDirectStatus?.isActive ?? false, lastSyncedAt: bourseDirectStatus?.lastSyncCompletedAt ?? null,
       failed: bourseDirectStatus?.syncStatus === 'FAILED',
-      running: isInFlight(bourseDirectStatus),
+      running: isJobRunning(bourseDirectStatus?.syncStatus),
     },
     {
       type: 'degiro' as const, name: 'DEGIRO', provider: 'DEGIRO',
@@ -278,21 +286,21 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       type: 'amex' as const, name: 'American Express', provider: 'American Express',
       active: amexStatus?.isActive ?? false, lastSyncedAt: amexStatus?.lastSyncCompletedAt ?? null,
       failed: amexStatus?.syncStatus === 'FAILED',
-      running: isInFlight(amexStatus),
+      running: isJobRunning(amexStatus?.syncStatus),
     },
     {
       type: 'corum' as const, name: 'CORUM', provider: 'CORUM',
       ownsAccount: (a: Account) => a.scpi?.corumFundCode != null,
       active: corumStatus?.isActive ?? false, lastSyncedAt: corumStatus?.lastSyncCompletedAt ?? null,
       failed: corumStatus?.syncStatus === 'FAILED',
-      running: isInFlight(corumStatus),
+      running: isJobRunning(corumStatus?.syncStatus),
     },
     {
       type: 'sofidy' as const, name: 'Sofidy', provider: 'Sofidy',
       ownsAccount: (a: Account) => a.scpi?.sofidyFundCode != null,
       active: sofidyStatus?.isActive ?? false, lastSyncedAt: sofidyStatus?.lastSyncCompletedAt ?? null,
       failed: sofidyStatus?.syncStatus === 'FAILED',
-      running: isInFlight(sofidyStatus),
+      running: isJobRunning(sofidyStatus?.syncStatus),
     },
     {
       type: 'cmes' as const, name: 'Crédit Mutuel / CIC Épargne Salariale', provider: 'Crédit Mutuel Épargne Salariale',
@@ -301,21 +309,21 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       // even before its first sync created an account, so the saver can reconnect from here.
       hasSession: cmesStatus != null && cmesStatus.syncStatus !== 'IDLE',
       failed: cmesStatus?.syncStatus === 'FAILED',
-      running: isInFlight(cmesStatus),
+      running: isJobRunning(cmesStatus?.syncStatus),
     },
     {
       type: 'natixis' as const, name: 'Natixis Interépargne', provider: 'Natixis Interépargne',
       active: natixisStatus?.isActive ?? false, lastSyncedAt: natixisStatus?.lastSyncCompletedAt ?? null,
       hasSession: natixisStatus != null && natixisStatus.syncStatus !== 'IDLE',
       failed: natixisStatus?.syncStatus === 'FAILED',
-      running: isInFlight(natixisStatus),
+      running: isJobRunning(natixisStatus?.syncStatus),
     },
     {
       type: 'cic' as const, name: 'CIC (livrets)', provider: 'CIC',
       active: cicStatus?.isActive ?? false, lastSyncedAt: cicStatus?.lastSyncCompletedAt ?? null,
       hasSession: cicStatus != null && cicStatus.syncStatus !== 'IDLE',
       failed: cicStatus?.syncStatus === 'FAILED',
-      running: isInFlight(cicStatus),
+      running: isJobRunning(cicStatus?.syncStatus),
       canReconnect: cicStatus?.canReconnect === true,
     },
   ], [cicStatus, cmesStatus, natixisStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
@@ -440,7 +448,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         // session that is gone, or one the provider explicitly flags, goes to its tab.
         needsReauth: !provider.active || provider.reauth === true,
         canReconnect: provider.canReconnect,
-        running: provider.running,
+        running: 'running' in provider && provider.running === true,
       })
     }
     if (hasRevolutAccount) {

@@ -39,6 +39,8 @@ public class MemberSyncService {
         // credentials when its short session has expired.
         "cmes",
         "cic",
+        // Same: re-logs in with credentials the member chose to store.
+        "corum",
         // Never logs in again by itself: an expired session waits for the saver.
         "natixis"
     );
@@ -60,6 +62,7 @@ public class MemberSyncService {
     private final ReceivedDividendClassifier dividendClassifier;
     private final CmesSyncService cmesSyncService;
     private final CicSyncService cicSyncService;
+    private final CorumSyncService corumSyncService;
     private final NatixisSyncService natixisSyncService;
 
     public MemberSyncService(
@@ -80,6 +83,7 @@ public class MemberSyncService {
             ReceivedDividendClassifier dividendClassifier,
             CmesSyncService cmesSyncService,
             CicSyncService cicSyncService,
+            CorumSyncService corumSyncService,
             NatixisSyncService natixisSyncService) {
         this.revolutSyncService = revolutSyncService;
         this.syncService = syncService;
@@ -98,6 +102,7 @@ public class MemberSyncService {
         this.dividendClassifier = dividendClassifier;
         this.cmesSyncService = cmesSyncService;
         this.cicSyncService = cicSyncService;
+        this.corumSyncService = corumSyncService;
         this.natixisSyncService = natixisSyncService;
     }
 
@@ -138,6 +143,10 @@ public class MemberSyncService {
         return results;
     }
 
+    /**
+     * Runs one source and always returns a result: an unknown source is SKIPPED and an unexpected
+     * exception is FAILED, so one source never stops the others.
+     */
     private SourceSyncResult executeSource(String source, Long memberId) {
         try {
             switch (source) {
@@ -159,6 +168,8 @@ public class MemberSyncService {
                     return cmesSyncService.resyncReporting(memberId);
                 case "cic":
                     return cicSyncService.resyncReporting(memberId);
+                case "corum":
+                    return corumSyncService.resyncReporting(memberId);
                 case "natixis":
                     return natixisSyncService.resyncReporting(memberId);
                 case "fortuneo":

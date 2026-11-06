@@ -20,7 +20,7 @@ There are three logo sources, in priority order:
 
 1. **A bundled asset the account points at** (`Account.logoKey`). Only **on-chain wallets** carry one — the API lets a client swap that key, never attach one to an account that has none, so a crypto *exchange* account can't be given a wallet mark either. It wins over everything else because it is the only source a user chose by hand.
 2. **A provider-supplied URL on the account** (`Account.logoUrl`), from the institution catalog. Two paths write it, both server-side and both through `BankLogoResolver`: a **connected** account inherits it from the requisition it was created under, and a **manual** account gets it from the bank named in its form (see [The bank a manual account names](#the-bank-a-manual-account-names)). Only **Enable Banking** supplies that catalog — it's the sole active `BankConnectorPort` implementation that returns logos (see [bank-sync.md](./bank-sync.md)). Powens (disabled, experimental) hardcodes `logoUrl = null`.
-3. **A bundled brand asset**, matched on `Account.provider` when neither of the above applies. Currently `MERIA`, Amundi, BoursoBank, Trade Republic and Natixis Interépargne.
+3. **A bundled brand asset**, matched on `Account.provider` when neither of the above applies. Currently `MERIA`, Amundi, BoursoBank, Trade Republic, CORUM (its SCPI and CORUM Life accounts alike) and Natixis Interépargne.
 
 Properties take none of the three: they have no `provider` to key on, no connector to ask, and no logo key of their own, so `AccountCard` marks them with the glyph for their `propertyKind` instead — see [accounts-overview.md](./accounts-overview.md#account-card-anatomy). The kind is picked in the property form, so that mark follows a user choice too, but it is chosen as a property attribute rather than from a logo picker.
 
@@ -76,11 +76,11 @@ account by hand, and never becomes one.
 
 `PROVIDER_LOGOS` (`frontend/src/lib/provider-logos.ts`) maps a `provider` string to an asset path, and `providerLogoUrl()` resolves it case-insensitively. For an account with no `logoKey` of its own, `AccountAvatar` falls back to `logoUrl ?? providerLogoUrl(provider)`, so a real connector logo always wins over a bundled one and nothing changes for accounts that already had one. The full order, key included, is in [Rendering](#rendering) below.
 
-The key is the exact string the backend writes as `provider`. For crypto exchanges that is `ExchangeType.name()` (`CryptoExchangeSyncService.resolveAccount()`), hence `MERIA` rather than `Meria`; for Amundi it is `AmundiSyncService.PROVIDER`, i.e. `Amundi Épargne Salariale`, accent included; for BoursoBank it is `BoursoSyncService.PROVIDER`; for Trade Republic it is the `"Trade Republic"` literal inlined in `TradeRepublicSyncService.upsertAccount()`; for Natixis Interépargne it is `NatixisSyncService.PROVIDER`, accent included. `provider-logos.test.ts` pins all five literals, so an accidental edit to the map — or an accent that drifts between Unicode normalizations on the frontend side — fails loudly instead of silently reverting to the color circle. It cannot see the backend, though: renaming what the connector writes is caught by nothing (see Gotchas).
+The key is the exact string the backend writes as `provider`. For crypto exchanges that is `ExchangeType.name()` (`CryptoExchangeSyncService.resolveAccount()`), hence `MERIA` rather than `Meria`; for Amundi it is `AmundiSyncService.PROVIDER`, i.e. `Amundi Épargne Salariale`, accent included; for BoursoBank it is `BoursoSyncService.PROVIDER`; for Trade Republic it is the `"Trade Republic"` literal inlined in `TradeRepublicSyncService.upsertAccount()`; for CORUM it is `ScpiProvider.CORUM.displayName()`, i.e. `CORUM`, which both `CorumSyncService` (SCPI) and `CorumLifeWriter.PROVIDER` (CORUM Life) write; for Natixis Interépargne it is `NatixisSyncService.PROVIDER`, accent included. `provider-logos.test.ts` pins all five literals, so an accidental edit to the map — or an accent that drifts between Unicode normalizations on the frontend side — fails loudly instead of silently reverting to the color circle. It cannot see the backend, though: renaming what the connector writes is caught by nothing (see Gotchas).
 
 Assets live under `frontend/public/` (`exchanges/` for crypto, `providers/` otherwise) rather than being imported from `src/assets/` like the app's own logo: a missing file then degrades to the account's color circle — exactly what a logo-less account already shows — instead of failing the build. The trade-off is that a typo'd or missing path is invisible at runtime, so `provider-logos.test.ts` expands `import.meta.glob('../../public/**/*.{svg,png}')` and asserts every mapped path exists on disk.
 
-Nothing is written to the database and no backend change was needed: an existing Meria, Amundi, BoursoBank, Trade Republic or Natixis Interépargne account picks the logo up on the next render, and demo mode gets it for free.
+Nothing is written to the database and no backend change was needed: an existing Meria, Amundi, BoursoBank, Trade Republic, CORUM or Natixis Interépargne account picks the logo up on the next render, and demo mode gets it for free.
 
 ### The wallet logo key
 
@@ -113,13 +113,14 @@ Nothing is written to the database and no backend change was needed: an existing
 - `backend/src/main/resources/db/migration/V75__account_logo_key.sql` — `account.logo_key` + wallet backfill
 - `backend/src/main/java/com/picsou/service/WalletSyncService.java` — `DEFAULT_LOGO_KEY`, written at account creation
 - `backend/src/main/java/com/picsou/service/AccountService.java` — `normalizeLogoKey()`: a key is swappable only where one is already stored, and `update()` keeps it when the request omits it
-- `frontend/src/lib/provider-logos.ts` — `PROVIDER_LOGOS` + `LOGO_KEYS` maps, `providerLogoUrl()` / `logoKeyUrl()`
+- `frontend/src/lib/provider-logos.ts` — `PROVIDER_LOGOS` + `LOGO_KEYS` maps, `providerLogoUrl()` / `logoKeyUrl()`; `HOLDING_PREFIX_LOGOS` + `bundledHoldingLogoUrl()` for provider-only fund lines (see [holding-logos.md](./holding-logos.md#bundled-marks-for-provider-only-funds))
 - `frontend/src/components/shared/LogoPicker.tsx` — the wallet's blockchain/Ledger choice
 - `frontend/src/components/shared/AccountForm.tsx` — renders the picker for accounts that carry a key
 - `frontend/public/exchanges/meria.svg` — Meria's mark
 - `frontend/public/providers/amundi.png` — Amundi's mark
 - `frontend/public/providers/boursobank.png` — BoursoBank's mark
 - `frontend/public/providers/trade-republic.svg` — Trade Republic's mark
+- `frontend/public/providers/corum.svg` — CORUM's "R" monogram: the copper `R` path taken verbatim from the wordmark at `https://www.corum.fr/themes/custom/corum_v2/logo.svg` (the same glyph corum.fr ships as its favicon), colour unchanged, with a square `viewBox` padded ~15% around the glyph
 - `frontend/public/providers/natixis-interepargne.svg` — Natixis's brush emblem, the PNG embedded in the saver space's own logo SVG, centred in a padded square
 - `frontend/public/wallets/blockchain.svg`, `frontend/public/wallets/ledger.svg` — the two wallet marks
 
@@ -182,7 +183,7 @@ Nothing is written to the database and no backend change was needed: an existing
 - `frontend/src/components/shared/BankPicker.test.tsx` — picking a bank reports its name *and*
   the catalog id, editing the name afterwards drops the id, the suggestion list closes on pick,
   and the field stays a plain editable text input when no catalog is available.
-- `frontend/src/lib/provider-logos.test.ts` — every path in `PROVIDER_LOGOS` and `LOGO_KEYS` is root-relative and exists under `frontend/public/`, the exact provider literal each connector writes (Meria, Amundi, Trade Republic, Natixis Interépargne), every key the picker offers is mapped, plus the case-insensitive provider lookup and the `null`/unknown-key cases.
+- `frontend/src/lib/provider-logos.test.ts` — every path in `PROVIDER_LOGOS` and `LOGO_KEYS` is root-relative and exists under `frontend/public/`, the exact provider literal each connector writes (Meria, Amundi, BoursoBank, Trade Republic, CORUM, Natixis Interépargne), every `HOLDING_PREFIX_LOGOS` asset exists and `bundledHoldingLogoUrl()` matches the `CORUM-LIFE-` prefix case-insensitively, every key the picker offers is mapped, plus the case-insensitive provider lookup and the `null`/unknown-key cases.
 - `backend/src/test/java/com/picsou/migration/AccountLogoKeyMigrationTest.java` — V75 against real PostgreSQL: existing wallets are backfilled with `blockchain` (including the lowercased chain segment), accounts that merely look like wallets and exchange accounts stay `NULL`, the backfilled value equals `WalletSyncService.DEFAULT_LOGO_KEY`, and a replay of the file leaves a user's `ledger` choice alone.
 - `backend/src/test/java/com/picsou/service/WalletSyncServiceTest.java` — a new wallet account is created with the default key; an existing one keeps the key the user picked across a resync.
 - `backend/src/test/java/com/picsou/service/AccountServiceTest.java` — the bank logo of a manual

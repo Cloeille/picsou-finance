@@ -445,4 +445,58 @@ class PortfolioDiversificationServiceTest {
         assertThat(sliceOf(response.sectors(), "private_equity")).isEqualByComparingTo("100.00");
         assertThat(sliceOf(response.countries(), "XU")).isEqualByComparingTo("100.00");
     }
+
+    /** An SCPI unit inside a life-insurance contract is property, not unclassified equity. */
+    @Test
+    void aLineTheProviderFilesAsRealEstateIsLeftOut() {
+        Account life = equityAccount(Map.of("AI.PA", "10000"));
+        lenient().when(accountService.getHoldings(life.getId(), MEMBER)).thenReturn(List.of(
+            line("AI.PA", "10000", null),
+            line("CORUM-LIFE-XL", "5000", WealthTier.REAL_ESTATE)));
+        stockProfile("AI.PA", "basic_materials", "FR");
+
+        DiversificationResponse response = service.diversification(MEMBER);
+
+        assertThat(response.unclassified()).isEmpty();
+        assertThat(response.coveragePercent()).isEqualByComparingTo("100.00");
+        assertThat(sliceOf(response.sectors(), "basic_materials")).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    void theMembersTierWinsOverTheProviders() {
+        Account life = equityAccount(Map.of());
+        lenient().when(accountService.getHoldings(life.getId(), MEMBER)).thenReturn(List.of(
+            line("CORUM-LIFE-XL", "5000", WealthTier.REAL_ESTATE),
+            line("GLD.PA", "1000", null)));
+        when(classificationRepository.findByMemberId(MEMBER)).thenReturn(List.of(
+            HoldingClassification.builder().ticker("CORUM-LIFE-XL").wealthTier(WealthTier.EQUITY).build(),
+            HoldingClassification.builder().ticker("GLD.PA").wealthTier(WealthTier.ALTERNATIVE).build()));
+
+        DiversificationResponse response = service.diversification(MEMBER);
+
+        assertThat(response.unclassified()).extracting(DiversificationResponse.UnclassifiedLine::ticker)
+            .containsExactly("CORUM-LIFE-XL");
+    }
+
+    /** The member's tier counts on any line, not only on a CORUM one the provider tiered. */
+    @Test
+    void aMembersNonEquityTierLeavesAnOrdinaryLineOut() {
+        equityAccount(Map.of("AI.PA", "10000", "GLD.PA", "5000"));
+        stockProfile("AI.PA", "basic_materials", "FR");
+        stockProfile("GLD.PA", "commodities", "XU");
+        when(classificationRepository.findByMemberId(MEMBER)).thenReturn(List.of(
+            HoldingClassification.builder().ticker("gld.pa").wealthTier(WealthTier.ALTERNATIVE).build()));
+
+        DiversificationResponse response = service.diversification(MEMBER);
+
+        assertThat(response.unclassified()).isEmpty();
+        assertThat(sliceOf(response.sectors(), "basic_materials")).isEqualByComparingTo("100.00");
+        assertThat(sliceOf(response.sectors(), "commodities")).isEqualByComparingTo("-1");
+        assertThat(sliceOf(response.countries(), "FR")).isEqualByComparingTo("100.00");
+    }
+
+    private static HoldingResponse line(String ticker, String value, WealthTier providerTier) {
+        return new HoldingResponse(ticker, ticker, null, null, BigDecimal.ONE, null, null, "EUR",
+            new BigDecimal(value), null, null, null, null, null, false, providerTier);
+    }
 }

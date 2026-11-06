@@ -111,9 +111,9 @@ class NatixisSyncServiceTest {
         List<AccountHolding> holdings = holdingsCaptor.getAllValues().getFirst();
         assertThat(holdings).extracting(AccountHolding::getTicker)
             .satisfiesExactly(
-                ticker -> assertThat(ticker).isEqualTo("NATIXIS-QS0004086763"),
+                ticker -> assertThat(ticker).isEqualTo("NATIXIS-QS0000001002"),
                 // No fund code: the label slug plus a hash of the full label.
-                ticker -> assertThat(ticker).matches("AVENIR-MONETAIRE-[0-9A-F]{8}"));
+                ticker -> assertThat(ticker).matches("FONDS-MONETAIRE-[0-9A-F]{8}"));
         AccountHolding first = holdings.getFirst();
         assertThat(first.getProviderValueEur()).isEqualByComparingTo("1000.00");
         assertThat(first.getProviderPnlEur()).isEqualByComparingTo("90.91");
@@ -426,7 +426,7 @@ class NatixisSyncServiceTest {
         Account pee = arrangeOperationsSync(true, buy("natixis_1_D1_L1", "2024-01-10"),
             sell("natixis_1_P1_L1", "2025-03-01"),
             new NatixisAdapter.Operation("natixis_1_D9_L1", "natixis_1_UNKNOWN", "2024-02-01", "BUY", "Versement",
-                "AVENIR ACTIONS EUROPE I", "QS0004086763", BigDecimal.ONE, null, BigDecimal.TEN, null));
+                "FONDS ACTIONS EUROPE I", "QS0000001002", BigDecimal.ONE, null, BigDecimal.TEN, null));
 
         service.queueSync(7L);
 
@@ -434,7 +434,9 @@ class NatixisSyncServiceTest {
             assertThat(row.getAccount()).isSameAs(pee);
             assertThat(row.isManual()).isFalse();
             assertThat(row.getNativeCurrency()).isEqualTo("EUR");
-            assertThat(row.getName()).isEqualTo("AVENIR ACTIONS EUROPE I");
+            // Fund trades inside the plan: kept off the budget, cash flow and categorization.
+            assertThat(row.isBudgetNeutral()).isTrue();
+            assertThat(row.getName()).isEqualTo("FONDS ACTIONS EUROPE I");
         });
         Transaction bought = store.getFirst();
         assertThat(bought.getExternalId()).isEqualTo("natixis_1_D1_L1");
@@ -452,7 +454,7 @@ class NatixisSyncServiceTest {
         // The same ticker as the holding, so realized P&L lines the sale up with its buys.
         verify(holdingRepository).saveAll(holdingsCaptor.capture());
         assertThat(holdingsCaptor.getValue().getFirst().getTicker()).isEqualTo(bought.getTicker());
-        assertThat(sold.getTicker()).isEqualTo("NATIXIS-QS0004086763");
+        assertThat(sold.getTicker()).isEqualTo("NATIXIS-QS0000001002");
         // History only: the plan's balance and snapshot are the snapshot's alone.
         assertThat(pee.getCurrentBalance()).isEqualByComparingTo("1500.50");
         verify(accountService).upsertSnapshot(pee, new BigDecimal("1500.50"), new BigDecimal("1500.50"), LocalDate.now());
@@ -468,7 +470,7 @@ class NatixisSyncServiceTest {
         assertThat(store).containsExactlyElementsOf(first);
 
         NatixisAdapter.Operation corrected = new NatixisAdapter.Operation("natixis_1_P1_L1", PEE_ID,
-            "2025-03-02", "SELL", "Déblocage anticipé", "AVENIR ACTIONS EUROPE I", "QS0004086763",
+            "2025-03-02", "SELL", "Déblocage anticipé", "FONDS ACTIONS EUROPE I", "QS0000001002",
             new BigDecimal("4"), new BigDecimal("26"), new BigDecimal("104"), null);
         when(port.fetchPlans("plain-state")).thenReturn(operationsPositions(true, buy("natixis_1_D1_L1", "2024-01-10"),
             corrected));
@@ -574,13 +576,13 @@ class NatixisSyncServiceTest {
 
     private NatixisAdapter.Operation buy(String externalId, String date) {
         return new NatixisAdapter.Operation(externalId, PEE_ID, date, "BUY",
-            "Investissement de votre intéressement", "AVENIR ACTIONS EUROPE I", "QS0004086763",
+            "Investissement de votre intéressement", "FONDS ACTIONS EUROPE I", "QS0000001002",
             new BigDecimal("10"), new BigDecimal("20"), new BigDecimal("200"), BigDecimal.ONE);
     }
 
     private NatixisAdapter.Operation sell(String externalId, String date) {
         return new NatixisAdapter.Operation(externalId, PEE_ID, date, "SELL",
-            "Déblocage anticipé", "AVENIR ACTIONS EUROPE I", "QS0004086763",
+            "Déblocage anticipé", "FONDS ACTIONS EUROPE I", "QS0000001002",
             new BigDecimal("4"), new BigDecimal("25"), new BigDecimal("100"), null);
     }
 
@@ -643,9 +645,9 @@ class NatixisSyncServiceTest {
             "UES ACME",
             new BigDecimal("1500.50"),
             List.of(
-                new NatixisAdapter.Position(null, "QS0004086763", "AVENIR ACTIONS EUROPE I", new BigDecimal("50.0000"),
+                new NatixisAdapter.Position(null, "QS0000001002", "FONDS ACTIONS EUROPE I", new BigDecimal("50.0000"),
                     new BigDecimal("20.00"), new BigDecimal("1000.00"), new BigDecimal("90.91")),
-                new NatixisAdapter.Position(null, null, "AVENIR MONETAIRE", new BigDecimal("25.0250"),
+                new NatixisAdapter.Position(null, null, "FONDS MONETAIRE", new BigDecimal("25.0250"),
                     null, new BigDecimal("500.50"), null)
             ),
             true

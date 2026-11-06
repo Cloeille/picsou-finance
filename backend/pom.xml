@@ -73,6 +73,14 @@
             <artifactId>spring-boot-starter-oauth2-authorization-server</artifactId>
         </dependency>
 
+        <!-- OAuth2 / OIDC client — "Sign in with SSO" against an external IdP (Authorization Code
+             + PKCE). Unversioned: governed by the Boot BOM (Spring Security 6.5.x). Registered
+             lazily and only when SSO is configured. See docs/briefs/2026-10-31-sso-login-design.md -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-client</artifactId>
+        </dependency>
+
         <!-- AOP — powers @RequiresScope enforcement on MCP tool methods -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

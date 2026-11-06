@@ -24,6 +24,10 @@
 | Endpoint group | Limit |
 |---------------|-------|
 | Login (`/api/auth/login`) | 5 requests / IP / 15 min |
+| Re-authentication (`/api/auth/reauth`) | 5 attempts / user / 15 min |
+| SSO start (`/oauth2/sso/authorization/oidc`) | 30 requests / IP / 15 min |
+| Data export (`/api/me/export`) | 5 requests / user / hour |
+| Setup wizard (mutating `/api/setup/**`) | 10 requests / IP / minute |
 | Bank sync (`/api/sync/initiate`, `/complete`, `/{id}/reconnect`, `/countries`) | Throttled — each on its own bucket, keyed by `ip + endpoint` |
 | TR auth (`/api/tr/auth/initiate`) | Throttled |
 
@@ -131,7 +135,9 @@ Sets `access_token` and `refresh_token` HttpOnly cookies.
 ```
 Rotates `access_token`/`refresh_token` (old refresh token is invalidated) whenever a valid `refresh_token` is presented, **or** when a still-valid `persistent_token` re-authenticates the request in place of a missing/invalid one (this is what lets "Remember Me" survive a tab/browser restart, since the frontend probes this endpoint on mount instead of trusting a stale client-side flag). `access_token`/`refresh_token` are reissued as **persistent cookies** (matching `persistent_token`'s remaining lifetime) only when the request actually carries a `persistent_token` owned by the same user — otherwise they're reissued as session cookies, so a non-"Remember Me" login can't outlive the browser via this endpoint. A Remember-Me `refresh_token` is bound to its persistent-session `series_id` (a `sid` claim); if that session has been revoked (`/auth/sessions`) or has passed its 90-day cap, the refresh is refused even though the JWT itself is still valid, so revoking a device actually logs it out at its next refresh.
 
-**Errors:** 401 (no refresh token and no valid persistent_token; or the presented session's series has been revoked/expired — `"Session revoked"`)
+A session opened through single sign-on carries the SSO sign-in time in its tokens. Once that time is older than `SSO_SESSION_REVALIDATE_AFTER` (default 24 hours), or once SSO has been turned off, the refresh is refused with `SSO_REVALIDATE`: the auth cookies are cleared and, when the refresh came through a Remember-Me `persistent_token`, that series is revoked. The user must sign in through the IdP again.
+
+**Errors:** 401 (no refresh token and no valid persistent_token; or the presented session's series has been revoked/expired — `"Session revoked"`), 401 `"code":"SSO_REVALIDATE"` (SSO session past its revalidation window), 503 `"code":"setup_required"` (setup not complete yet)
 
 ---
 
@@ -140,7 +146,15 @@ Rotates `access_token`/`refresh_token` (old refresh token is invalidated) whenev
 - **Auth:** Public
 - **Body:** none
 
-**Response `204`** — clears both cookies.
+Revokes the caller's Remember-Me series (if any) and clears `access_token`, `refresh_token`, `persistent_token`, `mfa_challenge` and `reauth_proof`.
+
+**Response `204`** — the default.
+
+**Response `200`** — only when `SSO_IDP_LOGOUT=true`, the session was opened through SSO, and the IdP discovery document advertises an `end_session_endpoint`:
+```json
+{ "endSessionUrl": "https://idp.example.com/logout?client_id=picsou&post_logout_redirect_uri=https://picsou.example.com/login" }
+```
+The frontend navigates there to end the IdP session too. No ID token is sent (Picsou never keeps IdP tokens).
 
 ---
 
@@ -160,6 +174,215 @@ Rotates `access_token`/`refresh_token` (old refresh token is invalidated) whenev
 ```
 
 **Errors:** 401 (current password incorrect), 422 (validation)
+
+---
+
+#### `GET /api/auth/sso`
+
+- **Auth:** Public
+- **Body:** none
+
+Configuration only, never a call to the IdP. The login page uses it to decide whether to show the SSO button.
+
+**Response `200`:**
+```json
+{ "enabled": true, "providerName": "SSO" }
+```
+`enabled` is `true` only when `SSO_ISSUER_URI` and `SSO_CLIENT_ID` are set and valid. `providerName` is `SSO_PROVIDER_NAME` (default `SSO`, trimmed to 40 characters).
+
+---
+
+#### `GET /api/auth/sign-in-methods`
+
+- **Auth:** Required
+
+**Response `200`:**
+```json
+{
+  "hasPassword": true,
+  "mfaEnabled": false,
+  "identities": [
+    {
+      "id": 1,
+      "email": "alice@example.com",
+      "displayName": "Alice",
+      "createdAt": "2026-11-03T10:00:00Z",
+      "lastLoginAt": "2026-11-03T10:00:00Z",
+      "currentIssuer": true
+    }
+  ],
+  "ssoEnabled": true,
+  "providerName": "SSO",
+  "adminGroupManaged": false
+}
+```
+`identities` lists the caller's linked SSO identities, oldest first. `lastLoginAt` is omitted until the identity has signed in once. `currentIssuer` is `false` for an identity of a previous `SSO_ISSUER_URI`, which can never sign in again. `adminGroupManaged` is `true` when SSO is on and `SSO_ADMIN_GROUP` is set (admin rights then follow the group).
+
+---
+
+#### `POST /api/auth/reauth`
+
+Mints the short-lived re-authentication proof required by credential changes (link, unlink, turning password login off or on) and accepted by the data export. Requires the password and, when 2FA is enabled, the TOTP code: both factors, never just one. An account without a password re-authenticates through the IdP instead (SSO `intent=reauth`, see [Single sign-on](#1b-single-sign-on-oidc--oauth2sso)).
+
+- **Auth:** Required
+- **Rate limit:** 5 attempts / user / 15 min
+
+**Request body:**
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `password` | `string` | required, must match the account's password hash |
+| `totpCode` | `string` | required when 2FA is enabled |
+
+**Response `204`** — sets the `reauth_proof` cookie (see [Cookies](#cookies-set-by-the-sso-and-re-authentication-endpoints)).
+
+**Errors:** 401 `"code":"REAUTH_FAILED"` (missing or wrong password, missing or wrong TOTP), 429 `"code":"RATE_LIMITED"`
+
+---
+
+#### `DELETE /api/auth/password`
+
+Turns password login off. Guarded so it can never lock the account out.
+
+- **Auth:** Required, plus a valid `reauth_proof` cookie
+- **Body:** none
+
+**Response `204`** — the password hash is erased and 2FA is disabled (Picsou's TOTP only protects a password). Every other session is logged out (token version bumped, every Remember-Me series revoked); the calling browser gets fresh session-scoped `access_token` / `refresh_token` cookies and its `persistent_token` is cleared. Already without a password: `204`, nothing changes.
+
+**Errors:** 401 `"code":"REAUTH_FAILED"` (proof missing, expired or for another account), 409 `"code":"SSO_DISABLED"` (SSO is not available), 409 `"code":"IDENTITY_NOT_USED_YET"` (no identity of the current issuer has signed in yet)
+
+---
+
+#### `PUT /api/auth/password`
+
+Sets a password on an account that has none (typically an SSO-only account).
+
+- **Auth:** Required, plus a valid `reauth_proof` cookie
+
+**Request body:**
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `newPassword` | `string` | @NotBlank, min 8, max 128 |
+
+**Response `204`** — every other session is logged out; the calling browser gets fresh session-scoped `access_token` / `refresh_token` cookies (keeping its SSO sign-in time) and its `persistent_token` is cleared.
+
+**Errors:** 401 `"code":"REAUTH_FAILED"`, 409 `"code":"PASSWORD_ALREADY_SET"`, 422 (validation)
+
+---
+
+#### `DELETE /api/auth/identities/{id}`
+
+Unlinks one of the caller's own SSO identities (`id` from `GET /api/auth/sign-in-methods`).
+
+- **Auth:** Required, plus a valid `reauth_proof` cookie
+- **Body:** none
+
+**Response `204`**
+
+**Errors:** 401 `"code":"REAUTH_FAILED"`, 404 (no such identity on this account), 409 `"code":"LAST_SIGN_IN_METHOD"` (the account has no password and this is its last identity of the current issuer)
+
+---
+
+#### `DELETE /api/admin/members/{memberId}/identities`
+
+Removes every SSO identity of another member, e.g. after an IdP account was compromised. No re-authentication proof needed (like the MFA reset).
+
+- **Auth:** ADMIN
+- **Body:** none
+
+**Response `204`** — the member's identities are deleted and all their sessions are logged out (token version bumped, Remember-Me series revoked).
+
+**Errors:** 403 `"code":"SELF_UNLINK_FORBIDDEN"` (an admin targeting themselves), 403 (a non-admin caller), 404 (`"Member not found"`, or the member has no login). Self-targeting returns a ProblemDetail; the admin UI hides this action for the current member.
+
+---
+
+### 1b. Single sign-on (OIDC) — `/oauth2/sso`
+
+Present only when SSO is enabled (`SSO_ISSUER_URI` and `SSO_CLIENT_ID` set and valid). Served by its own security chain, not under `/api`. Both endpoints answer browser form POSTs with `302` redirects, never JSON. A GET to any `/oauth2/sso/**` path redirects to `/login`, and a cross-site POST gets `403` (`Cross-site request rejected`), like the API chain. State, nonce and PKCE S256 are always sent; Picsou never stores IdP tokens.
+
+#### `POST /oauth2/sso/authorization/oidc`
+
+Starts a round trip to the IdP.
+
+- **Auth:** Public for `login`, `activate` and `setup`; the `access_token` cookie for `link` and `reauth`
+- **Content-Type:** `application/x-www-form-urlencoded`
+- **Rate limit:** 30 / IP / 15 min (then `302 /login?ssoError=RATE_LIMITED`)
+
+**Form fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `intent` | `string` | `login` (default), `link`, `reauth`, `activate` or `setup`. Anything else: `302 /login?ssoError=IDP_ERROR` |
+| `redirect` | `string` | Where to land afterwards. Same-origin relative path only (starts with `/`, not `//` or `/\`, no control characters, at most 2048 characters); otherwise the intent's default: `/` (`login`, `activate`), `/settings` (`link`, `reauth`), `/setup/admin` (`setup`) |
+| `rememberMe` | `string` | `1` issues a Remember-Me `persistent_token` (`login`, `activate`) |
+| `token` | `string` | `activate` only: the invitation token |
+| `ack` | `string` | `activate` only: must be `1` (data-access warning acknowledged) |
+
+**Response `302`** to the IdP authorize endpoint. `reauth` also sends `prompt=login` and `max_age=0`. Sets the handshake `JSESSIONID` cookie. Refusals redirect without contacting the IdP:
+
+| Condition | Redirect |
+|-----------|----------|
+| IdP discovery not reachable yet, or still running for another request | the intent's error page with `ssoError=IDP_UNAVAILABLE` |
+| `login` before setup is complete | `/setup` |
+| `link` / `reauth` without a valid `access_token` | `/login` |
+| `link` without a valid `reauth_proof` | `{redirect}?ssoError=REAUTH_REQUIRED` |
+| `activate` with an unknown or expired token, a token held by an already activated account (password-reset link), or `ack` not `1` | `/activate/{token}?ssoError=ACTIVATION_INVALID` |
+| `setup` when setup is past the admin step or `SSO_ADMIN_GROUP` is not set | `/setup/admin?ssoError=SETUP_ALREADY_CLAIMED` |
+
+#### `POST /oauth2/sso/code/oidc`
+
+Completes the round trip. The IdP redirects the browser to the SPA route `/login/sso/callback` (the redirect URI to register at the IdP), which re-posts `code` and `state` here as a same-origin form POST.
+
+- **Auth:** the handshake `JSESSIONID` cookie
+- **Content-Type:** `application/x-www-form-urlencoded`
+
+**Form fields:** `code`, `state` (as returned by the IdP; `error` / `error_description` are also accepted and end the flow with `IDP_ERROR`).
+
+**Response `302`.** The handshake session is always discarded. On success, per intent:
+
+| Intent | Effect | Redirect |
+|--------|--------|----------|
+| `login` | Signs in the account linked to the identity's `(iss, sub)`. With `SSO_ADMIN_GROUP` set, a member of that group with no account gets a new ADMIN account. Admin role synced from the groups claim. Sets `access_token`, `refresh_token` (and `persistent_token` with `rememberMe=1`) | `/login/sso-complete?redirect={redirect}`, or `{redirect}` itself when it starts with `/oauth2/` |
+| `activate` | Activates the invited account and links the identity; sets session cookies like `login` | `/login/sso-complete?redirect={redirect}` |
+| `setup` | Creates the first admin from a member of `SSO_ADMIN_GROUP`; sets session-scoped cookies | `/setup/security` |
+| `link` | Links the identity to the signed-in account (needs a valid `reauth_proof`) | `{redirect}?sso=linked` |
+| `reauth` | Checks the identity is linked to the signed-in account and `auth_time` is at most 60 s older than the start; sets `reauth_proof` | `{redirect}` |
+
+Errors redirect with `ssoError={CODE}` to the page the flow came from: `/login` (`login`, keeping a non-default `redirect`), `/activate/{token}`, `/setup/admin`, or the `redirect` of a `link` / `reauth`. See [SSO error codes](#sso-error-codes).
+
+#### Cookies set by the SSO and re-authentication endpoints
+
+| Cookie | Set by | Attributes | Purpose |
+|--------|--------|------------|---------|
+| `reauth_proof` | `POST /api/auth/reauth`, SSO `reauth` callback | HttpOnly, SameSite=Lax, Path=/, Secure when secure cookies are on, Max-Age 300 (`app.jwt.reauth-proof-expiry-minutes`, default 5) | JWT (`type=reauth`, `uid`, `tv`) proving a fresh re-authentication. Valid only for the same user and token version, so a password change or logout-everywhere voids it. Cleared by logout |
+| `JSESSIONID` | `POST /oauth2/sso/authorization/oidc` | Servlet container session cookie, Path=/, HttpOnly | Holds the pending authorization request (state, nonce, PKCE verifier, intent) between start and callback. Invalidated at the callback, success or failure; the rest of the API stays stateless |
+
+#### SSO error codes
+
+`ssoError` codes arrive as a query parameter on a redirect; API codes arrive as the `code` field of a ProblemDetail body.
+
+| Code | Delivered as | Produced when |
+|------|--------------|---------------|
+| `NOT_LINKED` | `ssoError` | `login`: no account is linked to this identity and it cannot be provisioned |
+| `NOT_IN_ADMIN_GROUP` | `ssoError` | `setup`: the identity is not in `SSO_ADMIN_GROUP` |
+| `IDENTITY_IN_USE` | `ssoError` | `link` / `activate`: the identity is already linked to another account |
+| `REAUTH_REQUIRED` | `ssoError` | `link` started or completed without a valid `reauth_proof` |
+| `REAUTH_TOO_OLD` | `ssoError` | `reauth`: `auth_time` missing or older than the start minus 60 s |
+| `REAUTH_WRONG_ACCOUNT` | `ssoError` | `link` / `reauth`: the signed-in account changed during the round trip, or (`reauth`) the identity is not linked to it |
+| `ACCOUNT_INACTIVE` | `ssoError` | `login`: the linked account is deactivated |
+| `ADMIN_RECOVERY_ACTIVE` | `ssoError` | `login`: the linked account is a deactivated admin while admin recovery is on |
+| `ACTIVATION_INVALID` | `ssoError` | `activate`: unknown or expired invitation token, a token of an already activated account (a password-reset link only sets a new password), or `ack` not `1` |
+| `SETUP_ALREADY_CLAIMED` | `ssoError` | `setup`: setup is past the admin step, `SSO_ADMIN_GROUP` is unset, or another admin won the race |
+| `IDP_UNAVAILABLE` | `ssoError` | Start: the IdP discovery document could not be loaded yet |
+| `IDP_ERROR` | `ssoError` | Unknown `intent`, an error returned by the IdP, or a failed token / ID-token validation |
+| `SESSION_EXPIRED` | `ssoError` | Callback without a matching handshake session (expired, or another browser), or `link` / `reauth` whose `access_token` expired meanwhile |
+| `RATE_LIMITED` | `ssoError` and `code` | `ssoError`: SSO start rate limit (`/login`). `code`: `POST /api/auth/reauth` (429) |
+| `SSO_ADMIN_REQUIRED` | `code` | `POST /api/setup/admin` (409) while `SSO_ADMIN_GROUP` is set |
+| `IDENTITY_NOT_USED_YET` | `code` | `DELETE /api/auth/password` (409) |
+| `LAST_SIGN_IN_METHOD` | `code` | `DELETE /api/auth/identities/{id}` (409) |
+| `SELF_UNLINK_FORBIDDEN` | `code` | `DELETE /api/admin/members/{memberId}/identities` targeting the caller (403); hidden in the admin UI |
+| `PASSWORD_ALREADY_SET` | `code` | `PUT /api/auth/password` (409) |
+| `REAUTH_FAILED` | `code` | 401 from `POST /api/auth/reauth`, the proof-gated `/api/auth/password` and `/api/auth/identities/{id}` endpoints, and `POST /api/me/export` |
+| `SSO_REVALIDATE` | `code` | `POST /api/auth/refresh` (401) once the SSO session is older than `SSO_SESSION_REVALIDATE_AFTER` |
+| `SSO_DISABLED` | `code` | `DELETE /api/auth/password` (409) while SSO is off |
 
 ---
 
@@ -2169,6 +2392,71 @@ Null fields are omitted from the JSON, as everywhere else in this API.
 **Response `200` — `MemberProfileResponse`** (same shape as above).
 
 **Errors:** 422
+
+---
+
+### 17b. Personal data export — `/api/me/export`
+
+#### `POST /api/me/export`
+
+Streams the caller's full data as a ZIP (JSON + CSV).
+
+- **Auth:** Required, plus a re-authentication: a valid `reauth_proof` cookie, or the inline `reAuth` payload
+- **Rate limit:** 5 / user / hour
+- **Produces:** `application/zip`
+
+**Request body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `reAuth` | `object` \| `null` | `{ "password": "...", "totpCode": "..." }`. Ignored when the request carries a valid `reauth_proof` cookie. Otherwise required: `totpCode` when 2FA is enabled, else `password` |
+| `includeBalanceSnapshots` | `boolean` | Include the balance history |
+
+**Response `200`** — `Content-Disposition: attachment; filename="picsou-export-{username}-{yyyyMMdd-HHmmss}.zip"`.
+
+**Errors:** 401 `"code":"REAUTH_FAILED"` (no valid proof and a missing or wrong inline payload), 429 (empty body)
+
+---
+
+### 18. Setup wizard — `/api/setup`
+
+Public. Only the two endpoints that single sign-on changes are listed here.
+
+#### `GET /api/setup/status`
+
+- **Auth:** Public (not rate-limited)
+
+**Response `200`:**
+```json
+{
+  "state": "PENDING_ADMIN",
+  "needsSetup": true,
+  "integrations": { "enablebanking": false },
+  "sso": { "enabled": true, "providerName": "SSO", "adminBootstrap": true }
+}
+```
+`sso.enabled` and `sso.providerName` match `GET /api/auth/sso`. `sso.adminBootstrap` is `true` whenever `SSO_ADMIN_GROUP` is set, even if the rest of the SSO configuration is invalid: the first admin must then come from that group (SSO `intent=setup`).
+
+#### `POST /api/setup/admin`
+
+Creates the first admin with a password.
+
+- **Auth:** Public
+- **Rate limit:** 10 / IP / minute
+
+**Request body:**
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `username` | `string` | @NotBlank, 3 to 50 characters, `[a-zA-Z0-9._-]+` |
+| `password` | `string` | @NotBlank, min 8, max 128 |
+| `displayName` | `string` | max 80 |
+| `avatarColor` | `string` | `#rrggbb` |
+
+**Response `200`:**
+```json
+{ "username": "admin", "displayName": "Admin" }
+```
+
+**Errors:** 409 `"code":"SSO_ADMIN_REQUIRED"` (refused whenever `SSO_ADMIN_GROUP` is set, checked before the completion check), 410 (setup already complete), 422 (validation), 429
 
 ---
 

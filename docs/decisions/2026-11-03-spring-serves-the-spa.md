@@ -1,7 +1,7 @@
 # ADR: Spring Boot serves the SPA and every response header
 
 > Date: 2026-11-03
-> Status: Active
+> Status: Active (the nginx forwarding step is superseded by [One non-root Java process](./2026-11-03-one-non-root-process.md))
 
 ## Context
 

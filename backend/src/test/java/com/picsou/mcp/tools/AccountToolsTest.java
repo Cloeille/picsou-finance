@@ -186,12 +186,14 @@ class AccountToolsTest {
         com.picsou.service.SimplefinSyncService simplefinSyncService = mock(com.picsou.service.SimplefinSyncService.class);
         AccountConnectionService realService = new AccountConnectionService(
             accountRepository, accountServiceForConn, walletRepository, exchangeSessionRepository,
-            requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService,
+            requisitionRepository, mock(com.picsou.repository.ScpiPositionRepository.class),
+            walletSyncService, cryptoExchangeSyncService, amundiSyncService,
             mock(com.picsou.service.CmesSyncService.class),
             mock(com.picsou.service.CicSyncService.class),
             mock(com.picsou.service.NatixisSyncService.class),
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
-            fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService);
+            fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService,
+            mock(com.picsou.service.CorumSyncService.class));
         return new RealServiceFixture(realService, accountRepository, accountServiceForConn,
             boursoSyncService, tradeRepublicSyncService);
     }

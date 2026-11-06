@@ -689,6 +689,9 @@ public class NatixisSyncService {
         row.setFees(operation.fees());
         row.setAmount(operation.amount());
         row.setNativeCurrency("EUR");
+        // Fund purchases and sales inside the plan, not money in or out of the budget:
+        // kept off cash flow, recurring detection and categorization (Transaction#budgetNeutral).
+        row.setBudgetNeutral(true);
         return row;
     }
 

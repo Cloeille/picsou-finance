@@ -62,6 +62,9 @@ public class PersistentSession {
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
+    @Column(name = "sso_authenticated_at")
+    private Instant ssoAuthenticatedAt;
+
     @Column(name = "revoked_at")
     private Instant revokedAt;
 

@@ -13,10 +13,8 @@ import pytest
 
 
 REPO = Path(__file__).resolve().parents[2]
-NGINX_CONFIG = Path(os.environ.get(
-    "PICSOU_NGINX_TEST_CONFIG", REPO / "docker" / "nginx.conf",
-)).resolve()
-NGINX_IMAGE = os.environ.get("PICSOU_NGINX_TEST_IMAGE", "nginx:1.29-alpine")
+# Stands in for the app: any small image with a static web server and wget works.
+UPSTREAM_IMAGE = os.environ.get("PICSOU_PROXY_TEST_IMAGE", "nginx:1.29-alpine")
 
 
 def docker_available():
@@ -95,146 +93,8 @@ def test_network_allocation_retries_outside_an_occupied_private_range(monkeypatc
     assert not subnet.overlaps(ipaddress.ip_network("172.31.0.0/16"))
 
 
-@pytest.fixture(scope="module")
-def nginx_proxy(tmp_path_factory):
-    suffix = uuid.uuid4().hex[:12]
-    network_name = f"picsou-proxy-test-{suffix}"
-    edge_name = f"picsou-nginx-test-{suffix}"
-    trusted_name = f"picsou-trusted-test-{suffix}"
-    untrusted_name = f"picsou-untrusted-test-{suffix}"
-    snippets = tmp_path_factory.mktemp("nginx-snippets")
-    backend = snippets.parent / "backend.conf"
-
-    subnet = create_test_network(network_name)
-    try:
-        trusted_proxy_ip = str(subnet.network_address + 10)
-        untrusted_client_ip = str(subnet.network_address + 11)
-
-        (snippets / "picsou-trusted-proxy.generated.conf").write_text(
-            f"set_real_ip_from {trusted_proxy_ip};\n",
-            encoding="utf-8",
-        )
-        backend.write_text(
-            """server {
-    listen 9090;
-    location / {
-        add_header X-Upstream-XFF $http_x_forwarded_for always;
-        add_header X-Upstream-Real-IP $http_x_real_ip always;
-        add_header X-Upstream-Port $http_x_forwarded_port always;
-        return 200 "ok\\n";
-    }
-}
-""",
-            encoding="utf-8",
-        )
-
-        started = command([
-            "docker", "run", "--detach", "--name", edge_name,
-            "--network", network_name,
-            "--volume", f"{NGINX_CONFIG}:/etc/nginx/conf.d/picsou.conf:ro",
-            "--volume", f"{backend}:/etc/nginx/conf.d/backend.conf:ro",
-            "--volume", f"{snippets}:/etc/nginx/snippets:ro",
-            NGINX_IMAGE,
-        ])
-        assert started.stdout.strip()
-
-        for name, address in (
-            (trusted_name, trusted_proxy_ip),
-            (untrusted_name, untrusted_client_ip),
-        ):
-            command([
-                "docker", "run", "--detach", "--name", name,
-                "--network", network_name, "--ip", address,
-                NGINX_IMAGE, "sleep", "3600",
-            ])
-
-        for _ in range(30):
-            running = command([
-                "docker", "inspect", "--format", "{{.State.Running}}", edge_name,
-            ], check=False)
-            if running.stdout.strip() == "true":
-                break
-            time.sleep(0.1)
-        else:
-            pytest.fail(command(["docker", "logs", edge_name], check=False).stderr)
-
-        yield {
-            "network": network_name,
-            "edge": edge_name,
-            "trusted": trusted_proxy_ip,
-            "untrusted": untrusted_client_ip,
-            "clients": {
-                trusted_proxy_ip: trusted_name,
-                untrusted_client_ip: untrusted_name,
-            },
-        }
-    finally:
-        command(["docker", "rm", "--force", trusted_name, untrusted_name], check=False)
-        command(["docker", "rm", "--force", edge_name], check=False)
-        command(["docker", "network", "rm", network_name], check=False)
-
-
-def request_through(nginx_proxy, source_ip, headers):
-    args = [
-        "docker", "exec", nginx_proxy["clients"][source_ip], "wget",
-        "-q", "-S", "-O", "/dev/null", "-T", "2", "-t", "10",
-    ]
-    args.extend(f"--header={name}: {value}" for name, value in headers.items())
-    args.append(f"http://{nginx_proxy['edge']}:8080/api/probe")
-    result = command(args)
-
-    response_headers = {}
-    for line in result.stderr.splitlines():
-        if ":" not in line:
-            continue
-        name, value = line.strip().split(":", 1)
-        response_headers[name.lower()] = value.strip()
-    return response_headers
-
-
-def test_nginx_resolves_clients_only_from_the_configured_proxy(nginx_proxy):
-    first = request_through(nginx_proxy, nginx_proxy["trusted"], {
-        "X-Forwarded-For": "198.51.100.10",
-        "X-Real-IP": "203.0.113.200",
-    })
-    second = request_through(nginx_proxy, nginx_proxy["trusted"], {
-        "X-Forwarded-For": "198.51.100.11",
-        "X-Real-IP": "203.0.113.201",
-    })
-
-    assert first["x-upstream-xff"] == "198.51.100.10"
-    assert first["x-upstream-real-ip"] == "198.51.100.10"
-    assert second["x-upstream-xff"] == "198.51.100.11"
-    assert second["x-upstream-real-ip"] == "198.51.100.11"
-
-    spoofed = request_through(nginx_proxy, nginx_proxy["untrusted"], {
-        "X-Forwarded-For": "198.51.100.99",
-        "X-Real-IP": "198.51.100.98",
-    })
-    assert spoofed["x-upstream-xff"] == nginx_proxy["untrusted"]
-    assert spoofed["x-upstream-real-ip"] == nginx_proxy["untrusted"]
-
-
-@pytest.mark.parametrize(("headers", "expected"), [
-    ({"X-Forwarded-Host": "nas.test:8080"}, "8080"),
-    ({"X-Forwarded-Host": "[2001:db8::1]:8443"}, "8443"),
-    ({"X-Forwarded-Host": "picsou.example", "X-Forwarded-Port": "9443"}, "9443"),
-    ({"X-Forwarded-Host": "picsou.example:8443", "X-Forwarded-Port": "443"}, "8443"),
-])
-def test_nginx_preserves_the_public_explicit_port(nginx_proxy, headers, expected):
-    response = request_through(nginx_proxy, nginx_proxy["untrusted"], headers)
-    assert response["x-upstream-port"] == expected
-
-
-def test_nginx_leaves_the_forwarded_port_empty_for_scheme_default(nginx_proxy):
-    response = request_through(nginx_proxy, nginx_proxy["untrusted"], {
-        "X-Forwarded-Host": "picsou.example",
-    })
-    assert "x-upstream-port" not in response
-
-
 def test_compose_assigns_the_same_exact_address_to_caddy_and_nginx():
-    # Any other upstream would reach nginx from an untrusted address and merge all TLS clients.
+    # Any other upstream would reach Tomcat from an untrusted address and merge all TLS clients.
     caddyfile = (REPO / "docker/Caddyfile").read_text(encoding="utf-8")
     assert re.findall(r"^\s*reverse_proxy\s+(\S+)", caddyfile, re.MULTILINE) == ["app-tls:8080"]
 
@@ -316,7 +176,7 @@ def test_tls_compose_starts_app_before_caddy_and_allows_concurrent_one_off_app(t
         upstream.write_text('server { listen 8080; return 200 "synthetic TLS upstream\\n"; }\n')
         compose["services"] = {
             "app": {
-                "image": NGINX_IMAGE,
+                "image": UPSTREAM_IMAGE,
                 "networks": compose["services"]["app"]["networks"],
                 "volumes": [f"{upstream}:/etc/nginx/conf.d/default.conf:ro"],
             },

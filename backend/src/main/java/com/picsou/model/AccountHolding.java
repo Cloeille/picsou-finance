@@ -57,4 +57,13 @@ public class AccountHolding extends AuditableEntity {
 
     @Column(name = "last_synced_at")
     private Instant lastSyncedAt;
+
+    /**
+     * The tier the provider's own asset-class view gives this line, or null when it says nothing
+     * conclusive. Rewritten with the holding on every sync; the member's verdict lives in
+     * {@link HoldingClassification} and wins over it.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "provider_wealth_tier", length = 20)
+    private WealthTier providerWealthTier;
 }

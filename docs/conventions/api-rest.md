@@ -19,6 +19,7 @@ JWT authentication via **HttpOnly cookies with `SameSite=Lax`** — no Authoriza
 | `refresh_token`     | 7 days                    | Rotated on every use via `POST /api/auth/refresh`                             |
 | `mfa_challenge`     | 5 minutes                 | Issued after correct password when 2FA is required; consumed by `/api/mfa/verify` |
 | `persistent_token`  | 30 days (configurable)    | Opaque rotating "Remember Me" token; silent re-login via `PersistentTokenAuthFilter` |
+| `reauth_proof`      | 5 minutes                 | Proof of a fresh re-authentication (`type=reauth`, `uid`, `tv`), set by `POST /api/auth/reauth` or an SSO `reauth` round trip; required by credential changes, accepted by the data export |
 
 - `JwtAuthenticationFilter` reads `access_token` and populates the `SecurityContext`. It also verifies the `tv` claim against `AppUser.tokenVersion` so a password change immediately invalidates outstanding tokens.
 - `PersistentTokenAuthFilter` re-issues a fresh access token from a valid `persistent_token` and rotates the persistent token on every use (theft detection: a re-used old token revokes the family).

@@ -8,6 +8,7 @@ import com.picsou.model.WalletAddress;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CryptoExchangeSessionRepository;
 import com.picsou.repository.RequisitionRepository;
+import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.WalletAddressRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Deletes an account <em>and</em> the connection that feeds it, once that connection has no
@@ -52,11 +55,12 @@ public class AccountConnectionService {
     private static final String IBKR_PREFIX = "ibkr_";
     private static final String SIMPLEFIN_PREFIX = "sfin_";
     private static final String DEGIRO_EXTERNAL_ID = "degiro-portfolio";
+    private static final String CORUM_LIFE_PREFIX = Account.CORUM_LIFE_EXTERNAL_ID_PREFIX;
 
     /** One connection instance. {@code discriminator} separates two of the same kind. */
     public record ConnectionRef(Kind kind, String discriminator) {}
 
-    public enum Kind { WALLET, EXCHANGE, AMUNDI, CMES, CIC, NATIXIS, TRADE_REPUBLIC, BOURSE_DIRECT, BOURSO, FORTUNEO, IBKR, SIMPLEFIN, DEGIRO, ENABLE_BANKING }
+    public enum Kind { WALLET, EXCHANGE, AMUNDI, CMES, CIC, TRADE_REPUBLIC, BOURSE_DIRECT, BOURSO, FORTUNEO, IBKR, SIMPLEFIN, DEGIRO, CORUM, NATIXIS, ENABLE_BANKING }
 
     /**
      * What deleting an account would cost ({@link #describeDeletion}, a prediction) or what it
@@ -69,6 +73,7 @@ public class AccountConnectionService {
     private final WalletAddressRepository walletRepository;
     private final CryptoExchangeSessionRepository exchangeSessionRepository;
     private final RequisitionRepository requisitionRepository;
+    private final ScpiPositionRepository scpiPositionRepository;
     private final WalletSyncService walletSyncService;
     private final CryptoExchangeSyncService cryptoExchangeSyncService;
     private final AmundiSyncService amundiSyncService;
@@ -82,6 +87,7 @@ public class AccountConnectionService {
     private final DegiroSyncService degiroSyncService;
     private final IbkrSyncService ibkrSyncService;
     private final SimplefinSyncService simplefinSyncService;
+    private final CorumSyncService corumSyncService;
 
     public AccountConnectionService(
         AccountRepository accountRepository,
@@ -89,6 +95,7 @@ public class AccountConnectionService {
         WalletAddressRepository walletRepository,
         CryptoExchangeSessionRepository exchangeSessionRepository,
         RequisitionRepository requisitionRepository,
+        ScpiPositionRepository scpiPositionRepository,
         WalletSyncService walletSyncService,
         CryptoExchangeSyncService cryptoExchangeSyncService,
         AmundiSyncService amundiSyncService,
@@ -101,13 +108,15 @@ public class AccountConnectionService {
         FortuneoSyncService fortuneoSyncService,
         DegiroSyncService degiroSyncService,
         IbkrSyncService ibkrSyncService,
-        SimplefinSyncService simplefinSyncService
+        SimplefinSyncService simplefinSyncService,
+        CorumSyncService corumSyncService
     ) {
         this.accountRepository = accountRepository;
         this.accountService = accountService;
         this.walletRepository = walletRepository;
         this.exchangeSessionRepository = exchangeSessionRepository;
         this.requisitionRepository = requisitionRepository;
+        this.scpiPositionRepository = scpiPositionRepository;
         this.walletSyncService = walletSyncService;
         this.cryptoExchangeSyncService = cryptoExchangeSyncService;
         this.amundiSyncService = amundiSyncService;
@@ -121,6 +130,7 @@ public class AccountConnectionService {
         this.degiroSyncService = degiroSyncService;
         this.ibkrSyncService = ibkrSyncService;
         this.simplefinSyncService = simplefinSyncService;
+        this.corumSyncService = corumSyncService;
     }
 
     /**
@@ -135,11 +145,23 @@ public class AccountConnectionService {
     public DeletionImpact deleteAccount(Long accountId, Long memberId) {
         Account account = accountRepository.findByIdAndMemberId(accountId, memberId)
             .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
-        Optional<ConnectionRef> connection = resolve(account);
+        // Read before the delete: AccountService.delete unlinks the SCPI position, and the link
+        // is the only thing that ties a CORUM SCPI account to its connection.
+        Set<Long> corumScpiAccountIds = corumScpiAccountIds(memberId);
+        Optional<ConnectionRef> connection = resolve(account, corumScpiAccountIds);
 
+        if (connection.filter(ref -> ref.kind() == Kind.CORUM).isPresent()) {
+            // The CORUM sync takes the member lock, then writes the accounts; taking it here
+            // before the account write keeps the same order, so the two cannot deadlock.
+            corumSyncService.lockMemberForAccountDeletion(memberId);
+            // Re-read under the lock: a sync that committed in between may have linked
+            // another SCPI account, which must keep the session.
+            corumScpiAccountIds = corumScpiAccountIds(memberId);
+        }
         accountService.delete(accountId, memberId);
 
-        if (connection.isEmpty() || hasOtherLiveAccount(connection.get(), accountId, memberId)) {
+        if (connection.isEmpty()
+                || hasOtherLiveAccount(connection.get(), accountId, memberId, corumScpiAccountIds)) {
             return new DeletionImpact(false, null);
         }
 
@@ -160,8 +182,9 @@ public class AccountConnectionService {
         Account account = accountRepository.findByIdAndMemberId(accountId, memberId)
             .orElseThrow(() -> new ResourceNotFoundException("Account not found"));
 
-        return resolve(account)
-            .filter(ref -> !hasOtherLiveAccount(ref, accountId, memberId))
+        Set<Long> corumScpiAccountIds = corumScpiAccountIds(memberId);
+        return resolve(account, corumScpiAccountIds)
+            .filter(ref -> !hasOtherLiveAccount(ref, accountId, memberId, corumScpiAccountIds))
             .map(ref -> new DeletionImpact(true, label(ref, account, memberId)))
             .orElseGet(() -> new DeletionImpact(false, null));
     }
@@ -171,7 +194,7 @@ public class AccountConnectionService {
      * Enable Banking rows that predate V76 whose backfill could not be attributed with
      * certainty -- those simply keep their connection, the safe direction to fail.
      */
-    private Optional<ConnectionRef> resolve(Account account) {
+    private Optional<ConnectionRef> resolve(Account account, Set<Long> corumScpiAccountIds) {
         // Checked before the namespaces, not after: requisition_id is recorded by the connector
         // that created the account, so it *knows*, where a prefix only guesses. Enable Banking
         // account ids are the bank's own opaque strings -- nothing stops one from arriving as
@@ -208,7 +231,12 @@ public class AccountConnectionService {
             if (externalId.startsWith(IBKR_PREFIX)) return singleton(Kind.IBKR);
             if (externalId.startsWith(SIMPLEFIN_PREFIX)) return singleton(Kind.SIMPLEFIN);
             if (externalId.equals(DEGIRO_EXTERNAL_ID)) return singleton(Kind.DEGIRO);
+            if (externalId.startsWith(CORUM_LIFE_PREFIX)) return singleton(Kind.CORUM);
         }
+
+        // The CORUM login also syncs SCPI funds, onto manual accounts with no external id:
+        // only their position's CORUM fund code ties them to the connection.
+        if (corumScpiAccountIds.contains(account.getId())) return singleton(Kind.CORUM);
 
         return Optional.empty();
     }
@@ -225,10 +253,23 @@ public class AccountConnectionService {
      * underscore is a single-character wildcard, and Enable Banking's opaque ids are free to
      * start with any three characters.
      */
-    private boolean hasOtherLiveAccount(ConnectionRef ref, Long deletedAccountId, Long memberId) {
+    private boolean hasOtherLiveAccount(
+        ConnectionRef ref, Long deletedAccountId, Long memberId, Set<Long> corumScpiAccountIds
+    ) {
         return accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId).stream()
             .filter(other -> !other.getId().equals(deletedAccountId))
-            .anyMatch(other -> resolve(other).filter(ref::equals).isPresent());
+            .anyMatch(other -> resolve(other, corumScpiAccountIds).filter(ref::equals).isPresent());
+    }
+
+    /**
+     * Ids of the member's accounts whose SCPI position is linked to a CORUM fund. Only matched
+     * against the live accounts {@link #hasOtherLiveAccount} loads, so a position left on a
+     * soft-deleted account (before the delete cleared its link) keeps nothing alive.
+     */
+    private Set<Long> corumScpiAccountIds(Long memberId) {
+        return scpiPositionRepository.findByAccountMemberIdAndCorumFundCodeIsNotNull(memberId).stream()
+            .map(position -> position.getAccount().getId())
+            .collect(Collectors.toSet());
     }
 
     /** Returns whether there was anything left to remove. */
@@ -257,6 +298,7 @@ public class AccountConnectionService {
             case BOURSO -> boursoSyncService.clearSession(memberId);
             case FORTUNEO -> fortuneoSyncService.clearSession(memberId);
             case DEGIRO -> degiroSyncService.clearSession(memberId);
+            case CORUM -> corumSyncService.clearSession(memberId);
             case IBKR -> ibkrSyncService.deleteConnection(memberId);
             case SIMPLEFIN -> simplefinSyncService.deleteConnection(memberId);
             // Not SyncService.deleteRequisition: it throws on a missing requisition, and one
@@ -284,6 +326,7 @@ public class AccountConnectionService {
             case BOURSO -> "BoursoBank";
             case FORTUNEO -> "Fortuneo";
             case DEGIRO -> "DEGIRO";
+            case CORUM -> "CORUM";
             case IBKR -> "Interactive Brokers";
             case SIMPLEFIN -> "SimpleFIN";
             case ENABLE_BANKING -> requisitionRepository

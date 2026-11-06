@@ -60,8 +60,8 @@ ISIN.
    these channels, gets `MFA_TYPE_UNSUPPORTED`.
 7. **Operations are imported as history.** BUY and SELL transactions per fund line
    (investments, the employer top-up, releases) from Natixis' five-year history. They
-   are reconciled by external id, never change balances, and are kept out of the
-   budget and of categorization on employee-savings accounts.
+   are reconciled by external id, never change balances, and are written
+   `budgetNeutral` so the budget and categorization ignore them.
 8. **Errors use the strict `{"detail": CODE}` contract** with codes already in
    `SidecarErrorCode`. As with every connector since the ports ADR, there is no
    port: `NatixisAdapter` is a concrete component.
@@ -117,7 +117,7 @@ flow needs a browser, the cheaper and faster httpx path wins.
   Helm entry and `NATIXIS_AUTH_URL`.
 - On the backend: `SidecarBank.NATIXIS`, `NatixisAdapter`, `NatixisSyncService`,
   `NatixisSession`, `/api/natixis` and the migration
-  `V125__natixis_session.sql`, which has no credentials column.
+  `V129__natixis_session.sql`, which has no credentials column.
 - There is a "Natixis Interépargne" entry in the add-account modal and on the sync
   page.
 - See [natixis-interepargne.md](../features/natixis-interepargne.md).

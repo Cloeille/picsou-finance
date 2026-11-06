@@ -27,7 +27,7 @@ ends the session.
 - `backend/.../controller/NatixisController.java`: `/api/natixis` with
   `/auth/initiate`, `/auth/complete`, `/sync`, `GET /status` and `DELETE /session`.
 - `backend/.../model/NatixisSession.java` and
-  `db/migration/V125__natixis_session.sql`: one session per member, holding the
+  `db/migration/V129__natixis_session.sql`: one session per member, holding the
   encrypted session state and the sync status. No credentials are stored.
 - `frontend/src/components/sync/NatixisPanel.tsx` and
   `frontend/src/pages/sync/NatixisTab.tsx`: the connection panel, also reachable
@@ -73,10 +73,11 @@ existing rows are left as they are. Operations are history only. They never chan
 balances, holdings or snapshots, and they feed the realized-gains section of the
 account.
 
-**Budget:** BUY/SELL rows on `EMPLOYEE_SAVINGS` accounts are excluded from cash flow,
-recurring detection and categorization (rules and AI), in `TransactionRepository`.
-Without that, years of profit-sharing would read as spending. Other account types,
-the Fortuneo PEA included, keep their current behaviour.
+**Budget:** each operation is written with `budgetNeutral = true`. This is the
+`Transaction#budgetNeutral` flag (V126) that every budget, cash-flow, categorization
+and global-transactions query filters out, and that CORUM Life also uses for
+movements inside its contract. Without it, years of profit-sharing would read as
+spending. The rows stay visible on the account page and in exports.
 
 ## Technical choices
 
