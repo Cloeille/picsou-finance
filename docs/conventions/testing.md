@@ -61,7 +61,8 @@ class GoalServiceTest {
 ### Patterns
 
 - **`@ExtendWith(MockitoExtension.class)`** with `@Mock` and `@InjectMocks` — no `MockitoAnnotations.openMocks()`.
-- **Lombok builders for test data** — `Account.builder()`, `Goal.builder()` etc. No test fixtures or mother objects.
+- **Lombok builders for test data** — `Account.builder()`, `Goal.builder()` etc. No test fixtures or mother objects, except `com.picsou.support.TestEntities` for the few member and user shapes that several classes built identically. A test that needs a different field builds its own entity.
+- **Canned HTTP answers via `WebClientStubs`** (`com.picsou.support`) — `returning(status, json)`, `neverResponding()`, `failing(error)`, `sequence(...)`, and `recording(...)` for the path and body of each request. Do not hand-roll an `ExchangeFunction` for those cases. A sidecar connector's error mapping (malformed error body, unknown or undeclared `detail` code, bare 401, 410, empty body, timeout) is tested once for all of them in `SidecarContractTest`: add a row there for a new connector, not a copy in its own test class.
 - **AssertJ** for all assertions (`assertThat`, `isEqualByComparingTo`). No JUnit `assertEquals`.
 - **No Spring context** in unit tests — pure Mockito mocking.
 - **Log capture on the root logger** — a `ListAppender` on the root logger also receives events from other threads, such as the schedulers of Spring contexts left by earlier test classes in the same JVM. Those threads can still append after `detachAppender`. Copy `appender.list` inside `synchronized (appender)` before you assert on it (see `CaisseEpargneAdapterAuthTest.snapshot`). Iterating the live list fails at random with `ConcurrentModificationException`. Prefer a ListAppender on the class's own logger when the test does not need every logger.
@@ -99,10 +100,14 @@ class BudgetSeedWriteOnReadPostgresTest {
 
     @Container
     @ServiceConnection                            // auto-wires the datasource — no manual JDBC props
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
     // ...
 }
 ```
+
+`PostgresContainers` (`com.picsou.support`) is the single place that knows the image, the Docker
+API pin, the Docker guard, the Flyway setup and the JDBC connection. Do not copy that plumbing
+into a test class; call the helper.
 
 ```bash
 mvn test -Dtest=BudgetSeedWriteOnReadPostgresTest   # needs a running Docker daemon
@@ -138,38 +143,38 @@ JDBC directly, migrating in two steps so the seeded data is what the migration u
 actually operates on.
 
 ```java
-@Testcontainers
+@RequiresPostgres
 class V99SomeMigrationTest {
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @BeforeAll
     static void migrateAndSeed() throws SQLException {
-        migrateTo("98");   // the schema a deployed instance is already on
-        // ... seed rows representing real pre-migration data, incl. negative controls ...
-        migrateTo("99");   // apply the migration under test, alone
+        PostgresContainers.migrateTo(POSTGRES, "98");   // the schema a deployed instance is already on
+        // ... seed rows via PostgresContainers.connection(POSTGRES), incl. negative controls ...
+        PostgresContainers.migrateTo(POSTGRES, "99");   // apply the migration under test, alone
     }
 }
 ```
 
 Assert both directions: the rows that must change, **and** the rows that must not.
 
-Three things the class must do, all learned the hard way:
+`@RequiresPostgres` and `PostgresContainers` carry three things every such class needs, all
+learned the hard way. Do not re-implement them per class:
 
-- **Gate on Docker** with `@EnabledIf("dockerAvailable")` (backed by
-  `DockerClientFactory.instance().isDockerAvailable()`), so a machine without a Docker
-  socket skips this class instead of failing the whole suite. It must be a JUnit
-  `ExecutionCondition` — a `@BeforeAll` assumption runs *after* the Testcontainers
-  extension has already tried to start the container.
+- **Gate on Docker.** `@RequiresPostgres` combines `@Testcontainers` with
+  `@EnabledIf("com.picsou.support.PostgresContainers#dockerAvailable")`, so a machine without a
+  Docker socket skips the class instead of failing the whole suite. It must be a JUnit
+  `ExecutionCondition` — a `@BeforeAll` assumption runs *after* the Testcontainers extension has
+  already tried to start the container.
 - **Pin `api.version=1.44`, in two places.** Otherwise docker-java negotiates down to API
   1.32, which Engine ≥ 28 refuses — and that surfaces as the *same* "Could not find a valid
   Docker environment" error a Docker-less machine gives, so the guard above would quietly
   skip the test on a perfectly capable host. `pom.xml` sets it via surefire
   `systemPropertyVariables` so it applies process-wide before *any* Testcontainers class
-  initializes; the test class also sets it in a static block so IDE and failsafe runs
+  initializes; `PostgresContainers` also sets it in a static initializer so IDE and failsafe runs
   (which never read surefire config) work too. A classpath `testcontainers.properties` is
   **not** honored for this — tested. Sets the floor at Docker Engine ≥ 25.0.
-
 - **Make CI refuse to skip.** A skip is invisible in a green build, so `ci.yml` sets
   `PICSOU_REQUIRE_DOCKER_TESTS=true` and `dockerAvailable()` throws instead of returning
   false when it is set. Without this, any Docker drift on the runner silently converts the
@@ -177,6 +182,14 @@ Three things the class must do, all learned the hard way:
 
 The three interlock: the guard alone turns a config problem into a silent pass, and the
 API pin alone makes Docker-less machines fail the whole suite.
+
+Keep **one fresh container per test class** (`@Container static final`, never shared across
+classes): migration tests migrate to specific versions and seed rows, so a shared database would
+leak state between them. Helpers: `migrateTo` / `migrateToOutOfOrder` (the latter mirrors
+`application.yml`), `connection`, and `registerValidatedDatasource` for a Flyway-migrated
+`@DataJpaTest` with `ddl-auto=validate`. A class that opts in on top of another condition (for
+example `HomeBankQifPrivateSmokeTest`) and must skip, never fail, without Docker uses
+`@EnabledIf("com.picsou.support.PostgresContainers#dockerDaemonReachable")` instead.
 
 Also order any test that mutates the shared seeded dataset **last**
 (`@TestMethodOrder` + `@Order`) — JUnit's default method order is deliberately

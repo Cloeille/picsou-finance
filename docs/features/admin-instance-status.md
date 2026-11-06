@@ -32,7 +32,7 @@ pop-up for both.
 `cic-auth` (CIC online banking), separately from `cmes-auth` (employee savings).
 Only sidecars the household uses are probed: one with at least one row in its session table,
 including an expired session. Each in-use sidecar gets `GET /health` (2 s per probe, in
-parallel, 3 s overall). CIC uses `app.cic-auth.url` (`CIC_AUTH_URL`) and expects `sidecar-python`.
+parallel, 3 s overall). CIC uses `app.sidecars.cic-auth.url` (`CIC_AUTH_URL`) and expects `sidecar-python`.
 The session counts run one after another in the background under the same 3 s deadline (one
 DB connection at a time): a sidecar whose count is not known by the deadline reports nothing,
 since it is unknown whether the household uses it. Only one count run is in flight at a time

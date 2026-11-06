@@ -220,7 +220,7 @@ class ParseSnapshotTest(unittest.TestCase):
         self.assertIsNone(snapshot["holdings"][0]["valuationDate"])
 
     def test_snapshot_key_is_holdings_to_match_the_java_port(self):
-        # `CorumPort.Snapshot` decodes `holdings`. A key renamed on only one
+        # `CorumAdapter.Snapshot` decodes `holdings`. A key renamed on only one
         # side decodes into a null list and writes an empty portfolio, so this
         # pins the name the Java record expects.
         contract = _contract([_line("US", "300.00")], total="300.00")
