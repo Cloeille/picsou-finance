@@ -1,11 +1,13 @@
 """The pull-request size nudge counts reviewable lines and speaks only above the budget."""
 
-from importlib.machinery import SourceFileLoader
+import importlib.util
 from pathlib import Path
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-pr_size = SourceFileLoader("pr_size", str(ROOT / ".github/scripts/pr_size.py")).load_module()
+_spec = importlib.util.spec_from_file_location("pr_size", ROOT / ".github/scripts/pr_size.py")
+pr_size = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(pr_size)
 
 
 class PrSizeTest(unittest.TestCase):

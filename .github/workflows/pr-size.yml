@@ -21,6 +21,7 @@ jobs:
     if: github.event.pull_request.user.type != 'Bot' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    continue-on-error: true  # a nudge: an API hiccup must never show a red check
     permissions: {contents: read, pull-requests: write}
     steps:
       # No `ref`: pull_request_target checks out the base branch, never the pull request.

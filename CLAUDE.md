@@ -61,7 +61,7 @@ Before coding, check the relevant docs in `docs/`.
 
 Before opening or updating a pull request, read [`CONTRIBUTING.md`](CONTRIBUTING.md#before-you-open-a-pull-request) and follow it; the pull request template mirrors it. The rules agents break most:
 
-- One concern per pull request, about 600 changed lines at most (lockfiles, `CHANGELOG.md`, snapshots, fixtures excluded). Split bigger work: a small refactor first, then the feature in slices. Do not stack pull requests.
+- One concern per pull request, about 600 changed lines at most (lockfiles, `CHANGELOG.md`, snapshots, fixtures excluded). Split bigger work: a small refactor first, then the feature in slices. Do not stack pull requests unless the maintainer agreed.
 - Sync with `main` (merge it in) and have CI green before asking for review. Never weaken a lint, test or convention to pass.
 - Every behaviour change has a test that fails without it. No test may depend on the current date: inject a `Clock`.
 - A new migration takes the next free `V<n>` on an up-to-date `main`; after another pull request merges first, renumber your own unmerged file. `MigrationVersionsTest` enforces unique versions. Never renumber one already on `main`.

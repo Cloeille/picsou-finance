@@ -49,7 +49,11 @@ def render(lines, repo):
 
 
 def gh(*args):
-    return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+    try:
+        return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+    except subprocess.CalledProcessError as e:
+        print(e.stderr, file=sys.stderr)
+        raise
 
 
 def main():
