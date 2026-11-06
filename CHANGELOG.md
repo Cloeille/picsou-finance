@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A co-owned loan shows its real repayment progress.** The dashboard's liabilities card
+  compared the member's share of the remaining capital to the whole borrowed amount, so a
+  half-owned 200,000 EUR loan with 150,000 left showed 62.5% repaid instead of 25%. Progress
+  now uses the loan's own figures whatever the member's share, including a zero share. See
+  [Ownership shares](docs/features/account-ownership-shares.md).
+
 - **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar
   read the whole transaction history and refused it past 1,000 rows (`UPSTREAM_FORMAT_CHANGED`).
   It now asks for rows ordered by date and stops paging past the last 365 days when they come
