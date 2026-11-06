@@ -5,8 +5,8 @@ import com.picsou.model.DividendEvent;
 import com.picsou.model.DividendSource;
 import com.picsou.model.DividendSourceStatus;
 import com.picsou.port.DividendHistory;
-import com.picsou.port.DividendHistoryPort;
-import com.picsou.port.NasdaqDividendPort;
+import com.picsou.adapter.YahooFinancePriceProvider;
+import com.picsou.adapter.NasdaqDividendProvider;
 import com.picsou.port.PriceProviderPort;
 import com.picsou.repository.DividendSourceRepository;
 import ch.qos.logback.classic.Level;
@@ -50,8 +50,8 @@ class DividendHistoryServiceTest {
     private static final Instant NOW = Instant.parse("2026-10-20T12:00:00Z");
 
     @Mock DividendSourceRepository repository;
-    @Mock DividendHistoryPort historyPort;
-    @Mock NasdaqDividendPort nasdaq;
+    @Mock YahooFinancePriceProvider yahooHistory;
+    @Mock NasdaqDividendProvider nasdaq;
     @Mock PriceProviderPort prices;
 
     private final CountingTxManager txManager = new CountingTxManager();
@@ -74,7 +74,7 @@ class DividendHistoryServiceTest {
         int refreshed = service().refreshStale(List.of("TTE.PA"), 40);
 
         assertThat(refreshed).isZero();
-        verify(historyPort, never()).fetchDividendHistory(any());
+        verify(yahooHistory, never()).fetchDividendHistory(any());
         verify(repository, never()).findByTickerIn(any());
     }
 
@@ -85,17 +85,17 @@ class DividendHistoryServiceTest {
         DividendSource stale = source("STALE", DividendSourceStatus.OK, now.minus(Duration.ofDays(8)));
         DividendSource oldest = source("OLDEST", DividendSourceStatus.OK, now.minus(Duration.ofDays(40)));
         when(repository.findByTickerIn(any())).thenReturn(List.of(fresh, stale, oldest));
-        when(historyPort.fetchDividendHistory("OTHER"))
+        when(yahooHistory.fetchDividendHistory("OTHER"))
             .thenReturn(new DividendHistory("EUR", List.of(point("2026-06-01", "0.50"))));
         when(prices.getFxRateToEur("EUR")).thenReturn(BigDecimal.ONE);
 
         int refreshed = service().refreshStale(List.of("FRESH", "STALE", "OTHER", "OLDEST"), 1);
 
         assertThat(refreshed).isEqualTo(1);
-        verify(historyPort).fetchDividendHistory("OTHER");
-        verify(historyPort, never()).fetchDividendHistory("FRESH");
-        verify(historyPort, never()).fetchDividendHistory("STALE");
-        verify(historyPort, never()).fetchDividendHistory("OLDEST");
+        verify(yahooHistory).fetchDividendHistory("OTHER");
+        verify(yahooHistory, never()).fetchDividendHistory("FRESH");
+        verify(yahooHistory, never()).fetchDividendHistory("STALE");
+        verify(yahooHistory, never()).fetchDividendHistory("OLDEST");
     }
 
     @Test
@@ -103,15 +103,15 @@ class DividendHistoryServiceTest {
         DividendSource week = source("WEEK", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(8)));
         DividendSource month = source("MONTH", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(30)));
         when(repository.findByTickerIn(any())).thenReturn(List.of(week, month));
-        when(historyPort.fetchDividendHistory(any()))
+        when(yahooHistory.fetchDividendHistory(any()))
             .thenReturn(new DividendHistory("EUR", List.of(point("2026-06-01", "0.50"))));
         when(prices.getFxRateToEur("EUR")).thenReturn(BigDecimal.ONE);
 
         service().refreshStale(List.of("WEEK", "MONTH", "NEVER"), 2);
 
-        verify(historyPort).fetchDividendHistory("NEVER");
-        verify(historyPort).fetchDividendHistory("MONTH");
-        verify(historyPort, never()).fetchDividendHistory("WEEK");
+        verify(yahooHistory).fetchDividendHistory("NEVER");
+        verify(yahooHistory).fetchDividendHistory("MONTH");
+        verify(yahooHistory, never()).fetchDividendHistory("WEEK");
     }
 
     @Test
@@ -122,14 +122,14 @@ class DividendHistoryServiceTest {
         DividendSource newerThanSix = source("NEW", DividendSourceStatus.OK,
             NOW.minus(Duration.ofDays(6)).plusSeconds(1));
         when(repository.findByTickerIn(any())).thenReturn(List.of(almostSeven, sixDays, newerThanSix));
-        when(historyPort.fetchDividendHistory(any()))
+        when(yahooHistory.fetchDividendHistory(any()))
             .thenReturn(new DividendHistory("EUR", List.of()));
 
         service().refreshStale(List.of("ALMOST", "SIX", "NEW"), 10);
 
-        verify(historyPort).fetchDividendHistory("ALMOST");
-        verify(historyPort).fetchDividendHistory("SIX");
-        verify(historyPort, never()).fetchDividendHistory("NEW");
+        verify(yahooHistory).fetchDividendHistory("ALMOST");
+        verify(yahooHistory).fetchDividendHistory("SIX");
+        verify(yahooHistory, never()).fetchDividendHistory("NEW");
     }
 
     @Test
@@ -140,17 +140,17 @@ class DividendHistoryServiceTest {
             NOW.minus(Duration.ofDays(7)).plusSeconds(2));
         DividendSource midweek = source("B", DividendSourceStatus.OK, NOW.minus(Duration.ofDays(5)));
         when(repository.findByTickerIn(any())).thenReturn(List.of(lastSunday, midweek));
-        when(historyPort.fetchDividendHistory(any())).thenReturn(new DividendHistory("EUR", List.of()));
+        when(yahooHistory.fetchDividendHistory(any())).thenReturn(new DividendHistory("EUR", List.of()));
 
         service().refreshStale(List.of("A", "B"), 10);
 
-        verify(historyPort).fetchDividendHistory("A");
-        verify(historyPort, never()).fetchDividendHistory("B");
+        verify(yahooHistory).fetchDividendHistory("A");
+        verify(yahooHistory, never()).fetchDividendHistory("B");
     }
 
     @Test
     void refreshTimestampsComeFromTheInjectedClock() {
-        when(historyPort.fetchDividendHistory("TTE.PA")).thenReturn(new DividendHistory("EUR", List.of()));
+        when(yahooHistory.fetchDividendHistory("TTE.PA")).thenReturn(new DividendHistory("EUR", List.of()));
 
         service().refreshStale(List.of("TTE.PA"), 10);
 
@@ -172,16 +172,16 @@ class DividendHistoryServiceTest {
         DividendSource neverFetched = source("E", DividendSourceStatus.NEVER_FETCHED, null);
         when(repository.findByTickerIn(any()))
             .thenReturn(List.of(failedYesterday, failedLastWeek, okThreeDaysAgo, okEightDaysAgo, neverFetched));
-        when(historyPort.fetchDividendHistory(any()))
+        when(yahooHistory.fetchDividendHistory(any()))
             .thenReturn(new DividendHistory("EUR", List.of()));
 
         service().refreshStale(List.of("A", "B", "C", "D", "E"), 10);
 
-        verify(historyPort, never()).fetchDividendHistory("A");
-        verify(historyPort).fetchDividendHistory("B");
-        verify(historyPort, never()).fetchDividendHistory("C");
-        verify(historyPort).fetchDividendHistory("D");
-        verify(historyPort).fetchDividendHistory("E");
+        verify(yahooHistory, never()).fetchDividendHistory("A");
+        verify(yahooHistory).fetchDividendHistory("B");
+        verify(yahooHistory, never()).fetchDividendHistory("C");
+        verify(yahooHistory).fetchDividendHistory("D");
+        verify(yahooHistory).fetchDividendHistory("E");
     }
 
     @Test
@@ -195,7 +195,7 @@ class DividendHistoryServiceTest {
         existing.setEvents(new ArrayList<>(List.of(kept)));
         when(repository.findByTickerIn(any())).thenReturn(List.of(existing));
         when(repository.findByTicker("TTE.PA")).thenReturn(Optional.of(existing));
-        when(historyPort.fetchDividendHistory("TTE.PA")).thenThrow(new RuntimeException("yahoo 502"));
+        when(yahooHistory.fetchDividendHistory("TTE.PA")).thenThrow(new RuntimeException("yahoo 502"));
 
         service().refreshStale(List.of("TTE.PA"), 10);
 
@@ -218,7 +218,7 @@ class DividendHistoryServiceTest {
         existing.setEvents(new ArrayList<>(List.of(kept)));
         when(repository.findByTickerIn(any())).thenReturn(List.of(existing));
         when(repository.findByTicker("AAPL")).thenReturn(Optional.of(existing));
-        when(historyPort.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
+        when(yahooHistory.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
             "USD", List.of(point("2026-08-01", "1.10"))));
         when(prices.getFxRateToEur("USD")).thenReturn(null);
 
@@ -238,7 +238,7 @@ class DividendHistoryServiceTest {
             .exDate(LocalDate.of(2025, 1, 1)).amount(new BigDecimal("1")).amountEur(new BigDecimal("1")).build())));
         when(repository.findByTickerIn(any())).thenReturn(List.of(existing));
         when(repository.findByTicker("TTE.PA")).thenReturn(Optional.of(existing));
-        when(historyPort.fetchDividendHistory("TTE.PA")).thenReturn(new DividendHistory(
+        when(yahooHistory.fetchDividendHistory("TTE.PA")).thenReturn(new DividendHistory(
             "USD", List.of(point("2026-06-15", "2.00"))));
         when(prices.getFxRateToEur("USD")).thenReturn(new BigDecimal("0.50"));
 
@@ -255,7 +255,7 @@ class DividendHistoryServiceTest {
 
     @Test
     void eachTickerGetsItsOwnTransaction() {
-        when(historyPort.fetchDividendHistory(any())).thenReturn(new DividendHistory("EUR", List.of()));
+        when(yahooHistory.fetchDividendHistory(any())).thenReturn(new DividendHistory("EUR", List.of()));
 
         service().refreshStale(List.of("A", "B"), 10);
 
@@ -264,7 +264,7 @@ class DividendHistoryServiceTest {
 
     @Test
     void nasdaqIsNotCalledForATickerWithAnExchangeSuffix() {
-        when(historyPort.fetchDividendHistory("TTE.PA"))
+        when(yahooHistory.fetchDividendHistory("TTE.PA"))
             .thenReturn(new DividendHistory("EUR", List.of(point("2026-06-01", "1"))));
         when(prices.getFxRateToEur("EUR")).thenReturn(BigDecimal.ONE);
 
@@ -298,7 +298,7 @@ class DividendHistoryServiceTest {
         existing.setEvents(new ArrayList<>(List.of(repeated, declared, olderThanWindow)));
         when(repository.findByTickerIn(any())).thenReturn(List.of(existing));
         when(repository.findByTicker("AAPL")).thenReturn(Optional.of(existing));
-        when(historyPort.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
+        when(yahooHistory.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
             "USD", List.of(point("2026-08-01", "1.10"))));
         when(prices.getFxRateToEur("USD")).thenReturn(new BigDecimal("0.90"));
         when(nasdaq.fetchDividends("AAPL")).thenThrow(new RuntimeException("nasdaq 500"));
@@ -341,7 +341,7 @@ class DividendHistoryServiceTest {
         existing.setEvents(new ArrayList<>(List.of(repeated, declared)));
         when(repository.findByTickerIn(any())).thenReturn(List.of(existing));
         when(repository.findByTicker("KO")).thenReturn(Optional.of(existing));
-        when(historyPort.fetchDividendHistory("KO")).thenReturn(new DividendHistory(
+        when(yahooHistory.fetchDividendHistory("KO")).thenReturn(new DividendHistory(
             "USD", List.of(point("2026-08-01", "0.50"))));
         when(prices.getFxRateToEur("USD")).thenReturn(BigDecimal.ONE);
         when(nasdaq.fetchDividends("KO")).thenReturn(List.of());
@@ -378,7 +378,7 @@ class DividendHistoryServiceTest {
         existing.setEvents(new ArrayList<>(List.of(repeated, withdrawn)));
         when(repository.findByTickerIn(any())).thenReturn(List.of(existing));
         when(repository.findByTicker("AAPL")).thenReturn(Optional.of(existing));
-        when(historyPort.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
+        when(yahooHistory.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
             "USD", List.of(point("2026-08-01", "1.10"))));
         when(prices.getFxRateToEur("USD")).thenReturn(new BigDecimal("0.90"));
         when(nasdaq.fetchDividends("AAPL")).thenReturn(List.of(new com.picsou.port.NasdaqDividend(
@@ -400,7 +400,7 @@ class DividendHistoryServiceTest {
 
     @Test
     void aFutureYahooExDateIsStoredDeclaredWithNoPaymentDate() {
-        when(historyPort.fetchDividendHistory("TTE.PA")).thenReturn(new DividendHistory(
+        when(yahooHistory.fetchDividendHistory("TTE.PA")).thenReturn(new DividendHistory(
             "EUR", List.of(point("2026-09-15", "0.85"), point("2026-12-15", "0.90"))));
         when(prices.getFxRateToEur("EUR")).thenReturn(BigDecimal.ONE);
 
@@ -424,7 +424,7 @@ class DividendHistoryServiceTest {
     void aNasdaqRowWithNoCurrencyIsSkippedWhenYahooGaveNoneEither() {
         // Yahoo answered empty (no currency), so a Nasdaq row without one cannot be priced:
         // it is skipped, not stored 1:1 as euros. A row that states EUR is still stored.
-        when(historyPort.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(null, List.of()));
+        when(yahooHistory.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(null, List.of()));
         when(nasdaq.fetchDividends("AAPL")).thenReturn(List.of(
             new com.picsou.port.NasdaqDividend(LocalDate.of(2026, 11, 19), LocalDate.of(2026, 12, 10),
                 null, null, new BigDecimal("0.98"), null),
@@ -445,7 +445,7 @@ class DividendHistoryServiceTest {
     @Test
     void aTickerInTheFailureLogIsSanitized() {
         String ticker = "AAPL\nINJECTED";
-        when(historyPort.fetchDividendHistory(ticker)).thenThrow(new RuntimeException("yahoo\n502"));
+        when(yahooHistory.fetchDividendHistory(ticker)).thenThrow(new RuntimeException("yahoo\n502"));
         Logger logger = (Logger) LoggerFactory.getLogger(DividendHistoryService.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
@@ -480,7 +480,7 @@ class DividendHistoryServiceTest {
         existing.setEvents(new ArrayList<>(List.of(declared)));
         when(repository.findByTickerIn(any())).thenReturn(List.of(existing));
         when(repository.findByTicker("AAPL")).thenReturn(Optional.of(existing));
-        when(historyPort.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
+        when(yahooHistory.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
             "USD", List.of(point("2026-08-01", "1.10"))));
         when(prices.getFxRateToEur("USD")).thenReturn(new BigDecimal("0.90"));
         when(prices.getFxRateToEur("GBP")).thenReturn(null);
@@ -510,7 +510,7 @@ class DividendHistoryServiceTest {
         existing.setEvents(new ArrayList<>(List.of(yahoo)));
         when(repository.findByTickerIn(any())).thenReturn(List.of(existing));
         when(repository.findByTicker("AAPL")).thenReturn(Optional.of(existing));
-        when(historyPort.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
+        when(yahooHistory.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
             "USD", List.of(point("2026-11-19", "0.40"))));
         when(prices.getFxRateToEur("USD")).thenReturn(new BigDecimal("0.90"));
         when(nasdaq.fetchDividends("AAPL")).thenReturn(List.of(new com.picsou.port.NasdaqDividend(
@@ -528,7 +528,7 @@ class DividendHistoryServiceTest {
 
     @Test
     void aBlankNasdaqCurrencyDoesNotStoreTheRowOneToOneAsEur() {
-        when(historyPort.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
+        when(yahooHistory.fetchDividendHistory("AAPL")).thenReturn(new DividendHistory(
             null, List.of()));
         when(nasdaq.fetchDividends("AAPL")).thenReturn(List.of(new com.picsou.port.NasdaqDividend(
             LocalDate.of(2026, 11, 19), LocalDate.of(2026, 12, 10), null, null,
@@ -543,7 +543,7 @@ class DividendHistoryServiceTest {
 
     @Test
     void theProviderIsCalledOutsideTheWriteTransaction() {
-        when(historyPort.fetchDividendHistory("AAPL")).thenAnswer(invocation -> {
+        when(yahooHistory.fetchDividendHistory("AAPL")).thenAnswer(invocation -> {
             assertThat(txManager.open).isFalse();
             return new DividendHistory("EUR", List.of(point("2026-06-01", "1")));
         });
@@ -557,7 +557,7 @@ class DividendHistoryServiceTest {
 
     private DividendHistoryService service() {
         return new DividendHistoryService(
-            repository, historyPort, nasdaq, prices, cooldown, new TransactionTemplate(txManager),
+            repository, yahooHistory, nasdaq, prices, cooldown, new TransactionTemplate(txManager),
             Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }

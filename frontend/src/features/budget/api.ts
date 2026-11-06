@@ -48,8 +48,6 @@ export const budgetApi = {
   listRules: () => api.get<CategorizationRule[]>('/categorization-rules').then(r => r.data),
   createRule: (data: CategorizationRuleRequest) =>
     api.post<CategorizationRule>('/categorization-rules', data).then(r => r.data),
-  updateRule: (id: number, data: CategorizationRuleRequest) =>
-    api.put<CategorizationRule>(`/categorization-rules/${id}`, data).then(r => r.data),
   deleteRule: (id: number) => api.delete(`/categorization-rules/${id}`),
   recategorize: () =>
     api.post<{ categorized: number }>('/categorization-rules/recategorize').then(r => r.data),
@@ -113,8 +111,6 @@ export const budgetApi = {
       .then(r => r.data),
   createRecurring: (data: RecurringSeriesRequest) =>
     api.post<RecurringSeries>('/recurring', data).then(r => r.data),
-  updateRecurring: (id: number, data: RecurringSeriesRequest) =>
-    api.put<RecurringSeries>(`/recurring/${id}`, data).then(r => r.data),
   confirmRecurring: (id: number) =>
     api.post<RecurringSeries>(`/recurring/${id}/confirm`).then(r => r.data),
   ignoreRecurring: (id: number) =>

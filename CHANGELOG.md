@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `get_ai_categorization_status` reports its progress as counters only, under a new
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
   browser session. See [Budget + OAuth2 tools in MCP](docs/features/mcp-budget-oauth2.md).
+- **Unused-file check for the frontend.** `frontend/knip.jsonc` lets
+  `bunx knip --production` report unused files under `src/`. German and Spanish strings still
+  in English are listed for translators in `docs/features/i18n-untranslated.md`.
+
 ### Fixed
 
 - **Crypto coins outside the built-in list get a price.** NEXO and CRO are now priced
@@ -25,11 +29,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   symbol is asked again after 24 hours, an undecided one (provider down or rate-limited) after
   15 minutes; these windows are kept in memory, so a restart asks again. Past daily snapshots
   keep their recorded values.
+- **A co-owned loan shows its real repayment progress.** The dashboard's liabilities card
+  compared the member's share of the remaining capital to the whole borrowed amount, so a
+  half-owned 200,000 EUR loan with 150,000 left showed 62.5% repaid instead of 25%. Progress
+  now uses the loan's own figures whatever the member's share, including a zero share. See
+  [Ownership shares](docs/features/account-ownership-shares.md).
 
 - **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar
   read the whole transaction history and refused it past 1,000 rows (`UPSTREAM_FORMAT_CHANGED`).
   It now asks for rows ordered by date and stops paging past the last 365 days when they come
   newest first; older rows already imported stay. (#397)
+
+- **The account export dialog says "2 accounts selected".** Its count key used the legacy
+  `_plural` suffix, which i18next ignores, so every language showed the singular form.
 
 - **Trade Republic bond values no longer use percentage quotes as euro prices.** EUR bond
   ticker prices are divided by 100. Non-EUR or unknown bond currencies keep the position's
@@ -43,6 +55,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [Loans](docs/features/loans.md).
 
 ### Changed
+
+- **Sidecar URLs live under one `app.sidecars` map.** `app.bourso-auth.url` and its 12
+  siblings are now `app.sidecars.<service>.url`. The environment variables (`BOURSO_AUTH_URL`,
+  `TR_AUTH_URL`, …) and their defaults are unchanged, so a Docker or Helm install needs nothing.
+  Only an install that set the old Spring property itself must rename it: in its own YAML,
+  as `-Dapp.bourso-auth.url`, or through relaxed binding (`APP_BOURSO_AUTH_URL` becomes
+  `APP_SIDECARS_BOURSO_AUTH_URL`). The URLs now come only from the packaged `application.yml`, with no
+  fallback in code: an install that replaces it through `spring.config.location` must copy
+  the `app.sidecars` block, or the backend stops at startup naming the missing key. Behind it, the backend talks to the ten `detail`-code connectors through one client and
+  one error-code enum; stored `last_sync_error` values are unchanged (#336).
 
 - **Caisse d'Epargne: a failed account import says where it failed.** The sidecar's
   `accounts fetch failed` line now names the step (synthesis, transactions,
@@ -85,6 +107,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   See [testing conventions](docs/conventions/testing.md#sidecar-tests).
 
 ### Removed
+
+- **Unreachable frontend code.** `PortfolioView`, `CashflowTab`, `types/app.ts`, thirteen hooks
+  and helpers and three constants with no caller, the API functions only they called, the
+  Trade Republic sync-progress client stub (the backend never served it) and 94 translation
+  keys nothing reads. No screen changes.
 
 - **Split Docker stack.** The root `docker-compose.yml`, `backend/Dockerfile`,
   `frontend/Dockerfile`, `frontend/nginx.conf`, `frontend/picsou-realip.conf`, both

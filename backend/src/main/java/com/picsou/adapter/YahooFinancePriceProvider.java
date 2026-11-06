@@ -2,7 +2,6 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.picsou.port.DividendHistory;
-import com.picsou.port.DividendHistoryPort;
 import com.picsou.port.PriceProviderPort;
 import com.picsou.port.SymbolCatalogPort;
 import org.slf4j.Logger;
@@ -40,7 +39,7 @@ import java.util.stream.Collectors;
  * Note: This is an unofficial API. For production use consider Alpha Vantage or similar.
  */
 @Component
-public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatalogPort, EquityProfileProvider, DividendHistoryPort {
+public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatalogPort, EquityProfileProvider {
 
     private static final Logger log = LoggerFactory.getLogger(YahooFinancePriceProvider.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
@@ -219,8 +218,13 @@ public class YahooFinancePriceProvider implements PriceProviderPort, SymbolCatal
      * ex-date; the value's {@code date} field is. An empty map is "this symbol pays nothing".
      * A transport failure, including 429, throws — and a 429 arms {@link YahooCooldown} so the
      * weekly pass stops rather than turning one refusal into forty.
+     *
+     * <p>The forecast never calls this. {@code SchedulerService} does, weekly, and stores the
+     * answer. A page render that needed Yahoo would be one 429 away from a blank budget card.
+     *
+     * @return currency plus the ex-dates; an empty list means the symbol pays nothing
+     * @throws RuntimeException on a transport failure, including HTTP 429
      */
-    @Override
     public DividendHistory fetchDividendHistory(String ticker) {
         try {
             ChartResult result = fetchChart(

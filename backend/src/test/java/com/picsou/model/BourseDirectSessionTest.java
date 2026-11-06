@@ -1,6 +1,7 @@
 package com.picsou.model;
 
-import com.picsou.port.BourseDirectErrorCode;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.support.TestEntities;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -45,10 +46,10 @@ class BourseDirectSessionTest {
         session.markQueued();
         session.markRunning(STARTED_AT);
 
-        session.markFailed(BourseDirectErrorCode.SESSION_EXPIRED, COMPLETED_AT);
+        session.markFailed(SidecarErrorCode.SESSION_EXPIRED, COMPLETED_AT);
 
         assertThat(session.getSyncStatus()).isEqualTo(BourseDirectSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(BourseDirectErrorCode.SESSION_EXPIRED);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         assertThat(session.getLastSyncCompletedAt()).isEqualTo(COMPLETED_AT);
         assertThat(session.isActive()).isFalse();
     }
@@ -58,7 +59,7 @@ class BourseDirectSessionTest {
         BourseDirectSession session = newSession();
         session.markQueued();
 
-        session.markFailed(BourseDirectErrorCode.INTERNAL_ERROR, COMPLETED_AT);
+        session.markFailed(SidecarErrorCode.INTERNAL_ERROR, COMPLETED_AT);
 
         assertThat(session.getSyncStatus()).isEqualTo(BourseDirectSyncStatus.FAILED);
         assertThat(session.getLastSyncStartedAt()).isNull();
@@ -66,7 +67,6 @@ class BourseDirectSessionTest {
     }
 
     private BourseDirectSession newSession() {
-        FamilyMember member = FamilyMember.builder().id(7L).displayName("Owner").build();
-        return BourseDirectSession.create(member, "encrypted", VALIDATED_AT);
+        return BourseDirectSession.create(TestEntities.owner(), "encrypted", VALIDATED_AT);
     }
 }

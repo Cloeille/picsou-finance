@@ -19,7 +19,3 @@ export function consumeSetupCredentials(): { username: string; password: string 
   cachedCredentials = null
   return out
 }
-
-export function hasSetupCredentials(): boolean {
-  return cachedCredentials !== null
-}

@@ -114,8 +114,6 @@ Placeholders in the goal calendar *are* masked: they are display-only, unlike a 
   The axis and tooltip rules check each element, not the file: a file-level check let the
   cashflow axis print raw euros because it had no formatter at all. Its docstring states what it
   cannot catch
-- `CashflowTab.test.tsx` — the cashflow bar chart's axis and hovered tooltip carry no digit in
-  privacy mode
 - `AllocationTab.test.tsx` — the donut centre masks on toggle, restores when revealed, masks zero
   on initial render, and follows app language changes without relying on a locale translation key
 - `AppSidebar.test.tsx` — the toggle flips, `aria-pressed` follows, and the choice is persisted
