@@ -27,7 +27,8 @@ import java.util.stream.Collectors;
  * {@code AuthorizationServerConfig}). Both tools here are read-only reflections of state that
  * already exists: the static server metadata, and the calling access-key's own status. Neither
  * touches the authorization-server filter chain, its {@code RegisteredClientRepository}, or issues
- * any token — see {@code STATUS.md} for why {@code request_oauth2_token} was not built.
+ * any token — see {@code docs/decisions/2026-07-06-drop-oauth2-token-scope.md} for why
+ * {@code request_oauth2_token} was not built.
  */
 @Component
 public class OAuth2Tools {

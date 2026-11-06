@@ -3,7 +3,7 @@ package com.picsou.service.sync;
 import com.picsou.dto.FinaryAutoSyncResponse;
 import com.picsou.finary.FinaryApiSyncService;
 import com.picsou.exception.SyncException;
-import com.picsou.port.AmexErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.*;
 import com.picsou.service.WalletSyncService.ResyncSummary;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -308,7 +308,7 @@ class MemberSyncServiceTest {
         Long memberId = 46L;
         when(amexSyncService.resyncReporting(memberId))
             .thenReturn(SourceSyncResult.fromSyncException("amex", new SyncException(
-                "American Express session expired", null, AmexErrorCode.SESSION_EXPIRED.name())));
+                "American Express session expired", null, SidecarErrorCode.SESSION_EXPIRED.name())));
 
         List<SourceSyncResult> results = memberSyncService.resyncForUser(memberId, Set.of("amex"));
 

@@ -179,16 +179,17 @@ PnL is only computable from the account itself — that is where its cost basis 
 
 ### Asset type filters
 
-Six asset categories defined in `AccountsPage.tsx`:
+Seven asset categories defined in `AccountsPage.tsx`:
 
 | Filter key | Account types | Chart color |
 |-----------|--------------|-------------|
 | STOCKS | PEA, COMPTE_TITRES, EMPLOYEE_SAVINGS, ASSURANCE_VIE, PER | `#6366f1` |
-| METALS | OTHER | `#eab308` |
+| METALS | PRECIOUS_METALS | `#eab308` |
 | SAVINGS | LEP, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL, SAVINGS | `#22c55e` |
 | CHECKING | CHECKING | `#0ea5e9` |
 | CRYPTO | CRYPTO | `#f97316` |
 | REAL_ESTATE | REAL_ESTATE, SCPI | `#a855f7` |
+| OTHER | OTHER | see `AccountsPage.tsx` |
 
 The filter affects the summary card, chart, and account card grid simultaneously.
 
@@ -287,7 +288,7 @@ AccountsPage
 ## Links
 
 - i18n keys: `accounts.pnl`, `accounts.total`, `accounts.filters.*`, `accounts.lastSync`,
-  `accounts.lastValuation`, `property.kind.*`, `dashboard.netWorthChange`
+  `accounts.lastValuation`, `property.kind.*`
 - Related: [dashboard-time-range-isolation.md](./dashboard-time-range-isolation.md) — Dashboard PnL chart
 - Related: [live-prices-holdings.md](./live-prices-holdings.md) — per-holding PnL calculation
 - Related: [bank-logos.md](./bank-logos.md) — account card avatar (bank logo, falls back to `color`)

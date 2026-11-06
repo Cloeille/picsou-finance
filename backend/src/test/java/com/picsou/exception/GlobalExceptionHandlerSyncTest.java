@@ -1,6 +1,6 @@
 package com.picsou.exception;
 
-import com.picsou.port.BourseDirectErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -13,7 +13,7 @@ class GlobalExceptionHandlerSyncTest {
         SyncException exception = new SyncException(
             "Bourse Direct returned an incomplete portfolio",
             null,
-            BourseDirectErrorCode.PORTFOLIO_INCOMPLETE.name()
+            SidecarErrorCode.PORTFOLIO_INCOMPLETE.name()
         );
 
         var detail = handler.handleSync(exception);
@@ -21,6 +21,6 @@ class GlobalExceptionHandlerSyncTest {
         assertThat(detail.getStatus()).isEqualTo(422);
         assertThat(detail.getDetail()).isEqualTo("Bourse Direct returned an incomplete portfolio");
         assertThat(detail.getProperties())
-            .containsEntry("code", BourseDirectErrorCode.PORTFOLIO_INCOMPLETE.name());
+            .containsEntry("code", SidecarErrorCode.PORTFOLIO_INCOMPLETE.name());
     }
 }

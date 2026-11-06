@@ -1,5 +1,4 @@
-import axios from 'axios'
-import { createDemoAdapter } from '@/demo'
+import axios, { type AxiosAdapter } from 'axios'
 import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { useConnectivityStore } from '@/stores/connectivity-store'
@@ -19,8 +18,20 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+// The flag is a build-time constant: a production build drops this branch and never emits the
+// demo chunk. The chunk starts loading now, and requests sent before it arrives wait for it
+// instead of reaching the network. A failed load is forgotten, so the next request retries it.
 if (import.meta.env.VITE_DEMO_MODE === 'true') {
-  api.defaults.adapter = createDemoAdapter()
+  let demoAdapter: Promise<AxiosAdapter> | undefined
+  const loadDemoAdapter = () =>
+    (demoAdapter ??= import('@/demo')
+      .then((m) => m.createDemoAdapter())
+      .catch((error: unknown) => {
+        demoAdapter = undefined
+        throw error
+      }))
+  loadDemoAdapter().catch(() => {})
+  api.defaults.adapter = async (config) => (await loadDemoAdapter())(config)
 }
 
 // Add memberId to requests when an admin is viewing a managed profile.

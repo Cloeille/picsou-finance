@@ -13,19 +13,14 @@
 ## Architecture
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) -- Overview, modules, data flows
-
-## Release deliverables
-
-- [release/1.0.0/](./release/1.0.0/README.md) -- IEEE-style docs for 1.0.0:
-  [SRS](./release/1.0.0/SRS.md), [SDD](./release/1.0.0/SDD.md),
-  [SDS](./release/1.0.0/SDS.md), [STP](./release/1.0.0/STP.md),
-  [User Manual](./release/1.0.0/USER_MANUAL.md)
+- The IEEE-style 1.0.0 documents (SRS, SDD, SDS, STP, user manual) live in the `1.0.0` git tag:
+  `git show 1.0.0:docs/release/1.0.0/README.md`.
 
 ## Technical decisions (ADR)
 
 | Date | Decision | Status |
 |------|----------|--------|
-| 2026-01-01 | [Ports and adapters architecture](./decisions/2026-01-01-ports-and-adapters.md) | Active |
+| 2026-01-01 | [Ports and adapters architecture](./decisions/2026-01-01-ports-and-adapters.md) | Active — partially superseded |
 | 2026-01-01 | [Single user with JWT in HttpOnly cookies](./decisions/2026-01-01-single-user-jwt-cookies.md) | ⚠️ Superseded |
 | 2026-01-01 | [Flyway owns the schema](./decisions/2026-01-01-flyway-schema-ownership.md) | Active |
 | 2026-03-01 | [Dual bank provider](./decisions/2026-03-01-dual-bank-providers.md) | ⚠️ Revised — Powens experimental, disabled in 1.0.0 |
@@ -85,6 +80,7 @@
 | 2026-10-31 | [Trusted proxy client addresses](./decisions/2026-10-31-trusted-proxy-client-address.md) | Active |
 | 2026-10-31 | [Helm chart in the repository, published by CI next to the images](./decisions/2026-10-31-helm-chart-published-from-ci.md) | Active |
 | 2026-11-01 | [Sidecars share one Python package for their plumbing](./decisions/2026-11-01-shared-sidecar-package.md) | Active |
+| 2026-11-02 | [Ports only for swappable providers](./decisions/2026-11-02-ports-only-for-swappable-providers.md) | Active |
 
 ## Feature notes
 
@@ -93,7 +89,8 @@
 | MCP server + scoped access-keys | 2026-06-26 | [mcp-server.md](./features/mcp-server.md) |
 | Budget + OAuth2 tools in MCP | 2026-07-06 | [mcp-budget-oauth2.md](./features/mcp-budget-oauth2.md) |
 | Remote-MCP OAuth (claude.ai connector) | 2026-07-12 | [mcp-oauth-remote.md](./features/mcp-oauth-remote.md) |
-| Internationalization (FR/EN/DE/ES) | 2026-10-31 | [i18n.md](./features/i18n.md) |
+| Internationalization (FR/EN/DE/ES) | 2026-11-03 | [i18n.md](./features/i18n.md) |
+| German and Spanish strings awaiting translation | 2026-11-03 | [i18n-untranslated.md](./features/i18n-untranslated.md) |
 | Frontend utilities (lib/utils.ts) | 2026-11-01 | [frontend-utils.md](./features/frontend-utils.md) |
 | Demo mode | 2026-10-31 | [demo-mode.md](./features/demo-mode.md) |
 | Theme (dark / light / system) + theme-adaptive rendering | 2026-10-31 | [theme-persistence.md](./features/theme-persistence.md) |
@@ -159,6 +156,7 @@
 | Loan accounts (LOAN type, amortization view) | 2026-04-26 | [loans.md](./features/loans.md) |
 | Real estate valuation | 2026-08-11 | [real-estate-valuation.md](./features/real-estate-valuation.md) |
 | SCPI shares | 2026-10-31 | [scpi.md](./features/scpi.md) |
+| Precious metals (gold bullion and coins) | 2026-11-06 | [precious-metals.md](./features/precious-metals.md) |
 | Ownership shares | 2026-08-10 | [account-ownership-shares.md](./features/account-ownership-shares.md) |
 | 2FA (TOTP) and Remember Me | 2026-10-31 | [mfa-and-remember-me.md](./features/mfa-and-remember-me.md) |
 | Login timing equalization (username-enumeration defense, GHSA-ww5m-pxgq-8qq6) | 2026-06-27 | [login-timing-attack.md](./features/login-timing-attack.md) |

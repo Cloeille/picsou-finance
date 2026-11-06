@@ -25,6 +25,7 @@ import com.picsou.service.UserContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import com.picsou.support.TestEntities;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -106,9 +107,9 @@ class ImpersonationControllerTest {
 
     @Test
     void activatedMemberCannotBeImpersonatedOnSofidyComplete() throws Exception {
-        authenticate(member(ADMIN_MEMBER_ID, UserRole.ADMIN, true));
+        authenticate(TestEntities.user(ADMIN_MEMBER_ID, UserRole.ADMIN, true));
         when(userRepository.findByMemberId(2L))
-            .thenReturn(Optional.of(member(2L, UserRole.MEMBER, true)));
+            .thenReturn(Optional.of(TestEntities.user(2L, UserRole.MEMBER, true)));
 
         sofidy.perform(post("/api/sofidy/auth/complete")
                 .param("memberId", "2")
@@ -121,9 +122,9 @@ class ImpersonationControllerTest {
 
     @Test
     void managedMemberOverrideIsTheMemberPassedToSofidy() throws Exception {
-        authenticate(member(ADMIN_MEMBER_ID, UserRole.ADMIN, true));
+        authenticate(TestEntities.user(ADMIN_MEMBER_ID, UserRole.ADMIN, true));
         when(userRepository.findByMemberId(3L))
-            .thenReturn(Optional.of(member(3L, UserRole.MEMBER, false)));
+            .thenReturn(Optional.of(TestEntities.user(3L, UserRole.MEMBER, false)));
         when(sofidyService.completeAuth("proc-a", "123456", 3L))
             .thenReturn(new SofidySyncService.SessionStatusResponse(
                 false, SofidySyncStatus.IDLE, null, null, null));
@@ -139,7 +140,7 @@ class ImpersonationControllerTest {
 
     @Test
     void nonAdminMemberIdParamDoesNotChangeTheSofidyMember() throws Exception {
-        authenticate(member(5L, UserRole.MEMBER, true));
+        authenticate(TestEntities.user(5L, UserRole.MEMBER, true));
         when(sofidyService.completeAuth("proc-a", "123456", 5L))
             .thenReturn(new SofidySyncService.SessionStatusResponse(
                 false, SofidySyncStatus.IDLE, null, null, null));
@@ -189,17 +190,6 @@ class ImpersonationControllerTest {
     private void authenticate(AppUser user) {
         SecurityContextHolder.getContext().setAuthentication(
             new UsernamePasswordAuthenticationToken(user, null));
-    }
-
-    private AppUser member(long memberId, UserRole role, boolean activated) {
-        FamilyMember familyMember = FamilyMember.builder().id(memberId).managed(role != UserRole.ADMIN).build();
-        return AppUser.builder()
-            .id(memberId)
-            .username("user" + memberId)
-            .role(role)
-            .activated(activated)
-            .member(familyMember)
-            .build();
     }
 
     private static MockMvc mvc(Object controller) {

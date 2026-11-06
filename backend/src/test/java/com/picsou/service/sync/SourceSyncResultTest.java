@@ -1,11 +1,7 @@
 package com.picsou.service.sync;
 
 import com.picsou.exception.SyncException;
-import com.picsou.port.AmundiErrorCode;
-import com.picsou.port.BoursoErrorCode;
-import com.picsou.port.BourseDirectErrorCode;
-import com.picsou.port.FortuneoErrorCode;
-import com.picsou.port.AmexErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -17,12 +13,12 @@ class SourceSyncResultTest {
         assertStatus("trade-republic", new SyncException("expired session", null, "SESSION_EXPIRED"), SourceSyncResult.Status.NEEDS_REAUTH);
         assertStatus("trade-republic", new SyncException("AUTHENTICATION_ERROR"), SourceSyncResult.Status.NEEDS_REAUTH);
         assertStatus("revolut", new SyncException("friendly expired-session message", null, "SESSION_EXPIRED"), SourceSyncResult.Status.NEEDS_REAUTH);
-        assertStatus("bourso", coded(BoursoErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
-        assertStatus("bourso", coded(BoursoErrorCode.INVALID_CREDENTIALS.name()), SourceSyncResult.Status.NEEDS_REAUTH);
-        assertStatus("bourse-direct", coded(BourseDirectErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
-        assertStatus("amundi", coded(AmundiErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
-        assertStatus("fortuneo", coded(FortuneoErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
-        assertStatus("amex", coded(AmexErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
+        assertStatus("bourso", coded(SidecarErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
+        assertStatus("bourso", coded(SidecarErrorCode.INVALID_CREDENTIALS.name()), SourceSyncResult.Status.NEEDS_REAUTH);
+        assertStatus("bourse-direct", coded(SidecarErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
+        assertStatus("amundi", coded(SidecarErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
+        assertStatus("fortuneo", coded(SidecarErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
+        assertStatus("amex", coded(SidecarErrorCode.SESSION_EXPIRED.name()), SourceSyncResult.Status.NEEDS_REAUTH);
         assertStatus("ibkr", new SyncException("Interactive Brokers: Token has expired. (code 1012)"), SourceSyncResult.Status.NEEDS_REAUTH);
         assertStatus("ibkr", new SyncException("Interactive Brokers: Token is invalid. (code 1015)"), SourceSyncResult.Status.NEEDS_REAUTH);
     }
@@ -36,12 +32,12 @@ class SourceSyncResultTest {
         }
         assertStatus("ibkr", new SyncException("Interactive Brokers: Query is invalid. (code 1014)"), SourceSyncResult.Status.FAILED);
         assertStatus("ibkr", new SyncException("Interactive Brokers: expired token, invalid query id"), SourceSyncResult.Status.FAILED);
-        assertStatus("bourso", coded(BoursoErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
-        assertStatus("bourse-direct", coded(BourseDirectErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
-        assertStatus("amundi", coded(AmundiErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
-        assertStatus("fortuneo", coded(FortuneoErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
-        assertStatus("amex", coded(AmexErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
-        assertStatus("amex", coded(AmexErrorCode.AUTH_ATTEMPT_EXPIRED.name()), SourceSyncResult.Status.FAILED);
+        assertStatus("bourso", coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
+        assertStatus("bourse-direct", coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
+        assertStatus("amundi", coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
+        assertStatus("fortuneo", coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
+        assertStatus("amex", coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()), SourceSyncResult.Status.FAILED);
+        assertStatus("amex", coded(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()), SourceSyncResult.Status.FAILED);
     }
 
     @Test

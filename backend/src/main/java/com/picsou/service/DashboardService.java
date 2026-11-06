@@ -84,6 +84,8 @@ public class DashboardService {
         BigDecimal totalLiabilities = BigDecimal.ZERO;
         BigDecimal totalInvested = BigDecimal.ZERO;
         Map<Long, BigDecimal> accountValues = new HashMap<>();
+        // Remaining capital of each liability before the member's share is applied.
+        Map<Long, BigDecimal> unweightedLiabilityValues = new HashMap<>();
 
         for (Account account : accounts) {
             // Pocket sub-accounts: balance already counted in the parent wallet.
@@ -124,6 +126,9 @@ public class DashboardService {
             // Apply the member's share once, here: accountValues feeds both the hero totals
             // and buildDistribution, so weighting in one place keeps the pie consistent with
             // the headline figure. Accounts with no split resolve to 100% and are untouched.
+            if (account.getType().isLiability()) {
+                unweightedLiabilityValues.put(account.getId(), accountValue);
+            }
             BigDecimal share = shares.get(account.getId());
             accountValue = AccountAccessResolver.weigh(accountValue, share);
             accountInvested = AccountAccessResolver.weigh(accountInvested, share);
@@ -194,9 +199,12 @@ public class DashboardService {
             Double percentPaid = null;
             if (debt != null) {
                 monthlyPayment = loanAmortizationService.resolveMonthlyPayment(debt);
+                // Progress is the loan's own: borrowed vs remaining capital, both unweighted.
+                // The share cancels out of the ratio, and weighing borrowed would turn a
+                // zero share into 0/0 and make a configured loan look unconfigured.
                 BigDecimal borrowed = debt.getBorrowedAmount();
-                if (borrowed != null && borrowed.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal remaining = item.balanceEur().abs();
+                if (borrowed.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal remaining = unweightedLiabilityValues.get(item.accountId()).abs();
                     BigDecimal repaid = borrowed.subtract(remaining);
                     percentPaid = repaid.divide(borrowed, 6, RoundingMode.HALF_UP)
                         .multiply(BigDecimal.valueOf(100)).doubleValue();
