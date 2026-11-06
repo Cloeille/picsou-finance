@@ -57,7 +57,7 @@ import java.util.Map;
  * {@link RateLimitConfig}). {@code GET /status} is polled by the frontend
  * and is exempt. The key is {@link com.picsou.config.ClientIp#resolve}, which
  * uses the container-resolved address shared with audit logging. Native forwarding
- * accepts client addresses only from the explicitly configured nginx peers.
+ * accepts client addresses only from the configured trusted proxy.
  */
 @RestController
 @RequestMapping("/api/setup")

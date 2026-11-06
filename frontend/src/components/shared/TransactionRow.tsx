@@ -3,7 +3,7 @@ import type { Transaction } from '@/types/api'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { MerchantAvatar } from '@/components/shared/MerchantAvatar'
 import { cn } from '@/lib/utils'
-import { transactionDescription } from '@/lib/transactions'
+import { isCorumLifeOperation, transactionDescription } from '@/lib/transactions'
 
 interface TransactionRowProps {
   transaction: Transaction
@@ -11,11 +11,19 @@ interface TransactionRowProps {
   onClick?: (tx: Transaction) => void
   /** Alternating background index — pass the row index from the parent list. */
   index?: number
+  /** The provider of the account every row belongs to, when the list shows one account only. */
+  accountProvider?: string | null
 }
 
-export function TransactionRow({ transaction: tx, logoUrlFor, onClick, index = 0 }: TransactionRowProps) {
+/**
+ * One ledger row. A CORUM Life operation shows its own label even when a merchant label exists;
+ * a budget-neutral row carries an "in contract" badge to say it stays out of the budget.
+ */
+export function TransactionRow({ transaction: tx, logoUrlFor, onClick, index = 0, accountProvider }: TransactionRowProps) {
   const { t } = useTranslation()
-  const label = tx.merchantLabel || transactionDescription(tx, t)
+  const label = isCorumLifeOperation(tx, accountProvider)
+    ? transactionDescription(tx, t, accountProvider)
+    : tx.merchantLabel || transactionDescription(tx, t, accountProvider)
   return (
     <div
       role={onClick ? 'button' : undefined}
@@ -39,6 +47,14 @@ export function TransactionRow({ transaction: tx, logoUrlFor, onClick, index = 0
             <p className="truncate text-sm font-medium">
               {label}
             </p>
+            {tx.budgetNeutral && (
+              <span
+                title={t('accounts.inContractHint')}
+                className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground shrink-0"
+              >
+                {t('accounts.inContract')}
+              </span>
+            )}
             {tx.isManual && (
               <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground shrink-0">
                 {t('accounts.manual')}

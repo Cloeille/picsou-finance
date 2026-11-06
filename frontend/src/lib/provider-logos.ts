@@ -26,7 +26,8 @@
  * `ExchangeType.name()` (`CryptoExchangeSyncService.resolveAccount`), hence `MERIA` rather than
  * `Meria`; for Amundi it is `AmundiSyncService.PROVIDER`, accent and all, and for BoursoBank
  * `BoursoSyncService.PROVIDER`; Trade Republic writes
- * its name inline in `TradeRepublicSyncService.upsertAccount`. `provider-logos.test.ts` pins
+ * its name inline in `TradeRepublicSyncService.upsertAccount`; both CORUM connectors (SCPI and
+ * CORUM Life) write `ScpiProvider.CORUM.displayName()`. `provider-logos.test.ts` pins
  * every literal so a rename on either side fails loudly instead of silently dropping the logo.
  */
 export const PROVIDER_LOGOS: Record<string, string> = {
@@ -34,6 +35,20 @@ export const PROVIDER_LOGOS: Record<string, string> = {
   'AMUNDI ÉPARGNE SALARIALE': '/providers/amundi.png',
   BOURSOBANK: '/providers/boursobank.png',
   'TRADE REPUBLIC': '/providers/trade-republic.svg',
+  CORUM: '/providers/corum.svg',
+}
+
+/**
+ * Logos for holdings no logo source knows, matched on the ticker's prefix.
+ *
+ * A CORUM Life fund line is a provider-only fund: it has no ISIN a market feed quotes, so the
+ * backend stores no `logoUrl` for it and the holding would otherwise show its name's initials.
+ * `CorumLifeWriter` mints its ticker as `CORUM-LIFE-<code>`, so the prefix identifies the
+ * manager's own funds and the manager's mark stands in. A backend-resolved `logoUrl` always
+ * wins over this map (see `HoldingLogo`).
+ */
+export const HOLDING_PREFIX_LOGOS: Record<string, string> = {
+  'CORUM-LIFE-': '/providers/corum.svg',
 }
 
 /**
@@ -69,4 +84,14 @@ export function providerLogoUrl(provider: string | null | undefined): string | n
 export function logoKeyUrl(logoKey: string | null | undefined): string | null {
   if (!logoKey) return null
   return LOGO_KEYS[logoKey] ?? null
+}
+
+/** The bundled mark for a holding whose ticker carries a known provider prefix, or `null`. */
+export function bundledHoldingLogoUrl(ticker: string | null | undefined): string | null {
+  if (!ticker) return null
+  const upper = ticker.toUpperCase()
+  for (const [prefix, url] of Object.entries(HOLDING_PREFIX_LOGOS)) {
+    if (upper.startsWith(prefix)) return url
+  }
+  return null
 }

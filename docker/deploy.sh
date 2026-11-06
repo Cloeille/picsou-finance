@@ -207,7 +207,8 @@ def scalar(name):
     return json.dumps(os.environ[name].replace("$", "$$"))
 
 with open(os.environ["OVERRIDE_PATH"], "w", encoding="utf-8") as out:
-    out.write("services:\n  app:\n    image: " + scalar("DEPLOY_IMAGE_VALUE") + "\n    environment:\n")
+    out.write("services:\n  data-permissions:\n    image: " + scalar("DEPLOY_IMAGE_VALUE") + "\n")
+    out.write("  app:\n    image: " + scalar("DEPLOY_IMAGE_VALUE") + "\n    environment:\n")
     out.write("      SPRING_DATASOURCE_URL: " + json.dumps("jdbc:postgresql://db:5432/" + os.environ["DEPLOY_DB_VALUE"].replace("$", "$$") + "?sslmode=prefer") + "\n")
     out.write("      SPRING_DATASOURCE_USERNAME: " + scalar("DEPLOY_USER_VALUE") + "\n")
     out.write("      SPRING_DATASOURCE_PASSWORD: " + scalar("DEPLOY_PASSWORD_VALUE") + "\n")
@@ -243,6 +244,10 @@ run_migration_cli verify
 write_override "$db_name"
 run_migration_cli migrate
 run_migration_cli verify
+
+# The app runs as uid 1000 and `up --no-deps` skips the data-permissions service, so hand /data
+# over to it here, with the candidate image, before the app is recreated.
+docker_pinned run --pull never --rm --no-deps data-permissions
 
 docker_pinned up -d --no-deps --pull never --no-build app
 

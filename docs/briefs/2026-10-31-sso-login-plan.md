@@ -35,7 +35,7 @@ Read it first; the security properties S1–S13 and the error codes are defined 
 ## Global constraints
 
 - **Branch:** `feature/sso-login`, from `main`.
-- **Flyway:** the next free slot is **V124** (`main` ends at V123 `account_type_precious_metals`). Re-check across
+- **Flyway:** the next free slot was **V124** when this plan was written; it is now **V128** (`main` ends at V127). Re-check across
   every branch before merging ([CODING_RULES §4](../CODING_RULES.md)).
 - **No behavior change without SSO.** With `SSO_ISSUER_URI` unset there are no SSO beans, chain or
   UI; the data export only gains an empty `linked_identities` table. Tasks 10, 12 and 23 assert
@@ -65,19 +65,19 @@ Read it first; the security properties S1–S13 and the error codes are defined 
 
 ## Phase 1 — Groundwork (no behavior change)
 
-### Task 1: Flyway V124 — linked identities and the SSO marker
+### Task 1: Flyway V128 (planned as V124) — linked identities and the SSO marker
 
 **Files:**
-- Create: `backend/src/main/resources/db/migration/V124__sso_identities.sql`
+- Create: `backend/src/main/resources/db/migration/V128__sso_identities.sql`
 
 **Interfaces:**
 - Produces:
   - table `user_identity`;
   - column `persistent_session.sso_authenticated_at`.
 
-- [ ] **Step 1:** Confirm V124 is free: `git fetch --all`, then for every branch
+- [ ] **Step 1:** Confirm V128 is free: `git fetch --all`, then for every branch
   `git ls-tree -r --name-only <ref> -- backend/src/main/resources/db/migration/`. The highest
-  version must be V123 or lower.
+  version must be V127 or lower.
 - [ ] **Step 2:** Write the migration, following [database.md](../conventions/database.md) (named
   constraints, `TIMESTAMPTZ`, `ON DELETE CASCADE`). Add a header comment saying `email` and
   `display_name` are display-only and never used for matching:
@@ -130,7 +130,7 @@ Read it first; the security properties S1–S13 and the error codes are defined 
 
 - [ ] **Step 1:** Write the entity, the repository and the two modifications.
 - [ ] **Step 2:** Run `mvn test -Dtest=Oauth2ConsentHandshakeIntegrationTest`. It boots the full
-  Flyway chain, V124 included, with `ddl-auto: validate` on Postgres. Expect PASS. It needs
+  Flyway chain, V128 included, with `ddl-auto: validate` on Postgres. Expect PASS. It needs
   Docker; without Docker, run it in CI.
 - [ ] **Step 3:** Report for commit.
 

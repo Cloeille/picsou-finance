@@ -5,10 +5,12 @@ import com.picsou.model.Chain;
 import com.picsou.model.CryptoExchangeSession;
 import com.picsou.model.ExchangeType;
 import com.picsou.model.Requisition;
+import com.picsou.model.ScpiPosition;
 import com.picsou.model.WalletAddress;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CryptoExchangeSessionRepository;
 import com.picsou.repository.RequisitionRepository;
+import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.WalletAddressRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,6 +25,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -43,6 +46,7 @@ class AccountConnectionServiceTest {
     @Mock WalletAddressRepository walletRepository;
     @Mock CryptoExchangeSessionRepository exchangeSessionRepository;
     @Mock RequisitionRepository requisitionRepository;
+    @Mock ScpiPositionRepository scpiPositionRepository;
     @Mock WalletSyncService walletSyncService;
     @Mock CryptoExchangeSyncService cryptoExchangeSyncService;
     @Mock AmundiSyncService amundiSyncService;
@@ -55,13 +59,15 @@ class AccountConnectionServiceTest {
     @Mock DegiroSyncService degiroSyncService;
     @Mock IbkrSyncService ibkrSyncService;
     @Mock SimplefinSyncService simplefinSyncService;
+    @Mock CorumSyncService corumSyncService;
 
     private AccountConnectionService service() {
         return new AccountConnectionService(
             accountRepository, accountService, walletRepository, exchangeSessionRepository,
-            requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService, cmesSyncService, cicSyncService,
+            requisitionRepository, scpiPositionRepository, walletSyncService, cryptoExchangeSyncService,
+            amundiSyncService, cmesSyncService, cicSyncService,
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
-            fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService);
+            fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService, corumSyncService);
     }
 
     private static Account account(long id, String externalId) {
@@ -209,6 +215,115 @@ class AccountConnectionServiceTest {
         assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
         verify(accountService).delete(10L, MEMBER_ID);
         verify(amundiSyncService).clearSession(MEMBER_ID);
+    }
+
+    /** The CORUM login can store the password: deleting its last account must forget it. */
+    @Test
+    void deletingTheLastCorumLifeAccountClearsTheSessionAndItsCredentials() {
+        given(account(10L, "corum_life_CL-0001"), account(11L, "cmes_employee-plan"));
+        when(corumSyncService.clearSession(MEMBER_ID)).thenReturn(true);
+
+        AccountConnectionService service = service();
+        assertThat(service.describeDeletion(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "CORUM"));
+        assertThat(service.deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "CORUM"));
+        var order = inOrder(corumSyncService, accountService);
+        order.verify(corumSyncService).lockMemberForAccountDeletion(MEMBER_ID);
+        order.verify(accountService).delete(10L, MEMBER_ID);
+        order.verify(corumSyncService).clearSession(MEMBER_ID);
+        verify(cmesSyncService, never()).clearSession(anyLong());
+    }
+
+    @Test
+    void reportsNoRemovalWhenTheCorumSessionWasAlreadyGone() {
+        given(account(10L, "corum_life_CL-0001"));
+        when(corumSyncService.clearSession(MEMBER_ID)).thenReturn(false);
+
+        assertThat(service().deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(corumSyncService).clearSession(MEMBER_ID);
+    }
+
+    /** A login holding only SCPI funds: its last SCPI account is its last CORUM account. */
+    @Test
+    void deletingTheLastCorumScpiAccountClearsTheSession() {
+        Account scpi = account(10L, null);
+        given(scpi, account(11L, null));
+        when(scpiPositionRepository.findByAccountMemberIdAndCorumFundCodeIsNotNull(MEMBER_ID))
+            .thenReturn(List.of(ScpiPosition.builder().account(scpi).corumFundCode("CXL").build()));
+        when(corumSyncService.clearSession(MEMBER_ID)).thenReturn(true);
+
+        AccountConnectionService service = service();
+        assertThat(service.describeDeletion(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "CORUM"));
+        assertThat(service.deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "CORUM"));
+        var order = inOrder(corumSyncService, accountService);
+        order.verify(corumSyncService).lockMemberForAccountDeletion(MEMBER_ID);
+        order.verify(accountService).delete(10L, MEMBER_ID);
+        order.verify(corumSyncService).clearSession(MEMBER_ID);
+    }
+
+    @Test
+    void keepsTheCorumSessionWhenAnScpiAccountGoesButALifeContractRemains() {
+        Account scpi = account(10L, null);
+        given(scpi, account(11L, "corum_life_CL-0001"));
+        when(scpiPositionRepository.findByAccountMemberIdAndCorumFundCodeIsNotNull(MEMBER_ID))
+            .thenReturn(List.of(ScpiPosition.builder().account(scpi).corumFundCode("CXL").build()));
+
+        assertThat(service().deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(corumSyncService, never()).clearSession(anyLong());
+    }
+
+    /** An SCPI account linked to no CORUM fund (a Sofidy one, or none) is not CORUM's. */
+    @Test
+    void anUnlinkedScpiAccountTouchesNoCorumSession() {
+        given(account(10L, null), account(11L, "corum_life_CL-0001"));
+
+        assertThat(service().deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(corumSyncService, never()).lockMemberForAccountDeletion(anyLong());
+        verify(corumSyncService, never()).clearSession(anyLong());
+    }
+
+    @Test
+    void keepsTheCorumSessionWhileAnotherLifeContractRemains() {
+        given(account(10L, "corum_life_CL-0001"), account(11L, "corum_life_CL-0002"));
+
+        assertThat(service().deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(corumSyncService, never()).clearSession(anyLong());
+    }
+
+    /** The same login syncs the SCPI funds, onto manual accounts tied only by their fund code. */
+    @Test
+    void keepsTheCorumSessionWhileALinkedScpiAccountRemains() {
+        Account scpi = account(11L, null);
+        given(account(10L, "corum_life_CL-0001"), scpi);
+        when(scpiPositionRepository.findByAccountMemberIdAndCorumFundCodeIsNotNull(MEMBER_ID))
+            .thenReturn(List.of(ScpiPosition.builder().account(scpi).corumFundCode("CXL").build()));
+
+        AccountConnectionService service = service();
+        assertThat(service.describeDeletion(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        assertThat(service.deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(corumSyncService, never()).clearSession(anyLong());
+    }
+
+    /** A position whose SCPI account was already deleted no longer holds the session. */
+    @Test
+    void clearsTheCorumSessionWhenTheLinkedScpiAccountIsGone() {
+        given(account(10L, "corum_life_CL-0001"));
+        when(scpiPositionRepository.findByAccountMemberIdAndCorumFundCodeIsNotNull(MEMBER_ID))
+            .thenReturn(List.of(ScpiPosition.builder().account(account(12L, null)).corumFundCode("CXL").build()));
+        when(corumSyncService.clearSession(MEMBER_ID)).thenReturn(true);
+
+        assertThat(service().deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "CORUM"));
+        verify(corumSyncService).clearSession(MEMBER_ID);
     }
 
     /** A saver often holds a PEE and a PERCO on one Épargne Salariale login. */

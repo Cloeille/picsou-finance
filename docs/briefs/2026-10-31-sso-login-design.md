@@ -296,8 +296,8 @@ Four framework facts shape this flow; the last two were checked in Spring Securi
 
 ### Database
 
-- `V124__sso_identities.sql`, the next free number on `main` once V122 and V123 shipped (to
-  re-verify across branches before merging): table `user_identity (id, user_id → app_user ON DELETE CASCADE, issuer, subject, email,
+- `V128__sso_identities.sql`, the next free number when the PR was opened was V124; it was renumbered to V128 after main shipped
+  V124–V127: table `user_identity (id, user_id → app_user ON DELETE CASCADE, issuer, subject, email,
   display_name, last_login_at, created_at, updated_at)` with
   `CONSTRAINT uk_user_identity_issuer_subject UNIQUE (issuer, subject)` and
   `idx_user_identity_user_id`, plus `persistent_session.sso_authenticated_at TIMESTAMPTZ NULL`.

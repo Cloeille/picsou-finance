@@ -55,7 +55,8 @@ class SetupFilterTest {
 
     @Test
     void setupAndHealthPaths_stayAllowed() throws Exception {
-        for (String path : new String[] {"/api/setup/status", "/actuator/health", "/actuator/info"}) {
+        for (String path : new String[] {"/api/setup/status", "/actuator/health",
+            "/actuator/health/liveness", "/actuator/health/readiness", "/actuator/info"}) {
             assertThat(passedThrough(path)).as(path).isTrue();
         }
     }

@@ -295,6 +295,18 @@ class SpaServingTest {
         }
     }
 
+    /** The Helm probes reach these before setup and without credentials; other actuator paths stay closed. */
+    @Test
+    void healthProbes_areOpenAndOtherActuatorPathsAreNot() throws Exception {
+        for (String path : new String[] {"/actuator/health", "/actuator/health/liveness",
+            "/actuator/health/readiness"}) {
+            assertThat(mvc.perform(get(path)).andReturn().getResponse().getStatus()).as(path).isEqualTo(404);
+        }
+        for (String path : new String[] {"/actuator/env", "/actuator/health/other"}) {
+            assertThat(mvc.perform(get(path)).andReturn().getResponse().getStatus()).as(path).isEqualTo(401);
+        }
+    }
+
     @Test
     void wellKnownOutsideOauth_isASpaPath() throws Exception {
         MvcResult result = mvc.perform(get("/.well-known/security.txt")).andReturn();

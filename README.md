@@ -67,7 +67,7 @@ Modules, data flows and key constraints: [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 | Backend | Java 21, Spring Boot 3.5, Maven |
 | Frontend | React 19, TypeScript 5.9, Vite 7, Tailwind v4, Bun |
 | Database | PostgreSQL 16, Flyway |
-| Runtime | Docker (Nginx + Spring Boot + supervisor) |
+| Runtime | Docker (one non-root Spring Boot process) |
 
 ## Getting started
 
@@ -275,15 +275,15 @@ curl -sI https://picsou.example.com/ | grep -i strict-transport
 
 Exactly one `Strict-Transport-Security` line when enabled, none when disabled.
 
-Spring Boot is the only emitter: it adds the header to every response it generates, the SPA and
-the authorization server included, and nginx only relays it. nginx's own error pages, such as the
-502 or 504 it sends when the backend is down or too slow, carry none; a browser keeps the policy
-from earlier responses. To check the backend on its own, ask it
-directly, bypassing nginx:
+In this image Spring Boot is the only emitter, gated by `HSTS_ENABLED`, and it sends the header
+once on every response over HTTPS. To check the backend without the proxy in front, ask it
+directly from inside the container (`curl` is in the base image). The backend applies
+`X-Forwarded-Proto` from any peer, so the loopback request below counts as HTTPS; it prints one
+line when `HSTS_ENABLED` is on and nothing when it is off:
 
 ```bash
 docker compose -f docker/docker-compose.yml exec app \
-  curl -sI -H 'X-Forwarded-Proto: https' http://127.0.0.1:9090/actuator/health \
+  curl -sI -H 'X-Forwarded-Proto: https' http://127.0.0.1:8080/actuator/health \
   | grep -i strict-transport
 ```
 
@@ -298,7 +298,7 @@ docker compose -f docker/docker-compose.yml exec app \
 Skip the profile entirely and point Traefik / Nginx Proxy Manager / a Cloudflare Tunnel at the app
 container's `:8080`. Your proxy **must** forward `X-Forwarded-Proto: https` (all of the above do by
 default). Set `PICSOU_PROXY_IP` in `docker/.env` to the proxy's exact IPv4 address as seen by
-Picsou's nginx, then recreate the app. nginx accepts forwarded client addresses only from that
+the app, then recreate the app. The app accepts forwarded client addresses only from that
 peer; direct connections retain their connection address. The bundled `tls` profile configures
 its dedicated proxy address automatically. See [proxy configuration](docs/features/docker-deployment.md#trusted-proxy-client-addresses)
 for subnet overrides.

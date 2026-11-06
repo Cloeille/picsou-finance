@@ -1,6 +1,6 @@
 # Feature: Portfolio diversification (sector + geography)
 
-> Last updated: 2026-08-15
+> Last updated: 2026-11-05
 
 ## Context
 
@@ -57,6 +57,12 @@ first provider's whole answer would discard the country every time the sector ar
 
 For each account in the `EQUITY` tier, every priced line, share-weighted exactly once (the
 `DashboardService` contract). The same ticker held in two accounts is **one** position.
+
+A line whose own tier is not `EQUITY` is left out, with the [wealth pyramid](./wealth-pyramid.md)'s
+precedence: the member's `holding_classification.wealth_tier` first, then the provider's
+`providerWealthTier`. A line with neither stays in. This keeps the SCPI units of a
+[CORUM Life](./corum-life.md) contract, which the pyramid counts as property, out of the
+"unclassified equity" list, and a line the member moved to another tier out of the breakdown.
 
 Per ticker, in order: manual override → ETF look-through → single-share profile → unclassified.
 
@@ -175,7 +181,7 @@ and "deliberately unclassified" cannot diverge.
 ```
 GET /api/analysis/diversification
   └─ PortfolioDiversificationService
-       ├─ readable EQUITY accounts → lines → weigh once → value by ticker
+       ├─ readable EQUITY accounts → lines (not tiered elsewhere) → weigh once → value by ticker
        ├─ SecurityProfileService.load(tickers)          one query, no network
        └─ per ticker: override ▸ ETF slices (applied literally) ▸ share profile ▸ unclassified
             └─ N_eff per axis, coverage + the unplaced lines reported
@@ -238,9 +244,10 @@ PUT /api/accounts/{id}/holdings/{ticker}/classification
   whose sector reads `n-d`, a wrong-symbol page that must be refused, a malformed ISIN
 - `SecurityProfileServiceTest` — the field-by-field merge, ETF stored as slices, duplicate labels,
   UNKNOWN still recorded, only-stale refresh with the batch cap, one bad ticker not aborting
-- `PortfolioDiversificationServiceTest` (13) — share vs ETF placement, partial look-through
+- `PortfolioDiversificationServiceTest` — share vs ETF placement, partial look-through
   renormalised, override per field, unclassified reported not renormalised, same ticker twice,
-  shares applied once, `N_eff` on concentrated vs even portfolios, `EXPOSURE` vs `MIXED`
+  shares applied once, `N_eff` on concentrated vs even portfolios, `EXPOSURE` vs `MIXED`, a line
+  the provider files as real estate left out, the member's tier beating the provider's
 - `DiversificationSection.test.tsx`, `e2e/analysis.spec.ts`
 
 ## Links

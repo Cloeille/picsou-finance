@@ -171,7 +171,9 @@ Encrypted session and job status live in `AmundiSession`. See the
 
 A SCPI share is not this, and it is not a house either. It is an `SCPI` account valued at
 the withdrawal price times the share count. See
-[SCPI shares](./features/scpi.md).
+[SCPI shares](./features/scpi.md). The same CORUM login also syncs CORUM Life
+(assurance-vie) contracts, one `ASSURANCE_VIE` account each with a holding per fund, in the
+same read and the same transaction. See [CORUM Life sync](./features/corum-life.md).
 
 ### 6. Fortuneo
 
@@ -236,11 +238,12 @@ Browser → SetupFilter → /setup → SetupController → SetupService → AppS
 
 ### 12. Authentication & MFA
 
-nginx resolves forwarded client addresses only from its configured upstream proxy and replaces
-client-address headers before forwarding to Java. Tomcat's native forwarding support trusts only
-explicit nginx peers (loopback in the bundled image, a dedicated ingress address in the split
-stack). All per-IP limiters, session metadata and audit readers share `getRemoteAddr()` through
-this policy. See [CORS & cookie security](./features/security-cors-cookies.md).
+Tomcat's native forwarding support trusts forwarded client addresses only from the proxy named by
+`PICSOU_PROXY_IP`, and nobody when it is unset. All per-IP limiters, session metadata and audit
+readers share `getRemoteAddr()` through this policy. The public origin (scheme, host, port) is a
+separate decision: `ForwardedOriginCustomizer` applies `X-Forwarded-Proto`, `X-Forwarded-Host` and
+`X-Forwarded-Port` from any peer, whether or not `PICSOU_PROXY_IP` is set, as nginx did. See
+[CORS & cookie security](./features/security-cors-cookies.md).
 
 ```
 POST /api/auth/login → AuthController → (if 2FA) issue mfa_challenge JWT → 401 + cookie
@@ -316,6 +319,7 @@ and the [ADR](./decisions/2026-11-04-sso-login-alongside-passwords.md).
 | Amundi Épargne Salariale | PEE/PEG/PERCO/PER sync via internal Python sidecar | `AMUNDI_AUTH_URL` |
 | Fortuneo | Current accounts, PEA/PEA-PME/CTO and transaction history via internal Python sidecar | `FORTUNEO_AUTH_URL` |
 | BoursoBank | Current accounts, livrets and PEA/CTO sync via internal Python sidecar | `BOURSO_AUTH_URL` |
+| CORUM | SCPI shares and CORUM Life (assurance-vie) contracts via internal Python sidecar (`corum-auth`) | `CORUM_AUTH_URL` |
 | Caisse d'Epargne | Current account, Livret A and deferred-debit card read via internal Python sidecar, on demand, no in-app login yet | `CAISSE_EPARGNE_AUTH_URL` |
 | DEGIRO | Compte-titres sync via internal Python sidecar (`degiro-auth` in `docker/docker-compose.yml`) | `DEGIRO_AUTH_URL` |
 | Binance | Crypto exchange balances | Via CryptoExchangePort |

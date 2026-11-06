@@ -159,6 +159,30 @@
     "viewAll": "Voir toutes les transactions"
   },
   "accounts": {
+    "corumLifeOperation": {
+      "scheduledPayment": "Versement programmé",
+      "subscription": "Versement initial",
+      "couponDetachment": "Coupon",
+      "administrativeManagementCosts": "Frais de gestion",
+      "profitParticipation": "Participation aux bénéfices",
+      "arbitrage": "Arbitrage",
+      "unknown": "Opération du contrat"
+    },
+    "inContract": "Dans le contrat",
+    "inContractHint": "Opération interne au contrat d'assurance-vie : elle ne compte pas dans votre budget.",
+    "lifeContract": {
+      "title": "Contrat",
+      "openedAt": "Ouvert le",
+      "taxAdvantageFrom": "Fiscalité allégée (8 ans) dès le",
+      "paidIn": "Versements bruts",
+      "netInvested": "Investi net",
+      "scheduledPayment": "Versement programmé",
+      "perWeek": "/semaine",
+      "perTwoWeeks": "/2 semaines",
+      "perMonth": "/mois",
+      "perQuarter": "/trimestre",
+      "perYear": "/an"
+    },
     "title": "Comptes",
     "addAccount": "Ajouter un compte",
     "editAccount": "Modifier le compte",
@@ -1000,6 +1024,8 @@
       "manual": "Créer un compte manuellement",
       "amundi": "PEE, PEG, PERCO, PER chez Amundi",
       "amex": "Carte de crédit American Express : solde et transactions",
+      "corum": "SCPI et assurance-vie CORUM Life : parts, valorisation et opérations",
+      "sofidy": "Parts de SCPI Sofidy, au prix de retrait",
       "property": "Maison, appartement, terrain…",
       "fortuneo": "Synchroniser vos comptes Fortuneo",
       "caisseEpargne": "Compte courant, Livret A, LDDS, PER, prêts et cartes à la Caisse d'Epargne"
@@ -1601,11 +1627,19 @@
       "sync": "Synchroniser",
       "queued": "Synchronisation en attente…",
       "syncing": "Synchronisation en cours…",
-      "syncSuccess": "Parts SCPI synchronisées.",
+      "syncSuccess": "Synchronisation CORUM terminée.",
       "clearSession": "Déconnecter",
+      "remember": "Mémoriser mes identifiants (chiffrés)",
+      "credentialsRemembered": "Identifiants mémorisés (chiffrés) : Picsou se reconnecte seul quand la session expire. Déconnectez pour les oublier.",
       "noSession": "Aucune session active",
       "sessionActive": "Session active",
-      "scope": "Synchronise les parts de SCPI de vos contrats CORUM, au prix de retrait. Un fonds sans compte en reçoit un, ou est rattaché au compte SCPI du même nom.",
+      "scope": "Synchronise les parts de SCPI et les contrats d'assurance-vie CORUM Life de vos contrats CORUM (SCPI au prix de retrait, assurance-vie à sa valorisation). Un fonds sans compte en reçoit un, ou est rattaché au compte SCPI du même nom.",
+      "life": {
+        "synced_one": "1 contrat d'assurance-vie synchronisé",
+        "synced_other": "{{count}} contrats d'assurance-vie synchronisés",
+        "ambiguous_one": "1 contrat d'assurance-vie non synchronisé : un compte d'assurance-vie saisi à la main (nommé « CORUM Life » ou avec CORUM pour fournisseur) n'a pas pu lui être associé. Supprimez ce compte, ou renommez-le et changez son fournisseur, puis relancez la synchronisation.",
+        "ambiguous_other": "{{count}} contrats d'assurance-vie non synchronisés : un compte d'assurance-vie saisi à la main (nommé « CORUM Life » ou avec CORUM pour fournisseur) n'a pas pu leur être associé. Supprimez ce compte, ou renommez-le et changez son fournisseur, puis relancez la synchronisation."
+      },
       "errors": {
         "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",
         "invalidCredentials": "Identifiants CORUM invalides.",
@@ -2118,7 +2152,7 @@
       "boursedirect": "Bourse Direct",
       "fortuneo": "Fortuneo",
       "amex": "Synchronisez vos cartes American Express",
-      "corum": "Parts de SCPI CORUM",
+      "corum": "Parts de SCPI et assurance-vie CORUM",
       "sofidy": "Parts de SCPI Sofidy",
       "traderepublic": "Trade Republic",
       "finary": "Finary",

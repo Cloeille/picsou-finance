@@ -11,20 +11,17 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.cors.CorsConfiguration;
-import org.apache.catalina.connector.Connector;
-import org.apache.catalina.connector.Request;
-import org.apache.catalina.connector.Response;
-import org.apache.catalina.valves.RemoteIpValve;
-import org.apache.catalina.valves.ValveBase;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 /**
- * CORS regression through native Tomcat forwarding, including HTTPS behind a trusted proxy.
- * The production valve configuration and untrusted-peer behavior are covered separately by
+ * CORS regression through native Tomcat forwarding, including HTTPS behind a trusted proxy,
+ * with the valves built from the production properties. Untrusted-peer behavior is covered by
  * {@link TrustedProxyClientIpTest}.
  */
 @ExtendWith(MockitoExtension.class)
@@ -78,8 +75,7 @@ class ForwardedHeadersCorsTest {
     }
 
     /**
-     * Build the request as it reaches the backend after nginx: a plain-HTTP connection on the
-     * internal port, the public Host header, the browser's HTTPS Origin, and (optionally) the
+     * Build the request as it reaches Tomcat from the trusted proxy: a plain-HTTP connection, the public Host header, the browser's HTTPS Origin, and (optionally) the
      * forwarded scheme. No X-Forwarded-Port is sent — the backend derives 443 from the scheme.
      */
     private MockHttpServletRequest postBehindProxy(String forwardedProto) {
@@ -101,34 +97,19 @@ class ForwardedHeadersCorsTest {
     /** Native container processing precedes the application's CORS processing. */
     private MockHttpServletResponse process(MockHttpServletRequest req) throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
-        RemoteIpValve valve = new RemoteIpValve();
-        valve.setInternalProxies("127\\.0\\.0\\.1");
-        valve.setProtocolHeader("X-Forwarded-Proto");
-        valve.setHostHeader("X-Forwarded-Host");
-        valve.setPortHeader("X-Forwarded-Port");
-        valve.setNext(new ValveBase() {
-            @Override
-            public void invoke(Request request, Response ignored) throws java.io.IOException {
-                HttpServletRequest effective = request.getRequest();
-                DynamicCorsConfigurationSource source =
-                    new DynamicCorsConfigurationSource(settingRepository, "");
-                CorsConfiguration config = source.getCorsConfiguration(effective);
+        Map<String, String> headers = new LinkedHashMap<>();
+        req.getHeaderNames().asIterator().forEachRemaining(name -> headers.put(name, req.getHeader(name)));
+        new ProductionTomcatEdge(ProductionTomcatEdge.PROXY_IP).handle(ProductionTomcatEdge.PROXY_IP, headers, request -> {
+            HttpServletRequest effective = request.getRequest();
+            DynamicCorsConfigurationSource source =
+                new DynamicCorsConfigurationSource(settingRepository, "");
+            CorsConfiguration config = source.getCorsConfiguration(effective);
+            try {
                 new LoggingCorsProcessor().processRequest(config, effective, response);
+            } catch (java.io.IOException e) {
+                throw new java.io.UncheckedIOException(e);
             }
         });
-        Request request = new Request(new Connector());
-        org.apache.coyote.Request coyote = new org.apache.coyote.Request();
-        request.setCoyoteRequest(coyote);
-        request.setRemoteAddr(req.getRemoteAddr());
-        request.setRemoteHost(req.getRemoteAddr());
-        coyote.scheme().setString(req.getScheme());
-        coyote.serverName().setString(req.getServerName());
-        coyote.setServerPort(req.getServerPort());
-        coyote.method().setString(req.getMethod());
-        coyote.requestURI().setString(req.getRequestURI());
-        req.getHeaderNames().asIterator().forEachRemaining(name ->
-            coyote.getMimeHeaders().addValue(name).setString(req.getHeader(name)));
-        valve.invoke(request, new Response());
         return response;
     }
 }
