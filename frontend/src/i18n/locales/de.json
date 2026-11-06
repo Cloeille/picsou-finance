@@ -1595,7 +1595,8 @@
       "unlinkTitle": "Dieses Konto trennen?",
       "unlinkDesc": "Du kannst dich dann nicht mehr mit diesem {{provider}}-Konto anmelden.",
       "linkTitle": "{{provider}}-Konto verknüpfen",
-      "linkDesc": "Bestätige deine Identität und melde dich dann mit dem {{provider}}-Konto an, das du verknüpfen möchtest."
+      "linkDesc": "Bestätige deine Identität und melde dich dann mit dem {{provider}}-Konto an, das du verknüpfen möchtest.",
+      "linkMfaNote": "Wenn du dich mit {{provider}} anmeldest, fragt Picsou nicht nach deinem Authenticator-Code: Für den zweiten Faktor ist dann der Anmeldeanbieter zuständig. Die Passwort-Anmeldung fragt weiterhin nach dem Code."
     }
   },
   "accessKeys": {

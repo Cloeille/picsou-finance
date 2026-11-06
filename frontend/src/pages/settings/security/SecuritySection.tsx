@@ -234,6 +234,7 @@ export function SecuritySection() {
             onOpenChange={closeDialog}
             resumed={resumedFor('link')}
             providerName={methods.providerName}
+            mfaEnabled={status?.enabled === true}
           />
         </>
       )}

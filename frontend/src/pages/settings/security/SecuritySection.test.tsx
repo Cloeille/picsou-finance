@@ -47,6 +47,7 @@ const api = vi.hoisted(() => ({
   refresh: vi.fn(),
   submitSsoStart: vi.fn(),
   download: vi.fn(),
+  getMfaStatus: vi.fn(),
 }))
 vi.mock('@/features/sso/api', () => ({ ssoApi: api }))
 vi.mock('@/features/auth/api', () => ({ authApi: { refresh: api.refresh } }))
@@ -55,7 +56,7 @@ vi.mock('@/features/export/api', () => ({ exportApi: { download: api.download } 
 vi.mock('@/lib/download', () => ({ triggerBlobDownload: vi.fn() }))
 vi.mock('@/features/mfa/api', () => ({
   mfaApi: {
-    getStatus: () => Promise.resolve({ enabled: false, enrolledAt: null, remainingRecoveryCodes: 0 }),
+    getStatus: api.getMfaStatus,
     listSessions: () => Promise.resolve([]),
   },
 }))
@@ -124,6 +125,7 @@ describe('SecuritySection', () => {
   beforeEach(() => {
     Object.values(api).forEach(fn => fn.mockReset())
     api.download.mockResolvedValue({ blob: new Blob(['zip']), filename: 'picsou-export.zip' })
+    api.getMfaStatus.mockResolvedValue({ enabled: false, enrolledAt: null, remainingRecoveryCodes: 0 })
   })
 
   it.each([
@@ -258,6 +260,21 @@ describe('SecuritySection', () => {
     const [refreshAt] = api.refresh.mock.invocationCallOrder
     expect(reauthAt).toBeLessThan(refreshAt)
     expect(refreshAt).toBeLessThan(api.submitSsoStart.mock.invocationCallOrder[0])
+  })
+
+  it.each([
+    ['says', 'on', true],
+    ['does not say', 'off', false],
+  ])('%s that SSO sign-ins skip the authenticator code when linking with 2FA %s', async (_, __, enabled) => {
+    api.getMfaStatus.mockResolvedValue({ enabled, enrolledAt: null, remainingRecoveryCodes: 2 })
+    renderSection('/settings', WITH_PASSWORD)
+    await screen.findByRole('button', { name: enabled ? en.settings.mfaDisable : en.settings.mfaEnable })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link Zitadel account' }))
+
+    const dialog = await screen.findByRole('dialog')
+    const note = en.settings.signInMethods.linkMfaNote.replace('{{provider}}', 'Zitadel')
+    expect(within(dialog).queryByText(note) !== null).toBe(enabled)
   })
 
   it('reopens an unlink confirmed and unlinks that identity', async () => {

@@ -146,9 +146,10 @@ interface LinkIdentityDialogProps {
   /** Back from the IdP re-authentication of a password-less account: link right away. */
   resumed: boolean
   providerName: string
+  mfaEnabled: boolean
 }
 
-export function LinkIdentityDialog({ open, onOpenChange, resumed, providerName }: LinkIdentityDialogProps) {
+export function LinkIdentityDialog({ open, onOpenChange, resumed, providerName, mfaEnabled }: LinkIdentityDialogProps) {
   const { t } = useTranslation()
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -157,6 +158,11 @@ export function LinkIdentityDialog({ open, onOpenChange, resumed, providerName }
           <DialogTitle>{t('settings.signInMethods.linkTitle', { provider: providerName })}</DialogTitle>
           <DialogDescription>{t('settings.signInMethods.linkDesc', { provider: providerName })}</DialogDescription>
         </DialogHeader>
+        {mfaEnabled && (
+          <p className="rounded-md bg-muted px-3 py-2 text-sm">
+            {t('settings.signInMethods.linkMfaNote', { provider: providerName })}
+          </p>
+        )}
         <LinkSteps resumed={resumed} />
       </DialogContent>
     </Dialog>

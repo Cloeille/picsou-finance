@@ -165,7 +165,7 @@ describe('LinkIdentityDialog', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
       <QueryClientProvider client={queryClient}>
-        <LinkIdentityDialog open resumed onOpenChange={() => {}} providerName="Zitadel" />
+        <LinkIdentityDialog open resumed onOpenChange={() => {}} providerName="Zitadel" mfaEnabled={false} />
       </QueryClientProvider>,
     )
 
@@ -188,7 +188,7 @@ describe('LinkIdentityDialog', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { unmount } = render(
       <QueryClientProvider client={queryClient}>
-        <LinkIdentityDialog open resumed onOpenChange={() => {}} providerName="Zitadel" />
+        <LinkIdentityDialog open resumed onOpenChange={() => {}} providerName="Zitadel" mfaEnabled={false} />
       </QueryClientProvider>,
     )
     await waitFor(() => expect(authApi.refresh).toHaveBeenCalledTimes(1))
@@ -210,7 +210,7 @@ describe('LinkIdentityDialog', () => {
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
       const { unmount } = render(
         <QueryClientProvider client={queryClient}>
-          <LinkIdentityDialog open resumed onOpenChange={() => {}} providerName="Zitadel" />
+          <LinkIdentityDialog open resumed onOpenChange={() => {}} providerName="Zitadel" mfaEnabled={false} />
         </QueryClientProvider>,
       )
       await waitFor(() => expect(authApi.refresh).toHaveBeenCalledTimes(1))
