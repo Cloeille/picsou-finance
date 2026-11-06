@@ -192,9 +192,10 @@ configured) reuses this check with one change: `CrossSiteCookieRequestMatcher` i
 drops condition 2, so **any** cross-site `POST` to `/oauth2/sso/**` gets the same 403, auth cookie
 or not. Both of its endpoints (SSO start and callback processing) are same-origin form POSTs, and
 a GET redirects to `/login`, so a link on another site can neither start a flow in the user's
-browser nor complete one. For condition 4 the matcher looks up the CORS policy through an
-API-path view of the request, because `DynamicCorsConfigurationSource` only answers for `/api/**`;
-an allow-listed origin therefore passes on both chains. The 403 handler
+browser nor complete one. For condition 4 the SSO chain hands the matcher
+`DynamicCorsConfigurationSource.originPolicy()`, the API routes' origin policy without its
+`/api/**` path check (the source itself only answers for `/api/**`); an allow-listed origin
+therefore passes on both chains. The 403 handler
 (`SecurityConfig.crossSiteAwareAccessDeniedHandler`) is shared. See [sso-login.md](./sso-login.md).
 
 ### Key files

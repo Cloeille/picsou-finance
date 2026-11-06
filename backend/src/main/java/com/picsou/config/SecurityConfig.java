@@ -273,7 +273,7 @@ public class SecurityConfig {
      * fresh installs (and for env-only operators who never run the wizard).
      */
     @Bean
-    public CorsConfigurationSource corsConfigurationSource(AppSettingRepository settingRepository) {
+    public DynamicCorsConfigurationSource corsConfigurationSource(AppSettingRepository settingRepository) {
         return new DynamicCorsConfigurationSource(settingRepository, allowedOrigins);
     }
 }

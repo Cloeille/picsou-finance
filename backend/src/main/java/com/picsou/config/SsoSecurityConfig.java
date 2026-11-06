@@ -26,7 +26,6 @@ import org.springframework.security.web.context.RequestAttributeSecurityContextR
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.util.StringUtils;
-import org.springframework.web.cors.CorsConfigurationSource;
 
 @Configuration
 @Conditional(SsoEnabledCondition.class)
@@ -38,7 +37,7 @@ public class SsoSecurityConfig {
     @Order(0)
     public SecurityFilterChain ssoSecurityFilterChain(HttpSecurity http, SsoClientRegistrationRepository repository,
             SetupService setupService, @Qualifier("ssoStartBuckets") Map<String, Bucket> buckets, Clock clock,
-            CorsConfigurationSource corsConfigurationSource, SsoAuthenticationSuccessHandler successHandler,
+            DynamicCorsConfigurationSource corsConfigurationSource, SsoAuthenticationSuccessHandler successHandler,
             SsoAuthenticationFailureHandler failureHandler, JwtTokenAuthenticator authenticator,
             ReAuthService reAuthService, SsoProperties ssoProperties, AppUserRepository userRepository) throws Exception {
         var resolver = new SsoAuthorizationRequestResolver(repository);
@@ -61,7 +60,7 @@ public class SsoSecurityConfig {
             .securityContext(c -> c.securityContextRepository(new RequestAttributeSecurityContextRepository()))
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
             .requestCache(c -> c.requestCache(new NullRequestCache()))
-            .csrf(c -> c.requireCsrfProtectionMatcher(new CrossSiteCookieRequestMatcher(corsConfigurationSource, false))
+            .csrf(c -> c.requireCsrfProtectionMatcher(new CrossSiteCookieRequestMatcher(request -> corsConfigurationSource.originPolicy(), false))
                 .csrfTokenRepository(new SecurityConfig.NoStoredCsrfTokenRepository()))
             .exceptionHandling(e -> e.accessDeniedHandler(SecurityConfig.crossSiteAwareAccessDeniedHandler()))
             .headers(h -> h.frameOptions(f -> f.deny()).contentTypeOptions(c -> {})
