@@ -440,6 +440,35 @@ class CorumSyncServiceTest {
         verify(port, times(1)).authenticate("client", PASSWORD);
     }
 
+    /** "Remember my credentials" also serves a SCPI-only client: the re-login does not depend on CORUM Life. */
+    @org.junit.jupiter.api.Test
+    void queueSync_expiredSessionOfAScpiOnlyClientLogsInAgainWithTheStoredCredentials() {
+        SidecarSession session = rememberedSession();
+        stubPassThroughEncryption();
+        when(port.fetchPortfolio("plain-state"))
+            .thenThrow(new SyncException("The CORUM session expired", null, "SESSION_EXPIRED"));
+        when(port.authenticate("client", PASSWORD)).thenReturn("fresh-state");
+        when(port.fetchPortfolio("fresh-state")).thenReturn(realEstateOnly(new CorumAdapter.Snapshot(
+            "contract", "PP", "EUR", new BigDecimal("340.00"), null, true,
+            List.of(holding("US", "340.00", "150")))));
+        when(positionRepository.findByMemberIdAndCorumFundCode(7L, "US"))
+            .thenReturn(Optional.of(com.picsou.model.ScpiPosition.builder()
+                .account(com.picsou.model.Account.builder().id(11L).build())
+                .corumFundCode("US").build()));
+
+        service.queueSync(7L);
+
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(session.isActive()).isTrue();
+        assertThat(session.getSessionState()).isEqualTo("enc:fresh-state");
+        assertThat(session.getEncryptedCredentials()).isEqualTo(REMEMBERED);
+        assertThat(session.getLastSyncLifeAmbiguous()).isZero();
+        verify(port, times(1)).authenticate("client", PASSWORD);
+        verify(positionService).applySyncedPosition(
+            any(), eq(new BigDecimal("2")), eq(new BigDecimal("170")),
+            eq(new BigDecimal("150")), eq(null));
+    }
+
     @org.junit.jupiter.api.Test
     void queueSync_aRejectedPasswordClearsTheCredentialsAndDeactivatesTheSession() {
         SidecarSession session = rememberedSession();
