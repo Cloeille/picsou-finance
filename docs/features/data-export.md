@@ -155,7 +155,7 @@ Never serialized in any form:
 - `AppUser.passwordHash`
 - `UserMfa.*` — TOTP secrets, recovery code hashes
 - `UserMfaRecoveryCode.*`
-- `SidecarSession.*` / `TradeRepublicSession.*` / `FinarySession.*` / `CryptoExchangeSession.*` — all encrypted credentials
+- `SidecarSession.*` (Trade Republic included) / `FinarySession.*` / `CryptoExchangeSession.*` — all encrypted credentials
 - `Requisition.accessToken` / `refreshToken` / any encrypted Enable Banking blobs
 - `PersistentSession.tokenHash`
 - `SetupAudit`, `AppSetting` — instance-wide, not user-specific

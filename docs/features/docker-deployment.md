@@ -208,11 +208,11 @@ connector.
   list with `docker compose -f docker/docker-compose.yml rm --stop --force <bank>-auth`.
   Repeat this when you disable a bank. `all-connectors` needs no stop step.
 - A sync against a disabled connector reaches no host. DEGIRO and Revolut show their existing
-  "No response" messages. Trade Republic maps the failure to `AUTH_SERVICE_UNAVAILABLE`.
-  Other sidecars map it to `UPSTREAM_UNAVAILABLE`. None of them surfaces a 500. Connection failures
+  "No response" messages. Every other sidecar, Trade Republic included, maps it to
+  `UPSTREAM_UNAVAILABLE`. None of them surfaces a 500. Connection failures
   handled by the shared translator, Fortuneo adapter, and Revolut scheduled sync log one-line
-  warnings without a stack trace. Trade Republic scheduled sync and Revolut progress polling still
-  log their errors with a stack trace.
+  warnings without a stack trace. Revolut progress polling still logs its errors with a stack
+  trace.
 - The [instance-status alert](./admin-instance-status.md) probes only sidecars that hold
   sessions, so a bank nobody connected never raises `SIDECAR_UNREACHABLE`. A connector
   disabled after it was used does, which is the intended warning.
