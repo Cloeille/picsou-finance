@@ -50,7 +50,7 @@ afterEach(() => {
 })
 
 describe('SsoCallbackPage', () => {
-  it('posts every received parameter to the code endpoint exactly once, after clearing the URL', async () => {
+  it('posts the authorization response to the code endpoint exactly once, after clearing the URL', async () => {
     const submissions = captureSubmissions()
 
     renderCallback('/login/sso/callback?code=abc123&state=xyz&iss=https%3A%2F%2Fidp.example%2Fdefault')
@@ -79,6 +79,19 @@ describe('SsoCallbackPage', () => {
     expect(submission.data.get('error_description')).toBe('User cancelled')
     expect(submission.data.get('state')).toBe('xyz')
     expect(submission.data.get('code')).toBeNull()
+  })
+
+  it('forwards only the authorization response parameters', async () => {
+    const submissions = captureSubmissions()
+
+    renderCallback(
+      '/login/sso/callback?code=abc123&state=xyz&session_state=s1&action=https%3A%2F%2Fevil.example&requestSubmit=x',
+    )
+
+    await waitFor(() => expect(submissions).toHaveLength(1))
+    const [submission] = submissions
+    expect(submission.action).toBe('/oauth2/sso/code/oidc')
+    expect([...submission.data.keys()]).toEqual(['code', 'state'])
   })
 
   it('submits only once under React StrictMode', async () => {

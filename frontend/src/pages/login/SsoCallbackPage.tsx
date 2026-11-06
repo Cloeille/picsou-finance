@@ -4,11 +4,14 @@ import { useTranslation } from 'react-i18next'
 import { SsoProgressScreen } from './SsoProgressScreen'
 
 const SSO_CODE_ACTION = '/oauth2/sso/code/oidc'
+// The authorization response (RFC 6749 §4.1.2 and §4.1.2.1, RFC 9207's iss). Any other query
+// parameter stays out of the form, so a crafted link cannot add fields to the POST.
+const RESPONSE_PARAMS = new Set(['code', 'state', 'iss', 'error', 'error_description', 'error_uri'])
 
 /**
- * The IdP's redirect target. It changes nothing itself: it re-posts what the IdP sent to the
- * backend SSO chain, which refuses GET, after taking the authorization code out of the address
- * bar and the history.
+ * The IdP's redirect target. It changes nothing itself: it re-posts the IdP's authorization
+ * response to the backend SSO chain, which refuses GET, after taking the authorization code out of
+ * the address bar and the history.
  */
 export function SsoCallbackPage() {
   const { t } = useTranslation()
@@ -17,7 +20,7 @@ export function SsoCallbackPage() {
   const formRef = useRef<HTMLFormElement>(null)
   // StrictMode runs the effect twice; a second POST would replay a single-use code.
   const handled = useRef(false)
-  const params = [...searchParams.entries()]
+  const params = [...searchParams.entries()].filter(([name]) => RESPONSE_PARAMS.has(name))
   const hasResult = searchParams.has('code') || searchParams.has('error')
 
   useEffect(() => {
@@ -28,7 +31,7 @@ export function SsoCallbackPage() {
       return
     }
     window.history.replaceState(null, '', '/login/sso/callback')
-    // Every callback parameter becomes a named input, and one named `requestSubmit` would shadow the method.
+    // Called through the prototype, so no input name can ever shadow the method.
     if (formRef.current) HTMLFormElement.prototype.requestSubmit.call(formRef.current)
   }, [hasResult, navigate])
 
