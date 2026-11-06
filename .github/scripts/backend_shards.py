@@ -1,6 +1,6 @@
 """Splits the backend test classes across CI shards and checks every one ran exactly once.
 
-  backend_shards.py --shards N --shard I --out DIR [--timings DIR]
+  backend_shards.py --shards N --shard I --out DIR [--timings FILE]
       Writes shard I's surefire file to DIR. Shards 1..N-1 get an includesFile listing
       their classes; shard N gets an excludesFile listing every other shard's classes,
       so a class this script does not discover still runs there. Classes are balanced
