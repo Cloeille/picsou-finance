@@ -113,6 +113,22 @@ EMPLOYEE_SAVINGS account per plan with its fund holdings
   (`AUTH_ATTEMPT_EXPIRED`), well before Natixis would lock the account.
 - **Accounts without a password login** (passkey only), or without an SMS, e-mail or
   voice channel, get `MFA_TYPE_UNSUPPORTED`.
+- **Natixis accounts are never valued at market prices.** `AccountService.NEVER_MARKET_PRICED`
+  skips quotes for them, so a quote found for a fund's ticker (a label slug can match an
+  unrelated symbol) never replaces the Natixis value. CMES and Amundi are unchanged.
+- **Ticker scheme:** `NATIXIS-<fundCode>`. Without a code, the ticker is the label slug cut
+  to 21 characters, a hyphen, then the first 8 hex characters of the label's SHA-256. Two
+  funds whose names start alike therefore never collide.
+- **Lock order:** the sync commit locks the member's Natixis accounts (by id), then the
+  session row. That is the order an account deletion already takes, so the two cannot
+  deadlock.
+- **Interrupted jobs:** at boot, and then every 5 minutes, a QUEUED or RUNNING job not
+  updated for 10 minutes is failed as retryable. A job another backend is running right
+  now is left alone. If the move to RUNNING itself fails, the job fails as retryable
+  (`UPSTREAM_UNAVAILABLE`) instead of staying queued.
+- **Disconnecting during the second factor** cancels the login on the sidecar (`/cancel`,
+  best effort, 10 s). When this happens through an account deletion, the call runs inside
+  that deletion's transaction.
 - **Dev port: 8015** (`application-dev.yml`).
 
 ## Tests
