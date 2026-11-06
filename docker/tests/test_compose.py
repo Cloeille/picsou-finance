@@ -22,7 +22,7 @@ class CaddyTlsConfigTest(unittest.TestCase):
         caddyfile = (COMPOSE_FILE.parent / "Caddyfile").read_text(encoding="utf-8")
         self.assertRegex(
             caddyfile,
-            r"(?ms)^\\{\\s+default_sni \\{\\$PICSOU_DOMAIN:picsou\\.localhost\\}\\s+\\}",
+            r"(?ms)^\{\s+default_sni \{\$PICSOU_DOMAIN:picsou\.localhost\}\s+\}",
         )
         self.assertIn("{$PICSOU_DOMAIN:picsou.localhost} {", caddyfile)
 
