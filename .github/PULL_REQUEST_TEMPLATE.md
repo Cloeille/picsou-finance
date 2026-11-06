@@ -1,0 +1,23 @@
+<!-- Short on purpose. Details: CONTRIBUTING.md, "Before you open a pull request". -->
+
+## What and why
+
+<!-- What changes, and why. Link the issue: "Closes #123". Features and new bank connectors: the issue where the approach was agreed. -->
+
+## Checklist
+
+- [ ] **One concern**, about 600 changed lines or fewer (lockfiles, changelog, snapshots and fixtures excluded). If bigger, say why it cannot be split: <!-- reason -->
+- [ ] **Synced with `main`** (merged in, no conflicts) and **CI is green**; this is a draft until it is.
+- [ ] **Tests** cover the behaviour change and its failure case; none depends on today's date (inject a `Clock`).
+- [ ] **Migration** (if any): `V<n>` is the next free number on an up-to-date `main`: <!-- V123, or "none" -->
+- [ ] **Docs and CHANGELOG**: feature note / ADR updated, one `[Unreleased]` entry added after the last sync, new i18n keys in all four locales.
+- [ ] **Not stacked** on another open pull request (or the maintainer agreed: <!-- which one merges first -->).
+- [ ] **Bank connector** (if any): synthetic fixtures only, no real account data, screenshot or log anywhere in this pull request; a live test with a real account is still to be agreed with the maintainer.
+
+## Self-review
+
+<!-- Which reviewer agent or loop you ran on the full diff, how many rounds, and what it found and you fixed. "None" is a valid answer only for a trivial change. -->
+
+## Design decisions
+
+<!-- The choices a reviewer could question, and why you made them. Say if you used a tool to settle them (for example the grilling skill). -->
