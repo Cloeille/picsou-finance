@@ -428,21 +428,15 @@ public class TradeRepublicSyncService {
                 firstLine = false;
                 if (line.toLowerCase().contains("datetime") || line.toLowerCase().startsWith("\"datetime\"")) {
                     currencyColumn = parseCsvLine(line.toLowerCase()).indexOf("currency");
+                    if (currencyColumn < 0) {
+                        log.warn("TR CSV import: no currency column in the header, amounts read as EUR");
+                    }
                     continue;
                 }
             }
 
             List<String> parts = parseCsvLine(line);
             if (parts.size() < 19) {
-                continue;
-            }
-
-            // Every amount is stored as EUR: a row the export states in another currency is left
-            // out rather than booked at the wrong value. original_currency is not checked: it names
-            // what a card payment abroad was charged in, while amount stays the EUR debit.
-            if (currencyColumn >= 0 && currencyColumn < parts.size()
-                    && !parts.get(currencyColumn).isBlank() && !"EUR".equalsIgnoreCase(parts.get(currencyColumn))) {
-                nonEurCount++;
                 continue;
             }
 
@@ -462,6 +456,15 @@ public class TradeRepublicSyncService {
             }
 
             if ("TRANSFER_IN".equalsIgnoreCase(type) || "TRANSFER_OUT".equalsIgnoreCase(type)) {
+                continue;
+            }
+
+            // Every amount is stored as EUR: a row the export states in another currency is left
+            // out rather than booked at the wrong value. original_currency is not checked: it names
+            // what a card payment abroad was charged in, while amount stays the EUR debit.
+            if (currencyColumn >= 0 && currencyColumn < parts.size()
+                    && !parts.get(currencyColumn).isBlank() && !"EUR".equalsIgnoreCase(parts.get(currencyColumn))) {
+                nonEurCount++;
                 continue;
             }
 

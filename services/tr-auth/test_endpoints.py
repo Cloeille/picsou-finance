@@ -509,8 +509,10 @@ class TransactionsTest(EndpointCase):
     def test_the_longest_range_is_accepted(self):
         self.run_tr(self.routes())
 
-        self.assertEqual(self.post(**{"from": "2021-11-09", "to": "2026-11-04"}).status_code, 200)
+        # 1830 days, main.EXPORT_MAX_DAYS: the backend clamps its window to exactly this.
+        self.assertEqual(self.post(**{"from": "2021-10-31", "to": "2026-11-04"}).status_code, 200)
         self.assertEqual(self.post(**{"from": "2026-11-04", "to": "2026-11-04"}).status_code, 200)
+        self.assertDetail(self.post(**{"from": "2021-10-30", "to": "2026-11-04"}), 422, "INVALID_DATA")
 
     def test_429_anywhere_is_rate_limited(self):
         for step in (SESSION_ROUTE, EXPORT_REQUEST, EXPORT_STATUS, EXPORT_DOWNLOAD):

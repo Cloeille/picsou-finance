@@ -166,7 +166,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fetches Trade Republic's own CSV export through the `tr-auth` sidecar and feeds it to the
   existing CSV importer, so card payments, interest and trades land in TR Cash and the PEA/CTO
   without a manual upload. Rows already imported by hand are skipped. An unavailable export never
-  fails the sync. See [Trade Republic](docs/features/trade-republic.md).
+  fails the sync. Rows the export states in a currency other than EUR are left out and counted,
+  on the manual upload too, instead of being stored as euros. See
+  [Trade Republic](docs/features/trade-republic.md).
 
 - **AI categorization over MCP.** `start_ai_categorization` starts the inbox's AI job and
   `get_ai_categorization_status` reports its progress as counters only, under a new

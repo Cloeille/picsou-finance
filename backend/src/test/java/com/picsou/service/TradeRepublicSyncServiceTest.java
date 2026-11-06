@@ -883,12 +883,12 @@ class TradeRepublicSyncServiceTest {
         Account cash = trCash();
         when(trPort.fetchAccounts("cookie", CLAIMS)).thenReturn(List.of());
         when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER)).thenReturn(List.of(cash));
-        when(transactionRepository.findLatestSyncedDateByAccountId(1L)).thenReturn(LocalDate.of(2026, 10, 30));
+        when(transactionRepository.findLatestSyncedDateByAccountId(1L)).thenReturn(TODAY.minusDays(7));
         when(trPort.fetchTransactionsCsv(anyString(), any(), any())).thenReturn(csvText());
 
         service.queueSync(MEMBER);
 
-        verify(trPort).fetchTransactionsCsv("plain-state", LocalDate.of(2026, 10, 16), TODAY);
+        verify(trPort).fetchTransactionsCsv("plain-state", TODAY.minusDays(21), TODAY);
     }
 
     @Test
@@ -919,20 +919,22 @@ class TradeRepublicSyncServiceTest {
         String eur = row("2026-10-02", "DEFAULT", "CASH", "CARD_PAYMENT", "", "-12.50", "Coffee", "ext-eur");
         String usd = row("2026-10-03", "DEFAULT", "CASH", "CARD_PAYMENT", "", "-20.00", "Diner", "ext-usd");
         String abroad = row("2026-10-04", "DEFAULT", "CASH", "CARD_PAYMENT", "", "-9.10", "Taxi", "ext-abroad");
-        String body = String.join(",", header) + "\n"
-            + withColumn(eur, 12, "EUR") + "\n"
+        String blank = row("2026-10-05", "DEFAULT", "CASH", "INTEREST", "", "1.00", "Interest", "ext-blank");
+        String body = String.join(",", header).toUpperCase() + "\n"
+            + withColumn(eur, 12, "eur") + "\n"
             + withColumn(usd, 12, "USD") + "\n"
-            + withColumn(withColumn(abroad, 12, "EUR"), 14, "USD") + "\n";
+            + withColumn(withColumn(abroad, 12, "EUR"), 14, "USD") + "\n"
+            + blank + "\n";
         var file = new MockMultipartFile("file", "tr.csv", "text/csv", body.getBytes(StandardCharsets.UTF_8));
 
         TradeRepublicSyncService.ImportResult result = service.importTransactionsCsv(1L, file, MEMBER);
 
-        assertThat(result.inserted()).isEqualTo(2);
+        assertThat(result.inserted()).isEqualTo(3);
         assertThat(result.nonEur()).isEqualTo(1);
         ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
-        verify(transactionRepository, times(2)).save(saved.capture());
+        verify(transactionRepository, times(3)).save(saved.capture());
         assertThat(saved.getAllValues()).extracting(Transaction::getExternalId)
-            .containsExactlyInAnyOrder("ext-eur_cash", "ext-abroad_cash");
+            .containsExactlyInAnyOrder("ext-eur_cash", "ext-abroad_cash", "ext-blank_cash");
     }
 
     private static String withColumn(String row, int index, String value) {
