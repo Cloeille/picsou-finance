@@ -396,4 +396,24 @@ class AllocationServiceTest {
         assertThat(r.contributions().get(1).accountName()).isEqualTo("PEA");
         assertThat(r.contributions().get(1).amount()).isEqualByComparingTo("150.00");
     }
+
+    /** A CORUM Life payment is filed under the transfer category, so it is a contribution. */
+    @Test
+    void compute_contributions_countACorumLifePayment() {
+        Account life = account(6L, "CORUM Life", AccountType.ASSURANCE_VIE, "1534.37");
+        Transaction payment = transfer(life, "50.00");
+        payment.setTxType(com.picsou.model.TransactionType.DEPOSIT);
+        payment.setType("scheduledPayment");
+
+        when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID)).thenReturn(List.of(life));
+        when(transactionRepository.findByMemberIdAndKindAndDateBetween(eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
+            .thenReturn(List.of(payment));
+
+        AllocationResponse r = service.compute(MEMBER_ID, CashflowPeriod.YTD, TODAY);
+
+        assertThat(r.totalContributions()).isEqualByComparingTo("50.00");
+        assertThat(r.contributions()).singleElement()
+            .satisfies(c -> assertThat(c.accountName()).isEqualTo("CORUM Life"));
+    }
 }

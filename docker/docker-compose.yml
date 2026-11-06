@@ -36,26 +36,40 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-picsou}?sslmode=prefer
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-picsou}
-      # Match the database service fallback; entrypoint forwards this to Spring
-      # unless explicitly overridden.
+      # Match the database service fallback. application.yml reads
+      # SPRING_DATASOURCE_PASSWORD, then POSTGRES_PASSWORD, so this is also the
+      # datasource password unless SPRING_DATASOURCE_PASSWORD is set.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-picsou}
-      # application.yml reads SPRING_DATASOURCE_PASSWORD, not POSTGRES_PASSWORD.
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       # Opt-in anonymous telemetry: empty DSN = feature fully inactive (docs/features/telemetry.md)
       APP_TELEMETRY_DSN: ${APP_TELEMETRY_DSN:-}
       APP_TELEMETRY_ENVIRONMENT: ${APP_TELEMETRY_ENVIRONMENT:-production}
-      # Must match the proxy's exact address on tls-proxy below. The entrypoint
-      # uses it as nginx's only trusted forwarded-address peer.
+      # Must match the proxy's exact address on tls-proxy below. It is Tomcat's only
+      # trusted forwarded-address peer.
       PICSOU_PROXY_IP: ${PICSOU_PROXY_IP:-172.30.253.2}
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
     depends_on:
-      - db
+      db:
+        condition: service_started
+      data-permissions:
+        condition: service_completed_successfully
     networks:
       default:
       fortuneo-auth-net:
       tls-proxy:
         aliases:
           - app-tls
+
+  # The app runs as uid 1000. Installs created by the former root image own /data (secrets are
+  # 0600 root), so hand it over once per start. Same image, no new dependency. Bind mounts where
+  # chown is ignored (NAS, CIFS) need mount options uid=1000,gid=1000 instead.
+  data-permissions:
+    image: ghcr.io/cloeille/picsou-finance:latest
+    user: "0:0"
+    entrypoint: ["chown", "-R", "1000:1000", "/data"]
+    restart: "no"
+    volumes:
+      - picsou_data:/data
 
   # Optional TLS terminator — OFF unless the `tls` profile is requested:
   #   set `tls` in COMPOSE_PROFILES in docker/.env, then run `up -d`
@@ -342,8 +356,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-picsou}
       POSTGRES_USER: ${POSTGRES_USER:-picsou}
       # Both app and database receive the supplied password, or 'picsou' when
-      # POSTGRES_PASSWORD is unset or empty. The entrypoint persists that value
-      # in /data/.secrets/postgres_password for first-boot use.
+      # POSTGRES_PASSWORD is unset or empty. The app never generates one.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-picsou}
     volumes:
       - pgdata:/var/lib/postgresql/data

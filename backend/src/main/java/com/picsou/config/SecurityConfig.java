@@ -6,6 +6,9 @@ import com.picsou.repository.AppUserRepository;
 import com.picsou.service.MfaService;
 import com.picsou.service.PersistentSessionService;
 import io.github.bucket4j.Bucket;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -34,6 +37,11 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
+import org.springframework.security.web.header.writers.DelegatingRequestMatcherHeaderWriter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
+import org.springframework.security.web.header.writers.CacheControlHeadersWriter;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 
@@ -49,50 +57,60 @@ public class SecurityConfig {
     @Value("${app.cors.allowed-origins:}")
     private String allowedOrigins;
 
+    static final String CONTENT_SECURITY_POLICY = "default-src 'self'; script-src 'self'; "
+        + "style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; "
+        + "connect-src 'self'; frame-ancestors 'none'";
+
+    /** GET and HEAD outside the backend prefixes: the SPA's files and client-side routes. */
+    private static final RequestMatcher SPA_READ = request ->
+        ("GET".equals(request.getMethod()) || "HEAD".equals(request.getMethod()))
+            && !SpaPaths.isBackend(SpaPaths.requestPath(request));
+
+    static final String PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=()";
+
+    private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
+
     /**
-     * Whether to send {@code Strict-Transport-Security}. Off by default, and it must stay in
-     * lock-step with the nginx-side gate (docker/entrypoint.sh writes
-     * {@code /etc/nginx/snippets/picsou-hsts.conf} from the same {@code HSTS_ENABLED}).
+     * Whether to send {@code Strict-Transport-Security}. Off by default: Spring is the only
+     * emitter now that no proxy in the image touches headers, for the SPA, {@code /api} and the
+     * OAuth2 authorization-server chain alike (both chains use {@link #securityHeaders}).
      *
      * <p>Gating this matters because Spring Security's {@code HstsHeaderWriter} fires on any
      * request where {@code isSecure()} is true, and {@code forward-headers-strategy: native}
      * makes that true from {@code X-Forwarded-Proto: https} sent by a configured proxy. Without the gate, every
-     * {@code /api/*} response carries HSTS — and the SPA calls the API on load, so the browser
+     * {@code /api/*} response carries HSTS, and the SPA calls the API on load, so the browser
      * pins the policy on the first page view. With a locally-issued certificate that is a
      * lockout: the browser then refuses the "proceed anyway" bypass and there is no in-app
      * recovery.
      *
-     * <p>In the all-in-one Docker image this is defence in depth — nginx strips the backend's
-     * copy on {@code /api} and {@code /actuator} ({@code proxy_hide_header}) and emits its own.
-     * It is the operative control for bare-metal runs behind an
-     * operator's own proxy, where nothing hides it.
-     *
      * <p>Bound as a {@code String} and parsed leniently on purpose. A primitive {@code boolean}
-     * would make Spring fail field injection on any value it cannot convert — including a bare
-     * {@code HSTS_ENABLED=} — which takes the whole backend down under supervisord while nginx
-     * keeps serving, turning a harmless typo into an app-wide 502. {@code docker/entrypoint.sh}
-     * deliberately tolerates the same inputs and warns; the two must agree.
+     * would make Spring fail field injection on any value it cannot convert, including a bare
+     * {@code HSTS_ENABLED=}, which takes the whole backend down. An unrecognised value disables
+     * HSTS and logs one warning at startup ({@link #warnOnUnrecognisedHsts}).
      */
     @Value("${app.hsts-enabled:false}")
     private String hstsEnabledRaw;
 
-    /**
-     * The truthy tokens accepted for {@code HSTS_ENABLED}. This set is duplicated in the
-     * {@code case} arm of {@code docker/entrypoint.sh}, which gates the nginx-side emitter from
-     * the same env var. The two must stay identical: if they diverge, one emitter sends HSTS
-     * while the other does not, and on a locally-issued certificate that is the browser lockout
-     * the whole gate exists to prevent. {@code SecurityConfigHstsParsingTest} pins this list
-     * against the shell script so the drift fails the build rather than a deployment.
-     */
+    /** The truthy tokens accepted for {@code HSTS_ENABLED}. Case-insensitive, trimmed. */
     static final java.util.Set<String> HSTS_TRUTHY = java.util.Set.of("true", "1", "yes", "on");
 
-    /** Lenient, case-insensitive, surrounding-whitespace-tolerant — mirrors entrypoint.sh. */
+    private static final java.util.Set<String> HSTS_FALSY = java.util.Set.of("false", "0", "no", "off", "");
+
+    /** Lenient, case-insensitive, surrounding-whitespace-tolerant. */
     static boolean parseHstsEnabled(String raw) {
         return raw != null && HSTS_TRUTHY.contains(raw.trim().toLowerCase());
     }
 
-    private boolean hstsEnabled() {
-        return parseHstsEnabled(hstsEnabledRaw);
+    /** True when the value is neither a truthy token nor an explicit "off" spelling. */
+    static boolean isUnrecognisedHsts(String raw) {
+        return raw != null && !parseHstsEnabled(raw) && !HSTS_FALSY.contains(raw.trim().toLowerCase());
+    }
+
+    @PostConstruct
+    void warnOnUnrecognisedHsts() {
+        if (isUnrecognisedHsts(hstsEnabledRaw)) {
+            log.warn("HSTS_ENABLED='{}' not understood, HSTS disabled.", hstsEnabledRaw);
+        }
     }
 
     // @Order(2): the catch-all API chain. The OAuth2 authorization-server chain
@@ -110,7 +128,9 @@ public class SecurityConfig {
                                            MfaService mfaService,
                                            AccessKeyService accessKeyService,
                                            @Qualifier("mcpKeyBuckets") Map<Long, Bucket> mcpKeyBuckets,
-                                           CorsConfigurationSource corsConfigurationSource) throws Exception {
+                                           CorsConfigurationSource corsConfigurationSource,
+                                           SsoProperties ssoProperties, java.time.Clock clock,
+                                           Customizer<HeadersConfigurer<HttpSecurity>> securityHeaders) throws Exception {
         // The chain is stateless, so no session ever carries the MCP authentication. The
         // request-attribute repository is what reloads it on the ASYNC dispatch that completes a
         // stream; AccessKeyAuthFilter saves into this same instance.
@@ -124,22 +144,16 @@ public class SecurityConfig {
             .csrf(csrf -> csrf
                 .requireCsrfProtectionMatcher(new CrossSiteCookieRequestMatcher(corsConfigurationSource))
                 .csrfTokenRepository(new NoStoredCsrfTokenRepository()))
-            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            // STATELESS still installs SessionManagementFilter with ChangeSessionIdAuthenticationStrategy: a
+            // JWT-authenticated request (RequestAttribute repo => no saved context) carrying a JSESSIONID would
+            // rotate it. That id is the SSO handshake session of the /oauth2/sso chain, so polling requests made
+            // while the IdP step is open invalidated the id the callback later presents (SESSION_EXPIRED).
+            // This chain never creates sessions or binds authentication to one, so there is nothing to fix.
+            .sessionManagement(sm -> sm
+                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                .sessionFixation(fixation -> fixation.none()))
             .securityContext(sc -> sc.securityContextRepository(securityContextRepository))
-            .headers(headers -> headers
-                .frameOptions(fo -> fo.deny())
-                .contentTypeOptions(cto -> {})
-                .httpStrictTransportSecurity(hsts -> {
-                    if (hstsEnabled()) {
-                        hsts.maxAgeInSeconds(31536000).includeSubDomains(true);
-                    } else {
-                        hsts.disable();
-                    }
-                })
-                .referrerPolicy(rp -> rp
-                    .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)
-                )
-            )
+            .headers(securityHeaders)
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/setup/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
@@ -147,7 +161,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/auth/mfa/verify").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/auth/activate/*").permitAll()
-                .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/auth/sso").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/health/liveness",
+                    "/actuator/health/readiness", "/actuator/info").permitAll()
                 // RFC 9728 protected-resource metadata (Task 7) and RFC 7591 dynamic client
                 // registration (Task 8): unauthenticated by design, so a remote-MCP client can
                 // discover the resource + self-register before the OAuth handshake even starts.
@@ -157,6 +173,9 @@ public class SecurityConfig {
                 // — so both fall through to this chain and need an explicit permitAll here.
                 .requestMatchers(ProtectedResourceMetadataController.PATH).permitAll()
                 .requestMatchers(HttpMethod.POST, "/oauth2/register").permitAll()
+                // The SPA's static files and client-side routes, readable by anyone (the app
+                // shows its own login). Everything under a backend prefix keeps its rules.
+                .requestMatchers(SPA_READ).permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers("/mcp/**").authenticated()
                 .anyRequest().authenticated()
@@ -172,7 +191,8 @@ public class SecurityConfig {
             .addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(new JwtAuthenticationFilter(jwtTokenAuthenticator), UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(
-                new PersistentTokenAuthFilter(persistentSessionService, appUserRepository, jwtUtil, authCookieWriter, mfaService),
+                new PersistentTokenAuthFilter(persistentSessionService, appUserRepository, jwtUtil, authCookieWriter, mfaService,
+                    ssoProperties, clock),
                 UsernamePasswordAuthenticationFilter.class
             )
             // Last of the same-anchor filters: only acts on /mcp/** (shouldNotFilter), validates the
@@ -212,7 +232,38 @@ public class SecurityConfig {
         return http.build();
     }
 
-    private static AccessDeniedHandler crossSiteAwareAccessDeniedHandler() {
+    /**
+     * Response headers shared by the API chain and the OAuth2 authorization-server chain, so no
+     * path is served without them and HSTS follows one gate. {@code Cache-Control: no-store} is
+     * limited to backend paths: the SPA's files carry their own caching headers.
+     */
+    @Bean
+    Customizer<HeadersConfigurer<HttpSecurity>> securityHeadersCustomizer() {
+        return this::securityHeaders;
+    }
+
+    void securityHeaders(HeadersConfigurer<HttpSecurity> headers) {
+        headers
+            .frameOptions(fo -> fo.deny())
+            .contentTypeOptions(cto -> {})
+            .httpStrictTransportSecurity(hsts -> {
+                if (parseHstsEnabled(hstsEnabledRaw)) {
+                    hsts.maxAgeInSeconds(31536000).includeSubDomains(true);
+                } else {
+                    hsts.disable();
+                }
+            })
+            .referrerPolicy(rp -> rp
+                .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+            .contentSecurityPolicy(csp -> csp.policyDirectives(CONTENT_SECURITY_POLICY))
+            .cacheControl(cache -> cache.disable())
+            .addHeaderWriter(new StaticHeadersWriter("Permissions-Policy", PERMISSIONS_POLICY))
+            .addHeaderWriter(new DelegatingRequestMatcherHeaderWriter(
+                request -> SpaPaths.isBackend(SpaPaths.requestPath(request)),
+                new CacheControlHeadersWriter()));
+    }
+
+    static AccessDeniedHandler crossSiteAwareAccessDeniedHandler() {
         LinkedHashMap<Class<? extends AccessDeniedException>, AccessDeniedHandler> handlers = new LinkedHashMap<>();
         handlers.put(CsrfException.class, (req, res, denied) -> {
             res.setStatus(403);
@@ -263,7 +314,7 @@ public class SecurityConfig {
      * fresh installs (and for env-only operators who never run the wizard).
      */
     @Bean
-    public CorsConfigurationSource corsConfigurationSource(AppSettingRepository settingRepository) {
+    public DynamicCorsConfigurationSource corsConfigurationSource(AppSettingRepository settingRepository) {
         return new DynamicCorsConfigurationSource(settingRepository, allowedOrigins);
     }
 }

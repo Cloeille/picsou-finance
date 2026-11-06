@@ -55,7 +55,10 @@ Query params:
 - `accountId` (integer, optional)
 - `categoryId` (integer, optional)
 
-Returns `Transaction[]` sorted by date DESC. Scoped to the authenticated user — no cross-user access. New method in `TransactionCategorizationController` (already mapped to `/api/transactions`).
+Returns `Transaction[]` sorted by date DESC. Scoped to the authenticated user — no cross-user access.
+Budget-neutral rows (`budgetNeutral: true`, e.g. a CORUM Life coupon or fee) are never returned,
+not even with an `accountId` filter: they belong on the account page, which reads
+`GET /api/accounts/{id}/transactions`. Each `Transaction` carries `budgetNeutral`. New method in `TransactionCategorizationController` (already mapped to `/api/transactions`).
 
 ## Frontend — Hook
 

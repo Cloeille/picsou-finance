@@ -17,10 +17,10 @@ import java.sql.SQLException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** V132 adds the optional, encrypted remembered identifier without reintroducing credentials. */
+/** V130 adds the optional, encrypted remembered identifier without reintroducing credentials. */
 @Testcontainers
 @EnabledIf("dockerAvailable")
-class V132LbpSavedIdentifierMigrationTest {
+class V130LbpSavedIdentifierMigrationTest {
 
     static {
         System.setProperty("api.version", System.getProperty("api.version", "1.44"));
@@ -35,7 +35,7 @@ class V132LbpSavedIdentifierMigrationTest {
         if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
             throw new IllegalStateException(
                 "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
-                    + "The V132 migration test cannot be skipped. Needs Docker Engine >= 25.0.");
+                    + "The V130 migration test cannot be skipped. Needs Docker Engine >= 25.0.");
         }
         return available;
     }
@@ -45,7 +45,7 @@ class V132LbpSavedIdentifierMigrationTest {
         Flyway.configure()
             .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
             .locations("classpath:db/migration")
-            .target("132")
+            .target("130")
             .load()
             .migrate();
     }
@@ -68,7 +68,7 @@ class V132LbpSavedIdentifierMigrationTest {
 
     @Test
     void acceptsASessionWithAndWithoutTheRememberedIdentifier() throws SQLException {
-        long member = newMember("lbp-v132");
+        long member = newMember("lbp-v130");
         try (Connection c = connection();
              PreparedStatement st = c.prepareStatement(
                  "INSERT INTO lbp_session (member_id, session_state, encrypted_identifier) "

@@ -25,10 +25,14 @@ global:
 #   sidecar-api-key    APP_SIDECAR_API_KEY, sent by the app to every sidecar
 #   postgres-password  password of the bundled or external PostgreSQL
 #
-# Two more are optional; when absent, the app entrypoint generates them on first
+# Two more are optional; when absent, the app generates them on first
 # boot and keeps them on the /data volume, exactly as the Compose stack does:
 #   jwt-secret             JWT_SECRET            (openssl rand -base64 48)
 #   crypto-encryption-key  CRYPTO_ENCRYPTION_KEY (openssl rand -base64 32)
+#
+# One more is optional, for single sign-on (see the README, "Single sign-on (OIDC)"):
+#   sso-client-secret      SSO_CLIENT_SECRET     (absent means a public client, PKCE only;
+#                          a blank ssoClientSecret keeps a stored key, see the README)
 #
 # Losing crypto-encryption-key makes every stored API secret and bank session
 # token unreadable: back up the /data volume, or provide the key yourself.
@@ -49,6 +53,7 @@ secrets:
   postgresPassword: ""
   jwtSecret: ""
   cryptoEncryptionKey: ""
+  ssoClientSecret: ""
 
 # ── Application (frontend + backend in one image) ──────────────────────────
 app:
@@ -74,10 +79,22 @@ app:
     # HSTS_ENABLED: "true"          # only with a publicly trusted certificate
     # APP_UPDATE_CHECK_ENABLED: "false"
     # APP_TELEMETRY_DSN: ""
-    # One exact IPv4 address nginx trusts for X-Forwarded-For (ADR 2026-10-31,
+    # One exact IPv4 address Tomcat trusts for X-Forwarded-For (ADR 2026-10-31,
     # trusted proxy client addresses). Set it only when the ingress controller
     # reaches the app from a single stable address; see the chart README.
     # PICSOU_PROXY_IP: 10.0.0.10
+    # Single sign-on (OIDC), on only when SSO_ISSUER_URI and SSO_CLIENT_ID are both set.
+    # The client secret goes in the Secret (secrets.ssoClientSecret), not here.
+    # Redirect URI: https://<host>/login/sso/callback
+    # Post-logout URI (only with SSO_IDP_LOGOUT=true): https://<host>/login
+    # SSO_ISSUER_URI: https://idp.example.com   # must equal the discovery `issuer` exactly
+    # SSO_CLIENT_ID: picsou
+    # SSO_PROVIDER_NAME: SSO                    # button label (max 40 characters)
+    # SSO_SCOPES: openid,profile,email
+    # SSO_GROUPS_CLAIM: groups
+    # SSO_ADMIN_GROUP: ""                       # enables SSO first admin and role sync
+    # SSO_SESSION_REVALIDATE_AFTER: 24h
+    # SSO_IDP_LOGOUT: "false"
   # Raw EnvVar entries, for valueFrom and anything env cannot express.
   # Overrides env by name; duplicate names within extraEnv fail rendering.
   extraEnv: []
@@ -116,18 +133,32 @@ app:
     limits:
       memory: 1536Mi
 
-  # The image runs nginx and the Spring Boot backend under supervisord as root.
-  podSecurityContext: {}
+  # The image runs one Java process as uid/gid 1000. fsGroup hands the /data volume to that group
+  # at mount time; OnRootMismatch skips the recursive change once ownership is right. A volume
+  # whose storage driver ignores fsGroup (some NFS/CIFS) must be made writable for uid 1000
+  # outside the cluster.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
   securityContext:
     allowPrivilegeEscalation: false
 
-  # /actuator/health covers the database too, so it gates readiness but not
-  # liveness: a database outage must not restart the app in a loop. supervisord
-  # already restarts the JVM if it dies.
-  # No startup probe: liveness is a TCP check on nginx, which answers at once,
-  # and readiness already holds traffic back until /actuator/health is up. One on
-  # /actuator/health would restart the pod when the database is down at startup.
-  startupProbe: {}
+  # Liveness and startup use /actuator/health/liveness, which ignores the database: once the app
+  # has started, an outage must not restart it in a loop. Flyway runs during startup, so a
+  # database that is unreachable then fails startup, the JVM exits and the kubelet restarts the
+  # container (with back-off). Readiness uses /actuator/health, which covers the database and
+  # holds traffic back until it is up. The startup probe gives the JVM and Flyway five minutes
+  # (30 x 10 s) before liveness starts; the kubelet restarts a container that is still not live
+  # after that, as it restarts one that exits.
+  startupProbe:
+    httpGet:
+      path: /actuator/health/liveness
+      port: http
+    periodSeconds: 10
+    failureThreshold: 30
   readinessProbe:
     httpGet:
       path: /actuator/health
@@ -135,7 +166,8 @@ app:
     periodSeconds: 10
     failureThreshold: 3
   livenessProbe:
-    tcpSocket:
+    httpGet:
+      path: /actuator/health/liveness
       port: http
     periodSeconds: 30
     failureThreshold: 3

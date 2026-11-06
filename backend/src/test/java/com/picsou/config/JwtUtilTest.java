@@ -7,6 +7,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
+import java.time.Instant;
+import io.jsonwebtoken.Jwts;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -28,6 +30,29 @@ class JwtUtilTest {
     }
 
     // ─── token type isolation ─────────────────────────────────────────────
+
+    @Test
+    void ssoAt_roundTripsOnAccessAndRefresh_withoutChangingPasswordTokens() {
+        Instant authenticatedAt = Instant.parse("2026-10-31T12:34:56Z");
+        UUID series = UUID.fromString("11111111-2222-3333-4444-555555555555");
+
+        Claims access = jwt.validateAndParse(jwt.generateAccessToken(user, authenticatedAt));
+        Claims refresh = jwt.validateAndParse(jwt.generateRefreshToken(user, series, authenticatedAt));
+
+        assertThat(jwt.getSsoAuthenticatedAt(access)).isEqualTo(authenticatedAt);
+        assertThat(jwt.getSsoAuthenticatedAt(refresh)).isEqualTo(authenticatedAt);
+        assertThat(refresh.get("sso_at", Number.class).longValue()).isEqualTo(authenticatedAt.getEpochSecond());
+        assertThat(jwt.getSeriesId(refresh)).isEqualTo(series);
+        assertThat(jwt.validateAndParse(jwt.generateAccessToken(user))).doesNotContainKey("sso_at");
+        assertThat(jwt.validateAndParse(jwt.generateRefreshToken(user))).doesNotContainKey("sso_at");
+        assertThat(jwt.validateAndParse(jwt.generateRefreshToken(user, series))).doesNotContainKey("sso_at");
+    }
+
+    @Test
+    void ssoAt_isNullForAbsentOrNonNumericClaims() {
+        assertThat(jwt.getSsoAuthenticatedAt(Jwts.claims().build())).isNull();
+        assertThat(jwt.getSsoAuthenticatedAt(Jwts.claims().add("sso_at", "yesterday").build())).isNull();
+    }
 
     @Test
     void accessToken_isOnlyRecognizedAsAccess() {
@@ -105,5 +130,42 @@ class JwtUtilTest {
     void mfaChallengeExpirySeconds_matchesConstructor() {
         // 5 minutes → 300 seconds.
         assertThat(jwt.getMfaChallengeExpirySeconds()).isEqualTo(300L);
+    }
+
+    // ─── reauth proof ─────────────────────────────────────────────────────
+
+    @Test
+    void reauthProof_roundTripsSubjectUidTypeAndTokenVersion() {
+        AppUser bob = AppUser.builder().id(7L).username("bob").passwordHash("h").role(UserRole.MEMBER).build();
+
+        Claims claims = jwt.validateAndParse(jwt.generateReauthProof(bob));
+
+        assertThat(jwt.isReauthProof(claims)).isTrue();
+        assertThat(claims.getSubject()).isEqualTo("bob");
+        assertThat(claims.get("uid", Long.class)).isEqualTo(7L);
+        assertThat(claims.get("type", String.class)).isEqualTo("reauth");
+        assertThat(jwt.getTokenVersion(claims)).isEqualTo(bob.getTokenVersion());
+    }
+
+    @Test
+    void reauthProof_isNeverAnotherTokenType() {
+        assertThat(jwt.isReauthProof(jwt.validateAndParse(jwt.generateAccessToken(user)))).isFalse();
+        assertThat(jwt.isReauthProof(jwt.validateAndParse(jwt.generateRefreshToken(user)))).isFalse();
+        assertThat(jwt.isReauthProof(jwt.validateAndParse(jwt.generateMfaChallengeToken(user, false)))).isFalse();
+        Claims proof = jwt.validateAndParse(jwt.generateReauthProof(user));
+        assertThat(jwt.isAccessToken(proof)).isFalse();
+        assertThat(jwt.isRefreshToken(proof)).isFalse();
+        assertThat(jwt.isMfaChallengeToken(proof)).isFalse();
+    }
+
+    @Test
+    void reauthProofExpirySeconds_defaultsTo5MinutesOnTheFourArgConstructor() {
+        assertThat(jwt.getReauthProofExpirySeconds()).isEqualTo(300L);
+    }
+
+    @Test
+    void reauthProofExpirySeconds_matchesTheConfiguredLifetime() {
+        JwtUtil custom = new JwtUtil("0123456789abcdef0123456789abcdef-test", 15, 7, 5, 7);
+        assertThat(custom.getReauthProofExpirySeconds()).isEqualTo(420L);
     }
 }

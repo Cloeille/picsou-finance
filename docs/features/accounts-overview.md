@@ -1,6 +1,6 @@
 # Feature: Accounts Overview (PnL chart + summary card + asset type filters)
 
-> Last updated: 2026-08-19
+> Last updated: 2026-11-05
 
 ## Context
 
@@ -113,9 +113,29 @@ for the same reason: no existing row can know its own opening date, and deriving
 and sends null on every call, so treating it as a clear would wipe the date the first time an
 agent renamed the account. The cost is that the form can change the date but not blank it.
 
+One sync fills it: the [CORUM Life](./corum-life.md) sync writes the contract's `creationDate`,
+and only while the column is null. A date the member typed is never overwritten, because it may
+be the one their paperwork carries.
+
 The column is deliberately general rather than `pea_opened_at`: a PER, a PEA-PME and an
 assurance-vie all have the same shape of rule at different thresholds. Extending the field to
 another type is one entry in `OPENING_DATE_TYPES`.
+
+### Life-insurance contract figures
+
+A synced assurance-vie (CORUM Life) carries `AccountResponse.contract` — `paidInEur` (gross
+payments), `netInvestedEur`, `scheduledPaymentEur` and `scheduledPaymentCadence` — null when the
+insurer reports none of them. They come from the `account` columns `provider_paid_in_eur`,
+`provider_invested_eur`, `scheduled_payment_eur` and `scheduled_payment_cadence` (V125), mapped by
+`AccountContractResponse.from`; the cadence is a `RecurringCadence`. `AccountDetailPage` renders `LifeContractSection` for an
+`ASSURANCE_VIE` whose `contract` is non-null: the opening date, the date the eight-year tax
+advantage starts (`openedAt` + 8 years, computed on the date string so no timezone shifts the
+day; a 29 February lands on the 28th in a non-leap year), gross payments, net invested (the gain is not repeated: the page's portfolio
+performance already shows it against the same net invested amount), and
+the scheduled payment as amount plus cadence suffix (`150 €/mois`). A row whose value is null is
+left out rather than shown as a dash. That portfolio performance uses the contract's net invested —
+never a sum over the fund lines — for the reason in [corum-life.md](./corum-life.md). Amounts render in
+the foreground ink, like every other figure on the page.
 
 ### Summary card
 
@@ -202,6 +222,7 @@ It also injects each account's current balance at today's date if no snapshot ex
 ### Key files
 
 - `frontend/src/components/shared/AccountForm.tsx` — `OPENING_DATE_TYPES` and the date field
+- `frontend/src/components/accounts/LifeContractSection.tsx` — an assurance-vie's contract figures on the detail page
 - `backend/src/main/resources/db/migration/V91__account_opened_at.sql`
 - `frontend/src/pages/accounts/AccountsPage.tsx` — page with summary card, PnL chart, and grid
 - `frontend/src/components/shared/AccountCard.tsx` — one card; `AccountAvatar` / `PropertyAvatar`
@@ -283,11 +304,16 @@ AccountsPage
   sections case.
 - `AccountsWorkbookServiceTest` — the opening date is written on the account sheet, and the line
   is absent rather than blank when none is stated.
+- `frontend/src/components/accounts/LifeContractSection.test.tsx` — the eight-year date (and the
+  29 February case), payments and net invested without a repeated gain row,
+  the scheduled payment with its cadence, rows hidden when null, nothing without a contract.
+  `AccountDetailPage.test.tsx` shows the section on an assurance-vie with contract figures and
+  leaves it off otherwise.
 - Nothing covers the PnL chart, the summary card or the filters yet.
 
 ## Links
 
-- i18n keys: `accounts.pnl`, `accounts.total`, `accounts.filters.*`, `accounts.lastSync`,
+- i18n keys: `accounts.lifeContract.*`, `accounts.pnl`, `accounts.total`, `accounts.filters.*`, `accounts.lastSync`,
   `accounts.lastValuation`, `property.kind.*`
 - Related: [dashboard-time-range-isolation.md](./dashboard-time-range-isolation.md) — Dashboard PnL chart
 - Related: [live-prices-holdings.md](./live-prices-holdings.md) — per-holding PnL calculation

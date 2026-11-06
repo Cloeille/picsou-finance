@@ -11,9 +11,11 @@ public record FamilyMemberResponse(
     boolean hasLogin,
     boolean activated,
     String loginName,
-    boolean mfaEnabled
+    boolean mfaEnabled,
+    boolean hasPassword,
+    boolean ssoLinked
 ) {
-    public static FamilyMemberResponse from(FamilyMember member, AppUser user, boolean mfaEnabled) {
+    public static FamilyMemberResponse from(FamilyMember member, AppUser user, boolean mfaEnabled, boolean ssoLinked) {
         return new FamilyMemberResponse(
             member.getId(),
             member.getDisplayName(),
@@ -22,7 +24,9 @@ public record FamilyMemberResponse(
             user != null,
             user != null && user.isActivated(),
             user != null ? user.getUsername() : null,
-            mfaEnabled
+            mfaEnabled,
+            user != null && user.getPasswordHash() != null && !user.getPasswordHash().isBlank(),
+            ssoLinked
         );
     }
 }

@@ -16,6 +16,10 @@ import java.util.Objects;
  * between two calls: a successful login yields a session or it does not. The
  * job state below still exists, because the snapshot read is slow and must not
  * be started twice concurrently.
+ *
+ * <p>When the member opted in at login, the credentials are kept encrypted too,
+ * so a sync whose session expired logs in again by itself, as
+ * {@link CmesSession} does.
  */
 @Entity
 @Table(name = "corum_session")
@@ -40,6 +44,15 @@ public class CorumSession extends AuditableEntity {
     @Column(name = "session_state", nullable = false, columnDefinition = "TEXT")
     private String sessionState;
 
+    /**
+     * The login and password as JSON, encrypted via CryptoEncryption. Null unless
+     * the member asked to remember them. Never exposed, never logged.
+     */
+    @JsonIgnore
+    @ToString.Exclude
+    @Column(name = "encrypted_credentials", columnDefinition = "TEXT")
+    private String encryptedCredentials;
+
     @Column(name = "last_validated_at")
     private Instant lastValidatedAt;
 
@@ -62,6 +75,11 @@ public class CorumSession extends AuditableEntity {
     @Column(name = "last_sync_error", length = 40)
     private SidecarErrorCode lastSyncError;
 
+    /** CORUM Life contracts the last successful sync could not write: see {@code CorumLifeWriter}. */
+    @Column(name = "last_sync_life_ambiguous", nullable = false)
+    @Builder.Default
+    private int lastSyncLifeAmbiguous = 0;
+
     public static CorumSession create(
         FamilyMember member,
         String encryptedSessionState,
@@ -76,6 +94,21 @@ public class CorumSession extends AuditableEntity {
             .build();
     }
 
+    public void setEncryptedCredentials(String encryptedCredentials) {
+        this.encryptedCredentials = encryptedCredentials;
+    }
+
+    /** A login with the stored credentials replaced the expired session. */
+    public void updateSessionState(String encryptedState, Instant validatedAt) {
+        this.sessionState = Objects.requireNonNull(encryptedState, "encryptedState");
+        this.lastValidatedAt = Objects.requireNonNull(validatedAt, "validatedAt");
+        this.active = true;
+    }
+
+    /**
+     * Queues a sync. Refused for an inactive session or one already queued or running, so a run is never
+     * started twice; the previous run's timestamps, error and ambiguous count are cleared.
+     */
     public void markQueued() {
         if (!active) {
             throw new IllegalStateException("Inactive CORUM sessions cannot be queued");
@@ -87,8 +120,10 @@ public class CorumSession extends AuditableEntity {
         lastSyncStartedAt = null;
         lastSyncCompletedAt = null;
         lastSyncError = null;
+        lastSyncLifeAmbiguous = 0;
     }
 
+    /** Starts a queued sync. Only an active session that is QUEUED can run, so a stale job cannot start one. */
     public void markRunning(Instant startedAt) {
         if (!active || syncStatus != CorumSyncStatus.QUEUED) {
             throw new IllegalStateException("Only an active queued CORUM session can run");
@@ -99,17 +134,29 @@ public class CorumSession extends AuditableEntity {
         lastSyncError = null;
     }
 
-    public void markSuccessful(Instant completedAt) {
+    /**
+     * Ends the running sync as a success. A completed read proves the session still works, so it also
+     * refreshes {@code lastValidatedAt}. {@code lifeAmbiguous} counts the life contracts left unwritten.
+     */
+    public void markSuccessful(Instant completedAt, int lifeAmbiguous) {
         if (!active || syncStatus != CorumSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an active running CORUM session can succeed");
+        }
+        if (lifeAmbiguous < 0) {
+            throw new IllegalArgumentException("lifeAmbiguous must not be negative");
         }
         Instant completion = Objects.requireNonNull(completedAt, "completedAt");
         syncStatus = CorumSyncStatus.SUCCESS;
         lastValidatedAt = completion;
         lastSyncCompletedAt = completion;
         lastSyncError = null;
+        lastSyncLifeAmbiguous = lifeAmbiguous;
     }
 
+    /**
+     * Ends an in-flight sync as failed with its error code. A SESSION_EXPIRED or INVALID_CREDENTIALS failure
+     * also deactivates the session, as only a new login can recover it.
+     */
     public void markFailed(SidecarErrorCode errorCode, Instant completedAt) {
         if (syncStatus != CorumSyncStatus.QUEUED && syncStatus != CorumSyncStatus.RUNNING) {
             throw new IllegalStateException("Only an in-flight CORUM synchronization can fail");
@@ -118,10 +165,10 @@ public class CorumSession extends AuditableEntity {
         syncStatus = CorumSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
-        if (error == SidecarErrorCode.SESSION_EXPIRED) {
-            // The cookie died, so the stored session can only be replaced by a
-            // fresh login. Leaving it active would make every later sync fail
-            // the same way with no path forward.
+        if (error == SidecarErrorCode.SESSION_EXPIRED || error == SidecarErrorCode.INVALID_CREDENTIALS) {
+            // The cookie died and no stored credentials could replace it (or
+            // CORUM rejected them), so only a fresh login can. Leaving it active
+            // would make every later sync fail the same way with no path forward.
             active = false;
         }
     }

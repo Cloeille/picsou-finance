@@ -23,13 +23,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V131 applies on top of the whole chain and owns the {@code lbp_session} table.
+ * V129 applies on top of the whole chain and owns the {@code lbp_session} table.
  *
  * <p>Every statement is a constant with bound parameters: no value is concatenated into SQL.
  */
 @Testcontainers
 @EnabledIf("dockerAvailable")
-class V131LbpSessionMigrationTest {
+class V129LbpSessionMigrationTest {
 
     private static final String INSERT_SESSION =
         "INSERT INTO lbp_session (member_id, session_state) VALUES (?, ?)";
@@ -52,7 +52,7 @@ class V131LbpSessionMigrationTest {
         if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
             throw new IllegalStateException(
                 "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
-                    + "The V131 migration test cannot be skipped. Needs Docker Engine >= 25.0.");
+                    + "The V129 migration test cannot be skipped. Needs Docker Engine >= 25.0.");
         }
         return available;
     }
@@ -62,7 +62,7 @@ class V131LbpSessionMigrationTest {
         Flyway.configure()
             .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
             .locations("classpath:db/migration")
-            .target("131")
+            .target("129")
             .load()
             .migrate();
     }

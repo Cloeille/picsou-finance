@@ -134,7 +134,7 @@ account never sits in the `CHECKING` bucket waiting for the name-based detector.
   concrete client with nested records, not a port), the `LBP` entry in
   `SidecarBank`, `LbpSyncService`, `LbpController`, `LbpSession`,
   `LbpSyncStatus`, `LbpSessionRepository`, the `lbpSyncExecutor` bean in
-  `SyncExecutorConfig`, and migrations `V131` (session table) and `V132`
+  `SyncExecutorConfig`, and migrations `V129` (session table) and `V130`
   (optional encrypted remembered identifier).
 - `SavingsAutoConfigService` fills the regulated-livret configuration on import
   (`LIVRET_A`, `LDDS`, `LEP`), so the accounts no longer arrive "to configure".

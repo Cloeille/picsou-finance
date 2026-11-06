@@ -18,7 +18,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcOperations;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
@@ -96,7 +98,9 @@ public class AuthorizationServerConfig {
     @Order(1)
     public SecurityFilterChain authorizationServerSecurityFilterChain(
         HttpSecurity http,
-        JwtTokenAuthenticator jwtTokenAuthenticator
+        JwtTokenAuthenticator jwtTokenAuthenticator,
+        JwtUtil jwtUtil, SsoProperties ssoProperties, java.time.Clock clock,
+        Customizer<HeadersConfigurer<HttpSecurity>> securityHeaders
     ) throws Exception {
 
         OAuth2AuthorizationServerConfigurer authorizationServer =
@@ -109,7 +113,7 @@ public class AuthorizationServerConfig {
                     .authorizationServerMetadataCustomizer(this::advertiseRegistrationEndpoint))
                 // Task 10: send the browser to the SPA's consent screen instead of Spring AS's
                 // built-in generated page. MUST be "/consent" (not under /oauth2, /api, /mcp,
-                // /actuator) — nginx routes those prefixes to the backend, so only a path outside
+                // /actuator) — those are backend prefixes (SpaPaths), so only a path outside
                 // all of them falls through to the SPA's index.html (client-side routing). Spring
                 // AS appends "?scope=<space-delimited>&client_id=&state=" itself
                 // (OAuth2AuthorizationEndpointFilter#sendAuthorizationConsent); the SPA calls
@@ -120,6 +124,8 @@ public class AuthorizationServerConfig {
             // The token endpoint is called by the native app with PKCE (no browser session);
             // the authorize endpoint is a GET. CSRF protection is not applicable to this chain.
             .csrf(csrf -> csrf.disable())
+            // Same headers (and HSTS gate) as the API chain: no proxy in the image adds them.
+            .headers(securityHeaders)
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
             // Populate the SecurityContext from the existing access_token cookie so the authorize
             // endpoint knows who is authorizing. MUST run BEFORE OAuth2AuthorizationEndpointFilter:
@@ -131,7 +137,7 @@ public class AuthorizationServerConfig {
             // anchor was NOT in this chain, so Spring placed the bridge AFTER the authorize filter —
             // the request then fell through authenticated-but-unhandled to a 404 (see
             // Oauth2ConsentHandshakeIntegrationTest).
-            .addFilterAfter(new CookieBridgeAuthenticationFilter(jwtTokenAuthenticator),
+            .addFilterAfter(new CookieBridgeAuthenticationFilter(jwtTokenAuthenticator, jwtUtil, ssoProperties, clock),
                 SecurityContextHolderFilter.class)
             .exceptionHandling(ex -> ex.authenticationEntryPoint(spaLoginRedirectEntryPoint()));
 
@@ -349,7 +355,7 @@ public class AuthorizationServerConfig {
     /**
      * Redirect unauthenticated authorize requests to the existing SPA login, carrying the original
      * authorize URL in the SPA's established {@code redirect} query param so it can bounce back after
-     * login. Relative path → resolves against the user's own instance host (works behind nginx). The
+     * login. Relative path → resolves against the user's own instance host (works behind a reverse proxy). The
      * SPA only performs a full-page navigation back to a {@code /oauth2/} target (open-redirect guard).
      */
     private AuthenticationEntryPoint spaLoginRedirectEntryPoint() {

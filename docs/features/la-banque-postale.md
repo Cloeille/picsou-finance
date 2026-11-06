@@ -232,7 +232,7 @@ layer is `httpx` cookie replay.
 - `model/LbpSession.java`, `model/LbpSyncStatus.java`,
   `repository/LbpSessionRepository.java`, `config/LbpSyncRecovery.java`,
   `config/SyncExecutorConfig.java` (`lbpSyncExecutor`), migrations
-  `V131__lbp_session.sql` and `V132__lbp_saved_identifier.sql`.
+  `V129__lbp_session.sql` and `V130__lbp_saved_identifier.sql`.
 - `service/LbpSyncService.java` — validates the whole snapshot, then writes every
   account and its transactions in one transaction; maps `kind` to
   `AccountType` directly, stores the optional encrypted identifier and asks
@@ -244,7 +244,7 @@ layer is `httpx` cookie replay.
 - Tests: `LbpSessionTest`, `LbpAdapterTest`, `LbpControllerTest`,
   `LbpSyncServiceAuthTest`, `LbpSyncServiceStoreSessionTest`,
   `SavingsAutoConfigServiceTest`, the shared `SidecarContractTest` rig,
-  `SidecarBankCodesTest`, and the `V131` / `V132` migration tests.
+  `SidecarBankCodesTest`, and the `V129` / `V130` migration tests.
 
 **Sidecar**
 
@@ -284,7 +284,7 @@ layer is `httpx` cookie replay.
 
 **Verification** — the LBP backend tests pass, plus the shared
 `SidecarContractTest` (214 cases across every bank), `SidecarBankCodesTest`
-(23 cases, including the `lbp_session` CHECK) and the `V131` / `V132` migration
+(23 cases, including the `lbp_session` CHECK) and the `V129` / `V130` migration
 tests on real PostgreSQL. The 29 sidecar tests pass in the published image;
 the browser login is live-only. The frontend typechecks, lints and builds, and
 the 5 `LbpTab` tests pass.
