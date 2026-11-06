@@ -1,6 +1,6 @@
 # Feature: Ownership shares
 
-> Last updated: 2026-08-10
+> Last updated: 2026-11-05
 
 ## Context
 
@@ -72,6 +72,11 @@ PUT /accounts/{id}/ownership
   dashboard, so counting the full value there would report the property twice.
 - **A property and its mortgage have independent splits.** `RealEstateSummaryService` applies
   each account's own share. Assuming they match would quietly produce the wrong equity.
+- **A ratio uses the loan's own figures, not the member's part.** The dashboard's loan progress
+  divides the unweighted repaid capital by the unweighted `borrowedAmount`: the share cancels out
+  of the ratio, and weighing would give 0/0 for a zero share (a configured loan shown as "not
+  configured"). Dividing the weighted `balanceEur` by the full `borrowedAmount` showed a
+  half-owned loan with 25% repaid as 62.5%.
 - **A zero share means "worth nothing to you", not "not yours".** For a non-owner the two
   coincide, and `HistoryService.assertReadable` treats a zero share as inaccessible. For the
   *owner* they do not: they may transfer their whole share away and still administer the

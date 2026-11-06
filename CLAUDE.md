@@ -4,7 +4,7 @@ Self-hosted personal-finance dashboard for an individual or a small family — b
 
 ## Stack
 
-- Backend: Java 21 / Spring Boot 3.4.9 / Maven
+- Backend: Java 21 / Spring Boot 3.5.16 / Maven
 - Frontend: React 19 / TypeScript 5.9 / Vite 7 / Tailwind v4
 - DB: PostgreSQL 16 / Flyway
 - Build: Maven (backend), bun (frontend)
@@ -12,24 +12,7 @@ Self-hosted personal-finance dashboard for an individual or a small family — b
 
 ## Essential commands
 
-```bash
-# Backend
-cd backend
-mvn spring-boot:run -Dspring-boot.run.profiles=dev   # Run locally (needs PostgreSQL on :5432)
-mvn test                                              # Run all tests
-mvn test -Dtest=GoalServiceTest                       # Run a single test class
-mvn package -DskipTests                               # Build JAR
-
-# Frontend
-cd frontend
-bun run dev          # Dev server on :5173 -- proxies /api/* to http://localhost:8080
-bun run build        # tsc + vite build (fails on type errors)
-bun run preview      # Serve the production build locally
-bun run typecheck    # TypeScript type checking only
-bun run lint         # ESLint
-bunx vitest run      # Run unit tests
-bun run test:e2e     # Playwright E2E tests
-```
+See [`CONTRIBUTING.md`](CONTRIBUTING.md#commands): one `make` target per task, run from the repository root.
 
 ## Code conventions
 

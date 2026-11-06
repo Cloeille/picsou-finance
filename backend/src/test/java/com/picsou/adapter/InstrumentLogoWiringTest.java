@@ -29,6 +29,10 @@ class InstrumentLogoWiringTest {
         .withBean(Clock.class, Clock::systemUTC)
         .withBean(YahooCooldown.class)
         .withBean(YahooFinancePriceProvider.class)
+        // Registered by class, not by supplier: Spring must pick the repository constructor itself.
+        .withBean(com.picsou.repository.CryptoAssetRepository.class,
+            () -> org.mockito.Mockito.mock(com.picsou.repository.CryptoAssetRepository.class))
+        .withBean(CryptoAssetRegistry.class)
         .withBean(CoinGeckoPriceProvider.class)
         .withBean(YahooQuotePageLogoProvider.class)
         .withBean(InstrumentLogoRepository.class, () -> mock(InstrumentLogoRepository.class))

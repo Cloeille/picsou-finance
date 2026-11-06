@@ -3,7 +3,7 @@ package com.picsou.controller;
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AmexSyncStatus;
-import com.picsou.port.AmexErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.AmexSyncService;
 import com.picsou.service.UserContext;
 import io.github.bucket4j.Bucket;
@@ -116,7 +116,7 @@ class AmexControllerTest {
             new SyncException(
                 "Amex rejected the verification code",
                 null,
-                AmexErrorCode.INVALID_OTP.name()
+                SidecarErrorCode.INVALID_OTP.name()
             )
         );
 

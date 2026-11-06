@@ -11,7 +11,6 @@ import com.picsou.service.sync.SyncProvider;
 import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -49,10 +48,9 @@ public class RevolutAdapter implements RevolutPort {
 
     public RevolutAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.revolut-auth.url:http://revolut-auth:8002}") String revolutAuthUrl,
         SyncProgressService progressService
     ) {
-        this.sidecarClient = clients.create("Revolut", revolutAuthUrl);
+        this.sidecarClient = clients.create("Revolut", "revolut-auth");
         this.progressService = progressService;
     }
 

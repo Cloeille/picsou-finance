@@ -1,6 +1,6 @@
 package com.picsou.adapter;
 
-import com.picsou.adapter.sidecar.SidecarWebClientFactory;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.exception.SyncException;
 import com.picsou.service.sync.SyncProgressService;
 import org.junit.jupiter.api.Test;
@@ -16,8 +16,7 @@ class RevolutAdapterUnavailableTest {
     @Test
     void sync_mapsAnUnreachableSidecarToNoResponse() throws IOException {
         RevolutAdapter adapter = new RevolutAdapter(
-            new SidecarWebClientFactory(""),
-            "http://127.0.0.1:" + closedPort(),
+            SidecarTestSupport.factory("revolut-auth", "http://127.0.0.1:" + closedPort(), ""),
             mock(SyncProgressService.class));
 
         assertThatThrownBy(() -> adapter.sync("+336****0000", "123456", 5L))

@@ -106,6 +106,11 @@ the withdrawal price only; the subscription price stays whatever the manual entr
 recorded. See the
 [Sofidy sidecar ADR](../decisions/2026-09-27-sofidy-scpi-sidecar.md).
 
+The positions come from the portfolio table in `3,clients.html` on purpose. The portal
+loads no data over XHR, and its two Excel exports (fund movements, dividends) carry
+neither the withdrawal price nor the list of product codes. The ADR's data-flow
+assessment records what was observed (#422).
+
 ### Account creation and linking
 
 Since [#232](https://github.com/Cloeille/picsou-finance/issues/232), a sync does not need a
