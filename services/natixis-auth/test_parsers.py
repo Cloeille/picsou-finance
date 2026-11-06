@@ -1,4 +1,4 @@
-"""The savings mapping, on anonymized responses captured from a real saver space."""
+"""The savings mapping, on synthetic responses shaped after the real saver space."""
 
 import copy
 import unittest

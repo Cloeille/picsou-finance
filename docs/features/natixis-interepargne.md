@@ -19,7 +19,8 @@ ends the session.
   (`/positions`).
 - `services/natixis-auth/savings_parser.py`: maps `savings` and `products` to plans
   and fund lines, and reconciles them.
-- `services/natixis-auth/fixtures.py`: anonymized captures of a real saver space.
+- `services/natixis-auth/fixtures.py` and `op_fixtures.py`: synthetic responses
+  shaped after the real API, with no value from a real account.
 - `backend/.../adapter/NatixisAdapter.java`: the sidecar client, a concrete
   component with no port.
 - `backend/.../service/NatixisSyncService.java`: the login hand-off, the job queue,
@@ -171,7 +172,7 @@ spending. The rows stay visible on the account page and in exports.
   a fake Natixis; every error code; a log test proving that no credential, code,
   token, CSRF or SAML value is ever logged.
 - `services/natixis-auth/test_parsers.py`: mapping and reconciliation on the
-  anonymized fixtures.
+  synthetic fixtures.
 - `services/natixis-auth/test_sidecar_auth.py`: the shared sidecar-key contract.
 - `NatixisSyncServiceTest` and `NatixisControllerTest`; the NATIXIS rows of
   `SidecarContractTest` and `SidecarBankCodesTest`.

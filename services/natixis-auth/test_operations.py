@@ -1,4 +1,4 @@
-"""Operations mapping, on anonymized captures of a real saver space."""
+"""Operations mapping, on synthetic responses shaped after the real saver space."""
 
 import copy
 import unittest

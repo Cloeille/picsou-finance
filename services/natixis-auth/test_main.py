@@ -1,7 +1,7 @@
 """The login, the code check and the positions read, end to end against a fake Natixis.
 
 The fake answers with the hosts, paths, status codes and payload shapes the
-live saver space used when the fixtures were captured.
+live saver space uses; the fixtures are synthetic.
 """
 
 import asyncio
