@@ -37,7 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transactions, on demand. It shares the Caisse d'Epargne code through the BPCE platform; cards,
   loans, PER and revolving credit are not imported. The accounts carry your regional bank's name
   (for example "Banque Populaire Rives de Paris") and, when Enable Banking is configured, its logo.
-  Enable the `banque-populaire` Compose profile.
+  Enable the `banque-populaire` Compose profile. The shared code also fixes Caisse d'Epargne: a
+  Livret Jeune (same BPCE product code as the Livret A) is now imported as a Livret Jeune, and a
+  LEP-labelled one as a LEP; an account imported under the wrong type is re-typed on its next
+  import and keeps its history.
   See [Banque Populaire sync](docs/features/banque-populaire.md).
 
 - **Sign in with your identity provider (SSO).** Set `SSO_ISSUER_URI` and `SSO_CLIENT_ID` to add
@@ -104,10 +107,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Caisse d'Epargne: a Livret Jeune is imported as a Livret Jeune.** The BPCE product code it
-  shares with the Livret A made it show up as a Livret A; the product label now tells them apart.
-  A product with that code labelled as a LEP is imported as a LEP. An account already imported
-  under the wrong type is re-typed the next time it is imported, and keeps its history.
 - **Crypto coins outside the built-in list get a price.** NEXO and CRO are now priced
   ([#419](https://github.com/Cloeille/picsou-finance/issues/419)). Beyond them, a coin held in a
   crypto account that Picsou does not know yet is looked up on CoinGecko and remembered once it is
