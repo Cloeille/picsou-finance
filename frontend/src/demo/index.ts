@@ -327,7 +327,7 @@ const demoPreciousMetals: PreciousMetalProduct[] = [
   { ticker: 'GOLD:LATIN-UNION-20F', name: 'Union latine 20 F', unit: 'COIN' },
   { ticker: 'GOLD:TUNISIA-20F', name: '20 Francs Tunisie', unit: 'COIN' },
   { ticker: 'GOLD:SOVEREIGN', name: 'Souverain', unit: 'COIN' },
-  { ticker: 'GOLD:SOVEREIGN-ELIZABETH-II', name: 'Souverain Elizabeth II', unit: 'COIN' },
+  { ticker: 'GOLD:SOVEREIGN-EII', name: 'Souverain Elizabeth II', unit: 'COIN' },
   { ticker: 'GOLD:HALF-SOVEREIGN', name: 'Demi-souverain', unit: 'COIN' },
   { ticker: 'GOLD:KRUGERRAND', name: 'Krugerrand', unit: 'COIN' },
   { ticker: 'GOLD:USD-20', name: '20 Dollars US', unit: 'COIN' },

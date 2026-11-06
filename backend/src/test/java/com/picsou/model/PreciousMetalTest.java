@@ -14,7 +14,7 @@ class PreciousMetalTest {
     void registryOrderMatchesTheCatalogueContract() {
         assertThat(Arrays.stream(PreciousMetal.values()).map(PreciousMetal::ticker).toList()).containsExactly(
             "GOLD:GRAM", "GOLD:NAPOLEON-20F", "GOLD:NAPOLEON-10F", "GOLD:SWISS-20F", "GOLD:LATIN-UNION-20F",
-            "GOLD:TUNISIA-20F", "GOLD:SOVEREIGN", "GOLD:SOVEREIGN-ELIZABETH-II", "GOLD:HALF-SOVEREIGN",
+            "GOLD:TUNISIA-20F", "GOLD:SOVEREIGN", "GOLD:SOVEREIGN-EII", "GOLD:HALF-SOVEREIGN",
             "GOLD:KRUGERRAND", "GOLD:USD-20", "GOLD:USD-10", "GOLD:USD-5", "GOLD:PESO-50", "GOLD:FLORIN-10",
             "GOLD:REICHSMARK-20");
     }
@@ -36,6 +36,16 @@ class PreciousMetalTest {
         assertThat(Arrays.stream(PreciousMetal.values()).map(PreciousMetal::displayName)).allSatisfy(n -> assertThat(n).isNotBlank());
         assertThat(Arrays.stream(PreciousMetal.values()).map(PreciousMetal::ticker).distinct().count())
             .isEqualTo(PreciousMetal.values().length);
+    }
+
+    @Test
+    void everyTickerFitsTheAccountTickerLimit() {
+        // A metals account can carry a catalogue ticker as its own ticker: AccountRequest caps it
+        // at @Size(max = 20), accounts.ticker is VARCHAR(20) and the account form's zod schema
+        // caps it at 20 too. A longer ticker could be picked for a holding but never saved on an account.
+        assertThat(Arrays.stream(PreciousMetal.values()).map(PreciousMetal::ticker)).allSatisfy(ticker ->
+            assertThat(ticker.length()).as("%s must fit the 20-character account ticker limit", ticker)
+                .isLessThanOrEqualTo(20));
     }
 
     @Test

@@ -24,7 +24,7 @@ public enum PreciousMetal {
     LATIN_UNION_20F("GOLD:LATIN-UNION-20F", "Union latine 20 F", Unit.COIN, "union-latine"),
     TUNISIA_20F("GOLD:TUNISIA-20F", "20 Francs Tunisie", Unit.COIN, "20-francs-tunisie"),
     SOVEREIGN("GOLD:SOVEREIGN", "Souverain", Unit.COIN, "souverain"),
-    SOVEREIGN_ELIZABETH_II("GOLD:SOVEREIGN-ELIZABETH-II", "Souverain Elizabeth II", Unit.COIN,
+    SOVEREIGN_ELIZABETH_II("GOLD:SOVEREIGN-EII", "Souverain Elizabeth II", Unit.COIN,
         "souverain-elisabeth-ii"),
     HALF_SOVEREIGN("GOLD:HALF-SOVEREIGN", "Demi-souverain", Unit.COIN, "demi-souverain"),
     KRUGERRAND("GOLD:KRUGERRAND", "Krugerrand", Unit.COIN, "krugerrand-sud-afrique"),
