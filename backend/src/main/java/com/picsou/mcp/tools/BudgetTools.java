@@ -425,8 +425,8 @@ public class BudgetTools {
     /**
      * The underlying {@code Budget} model only carries a monthly money limit (no percentage
      * allocation), so this is a thin convenience wrapper over {@link #updateBudgetEnvelope} that
-     * changes just the limit and keeps the envelope's current category. See STATUS.md for the
-     * percentage-allocation gap.
+     * changes just the limit and keeps the envelope's current category. A percentage allocation
+     * would need a new model field.
      */
     @Tool(name = "set_envelope_allocation",
         description = "Change a budget envelope's monthly money limit, keeping its category unchanged. "

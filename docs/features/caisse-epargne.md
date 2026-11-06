@@ -25,7 +25,7 @@ before claiming a successful PER import.
 
 ### Storage (decision D5: cookies only)
 
-Table `caisse_epargne_session` (migration `V109`) is `bourso_session` without `encrypted_credentials`. The password and the Secur'Pass are never stored. The session state is encrypted with `CryptoEncryption`. A session the bank rejects (`SESSION_EXPIRED`) or Picsou cannot read (`INVALID_SESSION_STATE`) becomes inactive and the user must reconnect: it cannot be renewed silently. `last_sync_error` is a CHECK listing exactly `CaisseEpargneErrorCode`. `unsupported_contracts` holds the last list of contracts the bank reported but Picsou does not import.
+Table `caisse_epargne_session` (migration `V109`) is `bourso_session` without `encrypted_credentials`. The password and the Secur'Pass are never stored. The session state is encrypted with `CryptoEncryption`. A session the bank rejects (`SESSION_EXPIRED`) or Picsou cannot read (`INVALID_SESSION_STATE`) becomes inactive and the user must reconnect: it cannot be renewed silently. `last_sync_error` is a CHECK listing exactly `SidecarBank.CAISSE_EPARGNE.codes()`. `unsupported_contracts` holds the last list of contracts the bank reported but Picsou does not import.
 
 ### Supported products
 
@@ -57,9 +57,10 @@ On the current account the loan is debited from, two kinds of rows are categoriz
 - The debited account must be **in this same import** under an IBAN the bank shows once. A matching account stored outside the import is not tagged (none of its rows are in the import).
 - **Disbursement:** a credit equal to the borrowed amount (±0.01), whose label contains `FINANCEMENT` (case-insensitive), dated from the signature date − 5 days to the first due date → `virement-interne` (internal transfer, not income). Skipped when the bank gives no signature date.
 - **Installment:** for each due date `firstDueDate + k months` up to the last due date, a debit equal to the monthly payment (±0.01), dated within ±5 days → `credit` (expense, named *Crédit*). That default category is created for the member on first need; an archived one is never revived, and the rows then stay untagged.
+- Rows are matched only among this import's transactions. The 365-day window limits paging, not rows: every row on a page that is read is imported, and the account is paged to the end unless rows are seen newest first (see below). A disbursement or installment dated before the window is therefore tagged when its row is imported and matches the rules above. With newest-first paging, only the last page read reaches past the window, so a loan signed more than about a year before the first sync usually gets no disbursement tag and most of its older installments stay untagged.
 - Exactly one candidate per expected event, else nothing is tagged. A row that already has a category is never overwritten. Re-running the sync changes nothing. Only counts are logged.
 
-- External account ids and transaction ids are prefixed `ce_`. Transactions are upserted by `(account, externalId)`; rows are never deleted, manual rows are never touched.
+- External account ids and transaction ids are prefixed `ce_`. Transactions are upserted by `(account, externalId)`; rows are never deleted, manual rows are never touched. Each sync reads at least the last 365 days of current-account, Livret A and LDDS transactions (whole pages), so a long-held account imports at least its last year on the first sync and older stored rows stay untouched. They are requested ordered by accounting date; the direction is not confirmed live. Paging stops early only after rows are seen newest first, otherwise the account is paged to the end. More than 60 pages before the window is reached (or to the end) fails with `UPSTREAM_FORMAT_CHANGED` `cause=page-cap`. Cards have no window and are paged to the end under the same cap. All reads share the 100 s `/accounts` deadline, so a heavy combination can fail as `UPSTREAM_UNAVAILABLE` (`accounts deadline exceeded`) before any page cap.
 - Anything unexpected refuses the whole snapshot with `UPSTREAM_FORMAT_CHANGED`: unknown `kind`, non-EUR, missing balance, duplicate account, `snapshotComplete=false`, empty list, id over 100 characters.
 - A positive computed card outstanding refuses the whole sync (`UPSTREAM_FORMAT_CHANGED`) on purpose: the sign of the amount is unconfirmed, and it stays refused until a live run confirms it.
 - `unsupported` contracts are only counted in the status. They never become accounts.
@@ -72,7 +73,7 @@ On the current account the loan is debited from, two kinds of rows are categoriz
 
 ### Configuration
 
-`app.caisse-epargne-auth.url` (env `CAISSE_EPARGNE_AUTH_URL`, default `http://caisse-epargne-auth:8001`). The shared sidecar key and URL validation come from `SidecarWebClientFactory`.
+`app.sidecars.caisse-epargne-auth.url` (env `CAISSE_EPARGNE_AUTH_URL`, default `http://caisse-epargne-auth:8001`). The shared sidecar key and URL validation come from `SidecarWebClientFactory`.
 
 ## Authentication
 
@@ -130,7 +131,7 @@ completion response is lost, it restarts at 180 seconds to show the recovery win
 | 429 `TOO_MANY_PENDING` | `UPSTREAM_UNAVAILABLE`, "too many pending" message |
 | 502 / 5xx / timeout | `UPSTREAM_UNAVAILABLE` (or `UPSTREAM_FORMAT_CHANGED` when the sidecar says so) |
 
-The login codes are in `CaisseEpargneErrorCode` and in the `last_sync_error` CHECK (`V109`, extended by `V110` for `KEYPAD_EXPIRED` and `INVALID_POSITIONS`).
+The login codes are in `SidecarBank.CAISSE_EPARGNE` and in the `last_sync_error` CHECK (`V109`, extended by `V110` for `KEYPAD_EXPIRED` and `INVALID_POSITIONS`).
 
 ## Not in this slice
 

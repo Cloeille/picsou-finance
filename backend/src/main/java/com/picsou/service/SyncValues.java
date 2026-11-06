@@ -1,6 +1,8 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.exception.SyncException;
+import com.picsou.port.SidecarErrorCode;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -86,17 +88,11 @@ public final class SyncValues {
     }
 
     /**
-     * Maps a {@link SyncException}'s free-form code onto a provider error enum,
-     * falling back when the sidecar reports something this backend does not know.
+     * Maps a {@link SyncException}'s free-form code onto the bank's declared error codes, falling
+     * back when the sidecar reports something unknown or something this bank never declared: the
+     * bank's session table only accepts its own codes.
      */
-    public static <E extends Enum<E>> E errorCode(SyncException exception, Class<E> type, E fallback) {
-        if (exception.getCode() == null) {
-            return fallback;
-        }
-        try {
-            return Enum.valueOf(type, exception.getCode());
-        } catch (IllegalArgumentException ignored) {
-            return fallback;
-        }
+    public static SidecarErrorCode errorCode(SyncException exception, SidecarBank bank, SidecarErrorCode fallback) {
+        return bank.parse(exception.getCode()).orElse(fallback);
     }
 }

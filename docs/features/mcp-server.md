@@ -338,7 +338,7 @@ sessions/credentials as the documented side effect of deleting a connection's la
 
 ## Tests
 
-Backend (H2, `mvn test`):
+Backend (H2, `make test-backend`):
 - `mcp/AccessKeyServiceTest` — generate/format, SHA-256 hashing, validate (unknown / forged / revoked / expired / inactive owner), scope validation, member-scoped revoke.
 - `mcp/AccessKeyUsageRecorderTest` — throttled `last_used_at` write.
 - `mcp/ScopesTest`, `mcp/ScopeSetConverterTest` — vocabulary + converter round-trip.
@@ -376,7 +376,7 @@ Backend (H2, `mvn test`):
 - `controller/AccessKeyControllerTest` — create/list/revoke, one-time secret, unknown-scope 400, member isolation, create throttle.
 - `model/AccessKeyTest` — `isUsable` (revoked / expired / live).
 
-Frontend (`bunx vitest run`):
+Frontend (`make test-frontend`):
 - `frontend/src/features/accessKeys/scopes.test.ts` — scope grouping, i18n-key mapping, a **vocabulary guard** asserting the frontend list equals backend `Scopes.ALL`, and a label guard so no scope reaches the consent screen as a raw key.
 - `frontend/src/features/accessKeys/status.test.ts` — `keyStatus` (revoked > expired > active, boundary at "now").
 

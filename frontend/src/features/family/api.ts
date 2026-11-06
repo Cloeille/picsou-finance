@@ -54,9 +54,6 @@ export const familyApi = {
   createMember: (data: { displayName: string; avatarColor?: string }) =>
     api.post<FamilyMemberItem>('/family/members', data).then(r => r.data),
 
-  updateMember: (id: number, data: { displayName: string }) =>
-    api.put<FamilyMemberItem>(`/family/members/${id}`, data).then(r => r.data),
-
   deleteMember: (id: number) =>
     api.delete(`/family/members/${id}`),
 
@@ -74,7 +71,4 @@ export const familyApi = {
 
   updateSharingSettings: (data: { resourceType: string; sharingLevel: string; sharedResourceIds?: number[] }) =>
     api.put('/family/sharing', data),
-
-  getGoalContributions: (goalId: number) =>
-    api.get<{ memberName: string; amount: number }[]>(`/family/goals/${goalId}/contributions`).then(r => r.data),
 }

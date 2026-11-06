@@ -1,5 +1,5 @@
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
-import type { CicSessionStatus, ScpiPosition, ScpiPositionRequest } from '@/types/api'
+import type { CicSessionStatus, PreciousMetalProduct, ScpiPosition, ScpiPositionRequest } from '@/types/api'
 import { mockAccounts } from './data/accounts'
 import {
   mockAllocationTargets,
@@ -317,6 +317,27 @@ for (const line of [...Object.values(mockHoldings).flat(), ...demoExchangePositi
   const price = 'currentPrice' in line ? line.currentPrice : line.currentPriceEur
   if (price != null) demoPrices[line.ticker] ??= price
 }
+
+// Same catalogue and order as the backend's PreciousMetal registry.
+const demoPreciousMetals: PreciousMetalProduct[] = [
+  { ticker: 'GOLD:GRAM', name: 'Gold (fine gram)', unit: 'GRAM' },
+  { ticker: 'GOLD:NAPOLEON-20F', name: 'Napoléon 20 F', unit: 'COIN' },
+  { ticker: 'GOLD:NAPOLEON-10F', name: 'Napoléon 10 F', unit: 'COIN' },
+  { ticker: 'GOLD:SWISS-20F', name: '20 Francs Suisse', unit: 'COIN' },
+  { ticker: 'GOLD:LATIN-UNION-20F', name: 'Union latine 20 F', unit: 'COIN' },
+  { ticker: 'GOLD:TUNISIA-20F', name: '20 Francs Tunisie', unit: 'COIN' },
+  { ticker: 'GOLD:SOVEREIGN', name: 'Souverain', unit: 'COIN' },
+  { ticker: 'GOLD:SOVEREIGN-EII', name: 'Souverain Elizabeth II', unit: 'COIN' },
+  { ticker: 'GOLD:HALF-SOVEREIGN', name: 'Demi-souverain', unit: 'COIN' },
+  { ticker: 'GOLD:KRUGERRAND', name: 'Krugerrand', unit: 'COIN' },
+  { ticker: 'GOLD:USD-20', name: '20 Dollars US', unit: 'COIN' },
+  { ticker: 'GOLD:USD-10', name: '10 Dollars US', unit: 'COIN' },
+  { ticker: 'GOLD:USD-5', name: '5 Dollars US', unit: 'COIN' },
+  { ticker: 'GOLD:PESO-50', name: '50 Pesos', unit: 'COIN' },
+  { ticker: 'GOLD:FLORIN-10', name: '10 Florins', unit: 'COIN' },
+  { ticker: 'GOLD:REICHSMARK-20', name: '20 Reichsmark', unit: 'COIN' },
+]
+handlers.set(key('GET', '/prices/precious-metals'), () => demoPreciousMetals)
 
 handlers.set(key('GET', '/prices'), (config) => {
   const tickers = String(config.params?.tickers ?? '').split(',').map(t => t.trim())
@@ -719,8 +740,6 @@ handlers.set(key('GET', '/goals'), () => mockGoals)
 const demoGoal = (id: string) => mockGoals.find(g => g.id === Number(id))
 handlers.set(key('GET', '/goals/:id'), (_config, { id }) => demoGoal(id))
 handlers.set(key('GET', '/goals/:id/months'), (_config, { id }) => mockGoalMonths[Number(id)] ?? [])
-handlers.set(key('GET', '/goals/:id/history'), (_config, { id }) =>
-  netWorthHistory(demoGoal(id)?.accounts.map(a => a.id) ?? [], 12, false, _demoAccounts))
 handlers.set(key('POST', '/goals/:id/history/extend'), (_config, { id }) => demoGoal(id))
 handlers.set(key('POST', '/goals/:id/history/extend/month'), (_config, { id }) => demoGoal(id))
 /** The holding name behind a ticker in a demo account, for the split's display. */
@@ -1022,7 +1041,6 @@ const demoIdleSyncProgress = {
 }
 handlers.set(key('GET', '/revolut/status'), () => ({ connected: false, remembered: false, lastSyncedAt: null }))
 handlers.set(key('GET', '/revolut/sync/progress'), () => demoIdleSyncProgress)
-handlers.set(key('GET', '/tr/sync/progress'), () => demoIdleSyncProgress)
 
 // Trade Republic - session status
 handlers.set(key('GET', '/tr/status'), () => ({ isActive: false, expiresAt: null }))
@@ -1267,11 +1285,6 @@ handlers.set(key('GET', '/family/sharing'), (config) => {
     sharedResourceIds: [],
   }
 })
-// A solo demo: whatever a goal holds, Demo put in.
-handlers.set(key('GET', '/family/goals/:id/contributions'), (_config, { id }) => {
-  const goal = mockGoals.find(g => g.id === Number(id))
-  return goal ? [{ memberName: 'Demo', amount: goal.currentTotal }] : []
-})
 
 handlers.set(key('GET', '/finary/configured'), () => true)
 
@@ -1353,9 +1366,6 @@ handlers.set(key('POST', '/categorization-rules'), (config) => {
   }
 })
 for (const r of mockRules) {
-  handlers.set(key('PUT', `/categorization-rules/${r.id}`), (config) => ({
-    ...r, ...JSON.parse(config.data || '{}'),
-  }))
   handlers.set(key('DELETE', `/categorization-rules/${r.id}`), () => ({}))
 }
 handlers.set(key('POST', '/categorization-rules/recategorize'), () => ({ categorized: 4 }))
@@ -1459,7 +1469,6 @@ handlers.set(key('POST', '/recurring'), (config) => {
 })
 handlers.set(key('GET', '/recurring/activity'), () => mockActivity)
 for (const s of mockRecurring) {
-  handlers.set(key('PUT', `/recurring/${s.id}`), (config) => ({ ...s, ...JSON.parse(config.data || '{}') }))
   handlers.set(key('POST', `/recurring/${s.id}/confirm`), () => ({ ...s, status: 'CONFIRMED' }))
   handlers.set(key('POST', `/recurring/${s.id}/ignore`), () => ({ ...s, status: 'IGNORED' }))
   handlers.set(key('DELETE', `/recurring/${s.id}`), () => ({}))

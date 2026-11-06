@@ -15,10 +15,10 @@ import com.picsou.model.AccountType;
 import com.picsou.model.DegiroSession;
 import com.picsou.model.DegiroSessionStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.DegiroPort;
-import com.picsou.port.DegiroPort.DegiroPortfolioData;
-import com.picsou.port.DegiroPort.DegiroPosition;
-import com.picsou.port.DegiroPort.InitiateResult;
+import com.picsou.adapter.DegiroAdapter;
+import com.picsou.adapter.DegiroAdapter.DegiroPortfolioData;
+import com.picsou.adapter.DegiroAdapter.DegiroPosition;
+import com.picsou.adapter.DegiroAdapter.InitiateResult;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.DegiroSessionRepository;
@@ -52,7 +52,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class DegiroSyncServiceTest {
 
-    @Mock DegiroPort port;
+    @Mock DegiroAdapter port;
     @Mock DegiroSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;

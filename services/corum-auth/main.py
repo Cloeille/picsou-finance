@@ -135,7 +135,7 @@ class SnapshotPayload(BaseModel):
     totalValuationEur: Decimal
     valuationDate: str | None = Field(default=None, max_length=10)
     snapshotComplete: bool
-    # `holdings`, not `positions`: this is the key `CorumPort.Snapshot` decodes.
+    # `holdings`, not `positions`: this is the key `CorumAdapter.Snapshot` decodes.
     # `extra="forbid"` on both sides means a mismatch surfaces as a 502 rather
     # than as a snapshot that silently carries no funds.
     holdings: list[HoldingPayload]

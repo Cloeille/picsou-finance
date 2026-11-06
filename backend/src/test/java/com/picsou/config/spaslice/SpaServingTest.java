@@ -21,6 +21,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.io.Resource;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -28,6 +30,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.HandlerExecutionChain;
+import org.springframework.web.servlet.HandlerMapping;
+import org.springframework.web.servlet.resource.ResourceHttpRequestHandler;
 
 import java.io.IOException;
 import java.net.URI;
@@ -112,6 +117,7 @@ class SpaServingTest {
     @MockitoBean @Qualifier("mcpKeyBuckets") Map<Long, Bucket> mcpKeyBuckets;
 
     @Autowired MockMvc mvc;
+    @Autowired @Qualifier("resourceHandlerMapping") HandlerMapping resourceHandlerMapping;
 
     @BeforeEach
     void passThroughSetupFilter() throws Exception {
@@ -334,6 +340,24 @@ class SpaServingTest {
             // The documented contract, which also covers "no part of the file outside the SPA".
             assertThat(body(result)).as(uri).isEmpty();
         }
+    }
+
+    /**
+     * The location {@code addResourceHandlers} registers must normalize a relative path, because
+     * {@code PathResourceResolver.checkResource} only sees an escape on a normalized path. A
+     * location built with {@code new FileSystemResource(String)} keeps {@code site/../secret.txt}
+     * as is; {@code SpaResourceResolverTest} shows what that lets through.
+     */
+    @Test
+    void registeredLocation_normalizesAPathLeadingOutOfTheSiteDirectory() throws Exception {
+        HandlerExecutionChain chain = resourceHandlerMapping.getHandler(new MockHttpServletRequest("GET", "/favicon.svg"));
+        assertThat(chain).isNotNull();
+        ResourceHttpRequestHandler handler = (ResourceHttpRequestHandler) chain.getHandler();
+        assertThat(handler.getLocations()).hasSize(1);
+
+        Resource escaped = handler.getLocations().get(0).createRelative("../secret.txt");
+
+        assertThat(escaped.getFile().toPath()).isEqualTo(ROOT.getParent().resolve("secret.txt"));
     }
 
     @Test

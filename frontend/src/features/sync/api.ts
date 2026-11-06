@@ -105,24 +105,10 @@ export const trApi = {
   sync: () =>
     api.post<Account[]>('/tr/sync').then(r => r.data),
 
-  // Not wired up on the backend yet (Increment 2 of the sync-progress work) — harmless
-  // to add the client fn now, `useSyncProgress('tr', …)` simply won't be enabled until then.
-  getSyncProgress: () =>
-    api.get<SyncProgress>('/tr/sync/progress').then(r => r.data),
-
   getSessionStatus: () =>
     api
       .get<{ isActive: boolean; expiresAt: string | null }>('/tr/status')
       .then(r => r.data),
-
-  importCsv: (file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    return api.post<Account[]>('/tr/import', form).then(r => r.data)
-  },
-
-  clearSession: () =>
-    api.delete('/tr/session'),
 }
 
 // --- Crypto Exchanges ---

@@ -56,15 +56,6 @@ export function useCreateUserWithLogin() {
   })
 }
 
-export function useUpdateMember() {
-  return useInvalidatingMutation({
-    mutationFn: ({ id, data }: { id: number; data: { displayName: string } }) =>
-      familyApi.updateMember(id, data),
-    invalidates: [['family', 'members']],
-    awaitRefresh: true,
-  })
-}
-
 export function useDeleteMember() {
   return useInvalidatingMutation({
     mutationFn: (id: number) => familyApi.deleteMember(id),
@@ -91,13 +82,5 @@ export function useUpdateSharingSettings() {
       familyApi.updateSharingSettings(data),
     invalidates: (_, variables) => [['family', 'sharing', variables.resourceType]],
     awaitRefresh: true,
-  })
-}
-
-export function useGoalContributions(goalId: number) {
-  return useQuery({
-    queryKey: ['family', 'goals', goalId, 'contributions'],
-    queryFn: () => familyApi.getGoalContributions(goalId),
-    enabled: !!goalId,
   })
 }

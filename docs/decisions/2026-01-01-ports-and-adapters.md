@@ -1,7 +1,7 @@
 # ADR: Ports & Adapters (Hexagonal Architecture)
 
 > Date: 2026-01-01
-> Status: ✅ Active
+> Status: ✅ Active — partially superseded by [Ports only for swappable providers](./2026-11-02-ports-only-for-swappable-providers.md)
 
 ## Context
 
