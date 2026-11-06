@@ -442,6 +442,7 @@ public class PeerLoanService {
                 "A write-off is recorded by closing the loan, not by adding a repayment");
         }
         validateInterestRepayment(terms, kind, request.amount(), request.paidOn(), null);
+        validateRepaymentAmount(terms, request.amount(), request.paidOn(), null);
 
         PeerLoanRepayment repayment = PeerLoanRepayment.builder()
             .account(account)
@@ -505,6 +506,7 @@ public class PeerLoanService {
         }
         requireCompletedRepaymentDate(transaction.getDate());
         validateInterestRepayment(terms, kind, transaction.getAmount(), transaction.getDate(), null);
+        validateRepaymentAmount(terms, transaction.getAmount(), transaction.getDate(), null);
 
         PeerLoanRepayment repayment = repaymentRepository.save(PeerLoanRepayment.builder()
             .account(account)
@@ -552,6 +554,7 @@ public class PeerLoanService {
         validateInterestRepayment(terms,
             effectiveKind,
             request.amount(), request.paidOn(), repayment.getId());
+        validateRepaymentAmount(terms, request.amount(), request.paidOn(), repayment.getId());
 
         // Moving a repayment changes the balance from the earlier of its two dates: the days
         // it used to affect are stale too, not only the new ones.
@@ -861,12 +864,9 @@ public class PeerLoanService {
         if (kind != PeerLoanRepaymentKind.INTEREST || amount == null || paidOn == null) {
             return;
         }
-        List<PeerLoanRepayment> others = repaymentRepository
-            .findByAccountIdOrderByPaidOnAscIdAsc(terms.getAccount().getId()).stream()
-            .filter(r -> excludedRepaymentId == null || !excludedRepaymentId.equals(r.getId()))
-            .filter(r -> r.getPaidOn() == null || !r.getPaidOn().isAfter(paidOn))
-            .toList();
-        BigDecimal accrued = PeerLoanCalculator.compute(terms, others, paidOn).interestAccrued();
+        BigDecimal accrued = PeerLoanCalculator
+            .compute(terms, ledgerUpTo(terms, paidOn, excludedRepaymentId), paidOn)
+            .interestAccrued();
         // With no interest accrued there is nothing for an interest row to pay: the
         // calculator already applies the whole amount to capital, which is the honest
         // reading of a zero-rate loan. The guard targets a genuine overpayment of interest.
@@ -875,6 +875,41 @@ public class PeerLoanService {
                 "An interest repayment cannot exceed the accrued interest of "
                     + accrued.setScale(2, RoundingMode.HALF_UP) + " EUR");
         }
+    }
+
+    /**
+     * A repayment is interest first, then capital: it can never absorb more than the
+     * accrued interest plus the remaining capital at its own date. The excess would
+     * otherwise be written in full to the cash account while the ledger drops it,
+     * inflating net worth out of nothing.
+     */
+    private void validateRepaymentAmount(
+        PeerLoanTerms terms, BigDecimal amount, LocalDate paidOn, Long excludedRepaymentId
+    ) {
+        if (amount == null || paidOn == null) {
+            return;
+        }
+        PeerLoanCalculator.Computed computed = PeerLoanCalculator.compute(
+            terms, ledgerUpTo(terms, paidOn, excludedRepaymentId), paidOn);
+        BigDecimal maxAcceptable =
+            computed.interestAccrued().add(computed.principalRemaining());
+        if (amount.compareTo(maxAcceptable) > 0) {
+            throw new IllegalArgumentException(
+                "A repayment cannot exceed "
+                    + maxAcceptable.setScale(2, RoundingMode.HALF_UP)
+                    + " EUR (accrued interest plus remaining capital)");
+        }
+    }
+
+    /** The ledger as it stood on {@code paidOn}, without the row being edited. */
+    private List<PeerLoanRepayment> ledgerUpTo(
+        PeerLoanTerms terms, LocalDate paidOn, Long excludedRepaymentId
+    ) {
+        return repaymentRepository
+            .findByAccountIdOrderByPaidOnAscIdAsc(terms.getAccount().getId()).stream()
+            .filter(r -> excludedRepaymentId == null || !excludedRepaymentId.equals(r.getId()))
+            .filter(r -> r.getPaidOn() == null || !r.getPaidOn().isAfter(paidOn))
+            .toList();
     }
 
     private PeerCounterparty getOrCreateCounterparty(Long memberId, String name) {

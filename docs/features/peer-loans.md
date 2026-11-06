@@ -99,7 +99,11 @@ Edge cases:
 
 - a payment smaller than the accrued interest amortises nothing; the dialog shows the
   accrued figure so the user sees why;
-- an overpayment is clamped to zero capital for the balance, but the amount stays recorded;
+- a repayment cannot exceed the accrued interest plus the remaining capital at its own
+  date: the excess would be written in full to the cash account while the ledger drops
+  it, inflating net worth. (Open to debate: capping the cash leg at the applied amount
+  instead of rejecting was considered; rejection won because a silent partial write
+  hides money just as badly.)
 - an explicit `INTEREST` repayment cannot exceed the interest accrued at its own date: the
   excess would be labelled as income while the ledger has nothing to pay;
 - a zero rate short-circuits the interest branch and the whole payment amortises;
@@ -439,8 +443,9 @@ The `db` container has no host port: the database is only reachable by the test 
 - **`HistoryService` excludes receivables explicitly** from the invested/PnL series, next
   to its liability branches. Without that branch the amount leaks into the P&L.
 - **Snapshot after the write, never before.** The daily point must reflect the new balance.
-- **Overpayment is clamped for the balance but not erased from the ledger.** The amount is
-  a fact.
+- **Overpayment is refused, not clamped.** The amount is a fact, but a fact the loan
+  cannot absorb must not reach the ledger: accepting it would write money the loan
+  drops to the cash account. (Open to debate: see above.)
 - **Closing is not deleting.** The account stays with a badge; deleting it would also
   delete the loss history through `ON DELETE CASCADE`.
 - **Reaching zero closes the loan automatically.** The last repayment that clears the

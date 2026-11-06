@@ -393,6 +393,53 @@ class PeerLoanServiceTest {
     }
 
     @Test
+    void addRepaymentRejectsAnAmountAboveAccruedInterestPlusRemaining() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("500")).lentAt(LocalDate.parse("2026-01-01"))
+            .annualRate(BigDecimal.ZERO).linkedAccount(cashAccount(true))
+            .build();
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID)).thenReturn(List.of());
+
+        // 500 already covers the whole loan: 600 would write money the ledger drops.
+        assertThatThrownBy(() -> service.addRepayment(ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentRequest(
+            LocalDate.parse("2026-02-01"), new BigDecimal("600"),
+            PeerLoanRepaymentKind.PRINCIPAL, null, false)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("cannot exceed");
+
+        verify(repaymentRepository, never()).save(any(PeerLoanRepayment.class));
+    }
+
+    @Test
+    void addRepaymentFromTransactionRejectsAnOverpayment() {
+        Account account = loanAccount("Jean");
+        Account cash = cashAccount(false);
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("500")).lentAt(LocalDate.parse("2026-01-01"))
+            .annualRate(BigDecimal.ZERO).linkedAccount(cash)
+            .build();
+        Transaction transaction = Transaction.builder()
+            .id(60L).account(cash).date(LocalDate.parse("2026-02-01"))
+            .description("Virement reçu").amount(new BigDecimal("600")).build();
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(transactionRepository.findById(60L)).thenReturn(Optional.of(transaction));
+        when(repaymentRepository.findByCashTransactionId(60L)).thenReturn(Optional.empty());
+        when(termsRepository.findByLendingTransactionId(60L)).thenReturn(Optional.empty());
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.addRepaymentFromTransaction(
+            ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentFromTransactionRequest(60L, null)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("cannot exceed");
+    }
+
+    @Test
     void addRepaymentRejectsAWriteOffKind() {
         Account account = loanAccount("Jean");
         PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
