@@ -112,8 +112,11 @@ account never sits in the `CHECKING` bucket waiting for the name-based detector.
   The sync stays on demand.
 - **A short web session.** An immediate second sync reuses the stored cookies,
   but the bank logs the session out after a few minutes of inactivity: a sync
-  after that window needs a new login + A2F. Keeping it warm would mean
-  scheduled requests, which this connector does not do.
+  after that window needs a new login + A2F. This is the Caisse d'Épargne model
+  (cookie-only connector, on demand, not in the daily scheduler), not the
+  BoursoBank/CIC one, which stores encrypted credentials and re-logs in silently.
+  Keeping the session warm would mean scheduled requests, which no cookie-only
+  connector does.
 - **No PSD2 guarantee.** The bank may rate-limit, challenge or block automated
   access. Failures must be typed so they are diagnosable.
 - **A larger sidecar image.** The login needs Chromium, so `lbp-auth` builds on

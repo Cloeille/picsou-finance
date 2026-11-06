@@ -196,8 +196,9 @@ Two real sessions were captured (trusted device and new device):
    cookies, so the replay and the cookie jar are sound. A sync 9 minutes after
    login was refused with 401: the bank logs the web session out after a few
    minutes of inactivity (public guidance says ~5 min). A dead session requires
-   a new login + A2F. The connector stays on demand; it does not keep the
-   session warm.
+   a new login + A2F. This is the same model as Caisse d'Épargne: no keep-alive,
+   the panel runs the first sync right after login, and a dead session asks for
+   a reconnect. La Banque Postale is not in the daily scheduler.
 6. **Transaction history** — `init-releve_ccp` returns about 90 days;
    `telechargementMouvements.ea` is the export path; the `relevePdf` history
    holds monthly statements.
