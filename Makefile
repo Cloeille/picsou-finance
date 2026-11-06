@@ -79,10 +79,12 @@ test: test-backend test-frontend test-e2e test-sidecars
 
 # The suite never calls a real sidecar: any key will do. SOFIDY_PYTHON=python3 also
 # runs the Java/Python Sofidy contract test (needs `pip install -r services/base/requirements.txt`).
+# CI shards the suite with SHARD_INCLUDES or SHARD_EXCLUDES: an absolute surefire
+# includesFile or excludesFile (.github/scripts/backend_shards.py).
 test-backend: export APP_SIDECAR_API_KEY ?= test-only
 test-backend: export PYTHONPATH := $(CURDIR)/services/base
 test-backend:
-	cd backend && mvn -B test $(if $(SOFIDY_PYTHON),-Dsofidy.contract.python=$(SOFIDY_PYTHON)) $(if $(TEST),-Dtest=$(TEST))
+	cd backend && mvn -B test $(if $(SOFIDY_PYTHON),-Dsofidy.contract.python=$(SOFIDY_PYTHON)) $(if $(TEST),-Dtest=$(TEST)) $(if $(SHARD_INCLUDES),-Dsurefire.includesFile=$(SHARD_INCLUDES)) $(if $(SHARD_EXCLUDES),-Dsurefire.excludesFile=$(SHARD_EXCLUDES))
 
 test-frontend: | frontend/node_modules
 	cd frontend && bun run lint --max-warnings=0 && bun run typecheck && bun run test

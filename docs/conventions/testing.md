@@ -183,6 +183,13 @@ learned the hard way. Do not re-implement them per class:
 The three interlock: the guard alone turns a config problem into a silent pass, and the
 API pin alone makes Docker-less machines fail the whole suite.
 
+CI runs the backend suite in 3 shards of test classes (`.github/scripts/backend_shards.py`),
+balanced on the class times of the last main run. `ci-ok` then fails when a top-level test
+class ran in two shards or in none, and checks the PostgreSQL classes ran in full. Which
+classes share a JVM changes with the timings, so a test must not count what other code leaves
+in shared places such as the system temp directory: give such code a root a `@TempDir` can
+replace (`ActualBudgetFileParser` does).
+
 Keep **one fresh container per test class** (`@Container static final`, never shared across
 classes): migration tests migrate to specific versions and seed rows, so a shared database would
 leak state between them. Helpers: `migrateTo` / `migrateToOutOfOrder` (the latter mirrors

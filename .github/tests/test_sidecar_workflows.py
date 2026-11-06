@@ -478,7 +478,9 @@ def _selected(jobs, path):
 
 
 def _gate(needs):
-    script = _run_commands(_load(CI_WORKFLOW)["jobs"][GATE])
+    """Runs the gate's job-result step; the backend completeness steps need real reports."""
+    steps = _load(CI_WORKFLOW)["jobs"][GATE]["steps"]
+    script = next(step["run"] for step in steps if step.get("name") == "Every selected job succeeded")
     return subprocess.run(
         ["bash", "-c", script],
         env={**os.environ, "NEEDS": json.dumps(needs)},
@@ -683,6 +685,36 @@ class CiJobSelectionTest(unittest.TestCase):
             with self.subTest(case=case):
                 result = _gate(state)
                 self.assertEqual(result.returncode == 0, green, result.stderr)
+
+    def test_the_backend_runs_in_three_shards_that_ci_ok_checks_ran_every_class_once(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        backend = jobs["backend"]
+        self.assertEqual(backend["strategy"], {"fail-fast": False, "matrix": {"shard": [1, 2, 3]}})
+        run = next(step for step in backend["steps"] if "make test-backend" in step.get("run", ""))
+        self.assertEqual(run["env"], {
+            "PICSOU_REQUIRE_DOCKER_TESTS": "true",
+            "SHARD_INCLUDES": "${{ steps.shard.outputs.includes }}",
+            "SHARD_EXCLUDES": "${{ steps.shard.outputs.excludes }}",
+        })
+        select = next(step for step in backend["steps"] if step.get("id") == "shard")
+        self.assertIn("--shards ${{ strategy.job-total }} --shard ${{ matrix.shard }}", select["run"])
+        upload = next(step for step in backend["steps"] if "upload-artifact" in step.get("uses", ""))
+        self.assertEqual(upload["with"]["name"], "surefire-${{ matrix.shard }}")
+        self.assertEqual(upload["with"]["if-no-files-found"], "error")
+
+        steps = jobs[GATE]["steps"]
+        self.assertEqual(steps[0]["name"], "Every selected job succeeded")
+        self.assertNotIn("if", steps[0])
+        gated = steps[1:]
+        for step in gated:
+            with self.subTest(step=step["name"]):
+                self.assertIn("needs.backend.result == 'success'", step["if"])
+        download = next(step for step in gated if "download-artifact" in step.get("uses", ""))
+        self.assertEqual(download["with"], {"pattern": "surefire-*", "path": "surefire"})
+        commands = "\n".join(step.get("run", "") for step in gated)
+        self.assertIn("python3 .github/scripts/backend_shards.py --check surefire", commands)
+        self.assertIn("11 service.ScpiSyncSessionPostgresTest", commands)
+        self.assertNotIn("PostgresTest", "\n".join(step.get("run", "") for step in backend["steps"]))
 
     def test_ci_runs_the_make_targets_contributors_run(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
