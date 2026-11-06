@@ -21,10 +21,13 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
@@ -323,7 +326,7 @@ class PreciousMetalPriceProviderTest {
     }
 
     @Test
-    void intraday_gramIsTheSpotPerGram_coinsAreEmpty() {
+    void intraday_gramIsTheSpotPerGram() {
         LocalDateTime from = LocalDateTime.of(2026, 11, 5, 9, 0);
         LocalDateTime to = LocalDateTime.of(2026, 11, 5, 17, 0);
         when(yahoo.getIntradayPricesEur("GC=F", from, to)).thenReturn(Map.of(from, new BigDecimal("3500.00")));
@@ -331,7 +334,38 @@ class PreciousMetalPriceProviderTest {
 
         assertThat(provider.getIntradayPricesEur("GOLD:GRAM", from, to))
             .containsExactly(Map.entry(from, new BigDecimal("112.52761299")));
-        assertThat(provider.getIntradayPricesEur("GOLD:NAPOLEON-20F", from, to)).isEmpty();
+    }
+
+    @Test
+    void intraday_aCoinIsItsCurrentQuoteHeldFlat_fromTheHourBeforeFrom() {
+        LocalDateTime from = LocalDateTime.of(2026, 11, 5, 9, 40);
+        LocalDateTime to = LocalDateTime.of(2026, 11, 6, 9, 40);
+        PreciousMetalPriceProvider provider = provider(() -> Optional.of(fixture()));
+
+        Map<LocalDateTime, BigDecimal> series = provider.getIntradayPricesEur(" gold:napoleon-20f ", from, to);
+
+        assertThat(series).hasSize(25);
+        assertThat(series.keySet()).first().isEqualTo(LocalDateTime.of(2026, 11, 5, 9, 0));
+        assertThat(series.keySet()).last().isEqualTo(LocalDateTime.of(2026, 11, 6, 9, 0));
+        assertThat(series.values()).allSatisfy(price -> assertThat(price).isEqualByComparingTo("709.90"));
+        // HistoryService's hourly grid starts at `from` truncated to the hour and reads each hour
+        // with floorEntry: every hour of it must find a price, the first one included.
+        NavigableMap<LocalDateTime, BigDecimal> priced = new TreeMap<>(series);
+        for (LocalDateTime hour = from.truncatedTo(ChronoUnit.HOURS); !hour.isAfter(to); hour = hour.plusHours(1)) {
+            assertThat(priced.floorEntry(hour)).as(hour.toString()).isNotNull();
+        }
+        verifyNoInteractions(yahoo);
+    }
+
+    @Test
+    void intraday_aCoinWithoutAQuoteHasNoSeries() {
+        LocalDateTime from = LocalDateTime.of(2026, 11, 5, 9, 0);
+        LocalDateTime to = LocalDateTime.of(2026, 11, 5, 17, 0);
+
+        // PESO-50 is absent from the page; the page itself being unreachable gives nothing either.
+        assertThat(provider(() -> Optional.of(fixture())).getIntradayPricesEur("GOLD:PESO-50", from, to)).isEmpty();
+        assertThat(provider(Optional::empty).getIntradayPricesEur("GOLD:NAPOLEON-20F", from, to)).isEmpty();
+        assertThat(provider(Optional::empty).getIntradayPricesEur("AAPL", from, to)).isEmpty();
     }
 
     @Test

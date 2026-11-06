@@ -67,8 +67,13 @@ PriceService ──► CompositePriceProvider ──► PreciousMetalPriceProvid
 - `GC=F` is the COMEX front-month future, a little above spot. The gap is small next to coin premiums.
 - Loomis publishes one quote per business day. A suspended coin (`Cotation suspendue`) is absent
   from the result, so `PriceService` falls back to its last recorded price, like any unpriced ticker.
-- No price history is reachable for coins: the history and intraday calls return nothing, and the
-  account's history starts from the daily snapshots taken after the account exists.
+- No price history is reachable for coins, so their daily history call returns nothing and the
+  account's history starts from the daily snapshots taken after the account exists. Their
+  intraday series (24H chart, `GET /api/prices/{ticker}/intraday`) is the current quote held flat
+  every hour: Loomis publishes one quote per business day, so flat is the truth. The first point
+  sits at `from` truncated to the hour, because `HistoryService.buildIntradayHistory` starts its
+  hourly grid there and reads it with `floorEntry`; a key at `from` itself would count the coin as
+  zero for the first hour.
 - The page is HTML. A redesign of the Loomis page drops coin prices, it does not break the app;
   bullion keeps its spot price. A page that is fetched but yields no quote logs a `WARN` naming
   Loomis (markup change or maintenance page).
@@ -81,8 +86,10 @@ PriceService ──► CompositePriceProvider ──► PreciousMetalPriceProvid
 
 ## Tests
 
-- `PreciousMetalPriceProviderTest`: page parsing (French amounts, suspended coin), spot per gram,
-  upstream failure returns nothing
+- `PreciousMetalPriceProviderTest`: page parsing (French amounts, suspended coin, stale and
+  undated quotes against an injected clock), prices keyed by the requested spelling, spot per gram,
+  flat coin intraday series, upstream failure returns nothing
+- `HistoryServiceTest`: a coin holding is worth its quote at every hour of the 24H chart
 - `CompositePriceProviderTest`: `GOLD:` routing next to crypto and equities
 - `PreciousMetalTest`: catalogue contract, ticker length, `canonicalTickerFor`
 - `ManualTransactionServiceTest`, `TransactionRowMapperTest`: the catalogue enforced on both write paths

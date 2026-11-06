@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.format.ResolverStyle;
+import java.time.temporal.ChronoUnit;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -37,9 +38,10 @@ import java.util.regex.Pattern;
  * Loomis FXGS (formerly CPoR Devises), the French reference for gold coin prices; one public page
  * lists every product, so a batch of coins costs a single request.
  *
- * <p>Loomis publishes no reachable history, so coins have no historical or intraday series. A
- * suspended quote ({@code Cotation suspendue}) is absent from the result, never zero. Upstream
- * failures are logged and omitted, per the {@link PriceProviderPort} contract.
+ * <p>Loomis publishes no reachable history, so coins have no historical series; their intraday
+ * series is the current quote held flat. A suspended quote ({@code Cotation suspendue}) is absent
+ * from the result, never zero. Upstream failures are logged and omitted, per the
+ * {@link PriceProviderPort} contract.
  */
 @Component
 public class PreciousMetalPriceProvider implements PriceProviderPort {
@@ -179,9 +181,27 @@ public class PreciousMetalPriceProvider implements PriceProviderPort {
         }
     }
 
+    /**
+     * The gram is the spot's hourly series. A coin has no intraday series, but Loomis publishes
+     * one quote per business day, so its price is flat over the day: the current quote, repeated
+     * hourly.
+     *
+     * <p>The series starts at {@code from} <em>truncated to the hour</em>, not at {@code from}.
+     * {@code HistoryService.buildIntradayHistory} walks its hourly grid from that truncated
+     * instant (before {@code from}) and looks each hour up with {@code floorEntry}: a first key
+     * at {@code from} itself would leave the first hour of the 24h chart unpriced, and the coin
+     * would count as zero there. The same series is what {@code GET /prices/{ticker}/intraday}
+     * returns, where a first point at the start of the hour is just as valid.
+     */
     @Override
     public Map<LocalDateTime, BigDecimal> getIntradayPricesEur(String ticker, LocalDateTime from, LocalDateTime to) {
-        if (!isGram(ticker)) return Map.of();
+        Optional<PreciousMetal> metal = PreciousMetal.fromTicker(ticker);
+        if (metal.isEmpty()) return Map.of();
+        if (metal.get().unit() == PreciousMetal.Unit.COIN) {
+            String canonical = metal.get().ticker();
+            BigDecimal quote = getPricesEur(Set.of(canonical)).get(canonical);
+            return quote == null ? Map.of() : hourly(quote, from, to);
+        }
         try {
             return perGram(yahoo.getIntradayPricesEur(SPOT_SYMBOL, from, to));
         } catch (Exception ex) {
@@ -197,6 +217,14 @@ public class PreciousMetalPriceProvider implements PriceProviderPort {
 
     private static boolean isGram(String ticker) {
         return PreciousMetal.fromTicker(ticker).filter(m -> m.unit() == PreciousMetal.Unit.GRAM).isPresent();
+    }
+
+    private static Map<LocalDateTime, BigDecimal> hourly(BigDecimal price, LocalDateTime from, LocalDateTime to) {
+        Map<LocalDateTime, BigDecimal> series = new LinkedHashMap<>();
+        for (LocalDateTime hour = from.truncatedTo(ChronoUnit.HOURS); !hour.isAfter(to); hour = hour.plusHours(1)) {
+            series.put(hour, price);
+        }
+        return series;
     }
 
     private static BigDecimal perGram(BigDecimal perOunce) {
