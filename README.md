@@ -168,6 +168,11 @@ Caddy picks the certificate strategy from `PICSOU_DOMAIN` alone — there is no 
 | A LAN IP (`192.168.1.50`) or a `.local` / `.internal` name | Caddy's built-in CA | Install its root once per device (3c) |
 | `picsou.localhost` (the default) | Caddy's built-in CA | Resolves **only on the Docker host** — fine for a smoke test, useless from a phone |
 
+When you open HTTPS with a LAN IP, some clients omit TLS SNI because the URL host is an IP
+literal. The bundled Caddy configuration uses `PICSOU_DOMAIN` as its default SNI in that case,
+so it can select the certificate it manages for that same address. The certificate still needs
+to be trusted on each device as described in 3c.
+
 A real domain is worth the effort: it is the only option with no per-device step. It does not need
 to be publicly reachable for day-to-day use — only during certificate issuance.
 
