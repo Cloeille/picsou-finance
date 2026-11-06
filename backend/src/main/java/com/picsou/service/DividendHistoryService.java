@@ -5,9 +5,9 @@ import com.picsou.model.DividendEvent;
 import com.picsou.model.DividendSource;
 import com.picsou.model.DividendSourceStatus;
 import com.picsou.port.DividendHistory;
-import com.picsou.port.DividendHistoryPort;
+import com.picsou.adapter.YahooFinancePriceProvider;
 import com.picsou.port.NasdaqDividend;
-import com.picsou.port.NasdaqDividendPort;
+import com.picsou.adapter.NasdaqDividendProvider;
 import com.picsou.port.PriceProviderPort;
 import com.picsou.repository.DividendSourceRepository;
 import com.picsou.util.LogSanitizer;
@@ -66,8 +66,8 @@ public class DividendHistoryService {
     private static final int MONEY_SCALE = 8;
 
     private final DividendSourceRepository repository;
-    private final DividendHistoryPort historyPort;
-    private final NasdaqDividendPort nasdaq;
+    private final YahooFinancePriceProvider yahooHistory;
+    private final NasdaqDividendProvider nasdaq;
     private final PriceProviderPort prices;
     private final YahooCooldown cooldown;
     private final TransactionTemplate txTemplate;
@@ -75,15 +75,15 @@ public class DividendHistoryService {
 
     public DividendHistoryService(
         DividendSourceRepository repository,
-        DividendHistoryPort historyPort,
-        NasdaqDividendPort nasdaq,
+        YahooFinancePriceProvider yahooHistory,
+        NasdaqDividendProvider nasdaq,
         PriceProviderPort prices,
         YahooCooldown cooldown,
         TransactionTemplate txTemplate,
         Clock clock
     ) {
         this.repository = repository;
-        this.historyPort = historyPort;
+        this.yahooHistory = yahooHistory;
         this.nasdaq = nasdaq;
         this.prices = prices;
         this.cooldown = cooldown;
@@ -197,7 +197,7 @@ public class DividendHistoryService {
     private Fetched fetch(String ticker) {
         DividendHistory history;
         try {
-            history = historyPort.fetchDividendHistory(ticker);
+            history = yahooHistory.fetchDividendHistory(ticker);
         } catch (Exception ex) {
             return Fetched.failed(ex);
         }

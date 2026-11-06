@@ -1,22 +1,32 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.port.BoursoErrorCode;
-import com.picsou.port.BoursoPort;
+import com.picsou.model.AccountType;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.port.SidecarInitiate;
+import com.picsou.port.SidecarTransaction;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Typed client for the BoursoBank sidecar. Everything that knows about
+ * BoursoBank's HTML, its virtual keyboard or its app-push choreography lives in
+ * the sidecar behind this adapter; this class does not change when
+ * BoursoBank redesigns.
+ */
 @Component
-public class BoursoAdapter implements BoursoPort {
+public class BoursoAdapter {
     private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
     /**
      * An app push waits on a human unlocking their phone. The sidecar caps that
@@ -27,7 +37,7 @@ public class BoursoAdapter implements BoursoPort {
     /** One home fetch, one dashboard fetch, and one trading call per securities account. */
     private static final Duration DEFAULT_ACCOUNTS_TIMEOUT = Duration.ofSeconds(90);
 
-    private final SidecarErrorTranslator<BoursoErrorCode> sidecar;
+    private final SidecarClient sidecar;
     private final Duration authTimeout;
     private final Duration validationTimeout;
     private final Duration accountsTimeout;
@@ -35,11 +45,10 @@ public class BoursoAdapter implements BoursoPort {
     @Autowired
     public BoursoAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.bourso-auth.url:http://bourso-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("BoursoBank", url),
+            clients.create(SidecarBank.BOURSO.label(), SidecarBank.BOURSO.serviceName()),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_VALIDATION_TIMEOUT,
@@ -58,51 +67,61 @@ public class BoursoAdapter implements BoursoPort {
         Duration validationTimeout,
         Duration accountsTimeout
     ) {
-        this.sidecar = new SidecarErrorTranslator<>(
-            client,
-            objectMapper,
-            BoursoErrorCode.class,
-            "BoursoBank",
-            BoursoErrorCode.UPSTREAM_UNAVAILABLE,
-            BoursoErrorCode.AUTH_ATTEMPT_EXPIRED,
-            BoursoAdapter::friendlyMessage
-        );
+        this.sidecar = new SidecarClient(client, objectMapper, SidecarBank.BOURSO, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
         this.authTimeout = authTimeout;
         this.validationTimeout = validationTimeout;
         this.accountsTimeout = accountsTimeout;
     }
 
-    @Override
-    public InitiateResult initiateAuth(String customerId, String password) {
+    /**
+     * Signs in with the customer number and the numeric password.
+     *
+     * <p>Either completes outright — {@code mfaRequired == false} and
+     * {@code sessionState} populated — or reports that BoursoBank pushed a
+     * validation to the customer's phone.
+     */
+    public SidecarInitiate initiateAuth(String customerId, String password) {
         return sidecar.post(
             "/initiate",
             Map.of("customerId", customerId, "password", password),
-            InitiateResult.class,
+            SidecarInitiate.class,
             authTimeout,
             "Could not initiate BoursoBank authentication",
-            BoursoErrorCode.INVALID_CREDENTIALS
+            SidecarErrorCode.INVALID_CREDENTIALS
         );
     }
 
-    @Override
+    /**
+     * Waits for the customer to approve the push, then returns the session.
+     *
+     * <p>Takes no code: the app push is the only second factor supported, and
+     * an SMS/e-mail prompt is reported as {@link SidecarErrorCode#MFA_TYPE_UNSUPPORTED}
+     * during {@link #initiateAuth} rather than half-driven here.
+     */
     public String completeAuth(String processId) {
         // The sidecar forbids unknown fields but declares `code`, so the key has
         // to carry an explicit null rather than be omitted.
         Map<String, Object> body = new HashMap<>();
         body.put("processId", processId);
         body.put("code", null);
-        SessionResponse response = sidecar.post(
+        SidecarSession response = sidecar.post(
             "/complete",
             body,
-            SessionResponse.class,
+            SidecarSession.class,
             validationTimeout,
             "Could not complete BoursoBank authentication",
-            BoursoErrorCode.APP_VALIDATION_TIMEOUT
+            SidecarErrorCode.APP_VALIDATION_TIMEOUT
         );
         return response.sessionState();
     }
 
-    @Override
+    /**
+     * Reads every in-scope account: current accounts, livrets, the securities
+     * accounts with their positions and the assurance-vie contracts with their
+     * unit-linked supports (euro fund in {@code cashBalance}). Aggregated
+     * third-party accounts, loans and children's accounts are filtered out by
+     * the sidecar.
+     */
     public List<AccountData> fetchAccounts(String sessionState) {
         return sidecar.postForList(
             "/accounts",
@@ -110,30 +129,49 @@ public class BoursoAdapter implements BoursoPort {
             AccountData[].class,
             accountsTimeout,
             "Could not fetch BoursoBank accounts",
-            BoursoErrorCode.PORTFOLIO_INCOMPLETE,
+            SidecarErrorCode.PORTFOLIO_INCOMPLETE,
             "BoursoBank returned no account"
         );
     }
 
-    private static String friendlyMessage(BoursoErrorCode code) {
-        return switch (code) {
-            case INVALID_CREDENTIALS -> "BoursoBank rejected the customer number or password";
-            case FRAUD_ACK_REQUIRED ->
-                "BoursoBank needs you to log in on their website and validate the fraud-prevention notice once, then retry";
-            case IDENTITY_SELECTION_UNSUPPORTED ->
-                "BoursoBank lists several identities on this access and Picsou could not pick the personal one";
-            case MFA_TYPE_UNSUPPORTED ->
-                "BoursoBank asked for an SMS or e-mail code, which Picsou cannot handle. "
-                    + "Switch your BoursoBank security settings to app validation.";
-            case APP_VALIDATION_TIMEOUT -> "The BoursoBank app validation was not confirmed in time";
-            case AUTH_ATTEMPT_EXPIRED -> "The BoursoBank authentication attempt expired";
-            case SESSION_EXPIRED -> "The BoursoBank session expired";
-            case PORTFOLIO_INCOMPLETE -> "BoursoBank returned an incomplete portfolio";
-            case UPSTREAM_FORMAT_CHANGED -> "The BoursoBank website format changed";
-            case INVALID_DATA -> "BoursoBank returned invalid account data";
-            case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "BoursoBank is temporarily unavailable";
-        };
-    }
+    /**
+     * One open position. {@code currentPrice} is expressed in
+     * {@code quoteCurrency}; {@code buyingPriceEur}, {@code currentValueEur} and
+     * {@code pnlEur} are always EUR.
+     */
+    public record Position(
+        String isin,
+        String symbol,
+        String label,
+        BigDecimal quantity,
+        BigDecimal buyingPriceEur,
+        BigDecimal currentPrice,
+        String quoteCurrency,
+        BigDecimal currentValueEur,
+        BigDecimal pnlEur
+    ) {}
 
-    private record SessionResponse(String sessionState) {}
+    public record AccountData(
+        String externalId,
+        String name,
+        AccountType type,
+        BigDecimal balanceEur,
+        /** Non-null for securities accounts only; a livret has no cash leg. */
+        BigDecimal cashBalance,
+        List<Position> positions,
+        boolean snapshotComplete,
+        String iban,
+        List<SidecarTransaction> transactions,
+        /**
+         * Assurance vie only: the rows the sidecar reconciled against the valuation,
+         * euro-fund rows included. Those are summed into {@code cashBalance}, so
+         * {@code positions} alone cannot tell how many rounded amounts there were.
+         */
+        Integer valuationLineCount
+    ) {
+        public AccountData(String externalId, String name, AccountType type, BigDecimal balanceEur,
+                           BigDecimal cashBalance, List<Position> positions, boolean snapshotComplete) {
+            this(externalId, name, type, balanceEur, cashBalance, positions, snapshotComplete, null, List.of(), null);
+        }
+    }
 }

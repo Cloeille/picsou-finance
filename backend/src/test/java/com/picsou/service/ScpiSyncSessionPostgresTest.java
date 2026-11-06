@@ -2,9 +2,10 @@ package com.picsou.service;
 
 import com.picsou.config.CryptoEncryption;
 import com.picsou.model.*;
-import com.picsou.port.CorumPort;
-import com.picsou.port.SofidyPort;
+import com.picsou.adapter.CorumAdapter;
+import com.picsou.adapter.SofidyAdapter;
 import com.picsou.repository.*;
+import com.picsou.support.PostgresContainers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -51,7 +52,7 @@ import static org.mockito.Mockito.when;
 class ScpiSyncSessionPostgresTest {
     @Container
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @TestConfiguration
     static class Transactions {
@@ -74,8 +75,8 @@ class ScpiSyncSessionPostgresTest {
     @Autowired SofidySessionRepository sofidySessions;
     @Autowired ScpiProviderFundRepository funds;
     @Autowired ScpiFundService fundService;
-    @MockitoBean CorumPort corumPort;
-    @MockitoBean SofidyPort sofidyPort;
+    @MockitoBean CorumAdapter corumPort;
+    @MockitoBean SofidyAdapter sofidyPort;
     @MockitoBean CryptoEncryption encryption;
     // The real AccountService, so the Life balance snapshot is written to PostgreSQL; only its
     // collaborators outside the persistence layer are mocked.
@@ -119,15 +120,15 @@ class ScpiSyncSessionPostgresTest {
         if (isCorum) {
             when(corumPort.fetchPortfolio("old-state")).thenAnswer(inv -> {
                 awaitRelease(fetching, release);
-                return new CorumPort.Portfolio(new CorumPort.Snapshot("contract", "PP", "EUR",
-                    new BigDecimal("600"), null, true, List.of(new CorumPort.Holding("FUND", "Fund",
+                return new CorumAdapter.Portfolio(new CorumAdapter.Snapshot("contract", "PP", "EUR",
+                    new BigDecimal("600"), null, true, List.of(new CorumAdapter.Holding("FUND", "Fund",
                         new BigDecimal("2"), new BigDecimal("300"), null, null, null))), List.of());
             });
         } else {
             when(sofidyPort.fetchSnapshot("old-state")).thenAnswer(inv -> {
                 awaitRelease(fetching, release);
-                return new SofidyPort.Snapshot("EUR", new BigDecimal("600"), null, true,
-                    List.of(new SofidyPort.Holding("FUND", "Fund", new BigDecimal("2"),
+                return new SofidyAdapter.Snapshot("EUR", new BigDecimal("600"), null, true,
+                    List.of(new SofidyAdapter.Holding("FUND", "Fund", new BigDecimal("2"),
                         new BigDecimal("300"), new BigDecimal("600"))));
             });
         }
@@ -177,9 +178,9 @@ class ScpiSyncSessionPostgresTest {
     @ValueSource(booleans = {false, true})
     void sofidyRejectsMissingTotalOrQuantityWithoutChangingPersistedAccount(boolean missingQuantity) {
         sofidySessions.saveAndFlush(SofidySession.create(member, "old-state", Instant.now()));
-        when(sofidyPort.fetchSnapshot("old-state")).thenReturn(new SofidyPort.Snapshot("EUR",
+        when(sofidyPort.fetchSnapshot("old-state")).thenReturn(new SofidyAdapter.Snapshot("EUR",
             missingQuantity ? BigDecimal.ZERO : null, null, true,
-            missingQuantity ? List.of(new SofidyPort.Holding("FUND", "Fund", null,
+            missingQuantity ? List.of(new SofidyAdapter.Holding("FUND", "Fund", null,
                 new BigDecimal("300"), null)) : List.of()));
 
         assertThat(sofidy.queueSync(member.getId()).syncStatus()).isEqualTo(SofidySyncStatus.FAILED);
@@ -193,7 +194,7 @@ class ScpiSyncSessionPostgresTest {
     @Test
     void corumSyncCreatesTheAccountOnceAndDoesNotRecreateADeletedOne() {
         FamilyMember fresh = members.saveAndFlush(FamilyMember.builder().displayName("SCPI auto").build());
-        when(corumPort.fetchPortfolio("auto-state")).thenReturn(new CorumPort.Portfolio(
+        when(corumPort.fetchPortfolio("auto-state")).thenReturn(new CorumAdapter.Portfolio(
             corumUsa(), List.of()));
 
         corumSessions.saveAndFlush(CorumSession.create(fresh, "auto-state", Instant.now()));
@@ -232,7 +233,7 @@ class ScpiSyncSessionPostgresTest {
     @Test
     void corumLifeSyncCreatesTheAccountOnceAndDoesNotRecreateADeletedOne() {
         FamilyMember fresh = members.saveAndFlush(FamilyMember.builder().displayName("CORUM Life").build());
-        when(corumPort.fetchPortfolio("life-state")).thenReturn(new CorumPort.Portfolio(
+        when(corumPort.fetchPortfolio("life-state")).thenReturn(new CorumAdapter.Portfolio(
             null, List.of(lifeContract("1001"))));
 
         corumSessions.saveAndFlush(CorumSession.create(fresh, "life-state", Instant.now()));
@@ -247,7 +248,7 @@ class ScpiSyncSessionPostgresTest {
             assertThat(a.isManual()).isFalse();
             assertThat(a.getCurrentBalance()).isEqualByComparingTo("1534.37");
             assertThat(a.getCashBalance()).isEqualByComparingTo("0");
-            // The V123 columns, read back from PostgreSQL.
+            // The V124 columns, read back from PostgreSQL.
             assertThat(a.getProviderInvestedEur()).isEqualByComparingTo("1480");
             assertThat(a.getProviderPaidInEur()).isEqualByComparingTo("1500");
             assertThat(a.getScheduledPaymentEur()).isEqualByComparingTo("50");
@@ -279,7 +280,7 @@ class ScpiSyncSessionPostgresTest {
     void corumLifeWriteFailureRollsBackTheScpiFundsOfTheSameRun() {
         FamilyMember fresh = members.saveAndFlush(FamilyMember.builder().displayName("CORUM rollback").build());
         // external_account_id is VARCHAR(255): this contract passes validation, then fails on write.
-        when(corumPort.fetchPortfolio("rollback-state")).thenReturn(new CorumPort.Portfolio(
+        when(corumPort.fetchPortfolio("rollback-state")).thenReturn(new CorumAdapter.Portfolio(
             corumUsa(), List.of(lifeContract("9".repeat(300)))));
 
         corumSessions.saveAndFlush(CorumSession.create(fresh, "rollback-state", Instant.now()));
@@ -289,16 +290,16 @@ class ScpiSyncSessionPostgresTest {
         assertThat(funds.findByMemberIdAndProviderAndFundCode(fresh.getId(), ScpiProvider.CORUM, "US")).isEmpty();
     }
 
-    /** V125 on the real schema: remembered credentials re-log in an expired session, a rejected password clears them. */
+    /** V126 on the real schema: remembered credentials re-log in an expired session, a rejected password clears them. */
     @Test
     void corumRememberedCredentialsReLogInAndARejectedPasswordClearsThem() {
         when(encryption.encrypt(anyString())).thenAnswer(inv -> inv.getArgument(0));
         FamilyMember fresh = members.saveAndFlush(FamilyMember.builder().displayName("CORUM relogin").build());
         when(corumPort.authenticate("client", "pw")).thenReturn("first-state", "fresh-state");
-        when(corumPort.fetchPortfolio("first-state")).thenReturn(new CorumPort.Portfolio(corumUsa(), List.of()));
+        when(corumPort.fetchPortfolio("first-state")).thenReturn(new CorumAdapter.Portfolio(corumUsa(), List.of()));
         when(corumPort.fetchPortfolio("expired-state"))
             .thenThrow(new com.picsou.exception.SyncException("expired", null, "SESSION_EXPIRED"));
-        when(corumPort.fetchPortfolio("fresh-state")).thenReturn(new CorumPort.Portfolio(corumUsa(), List.of()));
+        when(corumPort.fetchPortfolio("fresh-state")).thenReturn(new CorumAdapter.Portfolio(corumUsa(), List.of()));
 
         assertThat(corum.authenticate("client", "pw", true, fresh.getId()).credentialsRemembered()).isTrue();
         CorumSession stored = corumSessions.findByMemberId(fresh.getId()).orElseThrow();
@@ -320,7 +321,7 @@ class ScpiSyncSessionPostgresTest {
         CorumSession rejected = corumSessions.findByMemberId(fresh.getId()).orElseThrow();
         assertThat(rejected.getEncryptedCredentials()).isNull();
         assertThat(rejected.isActive()).isFalse();
-        assertThat(rejected.getLastSyncError()).isEqualTo(com.picsou.port.CorumErrorCode.INVALID_CREDENTIALS);
+        assertThat(rejected.getLastSyncError()).isEqualTo(com.picsou.port.SidecarErrorCode.INVALID_CREDENTIALS);
 
         // Logging in again without "remember" stores nothing; disconnecting removes the row.
         when(corumPort.authenticate("client", "pw2")).thenReturn("first-state");
@@ -331,29 +332,29 @@ class ScpiSyncSessionPostgresTest {
     }
 
     /** A complete CORUM snapshot holding one fund (US, 10 units at 180 EUR). */
-    private static CorumPort.Snapshot corumUsa() {
-        return new CorumPort.Snapshot("contract", "PP", "EUR", new BigDecimal("1800"), null, true,
-            List.of(new CorumPort.Holding("US", "CORUM USA", new BigDecimal("10"), new BigDecimal("180"),
+    private static CorumAdapter.Snapshot corumUsa() {
+        return new CorumAdapter.Snapshot("contract", "PP", "EUR", new BigDecimal("1800"), null, true,
+            List.of(new CorumAdapter.Holding("US", "CORUM USA", new BigDecimal("10"), new BigDecimal("180"),
                 null, new BigDecimal("1800"), null)));
     }
 
-    /** CORUM Life operations end to end on the real schema (V124, the external-id unique index). */
+    /** CORUM Life operations end to end on the real schema (V125, the external-id unique index). */
     @Test
     void corumLifeOperationsAreWrittenOnceAndKeptOutOfTheBudget() {
         FamilyMember fresh = members.saveAndFlush(FamilyMember.builder().displayName("CORUM ops").build());
-        List<CorumPort.LifeOperation> operations = List.of(
-            new CorumPort.LifeOperation("10", "couponDetachment", "couponDetachment", LocalDate.of(2026, 10, 31),
+        List<CorumAdapter.LifeOperation> operations = List.of(
+            new CorumAdapter.LifeOperation("10", "couponDetachment", "couponDetachment", LocalDate.of(2026, 10, 31),
                 new BigDecimal("3.21"), List.of("XL")),
-            new CorumPort.LifeOperation("9", "scheduledPayment", "progressiveSavings", LocalDate.of(2026, 10, 5),
+            new CorumAdapter.LifeOperation("9", "scheduledPayment", "progressiveSavings", LocalDate.of(2026, 10, 5),
                 new BigDecimal("50"), null),
             // Two legs of one switch under one id: keyed by sign, both stored.
-            new CorumPort.LifeOperation("7", "arbitrage", "arbitrage", LocalDate.of(2026, 6, 15),
+            new CorumAdapter.LifeOperation("7", "arbitrage", "arbitrage", LocalDate.of(2026, 6, 15),
                 new BigDecimal("-100"), null),
-            new CorumPort.LifeOperation("7", "arbitrage", "arbitrage", LocalDate.of(2026, 6, 15),
+            new CorumAdapter.LifeOperation("7", "arbitrage", "arbitrage", LocalDate.of(2026, 6, 15),
                 new BigDecimal("100"), null));
-        CorumPort.LifeContract base = lifeContract("2002");
-        when(corumPort.fetchPortfolio("ops-state")).thenReturn(new CorumPort.Portfolio(null, List.of(
-            new CorumPort.LifeContract(base.contractCode(), base.currency(), base.totalValuationEur(),
+        CorumAdapter.LifeContract base = lifeContract("2002");
+        when(corumPort.fetchPortfolio("ops-state")).thenReturn(new CorumAdapter.Portfolio(null, List.of(
+            new CorumAdapter.LifeContract(base.contractCode(), base.currency(), base.totalValuationEur(),
                 base.valuationDate(), base.valuationLineCount(), base.netInvestedEur(), base.paidInEur(),
                 base.openedAt(), base.scheduledPayment(), true, base.holdings(), operations))));
 
@@ -392,13 +393,13 @@ class ScpiSyncSessionPostgresTest {
      * A complete CORUM Life contract worth 1534.37 EUR: one SCPI unit line (realEstate) and the euro
      * fund (euroLife).
      */
-    private static CorumPort.LifeContract lifeContract(String code) {
-        return new CorumPort.LifeContract(code, "EUR", new BigDecimal("1534.37"), null, 3,
+    private static CorumAdapter.LifeContract lifeContract(String code) {
+        return new CorumAdapter.LifeContract(code, "EUR", new BigDecimal("1534.37"), null, 3,
             new BigDecimal("1480"), new BigDecimal("1500"), LocalDate.of(2024, 1, 15),
-            new CorumPort.ScheduledPayment(new BigDecimal("50"), "monthly"), true, List.of(
-            new CorumPort.LifeHolding("XL", "CORUM XL", new BigDecimal("2.65955"), new BigDecimal("195"),
+            new CorumAdapter.ScheduledPayment(new BigDecimal("50"), "monthly"), true, List.of(
+            new CorumAdapter.LifeHolding("XL", "CORUM XL", new BigDecimal("2.65955"), new BigDecimal("195"),
                 new BigDecimal("518.61"), new BigDecimal("480"), null, false, "realEstate"),
-            new CorumPort.LifeHolding("FGCORUM", "CORUM EuroLife (fonds euros)", new BigDecimal("1015.76"),
+            new CorumAdapter.LifeHolding("FGCORUM", "CORUM EuroLife (fonds euros)", new BigDecimal("1015.76"),
                 BigDecimal.ONE, new BigDecimal("1015.76"), new BigDecimal("1000"), null, true, "euroLife")),
             null);
     }

@@ -11,6 +11,7 @@ import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.service.MemberSyncService;
 import com.picsou.service.sync.SourceSyncResult;
 import com.picsou.service.sync.SourceSyncResult.Status;
+import com.picsou.support.PostgresContainers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,7 +55,7 @@ class SyncToolsSseTest {
 
     @Container
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @DynamicPropertySource
     static void secrets(DynamicPropertyRegistry registry) {

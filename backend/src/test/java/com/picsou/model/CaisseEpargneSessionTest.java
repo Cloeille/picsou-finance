@@ -1,6 +1,7 @@
 package com.picsou.model;
 
-import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.support.TestEntities;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -15,7 +16,7 @@ class CaisseEpargneSessionTest {
 
     private CaisseEpargneSession session() {
         return CaisseEpargneSession.create(
-            FamilyMember.builder().id(7L).displayName("Owner").build(), "encrypted", NOW);
+            TestEntities.owner(), "encrypted", NOW);
     }
 
     @Test
@@ -64,7 +65,7 @@ class CaisseEpargneSessionTest {
 
         CaisseEpargneSession expired = session();
         expired.markQueued();
-        expired.markFailed(CaisseEpargneErrorCode.SESSION_EXPIRED, NOW);
+        expired.markFailed(SidecarErrorCode.SESSION_EXPIRED, NOW);
         assertThatThrownBy(expired::markQueued).isInstanceOf(IllegalStateException.class);
     }
 
@@ -82,7 +83,7 @@ class CaisseEpargneSessionTest {
 
     @Test
     void failureRequiresAnInFlightSync() {
-        assertThatThrownBy(() -> session().markFailed(CaisseEpargneErrorCode.INTERNAL_ERROR, NOW))
+        assertThatThrownBy(() -> session().markFailed(SidecarErrorCode.INTERNAL_ERROR, NOW))
             .isInstanceOf(IllegalStateException.class);
     }
 
@@ -92,17 +93,17 @@ class CaisseEpargneSessionTest {
         session.markQueued();
         session.markRunning(NOW);
 
-        session.markFailed(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE, NOW);
+        session.markFailed(SidecarErrorCode.UPSTREAM_UNAVAILABLE, NOW);
 
         assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(CaisseEpargneErrorCode.UPSTREAM_UNAVAILABLE);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
         assertThat(session.isActive()).isTrue();
     }
 
     @Test
     void anExpiredOrUnusableSessionIsDeactivated() {
-        for (CaisseEpargneErrorCode code : new CaisseEpargneErrorCode[] {
-            CaisseEpargneErrorCode.SESSION_EXPIRED, CaisseEpargneErrorCode.INVALID_SESSION_STATE}) {
+        for (SidecarErrorCode code : new SidecarErrorCode[] {
+            SidecarErrorCode.SESSION_EXPIRED, SidecarErrorCode.INVALID_SESSION_STATE}) {
             CaisseEpargneSession session = session();
             session.markQueued();
             session.markFailed(code, NOW);
@@ -116,7 +117,7 @@ class CaisseEpargneSessionTest {
     void queueingClearsThePreviousOutcome() {
         CaisseEpargneSession session = session();
         session.markQueued();
-        session.markFailed(CaisseEpargneErrorCode.UPSTREAM_FORMAT_CHANGED, NOW);
+        session.markFailed(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED, NOW);
 
         session.markQueued();
 
@@ -129,7 +130,7 @@ class CaisseEpargneSessionTest {
     void updatingTheSessionStateReactivatesIt() {
         CaisseEpargneSession session = session();
         session.markQueued();
-        session.markFailed(CaisseEpargneErrorCode.SESSION_EXPIRED, NOW);
+        session.markFailed(SidecarErrorCode.SESSION_EXPIRED, NOW);
 
         session.updateSessionState("fresh", NOW.plusSeconds(60));
 
@@ -139,9 +140,9 @@ class CaisseEpargneSessionTest {
 
     @Test
     void loginErrorCodesNeverDeactivateAnExistingSession() {
-        for (CaisseEpargneErrorCode code : new CaisseEpargneErrorCode[] {
-            CaisseEpargneErrorCode.INVALID_CREDENTIALS, CaisseEpargneErrorCode.KEYPAD_CHANGED,
-            CaisseEpargneErrorCode.APP_VALIDATION_TIMEOUT, CaisseEpargneErrorCode.AUTH_ATTEMPT_EXPIRED}) {
+        for (SidecarErrorCode code : new SidecarErrorCode[] {
+            SidecarErrorCode.INVALID_CREDENTIALS, SidecarErrorCode.KEYPAD_CHANGED,
+            SidecarErrorCode.APP_VALIDATION_TIMEOUT, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED}) {
             CaisseEpargneSession session = session();
             session.markQueued();
             session.markFailed(code, NOW);

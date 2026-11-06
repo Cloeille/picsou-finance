@@ -5,7 +5,7 @@ import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
-import com.picsou.port.CorumPort;
+import com.picsou.adapter.CorumAdapter;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategoryService;
 import org.slf4j.Logger;
@@ -91,14 +91,14 @@ public class CorumLifeOperationWriter {
      * (the two legs of a switch can). Null when a key is still repeated after that: two rows
      * cannot both own one key, so the caller writes none of that list and keeps the stored rows.
      */
-    static List<String> externalIds(List<CorumPort.LifeOperation> operations) {
+    static List<String> externalIds(List<CorumAdapter.LifeOperation> operations) {
         Map<String, Integer> idCounts = new HashMap<>();
-        for (CorumPort.LifeOperation operation : operations) {
+        for (CorumAdapter.LifeOperation operation : operations) {
             idCounts.merge(operation.operationId().trim(), 1, Integer::sum);
         }
         List<String> keys = new ArrayList<>(operations.size());
         Set<String> seen = new HashSet<>();
-        for (CorumPort.LifeOperation operation : operations) {
+        for (CorumAdapter.LifeOperation operation : operations) {
             String id = operation.operationId().trim();
             String key = EXTERNAL_ID_PREFIX + id;
             if (idCounts.get(id) > 1) {
@@ -120,8 +120,8 @@ public class CorumLifeOperationWriter {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public Result reconcile(
-        Long memberId, Account account, List<CorumPort.LifeOperation> operations,
-        List<CorumPort.LifeHolding> holdings
+        Long memberId, Account account, List<CorumAdapter.LifeOperation> operations,
+        List<CorumAdapter.LifeHolding> holdings
     ) {
         if (operations == null || operations.isEmpty()) {
             return Result.KEPT;
@@ -131,11 +131,11 @@ public class CorumLifeOperationWriter {
             // CorumLifeWriter drops such a list first; kept here so a key can never own two rows.
             return Result.KEPT;
         }
-        Map<String, CorumPort.LifeOperation> reported = new LinkedHashMap<>();
+        Map<String, CorumAdapter.LifeOperation> reported = new LinkedHashMap<>();
         for (int i = 0; i < operations.size(); i++) {
             reported.put(keys.get(i), operations.get(i));
         }
-        LocalDate from = operations.stream().map(CorumPort.LifeOperation::date)
+        LocalDate from = operations.stream().map(CorumAdapter.LifeOperation::date)
             .min(LocalDate::compareTo).orElseThrow();
         LocalDate to = LocalDate.now();
 
@@ -162,8 +162,8 @@ public class CorumLifeOperationWriter {
         int inserted = 0;
         int unknown = 0;
         List<Transaction> upserts = new ArrayList<>(reported.size());
-        for (Map.Entry<String, CorumPort.LifeOperation> entry : reported.entrySet()) {
-            CorumPort.LifeOperation operation = entry.getValue();
+        for (Map.Entry<String, CorumAdapter.LifeOperation> entry : reported.entrySet()) {
+            CorumAdapter.LifeOperation operation = entry.getValue();
             String type = operation.type().trim();
             if (!DESCRIPTIONS.containsKey(type)) {
                 unknown++;
@@ -223,7 +223,7 @@ public class CorumLifeOperationWriter {
 
     /** Everything CORUM owns on the row; the category and its manual flag are never touched here. */
     private static void apply(
-        Transaction row, CorumPort.LifeOperation operation, String type, Map<String, String> fundNames
+        Transaction row, CorumAdapter.LifeOperation operation, String type, Map<String, String> fundNames
     ) {
         boolean payment = PAYMENTS.contains(type);
         String ticker = "couponDetachment".equals(type) ? couponTicker(operation.fundCodes()) : null;
@@ -268,12 +268,12 @@ public class CorumLifeOperationWriter {
      * The fund label per ticker, from the contract's holdings, to name a coupon's row. A holding without a
      * label is left out; no holdings give an empty map.
      */
-    private static Map<String, String> fundNames(List<CorumPort.LifeHolding> holdings) {
+    private static Map<String, String> fundNames(List<CorumAdapter.LifeHolding> holdings) {
         Map<String, String> names = new HashMap<>();
         if (holdings == null) {
             return names;
         }
-        for (CorumPort.LifeHolding holding : holdings) {
+        for (CorumAdapter.LifeHolding holding : holdings) {
             String label = SyncValues.clean(holding.label());
             if (label != null) {
                 names.put(TICKER_PREFIX + holding.productCode().trim().toUpperCase(Locale.ROOT), label);

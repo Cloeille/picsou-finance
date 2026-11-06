@@ -22,15 +22,6 @@ export function useGoal(id: number) {
   })
 }
 
-export function useGoalHistory(id: number) {
-  return useQuery({
-    queryKey: ['goals', id, 'history'],
-    queryFn: () => goalsApi.getHistory(id),
-    staleTime: QUERY_STALE_TIMES.goals,
-    enabled: !!id,
-  })
-}
-
 export function useGoalMonths(id: number) {
   return useQuery({
     queryKey: ['goals', id, 'months'],

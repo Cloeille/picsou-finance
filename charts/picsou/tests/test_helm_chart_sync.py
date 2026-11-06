@@ -47,12 +47,13 @@ APP_CONFIG = textwrap.dedent(
         name: app
     app:
       secure-cookies: ${SECURE_COOKIES:true}
-      std-auth:
-        url: ${STD_AUTH_URL:http://std-auth:8001}
-      known-auth:
-        url: ${KNOWN_AUTH_URL:https://known-auth:8001}
-      vol-auth:
-        url: ${VOL_AUTH_URL:http://vol-auth:8001}
+      sidecars:
+        std-auth:
+          url: ${STD_AUTH_URL:http://std-auth:8001}
+        known-auth:
+          url: ${KNOWN_AUTH_URL:https://known-auth:8001}
+        vol-auth:
+          url: ${VOL_AUTH_URL:http://vol-auth:8001}
     """
 )
 
@@ -104,12 +105,13 @@ CUSTOM_COMPOSE = textwrap.dedent(
 CUSTOM_APP_CONFIG = textwrap.dedent(
     """\
     app:
-      revolut-auth:
-        url: ${REVOLUT_AUTH_URL:http://revolut-auth:8002}
-      fortuneo-auth:
-        url: ${FORTUNEO_AUTH_URL:http://fortuneo-auth:8001}
-      amex-auth:
-        url: ${AMEX_AUTH_URL:http://amex-auth:8001}
+      sidecars:
+        revolut-auth:
+          url: ${REVOLUT_AUTH_URL:http://revolut-auth:8002}
+        fortuneo-auth:
+          url: ${FORTUNEO_AUTH_URL:http://fortuneo-auth:8001}
+        amex-auth:
+          url: ${AMEX_AUTH_URL:http://amex-auth:8001}
     """
 )
 
@@ -161,7 +163,7 @@ class SyncSidecarsTest(unittest.TestCase):
         """Return findings by kind for one generic Compose and chart sidecar."""
         indent = lambda text: textwrap.indent(textwrap.dedent(text), "    ")
         self.app_config.write_text(
-            f"app:\n  x-auth:\n    url: ${{X_AUTH_URL:{url}}}\n" if url else "app:\n  other: 1\n",
+            f"app:\n  sidecars:\n    x-auth:\n      url: ${{X_AUTH_URL:{url}}}\n" if url else "app:\n  other: 1\n",
             encoding="utf-8",
         )
         self.compose.write_text(
@@ -234,7 +236,7 @@ class SyncSidecarsTest(unittest.TestCase):
         app_config = APP_CONFIG_REAL.read_text()
         self.assertEqual(app_config.count("\napp:\n"), 1)
         self.app_config.write_text(app_config.replace(
-            "\napp:\n", "\napp:\n  synthetic-auth:\n    url: ${SYNTHETIC_AUTH_URL:http://synthetic-auth:8001}\n", 1,
+            "\n  sidecars:\n", "\n  sidecars:\n    synthetic-auth:\n      url: ${SYNTHETIC_AUTH_URL:http://synthetic-auth:8001}\n", 1,
         ))
         compose = (ROOT / "docker/docker-compose.yml").read_text()
         self.compose.write_text(compose.replace(
@@ -275,7 +277,7 @@ class SyncSidecarsTest(unittest.TestCase):
     def test_a_sidecar_url_only_in_application_yml_is_wired(self):
         self.assertNotIn("_AUTH_URL", self.compose.read_text())
         self.app_config.write_text(
-            "app:\n  only-auth:\n    url: ${ONLY_AUTH_URL:http://only-auth:8123}\n", encoding="utf-8")
+            "app:\n  sidecars:\n    only-auth:\n      url: ${ONLY_AUTH_URL:http://only-auth:8123}\n", encoding="utf-8")
         self.compose.write_text(
             "services:\n  app:\n    image: app\n  only-auth:\n    image: only\n", encoding="utf-8")
         self.values.write_text("sidecars: {}\n", encoding="utf-8")
@@ -289,7 +291,7 @@ class SyncSidecarsTest(unittest.TestCase):
         self.assertEqual(self.findings("--check"), (0, set()))
 
     def test_a_generic_chart_sidecar_without_app_config_wiring_is_unwired(self):
-        self.assertIn("no app.*.url", self.single("image: x\n", url=None)["unwired"])
+        self.assertIn("no app.sidecars.*.url", self.single("image: x\n", url=None)["unwired"])
 
     def test_a_generic_compose_volume_needs_persistence_in_the_chart_entry(self):
         service = "image: x\nvolumes: [data:/data]\n"
@@ -448,8 +450,8 @@ class SyncSidecarsTest(unittest.TestCase):
 
     def test_apply_disables_an_unwired_known_sidecar(self):
         self.app_config.write_text(APP_CONFIG.replace(
-            "known-auth:\n    url: ${KNOWN_AUTH_URL:https://known-auth:8001}",
-            "renamed-auth:\n    url: ${TRADE_REPUBLIC_AUTH_URL:http://renamed-auth:8001}",
+            "known-auth:\n      url: ${KNOWN_AUTH_URL:https://known-auth:8001}",
+            "renamed-auth:\n      url: ${TRADE_REPUBLIC_AUTH_URL:http://renamed-auth:8001}",
         ), encoding="utf-8")
         result = self.run_script("--apply", "--json")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -458,7 +460,7 @@ class SyncSidecarsTest(unittest.TestCase):
         self.assertIn({
             "sidecar": "known-auth",
             "kind": "unwired",
-            "detail": "no app.*.url in application.yml points at it",
+            "detail": "no app.sidecars.*.url in application.yml points at it",
         }, findings)
 
     def test_apply_disables_mismatches_on_custom_sidecars(self):

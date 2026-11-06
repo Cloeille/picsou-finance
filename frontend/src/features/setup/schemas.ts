@@ -43,17 +43,3 @@ export const enableBankingConfigSchema = z.object({
   redirectUri: z.string().regex(REDIRECT_URI_REGEX, 'setup.enablebanking.redirectFormat'),
 })
 export type EnableBankingConfigFormValues = z.infer<typeof enableBankingConfigSchema>
-
-/**
- * Fuzzy sanity check: is this a plausible PEM-encoded key block? We don't
- * validate the cryptography itself (that'd need a WASM parser just to tell
- * the user "nope"); the backend does the real parse and returns a proper
- * error if the PEM is malformed.
- */
-export function looksLikePem(value: string): boolean {
-  return /-----BEGIN [A-Z ]+-----/.test(value) && /-----END [A-Z ]+-----/.test(value)
-}
-
-export function hasApplicationIdShape(value: string): boolean {
-  return UUID_SHAPE_REGEX.test(value.trim())
-}

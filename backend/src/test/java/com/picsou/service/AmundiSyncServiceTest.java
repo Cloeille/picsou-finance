@@ -8,8 +8,9 @@ import com.picsou.model.AccountType;
 import com.picsou.model.AmundiSession;
 import com.picsou.model.AmundiSyncStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.AmundiErrorCode;
-import com.picsou.port.AmundiPort;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.adapter.AmundiAdapter;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.AmundiSessionRepository;
@@ -42,11 +43,12 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.picsou.support.TestEntities.owner;
 
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("unchecked")
 class AmundiSyncServiceTest {
-    @Mock AmundiPort port;
+    @Mock AmundiAdapter port;
     @Mock AmundiSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
@@ -68,7 +70,7 @@ class AmundiSyncServiceTest {
 
     @Test
     void queueSync_writesOnePlanAsOneAccountWithItsFundLines() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
         when(port.fetchPlans("plain-state")).thenReturn(List.of(completePlan()));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
@@ -203,7 +205,7 @@ class AmundiSyncServiceTest {
 
     @Test
     void planTotalThatDisagreesWithItsLines_keepsTheLastGoodSnapshot() {
-        arrangeQueuedSession(activeSession(member()));
+        arrangeQueuedSession(activeSession(owner()));
         when(port.fetchPlans("plain-state")).thenReturn(List.of(
             plan("2000", position("FR0010405035", "Fonds", "10", "100", "900", "0"))
         ));
@@ -211,7 +213,7 @@ class AmundiSyncServiceTest {
         AmundiSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(AmundiSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(AmundiErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(holdingRepository, never()).deleteByAccountId(any());
         verify(accountRepository, never()).save(any(Account.class));
     }
@@ -225,7 +227,7 @@ class AmundiSyncServiceTest {
 
     @Test
     void clearSessionReportsTheSessionItDeleted() {
-        AmundiSession session = activeSession(member());
+        AmundiSession session = activeSession(owner());
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
 
         assertThat(service.clearSession(7L)).isTrue();
@@ -242,23 +244,23 @@ class AmundiSyncServiceTest {
 
     @Test
     void aPlanFlaggedIncompleteBySidecarIsRejectedOutright() {
-        arrangeQueuedSession(activeSession(member()));
-        when(port.fetchPlans("plain-state")).thenReturn(List.of(new AmundiPort.PlanData(
+        arrangeQueuedSession(activeSession(owner()));
+        when(port.fetchPlans("plain-state")).thenReturn(List.of(new AmundiAdapter.PlanData(
             "PEG001", "Plan", "PEG", "ACME", new BigDecimal("1000"),
             List.of(position("FR0010405035", "Fonds", "10", "100", "1000", "0")), false
         )));
 
         AmundiSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.lastSyncError()).isEqualTo(AmundiErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
     }
 
     @Test
     void duplicatePlanIdentifiersAreRejectedRatherThanOverwritingEachOther() {
-        arrangeQueuedSession(activeSession(member()));
+        arrangeQueuedSession(activeSession(owner()));
         when(port.fetchPlans("plain-state")).thenReturn(List.of(completePlan(), completePlan()));
 
-        assertThat(service.queueSync(7L).lastSyncError()).isEqualTo(AmundiErrorCode.INVALID_DATA);
+        assertThat(service.queueSync(7L).lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
     }
 
     @Test
@@ -274,14 +276,14 @@ class AmundiSyncServiceTest {
 
     @Test
     void twoDifferentFundsCollidingOnTheFallbackTickerAreRefusedNotFused() {
-        arrangeQueuedSession(activeSession(member()));
+        arrangeQueuedSession(activeSession(owner()));
         String longPrefix = "Fonds Actionnariat Salarie ACME";
         when(port.fetchPlans("plain-state")).thenReturn(List.of(plan("2000",
             position(null, longPrefix + " 2021", "10", "100", "1000", "0"),
             position(null, longPrefix + " 2024", "10", "100", "1000", "0")
         )));
 
-        assertThat(service.queueSync(7L).lastSyncError()).isEqualTo(AmundiErrorCode.INVALID_DATA);
+        assertThat(service.queueSync(7L).lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
     }
 
     @Test
@@ -356,9 +358,9 @@ class AmundiSyncServiceTest {
 
     @Test
     void aSoftDeletedAccountIsNotResurrected() {
-        arrangeQueuedSession(activeSession(member()));
+        arrangeQueuedSession(activeSession(owner()));
         when(port.fetchPlans("plain-state")).thenReturn(List.of(completePlan()));
-        when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
+        when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(accountRepository.findByExternalAccountIdAndMemberId("amundi_PEG001", 7L))
             .thenReturn(Optional.empty());
         when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId("amundi_PEG001", 7L))
@@ -370,15 +372,15 @@ class AmundiSyncServiceTest {
 
     @Test
     void anExpiredUpstreamSessionDeactivatesTheStoredSession() {
-        AmundiSession session = activeSession(member());
+        AmundiSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchPlans("plain-state")).thenThrow(
-            new SyncException("expired", null, AmundiErrorCode.SESSION_EXPIRED.name())
+            new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name())
         );
 
         AmundiSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.lastSyncError()).isEqualTo(AmundiErrorCode.SESSION_EXPIRED);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         assertThat(session.isActive()).isFalse();
     }
 
@@ -388,13 +390,13 @@ class AmundiSyncServiceTest {
 
         assertThatThrownBy(() -> service.queueSync(7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.SESSION_EXPIRED.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name())
             );
     }
 
     @Test
     void aSecondSyncIsNotQueuedWhileOneIsAlreadyRunning() {
-        AmundiSession session = activeSession(member());
+        AmundiSession session = activeSession(owner());
         session.markQueued();
         session.markRunning(java.time.Instant.now());
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
@@ -412,7 +414,7 @@ class AmundiSyncServiceTest {
      */
     @Test
     void aResultForAReplacedSessionIsDiscarded() {
-        AmundiSession session = activeSession(member());
+        AmundiSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchPlans("plain-state")).thenReturn(List.of(completePlan()));
         when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L))
@@ -430,14 +432,14 @@ class AmundiSyncServiceTest {
 
         assertThatThrownBy(() -> service.completeAuth("process", "123456", 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(AmundiErrorCode.INVALID_DATA.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_DATA.name())
             );
     }
 
     @Test
     void initiateAuthStoresTheSessionOnlyWhenNoSecondFactorIsNeeded() {
         when(port.initiateAuth("login", "password"))
-            .thenReturn(new AmundiPort.InitiateResult("p1", true, "APP_PUSH", null));
+            .thenReturn(new SidecarInitiate("p1", true, "APP_PUSH", null));
 
         AmundiSyncService.AuthInitResponse result = service.initiateAuth("login", "password", 7L);
 
@@ -457,21 +459,21 @@ class AmundiSyncServiceTest {
 
     @Test
     void aScheduledResyncSwallowsUpstreamFailuresSoOtherMembersStillSync() {
-        AmundiSession session = activeSession(member());
+        AmundiSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchPlans("plain-state")).thenThrow(
-            new SyncException("down", null, AmundiErrorCode.UPSTREAM_UNAVAILABLE.name())
+            new SyncException("down", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name())
         );
 
         service.resyncIfSessionActive(7L);
 
-        assertThat(session.getLastSyncError()).isEqualTo(AmundiErrorCode.UPSTREAM_UNAVAILABLE);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
     // -- helpers ------------------------------------------------------------
 
-    private void arrangeCommittableSync(AmundiPort.PlanData... plans) {
-        FamilyMember member = member();
+    private void arrangeCommittableSync(AmundiAdapter.PlanData... plans) {
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
         when(port.fetchPlans("plain-state")).thenReturn(List.of(plans));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
@@ -518,10 +520,6 @@ class AmundiSyncServiceTest {
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
     }
 
-    private FamilyMember member() {
-        return FamilyMember.builder().id(7L).displayName("Owner").build();
-    }
-
     private AmundiSession activeSession(FamilyMember member) {
         return AmundiSession.builder()
             .id(3L)
@@ -532,20 +530,20 @@ class AmundiSyncServiceTest {
             .build();
     }
 
-    private AmundiPort.PlanData completePlan() {
+    private AmundiAdapter.PlanData completePlan() {
         return plan(position("FR0010405035", "Amundi Label Actions Solidaires",
             "12.3456", "100", "1234.56", "34.56"));
     }
 
-    private AmundiPort.PlanData plan(AmundiPort.Position... positions) {
+    private AmundiAdapter.PlanData plan(AmundiAdapter.Position... positions) {
         BigDecimal total = List.of(positions).stream()
-            .map(AmundiPort.Position::valueEur)
+            .map(AmundiAdapter.Position::valueEur)
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         return plan(total.toPlainString(), positions);
     }
 
-    private AmundiPort.PlanData plan(String balanceEur, AmundiPort.Position... positions) {
-        return new AmundiPort.PlanData(
+    private AmundiAdapter.PlanData plan(String balanceEur, AmundiAdapter.Position... positions) {
+        return new AmundiAdapter.PlanData(
             "PEG001",
             "Plan d'Épargne Groupe",
             "PEG",
@@ -556,17 +554,17 @@ class AmundiSyncServiceTest {
         );
     }
 
-    private AmundiPort.Position position(
+    private AmundiAdapter.Position position(
         String isin, String label, String quantity, String unitValue, String valueEur, String pnlEur
     ) {
         return position(isin, null, label, quantity, unitValue, valueEur, pnlEur);
     }
 
-    private AmundiPort.Position position(
+    private AmundiAdapter.Position position(
         String isin, String fundCode, String label,
         String quantity, String unitValue, String valueEur, String pnlEur
     ) {
-        return new AmundiPort.Position(
+        return new AmundiAdapter.Position(
             isin,
             fundCode,
             label,

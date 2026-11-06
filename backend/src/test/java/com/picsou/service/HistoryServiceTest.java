@@ -1,7 +1,6 @@
 package com.picsou.service;
 
-import com.picsou.adapter.CoinGeckoPriceProvider;
-import com.picsou.adapter.CompositePriceProvider;
+import com.picsou.adapter.CoinGeckoStubs;
 import com.picsou.adapter.YahooFinancePriceProvider;
 import com.picsou.adapter.YahooFinanceStubs;
 import com.picsou.dto.DashboardResponse.NetWorthIntradayPoint;
@@ -988,7 +987,7 @@ class HistoryServiceTest {
               "indicators":{"quote":[{"close":[60.0]}]}}]}}""".formatted(twoHoursAgo)
             : null);
         PriceService realPrices = new PriceService(
-            new CompositePriceProvider(new CoinGeckoPriceProvider(), yahoo), priceSnapshotRepository);
+            CoinGeckoStubs.composite(yahoo, CoinGeckoStubs.registry(java.util.Map.of())), priceSnapshotRepository);
         HistoryService service = new HistoryService(accountRepository, snapshotRepository, holdingRepository,
             realPrices, priceSnapshotRepository, accountService, accessResolver);
         // What a verified-EUR Finary crypto snapshot stores: 10 REG that Finary values at 10 EUR.

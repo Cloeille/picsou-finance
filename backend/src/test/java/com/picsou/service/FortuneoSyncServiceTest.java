@@ -16,8 +16,9 @@ import com.picsou.model.FortuneoSession;
 import com.picsou.model.FortuneoSyncStatus;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
-import com.picsou.port.FortuneoErrorCode;
-import com.picsou.port.FortuneoPort;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.adapter.FortuneoAdapter;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.DividendSourceRepository;
@@ -64,11 +65,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.picsou.support.TestEntities.owner;
 
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("unchecked")
 class FortuneoSyncServiceTest {
-    @Mock FortuneoPort port;
+    @Mock FortuneoAdapter port;
     @Mock FortuneoSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
@@ -99,7 +101,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void clearSessionReportsTheSessionItDeleted() {
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
 
         assertThat(service.clearSession(7L)).isTrue();
@@ -116,7 +118,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void queueSync_commitsCompletePortfolioThenWritesSnapshotFromCurrentPositions() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(completeAccount()));
@@ -172,7 +174,7 @@ class FortuneoSyncServiceTest {
         // filled that table was an ApplicationRunner over the tickers held at startup -- which by
         // definition cannot know about an account connected afterwards. Without this the PEA's
         // chart stayed a single point until the app was restarted and the account synced again.
-        FamilyMember member = member();
+        FamilyMember member = owner();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(completeAccount()));
@@ -192,7 +194,7 @@ class FortuneoSyncServiceTest {
     void anUnreachablePriceApiCostsHistoryNotTheSyncItself() {
         // Prices are what the chart is drawn from, not what the portfolio import is. Refusing a
         // good sync over them would trade a complete chart for no data whatsoever.
-        FamilyMember member = member();
+        FamilyMember member = owner();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(completeAccount()));
@@ -209,7 +211,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void cashAccount_syncsBalanceWithoutPositionsOrReconciliation() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -229,10 +231,10 @@ class FortuneoSyncServiceTest {
 
     @Test
     void mixedPeaAndCheckingPortfolioCommitsBothAccounts() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
-        FortuneoPort.Position peaPosition = position(
+        FortuneoAdapter.Position peaPosition = position(
             null, "PEA_ONE", BigDecimal.ONE, new BigDecimal("100"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR"
         );
@@ -255,22 +257,22 @@ class FortuneoSyncServiceTest {
 
     @Test
     void mixedPeaCtoAndCheckingPortfolioPreservesEveryPosition() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
-        FortuneoPort.Position peaOne = position(
+        FortuneoAdapter.Position peaOne = position(
             null, "PEA_ONE", BigDecimal.ONE, new BigDecimal("100"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR"
         );
-        FortuneoPort.Position peaTwo = position(
+        FortuneoAdapter.Position peaTwo = position(
             null, "PEA_TWO", new BigDecimal("2"), new BigDecimal("200"),
             new BigDecimal("90"), new BigDecimal("100"), "EUR"
         );
-        FortuneoPort.Position ctoOne = position(
+        FortuneoAdapter.Position ctoOne = position(
             null, "CTO_ONE", BigDecimal.ONE, new BigDecimal("250"),
             new BigDecimal("200"), new BigDecimal("250"), "EUR"
         );
-        FortuneoPort.Position ctoTwo = position(
+        FortuneoAdapter.Position ctoTwo = position(
             null, "CTO_TWO", new BigDecimal("3"), new BigDecimal("150"),
             new BigDecimal("40"), new BigDecimal("50"), "EUR"
         );
@@ -299,12 +301,12 @@ class FortuneoSyncServiceTest {
 
     @Test
     void partialMixedPortfolioIsRejectedBeforeAnyPreviousDataIsReplaced() {
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
-        FortuneoPort.AccountData validChecking = cashAccount(
+        FortuneoAdapter.AccountData validChecking = cashAccount(
             "checking-1", AccountType.CHECKING, new BigDecimal("700"), List.of()
         );
-        FortuneoPort.AccountData incompletePea = new FortuneoPort.AccountData(
+        FortuneoAdapter.AccountData incompletePea = new FortuneoAdapter.AccountData(
             "pea-1", "PEA", AccountType.PEA,
             new BigDecimal("350"), new BigDecimal("50"), List.of(), List.of(), false
         );
@@ -313,7 +315,7 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).deleteByAccountId(any());
         verify(transactionWriter, never()).replaceRecentTransactions(any(), any(), any());
@@ -321,13 +323,13 @@ class FortuneoSyncServiceTest {
 
     @Test
     void cashAccountWithPositions_rejectsTheWholeSnapshot() {
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
-        FortuneoPort.Position stray = position(
+        FortuneoAdapter.Position stray = position(
             "FR0000000001", "ACME", BigDecimal.ONE, new BigDecimal("100"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR"
         );
-        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new FortuneoPort.AccountData(
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new FortuneoAdapter.AccountData(
             "cc-1", "Compte Courant", AccountType.CHECKING,
             new BigDecimal("500"), new BigDecimal("500"), List.of(stray), List.of(), true
         )));
@@ -335,15 +337,15 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
     @Test
     void cashAccountBalanceMismatch_rejectsTheWholeSnapshot() {
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
-        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new FortuneoPort.AccountData(
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new FortuneoAdapter.AccountData(
             "cc-1", "Compte Courant", AccountType.CHECKING,
             new BigDecimal("500"), new BigDecimal("400"), List.of(), List.of(), true
         )));
@@ -351,16 +353,16 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
     @Test
     void transactionsWithoutIds_replaceTheTrailingNinetyDayWindow() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
-        FortuneoPort.Transaction incoming = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction incoming = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Virement recu", new BigDecimal("100"), "Virement", null, null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -386,10 +388,10 @@ class FortuneoSyncServiceTest {
     void everyCommittedJobClassifiesDividendsOnTheRowsItJustReplaced() {
         // A member sync returns QUEUED before the job imports anything, and each window job
         // recreates its rows untyped: only the job itself can classify what it wrote.
-        FamilyMember member = member();
+        FamilyMember member = owner();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
-        FortuneoPort.Transaction dividend = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction dividend = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"),
             null, null, null, null, null, null, null, null
         );
@@ -432,9 +434,9 @@ class FortuneoSyncServiceTest {
         DividendReceiptService receipts = realReceipts(checking, revenusCapital, ledger, paid.minusDays(9));
         assertThat(receipts.classifyRecent(7L, paid.plusDays(1))).isEqualTo(1);
 
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction again = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction again = new FortuneoAdapter.Transaction(
             paid, "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, null, null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -463,7 +465,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void anIdentifiedImportKeepsTheDividendRecognisedOnTheRowItUpdates() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
         Category revenusCapital = Category.builder()
             .id(100L).slug("revenus-capital").name("Revenus du capital").kind(CategoryKind.INCOME).build();
@@ -472,7 +474,7 @@ class FortuneoSyncServiceTest {
             .description("DIVIDENDE TOTALENERGIES").amount(new BigDecimal("59.50"))
             .txType(TransactionType.DIVIDEND).ticker("TTE.PA").name("TotalEnergies")
             .categoryRef(revenusCapital).build();
-        FortuneoPort.Transaction again = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction again = new FortuneoAdapter.Transaction(
             stored.getDate(), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -509,9 +511,9 @@ class FortuneoSyncServiceTest {
         DividendReceiptService receipts = realReceipts(checking, revenusCapital, ledger, paid.minusDays(9));
         assertThat(receipts.classifyRecent(7L, paid.plusDays(1))).isEqualTo(1);
 
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction identified = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction identified = new FortuneoAdapter.Transaction(
             paid, "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -540,7 +542,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void aProviderTypeOtherThanACreditDropsTheAutomaticDividendCategory() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
         Category revenusCapital = Category.builder()
             .id(100L).slug("revenus-capital").name("Revenus du capital").kind(CategoryKind.INCOME).build();
@@ -548,7 +550,7 @@ class FortuneoSyncServiceTest {
             .id(99L).externalId("tx-1").date(LocalDate.now().minusDays(50))
             .description("DIVIDENDE TOTALENERGIES").amount(new BigDecimal("59.50"))
             .txType(TransactionType.DIVIDEND).ticker("TTE.PA").categoryRef(revenusCapital).build();
-        FortuneoPort.Transaction retyped = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction retyped = new FortuneoAdapter.Transaction(
             stored.getDate(), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, "SELL", null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -569,7 +571,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void aProviderTypeOtherThanACreditKeepsAManualCategory() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
         Category revenusCapital = Category.builder()
             .id(100L).slug("revenus-capital").name("Revenus du capital").kind(CategoryKind.INCOME).build();
@@ -577,7 +579,7 @@ class FortuneoSyncServiceTest {
             .id(99L).externalId("tx-1").date(LocalDate.now().minusDays(50))
             .description("DIVIDENDE TOTALENERGIES").amount(new BigDecimal("59.50"))
             .txType(TransactionType.DIVIDEND).ticker("TTE.PA").categoryRef(revenusCapital).categoryManual(true).build();
-        FortuneoPort.Transaction retyped = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction retyped = new FortuneoAdapter.Transaction(
             stored.getDate(), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, "SELL", null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -599,13 +601,13 @@ class FortuneoSyncServiceTest {
 
     @Test
     void aProviderTypeOtherThanACreditOverridesAnEarlierRecognition() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
         Transaction stored = Transaction.builder()
             .id(99L).externalId("tx-1").date(LocalDate.now().minusDays(50))
             .description("DIVIDENDE TOTALENERGIES").amount(new BigDecimal("59.50"))
             .txType(TransactionType.DIVIDEND).ticker("TTE.PA").build();
-        FortuneoPort.Transaction retyped = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction retyped = new FortuneoAdapter.Transaction(
             stored.getDate(), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"), null, "tx-1", null, "SELL", null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -626,7 +628,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void aRejectedJobClassifiesNothing() {
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of());
 
@@ -637,7 +639,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void aDividendClassificationFailureLeavesTheSyncSuccessful() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(completeAccount()));
@@ -657,13 +659,13 @@ class FortuneoSyncServiceTest {
         // Regression: the provider returns more history than the 90-day window. Deleting
         // only inside the window while inserting everything appended a fresh copy of each
         // older row on every sync.
-        FamilyMember member = member();
+        FamilyMember member = owner();
         FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
-        FortuneoPort.Transaction recent = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction recent = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Dans la fenetre", new BigDecimal("100"), "Virement", null, null, null, null, null, null, null
         );
-        FortuneoPort.Transaction old = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction old = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(200), "Hors fenetre", new BigDecimal("42"), "Virement", null, null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -683,12 +685,12 @@ class FortuneoSyncServiceTest {
 
     @Test
     void identifiedTransactions_importTheWholeHistoryWithoutAnyWindow() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction recent = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction recent = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Recent", new BigDecimal("100"), "Virement", "tx-recent", null, null, null, null, null, null
         );
-        FortuneoPort.Transaction ancient = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction ancient = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(900), "Ancien", new BigDecimal("42"), "Virement", "tx-ancient", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -710,9 +712,9 @@ class FortuneoSyncServiceTest {
 
     @Test
     void structuredOperationType_isPersistedOnTheTransaction() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction coupon = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction coupon = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Coupon", new BigDecimal("12"), "Epargne", "tx-1", "COUPON", null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -731,9 +733,9 @@ class FortuneoSyncServiceTest {
 
     @Test
     void blankOperationType_staysNullRatherThanBecomingAPlaceholder() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction untyped = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction untyped = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Sans type", new BigDecimal("12"), null, "tx-1", "  ", null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -755,9 +757,9 @@ class FortuneoSyncServiceTest {
         // The whole visible feed is authoritative up to now. A stored row more recent than
         // anything it reports is one the provider stopped showing -- a reversal, or a pending
         // entry that settled under a new id -- and keeping it would strand a duplicate forever.
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction reported = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction reported = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(30), "Reporte", new BigDecimal("100"), null, "tx-1", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -782,9 +784,9 @@ class FortuneoSyncServiceTest {
 
     @Test
     void identifiedTransactions_areUpdatedInPlaceRatherThanDuplicated() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction updated = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction updated = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(2), "Libelle corrige", new BigDecimal("120"), "Virement", "tx-1", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -816,9 +818,9 @@ class FortuneoSyncServiceTest {
     void identifiedTransactions_onlyDeleteInsideTheRangeTheResponseCovers() {
         // A partial response -- Fortuneo answering with just the latest entries -- must rewrite
         // only the days it actually covers. Older history it never mentioned stays untouched.
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction reported = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction reported = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Recent", new BigDecimal("100"), "Virement", "tx-new", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -848,12 +850,12 @@ class FortuneoSyncServiceTest {
 
     @Test
     void identifiedTransactions_repeatedInOneResponseCollapseToASingleRow() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction first = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction first = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Premiere copie", new BigDecimal("100"), null, "tx-1", null, null, null, null, null, null
         );
-        FortuneoPort.Transaction duplicate = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction duplicate = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Seconde copie", new BigDecimal("100"), null, "tx-1", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -872,7 +874,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void emptyTransactionResponse_leavesStoredHistoryUntouched() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
             "cc-1", AccountType.CHECKING, new BigDecimal("500"), List.of()
@@ -890,12 +892,12 @@ class FortuneoSyncServiceTest {
     void mixedTransactionIds_fallBackToTheWindowImport() {
         // Half a response carrying ids is not enough to reconcile on: without an id there is
         // no way to tell a re-sent row from a new one, so the safe rolling window is kept.
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction identified = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction identified = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Avec id", new BigDecimal("100"), null, "tx-1", null, null, null, null, null, null
         );
-        FortuneoPort.Transaction anonymous = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction anonymous = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(2), "Sans id", new BigDecimal("50"), null, null, null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -912,9 +914,9 @@ class FortuneoSyncServiceTest {
 
     @Test
     void blankTransactionId_isTreatedAsAbsent() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction blank = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction blank = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Id vide", new BigDecimal("100"), null, "   ", null, null, null, null, null, null
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
@@ -931,9 +933,9 @@ class FortuneoSyncServiceTest {
 
     @Test
     void securitiesLedgerFields_arePersistedOnTheTransaction() {
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction dividend = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction dividend = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(30), "ACME", new BigDecimal("42.10"), null,
             "ft_h_abc", "Encaissement coupons interet/dividende", "DIVIDEND",
             new BigDecimal("100"), new BigDecimal("0.4210"), new BigDecimal("0.00"), null
@@ -960,9 +962,9 @@ class FortuneoSyncServiceTest {
     void anUntypedOperation_isImportedWithoutATypeRatherThanRejected() {
         // The sidecar leaves an operation untyped when the provider's label is not one it
         // recognises. The row still belongs in the ledger; it simply joins no typed aggregate.
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction untyped = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction untyped = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(30), "ACME", new BigDecimal("3.00"), null,
             "ft_h_def", "Indemnisation", null, null, null, null, null
         );
@@ -986,9 +988,9 @@ class FortuneoSyncServiceTest {
     void anUnknownTransactionType_failsTheSnapshotInsteadOfBeingDropped() {
         // A type Picsou does not define means the two sides disagree on the contract.
         // Dropping it silently would hide that while quietly changing what the ledger reports.
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
-        FortuneoPort.Transaction bogus = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction bogus = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "ACME", BigDecimal.ONE, null,
             "ft_h_ghi", "Something new", "TRANSFER", null, null, null, null
         );
@@ -999,7 +1001,7 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(transactionWriter, never()).reconcileHistory(any(), any());
     }
 
@@ -1007,11 +1009,11 @@ class FortuneoSyncServiceTest {
     void aLedgerRowWithAnIsin_landsOnTheSameTickerAsTheHoldingItBuilt() {
         // Trades and positions go through the same converter on purpose: RealizedPnlService
         // pairs a BUY with a SELL by ticker, and can only do so if both sides agree on it.
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
         when(isinConverter.resolve("XX0000000001"))
             .thenReturn(new OpenFigiIsinConverter.TickerResult("SYN.PA", "SYNTHETIC FUND"));
-        FortuneoPort.Transaction trade = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction trade = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(30), "SYNTHETIC FUND", new BigDecimal("-402.50"), null,
             "ft_h_abc", "Achat Comptant", "BUY",
             new BigDecimal("10"), new BigDecimal("40"), new BigDecimal("2.50"), "XX0000000001"
@@ -1037,10 +1039,10 @@ class FortuneoSyncServiceTest {
     void anUnresolvableIsin_fallsBackToTheIsinRatherThanLosingTheInstrument() {
         // An unresolvable instrument is still a stable key. Dropping it would silently
         // remove the row from every per-instrument computation.
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
         when(isinConverter.resolve("FR0000000001")).thenReturn(null);
-        FortuneoPort.Transaction trade = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction trade = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(30), "OBSCURE", BigDecimal.ONE, null,
             "ft_h_def", "Achat Comptant", "BUY", BigDecimal.ONE, BigDecimal.ONE, null,
             "FR0000000001"
@@ -1063,9 +1065,9 @@ class FortuneoSyncServiceTest {
     void aRowTheProviderNamesNoInstrumentFor_carriesNoTicker() {
         // Cash-ledger rows, and any securities row whose label the provider's own
         // referential does not list. No instrument is better than a guessed one.
-        FamilyMember member = member();
+        FamilyMember member = owner();
         arrangeQueuedSession(activeSession(member));
-        FortuneoPort.Transaction cashRow = new FortuneoPort.Transaction(
+        FortuneoAdapter.Transaction cashRow = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(30), "Virement recu", new BigDecimal("100"), null,
             "tx-1", "CAV", null, null, null, null, null
         );
@@ -1088,9 +1090,9 @@ class FortuneoSyncServiceTest {
 
     @Test
     void incompleteSnapshot_failsWithoutDeletingExistingHoldings() {
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
-        FortuneoPort.AccountData incomplete = new FortuneoPort.AccountData(
+        FortuneoAdapter.AccountData incomplete = new FortuneoAdapter.AccountData(
             "pea-123", "PEA", AccountType.PEA,
             new BigDecimal("1250"), new BigDecimal("250"), List.of(), List.of(), false
         );
@@ -1099,20 +1101,20 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(holdingRepository, never()).deleteByAccountId(any());
         verify(accountRepository, never()).save(any());
     }
 
     @Test
     void nativeQuoteWithoutCurrency_rejectsTheWholeSnapshot() {
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
-        FortuneoPort.Position ambiguous = new FortuneoPort.Position(
+        FortuneoAdapter.Position ambiguous = new FortuneoAdapter.Position(
             null, "ACME", "Acme", BigDecimal.ONE, new BigDecimal("80"),
             new BigDecimal("100"), null, new BigDecimal("100"), new BigDecimal("20")
         );
-        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new FortuneoPort.AccountData(
+        when(port.fetchAccounts("plain-state")).thenReturn(List.of(new FortuneoAdapter.AccountData(
             "pea-123", "PEA", AccountType.PEA,
             new BigDecimal("100"), BigDecimal.ZERO, List.of(ambiguous), List.of(), true
         )));
@@ -1120,23 +1122,23 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
 
     @Test
     void expiredSession_isInvalidatedInFollowUpTransactionAndRemainsObservable() {
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(new SyncException(
-            "Session expired", null, FortuneoErrorCode.SESSION_EXPIRED.name()
+            "Session expired", null, SidecarErrorCode.SESSION_EXPIRED.name()
         ));
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.isActive()).isFalse();
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.SESSION_EXPIRED);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
 
@@ -1144,7 +1146,7 @@ class FortuneoSyncServiceTest {
     void completeAuth_returnsQueuedBeforePortfolioFetchRuns() {
         AtomicReference<Runnable> queuedTask = new AtomicReference<>();
         FortuneoSyncService delayedService = serviceWith(queuedTask::set);
-        FamilyMember member = member();
+        FamilyMember member = owner();
         FortuneoSession stored = FortuneoSession.builder()
             .id(9L)
             .member(member)
@@ -1170,7 +1172,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void queueSync_executorRejectionMarksTheQueuedSessionFailed() {
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
         when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
@@ -1179,11 +1181,11 @@ class FortuneoSyncServiceTest {
 
         assertThatThrownBy(() -> rejectedService.queueSync(7L))
             .isInstanceOfSatisfying(SyncException.class, exception ->
-                assertThat(exception.getCode()).isEqualTo(FortuneoErrorCode.INTERNAL_ERROR.name()))
+                assertThat(exception.getCode()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR.name()))
             .hasCause(rejection);
 
         assertThat(session.getSyncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(FortuneoErrorCode.INTERNAL_ERROR);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR);
         assertThat(session.isSyncInFlight()).isFalse();
         verify(port, never()).fetchAccounts(any());
     }
@@ -1192,7 +1194,7 @@ class FortuneoSyncServiceTest {
     void completeAuth_submissionFailureMarksTheNewSessionFailed() {
         IllegalStateException submissionFailure = new IllegalStateException("executor stopped");
         FortuneoSyncService rejectedService = serviceWith(task -> { throw submissionFailure; });
-        FamilyMember member = member();
+        FamilyMember member = owner();
         FortuneoSession stored = FortuneoSession.builder()
             .id(9L)
             .member(member)
@@ -1209,11 +1211,11 @@ class FortuneoSyncServiceTest {
 
         assertThatThrownBy(() -> rejectedService.completeAuth("process", "123456", 7L))
             .isInstanceOfSatisfying(SyncException.class, exception ->
-                assertThat(exception.getCode()).isEqualTo(FortuneoErrorCode.INTERNAL_ERROR.name()))
+                assertThat(exception.getCode()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR.name()))
             .hasCause(submissionFailure);
 
         assertThat(stored.getSyncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(stored.getLastSyncError()).isEqualTo(FortuneoErrorCode.INTERNAL_ERROR);
+        assertThat(stored.getLastSyncError()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR);
         assertThat(stored.isSyncInFlight()).isFalse();
         verify(port, never()).fetchAccounts(any());
     }
@@ -1222,7 +1224,7 @@ class FortuneoSyncServiceTest {
     void initiateAuth_withoutMfaStoresSessionAndQueuesTheInitialSync() {
         AtomicReference<Runnable> queuedTask = new AtomicReference<>();
         FortuneoSyncService delayedService = serviceWith(queuedTask::set);
-        FamilyMember member = member();
+        FamilyMember member = owner();
         FortuneoSession stored = FortuneoSession.builder()
             .id(9L)
             .member(member)
@@ -1231,7 +1233,7 @@ class FortuneoSyncServiceTest {
             .syncStatus(FortuneoSyncStatus.QUEUED)
             .build();
         when(port.initiateAuth("login", "password")).thenReturn(
-            new FortuneoPort.InitiateResult(null, false, null, "plain-state")
+            new SidecarInitiate(null, false, null, "plain-state")
         );
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
@@ -1254,7 +1256,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void queueSync_doesNotScheduleDuplicateWhileJobIsRunning() {
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         session.markQueued();
         session.markRunning(Instant.now());
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
@@ -1267,9 +1269,9 @@ class FortuneoSyncServiceTest {
 
     @Test
     void reconciliationMismatch_rejectsTheWholeSnapshot() {
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
-        FortuneoPort.Position position = position(
+        FortuneoAdapter.Position position = position(
             null, "ACME", BigDecimal.ONE, new BigDecimal("1000"),
             new BigDecimal("800"), new BigDecimal("1000"), "EUR"
         );
@@ -1280,14 +1282,14 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.PORTFOLIO_INCOMPLETE);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
 
     @Test
     void unsupportedAccountType_rejectsTheWholeSnapshot() {
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(account(
             "other", AccountType.OTHER, BigDecimal.ZERO, BigDecimal.ZERO, List.of()
@@ -1295,22 +1297,22 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
     @Test
     void duplicateExternalAccountId_rejectsTheWholeSnapshot() {
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
-        FortuneoPort.AccountData account = account(
+        FortuneoAdapter.AccountData account = account(
             "same", AccountType.PEA, BigDecimal.TEN, BigDecimal.TEN, List.of()
         );
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(account, account));
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.lastSyncError()).isEqualTo(FortuneoErrorCode.INVALID_DATA);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
@@ -1318,7 +1320,7 @@ class FortuneoSyncServiceTest {
     void replacedSession_preventsAnOldJobFromCommittingItsPortfolio() {
         AtomicReference<Runnable> queuedTask = new AtomicReference<>();
         FortuneoSyncService delayedService = serviceWith(queuedTask::set);
-        FortuneoSession session = activeSession(member());
+        FortuneoSession session = activeSession(owner());
         when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
@@ -1337,13 +1339,13 @@ class FortuneoSyncServiceTest {
     @Test
     void applicationStart_marksInterruptedJobsAsRetryableFailures() {
         FamilyMember secondMember = FamilyMember.builder().id(8L).displayName("Second member").build();
-        when(memberRepository.findAllByOrderByCreatedAtAsc()).thenReturn(List.of(member(), secondMember));
+        when(memberRepository.findAllByOrderByCreatedAtAsc()).thenReturn(List.of(owner(), secondMember));
         when(sessionRepository.markInterruptedSyncsFailed(
             any(),
             any(),
             eq(FortuneoSyncStatus.FAILED),
             any(),
-            eq(FortuneoErrorCode.INTERNAL_ERROR)
+            eq(SidecarErrorCode.INTERNAL_ERROR)
         )).thenReturn(1);
 
         service.recoverInterruptedSyncs();
@@ -1353,14 +1355,14 @@ class FortuneoSyncServiceTest {
             eq(List.of(FortuneoSyncStatus.QUEUED, FortuneoSyncStatus.RUNNING)),
             eq(FortuneoSyncStatus.FAILED),
             any(),
-            eq(FortuneoErrorCode.INTERNAL_ERROR)
+            eq(SidecarErrorCode.INTERNAL_ERROR)
         );
         verify(sessionRepository).markInterruptedSyncsFailed(
             eq(8L),
             eq(List.of(FortuneoSyncStatus.QUEUED, FortuneoSyncStatus.RUNNING)),
             eq(FortuneoSyncStatus.FAILED),
             any(),
-            eq(FortuneoErrorCode.INTERNAL_ERROR)
+            eq(SidecarErrorCode.INTERNAL_ERROR)
         );
     }
 
@@ -1369,10 +1371,6 @@ class FortuneoSyncServiceTest {
         when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L)).thenReturn(Optional.of(session));
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
-    }
-
-    private FamilyMember member() {
-        return FamilyMember.builder().id(7L).displayName("Owner").build();
     }
 
     private FortuneoSession activeSession(FamilyMember member) {
@@ -1385,19 +1383,19 @@ class FortuneoSyncServiceTest {
             .build();
     }
 
-    private FortuneoPort.AccountData completeAccount() {
-        FortuneoPort.Position position = new FortuneoPort.Position(
+    private FortuneoAdapter.AccountData completeAccount() {
+        FortuneoAdapter.Position position = new FortuneoAdapter.Position(
             null, "ACME", "Acme SA", new BigDecimal("10"),
             new BigDecimal("80"), new BigDecimal("100"), "EUR",
             new BigDecimal("1000"), new BigDecimal("200")
         );
-        return new FortuneoPort.AccountData(
+        return new FortuneoAdapter.AccountData(
             "pea-123", "PEA Fortuneo", AccountType.PEA,
             new BigDecimal("1250"), new BigDecimal("250"), List.of(position), List.of(), true
         );
     }
 
-    private FortuneoPort.Position position(
+    private FortuneoAdapter.Position position(
         String isin,
         String symbol,
         BigDecimal quantity,
@@ -1406,7 +1404,7 @@ class FortuneoSyncServiceTest {
         BigDecimal currentPrice,
         String quoteCurrency
     ) {
-        return new FortuneoPort.Position(
+        return new FortuneoAdapter.Position(
             isin,
             symbol,
             symbol == null ? "Unknown" : symbol,
@@ -1419,14 +1417,14 @@ class FortuneoSyncServiceTest {
         );
     }
 
-    private FortuneoPort.AccountData account(
+    private FortuneoAdapter.AccountData account(
         String externalId,
         AccountType type,
         BigDecimal balance,
         BigDecimal cash,
-        List<FortuneoPort.Position> positions
+        List<FortuneoAdapter.Position> positions
     ) {
-        return new FortuneoPort.AccountData(
+        return new FortuneoAdapter.AccountData(
             externalId,
             type == AccountType.PEA ? "PEA" : "CTO",
             type,
@@ -1438,13 +1436,13 @@ class FortuneoSyncServiceTest {
         );
     }
 
-    private FortuneoPort.AccountData cashAccount(
+    private FortuneoAdapter.AccountData cashAccount(
         String externalId,
         AccountType type,
         BigDecimal balance,
-        List<FortuneoPort.Transaction> transactions
+        List<FortuneoAdapter.Transaction> transactions
     ) {
-        return new FortuneoPort.AccountData(
+        return new FortuneoAdapter.AccountData(
             externalId,
             type == AccountType.CHECKING ? "Compte Courant" : "Livret",
             type,

@@ -117,6 +117,39 @@ public class PriceService {
         return resolve(tickers, true);
     }
 
+    /**
+     * Offers the tickers of a crypto-only <em>write</em> path to the provider's registry before
+     * the {@code supportsCrypto} filter runs, so a coin it has not met yet is learned instead of
+     * left unpriced. Crypto paths only: a stock ticker must never reach it.
+     *
+     * <p>Learning inserts a {@code crypto_asset} row and may call Yahoo and CoinGecko, so it is
+     * called only from {@link #refreshPrices(Set, boolean)} (the hourly refresh and the exchange
+     * sync) and {@link #backfillHistoricalPrices(Set, LocalDate, boolean)} (startup). The GET
+     * read paths ({@link #getCryptoQuotes}, {@link #getCryptoIntradayPricesEur}) never call it:
+     * a read must not change state, so they price only what is already registered, and a newly
+     * held coin is picked up by the next refresh or sync.
+     *
+     * <p>A ticker that becomes crypto here changes provider, and {@link #priceCache} is keyed by
+     * ticker alone: its entry (a Yahoo miss, at worst a Yahoo price) is dropped so the next read
+     * asks CoinGecko.
+     */
+    private void learnCryptoTickers(Collection<String> tickers) {
+        Set<String> candidates = new TreeSet<>();
+        for (String ticker : tickers) {
+            if (ticker == null || ticker.isBlank()) continue;
+            String upper = ticker.trim().toUpperCase(Locale.ROOT);
+            if (!"EUR".equals(upper)) candidates.add(upper);
+        }
+        if (candidates.isEmpty()) return;
+        Set<String> unknown = candidates.stream()
+            .filter(t -> !priceProvider.supportsCrypto(t))
+            .collect(Collectors.toCollection(TreeSet::new));
+        priceProvider.learnCryptoTickers(candidates);
+        for (String ticker : unknown) {
+            if (priceProvider.supportsCrypto(ticker)) priceCache.remove(ticker);
+        }
+    }
+
     private Quote singleQuote(String ticker, boolean cryptoOnly) {
         if (ticker == null || ticker.isBlank() || "EUR".equalsIgnoreCase(ticker)) {
             return new Quote(BigDecimal.ONE, LocalDate.now(), true);
@@ -138,6 +171,10 @@ public class PriceService {
      * <p>{@code cryptoOnly} keeps the crypto side away from both Yahoo Finance <em>and</em> the
      * snapshot table: the fallback is keyed by ticker alone, exactly like the cache, so an
      * unmapped symbol must never be allowed to read a row that a stock of the same name wrote.
+     *
+     * <p>Read-only on purpose: this serves GET requests, so it never learns a coin the registry
+     * lacks (see {@link #learnCryptoTickers}); such a ticker stays unpriced until the next
+     * refresh or exchange sync registers it.
      */
     private Map<String, Quote> resolve(Set<String> tickers, boolean cryptoOnly) {
         if (tickers.isEmpty()) return Map.of();
@@ -308,6 +345,7 @@ public class PriceService {
 
     private Map<String, BigDecimal> refreshPrices(Set<String> tickers, boolean cryptoOnly) {
         if (tickers.isEmpty()) return Map.of();
+        if (cryptoOnly) learnCryptoTickers(tickers);
 
         Map<String, BigDecimal> result = new HashMap<>();
 
@@ -434,6 +472,7 @@ public class PriceService {
      * last-known-price fallback for as long as the rows exist.
      */
     public int backfillHistoricalPrices(Set<String> tickers, LocalDate from, boolean cryptoOnly) {
+        if (cryptoOnly) learnCryptoTickers(tickers);
         LocalDate to = LocalDate.now();
         int saved = 0;
         int failed = 0;
@@ -556,10 +595,12 @@ public class PriceService {
 
     /**
      * {@link #getIntradayPricesEur} for a ticker known to be crypto: a coin CoinGecko does not map
-     * gets no series rather than the hourly closes of the stock sharing its symbol.
+     * gets no series rather than the hourly closes of the stock sharing its symbol. Serves a GET,
+     * so it only reads the registry and never learns a coin.
      */
     public Map<LocalDateTime, BigDecimal> getCryptoIntradayPricesEur(String ticker, LocalDateTime from, LocalDateTime to) {
-        if (ticker == null || !priceProvider.supportsCrypto(ticker.toUpperCase(Locale.ROOT))) {
+        if (ticker == null) return Map.of();
+        if (!priceProvider.supportsCrypto(ticker.toUpperCase(Locale.ROOT))) {
             return Map.of();
         }
         return getIntradayPricesEur(ticker, from, to);

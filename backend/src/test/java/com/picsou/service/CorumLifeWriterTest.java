@@ -7,8 +7,8 @@ import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.RecurringCadence;
 import com.picsou.model.WealthTier;
-import com.picsou.port.CorumErrorCode;
-import com.picsou.port.CorumPort;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.adapter.CorumAdapter;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -70,30 +70,30 @@ class CorumLifeWriterTest {
 
     @Test
     void validate_refusesAMissingContractList() {
-        assertRefused(null, CorumErrorCode.INVALID_DATA);
+        assertRefused(null, SidecarErrorCode.INVALID_DATA);
     }
 
     @Test
     void validate_refusesTwoReadsOfOneContract() {
-        assertRefused(List.of(contract("1001"), contract("1001")), CorumErrorCode.INVALID_DATA);
+        assertRefused(List.of(contract("1001"), contract("1001")), SidecarErrorCode.INVALID_DATA);
     }
 
     @Test
     void validate_refusesAContractTheSidecarDidNotCertify() {
-        assertRefused(List.of(new CorumPort.LifeContract("1001", "EUR", new BigDecimal("1534.37"),
-            VALUED_ON, 3, null, null, null, null, false, holdings(), null)), CorumErrorCode.PORTFOLIO_INCOMPLETE);
+        assertRefused(List.of(new CorumAdapter.LifeContract("1001", "EUR", new BigDecimal("1534.37"),
+            VALUED_ON, 3, null, null, null, null, false, holdings(), null)), SidecarErrorCode.PORTFOLIO_INCOMPLETE);
     }
 
     @Test
     void validate_refusesAContractNotInEuros() {
-        assertRefused(List.of(new CorumPort.LifeContract("1001", "USD", new BigDecimal("1534.37"),
-            VALUED_ON, 3, null, null, null, null, true, holdings(), null)), CorumErrorCode.INVALID_DATA);
+        assertRefused(List.of(new CorumAdapter.LifeContract("1001", "USD", new BigDecimal("1534.37"),
+            VALUED_ON, 3, null, null, null, null, true, holdings(), null)), SidecarErrorCode.INVALID_DATA);
     }
 
     @Test
     void validate_refusesANegativeUnitCount() {
         assertRefused(List.of(contractWith("518.61", 1,
-            unitLinked("XL", "-1", "518.61", "480"))), CorumErrorCode.INVALID_DATA);
+            unitLinked("XL", "-1", "518.61", "480"))), SidecarErrorCode.INVALID_DATA);
     }
 
     /** "xl" and "XL" would become one ticker and overwrite each other. */
@@ -101,36 +101,36 @@ class CorumLifeWriterTest {
     void validate_refusesTwoLinesWithOneTicker() {
         assertRefused(List.of(contractWith("1037.22", 2,
             unitLinked("XL", "2.65955", "518.61", "480"),
-            unitLinked("xl", "2.65955", "518.61", "480"))), CorumErrorCode.INVALID_DATA);
+            unitLinked("xl", "2.65955", "518.61", "480"))), SidecarErrorCode.INVALID_DATA);
     }
 
     @Test
     void validate_refusesFewerRawLinesThanHoldings() {
-        assertRefused(List.of(contractWith("1534.37", 1, holdings().toArray(CorumPort.LifeHolding[]::new))),
-            CorumErrorCode.INVALID_DATA);
+        assertRefused(List.of(contractWith("1534.37", 1, holdings().toArray(CorumAdapter.LifeHolding[]::new))),
+            SidecarErrorCode.INVALID_DATA);
     }
 
     @Test
     void validate_refusesLinesThatMissTheContractTotal() {
         // 3 raw lines: the allowance is the 0.05 floor, and 0.06 is missing.
-        assertRefused(List.of(contractWith("1534.43", 3, holdings().toArray(CorumPort.LifeHolding[]::new))),
-            CorumErrorCode.PORTFOLIO_INCOMPLETE);
+        assertRefused(List.of(contractWith("1534.43", 3, holdings().toArray(CorumAdapter.LifeHolding[]::new))),
+            SidecarErrorCode.PORTFOLIO_INCOMPLETE);
     }
 
     @Test
     void validate_allowsOneCentPerRawLine() {
         // 10 raw lines across the pockets: 0.09 of rounding drift is accepted.
         assertThatCode(() -> writer.validate(List.of(
-            contractWith("1534.46", 10, holdings().toArray(CorumPort.LifeHolding[]::new)))))
+            contractWith("1534.46", 10, holdings().toArray(CorumAdapter.LifeHolding[]::new)))))
             .doesNotThrowAnyException();
     }
 
     @Test
     void validate_refusesAEuroFundNotCountedInEuroUnits() {
-        CorumPort.LifeHolding euroFund = new CorumPort.LifeHolding("FGCORUM", "CORUM Eurolife",
+        CorumAdapter.LifeHolding euroFund = new CorumAdapter.LifeHolding("FGCORUM", "CORUM Eurolife",
             new BigDecimal("10"), new BigDecimal("101.576"), new BigDecimal("1015.76"),
             new BigDecimal("1000"), null, true, "euroLife");
-        assertRefused(List.of(contractWith("1015.76", 1, euroFund)), CorumErrorCode.INVALID_DATA);
+        assertRefused(List.of(contractWith("1015.76", 1, euroFund)), SidecarErrorCode.INVALID_DATA);
     }
 
     // ─── write ────────────────────────────────────────────────────────────────
@@ -343,8 +343,8 @@ class CorumLifeWriterTest {
     void write_letsAccountServiceDeriveTheCostWhenALineHasNoPaidInAmount() {
         when(memberRepository.getReferenceById(7L)).thenReturn(FamilyMember.builder().id(7L).build());
         stubSaves();
-        CorumPort.LifeContract contract = contractWith("518.61", 1,
-            new CorumPort.LifeHolding("XL", "CORUM XL", new BigDecimal("2.65955"), new BigDecimal("195"),
+        CorumAdapter.LifeContract contract = contractWith("518.61", 1,
+            new CorumAdapter.LifeHolding("XL", "CORUM XL", new BigDecimal("2.65955"), new BigDecimal("195"),
                 new BigDecimal("518.61"), null, VALUED_ON, false, "realEstate"));
 
         writer.write(7L, List.of(contract), SYNCED_AT);
@@ -358,8 +358,8 @@ class CorumLifeWriterTest {
 
     @Test
     void validate_refusesANegativeContractCost() {
-        assertRefused(List.of(contractWith("1534.37", 3, "-1", holdings().toArray(CorumPort.LifeHolding[]::new))),
-            CorumErrorCode.INVALID_DATA);
+        assertRefused(List.of(contractWith("1534.37", 3, "-1", holdings().toArray(CorumAdapter.LifeHolding[]::new))),
+            SidecarErrorCode.INVALID_DATA);
     }
 
     @Test
@@ -402,8 +402,8 @@ class CorumLifeWriterTest {
         when(memberRepository.getReferenceById(7L)).thenReturn(FamilyMember.builder().id(7L).build());
         stubSaves();
         // Lines: 480 + 1000 = 1480; the contract says 1580 (100 switched, left out of the lines).
-        CorumPort.LifeContract contract = contractWith("1534.37", 3, "1580.00",
-            holdings().toArray(CorumPort.LifeHolding[]::new));
+        CorumAdapter.LifeContract contract = contractWith("1534.37", 3, "1580.00",
+            holdings().toArray(CorumAdapter.LifeHolding[]::new));
 
         writer.write(7L, List.of(contract), SYNCED_AT);
 
@@ -422,8 +422,8 @@ class CorumLifeWriterTest {
         when(memberRepository.getReferenceById(7L)).thenReturn(FamilyMember.builder().id(7L).build());
         stubSaves();
         // 3 raw lines: 0.05 of drift between the lines' costs and the contract's is allowed.
-        CorumPort.LifeContract contract = contractWith("1534.37", 3, "1480.05",
-            holdings().toArray(CorumPort.LifeHolding[]::new));
+        CorumAdapter.LifeContract contract = contractWith("1534.37", 3, "1480.05",
+            holdings().toArray(CorumAdapter.LifeHolding[]::new));
 
         writer.write(7L, List.of(contract), SYNCED_AT);
 
@@ -438,7 +438,7 @@ class CorumLifeWriterTest {
         when(memberRepository.getReferenceById(7L)).thenReturn(FamilyMember.builder().id(7L).build());
         stubSaves();
 
-        writer.write(7L, List.of(contractWith("1534.37", 3, holdings().toArray(CorumPort.LifeHolding[]::new))),
+        writer.write(7L, List.of(contractWith("1534.37", 3, holdings().toArray(CorumAdapter.LifeHolding[]::new))),
             SYNCED_AT);
 
         Account account = savedAccount();
@@ -456,8 +456,8 @@ class CorumLifeWriterTest {
     void write_aContractCostStillDropsLineCostsWhenALineHasNone() {
         when(memberRepository.getReferenceById(7L)).thenReturn(FamilyMember.builder().id(7L).build());
         stubSaves();
-        CorumPort.LifeContract contract = contractWith("518.61", 1, "500",
-            new CorumPort.LifeHolding("XL", "CORUM XL", new BigDecimal("2.65955"), new BigDecimal("195"),
+        CorumAdapter.LifeContract contract = contractWith("518.61", 1, "500",
+            new CorumAdapter.LifeHolding("XL", "CORUM XL", new BigDecimal("2.65955"), new BigDecimal("195"),
                 new BigDecimal("518.61"), null, VALUED_ON, false, "realEstate"));
 
         writer.write(7L, List.of(contract), SYNCED_AT);
@@ -471,13 +471,13 @@ class CorumLifeWriterTest {
     void write_givesRealEstateLinesTheirTierAndLeavesTheRestToTheAccount() {
         when(memberRepository.getReferenceById(7L)).thenReturn(FamilyMember.builder().id(7L).build());
         stubSaves();
-        CorumPort.LifeContract contract = contractWith("1534.37", 4,
+        CorumAdapter.LifeContract contract = contractWith("1534.37", 4,
             unitLinked("XL", "2.65955", "518.61", "480"),
-            new CorumPort.LifeHolding("CBEHY", "CORUM BEHY", BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO,
+            new CorumAdapter.LifeHolding("CBEHY", "CORUM BEHY", BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO,
                 BigDecimal.ZERO, VALUED_ON, false, "bondFund"),
-            new CorumPort.LifeHolding("NEW", "CORUM NEW", BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO,
+            new CorumAdapter.LifeHolding("NEW", "CORUM NEW", BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO,
                 BigDecimal.ZERO, VALUED_ON, false, null),
-            new CorumPort.LifeHolding("FGCORUM", "CORUM EuroLife (fonds euros)", new BigDecimal("1015.76"),
+            new CorumAdapter.LifeHolding("FGCORUM", "CORUM EuroLife (fonds euros)", new BigDecimal("1015.76"),
                 BigDecimal.ONE, new BigDecimal("1015.76"), new BigDecimal("1000.00"), null, true, "euroLife"));
 
         writer.write(7L, List.of(contract), SYNCED_AT);
@@ -510,7 +510,7 @@ class CorumLifeWriterTest {
     /** An unknown frequency or a zero plan leaves the plan out; the contract is still written. */
     @Test
     void write_leavesOutAPlanItCannotRead() {
-        for (CorumPort.ScheduledPayment payment : List.of(plan("50", "weekly-ish"), plan("0", "monthly"))) {
+        for (CorumAdapter.ScheduledPayment payment : List.of(plan("50", "weekly-ish"), plan("0", "monthly"))) {
             Account linked = Account.builder().id(42L).name("CORUM Life").type(AccountType.ASSURANCE_VIE)
                 .externalAccountId("corum_life_1001").provider(CorumLifeWriter.PROVIDER).isManual(false)
                 .scheduledPaymentEur(new BigDecimal("80")).scheduledPaymentCadence(RecurringCadence.MONTHLY)
@@ -528,13 +528,13 @@ class CorumLifeWriterTest {
         }
     }
 
-    private static CorumPort.ScheduledPayment plan(String amount, String frequency) {
-        return new CorumPort.ScheduledPayment(new BigDecimal(amount), frequency);
+    private static CorumAdapter.ScheduledPayment plan(String amount, String frequency) {
+        return new CorumAdapter.ScheduledPayment(new BigDecimal(amount), frequency);
     }
 
     // ─── helpers ──────────────────────────────────────────────────────────────
 
-    private void assertRefused(List<CorumPort.LifeContract> contracts, CorumErrorCode code) {
+    private void assertRefused(List<CorumAdapter.LifeContract> contracts, SidecarErrorCode code) {
         assertThatThrownBy(() -> writer.validate(contracts))
             .isInstanceOfSatisfying(SyncException.class, error ->
                 assertThat(error.getCode()).isEqualTo(code.name()));
@@ -585,7 +585,7 @@ class CorumLifeWriterTest {
     void write_keepsTheStoredOperationsWhenTwoStillShareAKey() {
         stubSaves();
         when(memberRepository.getReferenceById(7L)).thenReturn(FamilyMember.builder().id(7L).build());
-        CorumPort.LifeContract contract = withOperations(List.of(
+        CorumAdapter.LifeContract contract = withOperations(List.of(
             operation("7", "arbitrage", "2026-06-15", "100"),
             operation("7", "arbitrage", "2026-06-16", "100")));
 
@@ -600,30 +600,30 @@ class CorumLifeWriterTest {
     /** An operation missing its date, id, type or amount, or a null one, refuses the contract as INVALID_DATA. */
     @Test
     void validate_refusesAnOperationWithoutADateIdTypeOrAmount() {
-        for (CorumPort.LifeOperation incomplete : List.of(
-            new CorumPort.LifeOperation("7", "arbitrage", null, null, BigDecimal.ONE, null),
-            new CorumPort.LifeOperation(" ", "arbitrage", null, VALUED_ON, BigDecimal.ONE, null),
-            new CorumPort.LifeOperation("7", null, null, VALUED_ON, BigDecimal.ONE, null),
-            new CorumPort.LifeOperation("7", "arbitrage", null, VALUED_ON, null, null))) {
-            assertRefused(List.of(withOperations(List.of(incomplete))), CorumErrorCode.INVALID_DATA);
+        for (CorumAdapter.LifeOperation incomplete : List.of(
+            new CorumAdapter.LifeOperation("7", "arbitrage", null, null, BigDecimal.ONE, null),
+            new CorumAdapter.LifeOperation(" ", "arbitrage", null, VALUED_ON, BigDecimal.ONE, null),
+            new CorumAdapter.LifeOperation("7", null, null, VALUED_ON, BigDecimal.ONE, null),
+            new CorumAdapter.LifeOperation("7", "arbitrage", null, VALUED_ON, null, null))) {
+            assertRefused(List.of(withOperations(List.of(incomplete))), SidecarErrorCode.INVALID_DATA);
         }
-        List<CorumPort.LifeOperation> withNull = new ArrayList<>();
+        List<CorumAdapter.LifeOperation> withNull = new ArrayList<>();
         withNull.add(null);
-        assertRefused(List.of(withOperations(withNull)), CorumErrorCode.INVALID_DATA);
+        assertRefused(List.of(withOperations(withNull)), SidecarErrorCode.INVALID_DATA);
     }
 
     @Test
     void validate_refusesAnOperationTypeTooLongToStore() {
         assertRefused(List.of(withOperations(List.of(
-            operation("7", "x".repeat(61), "2026-06-15", "1")))), CorumErrorCode.INVALID_DATA);
+            operation("7", "x".repeat(61), "2026-06-15", "1")))), SidecarErrorCode.INVALID_DATA);
     }
 
     @Test
     void write_reconcilesTheOperationsOfTheWrittenAccount() {
         stubSaves();
         when(memberRepository.getReferenceById(7L)).thenReturn(FamilyMember.builder().id(7L).build());
-        List<CorumPort.LifeOperation> operations = List.of(operation("7", "scheduledPayment", "2026-10-05", "50"));
-        CorumPort.LifeContract contract = withOperations(operations);
+        List<CorumAdapter.LifeOperation> operations = List.of(operation("7", "scheduledPayment", "2026-10-05", "50"));
+        CorumAdapter.LifeContract contract = withOperations(operations);
 
         writer.write(7L, List.of(contract), SYNCED_AT);
 
@@ -631,13 +631,13 @@ class CorumLifeWriterTest {
         verify(operationWriter).reconcile(eq(7L), eq(account), eq(operations), eq(contract.holdings()));
     }
 
-    private static CorumPort.LifeContract withOperations(List<CorumPort.LifeOperation> operations) {
-        return new CorumPort.LifeContract("1001", "EUR", new BigDecimal("1534.37"), VALUED_ON, 3,
+    private static CorumAdapter.LifeContract withOperations(List<CorumAdapter.LifeOperation> operations) {
+        return new CorumAdapter.LifeContract("1001", "EUR", new BigDecimal("1534.37"), VALUED_ON, 3,
             new BigDecimal("1480.00"), null, null, null, true, holdings(), operations);
     }
 
-    private static CorumPort.LifeOperation operation(String id, String type, String date, String amount) {
-        return new CorumPort.LifeOperation(id, type, type, LocalDate.parse(date), new BigDecimal(amount), null);
+    private static CorumAdapter.LifeOperation operation(String id, String type, String date, String amount) {
+        return new CorumAdapter.LifeOperation(id, type, type, LocalDate.parse(date), new BigDecimal(amount), null);
     }
 
     @SuppressWarnings("unchecked")
@@ -652,41 +652,41 @@ class CorumLifeWriterTest {
             .currency("EUR").currentBalance(new BigDecimal("1000")).build();
     }
 
-    private static CorumPort.LifeContract contract(String code) {
-        return new CorumPort.LifeContract(code, "EUR", new BigDecimal("1534.37"), VALUED_ON, 3,
+    private static CorumAdapter.LifeContract contract(String code) {
+        return new CorumAdapter.LifeContract(code, "EUR", new BigDecimal("1534.37"), VALUED_ON, 3,
             new BigDecimal("1480.00"), new BigDecimal("1500"), OPENED_ON,
-            new CorumPort.ScheduledPayment(new BigDecimal("50"), "monthly"), true, holdings(), null);
+            new CorumAdapter.ScheduledPayment(new BigDecimal("50"), "monthly"), true, holdings(), null);
     }
 
     /** A sidecar that predates the contract-level figures: they all come back null. */
-    private static CorumPort.LifeContract contractWith(String total, int lines, CorumPort.LifeHolding... holdings) {
+    private static CorumAdapter.LifeContract contractWith(String total, int lines, CorumAdapter.LifeHolding... holdings) {
         return contractWith(total, lines, null, holdings);
     }
 
     /** A contract with the given contract-level invested amount, or none when null. */
-    private static CorumPort.LifeContract contractWith(
-        String total, int lines, String netInvested, CorumPort.LifeHolding... holdings
+    private static CorumAdapter.LifeContract contractWith(
+        String total, int lines, String netInvested, CorumAdapter.LifeHolding... holdings
     ) {
-        return new CorumPort.LifeContract("1001", "EUR", new BigDecimal(total), VALUED_ON, lines,
+        return new CorumAdapter.LifeContract("1001", "EUR", new BigDecimal(total), VALUED_ON, lines,
             netInvested == null ? null : new BigDecimal(netInvested), null, null, null, true, List.of(holdings), null);
     }
 
-    private static CorumPort.LifeContract contractPaying(CorumPort.ScheduledPayment payment) {
-        return new CorumPort.LifeContract("1001", "EUR", new BigDecimal("1534.37"), VALUED_ON, 3,
+    private static CorumAdapter.LifeContract contractPaying(CorumAdapter.ScheduledPayment payment) {
+        return new CorumAdapter.LifeContract("1001", "EUR", new BigDecimal("1534.37"), VALUED_ON, 3,
             new BigDecimal("1480.00"), null, null, payment, true, holdings(), null);
     }
 
     /** CORUM XL across two pockets (2 raw lines) and the euro fund (1 raw line). */
-    private static List<CorumPort.LifeHolding> holdings() {
+    private static List<CorumAdapter.LifeHolding> holdings() {
         return List.of(
             unitLinked("XL", "2.65955", "518.61", "480"),
-            new CorumPort.LifeHolding("FGCORUM", "CORUM EuroLife (fonds euros)", new BigDecimal("1015.76"),
+            new CorumAdapter.LifeHolding("FGCORUM", "CORUM EuroLife (fonds euros)", new BigDecimal("1015.76"),
                 BigDecimal.ONE, new BigDecimal("1015.76"), new BigDecimal("1000.00"), null, true, "euroLife")
         );
     }
 
-    private static CorumPort.LifeHolding unitLinked(String code, String quantity, String value, String invested) {
-        return new CorumPort.LifeHolding(code, "CORUM " + code, new BigDecimal(quantity), new BigDecimal("195"),
+    private static CorumAdapter.LifeHolding unitLinked(String code, String quantity, String value, String invested) {
+        return new CorumAdapter.LifeHolding(code, "CORUM " + code, new BigDecimal(quantity), new BigDecimal("195"),
             new BigDecimal(value), new BigDecimal(invested), VALUED_ON, false, "realEstate");
     }
 

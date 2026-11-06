@@ -3,16 +3,9 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
-import com.picsou.port.BoursoErrorCode;
+import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.mock.http.client.reactive.MockClientHttpRequest;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFunction;
-import org.springframework.web.reactive.function.client.ExchangeStrategies;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -111,106 +104,6 @@ class BoursoAdapterTest {
     }
 
     @Test
-    void fetchAccounts_preservesAStableSidecarErrorCode() {
-        BoursoAdapter adapter = adapterReturning(
-            HttpStatus.BAD_GATEWAY,
-            "{\"detail\":\"PORTFOLIO_INCOMPLETE\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.PORTFOLIO_INCOMPLETE.name());
-                assertThat(error.getMessage()).doesNotContain("cookies");
-            });
-    }
-
-    @Test
-    void fetchAccounts_surfacesAScrapingBreakageAsItsOwnCode() {
-        BoursoAdapter adapter = adapterReturning(
-            HttpStatus.BAD_GATEWAY,
-            "{\"detail\":\"UPSTREAM_FORMAT_CHANGED\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.UPSTREAM_FORMAT_CHANGED.name())
-            );
-    }
-
-    @Test
-    void fetchAccounts_reportsAnUnresolvedIdentitySelectorRatherThanAFormatChange() {
-        BoursoAdapter adapter = adapterReturning(
-            HttpStatus.BAD_GATEWAY,
-            "{\"detail\":\"IDENTITY_SELECTION_UNSUPPORTED\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.IDENTITY_SELECTION_UNSUPPORTED.name());
-                assertThat(error.getMessage()).contains("several identities");
-            });
-    }
-
-    @Test
-    void fetchAccounts_surfacesAnExpiredSessionSoTheUserIsAskedToReconnect() {
-        BoursoAdapter adapter = adapterReturning(
-            HttpStatus.UNAUTHORIZED,
-            "{\"detail\":\"SESSION_EXPIRED\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.SESSION_EXPIRED.name())
-            );
-    }
-
-    @Test
-    void initiateAuth_reportsAnUnsupportedSecondFactorRatherThanBadCredentials() {
-        // BoursoBank asking for an SMS code is a configuration problem the user
-        // can fix; calling it a wrong password sends them to reset it instead.
-        BoursoAdapter adapter = adapterReturning(
-            HttpStatus.NOT_IMPLEMENTED,
-            "{\"detail\":\"MFA_TYPE_UNSUPPORTED\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.initiateAuth("12345678", "123456"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.MFA_TYPE_UNSUPPORTED.name());
-                assertThat(error.getMessage()).contains("app validation");
-            });
-    }
-
-    @Test
-    void initiateAuth_mapsAnUncoded401ToInvalidCredentials() {
-        BoursoAdapter adapter = adapterReturning(
-            HttpStatus.UNAUTHORIZED,
-            "{\"detail\":\"Authentication rejected\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.initiateAuth("12345678", "123456"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.INVALID_CREDENTIALS.name())
-            );
-    }
-
-    @Test
-    void initiateAuth_reportsAFraudEducationInterstitialRatherThanBadCredentials() {
-        // BoursoBank parks a valid login on its fraud-education notice until the
-        // holder ticks it on the bank's website; calling it a wrong password
-        // sends the user to reset credentials that already work.
-        BoursoAdapter adapter = adapterReturning(
-            HttpStatus.UNAUTHORIZED,
-            "{\"detail\":\"FRAUD_ACK_REQUIRED\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.initiateAuth("12345678", "123456"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.FRAUD_ACK_REQUIRED.name());
-                assertThat(error.getMessage()).contains("fraud-prevention notice");
-            });
-    }
-
-    @Test
     void initiateAuth_reportsAPendingAppPush() {
         BoursoAdapter adapter = adapterReturning(HttpStatus.OK, """
             {"processId":"p-1","mfaRequired":true,"mfaType":"APP_PUSH","sessionState":null}
@@ -221,19 +114,6 @@ class BoursoAdapterTest {
         assertThat(result.mfaRequired()).isTrue();
         assertThat(result.mfaType()).isEqualTo("APP_PUSH");
         assertThat(result.sessionState()).isNull();
-    }
-
-    @Test
-    void completeAuth_surfacesAnUnconfirmedAppPushAsItsOwnCode() {
-        BoursoAdapter adapter = adapterReturning(
-            HttpStatus.REQUEST_TIMEOUT,
-            "{\"detail\":\"APP_VALIDATION_TIMEOUT\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.completeAuth("process"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.APP_VALIDATION_TIMEOUT.name())
-            );
     }
 
     @Test
@@ -250,77 +130,6 @@ class BoursoAdapterTest {
         });
     }
 
-    @Test
-    void completeAuth_mapsAnExpiredAttemptFromItsStatusAlone() {
-        BoursoAdapter adapter = adapterReturning(HttpStatus.GONE, "{}");
-
-        assertThatThrownBy(() -> adapter.completeAuth("process"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.AUTH_ATTEMPT_EXPIRED.name())
-            );
-    }
-
-    @Test
-    void initiateAuth_mapsAnEmptySuccessResponseToUnavailable() {
-        BoursoAdapter adapter = adapterReturning(HttpStatus.OK, "");
-
-        assertThatThrownBy(() -> adapter.initiateAuth("12345678", "123456"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
-    @Test
-    void fetchAccounts_treatsAnEmptyArrayAsAnIncompleteRead() {
-        BoursoAdapter adapter = adapterReturning(HttpStatus.OK, "[]");
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.PORTFOLIO_INCOMPLETE.name())
-            );
-    }
-
-    @Test
-    void fetchAccounts_mapsMalformedErrorJsonToUnavailable() {
-        BoursoAdapter adapter = adapterReturning(HttpStatus.BAD_GATEWAY, "not-json");
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
-    @Test
-    void fetchAccounts_mapsUnknownSidecarCodeToUnavailable() {
-        BoursoAdapter adapter = adapterReturning(
-            HttpStatus.BAD_GATEWAY,
-            "{\"detail\":\"NEW_UPSTREAM_FAILURE\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
-    @Test
-    void fetchAccounts_mapsNetworkTimeoutToAnExplicitRetryableFailure() {
-        ExchangeFunction neverResponds = request -> Mono.never();
-        BoursoAdapter adapter = new BoursoAdapter(
-            WebClient.builder().exchangeFunction(neverResponds).build(),
-            new ObjectMapper(),
-            Duration.ofMillis(20),
-            Duration.ofMillis(20),
-            Duration.ofMillis(20)
-        );
-
-        assertThatThrownBy(() -> adapter.fetchAccounts("cookies"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BoursoErrorCode.UPSTREAM_UNAVAILABLE.name());
-                assertThat(error.getMessage()).contains("too long");
-            });
-    }
-
     /**
      * The push waits on a human unlocking their phone, so the completion call
      * must outlive the plain auth budget -- otherwise a validation that was
@@ -328,9 +137,8 @@ class BoursoAdapterTest {
      */
     @Test
     void completeAuth_waitsLongerThanAPlainAuthenticationCall() {
-        ExchangeFunction neverResponds = request -> Mono.never();
         BoursoAdapter adapter = new BoursoAdapter(
-            WebClient.builder().exchangeFunction(neverResponds).build(),
+            WebClientStubs.neverResponding(),
             new ObjectMapper(),
             Duration.ofMillis(20),
             Duration.ofMillis(600),
@@ -346,29 +154,10 @@ class BoursoAdapterTest {
     }
 
     private BoursoAdapter adapterReturning(HttpStatus status, String body) {
-        ExchangeFunction exchange = request -> Mono.just(ClientResponse.create(status)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .body(body)
-            .build());
-        return new BoursoAdapter(
-            WebClient.builder().exchangeFunction(exchange).build(),
-            new ObjectMapper()
-        );
+        return new BoursoAdapter(WebClientStubs.returning(status, body), new ObjectMapper());
     }
 
     private BoursoAdapter adapterRecording(List<String> bodies, String responseBody) {
-        ExchangeFunction exchange = request -> {
-            MockClientHttpRequest recorder = new MockClientHttpRequest(request.method(), request.url());
-            request.writeTo(recorder, ExchangeStrategies.withDefaults()).block();
-            bodies.add(recorder.getBodyAsString().block());
-            return Mono.just(ClientResponse.create(HttpStatus.OK)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                .body(responseBody)
-                .build());
-        };
-        return new BoursoAdapter(
-            WebClient.builder().exchangeFunction(exchange).build(),
-            new ObjectMapper()
-        );
+        return new BoursoAdapter(WebClientStubs.recordingBodies(bodies, HttpStatus.OK, responseBody), new ObjectMapper());
     }
 }

@@ -6,12 +6,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.model.AccountType;
-import com.picsou.port.TradeRepublicPort;
 import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -54,7 +52,7 @@ import java.util.function.Predicate;
  * Portfolio value = sum(ticker.last.price × position.netSize) for each position.
  */
 @Component
-public class TradeRepublicAdapter implements TradeRepublicPort {
+public class TradeRepublicAdapter {
 
     private static final Logger log = LoggerFactory.getLogger(TradeRepublicAdapter.class);
 
@@ -87,10 +85,9 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
     @Autowired
     public TradeRepublicAdapter(
         SidecarWebClientFactory clients,
-        ObjectMapper objectMapper,
-        @Value("${app.tr-auth.url:http://tr-auth:8001}") String trAuthUrl
+        ObjectMapper objectMapper
     ) {
-        this(objectMapper, clients.create("Trade Republic", trAuthUrl), DEFAULT_REFRESH_TIMEOUT, URI.create(WS_URL));
+        this(objectMapper, clients.create("Trade Republic", "tr-auth"), DEFAULT_REFRESH_TIMEOUT, URI.create(WS_URL));
     }
 
     TradeRepublicAdapter(ObjectMapper objectMapper, WebClient sidecarClient, Duration refreshTimeout, URI wsUri) {
@@ -102,7 +99,15 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
 
     // ─── Auth (delegated to Python sidecar) ───────────────────────────────────
 
-    @Override
+    /**
+     * Step 1: Sends phone number + PIN to Trade Republic.
+     * TR dispatches a 2FA code via SMS/app notification.
+     * Credentials are NOT stored — they are used only for this call.
+     *
+     * @param phoneNumber international format (+33…) or local (06…, auto-converted)
+     * @param pin         numeric PIN
+     * @return processId to use in {@link #completeAuth(String, String)}
+     */
     public String initiateAuth(String phoneNumber, String pin) {
         log.info("Delegating TR auth initiation to tr-auth sidecar");
 
@@ -132,7 +137,13 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         return processId;
     }
 
-    @Override
+    /**
+     * Step 2: Exchanges the 2FA code for a session token + refresh token.
+     *
+     * @param processId returned by {@link #initiateAuth()}
+     * @param tan       6-digit code from SMS/app
+     * @return session tokens
+     */
     public TrTokens completeAuth(String processId, String tan) {
         log.info("Delegating TR 2FA completion to tr-auth sidecar, processId={}", processId);
 
@@ -163,7 +174,13 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         return new TrTokens(sessionToken, refreshToken);
     }
 
-    @Override
+    /**
+     * Refreshes the session token using the stored refresh token (no 2FA needed).
+     * The refresh token itself has a ~2h validity.
+     *
+     * @param refreshToken the stored tr_refresh value
+     * @return new session tokens (refreshToken may be rotated)
+     */
     public TrTokens refreshSession(String refreshToken) {
         log.info("Refreshing TR session via tr-auth sidecar");
 
@@ -210,7 +227,12 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
 
     // ─── Data (WebSocket, no WAF needed) ──────────────────────────────────────
 
-    @Override
+    /**
+     * Connects via WebSocket and fetches current balances for all sub-portfolios.
+     *
+     * NOTE: The TR WebSocket API is reverse-engineered and undocumented.
+     * Raw responses are logged at INFO level to help diagnose format changes.
+     */
     public List<TrAccountData> fetchAccounts(String sessionToken) {
         log.info("Fetching TR portfolio via WebSocket (protocol v{})", WS_VERSION);
 
@@ -531,7 +553,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
             log.info("TR portfolio [{}]: {} positions, {} with live prices, total value: {}",
                      secAccount.name(), positionsByIsin.size(), priced, totalPortfolioValue);
 
-            List<TradeRepublicPort.TrPosition> positions = new ArrayList<>();
+            List<TrPosition> positions = new ArrayList<>();
             for (var entry : positionsByIsin.entrySet()) {
                 String isin = entry.getKey();
                 JsonNode pos = entry.getValue();
@@ -544,7 +566,7 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
                 // market value with zero gain.
                 BigDecimal currentPrice = tickerPrices.get(isin);
 
-                positions.add(new TradeRepublicPort.TrPosition(isin, size, averageBuyIn, currentPrice));
+                positions.add(new TrPosition(isin, size, averageBuyIn, currentPrice));
             }
 
             boolean answered = receivedPortfolioIds.contains(secAccount.externalId());
@@ -927,5 +949,34 @@ public class TradeRepublicAdapter implements TradeRepublicPort {
         if (node.has("amount"))  return new BigDecimal(node.get("amount").asText("0"));
         if (node.isNumber())     return node.decimalValue();
         return BigDecimal.ZERO;
+    }
+
+    public record TrTokens(String sessionToken, String refreshToken) {}
+
+    public record TrPosition(
+        String isin,
+        BigDecimal quantity,
+        BigDecimal averageBuyIn,
+        BigDecimal currentPrice
+    ) {}
+
+    public record TrAccountData(
+        String externalId,   // e.g. "tr_pea", "tr_cto", "tr_cash"
+        String name,
+        AccountType type,
+        BigDecimal balanceEur,
+        List<TrPosition> positions,
+        /**
+         * Cash held inside the envelope and already counted in {@code balanceEur}: the PEA's
+         * scoped cash. Null for accounts without a pocket (the CTO's cash is the separate
+         * "tr_cash" account). Stored on {@code Account.cashBalance} so the valuation can put
+         * it on both sides, like the Bourse Direct, BoursoBank and DEGIRO connectors do.
+         */
+        BigDecimal cashEur
+    ) {
+        public TrAccountData(String externalId, String name, AccountType type,
+                             BigDecimal balanceEur, List<TrPosition> positions) {
+            this(externalId, name, type, balanceEur, positions, null);
+        }
     }
 }

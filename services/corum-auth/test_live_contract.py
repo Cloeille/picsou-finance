@@ -489,7 +489,7 @@ class ReadsTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(caught.exception.detail, "UPSTREAM_FORMAT_CHANGED")
 
     async def test_portfolio_matches_the_wire_contract(self):
-        # Exactly the keys `CorumPort` decodes; `extra="forbid"` on the Java
+        # Exactly the keys `CorumAdapter` decodes; `extra="forbid"` on the Java
         # side turns a renamed key into a 502, so this pins the names here.
         active = [{"contractCode": LIFE_CODE, "contractType": "LIFE"}]
         with self._serve(active):

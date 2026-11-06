@@ -126,7 +126,7 @@ another type is one entry in `OPENING_DATE_TYPES`.
 A synced assurance-vie (CORUM Life) carries `AccountResponse.contract` — `paidInEur` (gross
 payments), `netInvestedEur`, `scheduledPaymentEur` and `scheduledPaymentCadence` — null when the
 insurer reports none of them. They come from the `account` columns `provider_paid_in_eur`,
-`provider_invested_eur`, `scheduled_payment_eur` and `scheduled_payment_cadence` (V123), mapped by
+`provider_invested_eur`, `scheduled_payment_eur` and `scheduled_payment_cadence` (V124), mapped by
 `AccountContractResponse.from`; the cadence is a `RecurringCadence`. `AccountDetailPage` renders `LifeContractSection` for an
 `ASSURANCE_VIE` whose `contract` is non-null: the opening date, the date the eight-year tax
 advantage starts (`openedAt` + 8 years, computed on the date string so no timezone shifts the
@@ -313,7 +313,7 @@ AccountsPage
 ## Links
 
 - i18n keys: `accounts.lifeContract.*`, `accounts.pnl`, `accounts.total`, `accounts.filters.*`, `accounts.lastSync`,
-  `accounts.lastValuation`, `property.kind.*`, `dashboard.netWorthChange`
+  `accounts.lastValuation`, `property.kind.*`
 - Related: [dashboard-time-range-isolation.md](./dashboard-time-range-isolation.md) — Dashboard PnL chart
 - Related: [live-prices-holdings.md](./live-prices-holdings.md) — per-holding PnL calculation
 - Related: [bank-logos.md](./bank-logos.md) — account card avatar (bank logo, falls back to `color`)

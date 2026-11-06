@@ -5,7 +5,7 @@ import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
-import com.picsou.port.CorumPort;
+import com.picsou.adapter.CorumAdapter;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategoryService;
 import org.junit.jupiter.api.Test;
@@ -295,7 +295,7 @@ class CorumLifeOperationWriterTest {
     // ─── fixtures ─────────────────────────────────────────────────────────────
 
     /** One operation of each type seen live, the switch with one id per leg. */
-    private static List<CorumPort.LifeOperation> allTypes() {
+    private static List<CorumAdapter.LifeOperation> allTypes() {
         return List.of(
             op("10", "couponDetachment", "2026-10-31", "3.21", List.of("CC")),
             op("9", "scheduledPayment", "2026-10-05", "50", null),
@@ -306,13 +306,13 @@ class CorumLifeOperationWriterTest {
             op("1", "subscription", "2024-01-15", "1000", null));
     }
 
-    private static List<CorumPort.LifeHolding> holdings() {
-        return List.of(new CorumPort.LifeHolding("CC", "CORUM Origin", BigDecimal.ONE, BigDecimal.ONE,
+    private static List<CorumAdapter.LifeHolding> holdings() {
+        return List.of(new CorumAdapter.LifeHolding("CC", "CORUM Origin", BigDecimal.ONE, BigDecimal.ONE,
             BigDecimal.ONE, null, null, false, "realEstate"));
     }
 
-    private static CorumPort.LifeOperation op(String id, String type, String date, String amount, List<String> funds) {
-        return new CorumPort.LifeOperation(id, type, type, LocalDate.parse(date), new BigDecimal(amount), funds);
+    private static CorumAdapter.LifeOperation op(String id, String type, String date, String amount, List<String> funds) {
+        return new CorumAdapter.LifeOperation(id, type, type, LocalDate.parse(date), new BigDecimal(amount), funds);
     }
 
     private Transaction stored(Long id, String externalId, LocalDate date) {

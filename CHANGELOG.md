@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a sync whose session expired logs in again once before reading; a rejected password clears them
   and asks to reconnect, and "Disconnect" forgets them. Unticked, nothing is stored, as before.
   CORUM now runs in the daily 08:00 sync, in `trigger_full_sync`/`trigger_broker_sync` and in
-  `get_sync_status`. Migration V125. See
+  `get_sync_status`. Migration V126. See
   [CORUM session and remembered credentials](docs/features/scpi.md#corum-session-and-remembered-credentials).
 
 - **CORUM Life (assurance-vie) sync.** A CORUM login holding a CORUM Life contract no longer
@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   investment transfers, coupons as dividends, fees and switches marked "in the contract" and kept
   out of the budget). SCPI units held in the policy count as real estate in the wealth pyramid.
   An existing manual "CORUM Life" account is adopted, or reported instead of duplicated.
-  Migrations V122–V124. Deploy the `app` and `corum-auth` images together. See
+  Migrations V123–V125. Deploy the `app` and `corum-auth` images together. See
   [CORUM Life sync](docs/features/corum-life.md).
 
 - **Budget-neutral transactions.** Money moving inside an investment wrapper (coupons, fees,
@@ -37,12 +37,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `get_ai_categorization_status` reports its progress as counters only, under a new
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
   browser session. See [Budget + OAuth2 tools in MCP](docs/features/mcp-budget-oauth2.md).
+
+### Changed
+
+- **Smaller first load.** The demo mode and the English, German and Spanish translations no
+  longer ship in the main script: the demo is fetched only by demo builds, and a language only
+  when it is selected. The entry chunk drops from about 373 KB to 245 KB gzipped. Behaviour is
+  unchanged.
+- **Unused-file check for the frontend.** `frontend/knip.jsonc` lets
+  `bunx knip --production` report unused files under `src/`. German and Spanish strings still
+  in English are listed for translators in `docs/features/i18n-untranslated.md`.
+
 ### Fixed
+
+- **Crypto coins outside the built-in list get a price.** NEXO and CRO are now priced
+  ([#419](https://github.com/Cloeille/picsou-finance/issues/419)). Beyond them, a coin held in a
+  crypto account that Picsou does not know yet is looked up on CoinGecko and remembered once it is
+  identified, provided Yahoo Finance does not quote the same symbol as a stock and one coin clearly
+  dominates that symbol. The lookup runs with the hourly price refresh, the startup backfill or an
+  exchange sync, never while a page loads, so a newly held coin is priced from the next one of
+  those. An ambiguous symbol such as ONE stays unpriced and is logged. A refused
+  symbol is asked again after 24 hours, an undecided one (provider down or rate-limited) after
+  15 minutes; these windows are kept in memory, so a restart asks again. Past daily snapshots
+  keep their recorded values.
+- **Budget: the allocation stock is valued in euros.** The stock donut and the Overview total
+  added each account's stored balance as if it were euros: a USD account counted its dollars, an
+  account with a ticker its coin quantity, and an account with holdings the last stored figure
+  rather than the live value of its holdings. Revolut pockets and money-boxes were also counted on
+  top of their wallet, whose balance already includes them. `AllocationService` now uses the same
+  EUR valuation as the dashboard (`liveBalanceEur`); a sub-account is counted in its own class and
+  the same amount, at most what is left of the wallet, is taken out of its wallet's, so a money-box
+  shows as savings and nothing is counted twice. A sub-account in its wallet's own class stays in
+  the wallet, a negative one moves nothing, and an account that is skipped is not valued, so a
+  failing price lookup on it no longer breaks the view. Contributions are unchanged.
+- **A co-owned loan shows its real repayment progress.** The dashboard's liabilities card
+  compared the member's share of the remaining capital to the whole borrowed amount, so a
+  half-owned 200,000 EUR loan with 150,000 left showed 62.5% repaid instead of 25%. Progress
+  now uses the loan's own figures whatever the member's share, including a zero share. See
+  [Ownership shares](docs/features/account-ownership-shares.md).
 
 - **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar
   read the whole transaction history and refused it past 1,000 rows (`UPSTREAM_FORMAT_CHANGED`).
   It now asks for rows ordered by date and stops paging past the last 365 days when they come
   newest first; older rows already imported stay. (#397)
+
+- **The account export dialog says "2 accounts selected".** Its count key used the legacy
+  `_plural` suffix, which i18next ignores, so every language showed the singular form.
 
 - **Trade Republic bond values no longer use percentage quotes as euro prices.** EUR bond
   ticker prices are divided by 100. Non-EUR or unknown bond currencies keep the position's
@@ -61,6 +101,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (your override, or the provider's) is not equity — for example a money-market ETF set to
   safety net — is no longer counted in the sector and geography breakdown, matching the
   wealth pyramid.
+- **One command per task for contributors (#344).** A root `Makefile`: `make dev` starts
+  PostgreSQL, the backend and Vite, `make test` runs the backend, frontend, e2e and sidecar suites, `make build`
+  builds the images, `make release VERSION=x.y.z` checks the CHANGELOG and pushes the tag.
+  CI calls the same targets, and `CONTRIBUTING.md` is the one place that lists commands.
+- **Sidecar URLs live under one `app.sidecars` map.** `app.bourso-auth.url` and its 12
+  siblings are now `app.sidecars.<service>.url`. The environment variables (`BOURSO_AUTH_URL`,
+  `TR_AUTH_URL`, …) and their defaults are unchanged, so a Docker or Helm install needs nothing.
+  Only an install that set the old Spring property itself must rename it: in its own YAML,
+  as `-Dapp.bourso-auth.url`, or through relaxed binding (`APP_BOURSO_AUTH_URL` becomes
+  `APP_SIDECARS_BOURSO_AUTH_URL`). The URLs now come only from the packaged `application.yml`, with no
+  fallback in code: an install that replaces it through `spring.config.location` must copy
+  the `app.sidecars` block, or the backend stops at startup naming the missing key. Behind it, the backend talks to the ten `detail`-code connectors through one client and
+  one error-code enum; stored `last_sync_error` values are unchanged (#336).
 
 - **Caisse d'Epargne: a failed account import says where it failed.** The sidecar's
   `accounts fetch failed` line now names the step (synthesis, transactions,
@@ -103,6 +156,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   See [testing conventions](docs/conventions/testing.md#sidecar-tests).
 
 ### Removed
+
+- **Unreachable frontend code.** `PortfolioView`, `CashflowTab`, `types/app.ts`, thirteen hooks
+  and helpers and three constants with no caller, the API functions only they called, the
+  Trade Republic sync-progress client stub (the backend never served it) and 94 translation
+  keys nothing reads. No screen changes.
 
 - **Split Docker stack.** The root `docker-compose.yml`, `backend/Dockerfile`,
   `frontend/Dockerfile`, `frontend/nginx.conf`, `frontend/picsou-realip.conf`, both

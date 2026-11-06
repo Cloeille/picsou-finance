@@ -7,8 +7,8 @@ import com.picsou.model.AccountType;
 import com.picsou.model.RecurringCadence;
 import com.picsou.model.ScpiProvider;
 import com.picsou.model.WealthTier;
-import com.picsou.port.CorumErrorCode;
-import com.picsou.port.CorumPort;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.adapter.CorumAdapter;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -116,25 +116,25 @@ public class CorumLifeWriter {
      * reason {@code CorumSyncService.checkDeclaredTotal} gives -- the sidecar is a
      * separate deployable, and a stale image is exactly what would skip its check.
      */
-    public void validate(List<CorumPort.LifeContract> contracts) {
+    public void validate(List<CorumAdapter.LifeContract> contracts) {
         if (contracts == null) {
-            throw error(CorumErrorCode.INVALID_DATA, "CORUM returned no life contract list");
+            throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned no life contract list");
         }
         Set<String> codes = new HashSet<>();
-        for (CorumPort.LifeContract contract : contracts) {
+        for (CorumAdapter.LifeContract contract : contracts) {
             if (contract == null || SyncValues.clean(contract.contractCode()) == null) {
-                throw error(CorumErrorCode.INVALID_DATA, "CORUM returned a life contract without a code");
+                throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned a life contract without a code");
             }
             if (!codes.add(contract.contractCode().trim())) {
                 // Two reads of one contract would write one account twice.
-                throw error(CorumErrorCode.INVALID_DATA, "CORUM returned a duplicate life contract");
+                throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned a duplicate life contract");
             }
             if (!contract.snapshotComplete()) {
-                throw error(CorumErrorCode.PORTFOLIO_INCOMPLETE, "CORUM returned an incomplete life contract");
+                throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "CORUM returned an incomplete life contract");
             }
             // The account is EUR and the figures are written as they come.
             if (!"EUR".equals(contract.currency())) {
-                throw error(CorumErrorCode.INVALID_DATA, "CORUM returned a life contract not in euros");
+                throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned a life contract not in euros");
             }
             validateFigures(contract);
             validateOperations(contract.operations());
@@ -148,19 +148,19 @@ public class CorumLifeWriter {
      * that list is not refused but dropped by {@link #reportedOperations}, so the stored rows are
      * kept and the valuation still syncs.
      */
-    private void validateOperations(List<CorumPort.LifeOperation> operations) {
+    private void validateOperations(List<CorumAdapter.LifeOperation> operations) {
         if (operations == null) {
             return;
         }
-        for (CorumPort.LifeOperation operation : operations) {
+        for (CorumAdapter.LifeOperation operation : operations) {
             if (operation == null || SyncValues.clean(operation.operationId()) == null
                     || SyncValues.clean(operation.type()) == null
                     || operation.date() == null || operation.amountEur() == null) {
-                throw error(CorumErrorCode.INVALID_DATA, "CORUM returned an incomplete life operation");
+                throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned an incomplete life operation");
             }
             if (operation.operationId().trim().length() > OPERATION_ID_MAX
                     || operation.type().trim().length() > OPERATION_TYPE_MAX) {
-                throw error(CorumErrorCode.INVALID_DATA, "CORUM returned an unreadable life operation");
+                throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned an unreadable life operation");
             }
         }
         if (CorumLifeOperationWriter.externalIds(operations) == null) {
@@ -173,8 +173,8 @@ public class CorumLifeWriter {
      * The contract's operations as the reconciliation takes them: null ("not read", keep the
      * stored rows) when two of them still share a key, which {@link #validate} lets through.
      */
-    static List<CorumPort.LifeOperation> reportedOperations(CorumPort.LifeContract contract) {
-        List<CorumPort.LifeOperation> operations = contract.operations();
+    static List<CorumAdapter.LifeOperation> reportedOperations(CorumAdapter.LifeContract contract) {
+        List<CorumAdapter.LifeOperation> operations = contract.operations();
         return operations != null && CorumLifeOperationWriter.externalIds(operations) == null ? null : operations;
     }
 
@@ -183,47 +183,47 @@ public class CorumLifeWriter {
      * negative invested amount, an incomplete, duplicate or negative holding, a euro fund not in 1 EUR units,
      * or lines that do not add up to the declared total.
      */
-    private void validateFigures(CorumPort.LifeContract contract) {
+    private void validateFigures(CorumAdapter.LifeContract contract) {
         BigDecimal declared = contract.totalValuationEur();
         if (declared == null || declared.signum() < 0) {
-            throw error(CorumErrorCode.PORTFOLIO_INCOMPLETE, "CORUM returned no valid life contract total");
+            throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "CORUM returned no valid life contract total");
         }
         if (contract.netInvestedEur() != null && contract.netInvestedEur().signum() < 0
                 || contract.paidInEur() != null && contract.paidInEur().signum() < 0) {
-            throw error(CorumErrorCode.INVALID_DATA, "CORUM returned a negative invested amount");
+            throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned a negative invested amount");
         }
         if (contract.holdings() == null) {
-            throw error(CorumErrorCode.INVALID_DATA, "CORUM returned a life contract without holdings");
+            throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned a life contract without holdings");
         }
         Set<String> tickers = new HashSet<>();
         BigDecimal computed = BigDecimal.ZERO;
-        for (CorumPort.LifeHolding holding : contract.holdings()) {
+        for (CorumAdapter.LifeHolding holding : contract.holdings()) {
             if (holding == null || SyncValues.clean(holding.productCode()) == null
                     || holding.quantity() == null || holding.valueEur() == null) {
-                throw error(CorumErrorCode.INVALID_DATA, "CORUM returned an incomplete life holding");
+                throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned an incomplete life holding");
             }
             if (!tickers.add(ticker(holding))) {
-                throw error(CorumErrorCode.INVALID_DATA, "CORUM returned a duplicate life holding");
+                throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned a duplicate life holding");
             }
             if (holding.quantity().signum() < 0) {
-                throw error(CorumErrorCode.INVALID_DATA, "CORUM returned a negative unit count");
+                throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned a negative unit count");
             }
             if (holding.euroFund() && (holding.quantity().compareTo(holding.valueEur()) != 0
                     || holding.unitPrice() == null || holding.unitPrice().compareTo(BigDecimal.ONE) != 0)) {
                 // Valued as quantity x price or as valueEur, the euro fund must come
                 // to the same figure, or the balance depends on which path ran.
-                throw error(CorumErrorCode.INVALID_DATA, "CORUM returned a euro fund not in 1 EUR units");
+                throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned a euro fund not in 1 EUR units");
             }
             computed = computed.add(holding.valueEur());
         }
         // Fewer raw rows than holdings cannot be true: each holding is at least one row.
         Integer lines = contract.valuationLineCount();
         if (lines == null || lines < contract.holdings().size()) {
-            throw error(CorumErrorCode.INVALID_DATA, "CORUM returned no valid line count for a life contract");
+            throw error(SidecarErrorCode.INVALID_DATA, "CORUM returned no valid line count for a life contract");
         }
         if (!SyncValues.linesClose(computed, declared, lines)) {
             throw error(
-                CorumErrorCode.PORTFOLIO_INCOMPLETE,
+                SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "The CORUM life lines add up to " + computed.setScale(2, RoundingMode.HALF_UP)
                     + " but the contract declares " + declared.setScale(2, RoundingMode.HALF_UP)
             );
@@ -235,9 +235,9 @@ public class CorumLifeWriter {
      *
      * @return the outcome per contract code, in snapshot order
      */
-    public Map<String, Outcome> write(Long memberId, List<CorumPort.LifeContract> contracts, Instant syncedAt) {
+    public Map<String, Outcome> write(Long memberId, List<CorumAdapter.LifeContract> contracts, Instant syncedAt) {
         Map<String, Outcome> outcomes = new LinkedHashMap<>();
-        for (CorumPort.LifeContract contract : contracts) {
+        for (CorumAdapter.LifeContract contract : contracts) {
             String code = contract.contractCode().trim();
             outcomes.put(code, writeContract(memberId, code, contract, contracts.size(), syncedAt));
         }
@@ -250,7 +250,7 @@ public class CorumLifeWriter {
      * account is IGNORED and an account that cannot be adopted unambiguously is AMBIGUOUS; neither is written.
      */
     private Outcome writeContract(
-        Long memberId, String code, CorumPort.LifeContract contract, int contractCount, Instant syncedAt
+        Long memberId, String code, CorumAdapter.LifeContract contract, int contractCount, Instant syncedAt
     ) {
         String externalId = EXTERNAL_ID_PREFIX + code;
         Optional<Account> linked = accountRepository.findByExternalAccountIdAndMemberId(externalId, memberId);
@@ -307,7 +307,7 @@ public class CorumLifeWriter {
         holdingRepository.deleteByAccountId(saved.getId());
         holdingRepository.flush();
         BigDecimal linesInvested = BigDecimal.ZERO;
-        for (CorumPort.LifeHolding holding : contract.holdings()) {
+        for (CorumAdapter.LifeHolding holding : contract.holdings()) {
             linesInvested = SyncValues.sumComplete(linesInvested, holding.netInvestedEur());
         }
         // A switch between funds leaves the lines' costs short of the contract's, and the line
@@ -323,7 +323,7 @@ public class CorumLifeWriter {
             .toList());
         holdingRepository.flush();
 
-        List<CorumPort.LifeOperation> reported = reportedOperations(contract);
+        List<CorumAdapter.LifeOperation> reported = reportedOperations(contract);
         CorumLifeOperationWriter.Result operations =
             operationWriter.reconcile(memberId, saved, reported, contract.holdings());
         // Counts only: the rows carry the member's money.
@@ -348,7 +348,7 @@ public class CorumLifeWriter {
      * kept and known, so a gain is never invented from figures that do not add up.
      */
     private static AccountHolding toHolding(
-        Account account, CorumPort.LifeHolding holding, boolean lineCosts, Instant syncedAt
+        Account account, CorumAdapter.LifeHolding holding, boolean lineCosts, Instant syncedAt
     ) {
         BigDecimal netInvested = lineCosts ? holding.netInvestedEur() : null;
         BigDecimal averageBuyIn = netInvested != null && holding.quantity().signum() > 0
@@ -384,7 +384,7 @@ public class CorumLifeWriter {
      * CORUM's frequency word as a cadence. A plan of zero, or a word not known here, is no plan
      * to show: it is logged and left out, never a reason to refuse the contract.
      */
-    static RecurringCadence cadenceOf(CorumPort.ScheduledPayment payment) {
+    static RecurringCadence cadenceOf(CorumAdapter.ScheduledPayment payment) {
         if (payment == null || payment.amountEur() == null || payment.frequency() == null) {
             return null;
         }
@@ -421,7 +421,7 @@ public class CorumLifeWriter {
             .toList();
     }
 
-    private static String ticker(CorumPort.LifeHolding holding) {
+    private static String ticker(CorumAdapter.LifeHolding holding) {
         return TICKER_PREFIX + holding.productCode().trim().toUpperCase(Locale.ROOT);
     }
 
@@ -430,7 +430,7 @@ public class CorumLifeWriter {
         return value.length() <= max ? value : value.substring(0, max);
     }
 
-    private static SyncException error(CorumErrorCode code, String message) {
+    private static SyncException error(SidecarErrorCode code, String message) {
         return new SyncException(message, null, code.name());
     }
 }
