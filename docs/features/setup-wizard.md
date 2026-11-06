@@ -1,6 +1,6 @@
 # Feature: First-launch Setup Wizard
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-04
 
 ## Context
 
@@ -13,11 +13,12 @@ with a guided, web-based flow the first time the app is opened.
 
 The bootstrap runs on two levels.
 
-- **Invisible (Docker entrypoint)** auto-generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY`,
-  `POSTGRES_PASSWORD` into `/data/.secrets/` when the corresponding env vars are unset.
-  This happens before `supervisord` starts Spring, because those three secrets are
-  consumed by bean constructors (`JwtUtil`, `CryptoEncryption`) and by Flyway before any
-  DB-backed config is available.
+- **Invisible (`SecretBootstrap`)** generates `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` into
+  `$PICSOU_SECRETS_DIR` (`/data/.secrets` in the Docker image) when the corresponding env vars
+  are unset. It reads `POSTGRES_PASSWORD` from the environment or an existing file but never
+  generates it. It is an `EnvironmentPostProcessor`, so it runs before
+  any bean: those secrets are consumed by bean constructors (`JwtUtil`, `CryptoEncryption`)
+  and by Flyway before any DB-backed config is available.
 - **Visible (web wizard)** is served at `/setup` while `setup.state != COMPLETE`. It
   walks the user through: admin account → CORS & secure cookies → integration picker →
   per-integration sub-flows → Done (with confetti + auto-login).
@@ -43,7 +44,7 @@ Backend:
   idempotent AES-256 key checker/writer. If `CRYPTO_ENCRYPTION_KEY` is already present
   in the running process (the normal bare-metal `.env.local` flow), the wizard treats
   that as configured and does not touch Docker's `/data` path. Otherwise it writes the
-  same `/data/.secrets/crypto_key` path as the Docker entrypoint.
+  same `/data/.secrets/crypto_key` path as `SecretBootstrap`.
 - `backend/src/main/java/com/picsou/config/SetupFilter.java` — 503/410 gate.
 - `backend/src/main/java/com/picsou/config/DynamicCorsConfigurationSource.java` — reads
   `cors.allowed-origins` from `app_setting` so the wizard's Security step takes effect
@@ -51,8 +52,9 @@ Backend:
 - `backend/src/main/resources/db/migration/V25__setup_state.sql` — conditional seed:
   `setup.state='COMPLETE'` for existing installs (admin already present), else
   `'PENDING_ADMIN'`.
-- `backend/scripts/picsou-init.sh` — bare-metal equivalent of the Docker entrypoint;
-  prints an `.env.local` to stdout.
+- `backend/src/main/java/com/picsou/config/SecretBootstrap.java`: resolves the secrets from
+  `PICSOU_SECRETS_DIR` before any bean exists, generating the JWT and encryption keys (Docker
+  and bare metal).
 
 Frontend:
 - `frontend/src/pages/setup/SetupLayout.tsx` — the centered hero layout, top progress
@@ -78,8 +80,10 @@ Frontend:
 First boot
     │
     ▼
-docker entrypoint.sh  ──► writes /data/.secrets/{jwt_secret,crypto_key,postgres_password}
-                              (only if env vars unset — idempotent)
+SecretBootstrap       ──► writes $PICSOU_SECRETS_DIR/{jwt_secret,crypto_key}
+                              (generated when unset; a supplied value is copied
+                               when its file is missing; an existing file is never
+                               overwritten; postgres_password is only read, never written)
     │
     ▼
 Spring boots → Flyway V25 seeds setup.state='PENDING_ADMIN'
@@ -138,7 +142,7 @@ Application ID and PEM form remains possible follow-up work.
 
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
-| Two-layer bootstrap (entrypoint + web) | `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` are consumed in bean constructors before the DB is available, so they can't live in DB. | Storing every secret in DB (wouldn't boot). |
+| Two-layer bootstrap (`SecretBootstrap` + web) | `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` are consumed in bean constructors before the DB is available, so they can't live in DB. | Storing every secret in DB (wouldn't boot). |
 | `setup.state` as a DB row | Survives container restarts; single source of truth; Flyway can conditionally seed it. | Env var (ephemeral); file on disk (hard to CAS). |
 | SERIALIZABLE + CAS on admin creation | Two concurrent POST /admin calls on a fresh install can't both succeed. | Optimistic Hibernate version (doesn't block the second transaction). |
 | In-memory stash for auto-login | Password must never hit sessionStorage; refresh loses auto-login but never leaks credentials. | Persisting credentials in the Zustand store. |
@@ -146,15 +150,15 @@ Application ID and PEM form remains possible follow-up work.
 | Dedicated axios client for `/api/setup/*` | The main `api` instance has a 401 → refresh → `/login` interceptor that would bounce unauthenticated wizard calls. | Sharing the main client and special-casing 401 (fragile). |
 | Idempotent EB keypair | Re-generating the public PEM from an existing private key never invalidates what the user already uploaded to Enable Banking. | Overwriting on every call (silent data loss). |
 | Self-hosted Homemade Apple font | Picsou never phones home to fonts.googleapis.com. | Google Fonts CDN link (exfils user IP + user-agent on every fresh install). |
-| Nginx-level CSP + security headers | Applies to the index.html that serves the SPA — backend API-only CSP would have no browser effect. | Spring-level CSP (wouldn't apply since SPAs load HTML from nginx). |
+| Spring-level CSP + security headers | Spring serves `index.html` too, so one header customizer covers the SPA, the API and the authorization server ([ADR](../decisions/2026-11-03-spring-serves-the-spa.md)). | nginx-level headers (a second copy to keep in sync, and missing on direct backend access). |
 
 ## Gotchas / Pitfalls
 
 - **`CryptoKeyGeneratorService` must not write Docker's `/data` path when
   `CRYPTO_ENCRYPTION_KEY` is already loaded from `.env.local`.** Bare-metal macOS
   installs often cannot create `/data`; the runtime env key is already sufficient for
-  encryption. If a file fallback is needed, `CryptoKeyGeneratorService` and the Docker
-  entrypoint still share `/data/.secrets/crypto_key`. Covered by
+  encryption. If a file fallback is needed, `CryptoKeyGeneratorService` and
+  `SecretBootstrap` still share `/data/.secrets/crypto_key`. Covered by
   `CryptoKeyGeneratorServiceTest.ensureKey_treatsConfiguredRuntimeKeyAsExistingWithoutWritingFile`
   and `ensureKey_isIdempotent_neverOverwritesExistingKey`.
 - **V25 migration seeding logic** reads `EXISTS(SELECT 1 FROM app_user)` and seeds
@@ -224,14 +228,14 @@ future work):
 ## Security posture
 
 - **Rate limiting** on `/api/setup/*` via Bucket4j (10 rpm / IP). 429 on breach.
-- **Headers** (set by nginx, app-wide):
+- **Headers** (set by Spring Security, app-wide):
   `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy:
   strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`.
 - **`Strict-Transport-Security` is opt-in**, not app-wide: it is only sent when
   `HSTS_ENABLED=true` (see [docker-deployment.md](./docker-deployment.md)). Enabling it
   with a locally-issued certificate locks users out — the browser drops the
   "proceed anyway" bypass. Do not assume HSTS is enforced on a deployment.
-- **CSP** (nginx):
+- **CSP** (Spring Security):
   `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src
   'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'`.
   `'unsafe-inline'` is only in `style-src` because Tailwind's JIT injects inline
@@ -248,16 +252,20 @@ future work):
 
 ## Running without Docker
 
-Bare-metal installs (`mvn spring-boot:run`) need the secrets bootstrap done manually
-on first boot:
+Bare-metal installs (`mvn spring-boot:run`) set `PICSOU_SECRETS_DIR`. The app generates
+`JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` there on first start and reuses them afterwards:
 
 ```bash
-./backend/scripts/picsou-init.sh > .env.local
-set -a && . .env.local && set +a
-mvn -pl backend spring-boot:run
+cd backend
+export PICSOU_SECRETS_DIR=.local/secrets
+mvn spring-boot:run
 ```
 
-The wizard itself works identically — only the secrets-generation step differs.
+The app never generates the database password, because it cannot change the database's own.
+It stays `picsou`, which matches the PostgreSQL container in
+[CONTRIBUTING.md](../../CONTRIBUTING.md), unless you export `POSTGRES_PASSWORD` or
+`SPRING_DATASOURCE_PASSWORD`. Exporting `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY` or
+`POSTGRES_PASSWORD` yourself wins over the files. The wizard itself works identically.
 
 ## Privacy
 

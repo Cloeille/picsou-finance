@@ -124,7 +124,7 @@ docker compose -f docker/docker-compose.yml up -d
 >
 > Building from source instead of pulling? Run `docker compose -f docker/docker-compose.yml up --build` — the `build:` sections are kept for contributors.
 
-On first launch the entrypoint auto-generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` (persisted to the `picsou_data` volume under `/data/.secrets/`).
+On first launch the app auto-generates `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` (persisted to the `picsou_data` volume under `/data/.secrets/`). The database password defaults to `picsou` for both the app and PostgreSQL; set `POSTGRES_PASSWORD` in `docker/.env` before the first start to change it.
 
 > [!IMPORTANT]
 > **Planning to sync bank accounts? Set up HTTPS now, before opening the wizard — jump to
@@ -276,11 +276,11 @@ curl -sI https://picsou.example.com/ | grep -i strict-transport
 
 Exactly one `Strict-Transport-Security` line when enabled, none when disabled.
 
-In this image nginx is the only emitter the browser ever sees: it adds the header to every response
-including proxied ones, and strips the backend's copy on `/api` and `/actuator`
-(`proxy_hide_header`) so it is never sent twice. The backend has its own gate on the same variable,
-which is what a bare-metal deployment behind your own proxy relies on — to check that one, ask the backend directly,
-bypassing nginx:
+Spring Boot is the only emitter: it adds the header to every response it generates, the SPA and
+the authorization server included, and nginx only relays it. nginx's own error pages, such as the
+502 or 504 it sends when the backend is down or too slow, carry none; a browser keeps the policy
+from earlier responses. To check the backend on its own, ask it
+directly, bypassing nginx:
 
 ```bash
 docker compose -f docker/docker-compose.yml exec app \
@@ -370,7 +370,7 @@ cp docker/.env.example docker/.env
 |----------|-------------|-------------|
 | `COMPOSE_PROFILES` | To enable connectors or TLS | Comma-separated connector profiles (`bourso,revolut`), optionally including `tls`, or `all-connectors`. Empty: app and database only |
 | `APP_SIDECAR_API_KEY` | When a connector is enabled | `openssl rand -base64 32`. Shared by the app and every enabled `*-auth` sidecar; recreate them together after a rotation |
-| `POSTGRES_PASSWORD` | Override auto-gen | Strong random password |
+| `POSTGRES_PASSWORD` | Before the first start | Strong random password, shared by the app and PostgreSQL (default `picsou`) |
 | `JWT_SECRET` | Override auto-gen | `openssl rand -base64 48` |
 | `CRYPTO_ENCRYPTION_KEY` | Override auto-gen | `openssl rand -base64 32` |
 | `APP_USERNAME` / `APP_PASSWORD_HASH` | Skip wizard | `htpasswd -bnBC 12 "" YOUR_PASSWORD \| tr -d ':\r\n'` |
