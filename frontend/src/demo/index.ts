@@ -925,6 +925,22 @@ handlers.set(key('POST', '/cmes/auth/complete'), () => demoCmesStatus)
 handlers.set(key('POST', '/cmes/sync'), () => demoCmesStatus)
 handlers.set(key('DELETE', '/cmes/session'), () => null)
 
+// Natixis Interépargne — same convention as CMES.
+const demoNatixisStatus = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+}
+handlers.set(key('GET', '/natixis/status'), () => demoNatixisStatus)
+handlers.set(key('POST', '/natixis/auth/initiate'), () => ({
+  processId: null, mfaRequired: false, mfaType: null,
+}))
+handlers.set(key('POST', '/natixis/auth/complete'), () => demoNatixisStatus)
+handlers.set(key('POST', '/natixis/sync'), () => demoNatixisStatus)
+handlers.set(key('DELETE', '/natixis/session'), () => null)
+
 // BoursoBank — same convention. Its demo accounts already carry
 // `provider: 'BoursoBank'`, so without these the Sync-all modal would list a
 // connection whose status request falls through to `{}`.

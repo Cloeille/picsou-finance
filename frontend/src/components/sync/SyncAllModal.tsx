@@ -75,7 +75,7 @@ type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
     | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin'
-    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'cmes' | 'cic'
+    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'cmes' | 'natixis' | 'cic'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -106,6 +106,7 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   sofidy: Building2,
   'caisse-epargne': Landmark,
   cmes: PiggyBank,
+  natixis: PiggyBank,
   cic: PiggyBank,
 }
 
@@ -123,6 +124,7 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   sofidy: 'sofidy',
   'caisse-epargne': 'caisse-epargne',
   cmes: 'cmes',
+  natixis: 'natixis',
   cic: 'cic',
   finary: 'finary',
 }
@@ -190,6 +192,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: corumStatus } = useProviderStatus("corum")
   const { data: sofidyStatus } = useProviderStatus("sofidy")
   const { data: cmesStatus } = useProviderStatus("cmes")
+  const { data: natixisStatus } = useProviderStatus("natixis")
   const { data: cicStatus } = useProviderStatus("cic")
   const { data: accounts } = useAccounts()
 
@@ -285,13 +288,19 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       failed: cmesStatus?.syncStatus === 'FAILED',
     },
     {
+      type: 'natixis' as const, name: 'Natixis Interépargne', provider: 'Natixis Interépargne',
+      active: natixisStatus?.isActive ?? false, lastSyncedAt: natixisStatus?.lastSyncCompletedAt ?? null,
+      hasSession: natixisStatus != null && natixisStatus.syncStatus !== 'IDLE',
+      failed: natixisStatus?.syncStatus === 'FAILED',
+    },
+    {
       type: 'cic' as const, name: 'CIC (livrets)', provider: 'CIC',
       active: cicStatus?.isActive ?? false, lastSyncedAt: cicStatus?.lastSyncCompletedAt ?? null,
       hasSession: cicStatus != null && cicStatus.syncStatus !== 'IDLE',
       failed: cicStatus?.syncStatus === 'FAILED',
       canReconnect: cicStatus?.canReconnect === true,
     },
-  ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
+  ], [cicStatus, cmesStatus, natixisStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -314,6 +323,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncCorumMutation        = useProviderSync("corum")
   const syncSofidyMutation       = useProviderSync("sofidy")
   const syncCmesMutation = useProviderSync("cmes")
+  const syncNatixisMutation = useProviderSync("natixis")
   const syncCicMutation = useProviderSync("cic")
 
   // Track syncing state per connection
@@ -524,6 +534,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'cmes':
         syncCmesMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'natixis':
+        syncNatixisMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'cic':
         syncCicMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
@@ -571,6 +584,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncCorumMutation,
     syncSofidyMutation,
     syncCmesMutation,
+    syncNatixisMutation,
     syncCicMutation,
     queryClient,
     t,

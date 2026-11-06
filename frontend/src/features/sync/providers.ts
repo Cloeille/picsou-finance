@@ -7,6 +7,7 @@ import {
   caisseEpargneApi,
   cicApi,
   cmesApi,
+  natixisApi,
   corumApi,
   fortuneoApi,
   sofidyApi,
@@ -138,6 +139,12 @@ export const sidecarProviders = {
     queryKey: syncKeys.cmes(),
     refreshOnSuccess: PORTFOLIO_VIEWS,
     ...loginFlow(cmesApi),
+  },
+
+  natixis: {
+    queryKey: syncKeys.natixis(),
+    refreshOnSuccess: PORTFOLIO_VIEWS,
+    ...loginFlow(natixisApi),
   },
 
   cic: {

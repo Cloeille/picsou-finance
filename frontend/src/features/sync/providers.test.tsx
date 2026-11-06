@@ -20,6 +20,7 @@ vi.mock("./api", () => ({
   boursoApi: {},
   bourseDirectApi: {},
   cmesApi: {},
+  natixisApi: {},
   fortuneoApi: {},
   sofidyApi: {},
   ...apis,

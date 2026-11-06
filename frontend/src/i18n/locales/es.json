@@ -722,6 +722,7 @@
       "finary": "Importar desde Finary",
       "manual": "Crear una cuenta manualmente",
       "amundi": "PEE, PEG, PERCO, PER en Amundi",
+      "natixis": "PEE, PERCO, PER en Natixis Interépargne",
       "amex": "Tarjeta de crédito American Express: saldo y transacciones",
       "property": "Casa, piso, terreno…",
       "revolut": "Phone + passcode, on-demand sync",
@@ -1202,6 +1203,37 @@
         "formatChanged": "El formato del sitio de Amundi ha cambiado. Se han conservado sus datos existentes.",
         "invalidData": "Amundi devolvió datos incoherentes. Se han conservado sus datos existentes.",
         "serverError": "No se puede contactar con Amundi. Inténtelo de nuevo."
+      }
+    },
+    "natixis": {
+      "title": "Natixis Interépargne",
+      "login": "Correo electrónico",
+      "password": "Contraseña",
+      "otpCode": "Código de verificación",
+      "otpPrompt": "Introduce el código que Natixis Interépargne te envió por SMS, correo electrónico o llamada de voz.",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "validate": "Validar el código",
+      "validating": "Validando…",
+      "sync": "Sincronizar",
+      "queued": "Sincronización en cola…",
+      "syncing": "Sincronizando…",
+      "syncSuccess": "Planes de ahorro sincronizados.",
+      "clearSession": "Desconectar",
+      "noSession": "Ninguna sesión activa",
+      "sessionActive": "Sesión activa",
+      "scope": "Sincroniza tus planes de ahorro salarial de Natixis Interépargne (PEE, PERCO, PER…) y los fondos que contienen: participaciones, valor liquidativo y ganancia. Tras este primer inicio de sesión, las sincronizaciones se ejecutan solas hasta que Natixis cierre la sesión; entonces deberás volver a conectarte.",
+      "errors": {
+        "tooManyAttempts": "Natixis Interépargne bloqueó nuevos intentos. Inténtalo más tarde.",
+        "invalidCredentials": "Natixis Interépargne rechazó el correo o la contraseña.",
+        "mfaTypeUnsupported": "Esta cuenta solo ofrece acceso con passkey o un segundo factor que Picsou no admite. Activa los códigos por SMS, correo electrónico o llamada de voz en los ajustes de seguridad de Natixis Interépargne.",
+        "authAttemptExpired": "El intento de autenticación caducó. Empieza de nuevo.",
+        "sessionExpired": "La sesión de Natixis Interépargne caducó. Vuelve a conectarte para reanudar la sincronización.",
+        "portfolioIncomplete": "Natixis Interépargne devolvió planes de ahorro incompletos. Se conservaron tus datos existentes.",
+        "formatChanged": "Cambió el formato del sitio de Natixis Interépargne. Se conservaron tus datos existentes.",
+        "invalidData": "Natixis Interépargne devolvió datos de plan no válidos. Se conservaron tus datos existentes.",
+        "serverError": "Natixis Interépargne no está disponible por el momento. Inténtalo de nuevo.",
+        "invalidCode": "Código de verificación incorrecto. Compruébalo y vuelve a escribirlo."
       }
     },
     "cmes": {
