@@ -15,6 +15,7 @@ import {
   useSyncTradeRepublic,
   useTrSessionStatus,
 } from '@/features/sync/hooks'
+import { useAccounts } from '@/features/accounts/hooks'
 import { formatTrAuthError, trErrorMessage } from '@/lib/errors'
 import { TradeRepublicLogin } from '@/components/sync/TradeRepublicLogin'
 
@@ -24,6 +25,7 @@ export function TradeRepublicTab() {
   const [error, setError] = useState<string | null>(null)
 
   const { data: sessionStatus, isLoading: statusLoading } = useTrSessionStatus()
+  const { data: accounts } = useAccounts()
   const syncMutation = useSyncTradeRepublic()
   const importCsvMutation = useImportTrCsv()
   const logoutMutation = useClearTrSession()
@@ -32,11 +34,15 @@ export function TradeRepublicTab() {
   const syncStatus = sessionStatus?.syncStatus ?? 'IDLE'
   const isSyncing = syncStatus === 'QUEUED' || syncStatus === 'RUNNING'
   const requestingSync = syncMutation.isPending || isSyncing
-  const sessionExpired = syncStatus === 'FAILED' && sessionStatus?.lastSyncError === 'SESSION_EXPIRED'
   const backgroundError = syncStatus === 'FAILED'
     ? (trErrorMessage(t, sessionStatus?.lastSyncError) ?? t('sync.tr.errors.serverError'))
     : null
   const visibleError = error ?? backgroundError
+  // Accounts a past session imported stop updating once it is gone (an expiry, a disconnect, or
+  // the upgrade that dropped the old sessions): say so, the daily sync skips them silently.
+  const staleAccounts = !isConnected && (accounts ?? []).some(
+    account => account.provider === 'Trade Republic' && !account.isManual,
+  )
 
   function handleCsvChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -105,12 +111,6 @@ export function TradeRepublicTab() {
                 {t('common.retry')}
               </Button>
             )}
-            {!error && sessionExpired && isConnected && (
-              <Button size="sm" onClick={handleClear} disabled={logoutMutation.isPending}>
-                <RefreshCw />
-                {t('sync.tr.reconnect')}
-              </Button>
-            )}
           </CardContent>
         </Card>
       )}
@@ -141,6 +141,10 @@ export function TradeRepublicTab() {
             onChange={handleCsvChange}
           />
         </div>
+      )}
+
+      {staleAccounts && !visibleError && (
+        <p className="text-sm text-muted-foreground">{t('sync.tr.staleAccounts')}</p>
       )}
 
       {!isConnected && <TradeRepublicLogin variant="page" />}
