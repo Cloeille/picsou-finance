@@ -55,8 +55,9 @@ import java.util.concurrent.Executor;
  * <p>Shaped like {@link BoursoSyncService}: upstream I/O happens outside any transaction and one
  * short transaction writes the whole snapshot, so a failure part-way rolls every account back.
  * Differences, all deliberate: the sync is <b>on demand only</b> (no scheduler, no auto-resync
- * hook), no credentials are ever stored (decision D5, cookies only) so an expired session can
- * only be renewed by the user, and unsupported contracts are counted but never created.
+ * hook), the password is never stored (only the session cookies and the identifier, see the
+ * caisse-epargne ADR) so an expired session can only be renewed by the user, and unsupported
+ * contracts are counted but never created.
  */
 @Service
 public class CaisseEpargneSyncService {

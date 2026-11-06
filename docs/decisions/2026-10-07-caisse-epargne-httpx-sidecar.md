@@ -8,7 +8,8 @@
 > session lives a few minutes, so reconnects are frequent. Like Bourso
 > (`bourso_session.encrypted_credentials`, `V103`), the identifier of the last
 > successful login is now stored encrypted in `caisse_epargne_session.encrypted_credentials`
-> (`V129`). It is not a secret: it only fills the first login step. The password
+> (`V129`). It is personal data, hence encrypted, but not sufficient to log in alone:
+> it only fills the first login step. The password
 > (keypad positions) and the Sécur'Pass approval are still never stored, so the
 > rejected alternative "Store the credentials to log in again" still stands: no
 > unattended login is possible.
