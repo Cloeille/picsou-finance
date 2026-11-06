@@ -37,7 +37,7 @@ public class LbpAdapter {
     /** One session replay, then the account and transaction reads. */
     private static final Duration DEFAULT_ACCOUNTS_TIMEOUT = Duration.ofSeconds(120);
 
-    static final Duration INITIATE_TIMEOUT = Duration.ofSeconds(90);
+    static final Duration INITIATE_TIMEOUT = Duration.ofSeconds(120);
     /** The sidecar gives /keypad 60 s (clicks, Valider, the mobile-approval page): stay above it. */
     static final Duration KEYPAD_TIMEOUT = Duration.ofSeconds(70);
     /** The sidecar waits up to 150 s for the human to approve on the phone: stay above it. */

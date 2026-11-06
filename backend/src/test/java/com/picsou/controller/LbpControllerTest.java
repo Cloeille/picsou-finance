@@ -112,7 +112,7 @@ class LbpControllerTest {
                 .content("{\"customerId\":\"1234567890\",\"password\":\"hunter2\"}"))
             .andExpect(status().isBadRequest());
 
-        verify(service, never()).initiateAuth(org.mockito.ArgumentMatchers.any(), anyLong());
+        verify(service, never()).initiateAuth(org.mockito.ArgumentMatchers.any(), anyBoolean(), anyLong());
     }
 
     @Test
@@ -123,7 +123,7 @@ class LbpControllerTest {
                     .content("{\"customerId\":\"" + id + "\"}"))
                 .andExpect(status().isBadRequest());
         }
-        verify(service, never()).initiateAuth(org.mockito.ArgumentMatchers.any(), anyLong());
+        verify(service, never()).initiateAuth(org.mockito.ArgumentMatchers.any(), anyBoolean(), anyLong());
     }
 
     @Test

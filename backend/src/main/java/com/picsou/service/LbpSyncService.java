@@ -87,6 +87,12 @@ public class LbpSyncService {
      * attempt and the user starts again.
      */
     private final Map<String, PendingLogin> pendingLogins = new ConcurrentHashMap<>();
+    /**
+     * Bumped by {@link #clearSession}: a login that was waiting on the bank when the
+     * connection was removed carries an older generation and stores nothing.
+     */
+    private final Map<Long, Long> authGenerations = new ConcurrentHashMap<>();
+    private final Object sessionWriteLock = new Object();
 
     @org.springframework.beans.factory.annotation.Autowired
     public LbpSyncService(
@@ -141,6 +147,9 @@ public class LbpSyncService {
     }
 
     public InitiateResponse initiateAuth(String customerId, boolean rememberIdentifier, Long memberId) {
+        // Capture before the call: a disconnect during the browser launch must
+        // invalidate this attempt, not become its generation.
+        long generation = authGenerations.getOrDefault(memberId, 0L);
         LbpAdapter.InitiateResult result = adapter.initiateAuth(customerId);
         if (result == null || result.processId() == null || result.processId().isBlank()
             || result.keypad() == null || result.expiresInSeconds() <= 0) {
@@ -148,12 +157,18 @@ public class LbpSyncService {
                 "La Banque Postale did not return a usable sign-in challenge", null);
         }
         requireSafeKeypad(result.keypad());
+        if (generation != authGenerations.getOrDefault(memberId, 0L)) {
+            // The member disconnected while the browser was launching: do not register a
+            // process the keypad could still drive a real login through.
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
+                "This La Banque Postale sign-in attempt expired. Please start again.", null);
+        }
         Instant now = clock.instant();
         // Swept on every start: a stale process id must never be reachable again.
         pendingLogins.values().removeIf(pending -> !pending.deadline().isAfter(now));
         pendingLogins.put(result.processId(),
             new PendingLogin(memberId, now.plusSeconds(result.expiresInSeconds()), null,
-                rememberIdentifier ? customerId : null, rememberIdentifier));
+                rememberIdentifier ? customerId : null, rememberIdentifier, generation));
         return new InitiateResponse(result.processId(), result.keypad(), result.expiresInSeconds());
     }
 
@@ -202,7 +217,7 @@ public class LbpSyncService {
         adapter.submitKeypad(processId, positions);
         pendingLogins.put(processId, new PendingLogin(memberId, null,
             clock.instant().plusSeconds(APPROVAL_WINDOW_SECONDS),
-            pending.customerId(), pending.rememberIdentifier()));
+            pending.customerId(), pending.rememberIdentifier(), pending.generation()));
     }
 
     /**
@@ -217,12 +232,18 @@ public class LbpSyncService {
             throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
                 "This La Banque Postale sign-in attempt expired. Please start again.", null);
         }
+        if (pending.generation() != authGenerations.getOrDefault(memberId, 0L)) {
+            // The member disconnected while this login was waiting on the bank.
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
+                "This La Banque Postale sign-in attempt expired. Please start again.", null);
+        }
         String plainState = adapter.completeAuth(processId);
         if (plainState == null || plainState.isBlank()) {
             throw error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
                 "La Banque Postale did not return a session", null);
         }
-        return storeSession(plainState, memberId, pending.customerId(), pending.rememberIdentifier());
+        return storeSession(plainState, memberId, pending.customerId(),
+            pending.rememberIdentifier(), pending.generation());
     }
 
     /**
@@ -259,6 +280,22 @@ public class LbpSyncService {
     public SessionStatusResponse storeSession(
         String plainState, Long memberId, String customerId, boolean rememberIdentifier
     ) {
+        return storeSession(plainState, memberId, customerId, rememberIdentifier,
+            authGenerations.getOrDefault(memberId, 0L));
+    }
+
+    /**
+     * Stores the session only if the login attempt was started in the current
+     * generation: a disconnect during the mobile-approval wait bumps the generation
+     * and this call then stores nothing.
+     */
+    public SessionStatusResponse storeSession(
+        String plainState,
+        Long memberId,
+        String customerId,
+        boolean rememberIdentifier,
+        long generation
+    ) {
         if (plainState == null || plainState.isBlank()) {
             throw error(SidecarErrorCode.INVALID_SESSION_STATE,
                 "No La Banque Postale session was provided", null);
@@ -266,15 +303,21 @@ public class LbpSyncService {
         String encryptedIdentifier = rememberIdentifier && customerId != null && !customerId.isBlank()
             ? encryption.encrypt(customerId)
             : null;
-        requireTransactionResult(txTemplate.execute(status -> {
-            FamilyMember member = memberRepository.findById(memberId)
-                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
-            sessionRepository.flush();
-            LbpSession session = LbpSession.create(member, encryption.encrypt(plainState), clock.instant());
-            session.updateEncryptedIdentifier(encryptedIdentifier);
-            return sessionRepository.saveAndFlush(session);
-        }));
+        synchronized (sessionWriteLock) {
+            if (generation != authGenerations.getOrDefault(memberId, 0L)) {
+                throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
+                    "This La Banque Postale sign-in attempt expired. Please start again.", null);
+            }
+            requireTransactionResult(txTemplate.execute(status -> {
+                FamilyMember member = memberRepository.findById(memberId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
+                sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+                sessionRepository.flush();
+                LbpSession session = LbpSession.create(member, encryption.encrypt(plainState), clock.instant());
+                session.updateEncryptedIdentifier(encryptedIdentifier);
+                return sessionRepository.saveAndFlush(session);
+            }));
+        }
         return getStatus(memberId);
     }
 
@@ -431,9 +474,14 @@ public class LbpSyncService {
 
         List<UnsupportedProduct> unsupported = new ArrayList<>();
         for (LbpAdapter.Unsupported item : fetched.unsupported()) {
-            if (item == null || clean(item.externalId()) == null || clean(item.familyCode()) == null
-                || unsupported.size() >= MAX_UNSUPPORTED) {
+            if (item == null || clean(item.externalId()) == null || clean(item.familyCode()) == null) {
                 throw invalid("an invalid unsupported product list");
+            }
+            if (unsupported.size() >= MAX_UNSUPPORTED) {
+                // Unsupported products are informational; a long list must not fail
+                // the import. The status exposes the capped list and its count.
+                log.warn("La Banque Postale unsupported-product list truncated at {}", MAX_UNSUPPORTED);
+                break;
             }
             unsupported.add(new UnsupportedProduct(item.externalId().trim(), item.familyCode().trim()));
         }
@@ -621,11 +669,15 @@ public class LbpSyncService {
      * expires. Returns whether a stored session was there to delete.
      */
     public boolean clearSession(Long memberId) {
-        return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            var session = sessionRepository.findByMemberIdForUpdate(memberId);
-            session.ifPresent(sessionRepository::delete);
-            return session.isPresent();
-        }));
+        synchronized (sessionWriteLock) {
+            authGenerations.merge(memberId, 1L, Long::sum);
+            pendingLogins.entrySet().removeIf(entry -> entry.getValue().memberId().equals(memberId));
+            return Boolean.TRUE.equals(txTemplate.execute(status -> {
+                var session = sessionRepository.findByMemberIdForUpdate(memberId);
+                session.ifPresent(sessionRepository::delete);
+                return session.isPresent();
+            }));
+        }
     }
 
     private SessionStatusResponse toStatus(LbpSession session) {
@@ -699,6 +751,7 @@ public class LbpSyncService {
             case "PEL" -> AccountType.PEL;
             case "CEL" -> AccountType.CEL;
             case "CARD" -> AccountType.CREDIT_CARD;
+            case "LOAN" -> AccountType.LOAN;
             // Never guess: an unknown kind means the format moved under us.
             default -> throw invalid("an unknown account kind");
         };
@@ -789,10 +842,20 @@ public class LbpSyncService {
         Instant keypadExpiresAt,
         Instant approvalExpiresAt,
         String customerId,
-        boolean rememberIdentifier
+        boolean rememberIdentifier,
+        long generation
     ) {
         Instant deadline() {
             return approvalExpiresAt != null ? approvalExpiresAt : keypadExpiresAt;
+        }
+
+        @Override
+        public String toString() {
+            return "PendingLogin[memberId=" + memberId
+                + ", keypadExpiresAt=" + keypadExpiresAt
+                + ", approvalExpiresAt=" + approvalExpiresAt
+                + ", customerId=***, rememberIdentifier=" + rememberIdentifier
+                + ", generation=" + generation + "]";
         }
     }
 
@@ -822,7 +885,12 @@ public class LbpSyncService {
     }
 
     private record QueueDecision(SyncJob job, SessionStatusResponse status, SyncException failure) {}
-    private record SyncJob(Long sessionId, Long memberId, String plainState) {}
+    private record SyncJob(Long sessionId, Long memberId, String plainState) {
+        @Override
+        public String toString() {
+            return "SyncJob[sessionId=" + sessionId + ", memberId=" + memberId + ", plainState=***]";
+        }
+    }
     private record PreparedSnapshot(List<PreparedAccount> accounts, List<UnsupportedProduct> unsupported) {}
     private record PreparedAccount(
         String externalId,

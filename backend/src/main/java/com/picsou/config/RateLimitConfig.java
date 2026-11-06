@@ -134,8 +134,8 @@ public class RateLimitConfig {
     }
 
     /**
-     * Per-IP La Banque Postale keypad and one-time-code limiter: 5 per 15 minutes. Kept apart
-     * from the login bucket so a keypad or code call never eats one of the 3 login attempts.
+     * Per-IP La Banque Postale keypad limiter: 5 per 15 minutes. Kept apart
+     * from the login bucket so a keypad call never eats one of the 3 login attempts.
      */
     @Bean("lbpKeypadBuckets")
     public Map<String, Bucket> lbpKeypadBuckets() {

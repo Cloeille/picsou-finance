@@ -248,7 +248,7 @@ public class SetupController {
         ));
     }
 
-    // ─── Integration acknowledgements (TR, Finary) ──────────────────────────
+    // ─── Integration acknowledgements (TR, Finary, Bourse Direct, Fortuneo, LBP) ──
 
     @PostMapping("/integrations/{key}/acknowledge")
     public ResponseEntity<?> acknowledge(@PathVariable String key, HttpServletRequest httpRequest) {

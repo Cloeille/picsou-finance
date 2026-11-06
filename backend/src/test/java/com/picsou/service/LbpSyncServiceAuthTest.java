@@ -66,6 +66,37 @@ class LbpSyncServiceAuthTest {
     }
 
     @Test
+    void clearingTheSessionCancelsAPendingLogin() {
+        keypad(List.of("5", "3", "9", "8", "6", "1", "0", "7", "2", "4"));
+        LbpSyncService.InitiateResponse response = service.initiateAuth("1234567890", MEMBER);
+        service.submitKeypad(response.processId(), List.of(0, 1, 2, 3, 4, 5), MEMBER);
+
+        service.clearSession(MEMBER);
+
+        assertThatThrownBy(() -> service.completeAuth(response.processId(), MEMBER))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo("AUTH_ATTEMPT_EXPIRED"));
+    }
+
+    @Test
+    void aDisconnectDuringTheBrowserLaunchCancelsTheAttempt() {
+        when(adapter.initiateAuth("1234567890")).thenAnswer(invocation -> {
+            service.clearSession(MEMBER);
+            return new LbpAdapter.InitiateResult("proc-1",
+                new LbpAdapter.Keypad(List.of("5", "3", "9", "8", "6", "1", "0", "7", "2", "4"), 5), 300);
+        });
+
+        assertThatThrownBy(() -> service.initiateAuth("1234567890", MEMBER))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo("AUTH_ATTEMPT_EXPIRED"));
+
+        // Nothing was registered: the keypad cannot be used to drive the abandoned login.
+        assertThatThrownBy(() -> service.submitKeypad("proc-1", List.of(0, 1, 2, 3, 4, 5), MEMBER))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo("AUTH_ATTEMPT_EXPIRED"));
+    }
+
+    @Test
     void refusesADuplicateNonDigitOrIncompleteKeypad() {
         record Case(String name, List<String> keys) {}
         for (Case c : List.of(

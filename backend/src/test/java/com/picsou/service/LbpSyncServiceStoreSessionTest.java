@@ -2,6 +2,7 @@ package com.picsou.service;
 
 import com.picsou.adapter.LbpAdapter;
 import com.picsou.config.CryptoEncryption;
+import com.picsou.exception.SyncException;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.LbpSession;
 import com.picsou.repository.AccountRepository;
@@ -22,6 +23,7 @@ import java.util.Optional;
 import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
@@ -84,5 +86,15 @@ class LbpSyncServiceStoreSessionTest {
 
         assertThat(saved.getEncryptedIdentifier()).isNull();
         assertThat(status.savedIdentifier()).isNull();
+    }
+
+    @Test
+    void refusesASessionFromAnAttemptStartedBeforeADisconnect() {
+        service.clearSession(MEMBER);
+
+        assertThatThrownBy(() ->
+            service.storeSession("cookies", MEMBER, "1234567890", true, 0L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo("AUTH_ATTEMPT_EXPIRED"));
     }
 }

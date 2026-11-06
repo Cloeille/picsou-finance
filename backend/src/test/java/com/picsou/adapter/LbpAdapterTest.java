@@ -153,7 +153,8 @@ class LbpAdapterTest {
 
     @Test
     void theAuthCallsHaveTheirOwnTimeouts() {
-        assertThat(LbpAdapter.INITIATE_TIMEOUT).isEqualTo(Duration.ofSeconds(90));
+        // the sidecar's Chromium launch + login form can take ~105 s at the tail
+        assertThat(LbpAdapter.INITIATE_TIMEOUT).isEqualTo(Duration.ofSeconds(120));
         assertThat(LbpAdapter.KEYPAD_TIMEOUT).isEqualTo(Duration.ofSeconds(70));
         // longer than the sidecar's 150 s wait for the human to approve on the phone
         assertThat(LbpAdapter.COMPLETE_TIMEOUT).isEqualTo(Duration.ofSeconds(170));

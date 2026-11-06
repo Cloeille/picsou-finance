@@ -1,6 +1,7 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.*;
 import lombok.*;
@@ -137,7 +138,8 @@ public class LbpSession extends AuditableEntity {
         if (!isSyncInFlight()) {
             throw new IllegalStateException("Only an in-flight La Banque Postale synchronization can fail");
         }
-        SidecarErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = SidecarBank.LBP.requireDeclared(
+            Objects.requireNonNull(errorCode, "errorCode"));
         syncStatus = LbpSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;

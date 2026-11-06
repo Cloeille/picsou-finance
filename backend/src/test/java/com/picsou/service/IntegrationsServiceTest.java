@@ -2,11 +2,13 @@ package com.picsou.service;
 
 import com.picsou.config.EnableBankingConfigProvider;
 import com.picsou.model.AppSetting;
+import com.picsou.model.LbpSession;
 import com.picsou.repository.AppSettingRepository;
 import com.picsou.repository.BourseDirectSessionRepository;
 import com.picsou.repository.BoursoSessionRepository;
 import com.picsou.repository.FinarySessionRepository;
 import com.picsou.repository.FortuneoSessionRepository;
+import com.picsou.repository.LbpSessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,6 +35,7 @@ class IntegrationsServiceTest {
     @Mock BourseDirectSessionRepository bourseDirectSessions;
     @Mock BoursoSessionRepository boursoSessions;
     @Mock FortuneoSessionRepository fortuneoSessions;
+    @Mock LbpSessionRepository lbpSessions;
     @Mock UserContext userContext;
     @InjectMocks IntegrationsService integrationsService;
 
@@ -151,6 +154,26 @@ class IntegrationsServiceTest {
         when(fortuneoSessions.existsByMemberIdAndActiveTrue(7L)).thenReturn(false);
 
         assertThat(integrationsService.isEffectivelyEnabled("fortuneo")).isFalse();
+    }
+
+    @Test
+    void isEffectivelyEnabled_lbp_trueWhenAnActiveSessionExists() {
+        when(settingRepository.findByKey("integration.lbp.enabled")).thenReturn(Optional.empty());
+        when(userContext.currentMemberId()).thenReturn(7L);
+        when(lbpSessions.findByMemberId(7L))
+            .thenReturn(Optional.of(LbpSession.builder().active(true).build()));
+
+        assertThat(integrationsService.isEffectivelyEnabled("lbp")).isTrue();
+    }
+
+    @Test
+    void isEffectivelyEnabled_lbp_falseWhenOnlyAnInactiveSessionExists() {
+        when(settingRepository.findByKey("integration.lbp.enabled")).thenReturn(Optional.empty());
+        when(userContext.currentMemberId()).thenReturn(7L);
+        when(lbpSessions.findByMemberId(7L))
+            .thenReturn(Optional.of(LbpSession.builder().active(false).build()));
+
+        assertThat(integrationsService.isEffectivelyEnabled("lbp")).isFalse();
     }
 
     @Test

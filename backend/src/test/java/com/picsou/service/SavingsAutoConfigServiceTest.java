@@ -13,6 +13,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -42,9 +43,9 @@ class SavingsAutoConfigServiceTest {
 
         SavingsInterestConfig saved = capture();
         assertThat(saved.getProduct()).isEqualTo(SavingsProduct.LIVRET_A);
-        assertThat(saved.getAnnualRate()).isEqualByComparingTo(RegulatedRates.LIVRET_A);
+        assertThat(saved.getAnnualRate()).isEqualByComparingTo(new BigDecimal("2.40"));
         assertThat(saved.getRateBasis()).isEqualTo(RateBasis.NET);
-        assertThat(saved.getCeiling()).isEqualByComparingTo(RegulatedRates.LIVRET_A_CEILING);
+        assertThat(saved.getCeiling()).isEqualByComparingTo(new BigDecimal("22950.00"));
     }
 
     @Test
@@ -60,9 +61,9 @@ class SavingsAutoConfigServiceTest {
             .extracting(SavingsInterestConfig::getProduct)
             .containsExactly(SavingsProduct.LEP, SavingsProduct.LDDS);
         assertThat(captor.getAllValues().get(0).getCeiling())
-            .isEqualByComparingTo(RegulatedRates.LEP_CEILING);
+            .isEqualByComparingTo(new BigDecimal("10000.00"));
         assertThat(captor.getAllValues().get(1).getCeiling())
-            .isEqualByComparingTo(RegulatedRates.LDDS_CEILING);
+            .isEqualByComparingTo(new BigDecimal("12000.00"));
     }
 
     @Test

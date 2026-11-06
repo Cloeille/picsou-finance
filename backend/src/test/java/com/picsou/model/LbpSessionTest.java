@@ -89,6 +89,21 @@ class LbpSessionTest {
     }
 
     @Test
+    void anUndeclaredErrorCodeIsRejectedAndLeavesTheSessionUntouched() {
+        LbpSession session = session();
+        session.markQueued();
+        session.markRunning(NOW);
+
+        // LBP has no SMS code: INVALID_OTP is not one of its declared codes.
+        assertThatThrownBy(() -> session.markFailed(SidecarErrorCode.INVALID_OTP, NOW))
+            .isInstanceOf(IllegalArgumentException.class);
+
+        assertThat(session.getSyncStatus()).isEqualTo(LbpSyncStatus.RUNNING);
+        assertThat(session.getLastSyncError()).isNull();
+        assertThat(session.isActive()).isTrue();
+    }
+
+    @Test
     void aTransientFailureKeepsTheSessionUsable() {
         LbpSession session = session();
         session.markQueued();

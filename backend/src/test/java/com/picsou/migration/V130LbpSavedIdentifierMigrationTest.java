@@ -85,6 +85,22 @@ class V130LbpSavedIdentifierMigrationTest {
             assertThat(rs.next()).isTrue();
             assertThat(rs.getString(1)).isEqualTo("encrypted-identifier");
         }
+
+        long withoutIdentifier = newMember("lbp-v130-null");
+        try (Connection c = connection();
+             PreparedStatement st = c.prepareStatement(
+                 "INSERT INTO lbp_session (member_id, session_state) VALUES (?, ?)")) {
+            st.setLong(1, withoutIdentifier);
+            st.setString(2, "cookies");
+            assertThat(st.executeUpdate()).isEqualTo(1);
+        }
+        try (Connection c = connection();
+             PreparedStatement st = c.prepareStatement(
+                 "SELECT encrypted_identifier FROM lbp_session WHERE member_id = ?");
+             ResultSet rs = st.executeQuery()) {
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getString(1)).isNull();
+        }
     }
 
     private static long newMember(String name) throws SQLException {
