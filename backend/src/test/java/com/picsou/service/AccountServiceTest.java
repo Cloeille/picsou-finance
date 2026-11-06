@@ -2,6 +2,7 @@ package com.picsou.service;
 
 import com.picsou.adapter.CoinGeckoPriceProvider;
 import com.picsou.adapter.CompositePriceProvider;
+import com.picsou.adapter.PreciousMetalPriceProvider;
 import com.picsou.adapter.YahooFinancePriceProvider;
 import com.picsou.adapter.YahooFinanceStubs;
 import com.picsou.dto.AccountRequest;
@@ -1155,7 +1156,8 @@ class AccountServiceTest {
               {"chart":{"result":[{"meta":{"regularMarketPrice":60.0,"currency":"EUR"}}]}}"""
             : null);
         PriceService realPrices = new PriceService(
-            new CompositePriceProvider(new CoinGeckoPriceProvider(), yahoo), mock(PriceSnapshotRepository.class));
+            new CompositePriceProvider(new CoinGeckoPriceProvider(), yahoo,
+                new PreciousMetalPriceProvider(yahoo)), mock(PriceSnapshotRepository.class));
         AccountService service = new AccountService(accountRepository, snapshotRepository, holdingRepository,
             transactionRepository, realEstateMetadataRepository, propertyValuationRepository, debtRepository,
             savingsInterestConfigRepository, realPrices, loanAmortizationService, accessResolver,

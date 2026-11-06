@@ -79,6 +79,20 @@ class DividendHistoryServiceTest {
     }
 
     @Test
+    void refreshStale_neverAsksTheHistoryPortAboutAGoldTicker() {
+        when(historyPort.fetchDividendHistory("TTE.PA"))
+            .thenReturn(new DividendHistory("EUR", List.of(point("2026-06-01", "0.50"))));
+        when(prices.getFxRateToEur("EUR")).thenReturn(BigDecimal.ONE);
+
+        int refreshed = service().refreshStale(List.of("GOLD:GRAM", "gold:krugerrand", "TTE.PA"), 40);
+
+        assertThat(refreshed).isEqualTo(1);
+        verify(historyPort).fetchDividendHistory("TTE.PA");
+        verify(historyPort, never()).fetchDividendHistory("GOLD:GRAM");
+        verify(historyPort, never()).fetchDividendHistory("GOLD:KRUGERRAND");
+    }
+
+    @Test
     void refreshStale_refreshesOnlyWhatIsDueAndStopsAtTheCap() {
         Instant now = NOW;
         DividendSource fresh = source("FRESH", DividendSourceStatus.OK, now.minus(Duration.ofDays(2)));

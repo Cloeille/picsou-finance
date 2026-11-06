@@ -4,6 +4,7 @@ import com.picsou.adapter.YahooCooldown;
 import com.picsou.model.DividendEvent;
 import com.picsou.model.DividendSource;
 import com.picsou.model.DividendSourceStatus;
+import com.picsou.model.PreciousMetal;
 import com.picsou.port.DividendHistory;
 import com.picsou.port.DividendHistoryPort;
 import com.picsou.port.NasdaqDividend;
@@ -114,6 +115,9 @@ public class DividendHistoryService {
         List<String> wanted = tickers.stream()
             .filter(Objects::nonNull)
             .map(t -> t.toUpperCase(Locale.ROOT))
+            // Gold products pay no dividend and are not Yahoo symbols: the chart endpoint
+            // would be asked about a ticker it cannot know.
+            .filter(t -> PreciousMetal.fromTicker(t).isEmpty())
             .distinct()
             .toList();
         if (wanted.isEmpty()) {

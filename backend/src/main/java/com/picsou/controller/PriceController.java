@@ -1,5 +1,7 @@
 package com.picsou.controller;
 
+import com.picsou.dto.PreciousMetalProductResponse;
+import com.picsou.model.PreciousMetal;
 import com.picsou.model.PriceSnapshot;
 import com.picsou.repository.PriceSnapshotRepository;
 import com.picsou.service.PriceService;
@@ -32,6 +34,12 @@ public class PriceController {
             .collect(Collectors.toSet());
 
         return priceService.refreshPrices(tickerSet);
+    }
+
+    /** The gold products a PRECIOUS_METALS holding can carry, in registry order. */
+    @GetMapping("/precious-metals")
+    public List<PreciousMetalProductResponse> getPreciousMetals() {
+        return Arrays.stream(PreciousMetal.values()).map(PreciousMetalProductResponse::from).toList();
     }
 
     /**
