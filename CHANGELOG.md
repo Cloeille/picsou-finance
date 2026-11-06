@@ -29,6 +29,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   symbol is asked again after 24 hours, an undecided one (provider down or rate-limited) after
   15 minutes; these windows are kept in memory, so a restart asks again. Past daily snapshots
   keep their recorded values.
+- **Budget: the allocation stock is valued in euros.** The stock donut and the Overview total
+  added each account's stored balance as if it were euros: a USD account counted its dollars, an
+  account with a ticker its coin quantity, and an account with holdings the last stored figure
+  rather than the live value of its holdings. Revolut pockets and money-boxes were also counted on
+  top of their wallet, whose balance already includes them. `AllocationService` now uses the same
+  EUR valuation as the dashboard (`liveBalanceEur`); a sub-account is counted in its own class and
+  the same amount, at most what is left of the wallet, is taken out of its wallet's, so a money-box
+  shows as savings and nothing is counted twice. A sub-account in its wallet's own class stays in
+  the wallet, a negative one moves nothing, and an account that is skipped is not valued, so a
+  failing price lookup on it no longer breaks the view. Contributions are unchanged.
 - **A co-owned loan shows its real repayment progress.** The dashboard's liabilities card
   compared the member's share of the remaining capital to the whole borrowed amount, so a
   half-owned 200,000 EUR loan with 150,000 left showed 62.5% repaid instead of 25%. Progress
