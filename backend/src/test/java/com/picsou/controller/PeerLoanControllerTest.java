@@ -16,6 +16,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -105,6 +106,20 @@ class PeerLoanControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"principal\":1000,\"months\":1201}"))
             .andExpect(status().isUnprocessableEntity());
+
+        verifyNoInteractions(peerLoanService);
+    }
+
+    @Test
+    void simulateRejectsATinyExponentRateFast() throws Exception {
+        // A tiny exponent would pin a thread in setScale if it reached the calculator:
+        // validation must reject it before the service is ever called.
+        long start = System.currentTimeMillis();
+        mvc.perform(post("/api/peer-loans/simulate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"principal\":1000,\"months\":12,\"annualRate\":1E-100000000}"))
+            .andExpect(status().isUnprocessableEntity());
+        assertThat(System.currentTimeMillis() - start).isLessThan(5000);
 
         verifyNoInteractions(peerLoanService);
     }

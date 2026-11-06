@@ -199,8 +199,11 @@ normalized annual fraction the calculator uses; `rate_period` only remembers how
 member stated it, so a loan agreed at 0.5 %/month reopens as 0.5 %/month rather than 6 %/year.
 There is **no low cap**: a short-term loan may carry a high nominal rate (10 %/month is
 120 %/year), and the column stores it with six decimals. The API still bounds the input
-(rate ≤ 1 000, six integer and six fraction digits; amounts ≤ 12 integer digits) so the
-annuity cannot be exponentiated into a CPU sink or overflow the `NUMERIC` columns.
+(rate ≤ 1 000, six integer digits, and a loose 30-fraction-digit guard so doubles like
+`0.011000000000000001` pass while tiny exponents like `1E-100000000` are rejected
+before they can pin the calculator, then rounded to six decimals by the backend;
+amounts ≤ 12 integer digits) so the annuity cannot be exponentiated into a CPU sink
+or overflow the `NUMERIC` columns.
 
 ### REST endpoints
 
