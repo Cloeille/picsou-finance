@@ -137,7 +137,9 @@ export const trApi = {
   importCsv: (file: File) => {
     const form = new FormData()
     form.append('file', file)
-    return api.post<Account[]>('/tr/import', form).then(r => r.data)
+    return api.post<Account[]>('/tr/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
   },
 
   clearSession: () =>
