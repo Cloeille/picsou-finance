@@ -20,9 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SPRING_DATASOURCE_PASSWORD`, then `POSTGRES_PASSWORD`).
   **Upgrade:** `data-permissions` runs `chown -R 1000:1000 /data` before each app start
   (`deploy.sh` runs it too). A bind mount where `chown` is ignored (SMB/CIFS) needs the mount
-  options `uid=1000,gid=1000`. Behaviour changes: uploads follow Spring's 10 MB multipart limit
-  instead of nginx's 1 MB body limit, no proxy timeout cuts slow requests any more, and a stopped
-  backend is a refused connection instead of an nginx 502.
+  options `uid=1000,gid=1000`. Without Compose (plain `docker run`), run once before the first
+  start of the new image: `docker run --rm --user 0 --entrypoint chown -v <your-data-volume>:/data
+  ghcr.io/cloeille/picsou-finance:<tag> -R 1000:1000 /data`; until then the app refuses to start
+  (`Cannot write secret file … AccessDeniedException`) and generates nothing.
+  Behaviour changes: authenticated uploads follow Spring's 10 MB multipart limit instead of
+  nginx's 1 MB body limit, while the anonymous endpoints (`/api/setup`, `/api/auth/`,
+  `/oauth2/register`) keep a 1 MB cap (`AnonymousBodyLimitFilter`, HTTP 413), no proxy timeout cuts
+  slow requests any more, and a stopped backend is a refused connection instead of an nginx 502.
 
 ### Added
 

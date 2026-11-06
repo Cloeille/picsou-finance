@@ -85,7 +85,8 @@ There is no supervisor: Docker (`restart: unless-stopped`) and Kubernetes restar
 
 - **No proxy timeouts.** nginx cut requests at 60 s (90 s for the Caisse d'Epargne keypad, 180 s for the Caisse d'Epargne, CMES and CIC login completions). Tomcat has no response timeout, and the backend caps its own waits on third-party APIs and sidecars.
 - **`/mcp` streams** straight from Tomcat. The SSE keep-alive and `spring.mvc.async.request-timeout` settings are unchanged.
-- **Upload size.** nginx's default 1 MB body limit used to apply; Spring's multipart limit (10 MB) now does.
+- **Request size.** nginx's default 1 MB body limit used to apply everywhere. Authenticated uploads now follow Spring's multipart limit (10 MB). The endpoints an anonymous client can reach (`/api/setup`, `/api/auth/`, `/oauth2/register`) keep a 1 MB cap in `AnonymousBodyLimitFilter`, which answers 413 from the `Content-Length` before the body is read (a body of unknown length is refused too); without it a few dozen concurrent 20 MB JSON posts exhausted the heap of a 1.5 GB container.
+- **Existing `/data` and `docker run`.** Compose and `deploy.sh` hand `/data` to uid 1000 themselves. With a plain `docker run`, do it once: `docker run --rm --user 0 --entrypoint chown -v <volume>:/data <image> -R 1000:1000 /data`. Until then the app refuses to start (`Cannot write secret file … AccessDeniedException`) and generates no new secret.
 - **No 502/504 pages from the image.** A stopped app is a refused connection, or your own proxy's error page.
 
 ### Shared sidecar bases — `services/base/Dockerfile`
