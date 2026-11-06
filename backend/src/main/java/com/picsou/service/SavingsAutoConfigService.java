@@ -3,10 +3,8 @@ package com.picsou.service;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.RateBasis;
-import com.picsou.model.SavingsInterestConfig;
 import com.picsou.model.SavingsProduct;
 import com.picsou.repository.SavingsInterestConfigRepository;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -49,20 +47,16 @@ public class SavingsAutoConfigService {
         if (configRepository.findByAccountId(account.getId()).isPresent()) {
             return false;
         }
-        try {
-            configRepository.save(SavingsInterestConfig.builder()
-                .account(account)
-                .product(defaults.product())
-                .annualRate(defaults.annualRate())
-                .rateBasis(RateBasis.NET)
-                .ceiling(defaults.ceiling())
-                .build());
-            return true;
-        } catch (DataIntegrityViolationException ex) {
-            // A concurrent save (a manual configuration or another sync) won the race for
-            // the unique account_id: the row already exists, so nothing more to do.
-            return false;
-        }
+        // Conflict-safe insert, not save-and-catch: a unique-constraint violation would
+        // abort the surrounding snapshot transaction on PostgreSQL even when caught.
+        // ON CONFLICT DO NOTHING preserves a concurrent user configuration.
+        return configRepository.insertIfAbsent(
+            account.getId(),
+            defaults.product().name(),
+            defaults.annualRate(),
+            RateBasis.NET.name(),
+            defaults.ceiling()
+        ) > 0;
     }
 
     private static Defaults defaultsFor(AccountType type) {
