@@ -16,6 +16,9 @@ KEYS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
 
 class FakeBank:
+    def __init__(self):
+        self.positions = None
+
     async def initiate(self, customer_id):
         return {
             "processId": "proc-1",
@@ -24,6 +27,7 @@ class FakeBank:
         }
 
     async def keypad(self, process_id, positions):
+        self.positions = list(positions)
         return None
 
     async def complete(self, process_id):
@@ -101,7 +105,8 @@ class LbpSidecarContractTest(unittest.TestCase):
         self.assertEqual(response.json(), {"detail": "INVALID_SESSION_STATE"})
 
     def test_the_normalized_contract_is_passed_through(self):
-        with patch.object(main, "bank_client", FakeBank()):
+        fake = FakeBank()
+        with patch.object(main, "bank_client", fake):
             initiated = self.post("/initiate", {"customerId": "1234567890"})
             self.assertEqual(initiated.status_code, 200)
             self.assertEqual(initiated.json()["processId"], "proc-1")
@@ -111,6 +116,8 @@ class LbpSidecarContractTest(unittest.TestCase):
             keypad = self.post("/keypad", {"processId": "proc-1", "positions": [7, 3, 0, 9, 4, 1]})
             self.assertEqual(keypad.status_code, 200)
             self.assertEqual(keypad.json(), {"processId": "proc-1", "status": "APPROVAL_PENDING"})
+            # The exact order must reach the bank client: a reorder is a wrong password.
+            self.assertEqual(fake.positions, [7, 3, 0, 9, 4, 1])
 
             completed = self.post("/complete", {"processId": "proc-1"})
             self.assertEqual(completed.status_code, 200)
