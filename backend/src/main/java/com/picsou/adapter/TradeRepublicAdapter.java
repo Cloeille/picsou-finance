@@ -73,6 +73,12 @@ public class TradeRepublicAdapter {
     private static final Duration DEFAULT_SESSION_TIMEOUT = Duration.ofSeconds(45);
     /** TR renders the export on demand, which takes a while over a long window. */
     private static final Duration DEFAULT_TRANSACTIONS_TIMEOUT = Duration.ofSeconds(120);
+    /**
+     * The CSV export is read whole, and Spring's 256 KiB default drops it from about 1,200 rows
+     * (a real 721-row, 3-year export was 155 KB). 16 MiB, as for Caisse d'Epargne, holds some
+     * 70,000 rows, past what the 5-year window the sidecar accepts can carry.
+     */
+    private static final int TRANSACTIONS_MAX_BYTES = 16 * 1024 * 1024;
     // Total time the WebSocket read may take before the sync goes on with what it has.
     // Kept under WS_HARD_TIMEOUT around the whole exchange, which fails the sync.
     static final Duration WS_WAIT_CAP = Duration.ofSeconds(30);
@@ -102,7 +108,8 @@ public class TradeRepublicAdapter {
     ) {
         this(
             objectMapper,
-            clients.create(SidecarBank.TRADE_REPUBLIC.label(), SidecarBank.TRADE_REPUBLIC.serviceName()),
+            clients.create(SidecarBank.TRADE_REPUBLIC.label(), SidecarBank.TRADE_REPUBLIC.serviceName(),
+                builder -> builder.codecs(c -> c.defaultCodecs().maxInMemorySize(TRANSACTIONS_MAX_BYTES))),
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_COMPLETE_TIMEOUT,
             DEFAULT_SESSION_TIMEOUT,

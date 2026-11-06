@@ -2,6 +2,7 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -232,6 +233,24 @@ class TradeRepublicAdapterTest {
         assertThat(path.get()).endsWith("transactions");
         assertThat(body.get()).contains("\"sessionState\":\"state\"")
             .contains("\"from\":\"2023-11-04\"").contains("\"to\":\"2026-11-04\"");
+    }
+
+    @Test
+    void fetchTransactionsCsv_returnsAnExportLargerThanTheDefault256KibCodecLimit() {
+        // A real 3-year export of 721 rows was 155 KB: about 1,200 rows cross Spring's 256 KiB default.
+        String row = "2026-10-01T10:00:00Z,2026-10-01,DEFAULT,CASH,CARD_PAYMENT," + "X".repeat(180) + "\n";
+        String csv = "datetime,date\n" + row.repeat(600 * 1024 / row.length());
+        assertThat(csv.getBytes(StandardCharsets.UTF_8).length).isGreaterThan(256 * 1024);
+        server = HttpServer.create().host("127.0.0.1").port(0)
+            .handle((request, response) -> request.receive().then(
+                response.header("Content-Type", "text/csv").sendString(Mono.just(csv)).then()))
+            .bindNow();
+        TradeRepublicAdapter adapter = new TradeRepublicAdapter(
+            SidecarTestSupport.factory("tr-auth", "http://127.0.0.1:" + server.port()), new ObjectMapper());
+
+        String result = adapter.fetchTransactionsCsv("state", LocalDate.of(2023, 11, 4), LocalDate.of(2026, 11, 4));
+
+        assertThat(result).isEqualTo(csv);
     }
 
     @ParameterizedTest

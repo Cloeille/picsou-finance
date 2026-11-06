@@ -46,6 +46,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -888,6 +889,56 @@ class TradeRepublicSyncServiceTest {
         service.queueSync(MEMBER);
 
         verify(trPort).fetchTransactionsCsv("plain-state", LocalDate.of(2026, 10, 16), TODAY);
+    }
+
+    @Test
+    void sync_aNewestEntryOlderThanFiveYearsAsksForTheLongestWindowTheSidecarAccepts() {
+        syncMember();
+        Account cash = trCash();
+        when(trPort.fetchAccounts("cookie", CLAIMS)).thenReturn(List.of());
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER)).thenReturn(List.of(cash));
+        when(transactionRepository.findLatestSyncedDateByAccountId(1L)).thenReturn(TODAY.minusYears(6));
+        when(trPort.fetchTransactionsCsv(anyString(), any(), any())).thenReturn(csvText());
+
+        service.queueSync(MEMBER);
+
+        verify(trPort).fetchTransactionsCsv("plain-state", TODAY.minusDays(1830), TODAY);
+    }
+
+    @Test
+    void importTransactions_leavesOutAndCountsRowsTheExportStatesInAnotherCurrency() {
+        Account cash = trCash();
+        stubTrAccounts(cash);
+        when(categorizationService.categoriesBySlug(MEMBER)).thenReturn(Map.of("investissement", investTransferCategory()));
+        // The importer finds both columns by their header name; these indices are free slots.
+        String[] header = new String[19];
+        Arrays.fill(header, "");
+        header[0] = "datetime";
+        header[12] = "currency";
+        header[14] = "original_currency";
+        String eur = row("2026-10-02", "DEFAULT", "CASH", "CARD_PAYMENT", "", "-12.50", "Coffee", "ext-eur");
+        String usd = row("2026-10-03", "DEFAULT", "CASH", "CARD_PAYMENT", "", "-20.00", "Diner", "ext-usd");
+        String abroad = row("2026-10-04", "DEFAULT", "CASH", "CARD_PAYMENT", "", "-9.10", "Taxi", "ext-abroad");
+        String body = String.join(",", header) + "\n"
+            + withColumn(eur, 12, "EUR") + "\n"
+            + withColumn(usd, 12, "USD") + "\n"
+            + withColumn(withColumn(abroad, 12, "EUR"), 14, "USD") + "\n";
+        var file = new MockMultipartFile("file", "tr.csv", "text/csv", body.getBytes(StandardCharsets.UTF_8));
+
+        TradeRepublicSyncService.ImportResult result = service.importTransactionsCsv(1L, file, MEMBER);
+
+        assertThat(result.inserted()).isEqualTo(2);
+        assertThat(result.nonEur()).isEqualTo(1);
+        ArgumentCaptor<Transaction> saved = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, times(2)).save(saved.capture());
+        assertThat(saved.getAllValues()).extracting(Transaction::getExternalId)
+            .containsExactlyInAnyOrder("ext-eur_cash", "ext-abroad_cash");
+    }
+
+    private static String withColumn(String row, int index, String value) {
+        List<String> cols = new ArrayList<>(Arrays.asList(row.split(",", -1)));
+        cols.set(index, value);
+        return String.join(",", cols);
     }
 
     @Test
