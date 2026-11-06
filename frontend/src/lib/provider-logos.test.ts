@@ -84,6 +84,11 @@ describe('providerLogoUrl', () => {
     expect(providerLogoUrl('Trade Republic')).toBe('/providers/trade-republic.svg')
   })
 
+  // NatixisSyncService.PROVIDER, accent included: the upper-casing must keep the É.
+  it('resolves the provider the Natixis connector writes', () => {
+    expect(providerLogoUrl('Natixis Interépargne')).toBe('/providers/natixis-interepargne.svg')
+  })
+
   it('resolves the exchange name the backend writes as provider', () => {
     expect(providerLogoUrl('MERIA')).toBe('/exchanges/meria.svg')
   })
