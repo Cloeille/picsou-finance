@@ -55,4 +55,8 @@ snippet. Issue #342 aims at one process with no root.
 - No proxy timeouts: Tomcat does not cut slow requests. The backend caps its own waits.
 - Existing root-owned volumes need a one-time ownership change, done by the Compose service,
   Helm `fsGroup`, or by hand on a bind mount that ignores `chown`.
-- Tomcat has no 1 MB body limit any more; Spring's 10 MB multipart limit applies.
+- nginx's 1 MB body limit is kept only where no session is needed (`/api/setup/**`,
+  `/api/auth/**`, `/oauth2/register`, by `AnonymousBodyLimitFilter`); authenticated uploads follow
+  Spring's 10 MB multipart limit.
+- No body buffering in front of Tomcat: slow clients hold worker threads. Internet-facing
+  installs need their own buffering proxy.

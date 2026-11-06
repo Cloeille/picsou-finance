@@ -78,10 +78,10 @@ multi-tenant in the SaaS sense.
 | Rate limiting                      | Bucket4j on login (5/15 min), MFA challenge, sync endpoints, GDPR export, and password reset                            |
 | Encryption at rest                 | AES-256-GCM for crypto-exchange API secrets, bank session tokens, and Finary credentials; key required at startup       |
 | SQL injection                      | JPA/Hibernate parameterized queries, no raw SQL                                                                         |
-| XSS                                | React's built-in escaping; CSP headers via Nginx in the Docker image                                                    |
+| XSS                                | React's built-in escaping; CSP and the other security headers set by Spring Security on every response                |
 | CSRF                               | `SameSite=Lax` cookies + cross-site check on cookie-authenticated state-changing requests (`Sec-Fetch-Site`/`Origin`)   |
 | Secrets                            | All credentials via environment variables or the wizard's `AppSetting` store (encrypted); never in source code          |
-| Bank credentials                   | Enable Banking tokens session-scoped and never persisted in clear; PEM private key mounted read-only                    |
+| Bank credentials                   | Enable Banking tokens session-scoped and never persisted in clear; PEM private key `0600` under `/data/keys`, or a read-only Secret on Helm |
 | GDPR export                        | Step-up re-authentication required; download is read-only-transactional and rate-limited                                |
 | Audit log                          | `setup_audit` records every wizard action with actor, IP, and timestamp                                                 |
 | Logging                            | No PII, secrets, or financial balances in application logs; CORS rejection logs are redacted                            |

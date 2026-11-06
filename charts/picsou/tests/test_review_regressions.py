@@ -409,6 +409,21 @@ class ReviewRegressionsTest(unittest.TestCase):
                                   if r["kind"] == "Secret")
                     self.assertEqual(secret["data"], stored)
 
+    def test_enable_banking_key_is_group_readable_by_the_app(self):
+        resources = self.resources("--set", "app.enableBanking.existingSecret=eb")
+        pod = next(r for r in resources if r["kind"] == "Deployment"
+                   and r["metadata"]["name"] == "picsou")["spec"]["template"]["spec"]
+        volume = next(v for v in pod["volumes"] if v["name"] == "enablebanking")
+        self.assertEqual(volume["secret"]["defaultMode"], 0o440)
+        self.assertEqual(pod["securityContext"]["fsGroup"], 1000)
+
+    def test_enable_banking_key_without_fs_group_fails_to_render(self):
+        result = self.render("--set", "app.enableBanking.existingSecret=eb",
+                             "--set", "app.podSecurityContext.fsGroup=null")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires app.podSecurityContext.fsGroup", result.stderr)
+        self.resources("--set", "app.podSecurityContext.fsGroup=null")
+
     def test_operator_environment_replaces_all_app_defaults_by_name(self):
         resources = self.resources("--set", "app.enableBanking.existingSecret=eb")
         original = next(r for r in resources if r["kind"] == "Deployment"
