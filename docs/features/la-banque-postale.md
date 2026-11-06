@@ -319,9 +319,11 @@ three accounts. The session row was `SUCCESS` and active afterwards.
   parsed.
 - Scheduled sync and automatic re-authentication.
 - Enable Banking adoption/deduplication by IBAN.
-- A multi-replica backend: the pending login store is process-local, so the app
-  must run one replica (or route `/api/lbp/*` with affinity) while a login is in
-  progress. See [docker-deployment](docker-deployment.md#operational-notes).
+- A multi-replica backend: pending logins and authentication generations are
+  process-local. While a login is in progress, run one replica or route all
+  `/api/lbp/*` requests for the same member to the same replica, including
+  disconnect requests from other devices. See
+  [docker-deployment](docker-deployment.md#gotchas--pitfalls).
 - `AccountConnectionService` / `SyncStatusService` / MCP `SyncTools`
   integration: deleting the last LBP account does not clear its session, and
   the connector is not in the status/broker feeds. The connector is on demand and
