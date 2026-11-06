@@ -41,6 +41,8 @@ class V129SidecarSessionMigrationTest {
           FROM sidecar_session WHERE bank = ? AND member_id = ?
         """;
 
+    private static final Instant STARTED = Instant.parse("2026-10-03T08:00:00Z");
+
     @Container
     static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
@@ -48,6 +50,9 @@ class V129SidecarSessionMigrationTest {
     static long bob;
     static long carol;
     static long dave;
+    static long erin;
+    static long frank;
+    static long gina;
 
     @BeforeAll
     static void seedV128AndMigrate() throws SQLException {
@@ -81,6 +86,18 @@ class V129SidecarSessionMigrationTest {
                 execute(c, "INSERT INTO " + table + "_session (member_id, session_state, sync_status) "
                     + "VALUES (" + dave + ", 'dave', 'FAILED')");
             }
+            erin = newMember(c, "erin");
+            frank = newMember(c, "frank");
+            gina = newMember(c, "gina");
+            // The three statuses left: no error, and a start instant for the two that have begun.
+            for (String table : TABLES) {
+                execute(c, "INSERT INTO " + table + "_session (member_id, session_state, sync_status, "
+                    + "last_sync_started_at) VALUES (" + erin + ", 'erin', 'QUEUED', '" + STARTED + "')");
+                execute(c, "INSERT INTO " + table + "_session (member_id, session_state, sync_status, "
+                    + "last_sync_started_at) VALUES (" + frank + ", 'frank', 'RUNNING', '" + STARTED + "')");
+                execute(c, "INSERT INTO " + table + "_session (member_id, session_state, sync_status) "
+                    + "VALUES (" + gina + ", 'gina', 'IDLE')");
+            }
         }
         PostgresContainers.migrateToOutOfOrder(POSTGRES, "129");
     }
@@ -111,6 +128,15 @@ class V129SidecarSessionMigrationTest {
         }
         assertThat(count("SELECT count(*) FROM sidecar_session WHERE member_id IN (" + alice + ", " + bob + ")"))
             .isEqualTo(2L * TABLES.length);
+    }
+
+    @Test
+    void everyStatusIsCopied() throws SQLException {
+        for (SidecarBank bank : SidecarBank.values()) {
+            assertStatusCopied(bank, erin, "QUEUED", STARTED);
+            assertStatusCopied(bank, frank, "RUNNING", STARTED);
+            assertStatusCopied(bank, gina, "IDLE", null);
+        }
     }
 
     @Test
@@ -207,6 +233,15 @@ class V129SidecarSessionMigrationTest {
         }
         assertThat(count("SELECT count(*) FROM sidecar_session WHERE bank = 'SOFIDY' AND session_state = 's'"))
             .isZero();
+    }
+
+    private static void assertStatusCopied(SidecarBank bank, long member, String status, Instant started)
+        throws SQLException {
+        // Index 7 is sync_status, 8 last_sync_started_at, 10 last_sync_error.
+        List<Object> row = row(bank, member);
+        assertThat(row.get(7)).as("%s %s status", bank, status).isEqualTo(status);
+        assertThat(row.get(8)).as("%s %s started at", bank, status).isEqualTo(started);
+        assertThat(row.get(10)).as("%s %s error", bank, status).isNull();
     }
 
     private static List<Object> row(SidecarBank bank, long member) throws SQLException {
