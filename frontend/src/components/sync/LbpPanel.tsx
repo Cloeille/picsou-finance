@@ -49,9 +49,11 @@ type AuthState =
   | "AWAITING_APP"
   | "ERROR"
 
-/** The bank's password is 6 to 12 digits; the sidecar enforces the same bounds. */
+/** The bank's password is 6 digits; the sidecar accepts 6 to 12, this UI sends 6. */
 const MIN_POSITIONS = 6
 const MAX_POSITIONS = 6
+const MIN_IDENTIFIER = 6
+const MAX_IDENTIFIER = 12
 const DEFAULT_COLUMNS = 5
 
 interface KeypadPad {
@@ -223,7 +225,8 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
     firstSyncStarted.current = true
     setLostCompletionAt(null)
     setAuthState("IDLE")
-    setCustomerId("")
+    setCustomerId(null)
+    setConfirmingDisconnect(false)
     void refetchStatus()
     // A fresh session holds no accounts yet. Both completion paths queue one
     // first sync, and the caller is told only once its accounts exist.
@@ -348,6 +351,11 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
 
   const submit = async () => {
     if (submitting.current) return
+    if (customerIdValue.length < MIN_IDENTIFIER || customerIdValue.length > MAX_IDENTIFIER) {
+      setError(t("sync.lbp.errors.invalidIdentifier"))
+      setAuthState("ERROR")
+      return
+    }
     submitting.current = true
     authAttempt.current += 1
     firstSyncStarted.current = false
@@ -571,6 +579,8 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
                   id="lbp-customer-id"
                   inputMode="numeric"
                   autoComplete="off"
+                  minLength={MIN_IDENTIFIER}
+                  maxLength={MAX_IDENTIFIER}
                   value={customerIdValue}
                   onChange={(event) => setCustomerId(event.target.value.replace(/\D/g, ""))}
                   required

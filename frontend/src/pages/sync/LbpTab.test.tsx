@@ -80,16 +80,24 @@ describe('LbpTab', () => {
 
   it('asks for the identifier only, never a password', async () => {
     renderTab()
-    await signIn('12ab34')
+    await signIn('1234567890')
 
     expect(screen.getByLabelText('sync.lbp.customerId')).toBeInTheDocument()
     expect(document.querySelector('input[type="password"]')).toBeNull()
     await waitFor(() =>
       expect(apiPost).toHaveBeenCalledWith('/lbp/auth/initiate', {
-        customerId: '1234',
+        customerId: '1234567890',
         rememberIdentifier: false,
       }),
     )
+  })
+
+  it('refuses an identifier that is too short before calling the bank', async () => {
+    renderTab()
+    await signIn('1234')
+
+    expect(screen.getByText('sync.lbp.errors.invalidIdentifier')).toBeInTheDocument()
+    expect(apiPost).not.toHaveBeenCalledWith('/lbp/auth/initiate', expect.anything())
   })
 
   it('prefills the identifier the user asked to remember', async () => {
@@ -107,6 +115,38 @@ describe('LbpTab', () => {
         customerId: '9876543210',
         rememberIdentifier: true,
       }),
+    )
+  })
+
+  it('keeps the remembered identifier when the session expires after a login', async () => {
+    apiGet
+      .mockResolvedValueOnce({ data: DISCONNECTED })
+      .mockResolvedValue({ data: { ...DISCONNECTED, savedIdentifier: '9876543210' } })
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/lbp/auth/initiate') return Promise.resolve({ data: INITIATED })
+      if (url === '/lbp/auth/keypad') return Promise.resolve({ data: KEYPAD_DONE })
+      if (url === '/lbp/auth/complete') {
+        return Promise.resolve({ data: { ...ACTIVE, savedIdentifier: '9876543210' } })
+      }
+      if (url === '/lbp/sync') {
+        return Promise.resolve({
+          data: { ...ACTIVE, savedIdentifier: '9876543210', syncStatus: 'SUCCESS' },
+        })
+      }
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
+
+    renderTab()
+    await signIn('9876543210')
+    await screen.findByTestId('lbp-keypad-grid')
+    for (const index of [0, 1, 2, 3, 4, 5]) {
+      fireEvent.click(keyButtons()[index])
+    }
+    fireEvent.click(validateButton())
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/lbp/sync'))
+    await waitFor(() =>
+      expect(screen.getByLabelText('sync.lbp.customerId')).toHaveValue('9876543210'),
     )
   })
 

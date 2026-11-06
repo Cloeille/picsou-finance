@@ -972,18 +972,20 @@ handlers.set(key('DELETE', '/caisse-epargne/session'), () => ({
 }))
 
 // La Banque Postale — the mobile approval is a human step, so the demo answers
-// the keypad then a completed session; the session status is otherwise idle.
-const demoLbpStatus = {
-  isActive: false,
-  syncStatus: 'IDLE',
+// the keypad then a completed session; the status stays consistent across reads.
+let demoLbpAuthenticated = false
+let demoLbpSynced = false
+const demoLbpStatus = () => ({
+  isActive: demoLbpAuthenticated,
+  syncStatus: demoLbpSynced ? 'SUCCESS' : 'IDLE',
   lastSyncStartedAt: null,
-  lastSyncCompletedAt: null,
+  lastSyncCompletedAt: demoLbpSynced ? '2026-11-06T12:00:00Z' : null,
   lastSyncError: null,
   unsupported: [],
   unsupportedCount: 0,
   savedIdentifier: null,
-}
-handlers.set(key('GET', '/lbp/status'), () => demoLbpStatus)
+})
+handlers.set(key('GET', '/lbp/status'), () => demoLbpStatus())
 handlers.set(key('POST', '/lbp/auth/initiate'), () => ({
   processId: 'demo',
   keypad: { keys: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'], columns: 5 },
@@ -992,11 +994,20 @@ handlers.set(key('POST', '/lbp/auth/initiate'), () => ({
 handlers.set(key('POST', '/lbp/auth/keypad'), () => ({
   processId: 'demo', status: 'APPROVAL_PENDING',
 }))
-handlers.set(key('POST', '/lbp/auth/complete'), () => demoLbpStatus)
-handlers.set(key('POST', '/lbp/sync'), () => demoLbpStatus)
-handlers.set(key('DELETE', '/lbp/session'), () => ({
-  removed: true, bankSessionRevoked: false, message: '',
-}))
+handlers.set(key('POST', '/lbp/auth/complete'), () => {
+  demoLbpAuthenticated = true
+  return demoLbpStatus()
+})
+handlers.set(key('POST', '/lbp/sync'), () => {
+  demoLbpAuthenticated = true
+  demoLbpSynced = true
+  return demoLbpStatus()
+})
+handlers.set(key('DELETE', '/lbp/session'), () => {
+  demoLbpAuthenticated = false
+  demoLbpSynced = false
+  return { removed: true, bankSessionRevoked: false, message: '' }
+})
 
 // Demo authentication bypasses the bank's mobile/SMS confirmation.
 const demoCicStatus: CicSessionStatus = {

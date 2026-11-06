@@ -260,7 +260,10 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     {
       type: 'lbp' as const, name: 'La Banque Postale', provider: 'La Banque Postale',
       active: lbpStatus?.isActive ?? false, lastSyncedAt: lbpStatus?.lastSyncCompletedAt ?? null,
+      hasSession: lbpStatus != null
+        && (lbpStatus.isActive || lbpStatus.syncStatus !== 'IDLE' || lbpStatus.savedIdentifier != null),
       failed: lbpStatus?.syncStatus === 'FAILED',
+      running: isJobRunning(lbpStatus?.syncStatus),
     },
     {
       type: 'bourse-direct' as const, name: 'Bourse Direct', provider: 'Bourse Direct',

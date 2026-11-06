@@ -411,6 +411,21 @@ describe('SyncAllModal session providers', () => {
     expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
   })
 
+  it('lists La Banque Postale after a session existed even if every account is gone', async () => {
+    lbpStatus = {
+      ...AMUNDI_INACTIVE,
+      savedIdentifier: '1234567890',
+      unsupported: [],
+      unsupportedCount: 0,
+    }
+    renderModal()
+
+    const row = (await screen.findByText('La Banque Postale')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=lbp'))
+  })
+
   it('syncs La Banque Postale through /lbp/sync when its session is live', async () => {
     lbpStatus = {
       ...AMUNDI_INACTIVE,

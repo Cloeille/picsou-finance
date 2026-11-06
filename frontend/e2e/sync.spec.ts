@@ -19,6 +19,7 @@ test.describe('Sync page tabs', () => {
       'Revolut',
       'BoursoBank',
       "Caisse d'Epargne",
+      'La Banque Postale',
       'Bourse Direct',
       'DEGIRO',
       'Interactive Brokers',
