@@ -37,7 +37,7 @@ failures:
 
 Sessions live in the shared `sidecar_session` table (bank `TRADE_REPUBLIC`), like the other sidecar banks; see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md). `V130__trade_republic_sidecar_session.sql` widens the table's two CHECK constraints with the Trade Republic branch and drops `trade_republic_session`.
 
-**Members reconnect Trade Republic once after this upgrade.** The old rows are not copied: their refresh token only worked with the v1 refresh route, which Trade Republic now answers with 401. With no row left, the daily sync reports Trade Republic as `SKIPPED_NOT_CONNECTED`, not `NEEDS_REAUTH`, and logs nothing. The Trade Republic accounts keep their last balances and holdings, frozen, until the member signs in again. The Trade Republic tab says so: with no session and at least one synced Trade Republic account, it shows "no longer updated" above the login form.
+**Members reconnect Trade Republic once after this upgrade.** The old rows are not copied: their refresh token only worked with the v1 refresh route, which Trade Republic now answers with 401. With no row left, the daily sync reports Trade Republic as `SKIPPED_NOT_CONNECTED`, not `NEEDS_REAUTH`, and logs nothing. The Trade Republic accounts keep their last balances and holdings, frozen, until the member signs in again. The Trade Republic tab says so: with no session and at least one Trade Republic account a past session imported (not a `tr_csv_*` CSV import), it shows "no longer updated" above the login form.
 
 `TradeRepublicSyncService` builds a `SidecarSyncTemplate` with a `Strategy`:
 

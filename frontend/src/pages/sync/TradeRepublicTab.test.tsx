@@ -263,6 +263,15 @@ describe('TradeRepublicTab session status', () => {
     expect(screen.queryByText('sync.tr.staleAccounts')).not.toBeInTheDocument()
   })
 
+  it('stays quiet about accounts only the CSV import created', async () => {
+    serve(DISCONNECTED, [{ id: 3, provider: 'Trade Republic', isManual: false, externalAccountId: 'tr_csv_compte_titres' }])
+
+    renderTab()
+
+    expect(await screen.findByLabelText('sync.tr.phone')).toBeInTheDocument()
+    expect(screen.queryByText('sync.tr.staleAccounts')).not.toBeInTheDocument()
+  })
+
   it('shows the queued state after a sync is requested', async () => {
     serve({ ...DISCONNECTED, isActive: true, syncStatus: 'QUEUED' })
 
