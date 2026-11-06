@@ -50,12 +50,15 @@ def _amount(holder: dict, key: str, what: str, *, required: bool = True) -> Deci
         return None
     if not isinstance(node, dict):
         raise SavingsFormatError(FORMAT_CHANGED, f"{what} is not an amount")
+    value = node.get("value")
+    if value is None and not required:
+        return None
     # Natixis tags every amount with its currency. The backend books everything
     # in EUR, so any other or a missing code fails closed instead of being
     # stored as euros.
     if node.get("currencyCode") != "EUR":
         raise SavingsFormatError(FORMAT_CHANGED, f"{what} is not in EUR")
-    return _decimal(node.get("value"), what, required=required)
+    return _decimal(value, what, required=required)
 
 
 def _text(value, what: str, *, required: bool = True) -> str | None:

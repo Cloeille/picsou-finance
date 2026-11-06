@@ -77,7 +77,19 @@ class PaymentTest(unittest.TestCase):
         detail["payments"][0]["products"][0]["investmentOptions"][0]["gross"]["currencyCode"] = "USD"
         with self.assertRaises(SavingsFormatError) as caught:
             payment_operations(detail, EMPLOYEE_ID, {})
+        self.assertEqual(caught.exception.code, "UPSTREAM_FORMAT_CHANGED")
         self.assertIn("not in EUR", str(caught.exception))
+
+    def test_invested_amount_without_currency_is_format_changed(self):
+        detail = copy.deepcopy(INVESTMENT_DEMAND)
+        for line in detail["investments"]:
+            for part in (line, line.get("additionalInvestment") or {}):
+                for key in ("netInvested", "net"):
+                    if isinstance(part.get(key), dict):
+                        part[key].pop("currencyCode", None)
+        with self.assertRaises(SavingsFormatError) as caught:
+            investment_operations(detail, EMPLOYEE_ID, {})
+        self.assertEqual(caught.exception.code, "UPSTREAM_FORMAT_CHANGED")
 
 
 class ParseOperationsTest(unittest.TestCase):

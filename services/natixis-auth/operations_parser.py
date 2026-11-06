@@ -73,6 +73,9 @@ def _buy(employee_id, demand_id, line, part, suffix, label, codes) -> dict | Non
     if quantity == 0:
         return None
     fees = _amount(part, "fees", "Investment fees", required=False)
+    amount = _amount(part, "netInvested", "Invested amount", required=False)
+    if amount is None:
+        amount = _amount(part, "net", "Invested amount")
     return {
         "externalId": external_id(employee_id, demand_id, _text(line.get("id"), "Investment line id"), suffix),
         "planExternalId": _plan_id(employee_id, part.get("product") or line.get("product")),
@@ -83,8 +86,7 @@ def _buy(employee_id, demand_id, line, part, suffix, label, codes) -> dict | Non
         "fundCode": _fund_code(part.get("fundId", line.get("fundId")), codes),
         "quantity": quantity,
         "unitValue": _decimal(part.get("unitValue"), "Unit value", required=False),
-        "amountEur": _amount(part, "netInvested", "Invested amount", required=False)
-        or _amount(part, "net", "Invested amount"),
+        "amountEur": amount,
         "feesEur": abs(fees) if fees is not None else None,
     }
 

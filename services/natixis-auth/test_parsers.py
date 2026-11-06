@@ -102,10 +102,18 @@ class ParsePlansTest(unittest.TestCase):
             for target in ("savings", "products"):
                 payloads = {"savings": copy.deepcopy(SAVINGS), "products": copy.deepcopy(PRODUCTS)}
                 set_currency(payloads[target], code)
-                with self.subTest(code=code, target=target), self.assertRaises(SavingsFormatError) as caught:
-                    plans(payloads["savings"], payloads["products"])
-                self.assertEqual(caught.exception.code, "UPSTREAM_FORMAT_CHANGED")
-                self.assertIn("not in EUR", str(caught.exception))
+                with self.subTest(code=code, target=target):
+                    with self.assertRaises(SavingsFormatError) as caught:
+                        plans(payloads["savings"], payloads["products"])
+                    self.assertEqual(caught.exception.code, "UPSTREAM_FORMAT_CHANGED")
+                    self.assertIn("not in EUR", str(caught.exception))
+
+    def test_optional_amount_without_value_is_none(self):
+        savings = copy.deepcopy(SAVINGS)
+        option = savings["items"][0]["compartments"][0]["investmentOptions"][0]
+        option["gainsOrLossesAmount"] = {"value": None}
+        line = next(p for p in plans(savings)[0]["positions"] if p["label"] == option["label"])
+        self.assertIsNone(line["pnlEur"])
 
     def test_funds_in_sub_compartments_are_read(self):
         savings = copy.deepcopy(SAVINGS)
