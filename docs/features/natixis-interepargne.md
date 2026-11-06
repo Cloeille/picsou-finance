@@ -28,7 +28,7 @@ ends the session.
 - `backend/.../controller/NatixisController.java`: `/api/natixis` with
   `/auth/initiate`, `/auth/complete`, `/sync`, `GET /status` and `DELETE /session`.
 - `backend/.../model/NatixisSession.java` and
-  `db/migration/V130__natixis_session.sql`: one session per member, holding the
+  `db/migration/V129__natixis_session.sql`: one session per member, holding the
   encrypted session state and the sync status. No credentials are stored.
 - `frontend/src/components/sync/NatixisPanel.tsx` and
   `frontend/src/pages/sync/NatixisTab.tsx`: the connection panel, also reachable
@@ -92,6 +92,7 @@ spending. The rows stay visible on the account page and in exports.
 | Keep only the refresh token | Every login asks for a code, so a stored password could never log in unattended | Stored credentials with re-login, as CMES does |
 | Valuations from Natixis | FCPE have no ISIN and no market quote | Price providers or OpenFIGI |
 | Plans reconciled twice | `products` is computed separately from `savings`, so a partial answer cannot pass for the whole | Trusting `savings` alone |
+| EUR only, fail-closed | Every amount node carries a `currencyCode`, and the backend books plans, holdings and operations in EUR; a non-EUR or missing code is `UPSTREAM_FORMAT_CHANGED` | Converting, or storing the value as euros |
 
 ## Gotchas / Pitfalls
 

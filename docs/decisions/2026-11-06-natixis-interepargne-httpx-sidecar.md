@@ -118,7 +118,7 @@ flow needs a browser, the cheaper and faster httpx path wins.
   Helm entry and `NATIXIS_AUTH_URL`.
 - On the backend: `SidecarBank.NATIXIS`, `NatixisAdapter`, `NatixisSyncService`,
   `NatixisSession`, `/api/natixis` and the migration
-  `V130__natixis_session.sql`, which has no credentials column.
+  `V129__natixis_session.sql`, which has no credentials column.
 - There is a "Natixis Interépargne" entry in the add-account modal and on the sync
   page.
 - See [natixis-interepargne.md](../features/natixis-interepargne.md).

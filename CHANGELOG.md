@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refuses it and asks to reconnect. Each plan (PEE, PER) becomes an account holding its fund
   lines at the units and unit values Natixis reports, so the balance matches the saver space.
   The operations history comes in as BUY and SELL transactions on the plan, kept off the
-  budget, cash flow and categorization. The provider gets its logo. Migration V130. See
+  budget, cash flow and categorization. The provider gets its logo. Migration V129. See
   [Natixis Interépargne](docs/features/natixis-interepargne.md).
 
 - **Sign in with your identity provider (SSO).** Set `SSO_ISSUER_URI` and `SSO_CLIENT_ID` to add

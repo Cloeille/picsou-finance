@@ -88,7 +88,6 @@ public class NatixisSyncService {
     static final Duration STALE_SYNC_AFTER = Duration.ofMinutes(10);
     /** Hex characters of the label hash that keeps two label-only fund tickers apart. */
     private static final int LABEL_HASH_LENGTH = 8;
-    /** Natixis keeps five years of operations: a stored one older than that is never deleted. */
     /**
      * Natixis lists operations by the date the demand was made, but an operation is dated when
      * the units were bought or sold, days later (2 to 16 days observed). A stored operation dated
@@ -508,6 +507,7 @@ public class NatixisSyncService {
         Account account = existing.orElseGet(() -> Account.builder()
             .member(member)
             .provider(PROVIDER)
+            // The sidecar rejects any amount whose currencyCode is not EUR.
             .currency("EUR")
             .isManual(false)
             .color(ACCOUNT_COLOR)
@@ -983,10 +983,10 @@ public class NatixisSyncService {
 
     private record PendingAttempt(Long memberId, long generation, Instant expiresAt) {}
     private record QueueDecision(SyncJob job, SessionStatusResponse status) {}
-    /** Carries the decrypted session state: its {@code toString()} must never print it. */
     /** A complete history to apply, and the first date its absences may delete from. */
     private record OperationsHistory(List<PreparedOperation> operations, LocalDate deletableFrom) {}
 
+    /** Carries the decrypted session state: its {@code toString()} must never print it. */
     private record SyncJob(Long sessionId, Long memberId, String plainState) {
         @Override
         public String toString() {
