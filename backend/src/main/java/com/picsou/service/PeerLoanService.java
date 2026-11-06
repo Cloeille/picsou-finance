@@ -648,6 +648,9 @@ public class PeerLoanService {
         if (linked == null || !linked.isManual() || repayment.getKind() == PeerLoanRepaymentKind.WRITE_OFF) {
             return;
         }
+        // Fail closed like the connectors: the account was EUR when it was linked, but the
+        // member may have changed it since. The leg is written in EUR, so re-check now.
+        requireEur(linked, "receive a repayment");
         boolean interest = repayment.getKind() == PeerLoanRepaymentKind.INTEREST;
         String borrower = terms.getAccount().getName();
         TransactionRequest leg = new TransactionRequest(

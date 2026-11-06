@@ -323,6 +323,28 @@ class PeerLoanServiceTest {
     }
 
     @Test
+    void addRepaymentRefusesARepaymentWhenTheLinkedAccountBecameNonEur() {
+        Account account = loanAccount("Jean");
+        Account usd = Account.builder()
+            .id(CASH_ID).name("USD checking").type(AccountType.CHECKING)
+            .member(member()).currency("USD").isManual(true)
+            .currentBalance(BigDecimal.ZERO).build();
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("500")).lentAt(LocalDate.parse("2026-01-01"))
+            .annualRate(BigDecimal.ZERO).linkedAccount(usd)
+            .build();
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThatThrownBy(() -> service.addRepayment(ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentRequest(
+            LocalDate.parse("2026-02-01"), new BigDecimal("100"), PeerLoanRepaymentKind.PRINCIPAL, null)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("EUR");
+    }
+
+    @Test
     void createFromTransactionRefusesAnotherMembersTransaction() {
         FamilyMember other = FamilyMember.builder().id(99L).build();
         Account foreignCash = Account.builder()

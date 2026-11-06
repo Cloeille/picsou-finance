@@ -1,5 +1,7 @@
 package com.picsou.controller;
 
+import com.picsou.exception.GlobalExceptionHandler;
+import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.service.PeerLoanService;
 import com.picsou.service.UserContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +37,7 @@ class PeerLoanControllerTest {
     void setUp() {
         mvc = MockMvcBuilders
             .standaloneSetup(new PeerLoanController(peerLoanService, userContext))
+            .setControllerAdvice(new GlobalExceptionHandler())
             .build();
     }
 
@@ -54,9 +57,18 @@ class PeerLoanControllerTest {
         mvc.perform(put("/api/accounts/16/peer-loan")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"principal\":0}"))
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isUnprocessableEntity());
 
         verifyNoInteractions(peerLoanService);
+    }
+
+    @Test
+    void getMapsAnotherMembersAccountTo404() throws Exception {
+        when(userContext.currentMemberId()).thenReturn(7L);
+        when(peerLoanService.get(16L, 7L)).thenThrow(new ResourceNotFoundException("Account not found"));
+
+        mvc.perform(get("/api/accounts/16/peer-loan"))
+            .andExpect(status().isNotFound());
     }
 
     @Test
@@ -92,7 +104,7 @@ class PeerLoanControllerTest {
         mvc.perform(post("/api/peer-loans/simulate")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"principal\":1000,\"months\":1201}"))
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isUnprocessableEntity());
 
         verifyNoInteractions(peerLoanService);
     }
