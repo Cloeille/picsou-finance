@@ -89,14 +89,18 @@ the path filter did not select it, which a renamed job would never match.
 - A typical pull request runs about 12 jobs at once instead of 8, against the free plan's
   per-account limit of about 20; wide pull requests (every sidecar) queue a little more.
 - More runner minutes per pull request.
-- New scripts to maintain: `backend_shards.py`, `release_cases.py`, `vitest_coverage.py`.
+- New scripts to maintain: `backend_shards.py` and `release_cases.py`; the frontend split will add
+  a Vitest coverage check.
 - A main push that changes dependencies builds the release image cold in both case legs.
-- Each backend leg restores the class times on its own: a main run saving new times between two
-  legs' restores can make them disagree. The exactly-once check then fails loudly.
+- `changes` looks the class times up once and every backend leg restores that exact key, so the
+  legs split on the same times, and a re-run splits as its first attempt did. When the cache is
+  evicted between the lookup and a leg's restore, that leg falls back to the hash split and can
+  disagree with the others; the exactly-once check then fails loudly and a full re-run fixes it.
 
 ## Consequences
 
-- Expected pull-request wall clock: about 4 minutes; the e2e tail disappears.
-- `make test-backend` takes `SHARD_INCLUDES` / `SHARD_EXCLUDES`; `make lint-frontend` and
-  `make unit-frontend [SHARD=i/n]` exist; the plain targets are unchanged.
+- Target pull-request wall clock: about 4 minutes (the ~200 s release floor plus set-up) once every
+  leg has landed; not measured yet, each leg's pull request reports its own timings.
+- `make test-backend` takes `SHARD_INCLUDES` / `SHARD_EXCLUDES`; the plain target is unchanged.
+  The frontend pull request is to add `make lint-frontend` and `make unit-frontend [SHARD=i/n]`.
 - A test must not count entries in a shared folder such as `java.io.tmpdir`: inject the folder.
