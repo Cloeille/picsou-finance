@@ -435,15 +435,20 @@ class CaisseEpargneSyncServiceAuthTest {
 
     @Test
     void theServiceKeepsNoFieldThatCouldHoldACredential() {
-        for (var field : CaisseEpargneSyncService.class.getDeclaredFields()) {
-            assertThat(field.getName().toLowerCase()).doesNotContain("password").doesNotContain("credential")
-                .doesNotContain("customer").doesNotContain("positions");
-        }
-        for (var type : CaisseEpargneSyncService.class.getDeclaredClasses()) {
-            for (var component : type.getRecordComponents() == null
-                ? new java.lang.reflect.RecordComponent[0] : type.getRecordComponents()) {
-                assertThat(component.getName().toLowerCase()).doesNotContain("password")
+        // The pending logins live in the shared engine, so it is checked too.
+        for (Class<?> owner : List.of(CaisseEpargneSyncService.class, BpceSyncEngine.class)) {
+            for (var field : owner.getDeclaredFields()) {
+                assertThat(field.getName().toLowerCase()).as(owner.getSimpleName() + "." + field.getName())
+                    .doesNotContain("password").doesNotContain("credential")
                     .doesNotContain("customer").doesNotContain("positions");
+            }
+            for (var type : owner.getDeclaredClasses()) {
+                for (var component : type.getRecordComponents() == null
+                    ? new java.lang.reflect.RecordComponent[0] : type.getRecordComponents()) {
+                    assertThat(component.getName().toLowerCase()).as(type.getSimpleName() + "." + component.getName())
+                        .doesNotContain("password")
+                        .doesNotContain("customer").doesNotContain("positions");
+                }
             }
         }
     }
