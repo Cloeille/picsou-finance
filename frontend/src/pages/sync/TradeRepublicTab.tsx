@@ -40,8 +40,10 @@ export function TradeRepublicTab() {
   const visibleError = error ?? backgroundError
   // Accounts a past session imported stop updating once it is gone (an expiry, a disconnect, or
   // the upgrade that dropped the old sessions): say so, the daily sync skips them silently.
+  // CSV imports (tr_csv_*) never had a session, so they say nothing.
   const staleAccounts = !isConnected && (accounts ?? []).some(
-    account => account.provider === 'Trade Republic' && !account.isManual,
+    account => account.provider === 'Trade Republic' && !account.isManual
+      && !account.externalAccountId?.startsWith('tr_csv_'),
   )
 
   function handleCsvChange(e: React.ChangeEvent<HTMLInputElement>) {
