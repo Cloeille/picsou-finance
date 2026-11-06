@@ -1,11 +1,11 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.BanquePopulairePort;
 import com.picsou.port.BanquePopulaireRegion;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -18,15 +18,12 @@ import java.time.Duration;
  */
 @Component
 public class BanquePopulaireAdapter extends BpceSidecarAdapter implements BanquePopulairePort {
-    private static final String LABEL = "Banque Populaire";
-
     @Autowired
     public BanquePopulaireAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.banque-populaire-auth.url:http://banque-populaire-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
-        this(client(clients, LABEL, url), objectMapper, DEFAULT_CHECK_TIMEOUT, DEFAULT_ACCOUNTS_TIMEOUT);
+        this(client(clients, SidecarBank.BANQUE_POPULAIRE), objectMapper, DEFAULT_CHECK_TIMEOUT, DEFAULT_ACCOUNTS_TIMEOUT);
     }
 
     BanquePopulaireAdapter(WebClient client, ObjectMapper objectMapper) {
@@ -62,7 +59,7 @@ public class BanquePopulaireAdapter extends BpceSidecarAdapter implements Banque
         Duration completeTimeout,
         Duration keypadTimeout
     ) {
-        super(LABEL, client, objectMapper, checkTimeout, accountsTimeout, initiateTimeout, completeTimeout,
+        super(SidecarBank.BANQUE_POPULAIRE, client, objectMapper, checkTimeout, accountsTimeout, initiateTimeout, completeTimeout,
             keypadTimeout);
     }
 

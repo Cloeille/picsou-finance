@@ -36,12 +36,15 @@ the login state machine.
    `Site`.
 2. **Backend.** The bank-agnostic part of `CaisseEpargneSyncService` becomes
    `BpceSyncEngine`, configured by a `BpceBank` descriptor: provider label,
-   external-id prefix, lender name, display names. `BpcePort`,
-   `BpceSidecarAdapter`, `BpceSession` and `BpceErrorCode` carry the shared
-   contract. Each bank keeps its own controller, session table, rate-limit
-   buckets, executor and error-code CHECK. CE keeps `caisse_epargne_session`,
+   external-id prefix, lender name, display names. `BpcePort` (two
+   implementations, so it stays a port under the
+   [ports ADR](./2026-11-02-ports-only-for-swappable-providers.md)),
+   `BpceSidecarAdapter` (on the shared `SidecarClient`) and `BpceSession` carry the
+   shared contract. Errors use the shared `SidecarErrorCode`; each bank declares its
+   codes in `SidecarBank` (`CAISSE_EPARGNE`, `BANQUE_POPULAIRE`). Each bank keeps its
+   own controller, session table, rate-limit buckets, executor and error-code CHECK. CE keeps `caisse_epargne_session`,
    the `ce_` prefix and its REST paths. BP gets `banque_populaire_session`
-   (`V122`), the `bp_` prefix and `/api/banque-populaire`.
+   (`V124`), the `bp_` prefix and `/api/banque-populaire`.
 3. **Frontend.** `BpceSessionPanel` holds the keypad pop-up, the Sécur'Pass
    wait and the recovery of a lost completion. `CaisseEpargnePanel` and
    `BanquePopulairePanel` wrap it with their own API, translation prefix and,
@@ -91,7 +94,7 @@ tests guard the refactor.
   `LIVRET_JEUNE` for both banks, and one labelled LEP as `LEP`. CE imported both as a
   Livret A before; such an account is re-typed on its next sync and never left out.
 - New: `services/base/bpce`, `services/banque-populaire-auth`, the `BanquePopulaire*`
-  backend classes, `V122__banque_populaire_session.sql`, `BpceSessionPanel`,
+  backend classes, `V124__banque_populaire_session.sql`, `BpceSessionPanel`,
   `BanquePopulairePanel`, Compose profile `banque-populaire`, GHCR image
   `banque-populaire-auth`.
 - Details: [docs/features/banque-populaire.md](../features/banque-populaire.md).

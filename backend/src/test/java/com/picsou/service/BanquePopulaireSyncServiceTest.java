@@ -9,7 +9,7 @@ import com.picsou.model.BanquePopulaireSyncStatus;
 import com.picsou.model.Debt;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
-import com.picsou.port.BanquePopulaireErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BanquePopulairePort;
 import com.picsou.port.BanquePopulaireRegion;
 import com.picsou.port.BankConnectorPort;
@@ -328,12 +328,12 @@ class BanquePopulaireSyncServiceTest {
         BanquePopulaireSession session = activeSession();
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
-            new SyncException("expired", null, BanquePopulaireErrorCode.SESSION_EXPIRED.name()));
+            new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name()));
 
         BanquePopulaireSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(BanquePopulaireSyncStatus.FAILED);
-        assertThat(result.lastSyncError()).isEqualTo(BanquePopulaireErrorCode.SESSION_EXPIRED);
+        assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         assertThat(result.isActive()).isFalse();
         verify(accountRepository, never()).save(any());
     }
@@ -345,7 +345,7 @@ class BanquePopulaireSyncServiceTest {
         service.queueSync(7L);
 
         assertThat(session.getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(BanquePopulaireErrorCode.UPSTREAM_FORMAT_CHANGED);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
         verify(accountRepository, never()).save(any());
     }
 
@@ -355,7 +355,7 @@ class BanquePopulaireSyncServiceTest {
 
         verify(sessionRepository).markInterruptedSyncsFailed(
             eq(List.of(BanquePopulaireSyncStatus.QUEUED, BanquePopulaireSyncStatus.RUNNING)),
-            eq(BanquePopulaireSyncStatus.FAILED), any(Instant.class), eq(BanquePopulaireErrorCode.INTERNAL_ERROR));
+            eq(BanquePopulaireSyncStatus.FAILED), any(Instant.class), eq(SidecarErrorCode.INTERNAL_ERROR));
     }
 
     @Test
@@ -483,7 +483,7 @@ class BanquePopulaireSyncServiceTest {
 
         assertThatThrownBy(() -> service.submitKeypad("proc-1", POSITIONS, 8L))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BanquePopulaireErrorCode.AUTH_ATTEMPT_EXPIRED.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name());
                 assertThat(error.getMessage()).contains("Banque Populaire");
             });
         verify(port, never()).submitKeypad(anyString(), any());

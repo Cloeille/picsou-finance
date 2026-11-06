@@ -1,6 +1,6 @@
 package com.picsou.model;
 
-import com.picsou.port.BanquePopulaireErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BanquePopulaireRegion;
 import org.junit.jupiter.api.Test;
 
@@ -75,7 +75,7 @@ class BanquePopulaireSessionTest {
 
         BanquePopulaireSession expired = session();
         expired.markQueued();
-        expired.markFailed(BanquePopulaireErrorCode.SESSION_EXPIRED, NOW);
+        expired.markFailed(SidecarErrorCode.SESSION_EXPIRED, NOW);
         assertThatThrownBy(expired::markQueued).isInstanceOf(IllegalStateException.class);
     }
 
@@ -93,7 +93,7 @@ class BanquePopulaireSessionTest {
 
     @Test
     void failureRequiresAnInFlightSync() {
-        assertThatThrownBy(() -> session().markFailed(BanquePopulaireErrorCode.INTERNAL_ERROR, NOW))
+        assertThatThrownBy(() -> session().markFailed(SidecarErrorCode.INTERNAL_ERROR, NOW))
             .isInstanceOf(IllegalStateException.class);
     }
 
@@ -103,17 +103,17 @@ class BanquePopulaireSessionTest {
         session.markQueued();
         session.markRunning(NOW);
 
-        session.markFailed(BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE, NOW);
+        session.markFailed(SidecarErrorCode.UPSTREAM_UNAVAILABLE, NOW);
 
         assertThat(session.getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
         assertThat(session.isActive()).isTrue();
     }
 
     @Test
     void anExpiredOrUnusableSessionIsDeactivated() {
-        for (BanquePopulaireErrorCode code : new BanquePopulaireErrorCode[] {
-            BanquePopulaireErrorCode.SESSION_EXPIRED, BanquePopulaireErrorCode.INVALID_SESSION_STATE}) {
+        for (SidecarErrorCode code : new SidecarErrorCode[] {
+            SidecarErrorCode.SESSION_EXPIRED, SidecarErrorCode.INVALID_SESSION_STATE}) {
             BanquePopulaireSession session = session();
             session.markQueued();
             session.markFailed(code, NOW);
@@ -127,7 +127,7 @@ class BanquePopulaireSessionTest {
     void queueingClearsThePreviousOutcome() {
         BanquePopulaireSession session = session();
         session.markQueued();
-        session.markFailed(BanquePopulaireErrorCode.UPSTREAM_FORMAT_CHANGED, NOW);
+        session.markFailed(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED, NOW);
 
         session.markQueued();
 
@@ -140,7 +140,7 @@ class BanquePopulaireSessionTest {
     void updatingTheSessionStateReactivatesIt() {
         BanquePopulaireSession session = session();
         session.markQueued();
-        session.markFailed(BanquePopulaireErrorCode.SESSION_EXPIRED, NOW);
+        session.markFailed(SidecarErrorCode.SESSION_EXPIRED, NOW);
 
         session.updateSessionState("fresh", NOW.plusSeconds(60));
 
@@ -150,9 +150,9 @@ class BanquePopulaireSessionTest {
 
     @Test
     void loginErrorCodesNeverDeactivateAnExistingSession() {
-        for (BanquePopulaireErrorCode code : new BanquePopulaireErrorCode[] {
-            BanquePopulaireErrorCode.INVALID_CREDENTIALS, BanquePopulaireErrorCode.KEYPAD_CHANGED,
-            BanquePopulaireErrorCode.APP_VALIDATION_TIMEOUT, BanquePopulaireErrorCode.AUTH_ATTEMPT_EXPIRED}) {
+        for (SidecarErrorCode code : new SidecarErrorCode[] {
+            SidecarErrorCode.INVALID_CREDENTIALS, SidecarErrorCode.KEYPAD_CHANGED,
+            SidecarErrorCode.APP_VALIDATION_TIMEOUT, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED}) {
             BanquePopulaireSession session = session();
             session.markQueued();
             session.markFailed(code, NOW);

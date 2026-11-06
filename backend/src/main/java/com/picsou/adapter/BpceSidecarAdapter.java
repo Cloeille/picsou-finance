@@ -1,10 +1,11 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarErrorTranslator;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.port.BpceErrorCode;
 import com.picsou.port.BpcePort;
+import com.picsou.port.SidecarErrorCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -34,11 +35,12 @@ abstract class BpceSidecarAdapter implements BpcePort {
     /** The sidecar gives /keypad 60 s (clicks, Valider, Sécur'Pass page): stay above it, below nginx's 90 s. */
     static final Duration KEYPAD_TIMEOUT = Duration.ofSeconds(70);
 
+    private final SidecarBank bank;
     private final String label;
     private final WebClient client;
-    private final SidecarErrorTranslator<BpceErrorCode> sidecar;
+    private final SidecarClient sidecar;
     /** Same mapping, except a 410 means the pending login is gone, not that a stored session died. */
-    private final SidecarErrorTranslator<BpceErrorCode> authSidecar;
+    private final SidecarClient authSidecar;
     private final Duration checkTimeout;
     private final Duration accountsTimeout;
     private final Duration initiateTimeout;
@@ -46,7 +48,7 @@ abstract class BpceSidecarAdapter implements BpcePort {
     private final Duration keypadTimeout;
 
     BpceSidecarAdapter(
-        String label,
+        SidecarBank bank,
         WebClient client,
         ObjectMapper objectMapper,
         Duration checkTimeout,
@@ -55,10 +57,11 @@ abstract class BpceSidecarAdapter implements BpcePort {
         Duration completeTimeout,
         Duration keypadTimeout
     ) {
-        this.label = label;
+        this.bank = bank;
+        this.label = bank.label();
         this.client = client;
-        this.sidecar = translator(client, objectMapper, BpceErrorCode.SESSION_EXPIRED);
-        this.authSidecar = translator(client, objectMapper, BpceErrorCode.AUTH_ATTEMPT_EXPIRED);
+        this.sidecar = new SidecarClient(client, objectMapper, bank, SidecarErrorCode.SESSION_EXPIRED);
+        this.authSidecar = new SidecarClient(client, objectMapper, bank, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
         this.checkTimeout = checkTimeout;
         this.accountsTimeout = accountsTimeout;
         this.initiateTimeout = initiateTimeout;
@@ -70,8 +73,8 @@ abstract class BpceSidecarAdapter implements BpcePort {
      * The production client: a real account with a long history exceeds Spring's 256 KB default
      * buffer, and the connection never replays a request (see {@link #httpClient()}).
      */
-    static WebClient client(SidecarWebClientFactory clients, String label, String url) {
-        return clients.create(label, url,
+    static WebClient client(SidecarWebClientFactory clients, SidecarBank bank) {
+        return clients.create(bank.label(), bank.serviceName(),
             builder -> builder
                 .clientConnector(new ReactorClientHttpConnector(httpClient()))
                 .codecs(c -> c.defaultCodecs().maxInMemorySize(16 * 1024 * 1024)));
@@ -86,20 +89,6 @@ abstract class BpceSidecarAdapter implements BpcePort {
         return HttpClient.create().disableRetry(true);
     }
 
-    private SidecarErrorTranslator<BpceErrorCode> translator(
-        WebClient client, ObjectMapper objectMapper, BpceErrorCode gone
-    ) {
-        return new SidecarErrorTranslator<>(
-            client,
-            objectMapper,
-            BpceErrorCode.class,
-            label,
-            BpceErrorCode.UPSTREAM_UNAVAILABLE,
-            gone,
-            this::friendlyMessage
-        );
-    }
-
     /** {@code POST /initiate} with the bank's own body. One attempt, no retry. */
     protected InitiateResult initiate(Object body) {
         return authPost(
@@ -108,8 +97,8 @@ abstract class BpceSidecarAdapter implements BpcePort {
             InitiateResult.class,
             initiateTimeout,
             "Could not start the " + label + " login",
-            BpceErrorCode.INVALID_CREDENTIALS,
-            BpceErrorCode.APP_VALIDATION_TIMEOUT,
+            SidecarErrorCode.INVALID_CREDENTIALS,
+            SidecarErrorCode.APP_VALIDATION_TIMEOUT,
             null
         );
     }
@@ -122,13 +111,13 @@ abstract class BpceSidecarAdapter implements BpcePort {
             KeypadAck.class,
             keypadTimeout,
             "Could not send the " + label + " keypad choice",
-            BpceErrorCode.INVALID_CREDENTIALS,
-            BpceErrorCode.KEYPAD_EXPIRED,
-            BpceErrorCode.INVALID_POSITIONS
+            SidecarErrorCode.INVALID_CREDENTIALS,
+            SidecarErrorCode.KEYPAD_EXPIRED,
+            SidecarErrorCode.INVALID_POSITIONS
         );
         if (!"SECURPASS_PENDING".equals(ack.status())) {
-            throw authSidecar.coded(BpceErrorCode.UPSTREAM_FORMAT_CHANGED,
-                friendlyMessage(BpceErrorCode.UPSTREAM_FORMAT_CHANGED), null);
+            throw authSidecar.coded(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
+                bank.message(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED), null);
         }
     }
 
@@ -140,8 +129,8 @@ abstract class BpceSidecarAdapter implements BpcePort {
             SessionBody.class,
             completeTimeout,
             "Could not finish the " + label + " login",
-            BpceErrorCode.INVALID_CREDENTIALS,
-            BpceErrorCode.APP_VALIDATION_TIMEOUT,
+            SidecarErrorCode.INVALID_CREDENTIALS,
+            SidecarErrorCode.APP_VALIDATION_TIMEOUT,
             null
         );
         return body.sessionState();
@@ -149,7 +138,7 @@ abstract class BpceSidecarAdapter implements BpcePort {
 
     /**
      * One request, no retry. Statuses that only the login contract defines (408, 409, 422, 429) are
-     * resolved here; everything else goes through the shared translator. No request body, header
+     * resolved here; everything else goes through the shared client. No request body, header
      * or response body is ever logged or put in a message.
      *
      * @param timeoutCode       what a 408 means on this call (Sécur'Pass not approved, keypad expired)
@@ -161,33 +150,33 @@ abstract class BpceSidecarAdapter implements BpcePort {
         Class<T> type,
         Duration timeout,
         String message,
-        BpceErrorCode authenticationFailure,
-        BpceErrorCode timeoutCode,
-        BpceErrorCode unprocessableCode
+        SidecarErrorCode authenticationFailure,
+        SidecarErrorCode timeoutCode,
+        SidecarErrorCode unprocessableCode
     ) {
         try {
             T response = client.post().uri(path).contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(body).retrieve().bodyToMono(type)
                 .timeout(timeout).block();
             if (response == null) {
-                throw authSidecar.coded(BpceErrorCode.UPSTREAM_UNAVAILABLE, message, null);
+                throw authSidecar.coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE, message, null);
             }
             return response;
         } catch (RuntimeException ex) {
             if (ex instanceof WebClientResponseException response) {
                 int status = response.getStatusCode().value();
                 if (status == 408) {
-                    throw authSidecar.coded(timeoutCode, friendlyMessage(timeoutCode), null);
+                    throw authSidecar.coded(timeoutCode, bank.message(timeoutCode), null);
                 }
                 if (status == 422 && unprocessableCode != null) {
-                    throw authSidecar.coded(unprocessableCode, friendlyMessage(unprocessableCode), null);
+                    throw authSidecar.coded(unprocessableCode, bank.message(unprocessableCode), null);
                 }
                 if (status == 409) {
-                    throw authSidecar.coded(BpceErrorCode.KEYPAD_CHANGED,
-                        friendlyMessage(BpceErrorCode.KEYPAD_CHANGED), null);
+                    throw authSidecar.coded(SidecarErrorCode.KEYPAD_CHANGED,
+                        bank.message(SidecarErrorCode.KEYPAD_CHANGED), null);
                 }
                 if (status == 429) {
-                    throw authSidecar.coded(BpceErrorCode.UPSTREAM_UNAVAILABLE,
+                    throw authSidecar.coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE,
                         "Too many " + label + " logins are pending. Please wait a few minutes.", null);
                 }
             }
@@ -225,7 +214,7 @@ abstract class BpceSidecarAdapter implements BpcePort {
             CheckResult.class,
             checkTimeout,
             "Could not check the " + label + " session",
-            BpceErrorCode.SESSION_EXPIRED
+            SidecarErrorCode.SESSION_EXPIRED
         );
     }
 
@@ -237,22 +226,7 @@ abstract class BpceSidecarAdapter implements BpcePort {
             AccountsSnapshot.class,
             accountsTimeout,
             "Could not fetch " + label + " accounts",
-            BpceErrorCode.SESSION_EXPIRED
+            SidecarErrorCode.SESSION_EXPIRED
         );
-    }
-
-    private String friendlyMessage(BpceErrorCode code) {
-        return switch (code) {
-            case SESSION_EXPIRED -> "The " + label + " session expired";
-            case INVALID_SESSION_STATE -> "The stored " + label + " session is unusable";
-            case INVALID_CREDENTIALS -> label + " refused the identifier or password";
-            case KEYPAD_EXPIRED -> "The " + label + " keypad expired. Start again.";
-            case INVALID_POSITIONS -> "The keypad choice is not valid. Start again.";
-            case KEYPAD_CHANGED -> label + " changed its login page. Nothing was sent.";
-            case APP_VALIDATION_TIMEOUT -> "The sign-in was not approved in Sécur'Pass in time";
-            case AUTH_ATTEMPT_EXPIRED -> "This " + label + " sign-in attempt expired. Start again.";
-            case UPSTREAM_FORMAT_CHANGED -> "The " + label + " data format changed";
-            case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> label + " is temporarily unavailable";
-        };
     }
 }

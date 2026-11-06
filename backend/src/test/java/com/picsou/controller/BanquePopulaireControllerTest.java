@@ -3,7 +3,7 @@ package com.picsou.controller;
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
 import com.picsou.model.BanquePopulaireSyncStatus;
-import com.picsou.port.BanquePopulaireErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.BpceSyncEngine;
 import com.picsou.service.BanquePopulaireSyncService;
 import com.picsou.service.UserContext;
@@ -117,7 +117,7 @@ class BanquePopulaireControllerTest {
     void aMissingSessionReachesTheClientAsATranslatableCode() throws Exception {
         when(service.queueSync(MEMBER_ID)).thenThrow(new SyncException(
             "No active Banque Populaire session. Please reconnect.", null,
-            BanquePopulaireErrorCode.SESSION_EXPIRED.name()));
+            SidecarErrorCode.SESSION_EXPIRED.name()));
 
         mockMvc.perform(post("/api/banque-populaire/sync").with(r -> {
                 r.setRemoteAddr("127.0.0.1");

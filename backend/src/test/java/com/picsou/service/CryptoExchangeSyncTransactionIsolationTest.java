@@ -12,6 +12,7 @@ import com.picsou.repository.CryptoExchangePositionRepository;
 import com.picsou.repository.CryptoExchangeSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.service.sync.SourceSyncResult;
+import com.picsou.support.PostgresContainers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,7 +47,7 @@ import static org.mockito.Mockito.when;
 class CryptoExchangeSyncTransactionIsolationTest {
     @Container
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @Autowired CryptoExchangeSyncService service;
     @Autowired CryptoExchangeSessionRepository sessions;

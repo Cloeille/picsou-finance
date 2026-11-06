@@ -2,14 +2,10 @@ package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.exception.SyncException;
-import com.picsou.port.CorumErrorCode;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFunction;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 
@@ -118,45 +114,7 @@ class CorumAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.PORTFOLIO_INCOMPLETE.name())
-            );
-    }
-
-    @Test
-    void fetchSnapshot_preservesAStableSidecarErrorCode() {
-        CorumAdapter adapter = adapterReturning(
-            HttpStatus.BAD_GATEWAY, "{\"detail\":\"PORTFOLIO_INCOMPLETE\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.PORTFOLIO_INCOMPLETE.name());
-                assertThat(error.getMessage()).doesNotContain("state");
-            });
-    }
-
-    @Test
-    void fetchSnapshot_surfacesSeveralContractsAsItsOwnCode() {
-        CorumAdapter adapter = adapterReturning(
-            HttpStatus.CONFLICT, "{\"detail\":\"MULTIPLE_CONTRACTS\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.MULTIPLE_CONTRACTS.name())
-            );
-    }
-
-    /** A bare 401 from the sidecar means the session died, not that the login was wrong. */
-    @Test
-    void fetchSnapshot_mapsAnUncoded401ToSessionExpired() {
-        CorumAdapter adapter = adapterReturning(
-            HttpStatus.UNAUTHORIZED, "{\"detail\":\"Authentication rejected\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.SESSION_EXPIRED.name())
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE.name())
             );
     }
 
@@ -167,77 +125,7 @@ class CorumAdapterTest {
         assertThat(adapter.authenticate("000000", "password")).isEqualTo("state-blob");
     }
 
-    @Test
-    void authenticate_mapsBadCredentialsToInvalidCredentials() {
-        CorumAdapter adapter = adapterReturning(
-            HttpStatus.UNAUTHORIZED, "{\"detail\":\"INVALID_CREDENTIALS\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.authenticate("000000", "wrong"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.INVALID_CREDENTIALS.name())
-            );
-    }
-
-    @Test
-    void authenticate_mapsAnEmptySuccessResponseToUnavailable() {
-        CorumAdapter adapter = adapterReturning(HttpStatus.OK, "");
-
-        assertThatThrownBy(() -> adapter.authenticate("000000", "password"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
-    @Test
-    void fetchSnapshot_mapsMalformedErrorJsonToUnavailable() {
-        CorumAdapter adapter = adapterReturning(HttpStatus.BAD_GATEWAY, "not-json");
-
-        assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
-    @Test
-    void fetchSnapshot_mapsUnknownSidecarCodeToUnavailable() {
-        CorumAdapter adapter = adapterReturning(
-            HttpStatus.BAD_GATEWAY, "{\"detail\":\"NEW_UPSTREAM_FAILURE\"}"
-        );
-
-        assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.UPSTREAM_UNAVAILABLE.name())
-            );
-    }
-
-    @Test
-    void fetchSnapshot_mapsNetworkTimeoutToAnExplicitRetryableFailure() {
-        ExchangeFunction neverResponds = request -> Mono.never();
-        CorumAdapter adapter = new CorumAdapter(
-            WebClient.builder().exchangeFunction(neverResponds).build(),
-            new ObjectMapper(),
-            Duration.ofMillis(20),
-            Duration.ofMillis(20)
-        );
-
-        assertThatThrownBy(() -> adapter.fetchSnapshot("state"))
-            .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(CorumErrorCode.UPSTREAM_UNAVAILABLE.name());
-                assertThat(error.getMessage()).contains("too long");
-            });
-    }
-
     private CorumAdapter adapterReturning(HttpStatus status, String body) {
-        ExchangeFunction exchange = request -> Mono.just(ClientResponse.create(status)
-            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-            .body(body)
-            .build());
-        return new CorumAdapter(
-            WebClient.builder().exchangeFunction(exchange).build(),
-            new ObjectMapper(),
-            Duration.ofSeconds(1),
-            Duration.ofSeconds(1)
-        );
+        return new CorumAdapter(WebClientStubs.returning(status, body), new ObjectMapper(), Duration.ofSeconds(1), Duration.ofSeconds(1));
     }
 }

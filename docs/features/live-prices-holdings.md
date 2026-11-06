@@ -38,7 +38,7 @@ even when Yahoo cannot resolve the native quote.
 
 The two failure modes are deliberately not symmetric. `usePortfolio` fetches
 holdings per account in a `Promise.all`, and a rejected holdings call fails the
-whole query: `PortfolioView` and `HoldingsCard` render `ErrorState` with
+whole query: `HoldingsCard` renders `ErrorState` with
 `formatApiError` and a retry. Swallowing it per account (the previous
 `catch { return [] }`) silently dropped that account from the portfolio total,
 allocation and P&L, with a "no holdings" empty state as the only hint.

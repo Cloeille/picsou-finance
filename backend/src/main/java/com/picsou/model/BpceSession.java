@@ -1,15 +1,15 @@
 package com.picsou.model;
 
+import com.picsou.port.SidecarErrorCode;
+
 import java.time.Instant;
 
 /**
  * What the shared BPCE sync engine needs from a bank's session row. Each BPCE bank keeps its own
  * table and entity ({@link CaisseEpargneSession}, {@link BanquePopulaireSession}); the state
  * machine is the same: IDLE, QUEUED, RUNNING, then SUCCESS or FAILED.
- *
- * @param <E> the bank's persisted error-code enum
  */
-public interface BpceSession<E extends Enum<E>> {
+public interface BpceSession {
     Long getId();
 
     boolean isActive();
@@ -36,5 +36,5 @@ public interface BpceSession<E extends Enum<E>> {
 
     void markSuccessful(Instant completedAt);
 
-    void markFailed(E errorCode, Instant completedAt);
+    void markFailed(SidecarErrorCode errorCode, Instant completedAt);
 }

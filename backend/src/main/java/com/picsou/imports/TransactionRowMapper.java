@@ -4,6 +4,7 @@ import com.picsou.dto.ColumnMappingDto;
 import com.picsou.imports.csv.CsvDialect;
 import com.picsou.imports.csv.CsvValueParser;
 import com.picsou.model.Account;
+import com.picsou.model.PreciousMetal;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.service.InstrumentFieldResolver;
@@ -63,8 +64,9 @@ public class TransactionRowMapper {
             currency = account.getCurrency();
         }
 
-        InstrumentFieldResolver.ResolvedInstrument instrument =
-            instrumentFieldResolver.resolve(cell(row, mapping.tickerOrIsin()), cell(row, mapping.name()));
+        InstrumentFieldResolver.ResolvedInstrument instrument = instrumentFieldResolver.resolve(
+            PreciousMetal.canonicalTickerFor(account.getType(), cell(row, mapping.tickerOrIsin())),
+            cell(row, mapping.name()));
         if (instrument == null) {
             throw new IllegalArgumentException("Missing ticker/ISIN");
         }

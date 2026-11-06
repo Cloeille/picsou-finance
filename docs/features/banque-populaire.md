@@ -1,6 +1,6 @@
 # Feature: Banque Populaire sync
 
-> Last updated: 2026-11-05
+> Last updated: 2026-11-06
 > Status: sidecar, backend and frontend are in the codebase. Docker Compose (profile `banque-populaire`) and the Helm chart run the `banque-populaire-auth` sidecar. The user connects from the Sync page (Banque Populaire tab) or the add-account modal: they pick their regional bank, type their identifier, click their own digits on the bank's keypad, then approve in Sécur'Pass. Sync is on demand only. A full login and sync through Picsou ran against a real Rives de Paris account on 2026-11-05 (see "Verification boundaries").
 
 ## Context
@@ -13,7 +13,7 @@ Banque Populaire runs the BPCE platform that Caisse d'Epargne runs, so this conn
 
 - `services/banque-populaire-auth/main.py`: routes and the Banque Populaire `Site`. See its README for what was observed live.
 - `services/base/bpce/`: login, replay, fetcher and parsers shared with Caisse d'Epargne.
-- `BanquePopulaireController` (`/api/banque-populaire`), `BanquePopulaireSyncService` (on `BpceSyncEngine` with the Banque Populaire `BpceBank`), `BanquePopulaireAdapter`, `BanquePopulaireSession` (table `banque_populaire_session`, migration `V122`), `BanquePopulaireErrorCode`, `BanquePopulaireRegion`.
+- `BanquePopulaireController` (`/api/banque-populaire`), `BanquePopulaireSyncService` (on `BpceSyncEngine` with the Banque Populaire `BpceBank`), `BanquePopulaireAdapter`, `BanquePopulaireSession` (table `banque_populaire_session`, migration `V124`), `BanquePopulaireRegion`; its error codes are `SidecarBank.BANQUE_POPULAIRE` (the same 11 as Caisse d'Epargne).
 - `frontend/src/components/sync/BanquePopulairePanel.tsx` (on `BpceSessionPanel`), `pages/sync/BanquePopulaireTab.tsx`, `banquePopulaireApi`, i18n `sync.banquePopulaire.*`.
 
 ### Login
@@ -32,7 +32,7 @@ Banque Populaire runs the BPCE platform that Caisse d'Epargne runs, so this conn
 
 ### Storage
 
-Table `banque_populaire_session` (migration `V122`) has the Caisse d'Epargne table's shape and the full 11-code `last_sync_error` CHECK, plus `region` (`VARCHAR(32) NOT NULL`, CHECK listing the 12 `BanquePopulaireRegion` names). It stores the cookies encrypted; no password and no Sécur'Pass approval is stored. The region is stored in clear: it is not a secret, it names the bank. A new login replaces the row, region included. External ids are prefixed `bp_`.
+Table `banque_populaire_session` (migration `V124`) has the Caisse d'Epargne table's shape and the full 11-code `last_sync_error` CHECK, plus `region` (`VARCHAR(32) NOT NULL`, CHECK listing the 12 `BanquePopulaireRegion` names). It stores the cookies encrypted; no password and no Sécur'Pass approval is stored. The region is stored in clear: it is not a secret, it names the bank. A new login replaces the row, region included. External ids are prefixed `bp_`.
 
 ### Branding
 
@@ -83,7 +83,7 @@ The bank answers a wrong identifier or password with a modal titled "Identifiant
 ## Tests
 
 - Sidecar: `services/banque-populaire-auth/test_*.py` (region picker against a synthetic page in real Chromium, login, `/initiate` validation, accounts), `services/base/test_bpce.py` (Site, allow-lists, Livret Jeune / LEP rules, unsupported families).
-- Backend: `BanquePopulaire*Test` (region kept from the pending login, provider label and logo rules, catalog miss and Enable Banking not configured), `BanquePopulaireRegionTest` (the 12 names), `V122BanquePopulaireSessionMigrationTest` (Testcontainers, region column and CHECK), plus the Caisse d'Epargne suites that cover `BpceSyncEngine` (label unchanged, no logo).
+- Backend: `BanquePopulaire*Test` (region kept from the pending login, provider label and logo rules, catalog miss and Enable Banking not configured), `BanquePopulaireRegionTest` (the 12 names), `V124BanquePopulaireSessionMigrationTest` (Testcontainers, region column and CHECK), plus the Caisse d'Epargne suites that cover `BpceSyncEngine` (label unchanged, no logo).
 - Frontend: `BanquePopulaireTab.test.tsx`, `banque-populaire-scope.test.ts`, `demo/banque-populaire.test.ts`, SyncAllModal (each regional label keeps the row) / AddAccountModal / providers tests.
 
 ## Verification boundaries

@@ -1,7 +1,7 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarWebClientFactory;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.exception.SyncException;
 import org.junit.jupiter.api.Test;
 
@@ -43,7 +43,7 @@ class DegiroAdapterUnavailableTest {
 
     private static DegiroAdapter adapterOnClosedPort() throws IOException {
         return new DegiroAdapter(
-            new SidecarWebClientFactory(""), new ObjectMapper(), "http://127.0.0.1:" + closedPort());
+            SidecarTestSupport.factory("degiro-auth", "http://127.0.0.1:" + closedPort(), ""), new ObjectMapper());
     }
 
     private static int closedPort() throws IOException {

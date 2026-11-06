@@ -14,7 +14,7 @@ import java.util.List;
  * his digits in his browser, {@link #submitKeypad} forwards only the key positions, the human
  * approves in Sécur'Pass, and {@link #completeAuth} hands back the cookie jar. None of them is
  * ever retried: a wrong password consumes a bank attempt and can lock the account. Failures are
- * {@code SyncException}s whose code is a {@link BpceErrorCode} name.
+ * {@code SyncException}s whose code is a {@link SidecarErrorCode} name.
  */
 public interface BpcePort {
 

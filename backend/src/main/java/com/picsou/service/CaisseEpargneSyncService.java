@@ -4,7 +4,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.model.CaisseEpargneSession;
 import com.picsou.model.CaisseEpargneSyncStatus;
-import com.picsou.port.CaisseEpargneErrorCode;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
@@ -41,7 +42,7 @@ public class CaisseEpargneSyncService {
 
     private final CaisseEpargnePort port;
     private final CaisseEpargneSessionRepository sessionRepository;
-    private final BpceSyncEngine<CaisseEpargneSession, CaisseEpargneErrorCode, SessionStatusResponse> engine;
+    private final BpceSyncEngine<CaisseEpargneSession, SessionStatusResponse> engine;
 
     @org.springframework.beans.factory.annotation.Autowired
     public CaisseEpargneSyncService(
@@ -83,7 +84,7 @@ public class CaisseEpargneSyncService {
         this.port = port;
         this.sessionRepository = sessionRepository;
         this.engine = new BpceSyncEngine<>(
-            BANK, CaisseEpargneErrorCode.class, port, new Sessions(sessionRepository),
+            BANK, SidecarBank.CAISSE_EPARGNE, port, new Sessions(sessionRepository),
             CaisseEpargneSyncService::toStatus, SessionStatusResponse::inactive,
             BpceSyncEngine.BrandingSource.fixed(PROVIDER),
             accountRepository, transactionRepository, memberRepository, debtRepository, accountService,
@@ -128,7 +129,7 @@ public class CaisseEpargneSyncService {
             List.of(CaisseEpargneSyncStatus.QUEUED, CaisseEpargneSyncStatus.RUNNING),
             CaisseEpargneSyncStatus.FAILED,
             Instant.now(),
-            CaisseEpargneErrorCode.INTERNAL_ERROR
+            SidecarErrorCode.INTERNAL_ERROR
         );
         if (recovered > 0) {
             log.warn("Recovered {} interrupted Caisse d'Epargne sync job(s)", recovered);
@@ -206,7 +207,7 @@ public class CaisseEpargneSyncService {
         CaisseEpargneSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        CaisseEpargneErrorCode lastSyncError,
+        SidecarErrorCode lastSyncError,
         List<BpceSyncEngine.UnsupportedContract> unsupported
     ) {
         public SessionStatusResponse {

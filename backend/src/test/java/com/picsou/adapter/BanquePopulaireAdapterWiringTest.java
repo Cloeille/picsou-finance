@@ -1,8 +1,10 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -10,22 +12,33 @@ import static org.assertj.core.api.Assertions.assertThat;
 class BanquePopulaireAdapterWiringTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+        .withUserConfiguration(SidecarTestSupport.BindSidecarProperties.class)
+        .withPropertyValues("app.sidecar.api-key=test-key")
         .withBean(ObjectMapper.class)
-        .withBean(SidecarWebClientFactory.class, () -> new SidecarWebClientFactory("test-key"))
+        .withBean(SidecarWebClientFactory.class)
         .withBean(BanquePopulaireAdapter.class);
 
     @Test
-    void springSelectsTheProductionConstructorWithTheDefaultSidecarUrl() {
-        // No app.banque-populaire-auth.url property: the default must be a valid sidecar URL.
-        contextRunner.run(context -> assertThat(context)
-            .hasNotFailed()
-            .hasSingleBean(BanquePopulaireAdapter.class));
+    void theUrlShippedInApplicationYmlIsAValidSidecarUrl() {
+        contextRunner
+            .withInitializer(new ConfigDataApplicationContextInitializer())
+            .run(context -> assertThat(context)
+                .hasNotFailed()
+                .hasSingleBean(BanquePopulaireAdapter.class));
     }
 
     @Test
-    void theUrlIsReadFromAppBanquePopulaireAuthUrl() {
+    void aMissingEntryFailsStartupNamingTheProperty() {
+        contextRunner.run(context -> assertThat(context.getStartupFailure())
+            .hasRootCauseInstanceOf(IllegalStateException.class)
+            .rootCause()
+            .hasMessageContaining("app.sidecars.banque-populaire-auth.url"));
+    }
+
+    @Test
+    void theUrlIsReadFromAppSidecars() {
         contextRunner
-            .withPropertyValues("app.banque-populaire-auth.url=http://banque-populaire-auth:9999")
+            .withPropertyValues("app.sidecars.banque-populaire-auth.url=http://banque-populaire-auth:9999")
             .run(context -> assertThat(context)
                 .hasNotFailed()
                 .hasSingleBean(BanquePopulaireAdapter.class));
@@ -34,7 +47,7 @@ class BanquePopulaireAdapterWiringTest {
     @Test
     void anInvalidUrlFailsStartupRatherThanBeingIgnored() {
         contextRunner
-            .withPropertyValues("app.banque-populaire-auth.url=http://evil.example.com:8001")
+            .withPropertyValues("app.sidecars.banque-populaire-auth.url=http://evil.example.com:8001")
             .run(context -> assertThat(context).hasFailed());
     }
 }

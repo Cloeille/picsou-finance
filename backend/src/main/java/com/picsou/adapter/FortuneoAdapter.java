@@ -1,46 +1,46 @@
 package com.picsou.adapter;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.adapter.sidecar.SidecarClient;
+import com.picsou.adapter.sidecar.SidecarSession;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
-import com.picsou.exception.SyncException;
-import com.picsou.port.FortuneoErrorCode;
-import com.picsou.port.FortuneoPort;
+import com.picsou.model.AccountType;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.port.SidecarInitiate;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
-import org.springframework.web.reactive.function.client.WebClientRequestException;
 
+import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeoutException;
 
+/**
+ * Client for the isolated, read-only Fortuneo sidecar.
+ *
+ * <p>This adapter must never expose credentials or browser state in logs. A fetched account
+ * collection represents one complete provider snapshot; callers reject the whole collection if
+ * any record is incomplete or inconsistent.</p>
+ */
 @Component
-public class FortuneoAdapter implements FortuneoPort {
-    private static final Logger log = LoggerFactory.getLogger(FortuneoAdapter.class);
+public class FortuneoAdapter {
     private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
     private static final Duration DEFAULT_PORTFOLIO_TIMEOUT = Duration.ofSeconds(120);
 
-    private final WebClient client;
-    private final ObjectMapper objectMapper;
+    private final SidecarClient sidecar;
     private final Duration authTimeout;
     private final Duration portfolioTimeout;
 
     @Autowired
     public FortuneoAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.fortuneo-auth.url:http://fortuneo-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create("Fortuneo", url),
+            clients.create(SidecarBank.FORTUNEO.label(), SidecarBank.FORTUNEO.serviceName()),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_PORTFOLIO_TIMEOUT
@@ -57,168 +57,100 @@ public class FortuneoAdapter implements FortuneoPort {
         Duration authTimeout,
         Duration portfolioTimeout
     ) {
-        this.client = client;
-        this.objectMapper = objectMapper;
+        this.sidecar = new SidecarClient(client, objectMapper, SidecarBank.FORTUNEO, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED);
         this.authTimeout = authTimeout;
         this.portfolioTimeout = portfolioTimeout;
     }
 
-    @Override
-    public InitiateResult initiateAuth(String login, String password) {
-        return post("/initiate", Map.of("login", login, "password", password), InitiateResult.class,
-            "Could not initiate Fortuneo authentication", FortuneoErrorCode.INVALID_CREDENTIALS);
+    /** Starts browser authentication and returns either an MFA challenge or a completed session. */
+    public SidecarInitiate initiateAuth(String login, String password) {
+        return sidecar.post("/initiate", Map.of("login", login, "password", password), SidecarInitiate.class,
+            authTimeout, "Could not initiate Fortuneo authentication", SidecarErrorCode.INVALID_CREDENTIALS);
     }
 
-    @Override
+    /** Completes a pending MFA challenge and returns the serialized browser session state. */
     public String completeAuth(String processId, String code) {
-        SessionResponse response = post("/complete", Map.of("processId", processId, "code", code),
-            SessionResponse.class, "Could not complete Fortuneo authentication", FortuneoErrorCode.INVALID_OTP);
+        SidecarSession response = sidecar.post("/complete", Map.of("processId", processId, "code", code),
+            SidecarSession.class, authTimeout, "Could not complete Fortuneo authentication",
+            SidecarErrorCode.INVALID_OTP);
         return response.sessionState();
     }
 
-    @Override
+    /** Fetches the complete account snapshot represented by the supplied encrypted-at-rest session. */
     public List<AccountData> fetchAccounts(String sessionState) {
-        try {
-            AccountData[] response = client.post().uri("/accounts")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("sessionState", sessionState))
-                .retrieve().bodyToMono(AccountData[].class)
-                .timeout(portfolioTimeout).block();
-            if (response == null || response.length == 0) {
-                throw coded(
-                    FortuneoErrorCode.PORTFOLIO_INCOMPLETE,
-                    "Fortuneo returned no complete portfolio accounts",
-                    null
-                );
-            }
-            return List.of(response);
-        } catch (RuntimeException ex) {
-            throw mapError("Could not fetch Fortuneo portfolio", ex, null);
-        }
+        return sidecar.postForList(
+            "/accounts",
+            Map.of("sessionState", sessionState),
+            AccountData[].class,
+            portfolioTimeout,
+            "Could not fetch Fortuneo portfolio",
+            SidecarErrorCode.PORTFOLIO_INCOMPLETE,
+            "Fortuneo returned no complete portfolio accounts"
+        );
     }
 
-    private <T> T post(
-        String path,
-        Object body,
-        Class<T> type,
-        String message,
-        FortuneoErrorCode authenticationFailure
-    ) {
-        try {
-            T response = client.post().uri(path).contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body).retrieve().bodyToMono(type)
-                .timeout(authTimeout).block();
-            if (response == null) {
-                throw coded(FortuneoErrorCode.UPSTREAM_UNAVAILABLE, message, null);
-            }
-            return response;
-        } catch (RuntimeException ex) {
-            throw mapError(message, ex, authenticationFailure);
-        }
-    }
+    /**
+     * One Fortuneo holding valued by the provider.
+     *
+     * @param isin optional ISIN
+     * @param symbol provider symbol used as a safe fallback
+     * @param label display label
+     * @param quantity held quantity
+     * @param buyingPriceEur average acquisition price in EUR, when available
+     * @param currentPrice native-currency quote, when available
+     * @param quoteCurrency ISO currency of {@code currentPrice}, required when that price is present
+     * @param currentValueEur authoritative provider valuation in EUR
+     * @param pnlEur provider unrealized profit or loss in EUR, when available
+     */
+    public record Position(String isin, String symbol, String label, BigDecimal quantity,
+                           BigDecimal buyingPriceEur, BigDecimal currentPrice, String quoteCurrency,
+                           BigDecimal currentValueEur, BigDecimal pnlEur) {}
 
-    private SyncException mapError(
-        String message,
-        RuntimeException ex,
-        FortuneoErrorCode authenticationFailure
-    ) {
-        if (ex instanceof SyncException sync) return sync;
-        if (causedByTimeout(ex)) {
-            log.warn("{}: sidecar request timed out", message);
-            return coded(
-                FortuneoErrorCode.UPSTREAM_UNAVAILABLE,
-                "Fortuneo took too long to respond. Please try again.",
-                ex
-            );
-        }
-        if (ex instanceof WebClientRequestException) {
-            log.warn("{}: Fortuneo sidecar is unreachable", message);
-            return coded(FortuneoErrorCode.UPSTREAM_UNAVAILABLE, message, ex);
-        }
-        if (ex instanceof WebClientResponseException response) {
-            FortuneoErrorCode upstreamCode = responseCode(response);
-            if (upstreamCode != null) {
-                return coded(upstreamCode, friendlyMessage(upstreamCode), ex);
-            }
-            if (response.getStatusCode().value() == 401 && authenticationFailure != null) {
-                return coded(authenticationFailure, friendlyMessage(authenticationFailure), ex);
-            }
-            if (response.getStatusCode().value() == 410) {
-                return coded(
-                    FortuneoErrorCode.AUTH_ATTEMPT_EXPIRED,
-                    friendlyMessage(FortuneoErrorCode.AUTH_ATTEMPT_EXPIRED),
-                    ex
-                );
-            }
-            if (response.getStatusCode().is5xxServerError()) {
-                log.warn("Fortuneo sidecar returned status {}", response.getStatusCode().value());
-                return coded(
-                    FortuneoErrorCode.UPSTREAM_UNAVAILABLE,
-                    friendlyMessage(FortuneoErrorCode.UPSTREAM_UNAVAILABLE),
-                    ex
-                );
-            }
-        }
-        log.error(message, ex);
-        return coded(FortuneoErrorCode.UPSTREAM_UNAVAILABLE, message, ex);
-    }
+    /**
+     * One cash-ledger entry.
+     *
+     * @param date accounting date
+     * @param label human-readable description
+     * @param amount signed amount in EUR
+     * @param category provider category, when Fortuneo classified the entry
+     * @param externalId stable provider identifier, or {@code null} when this response shape
+     *     carries none -- the sync then falls back to the rolling-window import
+     * @param type provider's structured operation type, or {@code null} when absent
+     * @param txType Picsou transaction type the sidecar could establish from the provider's
+     *     own operation label, or {@code null} when the operation is not one it recognises
+     * @param quantity traded quantity, for a securities-ledger row
+     * @param unitPrice execution price, for a securities-ledger row
+     * @param fees brokerage fees and levies charged on the operation
+     * @param isin instrument the row concerns, taken from the provider's own label-to-ISIN
+     *     table, or {@code null} when the provider does not name one
+     */
+    public record Transaction(
+        LocalDate date,
+        String label,
+        BigDecimal amount,
+        String category,
+        String externalId,
+        String type,
+        String txType,
+        BigDecimal quantity,
+        BigDecimal unitPrice,
+        BigDecimal fees,
+        String isin
+    ) {}
 
-    private FortuneoErrorCode responseCode(WebClientResponseException response) {
-        try {
-            JsonNode body = objectMapper.readTree(response.getResponseBodyAsString());
-            JsonNode detailNode = body.path("detail");
-            if (!detailNode.isTextual() || detailNode.asText().isBlank()) {
-                log.debug(
-                    "Fortuneo error response has no textual detail code (status={})",
-                    response.getStatusCode().value()
-                );
-                return null;
-            }
-            String detail = detailNode.asText();
-            try {
-                return FortuneoErrorCode.valueOf(detail);
-            } catch (IllegalArgumentException ex) {
-                log.warn("Fortuneo sidecar returned unknown error code '{}'", detail);
-                return null;
-            }
-        } catch (JsonProcessingException ex) {
-            log.warn(
-                "Could not parse Fortuneo sidecar error response (status={})",
-                response.getStatusCode().value(),
-                ex
-            );
-            return null;
-        }
-    }
-
-    private boolean causedByTimeout(Throwable failure) {
-        Throwable current = failure;
-        while (current != null) {
-            if (current instanceof TimeoutException) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
-    }
-
-    private String friendlyMessage(FortuneoErrorCode code) {
-        return switch (code) {
-            case INVALID_CREDENTIALS -> "Fortuneo rejected the credentials";
-            case INVALID_OTP -> "Fortuneo rejected the verification code";
-            case AUTH_ATTEMPT_EXPIRED -> "The Fortuneo authentication attempt expired";
-            case SESSION_EXPIRED -> "The Fortuneo session expired";
-            case INVESTOR_PROFILE_REQUIRED -> "Fortuneo requires the investor profile to be handled";
-            case PORTFOLIO_INCOMPLETE -> "Fortuneo returned an incomplete portfolio";
-            case UPSTREAM_FORMAT_CHANGED -> "The Fortuneo website format changed";
-            case INVALID_DATA -> "Fortuneo returned invalid portfolio data";
-            case UPSTREAM_UNAVAILABLE, INTERNAL_ERROR -> "Fortuneo is temporarily unavailable";
-        };
-    }
-
-    private SyncException coded(FortuneoErrorCode code, String message, Throwable cause) {
-        return new SyncException(message, cause, code.name());
-    }
-
-    private record SessionResponse(String sessionState) {}
+    /**
+     * One account in an all-or-nothing Fortuneo snapshot.
+     *
+     * @param externalId stable provider identifier
+     * @param name display name
+     * @param type supported Picsou account type
+     * @param balanceEur authoritative total valuation in EUR
+     * @param cashBalance cash component in EUR
+     * @param positions complete open-position list
+     * @param transactions recent cash-ledger entries
+     * @param snapshotComplete explicit completeness assertion from the sidecar
+     */
+    public record AccountData(String externalId, String name, AccountType type, BigDecimal balanceEur,
+                              BigDecimal cashBalance, List<Position> positions, List<Transaction> transactions,
+                              boolean snapshotComplete) {}
 }

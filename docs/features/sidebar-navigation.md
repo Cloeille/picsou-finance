@@ -106,7 +106,7 @@ Active nav items keep Lucide icons stroke-only. The item gets `ring-1 ring-borde
 
 - `frontend/src/components/layout/AppSidebar.test.tsx` covers the admin switcher, query disabling for non-admins, managed-profile filtering, Query invalidation on profile switch, and, for both sidebar styles, the Sync entry (navigates to `/sync`, `aria-current` on that route) and the menu's opening side.
 - `frontend/src/components/layout/SidebarStylePromptModal.test.tsx` pins each style miniature to its variant: card height, member row placement, gear, Settings position, logo and privacy toggle, two-line rows.
-- Sidebar is also covered by E2E via Playwright (`bun run test:e2e`). `navigation.spec.ts` checks at 1440×900 that no nav subtitle is clipped in either style, in fr, en, de and es.
+- Sidebar is also covered by E2E via Playwright (`make test-e2e`). `navigation.spec.ts` checks at 1440×900 that no nav subtitle is clipped in either style, in fr, en, de and es.
 
 ## Links
 

@@ -1,5 +1,7 @@
 package com.picsou.config;
 
+import com.picsou.support.PostgresContainers;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -40,7 +42,7 @@ class AuthorizationServerMetadataTest {
 
     @Container
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @DynamicPropertySource
     static void secrets(DynamicPropertyRegistry registry) {

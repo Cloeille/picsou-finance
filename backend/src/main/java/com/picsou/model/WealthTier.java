@@ -47,7 +47,7 @@ public enum WealthTier {
             // A credit card is a liability, not wealth; it has no natural tier but the
             // switch must stay total, so it lands here next to OTHER rather than
             // inflating any real asset class.
-            case CREDIT_CARD, OTHER                                             -> ALTERNATIVE;
+            case CREDIT_CARD, OTHER, PRECIOUS_METALS                            -> ALTERNATIVE;
         };
     }
 }

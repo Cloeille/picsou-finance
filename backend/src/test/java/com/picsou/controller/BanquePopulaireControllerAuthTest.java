@@ -4,7 +4,7 @@ import com.picsou.config.RateLimitConfig;
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
 import com.picsou.model.BanquePopulaireSyncStatus;
-import com.picsou.port.BanquePopulaireErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BanquePopulairePort;
 import com.picsou.port.BanquePopulaireRegion;
 import com.picsou.service.BpceSyncEngine;
@@ -221,7 +221,7 @@ class BanquePopulaireControllerAuthTest {
     void aFailedLoginIsNotRetriedByTheControllerAndKeepsItsCode() throws Exception {
         when(service.initiateAuth("12345678", BanquePopulaireRegion.BRED, MEMBER_ID)).thenThrow(new SyncException(
             "Banque Populaire changed its login page", null,
-            BanquePopulaireErrorCode.KEYPAD_CHANGED.name()));
+            SidecarErrorCode.KEYPAD_CHANGED.name()));
 
         initiate(INITIATE_BODY, "127.0.0.1")
             .andExpect(status().isUnprocessableEntity())
@@ -293,10 +293,10 @@ class BanquePopulaireControllerAuthTest {
 
     @Test
     void keypadSurfacesEverySidecarOutcomeAsATranslatableCode() throws Exception {
-        for (BanquePopulaireErrorCode code : List.of(
-            BanquePopulaireErrorCode.KEYPAD_CHANGED, BanquePopulaireErrorCode.KEYPAD_EXPIRED,
-            BanquePopulaireErrorCode.INVALID_POSITIONS, BanquePopulaireErrorCode.AUTH_ATTEMPT_EXPIRED,
-            BanquePopulaireErrorCode.INVALID_CREDENTIALS, BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE)) {
+        for (SidecarErrorCode code : List.of(
+            SidecarErrorCode.KEYPAD_CHANGED, SidecarErrorCode.KEYPAD_EXPIRED,
+            SidecarErrorCode.INVALID_POSITIONS, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
+            SidecarErrorCode.INVALID_CREDENTIALS, SidecarErrorCode.UPSTREAM_UNAVAILABLE)) {
             org.mockito.Mockito.doThrow(new SyncException("failed", null, code.name()))
                 .when(service).submitKeypad("proc-1", List.of(7, 3, 0, 9, 4, 1), MEMBER_ID);
 
@@ -357,9 +357,9 @@ class BanquePopulaireControllerAuthTest {
 
     @Test
     void completeSurfacesEverySidecarOutcomeAsATranslatableCode() throws Exception {
-        for (BanquePopulaireErrorCode code : List.of(
-            BanquePopulaireErrorCode.APP_VALIDATION_TIMEOUT, BanquePopulaireErrorCode.AUTH_ATTEMPT_EXPIRED,
-            BanquePopulaireErrorCode.INVALID_CREDENTIALS, BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE)) {
+        for (SidecarErrorCode code : List.of(
+            SidecarErrorCode.APP_VALIDATION_TIMEOUT, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
+            SidecarErrorCode.INVALID_CREDENTIALS, SidecarErrorCode.UPSTREAM_UNAVAILABLE)) {
             org.mockito.Mockito.doThrow(new SyncException("failed", null, code.name()))
                 .when(service).completeAuth("proc-1", MEMBER_ID);
 

@@ -24,7 +24,7 @@ class BanquePopulaireSyncRecoveryTest {
 
     @Test
     void theSyncExecutorIsASingleWorkerSoSyncsNeverOverlap() {
-        Executor executor = new BanquePopulaireSyncConfig().banquePopulaireSyncExecutor();
+        Executor executor = new SyncExecutorConfig().banquePopulaireSyncExecutor();
 
         assertThat(executor).isInstanceOf(ThreadPoolTaskExecutor.class);
         ThreadPoolTaskExecutor pool = (ThreadPoolTaskExecutor) executor;

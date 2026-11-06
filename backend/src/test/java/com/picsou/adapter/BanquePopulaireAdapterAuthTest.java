@@ -5,9 +5,9 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.picsou.adapter.sidecar.SidecarWebClientFactory;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.picsou.exception.SyncException;
-import com.picsou.port.BanquePopulaireErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BanquePopulairePort;
 import com.picsou.port.BanquePopulaireRegion;
 import com.sun.net.httpserver.HttpServer;
@@ -91,19 +91,19 @@ class BanquePopulaireAdapterAuthTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, REGION))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
     }
 
     // -- initiate: error mapping --------------------------------------------
 
     @Test
     void initiateAuth_mapsEverySidecarCodeToItsStableCode() {
-        record Case(HttpStatus status, String detail, BanquePopulaireErrorCode code) {}
+        record Case(HttpStatus status, String detail, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", BanquePopulaireErrorCode.INVALID_CREDENTIALS),
-            new Case(HttpStatus.CONFLICT, "KEYPAD_CHANGED", BanquePopulaireErrorCode.KEYPAD_CHANGED),
-            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE),
-            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", BanquePopulaireErrorCode.UPSTREAM_FORMAT_CHANGED))) {
+            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", SidecarErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.CONFLICT, "KEYPAD_CHANGED", SidecarErrorCode.KEYPAD_CHANGED),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", SidecarErrorCode.UPSTREAM_UNAVAILABLE),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", SidecarErrorCode.UPSTREAM_FORMAT_CHANGED))) {
             BanquePopulaireAdapter adapter = returning(c.status(), "{\"detail\":\"" + c.detail() + "\"}");
 
             assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, REGION))
@@ -115,13 +115,13 @@ class BanquePopulaireAdapterAuthTest {
 
     @Test
     void initiateAuth_mapsABareStatusWhenTheSidecarSendsNoDetail() {
-        record Case(HttpStatus status, BanquePopulaireErrorCode code) {}
+        record Case(HttpStatus status, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.UNAUTHORIZED, BanquePopulaireErrorCode.INVALID_CREDENTIALS),
-            new Case(HttpStatus.CONFLICT, BanquePopulaireErrorCode.KEYPAD_CHANGED),
-            new Case(HttpStatus.BAD_GATEWAY, BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE),
-            new Case(HttpStatus.SERVICE_UNAVAILABLE, BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE),
-            new Case(HttpStatus.INTERNAL_SERVER_ERROR, BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE))) {
+            new Case(HttpStatus.UNAUTHORIZED, SidecarErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.CONFLICT, SidecarErrorCode.KEYPAD_CHANGED),
+            new Case(HttpStatus.BAD_GATEWAY, SidecarErrorCode.UPSTREAM_UNAVAILABLE),
+            new Case(HttpStatus.SERVICE_UNAVAILABLE, SidecarErrorCode.UPSTREAM_UNAVAILABLE),
+            new Case(HttpStatus.INTERNAL_SERVER_ERROR, SidecarErrorCode.UPSTREAM_UNAVAILABLE))) {
             BanquePopulaireAdapter adapter = returning(c.status(), "oops");
 
             assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, REGION))
@@ -138,7 +138,7 @@ class BanquePopulaireAdapterAuthTest {
 
             assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, REGION))
                 .isInstanceOfSatisfying(SyncException.class, error -> {
-                    assertThat(error.getCode()).isEqualTo(BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE.name());
+                    assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                     assertThat(error.getMessage()).containsIgnoringCase("too many");
                 });
         }
@@ -194,7 +194,7 @@ class BanquePopulaireAdapterAuthTest {
 
         assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, REGION))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getMessage()).contains("too long").doesNotContain(CUSTOMER_ID);
             });
     }
@@ -209,7 +209,7 @@ class BanquePopulaireAdapterAuthTest {
 
         assertThatThrownBy(() -> adapter.completeAuth("proc-1"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
     }
 
     @Test
@@ -274,8 +274,7 @@ class BanquePopulaireAdapterAuthTest {
             server.start();
             try {
                 BanquePopulaireAdapter adapter = new BanquePopulaireAdapter(
-                    new SidecarWebClientFactory("test-key"),
-                    "http://127.0.0.1:" + server.getAddress().getPort(),
+                    SidecarTestSupport.factory("banque-populaire-auth", "http://127.0.0.1:" + server.getAddress().getPort()),
                     new ObjectMapper());
 
                 assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID, REGION)).isInstanceOf(SyncException.class);
@@ -319,8 +318,7 @@ class BanquePopulaireAdapterAuthTest {
             acceptor.setDaemon(true);
             acceptor.start();
             BanquePopulaireAdapter adapter = new BanquePopulaireAdapter(
-                new SidecarWebClientFactory("test-key"),
-                "http://127.0.0.1:" + server.getLocalPort(),
+                SidecarTestSupport.factory("banque-populaire-auth", "http://127.0.0.1:" + server.getLocalPort()),
                 new ObjectMapper());
 
             // Warm the pool: the connection is kept alive and reused by the next call.
@@ -399,26 +397,26 @@ class BanquePopulaireAdapterAuthTest {
             assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS))
                 .isInstanceOfSatisfying(SyncException.class, error ->
                     assertThat(error.getCode()).isIn(
-                        BanquePopulaireErrorCode.UPSTREAM_FORMAT_CHANGED.name(),
-                        BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE.name()));
+                        SidecarErrorCode.UPSTREAM_FORMAT_CHANGED.name(),
+                        SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
         }
         assertThatThrownBy(() -> returning(HttpStatus.OK, "{\"processId\":\"proc-1\",\"status\":\"DONE\"}")
             .submitKeypad("proc-1", POSITIONS))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BanquePopulaireErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED.name()));
     }
 
     @Test
     void submitKeypad_mapsEverySidecarCodeToItsStableCode() {
-        record Case(HttpStatus status, String detail, BanquePopulaireErrorCode code) {}
+        record Case(HttpStatus status, String detail, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.CONFLICT, "KEYPAD_CHANGED", BanquePopulaireErrorCode.KEYPAD_CHANGED),
-            new Case(HttpStatus.REQUEST_TIMEOUT, "KEYPAD_EXPIRED", BanquePopulaireErrorCode.KEYPAD_EXPIRED),
-            new Case(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_POSITIONS", BanquePopulaireErrorCode.INVALID_POSITIONS),
-            new Case(HttpStatus.GONE, "AUTH_ATTEMPT_EXPIRED", BanquePopulaireErrorCode.AUTH_ATTEMPT_EXPIRED),
-            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", BanquePopulaireErrorCode.INVALID_CREDENTIALS),
-            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE),
-            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", BanquePopulaireErrorCode.UPSTREAM_FORMAT_CHANGED))) {
+            new Case(HttpStatus.CONFLICT, "KEYPAD_CHANGED", SidecarErrorCode.KEYPAD_CHANGED),
+            new Case(HttpStatus.REQUEST_TIMEOUT, "KEYPAD_EXPIRED", SidecarErrorCode.KEYPAD_EXPIRED),
+            new Case(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_POSITIONS", SidecarErrorCode.INVALID_POSITIONS),
+            new Case(HttpStatus.GONE, "AUTH_ATTEMPT_EXPIRED", SidecarErrorCode.AUTH_ATTEMPT_EXPIRED),
+            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", SidecarErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", SidecarErrorCode.UPSTREAM_UNAVAILABLE),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", SidecarErrorCode.UPSTREAM_FORMAT_CHANGED))) {
             BanquePopulaireAdapter adapter = returning(c.status(), "{\"detail\":\"" + c.detail() + "\"}");
 
             assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS))
@@ -430,14 +428,14 @@ class BanquePopulaireAdapterAuthTest {
 
     @Test
     void submitKeypad_mapsABareStatusWhenTheSidecarSendsNoDetail() {
-        record Case(HttpStatus status, BanquePopulaireErrorCode code) {}
+        record Case(HttpStatus status, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.CONFLICT, BanquePopulaireErrorCode.KEYPAD_CHANGED),
-            new Case(HttpStatus.REQUEST_TIMEOUT, BanquePopulaireErrorCode.KEYPAD_EXPIRED),
-            new Case(HttpStatus.UNPROCESSABLE_ENTITY, BanquePopulaireErrorCode.INVALID_POSITIONS),
-            new Case(HttpStatus.GONE, BanquePopulaireErrorCode.AUTH_ATTEMPT_EXPIRED),
-            new Case(HttpStatus.UNAUTHORIZED, BanquePopulaireErrorCode.INVALID_CREDENTIALS),
-            new Case(HttpStatus.BAD_GATEWAY, BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE))) {
+            new Case(HttpStatus.CONFLICT, SidecarErrorCode.KEYPAD_CHANGED),
+            new Case(HttpStatus.REQUEST_TIMEOUT, SidecarErrorCode.KEYPAD_EXPIRED),
+            new Case(HttpStatus.UNPROCESSABLE_ENTITY, SidecarErrorCode.INVALID_POSITIONS),
+            new Case(HttpStatus.GONE, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED),
+            new Case(HttpStatus.UNAUTHORIZED, SidecarErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.BAD_GATEWAY, SidecarErrorCode.UPSTREAM_UNAVAILABLE))) {
             BanquePopulaireAdapter adapter = returning(c.status(), "oops");
 
             assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS))
@@ -452,10 +450,10 @@ class BanquePopulaireAdapterAuthTest {
         // 408 means "keypad expired" only on /keypad; on /initiate and /complete it is unchanged.
         assertThatThrownBy(() -> returning(HttpStatus.REQUEST_TIMEOUT, "").initiateAuth(CUSTOMER_ID, REGION))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BanquePopulaireErrorCode.APP_VALIDATION_TIMEOUT.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.APP_VALIDATION_TIMEOUT.name()));
         assertThatThrownBy(() -> returning(HttpStatus.REQUEST_TIMEOUT, "").completeAuth("proc-1"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BanquePopulaireErrorCode.APP_VALIDATION_TIMEOUT.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.APP_VALIDATION_TIMEOUT.name()));
     }
 
     @Test
@@ -468,7 +466,7 @@ class BanquePopulaireAdapterAuthTest {
 
         assertThatThrownBy(() -> adapter.submitKeypad("proc-1", POSITIONS))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getMessage()).contains("too long");
             });
     }
@@ -566,13 +564,13 @@ class BanquePopulaireAdapterAuthTest {
 
     @Test
     void completeAuth_mapsEverySidecarCodeToItsStableCode() {
-        record Case(HttpStatus status, String detail, BanquePopulaireErrorCode code) {}
+        record Case(HttpStatus status, String detail, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.GONE, "AUTH_ATTEMPT_EXPIRED", BanquePopulaireErrorCode.AUTH_ATTEMPT_EXPIRED),
-            new Case(HttpStatus.REQUEST_TIMEOUT, "APP_VALIDATION_TIMEOUT", BanquePopulaireErrorCode.APP_VALIDATION_TIMEOUT),
-            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", BanquePopulaireErrorCode.INVALID_CREDENTIALS),
-            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE),
-            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", BanquePopulaireErrorCode.UPSTREAM_FORMAT_CHANGED))) {
+            new Case(HttpStatus.GONE, "AUTH_ATTEMPT_EXPIRED", SidecarErrorCode.AUTH_ATTEMPT_EXPIRED),
+            new Case(HttpStatus.REQUEST_TIMEOUT, "APP_VALIDATION_TIMEOUT", SidecarErrorCode.APP_VALIDATION_TIMEOUT),
+            new Case(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", SidecarErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_UNAVAILABLE", SidecarErrorCode.UPSTREAM_UNAVAILABLE),
+            new Case(HttpStatus.BAD_GATEWAY, "UPSTREAM_FORMAT_CHANGED", SidecarErrorCode.UPSTREAM_FORMAT_CHANGED))) {
             BanquePopulaireAdapter adapter = returning(c.status(), "{\"detail\":\"" + c.detail() + "\"}");
 
             assertThatThrownBy(() -> adapter.completeAuth("proc-1"))
@@ -584,12 +582,12 @@ class BanquePopulaireAdapterAuthTest {
 
     @Test
     void completeAuth_mapsABareStatusWhenTheSidecarSendsNoDetail() {
-        record Case(HttpStatus status, BanquePopulaireErrorCode code) {}
+        record Case(HttpStatus status, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.GONE, BanquePopulaireErrorCode.AUTH_ATTEMPT_EXPIRED),
-            new Case(HttpStatus.REQUEST_TIMEOUT, BanquePopulaireErrorCode.APP_VALIDATION_TIMEOUT),
-            new Case(HttpStatus.UNAUTHORIZED, BanquePopulaireErrorCode.INVALID_CREDENTIALS),
-            new Case(HttpStatus.BAD_GATEWAY, BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE))) {
+            new Case(HttpStatus.GONE, SidecarErrorCode.AUTH_ATTEMPT_EXPIRED),
+            new Case(HttpStatus.REQUEST_TIMEOUT, SidecarErrorCode.APP_VALIDATION_TIMEOUT),
+            new Case(HttpStatus.UNAUTHORIZED, SidecarErrorCode.INVALID_CREDENTIALS),
+            new Case(HttpStatus.BAD_GATEWAY, SidecarErrorCode.UPSTREAM_UNAVAILABLE))) {
             BanquePopulaireAdapter adapter = returning(c.status(), "oops");
 
             assertThatThrownBy(() -> adapter.completeAuth("proc-1"))

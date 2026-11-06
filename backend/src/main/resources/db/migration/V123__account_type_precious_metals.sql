@@ -1,0 +1,11 @@
+-- Physical gold (bars, napoleons, krugerrands...) gets its own account type. It is not
+-- OTHER: an account of coins is held as quantities of priced products, not as a balance.
+--
+-- PRECIOUS_METALS holds positions, so AccountType.isInvestment() accepts it. Holdings use
+-- the tickers of the PreciousMetal registry (GOLD:GRAM, GOLD:NAPOLEON-20F...); the colon
+-- keeps them out of the Yahoo symbol pattern.
+--
+-- Kept alone in its own migration on purpose, like V69, V82 and V112: PostgreSQL refuses to
+-- use a new enum value in the transaction that added it, so nothing here may reference the
+-- label. Appended just before 'OTHER', which keeps that catch-all last.
+ALTER TYPE account_type ADD VALUE 'PRECIOUS_METALS' BEFORE 'OTHER';

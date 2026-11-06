@@ -1,8 +1,8 @@
 /**
  * Single source of truth for the languages the UI supports.
  *
- * Adding a language = add a `locales/<code>.json` translation file, import it
- * in `i18n/index.ts`, and append an entry here. Every language selector
+ * Adding a language = add a `locales/<code>.json` translation file, add its
+ * dynamic import to `lazyTranslations` in `i18n/index.ts`, and append an entry here. Every language selector
  * (setup wizard, settings page, sidebar menu) and the `Intl` date/number
  * formatting in `lib/utils.ts` derive from this list.
  */

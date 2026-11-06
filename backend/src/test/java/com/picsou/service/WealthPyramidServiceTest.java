@@ -262,6 +262,16 @@ class WealthPyramidServiceTest {
     }
 
     @Test
+    void goldHoldingsLandInTheAlternativeTier() {
+        withHoldings(AccountType.PRECIOUS_METALS, "8000", Map.of("GOLD:GRAM", "5000", "GOLD:NAPOLEON-20F", "3000"));
+
+        WealthPyramidResponse response = service.pyramid(MEMBER);
+
+        assertThat(response.totalAssetsEur()).isEqualByComparingTo("8000");
+        assertThat(tier(response, WealthTier.ALTERNATIVE).valueEur()).isEqualByComparingTo("8000");
+    }
+
+    @Test
     void sharesAreAppliedExactlyOnce() {
         Account joint = cash(AccountType.LIVRET_A, "10000");
         shares.put(joint.getId(), new BigDecimal("50"));

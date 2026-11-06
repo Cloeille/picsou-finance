@@ -1,7 +1,8 @@
 package com.picsou.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.picsou.port.BanquePopulaireErrorCode;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BanquePopulaireRegion;
 import jakarta.persistence.*;
 import lombok.*;
@@ -19,7 +20,7 @@ import java.util.Objects;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder
-public class BanquePopulaireSession extends AuditableEntity implements BpceSession<BanquePopulaireErrorCode> {
+public class BanquePopulaireSession extends AuditableEntity implements BpceSession {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -63,7 +64,7 @@ public class BanquePopulaireSession extends AuditableEntity implements BpceSessi
 
     @Enumerated(EnumType.STRING)
     @Column(name = "last_sync_error", length = 40)
-    private BanquePopulaireErrorCode lastSyncError;
+    private SidecarErrorCode lastSyncError;
 
     /** JSON array of {externalId, familyCode}: contracts seen but not imported. */
     @Column(name = "unsupported_contracts", columnDefinition = "TEXT")
@@ -129,18 +130,18 @@ public class BanquePopulaireSession extends AuditableEntity implements BpceSessi
         lastSyncError = null;
     }
 
-    public void markFailed(BanquePopulaireErrorCode errorCode, Instant completedAt) {
+    public void markFailed(SidecarErrorCode errorCode, Instant completedAt) {
         if (!isSyncInFlight()) {
             throw new IllegalStateException("Only an in-flight Banque Populaire synchronization can fail");
         }
-        BanquePopulaireErrorCode error = Objects.requireNonNull(errorCode, "errorCode");
+        SidecarErrorCode error = SidecarBank.BANQUE_POPULAIRE.requireDeclared(Objects.requireNonNull(errorCode, "errorCode"));
         syncStatus = BanquePopulaireSyncStatus.FAILED;
         lastSyncCompletedAt = Objects.requireNonNull(completedAt, "completedAt");
         lastSyncError = error;
         // The stored cookies cannot be silently renewed (no password is kept), so a session the
         // bank rejected or Picsou cannot read is dead; a transient failure leaves it usable.
-        if (error == BanquePopulaireErrorCode.SESSION_EXPIRED
-            || error == BanquePopulaireErrorCode.INVALID_SESSION_STATE) {
+        if (error == SidecarErrorCode.SESSION_EXPIRED
+            || error == SidecarErrorCode.INVALID_SESSION_STATE) {
             active = false;
         }
     }

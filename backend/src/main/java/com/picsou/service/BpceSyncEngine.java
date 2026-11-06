@@ -15,7 +15,8 @@ import com.picsou.model.CategoryKind;
 import com.picsou.model.Debt;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
-import com.picsou.port.BpceErrorCode;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BpcePort;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.DebtRepository;
@@ -61,10 +62,9 @@ import java.util.function.Supplier;
  * boundaries ({@code @Transactional}) stay on that service.
  *
  * @param <S> the bank's session entity
- * @param <E> the bank's persisted error-code enum, with the same constant names as {@link BpceErrorCode}
  * @param <R> the bank's status response
  */
-public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R> {
+public final class BpceSyncEngine<S extends BpceSession, R> {
     private static final Logger log = LoggerFactory.getLogger(BpceSyncEngine.class);
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final TypeReference<List<UnsupportedContract>> UNSUPPORTED_TYPE = new TypeReference<>() {};
@@ -99,7 +99,8 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
     private static final java.util.regex.Pattern BASE64 = java.util.regex.Pattern.compile("[A-Za-z0-9+/]+={0,2}");
 
     private final BpceBank bank;
-    private final Class<E> codeType;
+    /** The codes this bank's sidecar declares and its session table accepts. */
+    private final SidecarBank codes;
     private final BpcePort port;
     private final SessionStore<S> sessions;
     private final BiFunction<S, List<UnsupportedContract>, R> statusOf;
@@ -191,7 +192,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
 
     BpceSyncEngine(
         BpceBank bank,
-        Class<E> codeType,
+        SidecarBank codes,
         BpcePort port,
         SessionStore<S> sessions,
         BiFunction<S, List<UnsupportedContract>, R> statusOf,
@@ -211,11 +212,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         Clock clock
     ) {
         this.bank = Objects.requireNonNull(bank, "bank");
-        this.codeType = Objects.requireNonNull(codeType, "codeType");
-        for (BpceErrorCode code : BpceErrorCode.values()) {
-            // Fail at construction, not on the first failed sync: the conversion is by name.
-            Enum.valueOf(codeType, code.name());
-        }
+        this.codes = Objects.requireNonNull(codes, "codes");
         this.port = port;
         this.sessions = sessions;
         this.statusOf = statusOf;
@@ -252,7 +249,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         BpcePort.InitiateResult result = initiate.get();
         if (result == null || result.processId() == null || result.processId().isBlank()
             || result.keypad() == null || result.expiresInSeconds() <= 0) {
-            throw error(BpceErrorCode.UPSTREAM_FORMAT_CHANGED,
+            throw error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
                 bank.provider() + " did not return a usable sign-in challenge", null);
         }
         requireSafeKeypad(result.keypad());
@@ -282,7 +279,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
             }
         }
         if (!safe) {
-            throw error(BpceErrorCode.KEYPAD_CHANGED,
+            throw error(SidecarErrorCode.KEYPAD_CHANGED,
                 bank.provider() + " changed its login page. Nothing was sent.", null);
         }
     }
@@ -314,7 +311,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         }
         if (!pending.keypadExpiresAt().isAfter(clock.instant())) {
             // Nothing was clicked anywhere: the user just took too long.
-            throw error(BpceErrorCode.KEYPAD_EXPIRED,
+            throw error(SidecarErrorCode.KEYPAD_EXPIRED,
                 "The " + bank.provider() + " keypad expired. Start again.", null);
         }
         port.submitKeypad(processId, positions);
@@ -340,7 +337,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
     }
 
     private SyncException attemptExpired() {
-        return error(BpceErrorCode.AUTH_ATTEMPT_EXPIRED,
+        return error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
             "This " + bank.provider() + " sign-in attempt expired. Please start again.", null);
     }
 
@@ -359,7 +356,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         }
         String plainState = port.completeAuth(processId);
         if (plainState == null || plainState.isBlank()) {
-            throw error(BpceErrorCode.UPSTREAM_FORMAT_CHANGED,
+            throw error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
                 bank.provider() + " did not return a session", null);
         }
         return storeSession(plainState, memberId, pending.sessionFactory());
@@ -372,7 +369,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
      */
     R storeSession(String plainState, Long memberId, SessionFactory<S> sessionFactory) {
         if (plainState == null || plainState.isBlank()) {
-            throw error(BpceErrorCode.INVALID_SESSION_STATE, "No " + bank.provider() + " session was provided", null);
+            throw error(SidecarErrorCode.INVALID_SESSION_STATE, "No " + bank.provider() + " session was provided", null);
         }
         requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = memberRepository.findById(memberId)
@@ -390,13 +387,13 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         QueueDecision<R> decision = requireTransactionResult(txTemplate.execute(status -> {
             S session = sessions.findByMemberIdForUpdate(memberId)
                 .orElseThrow(() -> error(
-                    BpceErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "No active " + bank.provider() + " session. Please reconnect.",
                     null
                 ));
             if (!session.isActive()) {
                 throw error(
-                    BpceErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "The " + bank.provider() + " session expired. Please reconnect.",
                     null
                 );
@@ -412,12 +409,12 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
                 // Unreadable (wrong key, corrupted): the session is dead, not a server fault.
                 // Recorded inside the transaction, then thrown after it so the row is committed.
                 session.markQueued();
-                session.markFailed(persisted(BpceErrorCode.INVALID_SESSION_STATE), Instant.now());
+                session.markFailed(SidecarErrorCode.INVALID_SESSION_STATE, Instant.now());
                 sessions.save(session);
                 log.warn("Stored {} session is unreadable (member={}; type={})",
                     bank.provider(), memberId, ex.getClass().getSimpleName());
                 return new QueueDecision<R>(null, null, error(
-                    BpceErrorCode.INVALID_SESSION_STATE,
+                    SidecarErrorCode.INVALID_SESSION_STATE,
                     "The stored " + bank.provider() + " session is unusable. Please reconnect.",
                     null
                 ));
@@ -444,9 +441,9 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         try {
             syncExecutor.execute(() -> executeJob(job));
         } catch (RuntimeException ex) {
-            markFailed(job, BpceErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             throw error(
-                BpceErrorCode.INTERNAL_ERROR,
+                SidecarErrorCode.INTERNAL_ERROR,
                 "Could not schedule the " + bank.provider() + " synchronization",
                 ex
             );
@@ -479,11 +476,11 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
                 log.info("Discarded stale {} sync result (member={})", bank.provider(), job.memberId());
             }
         } catch (SyncException ex) {
-            BpceErrorCode code = codeOf(ex);
+            SidecarErrorCode code = codeOf(ex);
             markFailed(job, code);
             log.warn("{} sync failed (member={}; code={})", bank.provider(), job.memberId(), code);
         } catch (Exception ex) {
-            markFailed(job, BpceErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             // The exception type only: its message could carry a value from the payload.
             log.error("{} sync failed unexpectedly (member={}; type={})",
                 bank.provider(), job.memberId(), ex.getClass().getSimpleName());
@@ -529,7 +526,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
      */
     private PreparedSnapshot prepare(BpcePort.AccountsSnapshot fetched) {
         if (fetched == null || fetched.accounts().isEmpty()) {
-            throw error(BpceErrorCode.UPSTREAM_FORMAT_CHANGED, bank.provider() + " returned no account", null);
+            throw error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED, bank.provider() + " returned no account", null);
         }
 
         Set<String> externalIds = new HashSet<>();
@@ -1069,7 +1066,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         return upserted;
     }
 
-    private void markFailed(SyncJob job, BpceErrorCode code) {
+    private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
                 Optional<S> current = sessions.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId());
@@ -1084,7 +1081,7 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
                         bank.provider(), session.getSyncStatus(), job.memberId(), code);
                     return;
                 }
-                session.markFailed(persisted(code), Instant.now());
+                session.markFailed(code, Instant.now());
                 sessions.save(session);
             });
         } catch (RuntimeException ex) {
@@ -1202,28 +1199,17 @@ public final class BpceSyncEngine<S extends BpceSession<E>, E extends Enum<E>, R
         return externalId;
     }
 
-    private static BpceErrorCode codeOf(SyncException exception) {
-        if (exception.getCode() == null) {
-            return BpceErrorCode.UPSTREAM_UNAVAILABLE;
-        }
-        try {
-            return BpceErrorCode.valueOf(exception.getCode());
-        } catch (IllegalArgumentException ignored) {
-            return BpceErrorCode.UPSTREAM_UNAVAILABLE;
-        }
+    /** The sidecar's code, or UPSTREAM_UNAVAILABLE when it is unknown or this bank never declared it. */
+    private SidecarErrorCode codeOf(SyncException exception) {
+        return SyncValues.errorCode(exception, codes, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
-    /** The bank's own constant for a code; checked to exist when the engine is built. */
-    private E persisted(BpceErrorCode code) {
-        return Enum.valueOf(codeType, code.name());
-    }
-
-    private static SyncException error(BpceErrorCode code, String message, Throwable cause) {
+    private static SyncException error(SidecarErrorCode code, String message, Throwable cause) {
         return new SyncException(message, cause, code.name());
     }
 
     private SyncException invalid(String what) {
-        return error(BpceErrorCode.UPSTREAM_FORMAT_CHANGED, bank.provider() + " returned " + what, null);
+        return error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED, bank.provider() + " returned " + what, null);
     }
 
     private static String clean(String value) {

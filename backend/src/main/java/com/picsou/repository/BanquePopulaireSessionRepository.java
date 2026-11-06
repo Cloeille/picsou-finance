@@ -2,7 +2,7 @@ package com.picsou.repository;
 
 import com.picsou.model.BanquePopulaireSession;
 import com.picsou.model.BanquePopulaireSyncStatus;
-import com.picsou.port.BanquePopulaireErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -29,7 +29,7 @@ public interface BanquePopulaireSessionRepository extends JpaRepository<BanquePo
         @Param("interrupted") Collection<BanquePopulaireSyncStatus> interrupted,
         @Param("failed") BanquePopulaireSyncStatus failed,
         @Param("completedAt") Instant completedAt,
-        @Param("errorCode") BanquePopulaireErrorCode errorCode
+        @Param("errorCode") SidecarErrorCode errorCode
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

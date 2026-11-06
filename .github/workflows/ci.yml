@@ -38,7 +38,7 @@ jobs:
           # backend reads services/sofidy-auth (Java/Python contract), services/base
           # (its interpreter's pins) and docker/entrypoint.sh (HSTS parsing).
           filters: |
-            workflows: &workflows ['.github/**']
+            workflows: &workflows ['.github/**', 'Makefile']
             release-deployment: [*workflows, 'backend/**', 'frontend/**', 'docker/**', '.dockerignore']
             docker-entrypoint: [*workflows, 'docker/**']
             backend: [*workflows, 'backend/**', 'services/base/**', 'services/sofidy-auth/**', 'docker/entrypoint.sh']
@@ -131,17 +131,8 @@ jobs:
         # without a socket still work. Runners always have Docker, so require it here --
         # otherwise environment drift would silently drop the PostgreSQL coverage of
         # data-mutating migrations and the build would stay green.
-        env:
-          # SidecarWebClientFactory (shared by the Bourso, DEGIRO, Trade Republic, Amundi,
-          # Bourse Direct, AMEX, CORUM and Sofidy adapters) fails the Spring context if this key is
-          # blank. Runners hold no bank secrets, so a fresh value is enough — the adapters never call
-          # out for real in the test suite.
-          APP_SIDECAR_API_KEY: ci-test-only
-          PICSOU_REQUIRE_DOCKER_TESTS: 'true'
-          # The Sofidy contract script imports the shared sidecar package.
-          PYTHONPATH: ${{ github.workspace }}/services/base
-        run: mvn -B test -Dsofidy.contract.python=python3
-        working-directory: backend
+        env: {PICSOU_REQUIRE_DOCKER_TESTS: 'true'}
+        run: make test-backend SOFIDY_PYTHON=python3
       # A skipped PostgreSQL test class reports green: require each one ran in full.
       - name: Require the PostgreSQL tests
         working-directory: backend/target/surefire-reports
@@ -154,13 +145,13 @@ jobs:
           1 service.HomeBankQifPersistenceTest
           15 migration.LegacyMigrationRenumberingTest
           6 service.SidecarBudgetPostgresTest
+          21 adapter.sidecar.SidecarBankCodesTest
           EOF
 
   frontend:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'frontend')
     runs-on: ubuntu-latest
-    defaults: {run: {working-directory: frontend}}
     steps:
       - *checkout
       - &bun
@@ -171,9 +162,9 @@ jobs:
         with: {path: ~/.bun/install/cache, key: "bun-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}"}
       - &bun-install
         name: Install
-        run: bun install --frozen-lockfile
+        run: make deps
       - name: Lint, typecheck and unit tests
-        run: bun run lint && bun run typecheck && bun run test
+        run: make test-frontend
 
   # services/base tests. The Camoufox target inherits the python one, so it runs them all.
   sidecar-base:
@@ -182,17 +173,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - *checkout
-      - name: Build the shared Camoufox sidecar base
-        run: docker build --target camoufox --tag picsou-sidecar-camoufox services/base
-      - name: Run the shared package, installer and entrypoint tests in the base
-        run: >-
-          docker run --rm --entrypoint python --volume "$PWD/services:/services:ro"
-          --workdir /services/base picsou-sidecar-camoufox -m unittest discover -v
+      - name: Run the shared package, installer and entrypoint tests in the Camoufox base
+        run: make test-sidecar-base
 
   # One job per services/*-auth folder (.github/scripts/sidecars.py), plus a native
   # ARM64 one for Camoufox sidecars. Each sidecar keeps its tests as test_*.py stdlib
-  # unittest modules next to main.py; they run in the built image, from the read-only
-  # checkout, with the test-only helpers the image does not ship mounted back in.
+  # unittest modules next to main.py; `make test-sidecar` builds the image and runs them.
   sidecar:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'sidecar')
@@ -202,36 +188,12 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.changes.outputs.sidecar-matrix) }}
-    env:
-      IMAGE: picsou-${{ matrix.service }}:test
     steps:
       - *checkout
-      - name: Build the shared ${{ matrix.base }} base, then the sidecar image
-        run: |
-          docker build --target ${{ matrix.base }} --tag picsou-sidecar-${{ matrix.base }} services/base
-          docker build --tag "$IMAGE" services/${{ matrix.service }}
-      # Fails when the Dockerfile misses a module main.py imports, or when the
-      # image loses its base marker (the backend would report it as outdated).
-      - name: The image runs main.py non-root on its shared base
-        run: >-
-          docker run --rm --network none --entrypoint sh "$IMAGE"
-          -c 'test "$(id -u)" -ne 0 && test "$PICSOU_SIDECAR_BASE" = sidecar-${{ matrix.base }}
-          && python -c "import main"'
-      - name: Start Camoufox headful in the built image, offline
-        if: matrix.base == 'camoufox'
-        run: |
-          docker run --rm --network none --entrypoint sh "$IMAGE" -c 'test "$(uname -m)" = ${{ matrix.arch }}'
-          docker run --rm --network none --entrypoint sh "$IMAGE" /opt/sidecar-base/entrypoint.sh \
-            python /opt/sidecar-base/smoke_camoufox.py
-      - name: Run the sidecar tests in the image
-        run: >-
-          docker run --rm --ipc=host --entrypoint python --env PYTHONDONTWRITEBYTECODE=1
-          --env APP_SIDECAR_API_KEY=test-key --env CORUM_BROWSER_TESTS=1
-          --volume "$PWD/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro"
-          --volume "$PWD/services/base/euro_information/testing.py:/opt/sidecar-base/lib/euro_information/testing.py:ro"
-          --volume "$PWD/services/base/bpce/testing.py:/opt/sidecar-base/lib/bpce/testing.py:ro"
-          --volume "$PWD/services:/src/services:ro" --workdir /src/services/${{ matrix.service }}
-          "$IMAGE" -m unittest discover -v
+      # Builds the shared base, then the image; checks it runs main.py non-root on its
+      # base (Camoufox ones also start the browser offline), then runs the tests in it.
+      - name: Build and test the ${{ matrix.service }} image
+        run: make test-sidecar SIDECAR=${{ matrix.service }} ARCH=${{ matrix.arch }}
 
   compose-sidecar-build:
     needs: changes
@@ -246,7 +208,7 @@ jobs:
         run: |
           docker compose version
           docker compose -f docker/docker-compose.yml config --quiet
-          docker compose -f docker/docker-compose.yml build tr-auth bourso-auth amex-auth
+          make build SERVICES="tr-auth bourso-auth amex-auth"
       - name: The sidecars run on their base
         run: >-
           docker compose -f docker/docker-compose.yml run --rm --no-deps
@@ -302,7 +264,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'e2e')
     runs-on: ubuntu-latest
-    defaults: {run: {working-directory: frontend}}
     steps:
       - *checkout
       - *bun
@@ -311,11 +272,8 @@ jobs:
       - name: Cache Playwright browsers
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: {path: ~/.cache/ms-playwright, key: "playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}"}
-      - name: Install Playwright Chromium
-        run: bunx playwright install --with-deps chromium
-      - name: Run Playwright E2E (demo mode)
-        env: {VITE_DEMO_MODE: 'true'}
-        run: bun run test:e2e
+      - name: Install Playwright Chromium and run E2E (demo mode)
+        run: make test-e2e PLAYWRIGHT_DEPS=--with-deps
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

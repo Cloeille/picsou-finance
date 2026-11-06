@@ -4,7 +4,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.model.BanquePopulaireSession;
 import com.picsou.model.BanquePopulaireSyncStatus;
-import com.picsou.port.BanquePopulaireErrorCode;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BanquePopulairePort;
 import com.picsou.port.BanquePopulaireRegion;
 import com.picsou.repository.AccountRepository;
@@ -50,7 +51,7 @@ public class BanquePopulaireSyncService {
 
     private final BanquePopulairePort port;
     private final BanquePopulaireSessionRepository sessionRepository;
-    private final BpceSyncEngine<BanquePopulaireSession, BanquePopulaireErrorCode, SessionStatusResponse> engine;
+    private final BpceSyncEngine<BanquePopulaireSession, SessionStatusResponse> engine;
 
     @org.springframework.beans.factory.annotation.Autowired
     public BanquePopulaireSyncService(
@@ -94,7 +95,7 @@ public class BanquePopulaireSyncService {
         this.port = port;
         this.sessionRepository = sessionRepository;
         this.engine = new BpceSyncEngine<>(
-            BANK, BanquePopulaireErrorCode.class, port, new Sessions(sessionRepository),
+            BANK, SidecarBank.BANQUE_POPULAIRE, port, new Sessions(sessionRepository),
             BanquePopulaireSyncService::toStatus, SessionStatusResponse::inactive,
             session -> brandingFor(session.getRegion(), logoResolver),
             accountRepository, transactionRepository, memberRepository, debtRepository, accountService,
@@ -164,7 +165,7 @@ public class BanquePopulaireSyncService {
             List.of(BanquePopulaireSyncStatus.QUEUED, BanquePopulaireSyncStatus.RUNNING),
             BanquePopulaireSyncStatus.FAILED,
             Instant.now(),
-            BanquePopulaireErrorCode.INTERNAL_ERROR
+            SidecarErrorCode.INTERNAL_ERROR
         );
         if (recovered > 0) {
             log.warn("Recovered {} interrupted Banque Populaire sync job(s)", recovered);
@@ -242,7 +243,7 @@ public class BanquePopulaireSyncService {
         BanquePopulaireSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        BanquePopulaireErrorCode lastSyncError,
+        SidecarErrorCode lastSyncError,
         List<BpceSyncEngine.UnsupportedContract> unsupported
     ) {
         public SessionStatusResponse {

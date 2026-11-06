@@ -1,10 +1,10 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.CaisseEpargnePort;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -16,15 +16,12 @@ import java.time.Duration;
  */
 @Component
 public class CaisseEpargneAdapter extends BpceSidecarAdapter implements CaisseEpargnePort {
-    private static final String LABEL = "Caisse d'Epargne";
-
     @Autowired
     public CaisseEpargneAdapter(
         SidecarWebClientFactory clients,
-        @Value("${app.caisse-epargne-auth.url:http://caisse-epargne-auth:8001}") String url,
         ObjectMapper objectMapper
     ) {
-        this(client(clients, LABEL, url), objectMapper, DEFAULT_CHECK_TIMEOUT, DEFAULT_ACCOUNTS_TIMEOUT);
+        this(client(clients, SidecarBank.CAISSE_EPARGNE), objectMapper, DEFAULT_CHECK_TIMEOUT, DEFAULT_ACCOUNTS_TIMEOUT);
     }
 
     CaisseEpargneAdapter(WebClient client, ObjectMapper objectMapper) {
@@ -60,7 +57,7 @@ public class CaisseEpargneAdapter extends BpceSidecarAdapter implements CaisseEp
         Duration completeTimeout,
         Duration keypadTimeout
     ) {
-        super(LABEL, client, objectMapper, checkTimeout, accountsTimeout, initiateTimeout, completeTimeout,
+        super(SidecarBank.CAISSE_EPARGNE, client, objectMapper, checkTimeout, accountsTimeout, initiateTimeout, completeTimeout,
             keypadTimeout);
     }
 

@@ -1,8 +1,9 @@
 package com.picsou.adapter;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.exception.SyncException;
-import com.picsou.port.BanquePopulaireErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BanquePopulairePort;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -14,7 +15,7 @@ import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-import com.picsou.adapter.sidecar.SidecarWebClientFactory;
+import com.picsou.adapter.sidecar.SidecarTestSupport;
 import com.sun.net.httpserver.HttpServer;
 
 import java.lang.reflect.Method;
@@ -25,7 +26,6 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.TreeSet;
 
@@ -241,18 +241,18 @@ class BanquePopulaireAdapterTest {
 
         assertThatThrownBy(() -> adapter.checkSession("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BanquePopulaireErrorCode.SESSION_EXPIRED.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name()));
     }
 
     @Test
     void fetchAccounts_preservesEveryStableSidecarErrorCode() {
-        record Case(HttpStatus status, BanquePopulaireErrorCode code) {}
+        record Case(HttpStatus status, SidecarErrorCode code) {}
         for (Case c : List.of(
-            new Case(HttpStatus.UNAUTHORIZED, BanquePopulaireErrorCode.SESSION_EXPIRED),
-            new Case(HttpStatus.BAD_GATEWAY, BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE),
-            new Case(HttpStatus.BAD_GATEWAY, BanquePopulaireErrorCode.UPSTREAM_FORMAT_CHANGED),
-            new Case(HttpStatus.BAD_REQUEST, BanquePopulaireErrorCode.INVALID_SESSION_STATE),
-            new Case(HttpStatus.INTERNAL_SERVER_ERROR, BanquePopulaireErrorCode.INTERNAL_ERROR))) {
+            new Case(HttpStatus.UNAUTHORIZED, SidecarErrorCode.SESSION_EXPIRED),
+            new Case(HttpStatus.BAD_GATEWAY, SidecarErrorCode.UPSTREAM_UNAVAILABLE),
+            new Case(HttpStatus.BAD_GATEWAY, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED),
+            new Case(HttpStatus.BAD_REQUEST, SidecarErrorCode.INVALID_SESSION_STATE),
+            new Case(HttpStatus.INTERNAL_SERVER_ERROR, SidecarErrorCode.INTERNAL_ERROR))) {
             BanquePopulaireAdapter adapter = adapterReturning(c.status(), "{\"detail\":\"" + c.code().name() + "\"}");
 
             assertThatThrownBy(() -> adapter.fetchAccounts("secret-state"))
@@ -270,7 +270,7 @@ class BanquePopulaireAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE.name()));
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
     }
 
     @Test
@@ -284,14 +284,14 @@ class BanquePopulaireAdapterTest {
 
         assertThatThrownBy(() -> adapter.fetchAccounts("state"))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(BanquePopulaireErrorCode.UPSTREAM_UNAVAILABLE.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getMessage()).contains("too long");
             });
     }
 
     @Test
     void errorCodesMatchTheSidecarContractExactly() {
-        assertThat(Arrays.stream(BanquePopulaireErrorCode.values()).map(Enum::name))
+        assertThat(SidecarBank.BANQUE_POPULAIRE.codes().stream().map(Enum::name))
             .containsExactlyInAnyOrder(
                 "SESSION_EXPIRED", "UPSTREAM_UNAVAILABLE", "UPSTREAM_FORMAT_CHANGED",
                 "INVALID_SESSION_STATE", "INTERNAL_ERROR",
@@ -330,8 +330,7 @@ class BanquePopulaireAdapterTest {
         server.start();
         try {
             BanquePopulaireAdapter adapter = new BanquePopulaireAdapter(
-                new SidecarWebClientFactory("test-key"),
-                "http://127.0.0.1:" + server.getAddress().getPort(),
+                SidecarTestSupport.factory("banque-populaire-auth", "http://127.0.0.1:" + server.getAddress().getPort()),
                 new ObjectMapper());
 
             BanquePopulairePort.AccountsSnapshot snapshot = adapter.fetchAccounts("state");
