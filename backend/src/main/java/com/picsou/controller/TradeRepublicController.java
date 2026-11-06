@@ -23,15 +23,18 @@ public class TradeRepublicController {
     private final TradeRepublicSyncService trService;
     private final UserContext userContext;
     private final Map<String, Bucket>      trAuthBuckets;
+    private final Map<String, Bucket>      syncBuckets;
 
     public TradeRepublicController(
         TradeRepublicSyncService trService,
         UserContext userContext,
-        @org.springframework.beans.factory.annotation.Qualifier("trAuthBuckets") Map<String, Bucket> trAuthBuckets
+        @org.springframework.beans.factory.annotation.Qualifier("trAuthBuckets") Map<String, Bucket> trAuthBuckets,
+        @org.springframework.beans.factory.annotation.Qualifier("syncBuckets") Map<String, Bucket> syncBuckets
     ) {
         this.trService     = trService;
         this.userContext   = userContext;
         this.trAuthBuckets = trAuthBuckets;
+        this.syncBuckets   = syncBuckets;
     }
 
     /** Step 1: Sends phone+PIN to TR, triggers 2FA SMS. Credentials are never stored. */
@@ -57,10 +60,19 @@ public class TradeRepublicController {
         return trService.completeAuth(req.processId(), req.tan(), userContext.currentMemberId());
     }
 
-    /** Manual sync of the stored session: queues the import and returns where it stands. */
+    /**
+     * Manual sync of the stored session: queues the import and returns where it stands. Throttled
+     * like the other sync entry points, since each import opens a session on Trade Republic.
+     */
     @PostMapping("/sync")
-    public TradeRepublicSyncService.SessionStatusResponse sync() {
-        return trService.queueSync(userContext.currentMemberId());
+    public ResponseEntity<?> sync(HttpServletRequest request) {
+        Bucket bucket = syncBuckets.computeIfAbsent(ClientIp.resolve(request), k -> RateLimitConfig.createSyncBucket());
+        if (!bucket.tryConsume(1)) {
+            ProblemDetail detail = ProblemDetail.forStatus(HttpStatus.TOO_MANY_REQUESTS);
+            detail.setDetail("Too many Trade Republic synchronization requests. Please wait before retrying.");
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(detail);
+        }
+        return ResponseEntity.ok(trService.queueSync(userContext.currentMemberId()));
     }
 
     /** Session status: connected or not, and how the last import went. */

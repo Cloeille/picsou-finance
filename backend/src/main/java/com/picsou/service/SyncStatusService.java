@@ -298,8 +298,10 @@ public class SyncStatusService {
     private static String broker(String source, boolean active, String syncStatus, Instant completed, Enum<?> error) {
         String errorName = error == null ? null : error.name();
         // A stored password these sites rejected can only be fixed by the member.
+        // An unreadable Trade Republic session ends it, as SourceSyncResult reports.
         boolean reauth = "SESSION_EXPIRED".equals(errorName)
-            || (REAUTH_ON_INVALID_CREDENTIALS.contains(source) && "INVALID_CREDENTIALS".equals(errorName));
+            || (REAUTH_ON_INVALID_CREDENTIALS.contains(source) && "INVALID_CREDENTIALS".equals(errorName))
+            || ("trade-republic".equals(source) && "INVALID_SESSION_STATE".equals(errorName));
         String status;
         if (reauth) {
             status = "NEEDS_REAUTH";

@@ -164,6 +164,25 @@ class SyncStatusServiceTest {
     }
 
     @ParameterizedTest
+    @EnumSource(value = SidecarErrorCode.class, names = {"SESSION_EXPIRED", "INVALID_SESSION_STATE"})
+    void tradeRepublicSessionEndingErrorsRequireReconnection(SidecarErrorCode error) {
+        when(tradeRepublicSyncService.getStatus(MID)).thenReturn(new TradeRepublicSyncService.SessionStatusResponse(
+            false, SidecarSyncStatus.FAILED, null, SYNCED_AT, error));
+
+        assertThat(service.describe(MID)).contains(
+            "trade-republic: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true — " + error.name());
+    }
+
+    @Test
+    void tradeRepublicTransientFailureIsRetriedWithoutReconnection() {
+        when(tradeRepublicSyncService.getStatus(MID)).thenReturn(new TradeRepublicSyncService.SessionStatusResponse(
+            true, SidecarSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.UPSTREAM_UNAVAILABLE));
+
+        assertThat(service.describe(MID)).contains(
+            "trade-republic: FAILED lastSync=2026-10-04T06:00:00Z reauth=false — UPSTREAM_UNAVAILABLE");
+    }
+
+    @ParameterizedTest
     @EnumSource(value = SidecarSyncStatus.class, names = {"QUEUED", "RUNNING", "SUCCESS"})
     void cicReportsQueuedRunningAndCompletedSyncs(SidecarSyncStatus status) {
         when(cicSyncService.getStatus(MID)).thenReturn(new CicSyncService.SessionStatusResponse(
