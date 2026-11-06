@@ -82,6 +82,8 @@ class AccountsWorkbookServiceTest {
         when(goalService.findAll(MEMBER)).thenReturn(List.of());
         when(debtRepository.findAllByMemberId(MEMBER)).thenReturn(List.of());
         when(debtRepository.findByLinkedAccountId(anyLong())).thenReturn(List.of());
+        // The monthly payment rule lives in the service; the export must not restate it.
+        when(loanAmortizationService.resolveMonthlyPayment(any())).thenCallRealMethod();
     }
 
     // ─── Sheet naming ────────────────────────────────────────────────────────
@@ -487,6 +489,21 @@ class AccountsWorkbookServiceTest {
     }
 
     @Test
+    void debtSummaryBlock_countsTheInsuranceOnce_enteredOrComputed() throws IOException {
+        // monthlyPayment is the whole installment, insurance included (docs/features/loans.md).
+        // An entered payment counts as typed (1 500); a missing one is computed: 200 000 at 3.6%
+        // over 20 years with 30 of insurance is 1 200.22 a month.
+        when(debtRepository.findAllByMemberId(MEMBER)).thenReturn(List.of(
+            debt(10L, "Prêt maison", "BoursoBank", "200000", "180000", "1500", "0.036", "30"),
+            debt(11L, "Prêt travaux", "BoursoBank", "200000", "180000", null, "0.036", "30")));
+        stubAccount(bank(1L, "PEA", AccountType.PEA));
+
+        Sheet summary = export(List.of(1L)).getSheet("Summary");
+
+        assertThat(numberBesideLabel(summary, "Monthly payments")).isEqualTo(2700.22);
+    }
+
+    @Test
     void debtSheet_writesTheRateOutOfOneHundred() throws IOException {
         // Debt.interestRate is a ratio (0.0325) and the column says (%): multiplied on the way
         // in, never left for Excel's percent format to rescale a second time.
@@ -658,6 +675,11 @@ class AccountsWorkbookServiceTest {
 
     private Debt debt(Long id, String loanAccountName, String lender, String borrowed,
                       String outstanding, String monthly, String rate) {
+        return debt(id, loanAccountName, lender, borrowed, outstanding, monthly, rate, null);
+    }
+
+    private Debt debt(Long id, String loanAccountName, String lender, String borrowed,
+                      String outstanding, String monthly, String rate, String insurance) {
         Account loanAccount = Account.builder()
             .id(id).name(loanAccountName).type(AccountType.LOAN).currency("EUR")
             .currentBalance(new BigDecimal(outstanding))
@@ -666,7 +688,8 @@ class AccountsWorkbookServiceTest {
             .id(id).account(loanAccount)
             .borrowedAmount(new BigDecimal(borrowed))
             .interestRate(new BigDecimal(rate))
-            .monthlyPayment(new BigDecimal(monthly))
+            .monthlyPayment(monthly == null ? null : new BigDecimal(monthly))
+            .insuranceMonthly(insurance == null ? null : new BigDecimal(insurance))
             .lenderName(lender)
             .startDate(LocalDate.parse("2021-07-01"))
             .endDate(LocalDate.parse("2041-07-01"))

@@ -1,7 +1,7 @@
 # Lesson: a call site no single task touches can still be broken by every task individually being correct
 
 > Date: 2026-07-14
-> Context: subagent-driven implementation of the account-visibility feature (`hidden` flag), branch `1.1.0`, `docs/briefs/2026-07-14-account-visibility-toggle-plan.md`.
+> Context: subagent-driven implementation of the account-visibility feature (`hidden` flag), branch `1.1.0`, [account-visibility.md](../features/account-visibility.md).
 
 ## What happened
 
@@ -19,5 +19,4 @@ When a plan enumerates "the places this needs to change" (a finite call-site lis
 
 ## References
 
-- Related ADR: `docs/briefs/2026-07-14-account-visibility-toggle-plan.md` (Task 3's "why only these three" rationale, silently incomplete)
 - Commit: `ae09139` (the fix)

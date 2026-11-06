@@ -47,7 +47,7 @@ GET-only calls on `https://www.rs-ext-bad-ce.caisse-epargne.fr` with
 `Authorization: Bearer <token>` and `Accept: application/json`:
 
 - `GET /bapi/contract/v2/augmentedSynthesisViews?pfmCharacteristicsIndicator=true&productFamilyPFM=1,2,3,4,6,7,17,18,20,19`
-- per imported account with PFM transactions (current account, Livret A, LDDS, card), `GET /pfm/user/v1.1/transactions` with the query observed in the spike (`accountIds=<id>`, ...), then `pageToken=<meta.nextPageToken>` until the token is absent. Hard cap: 20 pages per account, beyond that `UPSTREAM_FORMAT_CHANGED` (never a silent truncation). A PER or a loan has no PFM transactions: no call, no IBAN.
+- per imported account with PFM transactions (current account, Livret A, LDDS, card), `GET /pfm/user/v1.1/transactions` with the query observed in the spike (`accountIds=<id>`, ...), then `pageToken=<meta.nextPageToken>` until the token is absent. Current account, Livret A and LDDS are ordered by `accountingDate` and paging stops at the first page that reaches a row booked more than 365 days ago (`HISTORY_DAYS`), but only once a strictly newest-first step has been read; older rows already stored are kept. Until then, or if a row is newer than one read before it, the account is paged to the end (the sort direction is not yet confirmed live). Hard cap: 60 pages per account, beyond that `UPSTREAM_FORMAT_CHANGED` with `cause=page-cap` (never a silent truncation). Cards are paged to the end, under the same cap. All reads share one 100 s `/accounts` deadline, which can trip first (`UPSTREAM_UNAVAILABLE`). A PER or a loan has no PFM transactions: no call, no IBAN.
 - per loan, `GET /bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/<contractId.id>` with the **personal-loan token** (see below).
 
 Supported products, from `productFamilyPFM.code` / `subProductFamilyPFM.code`
@@ -220,7 +220,7 @@ still fails the whole import, and so does the overall deadline.
 When the synthesis or the current account fails, the import logs a line naming the step
 and the cause, so a 502 can be told apart without a debug build: `accounts fetch failed:
 <code> stage=<synthesis|transactions|serialisation> cause=<status-NNN|too-large|<httpx
-exception class>|format>`. A current account the parser or the serialiser rejects logs
+exception class>|format|page-cap>`. A current account the parser or the serialiser rejects logs
 `accounts import rejected: <code>` or `accounts serialisation rejected: <type>` just before
 it. No URL, body, identifier or token is logged, and the transport exception's message is
 never printed (it can quote a URL). Two other 502s log no stage: the overall deadline

@@ -350,7 +350,7 @@ public class AccountsWorkbookService {
         cursor.field(labels.get(TOTAL_BORROWED), sum(debts, d -> d.debt().getBorrowedAmount()));
         cursor.field(labels.get(TOTAL_OUTSTANDING), sum(debts, DebtExportData::outstanding));
         cursor.field(labels.get(TOTAL_MONTHLY_PAYMENT),
-            sum(debts, d -> nz(d.debt().getMonthlyPayment()).add(nz(d.debt().getInsuranceMonthly()))));
+            sum(debts, d -> nz(loanAmortizationService.resolveMonthlyPayment(d.debt()))));
 
         cursor.blank();
         cursor.headerRow(List.of(

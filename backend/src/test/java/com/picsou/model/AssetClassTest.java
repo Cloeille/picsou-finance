@@ -13,4 +13,17 @@ class AssetClassTest {
         assertThat(AssetClass.of(AccountType.PER)).isEqualTo(AssetClass.INVESTMENT);
         assertThat(AssetClass.of(AccountType.PER).tracksContributions()).isTrue();
     }
+
+    @Test
+    void preciousMetalsCountAsAnInvestment() {
+        assertThat(AssetClass.of(AccountType.PRECIOUS_METALS)).isEqualTo(AssetClass.INVESTMENT);
+        assertThat(AssetClass.of(AccountType.PRECIOUS_METALS).tracksContributions()).isTrue();
+    }
+
+    @Test
+    void everyAccountTypeMapsToAClass() {
+        for (AccountType type : AccountType.values()) {
+            assertThat(AssetClass.of(type)).as(type.name()).isNotNull();
+        }
+    }
 }

@@ -143,11 +143,11 @@ for the HTTP client config and rollback. SSE remains the default for existing in
 
 ## Tests
 
-Backend (`mvn test`, Testcontainers Postgres where DB fidelity matters): schema migration, JDBC repo
+Backend (`make test-backend`, Testcontainers Postgres where DB fidelity matters): schema migration, JDBC repo
 wiring + `picsou-ios` seed, MCP-token claim shape, `authenticateMcpToken` path-scoping, `/mcp` JWT →
 `AccessKeyAuthentication` + Property A denial, `/mcp` 401 challenge header, PRM/DCR/metadata
 endpoints, consent-info, connected-apps list/revoke isolation, `OAuth2Tools` MCP-JWT session.
-Frontend (`vitest` + clean `bun run build`): consent page scope selection + form submission,
+Frontend (`make test-frontend`): consent page scope selection + form submission,
 connected-apps list/revoke.
 
 **Not unit-testable** (needs a live public instance + the homelab edge): the full claude.ai
@@ -157,4 +157,3 @@ handshake — covered by the runbook above.
 
 - ADR: [2026-07-12 remote-MCP OAuth authorization](../decisions/2026-07-12-remote-mcp-oauth-authorization.md)
 - Related: [MCP server + access-keys](./mcp-server.md), [Budget + OAuth2 MCP tools](./mcp-budget-oauth2.md), [OAuth2 AS for iOS](../decisions/2026-07-03-oauth2-authorization-server-for-native-app.md)
-- Design brief: `docs/briefs/2026-07-12-remote-mcp-oauth-design.md`

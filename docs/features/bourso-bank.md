@@ -136,7 +136,7 @@ reconciliation risk; do not infer equality from date and amount alone.
 BoursoPanel (Sync tab + Add-account modal)
   → /api/bourso/*  → BoursoController → BoursoSyncService ──(executor)──▶ job
                                               │
-                                        BoursoAdapter (BoursoPort)
+                                        BoursoAdapter
                                               │ HTTP :8001
                                         bourso-auth  (FastAPI + httpx, no browser)
                                               │ HTTPS
@@ -428,12 +428,12 @@ disconnect removes saved credentials with the session.
   plus reconciliation, kept free of FastAPI and httpx so the rules that silently
   break are unit-testable
 - `services/bourso-auth/fixtures.py` — the real SVGs and a real captured dashboard
-- `backend/.../port/BoursoPort.java`, `BoursoErrorCode.java`
+- `backend/.../port/SidecarErrorCode.java`, `adapter/sidecar/SidecarBank.java`
 - `backend/.../adapter/BoursoAdapter.java` — 45 s auth / 150 s validation / 90 s accounts
 - `backend/.../service/BoursoSyncService.java` — job state machine, validation, atomic persistence
 - `backend/.../controller/BoursoController.java` — `/api/bourso/*`
 - `backend/.../model/BoursoSession.java`, `BoursoSyncStatus.java`
-- `backend/.../config/BoursoSyncConfig.java`, `BoursoSyncRecovery.java`
+- `backend/.../config/SyncExecutorConfig.java`, `BoursoSyncRecovery.java`
 - `backend/src/main/resources/db/migration/V78__bourso_session.sql`
 - `frontend/src/components/sync/BoursoPanel.tsx` (serves the Sync tab and the
   Add-account modal), `frontend/src/pages/sync/BoursoTab.tsx`
@@ -495,7 +495,7 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 - **`V78` drops and recreates `bourso_session`.** The V23 table held a
   `session_cookies` column that no longer exists, for a connector that never
   shipped enabled. The migration header says so.
-- **The error-code CHECK constraint must track `BoursoErrorCode`.** A code
+- **The error-code CHECK constraint must track `SidecarBank.BOURSO`.** A code
   missing from it turns a diagnosable failure into a 500 at write time.
 - **A fraud-education interstitial is not a wrong password.** After a 302 login
   POST, BoursoBank can park the session on

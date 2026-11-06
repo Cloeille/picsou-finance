@@ -117,12 +117,13 @@ class DividendControllerAuthorizationTest {
             .account(mine).ticker("TTE.PA").name("Total").quantity(new BigDecimal("10")).build();
         DividendSource source = DividendSource.builder()
             .ticker("TTE.PA").currency("EUR").status(DividendSourceStatus.OK).events(new ArrayList<>()).build();
-        source.getEvents().add(DividendEvent.builder()
-            .exDate(LocalDate.of(2026, 7, 20)).amount(new BigDecimal("1")).amountEur(new BigDecimal("1")).build());
-        source.getEvents().add(DividendEvent.builder()
-            .exDate(LocalDate.of(2026, 8, 20)).amount(new BigDecimal("1")).amountEur(new BigDecimal("1")).build());
-        source.getEvents().add(DividendEvent.builder()
-            .exDate(LocalDate.of(2026, 9, 20)).amount(new BigDecimal("1")).amountEur(new BigDecimal("1")).build());
+        // A monthly payer, last ex-date a month ago: its next projected ex-date falls inside the
+        // default 60-day horizon. Dates are relative because the controller forecasts from now().
+        LocalDate today = LocalDate.now();
+        for (int monthsAgo = 3; monthsAgo >= 1; monthsAgo--) {
+            source.getEvents().add(DividendEvent.builder()
+                .exDate(today.minusMonths(monthsAgo)).amount(new BigDecimal("1")).amountEur(new BigDecimal("1")).build());
+        }
         when(userContext.currentMemberId()).thenReturn(MEMBER);
         when(access.readableAccounts(MEMBER)).thenReturn(List.of(mine));
         when(access.sharesFor(any(), eq(MEMBER))).thenReturn(Map.of(4L, new BigDecimal("100")));

@@ -1,6 +1,7 @@
 package com.picsou.adapter;
 
 import com.picsou.port.NasdaqDividend;
+import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -71,13 +72,9 @@ class NasdaqDividendProviderTest {
 
     @Test
     void emptyRowsAreNoComplement() {
-        var provider = new NasdaqDividendProvider(WebClient.builder().exchangeFunction(request ->
-            Mono.just(ClientResponse.create(HttpStatus.OK)
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                .body("""
-                    {"data":{"dividends":{"rows":[]}},"status":{"rCode":200}}
-                    """)
-                .build())).build());
+        var provider = new NasdaqDividendProvider(WebClientStubs.returning("""
+            {"data":{"dividends":{"rows":[]}},"status":{"rCode":200}}
+            """));
 
         assertThat(provider.fetchDividends("KO")).isEmpty();
         assertThat(provider.parse("""

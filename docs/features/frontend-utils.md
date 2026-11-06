@@ -1,6 +1,6 @@
 # Feature: Frontend utility library (`frontend/src/lib/utils.ts`)
 
-> Last updated: 2026-10-31 (transaction detail dates follow the app locale)
+> Last updated: 2026-11-01 (amount fields keep thousands separators)
 
 ## Context
 
@@ -24,7 +24,7 @@ Shared formatting functions used across the frontend. Centralised in one file to
 | `formatDate` | `(dateStr, locale=getLocale(), format?)` | `"08/04/2026"` (locale) or `"08-04-2026"` (iso) |
 | `parseDate` | `(input, locale=getLocale(), format=store.dateFormat) => string \| null` | `"08/04/2026"` → `"2026-04-08"` (inverse of `formatDate`); `null` if unparseable |
 | `formatDateTime` | `(dateStr, locale=getLocale(), format?)` | `"08/04/2026 14:30"` (locale) or `"08-04-2026 14:30"` (iso) |
-| `normalizeDecimal` | `(value: string \| null \| undefined) => string` | `"12,50"` → `"12.50"` (replaces first `,` with `.`) |
+| `normalizeDecimal` | `(value: string \| null \| undefined) => string` | `"12,50"` → `"12.50"`, `"12.500,50"` → `"12500.50"` (a lone separator is the decimal one; thousands are read only from groups of three digits, as in `12.500,50` or `1.000.000`; any other mix keeps the first separator as the decimal one) |
 | `parseAmount` | `(value: string \| null \| undefined) => number` | `"12,50"` → `12.5`; tolerant `parseFloat` over `normalizeDecimal` |
 | `formatLocalDate` | `(dateStr, locale=getLocale(), options={})` | `"8 avril 2026"` (long month); `{ weekday: 'long' }` also includes the weekday |
 | `formatPercent` | `(points, { fractionDigits=1, signed=false }, locale=getLocale())` | `8.3` → `"8,3 %"` (fr), `"8.3%"` (en); `signed` → `"+8,3 %"`, never on zero |
@@ -50,7 +50,7 @@ Shared formatting functions used across the frontend. Centralised in one file to
 
 ### Decimal input — `NumericInput`
 
-`frontend/src/components/shared/NumericInput.tsx` is the shared amount-entry component. It wraps the shadcn `Input` as `type="text" inputMode="decimal"` (mobile numeric keypad, never rejects a comma) and sanitizes keystrokes to digits + a single `.`/`,` separator + an optional leading `-`. It rewrites `e.target.value` **before** calling the passed `onChange`, so it works with:
+`frontend/src/components/shared/NumericInput.tsx` is the shared amount-entry component. It wraps the shadcn `Input` as `type="text" inputMode="decimal"` (mobile numeric keypad, never rejects a comma) and sanitizes keystrokes to digits + every `.`/`,` as typed + an optional leading `-`; `normalizeDecimal` decides which separator is the decimal one, so `12.500,50` keeps its thousands. It rewrites `e.target.value` **before** calling the passed `onChange`, so it works with:
 
 - **controlled-string forms** — `value`/`onChange` reading `e.target.value`, then `parseAmount(...)` at submit;
 - **react-hook-form** — `register(name, { setValueAs: v => parseAmount(v) })` (RHF also reads the sanitized `e.target.value`). Relies on React 19 treating `ref` as a regular prop, so no `forwardRef` is needed.
@@ -135,4 +135,6 @@ Wired into the four date fields: `AddTransactionModal` (transaction date),
 
 - `frontend/src/components/shared/TransactionDetailSheet.test.tsx` — app locale changes on the
   mounted detail and calendar-day preservation west of UTC.
-- `frontend/src/lib/utils.test.ts` — covers `cn`, `formatCurrency` including invalid currency/locale fallback, `formatDate`, `formatPercent` and `formatDecimal` in fr/de/es/en, `formatQuantity` keeping a 0.0001 holding, and `parseDate` (dd/mm vs mm/dd ordering, iso mode, mixed separators, 2-digit years, impossible-date rejection, malformed input, and the `formatDate`∘`parseDate` round-trip across both formats × both locales).
+- `frontend/src/components/shared/NumericInput.test.tsx` types amounts with thousands separators
+  into the field and checks the value it parses to.
+- `frontend/src/lib/utils.test.ts` — covers `cn`, `formatCurrency` including invalid currency/locale fallback, `formatDate`, `formatPercent` and `formatDecimal` in fr/de/es/en, `formatQuantity` keeping a 0.0001 holding, `parseAmount` (a lone separator, grouped thousands, slips), and `parseDate` (dd/mm vs mm/dd ordering, iso mode, mixed separators, 2-digit years, impossible-date rejection, malformed input, and the `formatDate`∘`parseDate` round-trip across both formats × both locales).

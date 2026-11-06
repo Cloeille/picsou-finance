@@ -3,6 +3,7 @@ package com.picsou.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
@@ -11,8 +12,9 @@ import com.picsou.model.AccountType;
 import com.picsou.model.CicSession;
 import com.picsou.model.CicSyncStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.CicErrorCode;
-import com.picsou.port.CicPort;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.adapter.CicAdapter;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.CicSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -70,7 +72,7 @@ public class CicSyncService {
     private static final long PENDING_CREDENTIALS_SECONDS = 600;
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    private final CicPort port;
+    private final CicAdapter port;
     private final CicSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final FamilyMemberRepository memberRepository;
@@ -85,7 +87,7 @@ public class CicSyncService {
     private final Object sessionWriteLock = new Object();
 
     public CicSyncService(
-        CicPort port,
+        CicAdapter port,
         CicSessionRepository sessionRepository,
         AccountRepository accountRepository,
         FamilyMemberRepository memberRepository,
@@ -114,10 +116,10 @@ public class CicSyncService {
         requireGeneration(memberId, generation);
         // A reconnection from the UI replays the remembered-device cookie too, so
         // reconnecting after an error does not ask for a confirmation again.
-        CicPort.InitiateResult result = port.initiateAuth(login, password, previousPlainState(memberId));
+        SidecarInitiate result = port.initiateAuth(login, password, previousPlainState(memberId));
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
-                throw error(CicErrorCode.INVALID_DATA, "CIC did not return a session", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "CIC did not return a session", null);
             }
             storeSessionAndQueue(result.sessionState(), memberId, login, password, generation);
         } else if (result.processId() != null) {
@@ -143,18 +145,18 @@ public class CicSyncService {
             .map(CicSession::getEncryptedCredentials)
             .orElse(null);
         if (encrypted == null) {
-            throw error(CicErrorCode.SESSION_EXPIRED, "No stored CIC credentials", null);
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "No stored CIC credentials", null);
         }
         Credentials credentials;
         try {
             credentials = parseCredentials(encryption.decrypt(encrypted));
         } catch (RuntimeException ex) {
-            throw error(CicErrorCode.SESSION_EXPIRED, "Stored CIC credentials are unreadable", ex);
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "Stored CIC credentials are unreadable", ex);
         }
         try {
             return initiateAuth(credentials.login(), credentials.password(), memberId, generation);
         } catch (SyncException ex) {
-            if (codeOf(ex) == CicErrorCode.INVALID_CREDENTIALS) {
+            if (codeOf(ex) == SidecarErrorCode.INVALID_CREDENTIALS) {
                 synchronized (sessionWriteLock) {
                     if (authGenerations.getOrDefault(memberId, 0L) == generation) {
                         txTemplate.executeWithoutResult(status -> sessionRepository.findByMemberIdForUpdate(memberId)
@@ -183,11 +185,11 @@ public class CicSyncService {
         synchronized (sessionWriteLock) {
             credentials = pendingCredentials.get(processId);
             if (credentials == null || !credentials.memberId().equals(memberId)) {
-                throw error(CicErrorCode.AUTH_ATTEMPT_EXPIRED, "CIC authentication attempt expired", null);
+                throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED, "CIC authentication attempt expired", null);
             }
             if (!credentials.expiresAt().isAfter(clock.instant())) {
                 pendingCredentials.remove(processId, credentials);
-                throw error(CicErrorCode.AUTH_ATTEMPT_EXPIRED, "CIC authentication attempt expired", null);
+                throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED, "CIC authentication attempt expired", null);
             }
             requireGeneration(memberId, credentials.generation());
         }
@@ -195,14 +197,14 @@ public class CicSyncService {
         // dropped, so the saver's next try on the same attempt still stores them.
         String plainState = port.completeAuth(processId, code);
         if (plainState == null || plainState.isBlank()) {
-            throw error(CicErrorCode.INVALID_DATA, "CIC did not return a session", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "CIC did not return a session", null);
         }
         SyncJob job;
         synchronized (sessionWriteLock) {
             requireGeneration(memberId, credentials.generation());
             if (!pendingCredentials.remove(processId, credentials)
                 || !credentials.expiresAt().isAfter(clock.instant())) {
-                throw error(CicErrorCode.AUTH_ATTEMPT_EXPIRED, "CIC authentication attempt expired", null);
+                throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED, "CIC authentication attempt expired", null);
             }
             job = insertSession(plainState, memberId, credentials.login(), credentials.password());
         }
@@ -214,13 +216,13 @@ public class CicSyncService {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
             CicSession session = sessionRepository.findByMemberIdForUpdate(memberId)
                 .orElseThrow(() -> error(
-                    CicErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "No active CIC session. Please reconnect.",
                     null
                 ));
             if (!session.isActive()) {
                 throw error(
-                    CicErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "The CIC session expired. Please reconnect.",
                     null
                 );
@@ -260,7 +262,7 @@ public class CicSyncService {
 
     private void requireGeneration(Long memberId, long generation) {
         if (authGenerations.getOrDefault(memberId, 0L) != generation) {
-            throw error(CicErrorCode.AUTH_ATTEMPT_EXPIRED, "The CIC connection was removed during the login", null);
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED, "The CIC connection was removed during the login", null);
         }
     }
 
@@ -300,9 +302,9 @@ public class CicSyncService {
         try {
             syncExecutor.execute(() -> executeJob(job));
         } catch (RuntimeException ex) {
-            markFailed(job, CicErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             throw error(
-                CicErrorCode.INTERNAL_ERROR,
+                SidecarErrorCode.INTERNAL_ERROR,
                 "Could not schedule the CIC synchronization",
                 ex
             );
@@ -314,11 +316,11 @@ public class CicSyncService {
             return;
         }
         try {
-            CicPort.AccountListing fetched;
+            CicAdapter.AccountListing fetched;
             try {
                 fetched = port.fetchAccounts(job.plainState());
             } catch (SyncException ex) {
-                if (codeOf(ex) != CicErrorCode.SESSION_EXPIRED) throw ex;
+                if (codeOf(ex) != SidecarErrorCode.SESSION_EXPIRED) throw ex;
                 fetched = reauthenticateAndFetch(job);
             }
             List<PreparedAccount> prepared = prepareAccounts(fetched.accounts());
@@ -328,11 +330,11 @@ public class CicSyncService {
                 log.info("Discarded stale CIC sync result (member={})", job.memberId());
             }
         } catch (SyncException ex) {
-            CicErrorCode code = codeOf(ex);
+            SidecarErrorCode code = codeOf(ex);
             markFailed(job, code);
             log.warn("CIC sync failed (member={}; code={})", job.memberId(), code);
         } catch (Exception ex) {
-            markFailed(job, CicErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             log.error("CIC sync failed unexpectedly (member={})", job.memberId(), ex);
         }
     }
@@ -343,28 +345,28 @@ public class CicSyncService {
      * for its remembered-device cookie; a login that still asks for a second
      * factor cannot be finished unattended and reads as an expired session.
      */
-    private CicPort.AccountListing reauthenticateAndFetch(SyncJob job) {
+    private CicAdapter.AccountListing reauthenticateAndFetch(SyncJob job) {
         CicSession session = requireTransactionResult(txTemplate.execute(
             status -> sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
         )).orElse(null);
         if (session == null || !session.isActive()
             || session.getSyncStatus() != CicSyncStatus.RUNNING
             || session.getEncryptedCredentials() == null) {
-            throw error(CicErrorCode.SESSION_EXPIRED, "CIC session expired", null);
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "CIC session expired", null);
         }
         Credentials credentials;
         try {
             credentials = parseCredentials(encryption.decrypt(session.getEncryptedCredentials()));
         } catch (RuntimeException ex) {
-            throw error(CicErrorCode.SESSION_EXPIRED, "CIC session expired", ex);
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "CIC session expired", ex);
         }
-        CicPort.InitiateResult result = port.reauthenticate(credentials.login(), credentials.password(), job.plainState());
+        SidecarInitiate result = port.reauthenticate(credentials.login(), credentials.password(), job.plainState());
         if (result.mfaRequired()) {
             log.info("CIC asks for a new second factor (member={}; type={})", job.memberId(), result.mfaType());
-            throw error(CicErrorCode.SESSION_EXPIRED, "CIC requires a new second factor", null);
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "CIC requires a new second factor", null);
         }
         if (result.sessionState() == null || result.sessionState().isBlank()) {
-            throw error(CicErrorCode.INVALID_DATA, "CIC returned no session", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "CIC returned no session", null);
         }
         String newState = result.sessionState();
         Boolean updated = txTemplate.execute(status -> sessionRepository
@@ -377,7 +379,7 @@ public class CicSyncService {
             })
             .orElse(false));
         if (!Boolean.TRUE.equals(updated)) {
-            throw error(CicErrorCode.SESSION_EXPIRED, "CIC session changed", null);
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "CIC session changed", null);
         }
         log.info("CIC re-logged in with stored credentials (member={})", job.memberId());
         return port.fetchAccounts(newState);
@@ -429,25 +431,25 @@ public class CicSyncService {
         }));
     }
 
-    private List<PreparedAccount> prepareAccounts(List<CicPort.AccountData> fetched) {
+    private List<PreparedAccount> prepareAccounts(List<CicAdapter.AccountData> fetched) {
         if (fetched == null || fetched.isEmpty()) {
-            throw error(CicErrorCode.PORTFOLIO_INCOMPLETE, "CIC returned no account", null);
+            throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "CIC returned no account", null);
         }
         Set<String> externalIds = new HashSet<>();
         List<PreparedAccount> prepared = new ArrayList<>();
-        for (CicPort.AccountData account : fetched) {
+        for (CicAdapter.AccountData account : fetched) {
             if (account == null || !account.snapshotComplete()) {
-                throw error(CicErrorCode.PORTFOLIO_INCOMPLETE, "CIC returned an incomplete account list", null);
+                throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "CIC returned an incomplete account list", null);
             }
             String externalId = stableExternalId(account.externalId());
             if (!externalIds.add(externalId)) {
-                throw error(CicErrorCode.INVALID_DATA, "CIC returned duplicate accounts", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "CIC returned duplicate accounts", null);
             }
             if (account.type() == null || !SUPPORTED_TYPES.contains(account.type())) {
-                throw error(CicErrorCode.INVALID_DATA, "CIC returned an unsupported account type", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "CIC returned an unsupported account type", null);
             }
             if (account.balanceEur() == null) {
-                throw error(CicErrorCode.INVALID_DATA, "CIC returned an account without balance", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "CIC returned an account without balance", null);
             }
             prepared.add(new PreparedAccount(
                 externalId, limit(account.name(), 100, "CIC"), account.type(), account.balanceEur()));
@@ -580,7 +582,7 @@ public class CicSyncService {
         return type == AccountType.CHECKING ? "CHECKING" : "SAVINGS";
     }
 
-    private void markFailed(SyncJob job, CicErrorCode code) {
+    private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
                 Optional<CicSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
@@ -603,7 +605,7 @@ public class CicSyncService {
                 }
                 // A rejected password must not be replayed by every scheduled sync:
                 // the site locks the access after a few failures.
-                if (code == CicErrorCode.INVALID_CREDENTIALS) session.setEncryptedCredentials(null);
+                if (code == SidecarErrorCode.INVALID_CREDENTIALS) session.setEncryptedCredentials(null);
                 session.markFailed(code, Instant.now());
                 sessionRepository.save(session);
             });
@@ -628,7 +630,7 @@ public class CicSyncService {
             List.of(CicSyncStatus.QUEUED, CicSyncStatus.RUNNING),
             CicSyncStatus.FAILED,
             Instant.now(),
-            CicErrorCode.INTERNAL_ERROR
+            SidecarErrorCode.INTERNAL_ERROR
         );
         if (recovered > 0) {
             log.warn("Recovered {} interrupted CIC sync job(s)", recovered);
@@ -662,8 +664,8 @@ public class CicSyncService {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
-                if (status.lastSyncError() == CicErrorCode.SESSION_EXPIRED
-                    || status.lastSyncError() == CicErrorCode.INVALID_CREDENTIALS) {
+                if (status.lastSyncError() == SidecarErrorCode.SESSION_EXPIRED
+                    || status.lastSyncError() == SidecarErrorCode.INVALID_CREDENTIALS) {
                     return new SourceSyncResult(SOURCE, SourceSyncResult.Status.NEEDS_REAUTH,
                         status.lastSyncError().name());
                 }
@@ -706,22 +708,22 @@ public class CicSyncService {
         );
     }
 
-    private CicErrorCode codeOf(SyncException exception) {
-        return errorCode(exception, CicErrorCode.class, CicErrorCode.UPSTREAM_UNAVAILABLE);
+    private SidecarErrorCode codeOf(SyncException exception) {
+        return SyncValues.errorCode(exception, SidecarBank.CIC, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
-    private SyncException error(CicErrorCode code, String message, Throwable cause) {
+    private SyncException error(SidecarErrorCode code, String message, Throwable cause) {
         return new SyncException(message, cause, code.name());
     }
 
     private String stableExternalId(String raw) {
         String cleaned = clean(raw);
         if (cleaned == null) {
-            throw error(CicErrorCode.INVALID_DATA, "CIC returned an invalid account identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "CIC returned an invalid account identifier", null);
         }
         String externalId = cleaned.startsWith(EXTERNAL_ID_PREFIX) ? cleaned : EXTERNAL_ID_PREFIX + cleaned;
         if (externalId.length() > 100) {
-            throw error(CicErrorCode.INVALID_DATA, "CIC returned an invalid account identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "CIC returned an invalid account identifier", null);
         }
         return externalId;
     }
@@ -733,7 +735,7 @@ public class CicSyncService {
         CicSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        CicErrorCode lastSyncError,
+        SidecarErrorCode lastSyncError,
         /** Whether {@link #reconnect} can log in again without the saver typing their credentials. */
         boolean canReconnect
     ) {
