@@ -415,6 +415,8 @@ SELECTOR = "changes"
 GATE = "ci-ok"
 PUBLISH = "docker"
 NON_BLOCKING = {"helm-chart"}
+# Path filters that select no job of their own.
+HELPER_FILTERS = {"workflows", "release-deps"}
 
 
 def _selectable(jobs):
@@ -464,7 +466,7 @@ def _selected(jobs, path):
     filtered = {
         name
         for name, patterns in _filters(jobs).items()
-        if name != "workflows" and any(_glob_matches(pattern, path) for pattern in patterns)
+        if name not in HELPER_FILTERS and any(_glob_matches(pattern, path) for pattern in patterns)
     }
     selection = _select_sidecars([path] if "sidecar" in filtered else [], changes=sorted(filtered))
     filtered = set(json.loads(selection["jobs"]))
@@ -506,8 +508,9 @@ class CiJobSelectionTest(unittest.TestCase):
             "all": "${{ steps.filter.outcome == 'skipped' }}",
             "jobs": "${{ steps.sidecars.outputs.jobs }}",
             "sidecar-matrix": "${{ steps.sidecars.outputs.matrix }}",
+            "release-cases": "${{ steps.release.outputs.release-cases }}",
         })
-        self.assertEqual(set(_filters(jobs)) - {"workflows"}, _selectable(jobs))
+        self.assertEqual(set(_filters(jobs)) - HELPER_FILTERS, _selectable(jobs))
         self.assertEqual(
             _filter_step(jobs)["if"],
             "github.event_name == 'pull_request' && github.event.pull_request.changed_files < 3000",
