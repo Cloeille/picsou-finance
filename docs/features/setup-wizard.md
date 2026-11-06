@@ -253,13 +253,18 @@ future work):
 ## Running without Docker
 
 Bare-metal installs (`mvn spring-boot:run`) set `PICSOU_SECRETS_DIR`. The app generates
-`JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` there on first start and reuses them afterwards:
+`JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` there on first start and reuses them afterwards. The
+Maven project is `backend/` (there is no root `pom.xml`), so the path is relative to it, and
+`backend/.local/` is gitignored:
 
 ```bash
 cd backend
 export PICSOU_SECRETS_DIR=.local/secrets
 mvn spring-boot:run
 ```
+
+Spring does not read `.env`: export every variable you set, `PICSOU_SECRETS_DIR` included, in the
+shell that starts Maven.
 
 The app never generates the database password, because it cannot change the database's own.
 It stays `picsou`, which matches the PostgreSQL container in

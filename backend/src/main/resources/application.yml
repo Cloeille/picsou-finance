@@ -91,13 +91,15 @@ spring:
 
 server:
   port: 8080
-  # Resolve forwarded addresses and the public origin only from known nginx peers.
-  # Bundled nginx connects over loopback. Do not use Tomcat's broad private-network proxy defaults.
+  # Tomcat is the edge of the container. It takes the client address (X-Forwarded-For) only from
+  # PICSOU_PROXY_IP, or from an explicit server.tomcat.remoteip.internal-proxies (see
+  # TrustedProxyBootstrap); with neither it trusts nobody, not Tomcat's private-network default.
+  # The public origin (X-Forwarded-Proto/Host/Port) is applied from any peer by
+  # ForwardedOriginCustomizer, as the bundled nginx did.
   # All rate limiters and audit readers share this container-resolved remote address.
   forward-headers-strategy: native
   tomcat:
     remoteip:
-      internal-proxies: '127\.0\.0\.1|::1|0:0:0:0:0:0:0:1'
       remote-ip-header: X-Forwarded-For
       protocol-header: X-Forwarded-Proto
       host-header: X-Forwarded-Host
@@ -121,6 +123,10 @@ management:
   endpoint:
     health:
       show-details: never
+      # /actuator/health/liveness and /readiness for the Helm probes. Once started, liveness
+      # ignores the database, so an outage does not restart the pod.
+      probes:
+        enabled: true
   info:
     # Expose `info.*` properties (below) via /actuator/info. The env info
     # contributor is disabled by default since Spring Boot 2.6, so without this

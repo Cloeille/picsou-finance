@@ -36,7 +36,7 @@ The `dev` profile points each bank connector at its own `127.0.0.1` port
 (`backend/src/main/resources/application-dev.yml`). To use one, start its sidecar
 from `services/<name>/` with `APP_SIDECAR_API_KEY=<same key as the backend> uvicorn main:app --port <port>`
 (PYTHONPATH must include `services/base`; Revolut and AMEX also need the Xvfb display their
-`entrypoint.sh` starts).
+`entrypoint.sh` starts; the main image has no entrypoint script).
 
 ### HTTPS in development
 

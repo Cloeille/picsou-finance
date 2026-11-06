@@ -25,7 +25,7 @@ import java.util.Set;
  *   <li>{@code Sec-Fetch-Site}: only {@code same-origin} and {@code none} (user-typed URL,
  *       bookmark) pass;</li>
  *   <li>{@code Origin}, then {@code Referer}, compared with the request's own scheme, host and
- *       port. Native forwarding accepts those from configured nginx peers, the same view
+ *       port. Native forwarding accepts those from the configured trusted proxy, the same view
  *       {@code CorsUtils} uses for same-origin detection;</li>
  *   <li>neither header: a non-browser client, which cannot be driven by another site. Allowed.</li>
  * </ol>

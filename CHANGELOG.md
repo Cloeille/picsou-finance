@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The app image is one non-root Java process.** nginx, supervisord and the shell entrypoint are
+  gone. The container runs as uid 1000 on port 8080; Compose and Helm hand `/data` to that user
+  (`data-permissions` service, `fsGroup`). Tomcat trusts forwarded headers only from
+  `PICSOU_PROXY_IP` for the client address, and no longer trusts loopback; the public scheme,
+  host and port are applied from any peer as nginx did, so an undeclared HTTPS proxy keeps
+  working. Helm probes use `/actuator/health/liveness`. An explicit
+  `SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES` takes precedence over `PICSOU_PROXY_IP`, and the
+  datasource password follows Spring's usual order (`--spring.datasource.password`, `-D`,
+  `SPRING_DATASOURCE_PASSWORD`, then `POSTGRES_PASSWORD`).
+  **Upgrade:** `data-permissions` runs `chown -R 1000:1000 /data` before each app start
+  (`deploy.sh` runs it too). A bind mount where `chown` is ignored (SMB/CIFS) needs the mount
+  options `uid=1000,gid=1000`. Without Compose (plain `docker run`), run once before the first
+  start of the new image: `docker run --rm --user 0 --entrypoint chown -v <your-data-volume>:/data
+  ghcr.io/cloeille/picsou-finance:<tag> -R 1000:1000 /data`; until then the app refuses to start
+  (`Cannot write secret file … AccessDeniedException`) and generates nothing.
+  Behaviour changes: authenticated uploads follow Spring's 10 MB multipart limit instead of
+  nginx's 1 MB body limit, while the anonymous endpoints (`/api/setup`, `/api/auth/`,
+  `/oauth2/register`) keep a 1 MB cap (`AnonymousBodyLimitFilter`, HTTP 413), no proxy timeout cuts
+  slow requests any more, and a stopped backend is a refused connection instead of an nginx 502.
+
 ### Added
 
 - **CORUM re-logs in by itself and syncs daily.** The CORUM login form gains an opt-in, unticked

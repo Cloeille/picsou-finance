@@ -1,13 +1,13 @@
 # Feature: CORS & Cookie Security
 
-> Last updated: 2026-11-01 (one nginx config, split stack removed)
+> Last updated: 2026-11-03 (Tomcat is the edge, nginx removed)
 
 ## Context
 
 Picsou authenticates with HttpOnly JWT cookies. The CORS configuration controls which browser
 origins may make credentialed requests to the API. Getting it wrong either blocks legitimate
 clients or produces confusing silent failures. The standard deployment serves the SPA **and** the
-API from the **same origin** (Spring Boot serves the static build and the API; nginx only forwards), so normal
+API from the **same origin** (Spring Boot serves the static build and the API), so normal
 login/setup traffic is same-origin and must never be subject to CORS at all.
 
 ## How it works
@@ -36,39 +36,36 @@ header's **scheme + host + port** against `request.getScheme()/getServerName()/g
 All three equal ⇒ same-origin ⇒ CORS skipped entirely. Any differ ⇒ enforced as cross-origin.
 
 Behind a TLS-terminating reverse proxy the browser sends `Origin: https://host`, but the
-nginx→backend hop is plain HTTP. Without trusting forwarded headers the backend reports
+proxy→backend hop is plain HTTP. Without trusting forwarded headers the backend reports
 `getScheme() == "http"`, the **scheme mismatches**, a genuinely same-origin request is treated as
 cross-origin, and the fail-closed allow-list rejects it with **403**.
 
-`server.forward-headers-strategy: native` enables Tomcat's `RemoteIpValve`. It accepts
-`X-Forwarded-For/Proto/Host/Port` only from the explicit
-`server.tomcat.remoteip.internal-proxies` expression. The default contains only IPv4/IPv6
-loopback, the nginx-to-Java hop in the bundled image. Other deployments must configure
-the exact proxy peers; Tomcat's broad private-network defaults are not used.
+Two trust levels, the same as the bundled nginx had:
 
-The nginx config preserves the public scheme and host. `Host` uses `$http_host`, retaining
-an explicit public port. The forwarded port comes from an explicit public host port, the
-upstream `X-Forwarded-Port`, or the scheme's default. It never comes from nginx's container
-listener. This matters with native forwarding: Tomcat removes a port in `X-Forwarded-Host`
-and reads `X-Forwarded-Port` separately. Standard HTTPS, custom HTTPS ports and published HTTP
-ports must all retain the browser's origin.
+- **Client address.** `server.forward-headers-strategy: native` enables Tomcat's `RemoteIpValve`,
+  which accepts `X-Forwarded-For` only from `server.tomcat.remoteip.internal-proxies`.
+  `TrustedProxyBootstrap` fills it from the one address in `PICSOU_PROXY_IP`. An explicitly
+  configured `internal-proxies` (`SERVER_TOMCAT_REMOTEIP_INTERNAL_PROXIES`, `-D`, the command
+  line) takes precedence over `PICSOU_PROXY_IP`, which is then only validated. With neither, the
+  expression matches nothing: not loopback, not Tomcat's private-network defaults.
+- **Public origin.** `ForwardedOriginCustomizer` applies `X-Forwarded-Proto` and
+  `X-Forwarded-Host` from any peer, as nginx relayed them whoever sent them. An existing install
+  behind an HTTPS proxy that is not declared in `PICSOU_PROXY_IP` (a Caddy outside the bundled
+  profile, `tailscale serve`) keeps its same-origin checks. The port is the one in the forwarded
+  host (else in `Host`, bracketed IPv6 included), else a numeric `X-Forwarded-Port`, else the
+  scheme default. Standard HTTPS, custom HTTPS ports and published HTTP ports all retain the
+  browser's origin. A client that forges these headers only changes the origin its own request is
+  compared with; it gains nothing it could not do by sending a matching `Origin`.
 
 ### Client IP trust (rate-limit keys and audit logs)
 
-The address is resolved once through two explicit trust boundaries:
+The address is resolved once, by Tomcat:
 
-1. The bundled Caddy has a stable address on a dedicated Compose bridge. The application
-   entrypoint writes nginx's `set_real_ip_from` snippet from `PICSOU_PROXY_IP`; without a
-   configured upstream proxy, the snippet is empty. nginx uses `real_ip_header
-   X-Forwarded-For` with recursive resolution, so forwarded client addresses are considered
-   only when the socket peer is the configured proxy. Caddy retains its default handling
-   of incoming forwarded headers.
-2. Every nginx backend location **replaces** `X-Forwarded-For` and `X-Real-IP` with nginx's
-   resolved `$remote_addr`. A request arriving directly at nginx retains its socket address
-   even if it supplies its own client-address headers.
-3. Tomcat accepts this normalized `X-Forwarded-For` only from the known nginx peer. An
-   untrusted backend connection keeps its socket address, regardless of `Forwarded`,
-   `X-Forwarded-For`, or `X-Real-IP` values.
+1. The bundled Caddy has a stable address on a dedicated Compose bridge, passed to the app as
+   `PICSOU_PROXY_IP`. Caddy keeps its default handling of incoming forwarded headers.
+2. Tomcat accepts `X-Forwarded-For` only from that address. A request from any other peer, loopback
+   included, keeps its socket address regardless of `Forwarded`, `X-Forwarded-For` or `X-Real-IP`.
+   With no proxy configured, nobody is trusted.
 
 `ClientIp.resolve(request)` returns `request.getRemoteAddr()` and never parses a header.
 All existing address readers therefore share the container's resolution: login and MFA
@@ -118,7 +115,7 @@ The API chain therefore keeps Spring's `CsrfFilter` but without tokens:
      - `Sec-Fetch-Site` present: anything but `same-origin` or `none` (so `same-site` and
        `cross-site` are rejected);
      - else `Origin`, or `Referer` as a last resort, compared with the request's own
-       scheme/host/port. Behind nginx those come from `X-Forwarded-*` via
+       scheme/host/port. Behind the proxy those come from `X-Forwarded-*` via
        `forward-headers-strategy: native` (see above), the same view CORS uses. `Origin: null`
        and malformed values count as foreign;
      - neither header: a non-browser client (curl, scripts, the iOS app), allowed;
@@ -148,7 +145,8 @@ endpoints including the `/oauth2/authorize` cookie bridge) is a separate chain a
 | `backend/src/main/java/com/picsou/config/LoggingCorsProcessor.java` | Logs origin on CORS rejection |
 | `backend/src/main/java/com/picsou/config/AuthCookieWriter.java` / `SecureCookieProvider.java` | Cookie construction + `Secure` flag |
 | `backend/src/main/resources/application.yml` | `server.forward-headers-strategy: native`, explicit Tomcat proxy trust, CORS and cookie settings |
-| `docker/nginx.conf` | Resolve only known upstream proxies; normalize client headers and preserve the public origin |
+| `backend/src/main/java/com/picsou/config/TrustedProxyBootstrap.java` | `PICSOU_PROXY_IP` becomes Tomcat's only trusted proxy; rejects malformed values |
+| `backend/src/main/java/com/picsou/config/ForwardedOriginCustomizer.java` | Keeps the public port from `X-Forwarded-Host` / `X-Forwarded-Port` |
 | `backend/src/main/java/com/picsou/config/ClientIp.java` | Container-resolved client IP for rate-limit keys (`getRemoteAddr()`) |
 | `backend/src/main/java/com/picsou/config/RateLimitConfig.java` | Bucket4j bucket definitions; bounded Caffeine-backed bucket-store beans |
 | `backend/src/main/java/com/picsou/controller/SetupController.java` (`/api/setup/security`) | Persists wizard's allowed origins |
@@ -157,8 +155,9 @@ endpoints including the `/oauth2/authorize` cookie bridge) is a separate chain a
 
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
-| `forward-headers-strategy: native`, exact nginx peers | One trust policy for every address reader and the public origin | Unrestricted framework forwarding; trusting all private networks |
-| Preserve the public scheme/host and derive the public port | Native forwarding reads host and port separately; the container listener is not the public port | `X-Forwarded-Port $server_port`; `Host $host` (drops the port) |
+| `forward-headers-strategy: native`, one exact proxy peer | One trust policy for every client-address reader | Unrestricted framework forwarding; trusting all private networks |
+| Public origin from any peer (`ForwardedOriginCustomizer`) | Keeps installs behind an undeclared HTTPS proxy working, as nginx did; a forged origin only affects the sender's own request | Accepting it only from `PICSOU_PROXY_IP` |
+| Derive the public port from the forwarded host or port header | Native forwarding reads host and port separately; the container listener is not the public port | Trusting the listener port |
 | Fail-closed empty default + wildcard stripping | `*` with credentials is unsafe and illegal in Spring | `ALLOWED_ORIGINS=*` default (previous behavior) |
 | `setAllowedOrigins` (exact) | Credentialed CORS; origins come from the wizard | `setAllowedOriginPatterns("*")` |
 | `SameSite=Lax` | Safari iOS compatibility | `SameSite=Strict` |
@@ -172,11 +171,11 @@ endpoints including the `/oauth2/authorize` cookie bridge) is a separate chain a
 
 - **403 over HTTPS but works over HTTP = forwarded-headers problem, not a wrong origin.** The
   request is genuinely same-origin; the scheme just isn't reaching the backend. Check that the
-  upstream proxy sends `X-Forwarded-Proto: https` and that nginx preserves it. Pre-seeding
+  upstream proxy sends `X-Forwarded-Proto: https` and that `PICSOU_PROXY_IP` is that proxy's address. Pre-seeding
   `ALLOWED_ORIGINS=https://host` only *masks* it (the exact origin then passes the cross-origin check).
-- **Never set `X-Forwarded-Port` to nginx's `$server_port`.** On a standard `:443` deployment the
+- **Never forward the container's own port as `X-Forwarded-Port`.** On a standard `:443` deployment the
   browser's Origin has no explicit port (implies 443); forwarding port 8080 makes the backend
-  perceive 8080 and mismatch → 403. Derive it from the public host port or the upstream header, otherwise use the public scheme default.
+  perceive 8080 and mismatch → 403. Send the public port, or none.
 - **`docker-compose.override.yml` overrides `env_file`:** an `ALLOWED_ORIGINS` in its `environment:`
   block silently wins over `.env`. Check it first when CORS misbehaves in dev.
 - **`Secure` flag on HTTP = redirect loop.** Cookies are dropped, `sessionStorage` stays set, the app
@@ -186,7 +185,7 @@ endpoints including the `/oauth2/authorize` cookie bridge) is a separate chain a
   scheme/host/port mismatch. Same root cause as the CORS trap above: the forwarded headers
   don't describe what the browser sees. `RemoteIpValve` resets the port to the scheme's
   default whenever `X-Forwarded-Proto` is present, so a custom public port must arrive in
-  `X-Forwarded-Port` (derived by nginx from the public host or the upstream header). An upstream proxy that rewrites `Host` without the
+  the forwarded host or `X-Forwarded-Port`. An upstream proxy that rewrites `Host` without the
   port and sends no `X-Forwarded-Host` re-creates the bug; add the origin to the CORS allow-list
   or have the proxy forward `X-Forwarded-Host`.
 - **Never treat an `Authorization` header as proof of a non-browser caller.** A basic-auth proxy
@@ -222,7 +221,7 @@ endpoints including the `/oauth2/authorize` cookie bridge) is a separate chain a
   untrusted connection, private/IPv6 untrusted peers, consistent audit addresses, and public
   origins including custom HTTP/HTTPS ports.
 - `config/RateLimitConfigTest` — bucket stores evict to their configured maximum size.
-- Docker proxy regressions exercise the nginx configuration and entrypoint trust settings.
+- `TrustedProxyClientIpTest` builds the Tomcat valves from the production properties: trusted proxy, untrusted peers (loopback and private included), unset proxy, public ports, `PICSOU_PROXY_IP` validation.
 
 ## Links
 

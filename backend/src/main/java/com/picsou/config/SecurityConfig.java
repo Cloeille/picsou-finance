@@ -72,7 +72,7 @@ public class SecurityConfig {
 
     /**
      * Whether to send {@code Strict-Transport-Security}. Off by default: Spring is the only
-     * emitter now that nginx forwards without touching headers, for the SPA, {@code /api} and the
+     * emitter now that no proxy in the image touches headers, for the SPA, {@code /api} and the
      * OAuth2 authorization-server chain alike (both chains use {@link #securityHeaders}).
      *
      * <p>Gating this matters because Spring Security's {@code HstsHeaderWriter} fires on any
@@ -153,7 +153,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/auth/mfa/verify").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/auth/activate/*").permitAll()
-                .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/health/liveness",
+                    "/actuator/health/readiness", "/actuator/info").permitAll()
                 // RFC 9728 protected-resource metadata (Task 7) and RFC 7591 dynamic client
                 // registration (Task 8): unauthenticated by design, so a remote-MCP client can
                 // discover the resource + self-register before the OAuth handshake even starts.

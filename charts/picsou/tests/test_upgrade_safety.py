@@ -64,6 +64,9 @@ class UpgradeSafetyTest(unittest.TestCase):
         for var in ("JWT_SECRET", "CRYPTO_ENCRYPTION_KEY"):
             self.assertTrue(env[var]["valueFrom"]["secretKeyRef"]["optional"])
         self.assertIn("persistentVolumeClaim", pod["volumes"][0])
+        # The app writes generated keys under /data/.secrets: that path must be the PVC.
+        mounts = {m["name"]: m["mountPath"] for m in pod["containers"][0]["volumeMounts"]}
+        self.assertEqual(mounts[pod["volumes"][0]["name"]], "/data")
 
     def test_exposure_with_empty_or_null_hostname_lists_renders(self):
         for exposure, field in (("httpRoute", "hostnames"), ("ingress", "hosts")):

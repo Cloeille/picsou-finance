@@ -123,7 +123,7 @@ public class AuthorizationServerConfig {
             // The token endpoint is called by the native app with PKCE (no browser session);
             // the authorize endpoint is a GET. CSRF protection is not applicable to this chain.
             .csrf(csrf -> csrf.disable())
-            // Same headers (and HSTS gate) as the API chain: nginx no longer adds them.
+            // Same headers (and HSTS gate) as the API chain: no proxy in the image adds them.
             .headers(securityHeaders)
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
             // Populate the SecurityContext from the existing access_token cookie so the authorize
@@ -354,7 +354,7 @@ public class AuthorizationServerConfig {
     /**
      * Redirect unauthenticated authorize requests to the existing SPA login, carrying the original
      * authorize URL in the SPA's established {@code redirect} query param so it can bounce back after
-     * login. Relative path → resolves against the user's own instance host (works behind nginx). The
+     * login. Relative path → resolves against the user's own instance host (works behind a reverse proxy). The
      * SPA only performs a full-page navigation back to a {@code /oauth2/} target (open-redirect guard).
      */
     private AuthenticationEntryPoint spaLoginRedirectEntryPoint() {

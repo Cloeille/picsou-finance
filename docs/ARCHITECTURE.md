@@ -227,11 +227,12 @@ Browser → SetupFilter → /setup → SetupController → SetupService → AppS
 
 ### 12. Authentication & MFA
 
-nginx resolves forwarded client addresses only from its configured upstream proxy and replaces
-client-address headers before forwarding to Java. Tomcat's native forwarding support trusts only
-explicit nginx peers (loopback in the bundled image, a dedicated ingress address in the split
-stack). All per-IP limiters, session metadata and audit readers share `getRemoteAddr()` through
-this policy. See [CORS & cookie security](./features/security-cors-cookies.md).
+Tomcat's native forwarding support trusts forwarded client addresses only from the proxy named by
+`PICSOU_PROXY_IP`, and nobody when it is unset. All per-IP limiters, session metadata and audit
+readers share `getRemoteAddr()` through this policy. The public origin (scheme, host, port) is a
+separate decision: `ForwardedOriginCustomizer` applies `X-Forwarded-Proto`, `X-Forwarded-Host` and
+`X-Forwarded-Port` from any peer, whether or not `PICSOU_PROXY_IP` is set, as nginx did. See
+[CORS & cookie security](./features/security-cors-cookies.md).
 
 ```
 POST /api/auth/login → AuthController → (if 2FA) issue mfa_challenge JWT → 401 + cookie

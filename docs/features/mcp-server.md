@@ -96,7 +96,7 @@ Three security properties are guaranteed structurally (not by per-call checks):
 - `i18n/locales/{en,fr}.json` — the `accessKeys.*` namespace.
 
 **Deployment — reverse proxy** (the public `https://<host>/mcp` path; see Gotchas)
-- `docker/nginx.conf` — `location /mcp` → backend, SSE-tuned (`proxy_buffering off`, `proxy_read_timeout 3600s`, HTTP/1.1).
+- The app image has no proxy: Tomcat serves `/mcp` directly. An external proxy in front of it needs the SSE settings below.
 - `frontend/vite.config.ts` — dev proxy `/mcp` → `VITE_API_TARGET`.
 
 The create access-key dialog is intentionally wider than the default dialog
@@ -247,10 +247,10 @@ sessions/credentials as the documented side effect of deleting a connection's la
   `restore()` because `SecurityContextHolder.setContext(null)` throws. Unit tests can't catch this — they
   set the context on the test thread — so it only shows up driving the real SSE transport.
 - **The reverse proxy must forward `/mcp` with SSE settings.** An MCP client connects to the public origin
-  (`https://<host>/mcp`), not the backend port, so nginx/Vite must route `/mcp` to the backend with
+  (`https://<host>/mcp`), not the backend port, so any proxy in front (Vite in dev, a user's reverse proxy) must route `/mcp` to the backend with
   `proxy_buffering off` + a long `proxy_read_timeout` (the GET `/mcp` stream is long-lived) — otherwise the
-  SSE events are withheld and the stream stalls. Configured in `docker/nginx.conf`
-  and the Vite dev proxy (`frontend/vite.config.ts`). Forgetting it yields a `404` (or, if `/` is a SPA
+  SSE events are withheld and the stream stalls. The app image has no proxy since #342;
+  the Vite dev proxy is configured in (`frontend/vite.config.ts`). Forgetting it yields a `404` (or, if `/` is a SPA
   fallback, an HTML page) on `/mcp` while the backend is perfectly healthy on `:8080/mcp`.
 - **MCP sync triggers share one per-member cooldown.** `trigger_full_sync` and the four older
   trigger tools all call `MemberSyncService` and share `mcpMemberSyncBuckets`: one sync per member
@@ -311,8 +311,8 @@ sessions/credentials as the documented side effect of deleting a connection's la
   clients. Both stay under `/mcp/**` so Property A's prefix check covers them.
 - **`/mcp` must stay a backend path.** Spring serves `index.html` for unmatched paths, except the
   prefixes in `SpaPaths.isBackend`. Dropping `/mcp` from that list would give clients
-  `index.html` (HTTP 200 HTML) instead of the MCP transport. `docker/nginx.conf` proxies `/mcp`
-  with SSE-friendly settings (`proxy_buffering off`, long `proxy_read_timeout`).
+  `index.html` (HTTP 200 HTML) instead of the MCP transport. Tomcat streams `/mcp` itself; an
+  external proxy needs SSE-friendly settings (`proxy_buffering off`, long `proxy_read_timeout`).
 - **The SSE stream needs the server keep-alive.** Between two replies the stream carries nothing, and
   clients abort a response body that stays silent: Bun's `fetch` (Claude Code) after ~6 min, the
   Python MCP SDK's SSE client after 300 s. The server keeps accepting `POST /mcp/message` for the
