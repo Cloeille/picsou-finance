@@ -148,6 +148,7 @@ jobs:
           migration.LegacyMigrationRenumberingTest
           service.SidecarBudgetPostgresTest
           adapter.sidecar.SidecarBankCodesTest
+          migration.V124SidecarSessionMigrationTest
           EOF
 
   frontend:

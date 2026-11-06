@@ -12,6 +12,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,11 +21,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Proves a database at V121 keeps every sidecar session through V122: same member, cookies,
+ * Proves a database at V121 keeps every sidecar session through V124: same member, cookies,
  * stored login, unsupported contracts, sync state and timestamps, so nobody has to reconnect.
  */
 @RequiresPostgres
-class V122SidecarSessionMigrationTest {
+class V124SidecarSessionMigrationTest {
 
     private static final String[] TABLES = {
         "amex", "amundi", "bourse_direct", "bourso", "caisse_epargne",
@@ -42,6 +44,8 @@ class V122SidecarSessionMigrationTest {
 
     static long alice;
     static long bob;
+    static long carol;
+    static long dave;
 
     @BeforeAll
     static void seedV121AndMigrate() throws SQLException {
@@ -62,8 +66,18 @@ class V122SidecarSessionMigrationTest {
             execute(c, "UPDATE cic_session SET encrypted_credentials = 'cic-login'");
             execute(c, "UPDATE cmes_session SET encrypted_credentials = 'cmes-login'");
             execute(c, "UPDATE caisse_epargne_session SET unsupported_contracts = '[{\"externalId\":\"x\"}]'");
+            carol = newMember(c, "carol");
+            dave = newMember(c, "dave");
+            // Rows the CORUM and Sofidy tables accepted although sidecar_session refuses them:
+            // carol has a stale error outside FAILED, dave a FAILED row with no reason.
+            for (String table : new String[] {"corum", "sofidy"}) {
+                execute(c, "INSERT INTO " + table + "_session (member_id, session_state, sync_status, last_sync_error) "
+                    + "VALUES (" + carol + ", 'carol', 'SUCCESS', 'INTERNAL_ERROR')");
+                execute(c, "INSERT INTO " + table + "_session (member_id, session_state, sync_status) "
+                    + "VALUES (" + dave + ", 'dave', 'FAILED')");
+            }
         }
-        PostgresContainers.migrateToOutOfOrder(POSTGRES, "122");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "124");
     }
 
     @Test
@@ -80,12 +94,26 @@ class V122SidecarSessionMigrationTest {
                     default -> null;
                 },
                 bank == SidecarBank.CAISSE_EPARGNE ? "[{\"externalId\":\"x\"}]" : null,
-                "2026-10-01 08:00:00+00", false, "FAILED", "2026-10-02 08:00:00+00",
-                "2026-10-02 08:05:00+00", "SESSION_EXPIRED", "2026-09-01 08:00:00+00", "2026-10-02 08:05:00+00");
+                Instant.parse("2026-10-01T08:00:00Z"), false, "FAILED", Instant.parse("2026-10-02T08:00:00Z"),
+                Instant.parse("2026-10-02T08:05:00Z"), "SESSION_EXPIRED", Instant.parse("2026-09-01T08:00:00Z"),
+                Instant.parse("2026-10-02T08:05:00Z"));
             assertThat(row(bank, bob).subList(0, 3)).containsExactly(bank.name(), bob, "bob-" + table);
         }
         assertThat(count("SELECT count(*) FROM sidecar_session WHERE member_id IN (" + alice + ", " + bob + ")"))
             .isEqualTo(2L * TABLES.length);
+    }
+
+    @Test
+    void aCorumOrSofidyRowBreakingTheFailedErrorRuleIsRepairedNotRefused() throws SQLException {
+        for (SidecarBank bank : List.of(SidecarBank.CORUM, SidecarBank.SOFIDY)) {
+            // Index 7 is sync_status, 10 is last_sync_error.
+            List<Object> stale = row(bank, carol);
+            assertThat(stale.get(7)).as(bank.name()).isEqualTo("SUCCESS");
+            assertThat(stale.get(10)).as(bank.name()).isNull();
+            List<Object> reasonless = row(bank, dave);
+            assertThat(reasonless.get(7)).as(bank.name()).isEqualTo("FAILED");
+            assertThat(reasonless.get(10)).as(bank.name()).isEqualTo("INTERNAL_ERROR");
+        }
     }
 
     @Test
@@ -172,17 +200,23 @@ class V122SidecarSessionMigrationTest {
                 values.add(rs.getString("session_state"));
                 values.add(rs.getString("encrypted_credentials"));
                 values.add(rs.getString("unsupported_contracts"));
-                values.add(rs.getString("last_validated_at"));
+                values.add(instant(rs, "last_validated_at"));
                 values.add(rs.getBoolean("is_active"));
                 values.add(rs.getString("sync_status"));
-                values.add(rs.getString("last_sync_started_at"));
-                values.add(rs.getString("last_sync_completed_at"));
+                values.add(instant(rs, "last_sync_started_at"));
+                values.add(instant(rs, "last_sync_completed_at"));
                 values.add(rs.getString("last_sync_error"));
-                values.add(rs.getString("created_at"));
-                values.add(rs.getString("updated_at"));
+                values.add(instant(rs, "created_at"));
+                values.add(instant(rs, "updated_at"));
                 return values;
             }
         }
+    }
+
+    /** A timestamptz as an instant: getString renders it in the JVM's time zone. */
+    private static Instant instant(ResultSet rs, String column) throws SQLException {
+        OffsetDateTime value = rs.getObject(column, OffsetDateTime.class);
+        return value == null ? null : value.toInstant();
     }
 
     private static long newMember(Connection c, String name) throws SQLException {

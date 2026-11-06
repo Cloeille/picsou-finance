@@ -9,14 +9,14 @@ Ten sidecar banks (Amex, Amundi, Bourse Direct, BoursoBank, Caisse d'Epargne,
 CIC, CMES, CORUM, Fortuneo, Sofidy) each had their own session table, entity,
 status enum, repository, and a `*SyncService` that contained its own copy of the
 same queue, execute, commit and recover cycle. The copies had drifted: only
-Fortuneo aborted startup when boot recovery failed, only Caisse d'Epargne
+Fortuneo logged why boot recovery failed before startup stopped, only Caisse d'Epargne
 recorded an unreadable stored session, and the tests for those shared scenarios
 existed for some banks and not others (issue #337, part of #326).
 
 ## Decision
 
 - **One table, `sidecar_session`**, keyed by `(bank, member_id)`, created by
-  `V122__sidecar_session.sql`. V122 copies the ten tables row for row,
+  `V124__sidecar_session.sql`. V124 copies the ten tables row for row,
   including the encrypted state as stored, and drops them in the same
   transaction. One entity `SidecarSession`, one enum `SidecarSyncStatus`, one
   `SidecarSessionRepository`.
@@ -29,8 +29,10 @@ existed for some banks and not others (issue #337, part of #326).
   interrupted jobs at boot, and reports to the daily scheduler. Each bank keeps
   only its `SidecarSyncStrategy`: `fetch` (outside any transaction), `commit`
   (inside it), and optional `afterCommit` and `onFailure`.
-- **One boot runner, `SidecarSyncRecovery`.** A recovery that fails aborts
-  startup for every bank, as Fortuneo already did.
+- **One boot runner, `SidecarSyncRecovery`.** A recovery that fails stops
+  startup, as each per-bank runner already did since none caught the
+  exception. What changes: every bank now logs which recovery failed, as only
+  Fortuneo did.
 - **One contract suite, `SidecarSyncContractTest`.** It runs the shared
   scenarios against every bank's real service.
 
@@ -74,4 +76,9 @@ PostgreSQL.
 
 - Adding a sidecar bank means one `SidecarBank` constant, one strategy, and
   one CHECK branch generated from the enum.
-- Rolling back past V122 needs a database restore. V122 drops the old tables.
+- Rolling back past V124 needs a database restore. V124 drops the old tables.
+  Upgrade with the [safe release deployment](../features/release-deployment.md),
+  which takes the backup first.
+- The CORUM and Sofidy tables never enforced "FAILED requires an error code".
+  V124 repairs a row that breaks it before the copy (stale error cleared,
+  missing one set to `INTERNAL_ERROR`) instead of failing the boot.

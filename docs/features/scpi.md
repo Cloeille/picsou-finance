@@ -230,7 +230,7 @@ same `ScpiPositionService.save` and never sends a CORUM or Sofidy fund code. See
   failure.
 - `V82` already adds `SCPI` and `ASSURANCE_VIE` on 1.1.0; do not add the enum twice.
   The appended migrations are `V104` (`scpi_position`), `V105` (`corum_session`)
-  and `V106` (`sofidy_session`), both folded into `sidecar_session` by `V122`, above the base branch's `V103`. `V115`
+  and `V106` (`sofidy_session`), both folded into `sidecar_session` by `V124`, above the base branch's `V103`. `V115`
   (`scpi_provider_fund`) follows V114 (`account_holding_provider_price_date`) on the base branch.
   `V127` adds `corum_session.encrypted_credentials`.
 - Deleting a SCPI account tombstones its funds. Without that, the next sync would

@@ -1,6 +1,8 @@
 -- One session table for the ten sidecar banks that shared the same shape (#337).
 -- Each row keeps its bank, member, encrypted session and sync state byte for byte, so
--- nobody has to reconnect. Copy and drop run in this one migration, so in one transaction.
+-- nobody has to reconnect. The one exception is a CORUM or Sofidy row breaking the
+-- FAILED/error rule, repaired below before the copy. Copy and drop run in this one
+-- migration, so in one transaction.
 
 CREATE TABLE sidecar_session (
     id                     BIGSERIAL PRIMARY KEY,
@@ -24,7 +26,7 @@ CREATE TABLE sidecar_session (
         CHECK (bank IN ('AMEX', 'AMUNDI', 'BOURSE_DIRECT', 'BOURSO', 'CAISSE_EPARGNE', 'CIC', 'CMES', 'CORUM', 'FORTUNEO', 'SOFIDY')),
     CONSTRAINT ck_sidecar_session_sync_status
         CHECK (sync_status IN ('IDLE', 'QUEUED', 'RUNNING', 'SUCCESS', 'FAILED')),
-    -- The rule 8 of the 10 per-bank tables enforced; CORUM and Sofidy code already kept it.
+    -- Eight of the ten per-bank tables enforced this rule; CORUM and Sofidy code kept it without a CHECK.
     CONSTRAINT ck_sidecar_session_failed_error
         CHECK (
             (sync_status = 'FAILED' AND last_sync_error IS NOT NULL)
@@ -92,6 +94,14 @@ CREATE TABLE sidecar_session (
 );
 
 CREATE INDEX ix_sidecar_session_member ON sidecar_session (member_id);
+
+-- corum_session and sofidy_session never had the failed_error CHECK. A hand-edited row that
+-- breaks it would fail the copy and stop the boot, so make it obey the rule first: an error
+-- outside FAILED is stale and goes, a FAILED row with no reason says INTERNAL_ERROR.
+UPDATE corum_session SET last_sync_error = NULL WHERE sync_status <> 'FAILED' AND last_sync_error IS NOT NULL;
+UPDATE corum_session SET last_sync_error = 'INTERNAL_ERROR' WHERE sync_status = 'FAILED' AND last_sync_error IS NULL;
+UPDATE sofidy_session SET last_sync_error = NULL WHERE sync_status <> 'FAILED' AND last_sync_error IS NOT NULL;
+UPDATE sofidy_session SET last_sync_error = 'INTERNAL_ERROR' WHERE sync_status = 'FAILED' AND last_sync_error IS NULL;
 
 INSERT INTO sidecar_session (bank, member_id, session_state, encrypted_credentials, unsupported_contracts,
     last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, last_sync_error,
