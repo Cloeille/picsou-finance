@@ -121,6 +121,7 @@ public class SsoStartGuardFilter extends OncePerRequestFilter {
             case ACTIVATE -> {
                 boolean valid = "1".equals(request.getParameter("ack"))
                     && userRepository.findByActivationToken(intent.activationToken())
+                        .filter(invited -> !invited.isActivated())
                         .filter(invited -> invited.getActivationTokenExpires() == null
                             || !invited.getActivationTokenExpires().isBefore(clock.instant()))
                         .isPresent();

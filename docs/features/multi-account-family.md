@@ -1,6 +1,6 @@
 # Feature: Multi-account family system
 
-> Last updated: 2026-11-04 (password-less members, activation with SSO, group-managed admins)
+> Last updated: 2026-11-06 (password-less members, activation with SSO, group-managed admins)
 
 ## Context
 
@@ -129,7 +129,11 @@ users (`FamilyService.generateActivationToken` line 92).
 so the admin UI can show both the display name and the login side-by-side.
 
 A reset link is also how a **password-less** (SSO-only) member gets a password back if the IdP
-is unavailable: activating it sets a password like any reset.
+is unavailable: activating it sets a password like any reset. It only ever sets a password: the
+SSO activation (`intent=activate`) refuses a token whose account is already activated
+(`ACTIVATION_INVALID`), because it would otherwise replace the password and the second factor with
+the IdP identity of whoever holds the link. A reset does not unlink SSO identities either; the admin
+does that with **Unlink SSO** below.
 
 ### Sign-in methods and SSO-managed admins
 

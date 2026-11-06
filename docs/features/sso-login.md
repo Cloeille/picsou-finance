@@ -1,6 +1,6 @@
 # Feature: SSO login (OIDC), alongside passwords
 
-> Last updated: 2026-11-04
+> Last updated: 2026-11-06
 
 ## Context
 
@@ -62,7 +62,7 @@ Linking (Settings -> Sign-in methods)
  reauth_proof first (password + TOTP, or an SSO reauth) -> POST ... intent=link
  -> proof checked again at the callback -> identity bound -> /settings?sso=linked
 
-Activation (invitation link /activate/{token})
+Activation (invitation link /activate/{token}, never-activated accounts only)
  acknowledgement ticked -> POST ... intent=activate, token=..., ack=1
  -> account activated without a password, identity bound, local TOTP removed
  -> /login/sso-complete
@@ -84,10 +84,19 @@ same-origin POST, as the bank OAuth callback does.
 | `login`: `(iss, sub)` linked to an account | That account. Deactivated: `ACCOUNT_INACTIVE`, or `ADMIN_RECOVERY_ACTIVE` for an admin while admin recovery is on |
 | `login`: not linked, setup complete, `SSO_ADMIN_GROUP` set, identity in the group | New password-less ADMIN account (audited `sso.user.provisioned`) |
 | `setup`: setup at `PENDING_ADMIN`, identity in the admin group | First admin, password-less. Not in the group: `NOT_IN_ADMIN_GROUP`; lost race: `SETUP_ALREADY_CLAIMED` |
-| `activate`: valid, unexpired invitation token | Identity bound to the invited account; account activated with an empty password hash. Identity owned by another account: `IDENTITY_IN_USE`. The invitation row is locked until commit, so a concurrent activation of the same invitation finds the token gone: `ACTIVATION_INVALID` here, the invalid-token answer on the password path |
+| `activate`: valid, unexpired invitation token of an account that is not activated yet | Identity bound to the invited account; account activated with an empty password hash. Identity owned by another account: `IDENTITY_IN_USE`. The invitation row is locked until commit, so a concurrent activation of the same invitation finds the token gone: `ACTIVATION_INVALID` here, the invalid-token answer on the password path. A token held by an already activated account (an admin's password-reset link) is `ACTIVATION_INVALID` too, see below |
 | `link`: signed-in user, valid `reauth_proof` at start and callback | Identity bound to that account (`last_login_at` stays empty until its first SSO sign-in) |
 | `reauth`: signed-in user, identity already linked to them, fresh `auth_time` | `reauth_proof` set; no new session |
 | Anything else | `NOT_LINKED`. No account is ever matched by email or username |
+
+SSO activation is for invitations, that is accounts that were never activated, and for nothing
+else. An admin's password-reset link (`POST /api/family/members/{id}/reset-password`) puts the same
+kind of token on an account that is already activated; it only allows setting a new password on
+`/activate/{token}`. Honouring it for SSO would let whoever holds the link replace that account's
+password and second factor with their own IdP identity, so the start guard and
+`SsoAccountService.activateWithIdentity` (on the row locked by `FOR UPDATE`) both refuse it with
+`ACTIVATION_INVALID`. An admin-recovery link is different: recovery deactivates the account
+first, so it is accepted like an invitation (its holder read the server log).
 
 Every callback that resolves an account syncs the admin role (see below). Errors redirect with
 `ssoError=<CODE>` to the page the flow came from (`/login`, `/activate/{token}`, `/setup/admin`,
@@ -320,14 +329,15 @@ Backend (`mvn test`):
 - Slice: `config/ssoslice/SsoSecurityConfigTest` (the chain exists only when SSO is configured,
   routing, GET and cross-site refusals, allow-listed origins, `GET /api/auth/sso` public).
 - Integration: `SsoLoginIntegrationTest`, a Testcontainers `@SpringBootTest` against the in-process
-  `FakeOidcProvider` (discovery, JWKS, authorize, token with PKCE check, userinfo). Fifteen ordered
+  `FakeOidcProvider` (discovery, JWKS, authorize, token with PKCE check, userinfo). Sixteen ordered
   scenarios: first admin, refusals, no auto-link by email, provisioning, demotion and the last
   admin, PKCE and nonce, Remember Me, the window, re-authentication, activation, POST-only
-  handshake, discarded IdP tokens, log sanitizing, and public app clients receiving no refresh
-  token (scenario 15).
+  handshake, discarded IdP tokens, log sanitizing, public app clients receiving no refresh
+  token (scenario 15), and a password-reset link that cannot take over an activated account
+  (scenario 16).
 - **CI skip guard.** The integration test self-skips without Docker, which a green build would
   hide. CI runs with `PICSOU_REQUIRE_DOCKER_TESTS=true` and its "Require the SSO login integration
-  tests" step greps the Surefire report for `Tests run: 15, Failures: 0, Errors: 0, Skipped: 0`.
+  tests" step greps the Surefire report for `Tests run: 16, Failures: 0, Errors: 0, Skipped: 0`.
 
 Frontend (`bunx vitest run`): `features/sso/{start,errors}.test.ts`, `lib/sso-revalidate.test.ts`,
 `lib/safe-redirect.test.ts`, `lib/api-client.test.ts`, `features/auth/{guards,hooks}.test.*`,

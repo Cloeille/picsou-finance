@@ -248,6 +248,7 @@ class SsoAccountServiceTest {
 
     private AppUser invited(Instant expires) {
         AppUser dora = user(9L, "dora");
+        dora.setActivated(false);
         dora.setActivationToken("tok");
         dora.setActivationTokenExpires(expires);
         return dora;
@@ -294,6 +295,20 @@ class SsoAccountServiceTest {
 
         verify(activationService, never()).complete(any(), any(), any());
         verify(mfaService, never()).disable(any());
+    }
+
+    @Test
+    void activateWithIdentityRefusesAnActivatedAccountHoldingAPasswordResetToken() {
+        AppUser dora = invited(NOW.plusSeconds(60));
+        dora.setActivated(true);
+        when(appUserRepository.findByActivationTokenForUpdate("tok")).thenReturn(Optional.of(dora));
+
+        assertThatThrownBy(() -> service.activateWithIdentity("tok", identity("a", "a@x.io", Set.of()), null))
+            .isInstanceOfSatisfying(SsoFlowException.class, e -> assertThat(e.code()).isEqualTo("ACTIVATION_INVALID"));
+
+        verify(activationService, never()).complete(any(), any(), any());
+        verify(mfaService, never()).disable(any());
+        verify(userIdentityRepository, never()).save(any(UserIdentity.class));
     }
 
     @Test

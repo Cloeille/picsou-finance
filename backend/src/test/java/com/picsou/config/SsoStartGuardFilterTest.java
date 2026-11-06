@@ -194,7 +194,7 @@ class SsoStartGuardFilterTest {
     }
 
     private static AppUser invited(Instant expires) {
-        return AppUser.builder().id(9L).activationToken("tok").activationTokenExpires(expires).build();
+        return AppUser.builder().id(9L).activated(false).activationToken("tok").activationTokenExpires(expires).build();
     }
 
     @Test
@@ -239,6 +239,20 @@ class SsoStartGuardFilterTest {
     void activateRefusesAnExpiredToken() throws Exception {
         when(repository.isAvailable()).thenReturn(true);
         when(userRepository.findByActivationToken("tok")).thenReturn(Optional.of(invited(Instant.EPOCH.minusSeconds(1))));
+        request.addParameter("intent", "activate");
+        request.addParameter("token", "tok");
+        request.addParameter("ack", "1");
+        guard.doFilter(request, response, chain);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/activate/tok?ssoError=ACTIVATION_INVALID");
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
+    void activateRefusesAnActivatedAccountHoldingAPasswordResetToken() throws Exception {
+        when(repository.isAvailable()).thenReturn(true);
+        AppUser activated = invited(Instant.EPOCH.plusSeconds(60));
+        activated.setActivated(true);
+        when(userRepository.findByActivationToken("tok")).thenReturn(Optional.of(activated));
         request.addParameter("intent", "activate");
         request.addParameter("token", "tok");
         request.addParameter("ack", "1");

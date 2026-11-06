@@ -15,6 +15,7 @@ import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.PersistentSessionRepository;
 import com.picsou.repository.UserIdentityRepository;
 import com.picsou.repository.UserMfaRepository;
+import com.picsou.service.FamilyService;
 import jakarta.servlet.http.Cookie;
 import java.net.URI;
 import java.time.Instant;
@@ -64,7 +65,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-// allow: SIZE_OK - the required 15 ordered scenarios share one bootstrap lifecycle and one real Spring context.
+// allow: SIZE_OK - the required 16 ordered scenarios share one bootstrap lifecycle and one real Spring context.
 @SpringBootTest
 @AutoConfigureMockMvc
 @Testcontainers(disabledWithoutDocker = true)
@@ -96,6 +97,7 @@ class SsoLoginIntegrationTest {
     @Autowired PersistentSessionRepository sessions;
     @Autowired UserMfaRepository mfa;
     @Autowired PasswordEncoder passwords;
+    @Autowired FamilyService family;
     @Autowired JwtUtil jwt;
     @Autowired JWKSource<SecurityContext> signingKeys;
     @Autowired ObjectProvider<OAuth2AuthorizedClientService> authorizedClients;
@@ -330,6 +332,28 @@ class SsoLoginIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.access_token").isNotEmpty())
                 .andExpect(jsonPath("$.refresh_token").doesNotExist());
         }
+    }
+
+    @Test @Order(16)
+    void passwordResetLink_neverLetsAnIdpIdentityTakeOverAnActivatedAccount() throws Exception {
+        AppUser victim = localUser("resetvictim");
+        mfa.save(UserMfa.builder().user(victim).enabled(true).totpSecretEnc("unused-for-this-scenario").build());
+        String passwordHash = victim.getPasswordHash();
+        String resetToken = family.resetPasswordToken(victim.getMember().getId());
+        int authorizations = IDP.calls("/authorize");
+
+        mvc.perform(start("activate").param("token", resetToken).param("ack", "1"))
+            .andExpect(redirectedUrl("/activate/" + resetToken + "?ssoError=ACTIVATION_INVALID"));
+
+        assertThat(IDP.calls("/authorize")).isEqualTo(authorizations);
+        assertThat(identities.countByUserId(victim.getId())).isZero();
+        assertThat(mfa.existsByUserIdAndEnabledTrue(victim.getId())).isTrue();
+        assertThat(user("resetvictim").getPasswordHash()).isEqualTo(passwordHash);
+        mvc.perform(post("/api/auth/activate/" + resetToken).header("Sec-Fetch-Site", "same-origin")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"password\":\"a-brand-new-password\",\"acknowledgedWarning\":true}"))
+            .andExpect(status().isOk());
+        assertThat(passwords.matches("a-brand-new-password", user("resetvictim").getPasswordHash())).isTrue();
     }
 
     private record Flow(MockHttpSession session, Map<String, String> parameters, String code) {}

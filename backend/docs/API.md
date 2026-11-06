@@ -324,7 +324,7 @@ Starts a round trip to the IdP.
 | `login` before setup is complete | `/setup` |
 | `link` / `reauth` without a valid `access_token` | `/login` |
 | `link` without a valid `reauth_proof` | `{redirect}?ssoError=REAUTH_REQUIRED` |
-| `activate` with an unknown or expired token, or `ack` not `1` | `/activate/{token}?ssoError=ACTIVATION_INVALID` |
+| `activate` with an unknown or expired token, a token held by an already activated account (password-reset link), or `ack` not `1` | `/activate/{token}?ssoError=ACTIVATION_INVALID` |
 | `setup` when setup is past the admin step or `SSO_ADMIN_GROUP` is not set | `/setup/admin?ssoError=SETUP_ALREADY_CLAIMED` |
 
 #### `POST /oauth2/sso/code/oidc`
@@ -369,7 +369,7 @@ Errors redirect with `ssoError={CODE}` to the page the flow came from: `/login` 
 | `REAUTH_WRONG_ACCOUNT` | `ssoError` | `link` / `reauth`: the signed-in account changed during the round trip, or (`reauth`) the identity is not linked to it |
 | `ACCOUNT_INACTIVE` | `ssoError` | `login`: the linked account is deactivated |
 | `ADMIN_RECOVERY_ACTIVE` | `ssoError` | `login`: the linked account is a deactivated admin while admin recovery is on |
-| `ACTIVATION_INVALID` | `ssoError` | `activate`: unknown or expired invitation token, or `ack` not `1` |
+| `ACTIVATION_INVALID` | `ssoError` | `activate`: unknown or expired invitation token, a token of an already activated account (a password-reset link only sets a new password), or `ack` not `1` |
 | `SETUP_ALREADY_CLAIMED` | `ssoError` | `setup`: setup is past the admin step, `SSO_ADMIN_GROUP` is unset, or another admin won the race |
 | `IDP_UNAVAILABLE` | `ssoError` | Start: the IdP discovery document could not be loaded yet |
 | `IDP_ERROR` | `ssoError` | Unknown `intent`, an error returned by the IdP, or a failed token / ID-token validation |

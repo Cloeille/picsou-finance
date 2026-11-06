@@ -161,10 +161,14 @@ public class SsoAccountService {
      * never leaves an activated account without a sign-in method. The account is found by its
      * invitation token only, never by the identity's email or username, and its row stays locked
      * until commit: a concurrent activation then finds the token gone instead of activating twice.
+     * Only an account that is not activated yet qualifies: an administrator's password-reset token
+     * sits on an activated account, and honouring it here would let whoever holds the link replace
+     * that account's password and second factor with their own IdP identity.
      */
     @Transactional
     public AppUser activateWithIdentity(String token, SsoIdentity identity, HttpServletRequest request) {
         AppUser user = userRepository.findByActivationTokenForUpdate(token == null ? "" : token)
+            .filter(invited -> !invited.isActivated())
             .filter(invited -> invited.getActivationTokenExpires() == null
                 || !invited.getActivationTokenExpires().isBefore(clock.instant()))
             .orElseThrow(() -> new SsoFlowException("ACTIVATION_INVALID"));
