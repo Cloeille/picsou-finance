@@ -1,19 +1,17 @@
 package com.picsou.migration;
 
-import org.flywaydb.core.Flyway;
+import com.picsou.support.PostgresContainers;
+import com.picsou.support.RequiresPostgres;
+
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
-import org.junit.jupiter.api.condition.EnabledIf;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.DockerClientFactory;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -34,48 +32,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <p>The point of this test is the assertion at the end: after V85, an expired goal updates.
  */
-@Testcontainers
-@EnabledIf("dockerAvailable")
+@RequiresPostgres
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class V85GoalTypeMigrationTest {
 
-    static {
-        // docker-java otherwise negotiates down to API 1.32, which Engine >= 28 refuses — and it
-        // surfaces as the same "no valid Docker environment" a Docker-less machine gives, so the
-        // guard below would quietly skip on a perfectly capable host.
-        System.setProperty("api.version", "1.44");
-    }
-
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    static boolean dockerAvailable() {
-        boolean available = DockerClientFactory.instance().isDockerAvailable();
-        if (!available && System.getenv("PICSOU_REQUIRE_DOCKER_TESTS") != null) {
-            throw new IllegalStateException("Docker is required but unavailable");
-        }
-        return available;
-    }
-
-    private static void migrateTo(String version) {
-        Flyway.configure()
-            .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-            .locations("classpath:db/migration")
-            .target(version)
-            .load()
-            .migrate();
-    }
-
-    private static Connection connection() throws SQLException {
-        return DriverManager.getConnection(
-            POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-    }
+    static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
 
     @BeforeAll
     static void migrateAndSeed() throws SQLException {
-        migrateTo("84");
+        PostgresContainers.migrateTo(POSTGRES, "84");
 
-        try (Connection c = connection(); Statement st = c.createStatement()) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement()) {
             // goal only references family_member; app_user is not needed to exercise the
             // constraint, and seeding it would drag in the whole two-tier identity setup.
             st.execute("INSERT INTO family_member (id, display_name) VALUES (1, 'Member')");
@@ -109,7 +77,7 @@ class V85GoalTypeMigrationTest {
     void theBugIsRealBeforeTheMigration() throws SQLException {
         // Establishes that the fix is fixing something: touching the expired goal fails while
         // the old constraint is still in place.
-        try (Connection c = connection(); Statement st = c.createStatement()) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement()) {
             assertThatThrownBy(() -> st.execute("UPDATE goal SET name = 'renamed' WHERE id = 1"))
                 .isInstanceOf(SQLException.class)
                 .hasMessageContaining("chk_goal_deadline");
@@ -119,9 +87,9 @@ class V85GoalTypeMigrationTest {
     @Test
     @Order(2)
     void anExpiredGoalCanBeUpdatedAgainAfterTheMigration() throws SQLException {
-        migrateTo("85");
+        PostgresContainers.migrateTo(POSTGRES, "85");
 
-        try (Connection c = connection(); Statement st = c.createStatement()) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement()) {
             assertThatCode(() -> st.execute("UPDATE goal SET name = 'renamed' WHERE id = 1"))
                 .doesNotThrowAnyException();
 
@@ -137,9 +105,9 @@ class V85GoalTypeMigrationTest {
     @Test
     @Order(3)
     void aRecurringPlanNeedsNoTargetAndNoDeadline() throws SQLException {
-        migrateTo("85");
+        PostgresContainers.migrateTo(POSTGRES, "85");
 
-        try (Connection c = connection(); Statement st = c.createStatement()) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement()) {
             assertThatCode(() -> st.execute(
                 "INSERT INTO goal (member_id, name, type, monthly_amount, created_at, updated_at) "
                     + "VALUES (1, 'PEA monthly', 'RECURRING_INVESTMENT', 300, NOW(), NOW())"))
@@ -150,9 +118,9 @@ class V85GoalTypeMigrationTest {
     @Test
     @Order(4)
     void aSavingsTargetStillCannotBeCreatedWithoutATarget() throws SQLException {
-        migrateTo("85");
+        PostgresContainers.migrateTo(POSTGRES, "85");
 
-        try (Connection c = connection(); Statement st = c.createStatement()) {
+        try (Connection c = PostgresContainers.connection(POSTGRES); Statement st = c.createStatement()) {
             // Dropping the NOT NULLs without the per-type CHECK would have allowed exactly this.
             assertThatThrownBy(() -> st.execute(
                 "INSERT INTO goal (member_id, name, type, created_at, updated_at) "

@@ -85,15 +85,6 @@ export function useCreateRule() {
   })
 }
 
-export function useUpdateRule() {
-  return useInvalidatingMutation({
-    mutationFn: ({ id, data }: { id: number; data: CategorizationRuleRequest }) =>
-      budgetApi.updateRule(id, data),
-    invalidates: [['budget', 'rules']],
-    awaitRefresh: true,
-  })
-}
-
 export function useDeleteRule() {
   return useInvalidatingMutation({
     mutationFn: (id: number) => budgetApi.deleteRule(id),
@@ -298,11 +289,6 @@ function useRecurringMutation<TArgs>(fn: (args: TArgs) => Promise<unknown>) {
 
 export function useCreateRecurring() {
   return useRecurringMutation((data: RecurringSeriesRequest) => budgetApi.createRecurring(data))
-}
-
-export function useUpdateRecurring() {
-  return useRecurringMutation(({ id, data }: { id: number; data: RecurringSeriesRequest }) =>
-    budgetApi.updateRecurring(id, data))
 }
 
 export function useConfirmRecurring() {

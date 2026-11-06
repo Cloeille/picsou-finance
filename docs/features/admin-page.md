@@ -99,7 +99,7 @@ Frontend:
 - `frontend/src/pages/settings/SettingsPage.tsx` — admin-only "Admin" section
   card after Family.
 - `frontend/src/i18n/locales/{fr,en}.json` — `admin.*` namespace + `nav.admin`,
-  `nav.admin.desc`, `settings.adminSection*`.
+  `settings.adminSection*`.
 
 ### Flow
 
@@ -202,7 +202,7 @@ On submit / toggle ──► PUT or PATCH ──► invalidate adminKeys.setting
 - No dedicated integration test for the role gate (manual verification — same
   approach as `security-cors-cookies.md`). A future MockMvc slice test asserting a
   USER-role request is rejected with 403 would close the gap.
-- Frontend coverage is `bun run typecheck` + `bun run build` + manual flow only;
+- Frontend coverage is `make test-frontend` (typecheck) + manual flow only;
   no Vitest component tests for the admin sections yet.
 
 ## Links

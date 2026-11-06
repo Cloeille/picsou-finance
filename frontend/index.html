@@ -7,9 +7,50 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Picsou</title>
     <script src="/theme-init.js"></script>
+    <!-- Boot indicator for the wait before the first render (main.tsx renders once the language
+         bundle is loaded). Inline because index.css may not be loaded yet. Same 200 ms reveal delay
+         as RouteSpinner, so a fast load paints nothing. currentColor keeps it legible in both themes. -->
+    <style>
+      .boot-status {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .boot-status::before {
+        content: '';
+        width: 1.5rem;
+        height: 1.5rem;
+        box-sizing: border-box;
+        border: 2px solid currentColor;
+        border-top-color: transparent;
+        border-radius: 50%;
+        opacity: 0;
+        animation:
+          boot-reveal 1ms linear 200ms forwards,
+          boot-spin 0.8s linear infinite;
+      }
+      @keyframes boot-reveal {
+        to {
+          opacity: 0.5;
+        }
+      }
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-status::before {
+          animation: boot-reveal 1ms linear 200ms forwards;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- React replaces the children of #root on the first render, which removes the indicator. -->
+    <div id="root"><div class="boot-status" role="status" aria-label="Chargement…"></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

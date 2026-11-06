@@ -23,7 +23,7 @@ Trade Republic and Bourse Direct.
 ### Architecture
 
 ```text
-Client → DegiroController → DegiroSyncService → DegiroPort
+Client → DegiroController → DegiroSyncService
       → DegiroAdapter → degiro-auth (FastAPI, httpx — no browser needed) → trader.degiro.nl
 ```
 
@@ -60,7 +60,7 @@ Picsou:
   wired into `SchedulerService.dailyBankSync`. Sync is manual only, from the
   DEGIRO tab's "Synchronize" button.
 - Flips `DegiroSession.status` to `REAUTH_REQUIRED` when a sync call meets an
-  expired session (`DegiroPort.fetchPortfolio` throws `DegiroSessionExpiredException`
+  expired session (`DegiroAdapter.fetchPortfolio` throws `DegiroSessionExpiredException`
   on an upstream 401), instead of retrying or failing silently. The UI surfaces
   this as a reconnect prompt, not an error.
 
@@ -101,7 +101,6 @@ position. Holdings that resolve to the same ticker are merged with
 - `services/degiro-auth/portfolio_parser.py` — dependency-free parsing of DEGIRO's
   `{"value": [{"name", "value"}, ...]}` row shape, unit-tested in isolation
   (mirrors `services/bourse-direct-auth/portfolio_parser.py`)
-- `backend/src/main/java/com/picsou/port/DegiroPort.java` — port interface
 - `backend/src/main/java/com/picsou/adapter/DegiroAdapter.java` — `WebClient` calls to the sidecar
 - `backend/src/main/java/com/picsou/service/DegiroSyncService.java` — auth orchestration, sync, `REAUTH_REQUIRED` handling
 - `backend/src/main/java/com/picsou/service/DegiroSessionStatusWriter.java` — commits the `REAUTH_REQUIRED` flip in its own transaction
@@ -232,8 +231,8 @@ keeping an eye on across future syncs, especially the 2FA response shape.
   transition (asserted through `DegiroSessionStatusWriter`, since an
   in-transaction write would be rolled back by the rethrow), the non-expiry
   failure path leaving the status alone, and the status/clear endpoints. Run
-  with `mvn test -Dtest=DegiroSyncServiceTest` — 10/10 passing. The full
-  backend suite (`mvn test`) is the CI gate; no absolute count is recorded here
+  with `make test-backend TEST=DegiroSyncServiceTest` — 10/10 passing. The full
+  backend suite (`make test-backend`) is the CI gate; no absolute count is recorded here
   because it drifts with every unrelated PR.
 - Frontend: `tsc --noEmit` and `eslint .` both clean; no dedicated
   `DegiroTab.test.tsx` yet (matching `BoursoTab`'s own untested precedent).

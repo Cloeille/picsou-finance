@@ -38,9 +38,18 @@ from `services/<name>/` with `APP_SIDECAR_API_KEY=<same key as the backend> uvic
 (PYTHONPATH must include `services/base`; Revolut and AMEX also need the Xvfb display their
 `entrypoint.sh` starts).
 
-The frontend uses HTTPS in development. See the
-[local certificate setup](README.md#-https-in-development-hybrid-mode) for a
-trusted `mkcert` certificate or the zero-config self-signed fallback.
+### HTTPS in development
+
+Some bank integrations require HTTPS, so Vite serves `https://localhost:5173`.
+For a certificate the browser trusts, install `mkcert` and run from `frontend/`:
+
+```bash
+mkdir -p .local/certs
+mkcert -cert-file .local/certs/picsou-local-cert.pem -key-file .local/certs/picsou-local-key.pem localhost 127.0.0.1 ::1
+```
+
+Without these files, `@vitejs/plugin-basic-ssl` serves a self-signed certificate:
+accept the browser warning once.
 
 ## Conventions
 
@@ -71,7 +80,7 @@ Documentation lives in `docs/` and is written in **English**:
 
 ## Pull requests
 
-1. Fork, branch from `main`, keep the PR focused on one change.
+1. Fork, branch from `main`, keep the PR focused on one change; open it against `main`.
 2. Run the `make test-…` targets your change touches.
 3. Describe *what* and *why*; link the issue if one exists.
 4. Update `CHANGELOG.md` under `[Unreleased]` for user-visible changes.

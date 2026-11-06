@@ -59,8 +59,8 @@ Radius, color, and control sizing come from `--radius` and the semantic color to
 
 ## 5. Tests are ground truth
 
-Don't claim work is done on assertion — run the verification and read the output. `bun run build`
-(typecheck) and `bun run lint` must stay green at zero warnings. — [testing.md](./conventions/testing.md)
+Don't claim work is done on assertion — run the verification and read the output. `make test-frontend`
+(lint at zero warnings, typecheck, Vitest) must stay green. — [testing.md](./conventions/testing.md)
 
 ## 6. i18n and docs
 

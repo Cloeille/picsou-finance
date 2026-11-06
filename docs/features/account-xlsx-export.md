@@ -64,7 +64,7 @@ Three blocks, in the order a reader needs them: **who**, **what goes out every m
 | Profile | any field is stated | age, target retirement age, household, shares, dependents, gross annual income, monthly net before tax, derived monthly net, savings capacity, risk profile, and the two rates |
 | Recurring investments | the member has at least one plan | monthly total, savings rate, then one row per plan (name, account, monthly amount, expected return, window) |
 | Monthly position breakdown | at least one plan is detailed | one row per allocated line, plus the plan's unallocated remainder |
-| Debt | **always** | total borrowed, outstanding, monthly payments, then one row per loan — or, with no debt, an explicit "none" and a zero |
+| Debt | **always** | total borrowed, outstanding, monthly payments (whole installment, insurance included; computed when not entered), then one row per loan — or, with no debt, an explicit "none" and a zero |
 | Accounts | always | one row per exported account |
 
 A portfolio read without knowing the reader's age or bracket is a list of numbers; the profile is

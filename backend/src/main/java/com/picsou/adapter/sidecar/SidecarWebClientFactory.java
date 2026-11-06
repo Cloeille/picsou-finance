@@ -1,5 +1,6 @@
 package com.picsou.adapter.sidecar;
 
+import com.picsou.config.SidecarProperties;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.ClientResponse;
@@ -50,23 +51,31 @@ public class SidecarWebClientFactory {
      */
     public static final String AUTH_CHALLENGE = "Picsou-Sidecar-Key";
 
+    private final SidecarProperties sidecars;
     private final String apiKey;
 
-    public SidecarWebClientFactory(@Value("${app.sidecar.api-key:}") String apiKey) {
+    public SidecarWebClientFactory(
+        SidecarProperties sidecars,
+        @Value("${app.sidecar.api-key:}") String apiKey
+    ) {
+        this.sidecars = sidecars;
         this.apiKey = apiKey == null || apiKey.isBlank() ? null : apiKey.trim();
     }
 
-    public WebClient create(String sidecarName, String baseUrl) {
-        return create(sidecarName, baseUrl, builder -> { });
+    /**
+     * @param serviceName the {@code app.sidecars.<name>} key the base URL is read from
+     */
+    public WebClient create(String sidecarName, String serviceName) {
+        return create(sidecarName, serviceName, builder -> { });
     }
 
     /**
      * @param customizer applied last, for the one adapter that needs its own codecs
      *                   (DEGIRO decodes money straight to {@code BigDecimal})
      */
-    public WebClient create(String sidecarName, String baseUrl, Consumer<WebClient.Builder> customizer) {
+    public WebClient create(String sidecarName, String serviceName, Consumer<WebClient.Builder> customizer) {
         WebClient.Builder builder = WebClient.builder()
-            .baseUrl(SidecarBaseUrl.validate(sidecarName, baseUrl))
+            .baseUrl(SidecarBaseUrl.validate(sidecarName, sidecars.url(serviceName)))
             .filter(rejectOnBadKey(sidecarName));
         if (apiKey != null) {
             builder.defaultHeader(API_KEY_HEADER, apiKey);
