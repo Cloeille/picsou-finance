@@ -75,14 +75,17 @@ Note: V8 is absent by design (skipped — never rolled into another migration). 
 
 ### Writing a new migration
 
-1. Create `V{next}__descriptive_name.sql` in `db/migration/`.
+1. Create `V{next}__descriptive_name.sql` in `db/migration/`, where `{next}` is the next free
+   version on an up-to-date `main`. Another open pull request may take the same number; the one
+   that merges second renumbers its own, still unmerged, file after syncing with `main`, along
+   with every test or doc that names it. `MigrationVersionsTest` fails on a duplicate version.
 2. Use plain SQL — no Hibernate-generated DDL.
 3. Include constraints, indexes, and foreign keys explicitly.
 4. For new enums, use `CREATE TYPE ... AS ENUM (...)` at the top of the file.
 5. Test by running the application (Flyway applies on startup).
 
-**Never rename or renumber a migration that any deployed database may have applied**, even to fix
-a version collision. Flyway resolves applied rows by version: the old row stops matching any file
+**Never rename or renumber a migration that is on `main`, or that any deployed database may have
+applied**, even to fix a version collision. Flyway resolves applied rows by version: the old row stops matching any file
 and the renamed file runs a second time. When it happened anyway (commit 2839c94 moved 1.1.0's
 V80, V81 and V86–V88 to V93–V99), the repair is a Flyway callback that rewrites those history rows
 before validation, matching old version, description and checksum together. Merging main into

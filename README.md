@@ -423,6 +423,8 @@ Git holds the code, not your data or keys. To move an install, copy the Docker v
 
 Contributions are welcome: bug fixes, features, translations or documentation. Commands, conventions,
 the HTTPS dev certificate and the pull-request checklist are in [CONTRIBUTING.md](CONTRIBUTING.md).
+Keep pull requests to one concern and about 600 changed lines, synced with `main` and green before review;
+open an issue first for a feature or a new bank connector.
 CI is described in [docker-deployment.md](docs/features/docker-deployment.md#pulling-from-ghcr).
 
 ## Security

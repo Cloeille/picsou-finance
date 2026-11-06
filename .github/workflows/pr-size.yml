@@ -1,0 +1,34 @@
+name: PR size
+
+# A nudge, never a gate: one comment when a pull request is above the size budget of
+# CONTRIBUTING.md. It runs on `pull_request_target` so the token can comment on pull
+# requests from forks, which is safe here because the job checks out the base branch only
+# and never builds or runs anything from the pull request: it reads the changed-file list
+# through the API.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+    branches: [main]
+
+permissions: {contents: read}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  size:
+    if: github.event.pull_request.user.type != 'Bot' && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {contents: read, pull-requests: write}
+    steps:
+      # No `ref`: pull_request_target checks out the base branch, never the pull request.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - name: Comment when the pull request is over the size budget
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 .github/scripts/pr_size.py
