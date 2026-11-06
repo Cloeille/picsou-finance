@@ -1,13 +1,13 @@
 # Feature: La Banque Postale sync (sidecar, replaces Enable Banking)
 
 > Last updated: 2026-11-06
-> Status: 🟡 **Implemented offline, not live-validated.** The backend contract,
-> storage, adapter, sync service and REST endpoints are in place. `services/lbp-auth`
-> now has a real `httpx` client built from two live captures: login form,
-> shuffled keypad (positions only), mobile-approval polling and XHTML parsers.
-> The project has not run it against the bank yet; the only known risk is the
-> bank's `iscdName` device fingerprint. Do not present this connector as usable
-> until a live end-to-end run succeeds.
+> Status: 🟡 **Browser-assisted login implemented, not live-validated.** The
+> backend contract, storage, adapter, sync service and REST endpoints are in
+> place. `services/lbp-auth` runs the login in headless Chromium (base
+> `chromium`) so the bank's anti-fraud scripts set `iscdName`; the keypad is
+> clicked in that browser and the password never leaves it. The session cookies
+> are replayed with `httpx` for the server-rendered pages. Do not present this
+> connector as usable until a live end-to-end run succeeds.
 
 ## Context
 
@@ -119,8 +119,8 @@ of the contract.
   sidecar is called.
 - Pending logins live in memory only; a restart drops the attempt.
 - `iscdName` is a 52-character device fingerprint set by the bank's anti-fraud
-  scripts. The client sends the form's value; if the server enforces it, only
-  the login layer moves to Camoufox, with the same contract.
+  scripts. The login runs in headless Chromium so those scripts execute and set
+  it; the keypad is clicked there, never in the backend.
 
 ### Storage
 
@@ -190,8 +190,8 @@ Two real sessions were captured (trusted device and new device):
    `telechargementMouvements.ea` is the export path; the `relevePdf` history
    holds monthly statements.
 
-The login layer is `httpx`; only if `iscdName` is enforced does it move to
-Camoufox. The data layer stays cookie replay either way.
+The login layer is headless Chromium (the anti-fraud scripts must run); the data
+layer is `httpx` cookie replay.
 
 ## State of the implementation (2026-11-06)
 
@@ -218,17 +218,20 @@ Camoufox. The data layer stays cookie replay either way.
 **Sidecar**
 
 - `services/lbp-auth/main.py` implements the contract and its validation.
-- `services/lbp-auth/bank.py` — `HttpxBankClient`: login form, keypad positions,
-  mobile-approval polling, cookie serialization and page import. The pending
-  store pins one HTTP client per login.
+- `services/lbp-auth/bank.py` — `BrowserBankClient`: headless Chromium opens
+  `identif.ea`, fills the identifier, clicks the shuffled keypad, waits for the
+  mobile approval and serializes the cookie jar. The inherited `HttpxBankClient`
+  replays those cookies for `/token-check` and `/accounts`. The pending store
+  pins one browser context per login.
 - `services/lbp-auth/parsers.py` — login form/keypad, account cards, operations
   table and polling URL, with typed `FormatError`.
 - `services/lbp-auth/fixtures.py` — anonymized XHTML from the two captures,
   used by the tests only.
-- Tests: the shared key contract, request validation, parsers and the full
-  login/approval/import flow through `httpx.MockTransport` (29 cases), run in
-  the published image like every other sidecar.
-- Wired into Compose (`lbp` profile, `sidecar-python` base) and the Helm chart.
+- Tests: the shared key contract, request validation, parsers and the
+  `HttpxBankClient` login/approval/import flow through `httpx.MockTransport`
+  (29 cases), run in the published image like every other sidecar. The browser
+  login is exercised live only.
+- Wired into Compose (`lbp` profile, `sidecar-chromium` base) and the Helm chart.
 
 **Frontend**
 
@@ -243,8 +246,9 @@ Camoufox. The data layer stays cookie replay either way.
 **Verification** — 36 LBP backend tests pass, plus the shared
 `SidecarContractTest` (214 cases across every bank), `SidecarBankCodesTest`
 (23 cases, including the `lbp_session` CHECK) and the `V131` migration test on
-real PostgreSQL (5 cases). The 29 sidecar tests pass in the published image.
-The frontend typechecks, lints and builds, and the 4 `LbpTab` tests pass.
+real PostgreSQL (5 cases). The 29 sidecar tests pass in the published image;
+the browser login is live-only. The frontend typechecks, lints and builds, and
+the 4 `LbpTab` tests pass.
 The previous date-dependent `DividendControllerAuthorizationTest` failure was
 fixed upstream (relative ex-dates).
 
@@ -252,8 +256,8 @@ fixed upstream (relative ex-dates).
 
 - A live end-to-end run: the client is built from two captures, but the project
   has not run it against the bank.
-- Enforcement of `iscdName`: unknown. The Camoufox fallback is designed but not
-  written.
+- A live run of the browser login: the selectors, the headless detection and the
+  mobile-approval wait are not covered offline.
 - Card, loan, life-insurance and PER parsing.
 - History beyond roughly 90 days: the export and the monthly PDFs are not
   parsed.

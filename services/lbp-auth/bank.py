@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 import httpx
 from fastapi import HTTPException
 from picsou_sidecar import PendingStore
+from playwright.async_api import async_playwright
 
 import parsers
 
@@ -439,3 +440,188 @@ class HttpxBankClient:
             "transactions": account["transactions"],
             "snapshotComplete": True,
         }
+
+
+class BrowserBankClient(HttpxBankClient):
+    """Browser-assisted login, cookie replay for the data pages.
+
+    The login page runs anti-fraud scripts that set a device fingerprint
+    (`iscdName`) which `httpx` cannot reproduce. A real Chromium fills it
+    naturally; the keypad is clicked in that browser, so the password never
+    leaves it. Once the session exists, the cookies are replayed with the
+    inherited `httpx` methods for the server-rendered pages.
+    """
+
+    async def initiate(self, customer_id: str) -> dict[str, Any]:
+        pw = None
+        browser = None
+        context = None
+        try:
+            pw = await async_playwright().start()
+            browser = await pw.chromium.launch(
+                headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"]
+            )
+            context = await browser.new_context(
+                user_agent=USER_AGENT,
+                locale="fr-FR",
+                timezone_id="Europe/Paris",
+                viewport={"width": 1280, "height": 900},
+            )
+            page = await context.new_page()
+            await page.goto(
+                BASE + IDENTIF + "?origin=particuliers",
+                wait_until="domcontentloaded",
+                timeout=45_000,
+            )
+            await page.wait_for_selector("#identifiant", timeout=45_000)
+            await page.fill("#identifiant", customer_id)
+            # `continuer()` reveals the password panel after checking the identifier.
+            continue_button = page.locator("#btnContinuer button")
+            if await continue_button.is_visible():
+                await continue_button.click()
+            await page.wait_for_selector("div[data-tb-cvd-id='password'] button", timeout=15_000)
+            keys = [
+                key.strip()
+                for key in await page.locator("div[data-tb-cvd-id='password'] button").all_text_contents()
+            ][:10]
+            if len(keys) != 10 or sorted(keys) != list("0123456789"):
+                raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+
+            process_id = str(uuid.uuid4())
+            state = {
+                "playwright": pw,
+                "browser": browser,
+                "context": context,
+                "page": page,
+                "customer_id": customer_id,
+                "created_at": time.time(),
+            }
+            try:
+                await self.pending.put_or_raise(process_id, state, "TOO_MANY_PENDING")
+            except Exception:
+                await self._close_browser(pw, browser, context)
+                raise
+            return {
+                "processId": process_id,
+                "keypad": {"keys": keys, "columns": 5},
+                "expiresInSeconds": PENDING_TTL_SECONDS,
+            }
+        except HTTPException:
+            await self._close_browser(pw, browser, context)
+            raise
+        except Exception as exc:
+            log.warning("La Banque Postale browser initiate failed error_type=%s", type(exc).__name__)
+            await self._close_browser(pw, browser, context)
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from None
+
+    async def keypad(self, process_id: str, positions: list[int]) -> None:
+        state = await self.pending.take(process_id)
+        if state is None:
+            raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
+        page = state["page"]
+        try:
+            await page.fill("#identifiant", state["customer_id"])
+            continue_button = page.locator("#btnContinuer button")
+            if await continue_button.is_visible():
+                await continue_button.click()
+            buttons = page.locator("div[data-tb-cvd-id='password'] button")
+            count = await buttons.count()
+            for position in positions:
+                if position < 0 or position >= count:
+                    raise HTTPException(status_code=400, detail="INVALID_POSITIONS")
+                await buttons.nth(position).click()
+            await page.click("#btnConfirmer")
+
+            # The page waits 500 ms then submits. Either it navigates to the
+            # mobile-approval page or straight to the synthesis.
+            try:
+                await page.wait_for_function(
+                    "() => location.href.includes('afficheSynthese')"
+                    " || location.href.includes('synthese_ccp')"
+                    " || (location.href.includes('loginform') && location.href.includes('TAM_OP='))"
+                    " || document.body.innerText.includes('appareil de confiance')"
+                    " || document.body.innerText.includes('message.html')",
+                    timeout=20_000,
+                )
+            except Exception:
+                pass
+            await page.wait_for_timeout(1_000)
+            url = page.url
+            body = await page.content()
+
+            if "appareil de confiance" in body or "URL_AF_POLLING" in body:
+                await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
+                log.info("La Banque Postale browser login awaits mobile approval")
+                return
+            if "afficheSynthese" in url or "synthese_ccp" in url:
+                state["session_ready"] = True
+                await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
+                return
+            if "message.html" in url:
+                raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+            if "formAccesCompte" in body:
+                raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+        except HTTPException:
+            await self._dispose(state)
+            raise
+        except Exception as exc:
+            log.warning("La Banque Postale browser keypad failed error_type=%s", type(exc).__name__)
+            await self._dispose(state)
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from None
+
+    async def complete(self, process_id: str) -> str:
+        state = await self.pending.take(process_id)
+        if state is None:
+            raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
+        try:
+            if state.get("session_ready"):
+                return self._serialize_browser(await state["context"].cookies())
+            page = state["page"]
+            deadline = time.monotonic() + APPROVAL_TIMEOUT_SECONDS
+            while time.monotonic() < deadline:
+                url = page.url
+                if "afficheSynthese" in url or "synthese_ccp" in url:
+                    return self._serialize_browser(await state["context"].cookies())
+                if "message.html" in url:
+                    raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+                await asyncio.sleep(2)
+            raise HTTPException(status_code=408, detail="APP_VALIDATION_TIMEOUT")
+        finally:
+            await self._dispose(state)
+
+    @staticmethod
+    def _serialize_browser(cookies: list[dict[str, Any]]) -> str:
+        return json.dumps(
+            {
+                "cookies": [
+                    {
+                        "name": cookie["name"],
+                        "value": cookie.get("value", ""),
+                        "domain": cookie.get("domain", ""),
+                        "path": cookie.get("path", "/"),
+                    }
+                    for cookie in cookies
+                ]
+            },
+            separators=(",", ":"),
+        )
+
+    async def _dispose(self, state: dict[str, Any]) -> None:
+        await self._close_browser(
+            state.get("playwright"), state.get("browser"), state.get("context")
+        )
+        await super()._dispose(state)
+
+    @staticmethod
+    async def _close_browser(pw: Any, browser: Any, context: Any) -> None:
+        for resource, close in (
+            (context, "close"),
+            (browser, "close"),
+            (pw, "stop"),
+        ):
+            if resource is not None:
+                try:
+                    await getattr(resource, close)()
+                except Exception:  # pragma: no cover -- teardown must not raise
+                    log.debug("La Banque Postale browser resource close failed", exc_info=True)

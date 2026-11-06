@@ -1,15 +1,16 @@
 # lbp-auth — La Banque Postale sidecar
 
-> Status: **cookie-replay client implemented, not yet validated against a live
-> bank session by the project.** The login form, the mobile-approval polling and
-> the XHTML parsers are covered by offline tests built from two real captures.
-> The one unverified risk is the bank's `iscdName` device fingerprint: if the
-> server enforces it, only the login layer moves to Camoufox.
+> Status: **browser-assisted login implemented, not yet validated against a live
+> bank session by the project.** The login runs in headless Chromium (base
+> `chromium`), so the bank's anti-fraud scripts set the `iscdName` device
+> fingerprint naturally; the keypad is clicked in that browser and the password
+> never leaves it. The session cookies are then replayed with `httpx` for the
+> server-rendered pages.
 >
 > Sign-in is identifier → shuffled virtual keypad → **approval in the bank's
-> mobile app** (`/complete` polls until the human approves). The UI shows the
-> ten digit labels and sends back the clicked **positions**; the bank's own
-> script stores those positions, not the digits, in the password field.
+> mobile app** (`/complete` waits until the human approves). The UI shows the
+> ten digit labels and sends back the clicked **positions**; the browser clicks
+> those buttons and the bank's own script stores the positions, not the digits.
 
 ## Why this exists
 
@@ -79,28 +80,30 @@ the sidecar, for the statement request of the current session.
 
 ## How the login works
 
-1. `POST /initiate` GETs `/voscomptes/canalXHTML/identif.ea?origin=particuliers`.
-   That entry point sets the WAF/SSO cookies and redirects to the login form;
-   hitting `/wsost/OstBrokerWeb/loginform` on a fresh client is refused (403).
-   The sidecar then reads the hidden fields and the **ten shuffled digit
-   labels**, and parks the HTTP client in the pending store.
-2. `POST /keypad` POSTs the identifier and the clicked **positions** (the same
-   values the bank's script writes into `password`) with the hidden fields.
-3. If the device is trusted, the POST redirects into the normal chain and the
-   session is ready. Otherwise the bank shows *Votre appareil de confiance* and
-   the sidecar reads `URL_AF_POLLING` from that page.
-4. `POST /complete` polls that URL every 3 s until the bank redirects, follows
-   the chain and returns the serialized cookie jar.
+1. `POST /initiate` starts headless Chromium, opens
+   `/voscomptes/canalXHTML/identif.ea?origin=particuliers` (that entry point sets
+   the WAF/SSO cookies and redirects to the login form; a direct
+   `/wsost/OstBrokerWeb/loginform` is refused with 403), fills the identifier,
+   reveals the password panel and reads the **ten shuffled digit labels**. The
+   browser context is parked in the pending store.
+2. `POST /keypad` clicks the keypad buttons at the clicked **positions** in that
+   browser, then clicks *Se connecter*. The bank's anti-fraud scripts set
+   `iscdName` themselves; the form's password field receives the positions, not
+   the digits.
+3. If the device is trusted, the page goes straight to the synthesis. Otherwise
+   it shows *Votre appareil de confiance* and its own script polls until the
+   phone approves.
+4. `POST /complete` waits for the browser to leave the challenge (up to 150 s),
+   then serializes the cookie jar.
 
-`POST /accounts` then reads the two synthesis pages
-(`afficheSyntheseCCP`, `afficheSyntheseEP`) and, for each account, the
-`init-releve_ccp` / `init-releve_cne` operations page.
+`POST /token-check` and `POST /accounts` replay those cookies with `httpx`: the
+data pages are server-rendered, so the browser is not needed after login. They
+read the two synthesis pages (`afficheSyntheseCCP`, `afficheSyntheseEP`) and,
+for each account, the `init-releve_ccp` / `init-releve_cne` operations page.
 
-The `iscdName` field is a 52-character device fingerprint set by the bank's
-anti-fraud scripts. The client sends the form's value first. If the server
-enforces the fingerprint, replace `HttpxBankClient.initiate`/`keypad` with a
-Camoufox login and keep the cookie replay below it; the HTTP contract does not
-change.
+The browser login is exercised live, not by the offline suite: the offline tests
+cover the HTTP data client, the parsers and the request contract. A failed login
+must be diagnosed from the sidecar's typed error, never by replaying it.
 
 ## Security rules
 

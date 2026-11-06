@@ -1,8 +1,8 @@
-# Base: services/base, target `python` (Python and the shared pins, no browser).
-# Compose and CI build it first (`docker build --target python --tag
-# picsou-sidecar-python services/base`); the publish workflow passes the GHCR
+# Base: services/base, target `chromium` (Python, the shared pins and Chromium).
+# Compose and CI build it first (`docker build --target chromium --tag
+# picsou-sidecar-chromium services/base`); the publish workflow passes the GHCR
 # image by digest instead.
-ARG SIDECAR_BASE=picsou-sidecar-python
+ARG SIDECAR_BASE=picsou-sidecar-chromium
 FROM ${SIDECAR_BASE}
 
 RUN groupadd -r lbp && useradd -r -g lbp lbp
