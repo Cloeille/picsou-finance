@@ -107,7 +107,8 @@ Edge cases:
 - a repayment date cannot be in the future: the ledger records completed payments, and the
   forecast belongs to `planned_*`;
 - the lending date cannot be in the future either: the receivable would count before the
-  money left.
+  money left, and it cannot predate 1900 (a backdated plan would draw tens of thousands of
+  curve points).
 
 ### Closure
 

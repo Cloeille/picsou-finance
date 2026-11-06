@@ -305,6 +305,18 @@ class PeerLoanServiceTest {
     }
 
     @Test
+    void saveTermsRejectsAnAbsurdLendingDate() {
+        Account account = loanAccount("Jean");
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+
+        assertThatThrownBy(() -> service.saveTerms(ACCOUNT_ID, MEMBER_ID, new PeerLoanTermsRequest(
+            new BigDecimal("500"), LocalDate.parse("1800-01-01"), null, BigDecimal.ZERO, null,
+            null, null, CASH_ID, null)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("past");
+    }
+
+    @Test
     void saveTermsRejectsANonEurLinkedAccount() {
         Account account = loanAccount("Jean");
         Account linked = Account.builder()

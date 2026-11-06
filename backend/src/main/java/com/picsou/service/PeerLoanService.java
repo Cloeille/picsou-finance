@@ -74,6 +74,9 @@ public class PeerLoanService {
 
     private static final int MAX_ACCOUNT_NAME = 100;
 
+    /** No real loan predates this; it also caps the curve a backdated plan can draw. */
+    private static final LocalDate MIN_LENDING_DATE = LocalDate.of(1900, 1, 1);
+
     /** The account types a peer loan can draw from and repay into. */
     private static final java.util.Set<AccountType> CASH_TYPES = java.util.Set.of(
         AccountType.CHECKING, AccountType.SAVINGS, AccountType.LEP, AccountType.LIVRET_A,
@@ -327,6 +330,9 @@ public class PeerLoanService {
         validatePlan(request);
         if (request.lentAt().isAfter(LocalDate.now())) {
             throw new IllegalArgumentException("The lending date cannot be in the future");
+        }
+        if (request.lentAt().isBefore(MIN_LENDING_DATE)) {
+            throw new IllegalArgumentException("The lending date is too far in the past");
         }
         if (request.expectedBack() != null && request.expectedBack().isBefore(request.lentAt())) {
             throw new IllegalArgumentException("The expected return date cannot precede the lending date");
