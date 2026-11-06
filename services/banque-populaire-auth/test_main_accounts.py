@@ -26,7 +26,7 @@ AS_HOST = "www.as-ext-bad-ib.banquepopulaire.fr"
 LOGIN_HOST = "www.icgauth.banquepopulaire.fr"
 DATA_HOST = "www.rs-ext-bad-ib.banquepopulaire.fr"
 ACCESS_TOKEN = "synthetic-access-token"
-CLIENT_ID = "edd09dea-9e31-4ae6-94b3-9f9007d331ca"
+CLIENT_ID = "00000000-0000-4000-8000-000000000001"
 SESSION_STATE = json.dumps({
     "cookies": [{"name": "SSO", "value": "BP-COOKIE-SECRET", "domain": ".banquepopulaire.fr", "path": "/"}],
     "authorizeParams": {

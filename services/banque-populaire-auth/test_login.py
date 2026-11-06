@@ -26,7 +26,7 @@ LOGIN_HOST = "https://www.icgauth.banquepopulaire.fr"
 # The client-space authorize, as observed (2026-11-05) but with synthetic values.
 AUTHORIZE_URL = (
     "https://www.as-ext-bad-ib.banquepopulaire.fr/api/oauth/v2/authorize"
-    "?client_id=edd09dea-9e31-4ae6-94b3-9f9007d331ca"
+    "?client_id=00000000-0000-4000-8000-000000000001"
     "&redirect_uri=https%3A%2F%2Fwww.banquepopulaire.fr%2Fespace-client%2FpostMessage%2Findex.html"
     "&scope=&response_type=code&cdetab=00000&claims=%7B%7D&bpcesta=SYNTHETIC-BPCESTA"
     "&login_hint=SECRET-LOGIN-HINT&display=page"
@@ -35,7 +35,7 @@ AUTHORIZE_URL = (
 # The login pages' own authorize (another client, implicit flow), made on icgauth
 # before the client space: it must never be captured.
 DECOY_AUTHORIZE_URL = (
-    f"{LOGIN_HOST}/api/oauth/v2/authorize?client_id=adad0322-synthetic"
+    f"{LOGIN_HOST}/api/oauth/v2/authorize?client_id=synthetic-login-pages-client"
     "&response_type=id_token%20token&redirect_uri=https%3A%2F%2Fwww.icgauth.banquepopulaire.fr%2Fcb"
 )
 
@@ -223,7 +223,7 @@ class FullLoginTest(BanquePopulaireLoginTest):
         state = await self.login()
 
         self.assertEqual(state["authorizeParams"], {
-            "client_id": "edd09dea-9e31-4ae6-94b3-9f9007d331ca",
+            "client_id": "00000000-0000-4000-8000-000000000001",
             "redirect_uri": "https://www.banquepopulaire.fr/espace-client/postMessage/index.html",
             "scope": "",
             "response_type": "code",
@@ -240,7 +240,7 @@ class FullLoginTest(BanquePopulaireLoginTest):
         self.world.early_authorize = True
         state = await self.login()
 
-        self.assertEqual(state["authorizeParams"]["client_id"], "edd09dea-9e31-4ae6-94b3-9f9007d331ca")
+        self.assertEqual(state["authorizeParams"]["client_id"], "00000000-0000-4000-8000-000000000001")
         self.assertNotIn("id_token token", json.dumps(state))
 
     async def test_only_banque_populaire_cookies_are_kept(self):

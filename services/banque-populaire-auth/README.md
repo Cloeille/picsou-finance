@@ -93,8 +93,7 @@ Observed, on one Rives de Paris account:
 - the entry URL (`service=dei` lands on `/se-connecter/erreur`), the establishment
   picker and its 12 options, the consent banner button, the identifier, keypad,
   `Valider`, carousel `Suivant` and Sécur'Pass selectors;
-- the authorize request of the client space (client
-  `edd09dea-9e31-4ae6-94b3-9f9007d331ca`, redirect
+- the authorize request of the client space (its own `client_id`, redirect
   `https://www.banquepopulaire.fr/espace-client/postMessage/index.html`, empty scope,
   `cdetab`, `claims`, `bpcesta`, `login_hint`, `display`, PKCE), the SAMLRequest on
   icgauth with its 303, `consume` and `token`: the chain Caisse d'Epargne replays;
