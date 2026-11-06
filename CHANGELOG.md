@@ -144,7 +144,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only excluded checking accounts and loans, so a property made it read the same as gross
   wealth. It now also leaves out real estate, physical precious metals and `OTHER`
   accounts; SCPI shares stay in as exchangeable securities. The history curve and the
-  distribution donut follow the same filter.
+  distribution donut follow the same filter, with donut shares recomputed over the
+  filtered total.
   ([#445](https://github.com/Cloeille/picsou-finance/issues/445))
 
 ### Changed

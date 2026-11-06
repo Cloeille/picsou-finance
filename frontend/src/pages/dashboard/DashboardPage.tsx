@@ -139,12 +139,15 @@ export function DashboardPage() {
 
   // Distribution shown beside the hero: in financial mode it mirrors the same
   // filter as the headline value and the history curve, so the donut never
-  // shows a category the figure excludes.
+  // shows a category the figure excludes. Percentages are recomputed over the
+  // filtered total — the backend shares cover the whole portfolio.
   const displayDistribution = useMemo(() => {
     if (!data) return []
-    return wealthMode === 'financial'
-      ? data.distribution.filter(d => !EXCLUDED_FINANCIAL.has(d.accountType))
-      : data.distribution
+    if (wealthMode !== 'financial') return data.distribution
+    const filtered = data.distribution.filter(d => !EXCLUDED_FINANCIAL.has(d.accountType))
+    const total = filtered.reduce((s, d) => s + d.balanceEur, 0)
+    if (total <= 0) return filtered.map(d => ({ ...d, percentage: 0 }))
+    return filtered.map(d => ({ ...d, percentage: (d.balanceEur / total) * 100 }))
   }, [data, wealthMode])
 
   // ALL uses live PnL; selected ranges use only their range PnL. Unknown is not zero.

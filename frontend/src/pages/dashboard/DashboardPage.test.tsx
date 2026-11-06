@@ -226,11 +226,23 @@ describe('DashboardPage financial wealth mode', () => {
   })
 
   it('hides non-financial accounts from the distribution donut', () => {
+    hooks.useDashboard.mockReturnValue({
+      data: {
+        ...FINANCIAL_DATA,
+        distribution: FINANCIAL_DATA.distribution.map(item => ({
+          ...item,
+          percentage: (item.balanceEur / 219500) * 100,
+        })),
+      },
+      isLoading: false,
+    })
     switchToFinancialWealth()
 
     const props = distributionPieSpy.mock.calls.at(-1)?.[0] as {
-      data: { accountId: number }[]
+      data: { accountId: number; percentage: number }[]
     }
     expect(props.data.map(d => d.accountId)).toEqual([1, 4])
+    expect(props.data[0]?.percentage).toBeCloseTo(33.3, 1)
+    expect(props.data[1]?.percentage).toBeCloseTo(66.7, 1)
   })
 })
