@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
     tags: ['[0-9]*', 'v[0-9]*']
 
 permissions: {contents: read}
@@ -304,10 +304,10 @@ jobs:
             | if . == [] then true else error("not green: \(join(", "))") end'
 
   # Images are only published after every release-blocking CI job is green, and
-  # only on a push to main or a version tag — not on pull requests.
+  # only on a push to main or a version tag — not on pull requests or release branches.
   docker:
     needs: [ci-ok, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, compose-sidecar-build, workflow-inventory]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/release/')
     uses: ./.github/workflows/docker.yml
     secrets: inherit
     permissions: {contents: read, packages: write}
