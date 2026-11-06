@@ -17,7 +17,7 @@ import logging
 import time
 import uuid
 from typing import Any, Protocol
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 from fastapi import HTTPException
@@ -556,9 +556,29 @@ class BrowserBankClient(HttpxBankClient):
                 pass
             url = page.url
             if "loginform" in url and ("phase=" in url or "cu=" in url):
-                await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
-                log.info("La Banque Postale browser login awaits mobile approval")
-                return
+                # The URL alone is not enough: the bank sometimes lands on its
+                # generic "Erreur Technique" page immediately. Confirm the page
+                # really is the mobile-approval page before parking.
+                step = "challenge"
+                try:
+                    await page.wait_for_load_state("domcontentloaded", timeout=10_000)
+                except Exception:
+                    pass
+                try:
+                    title = await page.title()
+                    body = await page.content()
+                except Exception:
+                    title, body = "", ""
+                if "appareil de confiance" in body or "URL_AF_POLLING" in body:
+                    await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
+                    log.info("La Banque Postale browser login awaits mobile approval title=%s", title)
+                    return
+                log.warning(
+                    "La Banque Postale approval page is not the challenge title=%s generic_error=%s",
+                    title,
+                    "Erreur Technique" in body,
+                )
+                raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
             if "afficheSynthese" in url or "synthese_ccp" in url:
                 state["session_ready"] = True
                 await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
@@ -606,6 +626,11 @@ class BrowserBankClient(HttpxBankClient):
                 if "afficheSynthese" in url or "synthese_ccp" in url:
                     return self._serialize_browser(await state["context"].cookies())
                 if "message.html" in url:
+                    log.warning(
+                        "La Banque Postale approval failed path=%s param=%s",
+                        urlparse(url).path,
+                        parse_qs(urlparse(url).query).get("param", [""])[0],
+                    )
                     raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
                 await asyncio.sleep(2)
             raise HTTPException(status_code=408, detail="APP_VALIDATION_TIMEOUT")
