@@ -44,7 +44,12 @@ import { formatPercent } from '@/lib/utils'
 
 type WealthMode = 'net' | 'gross' | 'financial'
 
-const EXCLUDED_FINANCIAL = new Set(['CHECKING', 'LOAN'])
+// Financial wealth = liquid and investable assets only. Checking is the day-to-day
+// cash excluded by design; real estate is tangible property; physical precious
+// metals are tangible movables; OTHER has an unknown nature and must not inflate
+// the figure by default. SCPI stays in: a share of a real-estate fund is an
+// intangible, exchangeable security.
+const EXCLUDED_FINANCIAL = new Set(['CHECKING', 'LOAN', 'REAL_ESTATE', 'PRECIOUS_METALS', 'OTHER'])
 
 export function DashboardPage() {
   const { t } = useTranslation()
@@ -129,6 +134,16 @@ export function DashboardPage() {
       default:
         return data.totalNetWorth
     }
+  }, [data, wealthMode])
+
+  // Distribution shown beside the hero: in financial mode it mirrors the same
+  // filter as the headline value and the history curve, so the donut never
+  // shows a category the figure excludes.
+  const displayDistribution = useMemo(() => {
+    if (!data) return []
+    return wealthMode === 'financial'
+      ? data.distribution.filter(d => !EXCLUDED_FINANCIAL.has(d.accountType))
+      : data.distribution
   }, [data, wealthMode])
 
   // ALL uses live PnL; selected ranges use only their range PnL. Unknown is not zero.
@@ -269,7 +284,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <DistributionPie data={data.distribution} />
+        <DistributionPie data={displayDistribution} />
       </div>
 
       {/* Property wealth: gross, mortgage debt and the equity between them. Renders nothing
