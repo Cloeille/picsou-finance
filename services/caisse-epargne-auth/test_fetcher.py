@@ -130,7 +130,7 @@ class FakeCE:
 
 
 async def run_fetch(ce: FakeCE, **kwargs) -> dict:
-    return await fetcher.fetch_import(main.SITE, 
+    return await fetcher.fetch_import(main.SITE,
         SECRET_TOKEN, transport=ce.transport(), today=TODAY, **kwargs
     )
 

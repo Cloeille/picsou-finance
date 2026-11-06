@@ -796,7 +796,7 @@ class LoanChainTest(unittest.IsolatedAsyncioTestCase):
     def test_loan_redirect_and_detail_path_are_allow_listed(self):
         self.assertTrue(replay.is_allowed_url(ce_main.SITE, dict(ce_main.LOAN_CHAIN.overrides)["redirect_uri"]))
         self.assertTrue(
-            replay.is_allowed_url(ce_main.SITE, 
+            replay.is_allowed_url(ce_main.SITE,
                 "https://www.rs-ext-bad-ce.caisse-epargne.fr"
                 "/bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/TESTLOAN0001"
             )
@@ -916,7 +916,7 @@ class LogHygieneTest(unittest.IsolatedAsyncioTestCase):
         try:
             for bank in scenarios:
                 try:
-                    await replay.replay_chain(ce_main.SITE, 
+                    await replay.replay_chain(ce_main.SITE,
                         replay.parse_session_state(make_state()), transport=bank.transport()
                     )
                 except replay.ReplayError as exc:

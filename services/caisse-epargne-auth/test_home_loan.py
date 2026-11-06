@@ -265,7 +265,7 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
         return self.ce.handle(request)
 
     async def fetch(self, **kwargs) -> dict:
-        return await fetcher.fetch_import(main.SITE, 
+        return await fetcher.fetch_import(main.SITE,
             SECRET_TOKEN, transport=httpx.MockTransport(self.handle), today=TODAY, **kwargs
         )
 
@@ -303,7 +303,7 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(401)
             return self.ce.handle(request)
 
-        result = await fetcher.fetch_import(main.SITE, 
+        result = await fetcher.fetch_import(main.SITE,
             SECRET_TOKEN, transport=httpx.MockTransport(refuse), today=TODAY,
             loan_token=loan_token_provider([]), home_loan_token=self.home_token([]),
         )
@@ -326,7 +326,7 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(200, json=invalid)
             return self.ce.handle(request)
 
-        result = await fetcher.fetch_import(main.SITE, 
+        result = await fetcher.fetch_import(main.SITE,
             SECRET_TOKEN, transport=httpx.MockTransport(answer), today=TODAY,
             loan_token=loan_token_provider([]), home_loan_token=self.home_token([]),
         )
@@ -351,7 +351,7 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(200, json=invalid)
             return self.ce.handle(request)
 
-        result = await fetcher.fetch_import(main.SITE, 
+        result = await fetcher.fetch_import(main.SITE,
             SECRET_TOKEN, transport=httpx.MockTransport(answer), today=TODAY,
             loan_token=loan_token_provider([]), home_loan_token=self.home_token([]),
         )

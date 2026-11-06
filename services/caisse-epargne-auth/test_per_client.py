@@ -94,7 +94,7 @@ class FakeInsurer:
 async def fetch(insurer: FakeInsurer, **override):
     args = {"access_token": TOKEN, "contract_id": CONTRACT_ID, "entity_code": ENTITY,
             "routing_token": MAIN_TOKEN, **override}
-    return await per_client.fetch_per_detail(main.SITE, 
+    return await per_client.fetch_per_detail(main.SITE,
         args["access_token"], args["contract_id"], entity_code=args["entity_code"],
         routing_token=args["routing_token"], transport=insurer.transport(),
     )
@@ -275,7 +275,7 @@ class BodyTest(unittest.IsolatedAsyncioTestCase):
             raise httpx.ReadTimeout(f"synthetic timeout {request.headers['authorization']}")
 
         with self.assertRaises(replay.UpstreamError) as caught:
-            await per_client.fetch_per_detail(main.SITE, 
+            await per_client.fetch_per_detail(main.SITE,
                 TOKEN, CONTRACT_ID, entity_code=ENTITY, routing_token=MAIN_TOKEN,
                 transport=httpx.MockTransport(boom),
             )
