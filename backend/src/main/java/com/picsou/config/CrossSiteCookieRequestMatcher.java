@@ -48,15 +48,21 @@ public class CrossSiteCookieRequestMatcher implements RequestMatcher {
     );
 
     private final CorsConfigurationSource corsConfigurationSource;
+    private final boolean requireCredentialCookie;
 
     public CrossSiteCookieRequestMatcher(CorsConfigurationSource corsConfigurationSource) {
+        this(corsConfigurationSource, true);
+    }
+
+    public CrossSiteCookieRequestMatcher(CorsConfigurationSource corsConfigurationSource, boolean requireCredentialCookie) {
         this.corsConfigurationSource = corsConfigurationSource;
+        this.requireCredentialCookie = requireCredentialCookie;
     }
 
     @Override
     public boolean matches(HttpServletRequest request) {
         return STATE_CHANGING_METHODS.contains(request.getMethod())
-            && carriesCredentialCookie(request)
+            && (!requireCredentialCookie || carriesCredentialCookie(request))
             && isCrossOrigin(request)
             && !isAllowListedOrigin(request);
     }

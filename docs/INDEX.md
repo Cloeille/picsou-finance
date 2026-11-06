@@ -83,6 +83,7 @@
 | 2026-11-02 | [Ports only for swappable providers](./decisions/2026-11-02-ports-only-for-swappable-providers.md) | Active |
 | 2026-11-03 | [Spring Boot serves the SPA and every response header](./decisions/2026-11-03-spring-serves-the-spa.md) | Active (nginx step superseded) |
 | 2026-11-03 | [One non-root Java process in the app image](./decisions/2026-11-03-one-non-root-process.md) | Active |
+| 2026-11-04 | [SSO login through an external OIDC provider, alongside passwords](./decisions/2026-11-04-sso-login-alongside-passwords.md) | Active |
 | 2026-11-05 | [CORUM Life contracts sync as one assurance-vie account each](./decisions/2026-11-05-corum-life-sync.md) | Active |
 
 ## Feature notes
@@ -148,13 +149,13 @@
 | Navigation (sidebar + mobile bottom nav) | 2026-07-12 | [sidebar-navigation.md](./features/sidebar-navigation.md) |
 | UI control shape (shadcn theme radius) | 2026-08-10 | [ui-control-shape-system.md](./features/ui-control-shape-system.md) |
 | Privacy mode (hiding amounts for demos) | 2026-10-31 | [privacy-mode.md](./features/privacy-mode.md) |
-| Multi-account family system | 2026-07-07 | [multi-account-family.md](./features/multi-account-family.md) |
-| CORS & cookie security | 2026-10-31 | [security-cors-cookies.md](./features/security-cors-cookies.md) |
+| Multi-account family system | 2026-11-04 | [multi-account-family.md](./features/multi-account-family.md) |
+| CORS & cookie security | 2026-11-04 | [security-cors-cookies.md](./features/security-cors-cookies.md) |
 | 24H Intraday net worth chart | 2026-04-18 | [intraday-chart.md](./features/intraday-chart.md) |
-| First-launch Setup Wizard | 2026-07-19 | [setup-wizard.md](./features/setup-wizard.md) |
+| First-launch Setup Wizard | 2026-11-04 | [setup-wizard.md](./features/setup-wizard.md) |
 | Admin page (instance settings) | 2026-05-29 | [admin-page.md](./features/admin-page.md) |
 | Admin instance-status alert (sidecar health, update available) | 2026-10-31 | [admin-instance-status.md](./features/admin-instance-status.md) |
-| Admin recovery (lost-admin console reset) | 2026-05-29 | [admin-recovery.md](./features/admin-recovery.md) |
+| Admin recovery (lost-admin console reset) | 2026-11-04 | [admin-recovery.md](./features/admin-recovery.md) |
 | Frontend error display (`extractErrorMessage`) | 2026-05-31 | [frontend-error-display.md](./features/frontend-error-display.md) |
 | Loan accounts (LOAN type, amortization view) | 2026-04-26 | [loans.md](./features/loans.md) |
 | Real estate valuation | 2026-08-11 | [real-estate-valuation.md](./features/real-estate-valuation.md) |
@@ -162,9 +163,10 @@
 | CORUM Life (assurance-vie) sync | 2026-11-05 | [corum-life.md](./features/corum-life.md) |
 | Precious metals (gold bullion and coins) | 2026-11-06 | [precious-metals.md](./features/precious-metals.md) |
 | Ownership shares | 2026-08-10 | [account-ownership-shares.md](./features/account-ownership-shares.md) |
-| 2FA (TOTP) and Remember Me | 2026-10-31 | [mfa-and-remember-me.md](./features/mfa-and-remember-me.md) |
+| 2FA (TOTP) and Remember Me | 2026-11-04 | [mfa-and-remember-me.md](./features/mfa-and-remember-me.md) |
+| SSO login (OIDC) alongside passwords | 2026-11-04 | [sso-login.md](./features/sso-login.md) |
 | Login timing equalization (username-enumeration defense, GHSA-ww5m-pxgq-8qq6) | 2026-06-27 | [login-timing-attack.md](./features/login-timing-attack.md) |
-| GDPR data export (JSON + CSV) | 2026-04-26 | [data-export.md](./features/data-export.md) |
+| GDPR data export (JSON + CSV) | 2026-11-04 | [data-export.md](./features/data-export.md) |
 | Opt-in anonymous telemetry & privacy (GlitchTip) | 2026-10-05 | [telemetry.md](./features/telemetry.md) |
 | Account spreadsheet export (xlsx) | 2026-08-18 | [account-xlsx-export.md](./features/account-xlsx-export.md) |
 | Revolut pockets (reconstruction from PSD2 internal-transfer rows) (removed, 2026-07-14) | 2026-06-28 | [revolut-pockets.md](./features/revolut-pockets.md) |

@@ -129,6 +129,7 @@ public class SecurityConfig {
                                            AccessKeyService accessKeyService,
                                            @Qualifier("mcpKeyBuckets") Map<Long, Bucket> mcpKeyBuckets,
                                            CorsConfigurationSource corsConfigurationSource,
+                                           SsoProperties ssoProperties, java.time.Clock clock,
                                            Customizer<HeadersConfigurer<HttpSecurity>> securityHeaders) throws Exception {
         // The chain is stateless, so no session ever carries the MCP authentication. The
         // request-attribute repository is what reloads it on the ASYNC dispatch that completes a
@@ -143,7 +144,14 @@ public class SecurityConfig {
             .csrf(csrf -> csrf
                 .requireCsrfProtectionMatcher(new CrossSiteCookieRequestMatcher(corsConfigurationSource))
                 .csrfTokenRepository(new NoStoredCsrfTokenRepository()))
-            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            // STATELESS still installs SessionManagementFilter with ChangeSessionIdAuthenticationStrategy: a
+            // JWT-authenticated request (RequestAttribute repo => no saved context) carrying a JSESSIONID would
+            // rotate it. That id is the SSO handshake session of the /oauth2/sso chain, so polling requests made
+            // while the IdP step is open invalidated the id the callback later presents (SESSION_EXPIRED).
+            // This chain never creates sessions or binds authentication to one, so there is nothing to fix.
+            .sessionManagement(sm -> sm
+                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                .sessionFixation(fixation -> fixation.none()))
             .securityContext(sc -> sc.securityContextRepository(securityContextRepository))
             .headers(securityHeaders)
             .authorizeHttpRequests(auth -> auth
@@ -153,6 +161,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/auth/mfa/verify").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/auth/activate/*").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/auth/sso").permitAll()
                 .requestMatchers("/actuator/health", "/actuator/health/liveness",
                     "/actuator/health/readiness", "/actuator/info").permitAll()
                 // RFC 9728 protected-resource metadata (Task 7) and RFC 7591 dynamic client
@@ -182,7 +191,8 @@ public class SecurityConfig {
             .addFilterBefore(setupFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(new JwtAuthenticationFilter(jwtTokenAuthenticator), UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(
-                new PersistentTokenAuthFilter(persistentSessionService, appUserRepository, jwtUtil, authCookieWriter, mfaService),
+                new PersistentTokenAuthFilter(persistentSessionService, appUserRepository, jwtUtil, authCookieWriter, mfaService,
+                    ssoProperties, clock),
                 UsernamePasswordAuthenticationFilter.class
             )
             // Last of the same-anchor filters: only acts on /mcp/** (shouldNotFilter), validates the
@@ -253,7 +263,7 @@ public class SecurityConfig {
                 new CacheControlHeadersWriter()));
     }
 
-    private static AccessDeniedHandler crossSiteAwareAccessDeniedHandler() {
+    static AccessDeniedHandler crossSiteAwareAccessDeniedHandler() {
         LinkedHashMap<Class<? extends AccessDeniedException>, AccessDeniedHandler> handlers = new LinkedHashMap<>();
         handlers.put(CsrfException.class, (req, res, denied) -> {
             res.setStatus(403);
@@ -304,7 +314,7 @@ public class SecurityConfig {
      * fresh installs (and for env-only operators who never run the wizard).
      */
     @Bean
-    public CorsConfigurationSource corsConfigurationSource(AppSettingRepository settingRepository) {
+    public DynamicCorsConfigurationSource corsConfigurationSource(AppSettingRepository settingRepository) {
         return new DynamicCorsConfigurationSource(settingRepository, allowedOrigins);
     }
 }

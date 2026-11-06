@@ -99,6 +99,7 @@ public class AuthorizationServerConfig {
     public SecurityFilterChain authorizationServerSecurityFilterChain(
         HttpSecurity http,
         JwtTokenAuthenticator jwtTokenAuthenticator,
+        JwtUtil jwtUtil, SsoProperties ssoProperties, java.time.Clock clock,
         Customizer<HeadersConfigurer<HttpSecurity>> securityHeaders
     ) throws Exception {
 
@@ -136,7 +137,7 @@ public class AuthorizationServerConfig {
             // anchor was NOT in this chain, so Spring placed the bridge AFTER the authorize filter —
             // the request then fell through authenticated-but-unhandled to a 404 (see
             // Oauth2ConsentHandshakeIntegrationTest).
-            .addFilterAfter(new CookieBridgeAuthenticationFilter(jwtTokenAuthenticator),
+            .addFilterAfter(new CookieBridgeAuthenticationFilter(jwtTokenAuthenticator, jwtUtil, ssoProperties, clock),
                 SecurityContextHolderFilter.class)
             .exceptionHandling(ex -> ex.authenticationEntryPoint(spaLoginRedirectEntryPoint()));
 

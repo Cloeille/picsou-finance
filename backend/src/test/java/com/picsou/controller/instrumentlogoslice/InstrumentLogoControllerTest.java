@@ -58,6 +58,8 @@ class InstrumentLogoControllerTest {
     @MockitoBean InstrumentLogoService logoService;
 
     @MockitoBean JwtUtil jwtUtil;
+    @MockitoBean com.picsou.config.SsoProperties ssoProperties;
+    @MockitoBean java.time.Clock clock;
     @MockitoBean JwtTokenAuthenticator jwtTokenAuthenticator;
     @MockitoBean AppUserRepository appUserRepository;
     @MockitoBean SetupFilter setupFilter;

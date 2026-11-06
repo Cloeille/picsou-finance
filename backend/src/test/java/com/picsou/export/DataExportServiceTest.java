@@ -15,6 +15,7 @@ import com.picsou.repository.GoalRepository;
 import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.SharedResourceRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.repository.UserIdentityRepository;
 import com.picsou.repository.WalletAddressRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +52,7 @@ class DataExportServiceTest {
     @Mock private SharedResourceRepository sharedResourceRepository;
     @Mock private TransactionRepository transactionRepository;
     @Mock private WalletAddressRepository walletAddressRepository;
+    @Mock private UserIdentityRepository userIdentityRepository;
     @Mock private BalanceSnapshotRepository balanceSnapshotRepository;
 
     private DataExportService service;
@@ -92,12 +94,13 @@ class DataExportServiceTest {
         SharedResourcesExporter sharedResources = new SharedResourcesExporter(sharedResourceRepository);
         TransactionsExporter transactions = new TransactionsExporter(accountRepository, transactionRepository);
         WalletAddressesExporter walletAddresses = new WalletAddressesExporter(walletAddressRepository);
+        LinkedIdentitiesExporter linkedIdentities = new LinkedIdentitiesExporter(userIdentityRepository);
         BalanceSnapshotsExporter balanceSnapshots =
             new BalanceSnapshotsExporter(accountRepository, balanceSnapshotRepository);
 
         service = new DataExportService(List.of(
             profile, accounts, holdings, bankConnections, debts, goals,
-            sharedResources, transactions, walletAddresses, balanceSnapshots
+            sharedResources, transactions, walletAddresses, linkedIdentities, balanceSnapshots
         ));
     }
 
@@ -214,7 +217,7 @@ class DataExportServiceTest {
                 "profile.csv", "accounts.csv", "holdings.csv",
                 "bank_connections.csv", "debts.csv", "goals.csv",
                 "shared_resources.csv", "transactions.csv",
-                "wallet_addresses.csv", "balance_snapshots.csv"
+                "wallet_addresses.csv", "balance_snapshots.csv", "linked_identities.csv"
             );
 
         String json = new String(entries.get("data.json"));
@@ -241,7 +244,7 @@ class DataExportServiceTest {
 
         // Whole-archive byte-grep: NONE of the known secret tokens may appear anywhere
         // (data.json, csv files, README, ZIP metadata) — this is the GDPR safety net.
-        // Covers all 10 exporters, matching production wiring (see setUp()).
+        // Covers all 11 exporters, matching production wiring (see setUp()).
         String archive = new String(zipBytes, java.nio.charset.StandardCharsets.ISO_8859_1);
         assertThat(archive).doesNotContain(SECRET_PASSWORD_HASH);
         assertThat(archive).doesNotContain(SECRET_TOTP);

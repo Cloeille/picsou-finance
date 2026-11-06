@@ -1,6 +1,6 @@
 # Feature: CORS & Cookie Security
 
-> Last updated: 2026-11-03 (Tomcat is the edge, nginx removed)
+> Last updated: 2026-11-06 (SSO chain, session re-validation, IdP logout, handshake session and `reauth_proof`; Tomcat is the edge, nginx removed)
 
 ## Context
 
@@ -92,6 +92,54 @@ access_token=...; Max-Age=900; Path=/; HttpOnly; SameSite=Lax[; Secure]
 - The `Secure` flag is driven by `SecureCookieProvider` (DB `secure-cookies` setting → `SECURE_COOKIES`
   env, default `true`). Set `false` only when serving over plain HTTP. The wizard auto-detects this
   from `location.protocol`.
+- `reauth_proof` (Max-Age 300, same attributes) is a JWT with `type=reauth`, `uid` and `tv` proving
+  a fresh re-authentication. `POST /api/auth/reauth` (password, plus TOTP when 2FA is on) and the
+  SSO `reauth` callback set it; logout clears it. It is valid only for the same user id and token
+  version, so a password change voids it. It gates `/api/auth/password`,
+  `/api/auth/identities/{id}` and the SSO `link` intent, and replaces the inline credentials of
+  `POST /api/me/export`.
+- `JSESSIONID` (servlet container session cookie) exists only during an SSO handshake: the SSO
+  start creates a session holding `state`, `nonce`, the PKCE verifier and the intent, and the
+  callback invalidates it, success or failure. The SSO chain never stores a `SecurityContext` in
+  it, and the rest of the API stays stateless.
+
+### SSO session lifetime and logout
+
+SSO access and refresh JWTs carry `sso_at`; Remember-Me series store the same authentication
+time. Refresh preserves that time rather than restarting the window. Once its age exceeds
+`SSO_SESSION_REVALIDATE_AFTER`, or SSO is disabled, refresh clears auth cookies and returns
+401 with `code=SSO_REVALIDATE`. Persistent-cookie restoration revokes an expired SSO series
+and passes the same reason to refresh, ahead of its revoked-series check. Fresh SSO series
+delegate MFA to the IdP instead of requiring a local trusted-device flag. Password sessions
+keep their existing refresh and MFA behavior.
+
+The authorization-server cookie bridge checks this window on authorization GETs and leaves
+an expired SSO cookie anonymous, so the entry point redirects to login. Consent POSTs are
+not re-checked: they finish the authorization already admitted by a GET. While SSO is enabled,
+refresh and the username change never turn an Authorization Server token into web cookies.
+
+Logout always revokes the presented persistent series and clears local auth cookies. With
+`SSO_IDP_LOGOUT=true`, an SSO session and an available discovered `end_session_endpoint`,
+it returns 200 with `endSessionUrl`, containing encoded `client_id` and
+`post_logout_redirect_uri` (the request's context URL plus `/login`). Discovery is lazy, so
+logout also works immediately after a backend restart. Otherwise logout returns 204.
+
+### SSO re-authentication and identity linking
+
+The `reauth` and `link` SSO intents require a valid `access_token` cookie at both start and
+callback. The intent binds the local user id at start; a missing or invalid callback token yields
+`SESSION_EXPIRED`, and switching accounts yields `REAUTH_WRONG_ACCOUNT`. Both default to
+`/settings` and preserve a safe redirect such as `/settings?resume=export`.
+
+Re-authentication accepts only an identity already linked to that user and an ID-token
+`auth_time >= startedAt - 60 seconds` (inclusive). Missing or older values yield
+`REAUTH_TOO_OLD`. Success updates the identity's login metadata, syncs its role, and sets only
+`reauth_proof`; it does not issue a new session.
+
+Linking checks `reauth_proof` at start and again at callback, so expiry during the IdP round trip
+yields `REAUTH_REQUIRED` without linking. Success syncs the role, audits `sso.identity.linked`,
+and appends `sso=linked` to the redirect. Linking does not set the identity's `last_login_at`.
+An identity owned by another local account yields `IDENTITY_IN_USE`.
 
 ### CSRF — cross-site request check
 
@@ -133,7 +181,19 @@ navigations. The one offender was the bank OAuth callback: the bank redirects th
 SPA's `/sync/callback`, which now `POST`s `{code, state}` to `/api/sync/complete` (it was a GET).
 
 The OAuth2 authorization-server chain (`AuthorizationServerConfig`, `@Order(1)`, `/oauth2/**`
-endpoints including the `/oauth2/authorize` cookie bridge) is a separate chain and is unchanged.
+endpoints including the `/oauth2/authorize` cookie bridge) is a separate chain; its cookie bridge
+applies the SSO window described above.
+
+**The SSO chain** (`SsoSecurityConfig`, `@Order(0)`, `/oauth2/sso/**` only, present when SSO is
+configured) reuses this check with one change: `CrossSiteCookieRequestMatcher` in mode `false`
+drops condition 2, so **any** cross-site `POST` to `/oauth2/sso/**` gets the same 403, auth cookie
+or not. Both of its endpoints (SSO start and callback processing) are same-origin form POSTs, and
+a GET redirects to `/login`, so a link on another site can neither start a flow in the user's
+browser nor complete one. For condition 4 the SSO chain hands the matcher
+`DynamicCorsConfigurationSource.originPolicy()`, the API routes' origin policy without its
+`/api/**` path check (the source itself only answers for `/api/**`); an allow-listed origin
+therefore passes on both chains. The 403 handler
+(`SecurityConfig.crossSiteAwareAccessDeniedHandler`) is shared. See [sso-login.md](./sso-login.md).
 
 ### Key files
 
@@ -141,7 +201,9 @@ endpoints including the `/oauth2/authorize` cookie bridge) is a separate chain a
 |------|------|
 | `backend/src/main/java/com/picsou/config/DynamicCorsConfigurationSource.java` | Per-request origin resolution (DB → env → fail closed), wildcard stripping |
 | `backend/src/main/java/com/picsou/config/SecurityConfig.java` | `.cors()`, explicit `CorsFilter` bean, token-less CSRF wiring + 403 body, filter chain |
-| `backend/src/main/java/com/picsou/config/CrossSiteCookieRequestMatcher.java` | Decides which requests are cross-site cookie-authenticated writes |
+| `backend/src/main/java/com/picsou/config/CrossSiteCookieRequestMatcher.java` | Decides which requests are cross-site cookie-authenticated writes (mode `false` for the SSO chain: any cross-site write) |
+| `backend/src/main/java/com/picsou/config/SsoSecurityConfig.java` | SSO chain: POST-only `/oauth2/sso/**`, cross-site check without the cookie condition |
+| `backend/src/main/java/com/picsou/config/CookieBridgeAuthenticationFilter.java` | Authorization Server cookie bridge; enforces the SSO window on `GET /oauth2/authorize` |
 | `backend/src/main/java/com/picsou/config/LoggingCorsProcessor.java` | Logs origin on CORS rejection |
 | `backend/src/main/java/com/picsou/config/AuthCookieWriter.java` / `SecureCookieProvider.java` | Cookie construction + `Secure` flag |
 | `backend/src/main/resources/application.yml` | `server.forward-headers-strategy: native`, explicit Tomcat proxy trust, CORS and cookie settings |
@@ -221,6 +283,11 @@ endpoints including the `/oauth2/authorize` cookie bridge) is a separate chain a
   untrusted connection, private/IPv6 untrusted peers, consistent audit addresses, and public
   origins including custom HTTP/HTTPS ports.
 - `config/RateLimitConfigTest` — bucket stores evict to their configured maximum size.
+- `config/CrossSiteCookieRequestMatcherTest` and `config/ssoslice/SsoSecurityConfigTest` — the
+  SSO chain's mode: an anonymous cross-site POST → 403, an allow-listed origin passes, GET →
+  `/login`. `CookieBridgeAuthenticationFilterTest`, `PersistentTokenAuthFilterTest`,
+  `AuthControllerTest` and `SsoLoginIntegrationTest` cover the SSO window, `SSO_REVALIDATE`, IdP
+  logout and the handshake session; `AuthCookieWriterTest` covers `reauth_proof`.
 - `TrustedProxyClientIpTest` builds the Tomcat valves from the production properties: trusted proxy, untrusted peers (loopback and private included), unset proxy, public ports, `PICSOU_PROXY_IP` validation.
 
 ## Links
@@ -229,3 +296,5 @@ endpoints including the `/oauth2/authorize` cookie bridge) is a separate chain a
   `docs/decisions/2026-01-01-single-user-jwt-cookies.md`,
   `docs/decisions/2026-04-23-first-launch-wizard.md`
 - Feature: `docs/features/setup-wizard.md` (Security step writes the allowed origins)
+- Feature: [sso-login.md](./sso-login.md), ADR:
+  [SSO login alongside passwords](../decisions/2026-11-04-sso-login-alongside-passwords.md)

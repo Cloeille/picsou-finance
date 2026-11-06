@@ -185,6 +185,18 @@ app:
     redirect-uri: ${OAUTH_IOS_REDIRECT_URI:picsou://callback}
     access-token-ttl-minutes: ${OAUTH_ACCESS_TTL_MINUTES:15}
     refresh-token-ttl-days: ${OAUTH_REFRESH_TTL_DAYS:30}
+  # OIDC single sign-on (optional). On only when issuer-uri and client-id are both set; invalid
+  # values log an ERROR and disable SSO, never fail startup. See docs/briefs/2026-10-31-sso-login-design.md.
+  sso:
+    issuer-uri: ${SSO_ISSUER_URI:}
+    client-id: ${SSO_CLIENT_ID:}
+    client-secret: ${SSO_CLIENT_SECRET:}
+    provider-name: ${SSO_PROVIDER_NAME:SSO}
+    scopes: ${SSO_SCOPES:openid,profile,email}
+    groups-claim: ${SSO_GROUPS_CLAIM:groups}
+    admin-group: ${SSO_ADMIN_GROUP:}
+    session-revalidate-after: ${SSO_SESSION_REVALIDATE_AFTER:24h}
+    idp-logout: ${SSO_IDP_LOGOUT:false}
   user:
     username: ${APP_USERNAME:}
     password-hash: ${APP_PASSWORD_HASH:}

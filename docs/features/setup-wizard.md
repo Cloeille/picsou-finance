@@ -1,6 +1,6 @@
 # Feature: First-launch Setup Wizard
 
-> Last updated: 2026-11-04
+> Last updated: 2026-11-04 (first admin through the SSO admin group; `SecretBootstrap` generates the secrets)
 
 ## Context
 
@@ -27,13 +27,35 @@ The bootstrap runs on two levels.
 setup is complete, and with `410 Gone` after — so a stale browser tab can never re-POST
 admin creation.
 
+### SSO admin step
+
+`GET /api/setup/status` carries `sso: { enabled, providerName, adminBootstrap }`.
+`adminBootstrap` is `true` whenever `SSO_ADMIN_GROUP` is set. The admin step then shows no
+password form:
+
+- SSO enabled: a **"Continue with <provider>"** button (`SetupAdminSso.tsx`) posts the SSO start
+  form with `intent=setup`. The callback requires membership of `SSO_ADMIN_GROUP`
+  (`NOT_IN_ADMIN_GROUP` otherwise), and `SetupService.seedSsoAdmin` creates the member, a
+  password-less `ADMIN` and the linked identity in one SERIALIZABLE transaction, under the same
+  `PENDING_ADMIN` CAS and "no user yet" guards as `seedAdmin`. A lost race redirects with
+  `SETUP_ALREADY_CLAIMED`. The audit entry is `setup.admin.created` with `method=sso`. The user
+  lands on `/setup/security` signed in with session-scoped cookies; the rest of the wizard is
+  unchanged.
+- SSO not usable (invalid configuration): a notice explains the misconfiguration. The server
+  still refuses `POST /api/setup/admin` with 409 `SSO_ADMIN_REQUIRED` while `SSO_ADMIN_GROUP` is
+  set, so whoever reaches a fresh instance first cannot claim it with a password.
+
+The Done screen has no stashed password for an SSO admin, so it probes the session the callback
+opened (`POST /api/auth/refresh`) instead of logging in. See [sso-login.md](./sso-login.md).
+
 ### Key files
 
 Backend:
 - `backend/src/main/java/com/picsou/controller/SetupController.java` — all `/api/setup/*`
   endpoints (public, rate-limited by Bucket4j).
 - `backend/src/main/java/com/picsou/service/SetupService.java` — state-machine
-  transitions (`PENDING_ADMIN → IN_PROGRESS → COMPLETE`) and admin seeding.
+  transitions (`PENDING_ADMIN → IN_PROGRESS → COMPLETE`) and admin seeding (`seedAdmin`,
+  and `seedSsoAdmin` for the SSO first admin).
 - `backend/src/main/java/com/picsou/service/SetupAuditService.java` — append-only
   `setup_audit` table writes; swallows its own errors so audit failure never blocks a
   controller response.
@@ -62,7 +84,7 @@ Frontend:
 - `frontend/src/pages/setup/HelloGreeting.tsx` — 12-greeting multilingual opener in
   Homemade Apple font, `prefers-reduced-motion` aware.
 - `frontend/src/pages/setup/SetupStep{Intro,Admin,Security,Integrations,Complete}.tsx`
-  — the main-line steps.
+  — the main-line steps; `SetupAdminSso.tsx` is the admin step's SSO mode.
 - `frontend/src/pages/setup/integrations/SetupStepEnableBanking.tsx` + 5 substep
   components under `enablebanking/` — the guided EB flow.
 - `frontend/src/pages/setup/integrations/SetupStep{BoursoBank,BourseDirect,TradeRepublic,Finary,Crypto}.tsx`
@@ -92,7 +114,7 @@ Spring boots → Flyway V25 seeds setup.state='PENDING_ADMIN'
 User opens http://host:8080  ──► RequireSetup redirects /login → /setup
     │
     ▼
-Hello greeting → Admin → Security → Integration picker
+Hello greeting → Admin (password, or SSO when SSO_ADMIN_GROUP is set) → Security → Integration picker
     │                                    │
     │                                    ├─ Enable Banking: 5 substeps
     │                                    ├─ BoursoBank: sidecar ping
@@ -102,7 +124,7 @@ Hello greeting → Admin → Security → Integration picker
     │                                    └─ Crypto: ensure key exists
     │
     ▼
-Done → POST /api/setup/complete → auto-login → /
+Done → POST /api/setup/complete → auto-login (or session probe after SSO) → /
 ```
 
 ### Enable Banking registration and key import
@@ -169,14 +191,18 @@ Application ID and PEM form remains possible follow-up work.
   to `/setup`) and 410 (redirect to `/`).
 - **`SetupAuditService.record()` swallows its own exceptions**. A DB hiccup during
   audit must never block the controller response — audit is observability, not
-  correctness.
+  correctness. It writes in a transaction of its own (`REQUIRES_NEW`) and catches outside
+  it: a failed insert inside the caller's transaction would otherwise mark that
+  transaction rollback-only, and an activation or role change would roll back with it.
+  The flip side: an audit row commits even if the caller's transaction fails afterwards.
 - **The EB keypair endpoint is idempotent but the underlying file is the source of
   truth.** Deleting `/data/keys/enablebanking-private.pem` out-of-band and re-running
   the wizard will hand the user a new public PEM and invalidate what they uploaded to
   Enable Banking. A proper key-rotation flow is explicitly out of scope for this
   wizard.
 - **Auto-login at the Done screen is best-effort.** If the user refreshes mid-wizard,
-  the in-memory credentials are lost and the Done CTA falls back to the login page.
+  the in-memory credentials are lost; the Done screen then probes the existing session
+  (the path an SSO admin always takes) and falls back to the login page if it is gone.
   setup.state is COMPLETE either way; no data is lost.
 - **The "pick integrations" step writes nothing to the DB.** Flags only flip when the
   corresponding sub-step completion endpoint is hit (e.g., `/enablebanking/test`
@@ -249,6 +275,10 @@ future work):
   longer be planted through `POST /api/setup/admin` during the `IN_PROGRESS` window (after
   the first admin is seeded but before `/api/setup/complete` is called). Further accounts
   are created from the authenticated Family admin UI, never from the wizard.
+  `seedSsoAdmin` applies the same guards.
+- **SSO bootstrap only through the group.** With `SSO_ADMIN_GROUP` set, the password admin
+  form is refused server-side (`SSO_ADMIN_REQUIRED`), even when the rest of the SSO settings
+  are invalid. `APP_USERNAME`/`APP_PASSWORD_HASH` still win if set (a WARN is logged).
 
 ## Running without Docker
 
@@ -288,7 +318,10 @@ The wizard makes zero outbound requests on first load:
 - `SetupServiceTest` — state transitions (`PENDING_ADMIN → IN_PROGRESS → COMPLETE`),
   SERIALIZABLE CAS on admin claim, bcrypt-hash rejection, idempotent seed when user
   already exists, rejection when any account already exists (second-admin backdoor),
-  CSV origin persistence, empty-origin rejection, consistent integration-key formatting.
+  CSV origin persistence, empty-origin rejection, consistent integration-key formatting,
+  and `seedSsoAdmin` (password-less admin + identity, same guards).
+- `SsoLoginIntegrationTest` (scenarios 1-2) — an SSO `login` while setup is pending never
+  authorizes; the `setup` intent claims the first admin exactly once.
 - `SetupControllerTest` — endpoint-level: admin seed returns 410 after completion,
   EB keypair regenerate-flag on first call vs. idempotent subsequent calls, EB
   `test` only flips the integration flag on success, BoursoBank health / Bourse Direct / TR / Finary
@@ -307,6 +340,8 @@ failure modes are better exercised at the controller boundary.
 registration guidance, email-link sign-in, import by default, explicit generation, mode
 changes, pending imports, credential transport errors, and the success-to-Revolut transition.
 It renders the components with real setup hooks and synthetic responses from the setup API.
+`SetupStepAdmin.test.tsx` and `SetupStepComplete.test.tsx` cover the SSO mode, the
+misconfiguration notice and the session-probe fallback.
 `frontend/src/lib/errors.test.ts` covers transport-error formatting, and
 `frontend/src/i18n/locales-parity.test.ts` checks all four locales.
 

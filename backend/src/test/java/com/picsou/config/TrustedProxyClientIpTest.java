@@ -22,6 +22,7 @@ import org.springframework.mock.env.MockEnvironment;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.cors.CorsUtils;
 
 import java.util.HashMap;
@@ -129,7 +130,7 @@ class TrustedProxyClientIpTest {
     @Test
     void audit_usesTheSameResolvedAddressAsRateLimiters() throws Exception {
         SetupAuditRepository repository = mock(SetupAuditRepository.class);
-        SetupAuditService audit = new SetupAuditService(repository);
+        SetupAuditService audit = new SetupAuditService(repository, mock(PlatformTransactionManager.class));
         throughValve(PROXY, Map.of(
             "X-Forwarded-For", "2001:db8::10",
             "X-Real-IP", "203.0.113.99"), request -> {
@@ -331,8 +332,10 @@ class TrustedProxyClientIpTest {
     private AuthController controller(Map<String, Bucket> buckets) {
         return new AuthController(mock(AppUserRepository.class), mock(PasswordEncoder.class),
             mock(JwtUtil.class), buckets, new HashMap<>(), mock(AuthCookieWriter.class),
-            mock(MfaService.class), mock(PersistentSessionService.class), mock(SetupAuditService.class),
-            false, true);
+            mock(MfaService.class), mock(PersistentSessionService.class),
+            mock(com.picsou.service.SessionIssuer.class), new SsoProperties(), mock(com.picsou.service.ActivationService.class),
+            java.time.Clock.systemUTC(), new org.springframework.beans.factory.support.DefaultListableBeanFactory()
+                .getBeanProvider(SsoClientRegistrationRepository.class), false, true);
     }
 
     private void assertInvalidLogin(AuthController controller, HttpServletRequest request) {
