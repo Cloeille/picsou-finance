@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shows as savings and nothing is counted twice. A sub-account in its wallet's own class stays in
   the wallet, a negative one moves nothing, and an account that is skipped is not valued, so a
   failing price lookup on it no longer breaks the view. Contributions are unchanged.
+- **A co-owned loan shows its real repayment progress.** The dashboard's liabilities card
+  compared the member's share of the remaining capital to the whole borrowed amount, so a
+  half-owned 200,000 EUR loan with 150,000 left showed 62.5% repaid instead of 25%. Progress
+  now uses the loan's own figures whatever the member's share, including a zero share. See
+  [Ownership shares](docs/features/account-ownership-shares.md).
 
 - **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar
   read the whole transaction history and refused it past 1,000 rows (`UPSTREAM_FORMAT_CHANGED`).
