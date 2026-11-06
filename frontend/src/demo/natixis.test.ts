@@ -16,7 +16,10 @@ function call(method: string, url: string) {
 }
 
 describe('Natixis demo connector', () => {
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await call('DELETE', '/natixis/session')
+  })
 
   // Sync all lists Natixis whenever its status is not IDLE, so a status missing
   // syncStatus would show a phantom expired connection in demo mode.
@@ -24,11 +27,20 @@ describe('Natixis demo connector', () => {
     expect(await call('GET', '/natixis/status')).toEqual(disconnected)
   })
 
-  it('answers auth and sync without opening a session', async () => {
-    const init: NatixisAuthInitResponse = { processId: null, mfaRequired: false, mfaType: null }
+  it('simulates the SMS challenge, then an active session until it is deleted', async () => {
+    await call('DELETE', '/natixis/session')
+    const init: NatixisAuthInitResponse = { processId: 'demo-natixis', mfaRequired: true, mfaType: 'SMS' }
     expect(await call('POST', '/natixis/auth/initiate')).toEqual(init)
-    expect(await call('POST', '/natixis/auth/complete')).toEqual(disconnected)
-    expect(await call('POST', '/natixis/sync')).toEqual(disconnected)
+    expect(await call('GET', '/natixis/status')).toEqual(disconnected)
+
+    const done = await call('POST', '/natixis/auth/complete')
+    expect(done).toMatchObject({ isActive: true, syncStatus: 'SUCCESS', lastSyncError: null })
+    expect(done.lastSyncCompletedAt).toEqual(expect.any(String))
+    expect(await call('GET', '/natixis/status')).toMatchObject({ isActive: true, syncStatus: 'SUCCESS' })
+    expect(await call('POST', '/natixis/sync')).toMatchObject({ isActive: true, syncStatus: 'SUCCESS' })
+
+    await call('DELETE', '/natixis/session')
+    expect(await call('GET', '/natixis/status')).toEqual(disconnected)
   })
 
   it('registers every endpoint the Natixis API calls', async () => {
