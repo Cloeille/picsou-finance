@@ -4,6 +4,7 @@ import com.picsou.dto.ColumnMappingDto;
 import com.picsou.imports.csv.CsvDialect;
 import com.picsou.imports.csv.DecimalStyle;
 import com.picsou.model.Account;
+import com.picsou.model.AccountType;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.service.InstrumentFieldResolver;
@@ -19,7 +20,10 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -162,5 +166,27 @@ class TransactionRowMapperTest {
         assertThatThrownBy(() -> mapper.map(row, mappingWithPrice(), dialect, null, false, account))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("ticker");
+    }
+
+    @Test
+    void metalsAccount_resolvesTheCanonicalCatalogueTicker() {
+        stubResolver();
+        Account metals = Account.builder().id(2L).type(AccountType.PRECIOUS_METALS).currency("EUR").build();
+        List<String> row = List.of("2024-01-15", "BUY", " gold:gram ", "10", "85.20", "0");
+
+        mapper.map(row, mappingWithPrice(), dialect, null, false, metals);
+
+        verify(instrumentFieldResolver).resolve(eq("GOLD:GRAM"), any());
+    }
+
+    @Test
+    void metalsAccount_rejectsATickerOutsideTheCatalogue() {
+        Account metals = Account.builder().id(2L).type(AccountType.PRECIOUS_METALS).currency("EUR").build();
+        List<String> row = List.of("2024-01-15", "BUY", "AAPL", "10", "85.20", "0");
+
+        assertThatThrownBy(() -> mapper.map(row, mappingWithPrice(), dialect, null, false, metals))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("AAPL");
+        verifyNoInteractions(instrumentFieldResolver);
     }
 }

@@ -1,6 +1,7 @@
 package com.picsou.service;
 
 import com.picsou.adapter.CoinGeckoStubs;
+import com.picsou.adapter.PreciousMetalStubs;
 import com.picsou.adapter.YahooFinancePriceProvider;
 import com.picsou.adapter.YahooFinanceStubs;
 import com.picsou.dto.DashboardResponse.NetWorthIntradayPoint;
@@ -25,8 +26,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -915,6 +919,36 @@ class HistoryServiceTest {
             assertThat(p.total()).isEqualByComparingTo("200");
             assertThat(p.invested()).isEqualByComparingTo("200");
         });
+    }
+
+    @Test
+    void buildIntradayHistory_aCoinHolding_isWorthItsQuoteAtEveryHourIncludingTheFirst() {
+        // Loomis quotes a coin once a day and publishes no intraday series: the provider holds
+        // the quote flat, from the hour before `from`, where this grid begins.
+        String quotes = """
+            <div class="raterow"><div class="col col_date">Cotation du <span>05/11/2026</span> :</div>
+            <div class="col col_price">700,00&nbsp;€</div>
+            <a href="https://www.loomis-fxgs.fr/produit/20-francs-napoleon/">Détail produit</a></div>
+            """;
+        Clock dayOfTheQuote = Clock.fixed(Instant.parse("2026-11-05T12:00:00Z"), ZoneOffset.UTC);
+        YahooFinancePriceProvider yahoo = YahooFinanceStubs.provider(url -> null);
+        PriceService realPrices = new PriceService(
+            CoinGeckoStubs.composite(yahoo, CoinGeckoStubs.registry(java.util.Map.of()),
+                PreciousMetalStubs.provider(yahoo, quotes, dayOfTheQuote)), priceSnapshotRepository);
+        HistoryService service = new HistoryService(accountRepository, snapshotRepository, holdingRepository,
+            realPrices, priceSnapshotRepository, accountService, accessResolver);
+        Account safe = Account.builder().id(9L).name("Safe").type(AccountType.PRECIOUS_METALS)
+            .currency("EUR").currentBalance(BigDecimal.ZERO).member(MEMBER).build();
+        AccountHolding napoleons = AccountHolding.builder()
+            .account(safe).ticker("GOLD:NAPOLEON-20F").quantity(new BigDecimal("3"))
+            .averageBuyIn(new BigDecimal("650")).build();
+        when(accountRepository.findAllById(List.of(9L))).thenReturn(List.of(safe));
+        when(holdingRepository.findByAccount_Id(9L)).thenReturn(List.of(napoleons));
+
+        List<NetWorthIntradayPoint> result = service.buildIntradayHistory(List.of(9L), MEMBER_ID);
+
+        assertThat(result).hasSizeGreaterThanOrEqualTo(24)
+            .allSatisfy(p -> assertThat(p.total()).isEqualByComparingTo("2100"));
     }
 
     @Test

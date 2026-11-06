@@ -3,6 +3,7 @@ package com.picsou.finary;
 import com.picsou.adapter.CoinGeckoPriceProvider;
 import com.picsou.adapter.CryptoAssetRegistry;
 import com.picsou.adapter.CompositePriceProvider;
+import com.picsou.adapter.PreciousMetalPriceProvider;
 import com.picsou.adapter.YahooFinancePriceProvider;
 import com.picsou.adapter.YahooFinanceStubs;
 import com.picsou.exception.SyncException;
@@ -169,6 +170,7 @@ class FinaryPersistenceHelperTest {
         FinaryPersistenceHelper realFx = new FinaryPersistenceHelper(balanceSnapshotRepository,
             transactionRepository, new PriceService(
                 new CompositePriceProvider(mock(CoinGeckoPriceProvider.class), yahoo,
+                    new PreciousMetalPriceProvider(yahoo),
                     CryptoAssetRegistry.of(java.util.Map.of()), java.time.Clock.systemUTC()),
                 mock(PriceSnapshotRepository.class)));
         Account account = Account.builder().id(1L).name("Checking").currency("EUR")

@@ -31,12 +31,13 @@ class CompositePriceProviderTest {
 
     @Mock CoinGeckoPriceProvider coinGecko;
     @Mock YahooFinancePriceProvider yahoo;
+    @Mock PreciousMetalPriceProvider preciousMetals;
 
     private final MutableClock clock = new MutableClock(Instant.parse("2026-11-02T08:00:00Z"));
     private final CryptoAssetRegistry registry = CryptoAssetRegistry.of(new HashMap<>());
 
     private CompositePriceProvider composite() {
-        return new CompositePriceProvider(coinGecko, yahoo, registry, clock);
+        return new CompositePriceProvider(coinGecko, yahoo, preciousMetals, registry, clock);
     }
 
     /** A clock the test can advance, to step over the 15 min and 24 h retry windows. */
@@ -85,7 +86,7 @@ class CompositePriceProviderTest {
     @Test
     void getPricesEur_empty_callsNoProvider() {
         assertThat(composite().getPricesEur(Set.of())).isEmpty();
-        verifyNoInteractions(coinGecko, yahoo);
+        verifyNoInteractions(coinGecko, yahoo, preciousMetals);
     }
 
     @Test
@@ -133,7 +134,79 @@ class CompositePriceProviderTest {
     }
 
     @Test
+    void getPricesEur_routesGoldTickersToPreciousMetals_beforeTheCryptoYahooSplit() {
+        when(preciousMetals.supports("GOLD:GRAM")).thenReturn(true);
+        when(preciousMetals.supports("GOLD:KRUGERRAND")).thenReturn(true);
+        when(preciousMetals.supports("BTC")).thenReturn(false);
+        when(preciousMetals.supports("AAPL")).thenReturn(false);
+        when(coinGecko.supports("BTC")).thenReturn(true);
+        when(coinGecko.supports("AAPL")).thenReturn(false);
+        when(preciousMetals.getPricesEur(Set.of("GOLD:GRAM", "GOLD:KRUGERRAND")))
+            .thenReturn(Map.of("GOLD:GRAM", new BigDecimal("112.5"), "GOLD:KRUGERRAND", new BigDecimal("3875.00")));
+        when(coinGecko.getPricesEur(Set.of("BTC"))).thenReturn(Map.of("BTC", new BigDecimal("50000")));
+        when(yahoo.getPricesEur(Set.of("AAPL"))).thenReturn(Map.of("AAPL", new BigDecimal("200")));
+
+        Map<String, BigDecimal> prices = composite().getPricesEur(
+            Set.of("GOLD:GRAM", "GOLD:KRUGERRAND", "BTC", "AAPL"));
+
+        assertThat(prices).containsOnlyKeys("GOLD:GRAM", "GOLD:KRUGERRAND", "BTC", "AAPL");
+        verify(coinGecko, times(1)).getPricesEur(Set.of("BTC"));
+        verify(yahoo, times(1)).getPricesEur(Set.of("AAPL"));
+        verify(preciousMetals, times(1)).getPricesEur(Set.of("GOLD:GRAM", "GOLD:KRUGERRAND"));
+    }
+
+    @Test
+    void getPricesEur_withoutGold_neverCallsPreciousMetals() {
+        when(preciousMetals.supports("BTC")).thenReturn(false);
+        when(coinGecko.supports("BTC")).thenReturn(true);
+        when(coinGecko.getPricesEur(Set.of("BTC"))).thenReturn(Map.of("BTC", new BigDecimal("50000")));
+
+        composite().getPricesEur(Set.of("BTC"));
+
+        verify(preciousMetals, org.mockito.Mockito.never()).getPricesEur(any());
+    }
+
+    @Test
+    void historicalAndIntraday_routeGoldToPreciousMetals_andNeverToYahooOrCoinGecko() {
+        LocalDate day = LocalDate.of(2026, 10, 1);
+        LocalDateTime from = LocalDateTime.of(2026, 11, 5, 9, 0);
+        LocalDateTime to = LocalDateTime.of(2026, 11, 5, 17, 0);
+        when(preciousMetals.supports("GOLD:GRAM")).thenReturn(true);
+        when(preciousMetals.getHistoricalPricesEur("GOLD:GRAM", day, day))
+            .thenReturn(Map.of(day, new BigDecimal("112.5")));
+        when(preciousMetals.getIntradayPricesEur("GOLD:GRAM", from, to))
+            .thenReturn(Map.of(from, new BigDecimal("112.6")));
+
+        assertThat(composite().getHistoricalPricesEur("GOLD:GRAM", day, day)).containsKey(day);
+        assertThat(composite().getIntradayPricesEur("GOLD:GRAM", from, to)).containsKey(from);
+        verifyNoInteractions(coinGecko, yahoo);
+    }
+
+    @Test
+    void routingStillSendsBtcToCoinGeckoAndAaplToYahoo() {
+        LocalDate day = LocalDate.of(2026, 10, 1);
+        when(preciousMetals.supports("BTC")).thenReturn(false);
+        when(preciousMetals.supports("AAPL")).thenReturn(false);
+        when(coinGecko.supports("BTC")).thenReturn(true);
+        when(coinGecko.supports("AAPL")).thenReturn(false);
+        when(coinGecko.getHistoricalPricesEur("BTC", day, day)).thenReturn(Map.of(day, new BigDecimal("1")));
+        when(yahoo.getHistoricalPricesEur("AAPL", day, day)).thenReturn(Map.of(day, new BigDecimal("2")));
+
+        assertThat(composite().getHistoricalPricesEur("BTC", day, day)).containsEntry(day, new BigDecimal("1"));
+        assertThat(composite().getHistoricalPricesEur("AAPL", day, day)).containsEntry(day, new BigDecimal("2"));
+        verify(preciousMetals, org.mockito.Mockito.never()).getHistoricalPricesEur(any(), any(), any());
+    }
+
+    @Test
+    void supports_isTrueForAGoldTicker_evenWhenNeitherOtherProviderSupportsIt() {
+        when(preciousMetals.supports("GOLD:GRAM")).thenReturn(true);
+
+        assertThat(composite().supports("GOLD:GRAM")).isTrue();
+    }
+
+    @Test
     void supports_isTrueIfEitherProviderSupports() {
+        when(preciousMetals.supports("BTC")).thenReturn(false);
         when(coinGecko.supports("BTC")).thenReturn(true);
 
         assertThat(composite().supports("BTC")).isTrue();
@@ -222,7 +295,7 @@ class CompositePriceProviderTest {
         CryptoAssetRegistry failing = org.mockito.Mockito.mock(CryptoAssetRegistry.class);
         org.mockito.Mockito.doThrow(new IllegalStateException("db down"))
             .when(failing).learn("NEXO", "nexo", "NEXO");
-        CompositePriceProvider composite = new CompositePriceProvider(coinGecko, yahoo, failing, clock);
+        CompositePriceProvider composite = new CompositePriceProvider(coinGecko, yahoo, preciousMetals, failing, clock);
         when(yahoo.probeQuote("NEXO")).thenReturn(YahooFinancePriceProvider.QuoteProbe.UNKNOWN_SYMBOL);
         when(coinGecko.resolveBySymbol(Set.of("NEXO"))).thenReturn(accepted("NEXO", "nexo", "NEXO"));
 
