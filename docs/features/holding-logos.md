@@ -41,7 +41,7 @@ reason `quotesFor` resolves a `CRYPTO` account crypto-only, and why `AccountServ
 never reads the share store for a `CRYPTO` account.
 
 The service depends on the **port**, not on `CoinGeckoPriceProvider`, per the ports & adapters
-rule in [`../CLAUDE.md`](../CLAUDE.md). `LogoProviderWiringTest` pins the seam.
+rule in [`backend/CLAUDE.md`](../../backend/CLAUDE.md). `LogoProviderWiringTest` pins the seam.
 
 **Nothing is stored.** A coin's image is a read-only attribute the provider already serves for
 free, and a batched call is already O(1) requests per page. The service caches in memory: a

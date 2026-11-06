@@ -110,7 +110,7 @@ API pin, the Docker guard, the Flyway setup and the JDBC connection. Do not copy
 into a test class; call the helper.
 
 ```bash
-mvn test -Dtest=BudgetSeedWriteOnReadPostgresTest   # needs a running Docker daemon
+make test-backend TEST=BudgetSeedWriteOnReadPostgresTest   # needs a running Docker daemon
 ```
 
 Testcontainers is on the test classpath (`spring-boot-testcontainers` + `testcontainers:postgresql`
@@ -124,7 +124,7 @@ Postgres container whenever DB fidelity — not just JPA mapping — is the poin
 > **Docker API floor.** docker-java (bundled with Testcontainers) defaults to Docker Engine API
 > `1.32`, which Docker Engine 25+ rejects. Surefire pins a safe floor via the `api.version` system
 > property (`<docker.api.version>`, default `1.44`, override with `-Ddocker.api.version=…`) so the
-> container tests work under `mvn test` on a modern daemon. With no Docker, the tests self-skip and
+> container tests work under `make test-backend` on a modern daemon. With no Docker, the tests self-skip and
 > the rest of the suite runs untouched.
 
 ### Testcontainers — only for real-PostgreSQL behaviour
@@ -199,18 +199,14 @@ unspecified, so otherwise the other tests may assert against post-mutation state
 
 - **Unit tests:** Vitest (`vitest`) with `@testing-library/react` and `jsdom`.
 - **E2E tests:** Playwright (`@playwright/test`) against demo mode. CI runs them
-  in the `e2e` job (`bun run test:e2e` after `playwright install --with-deps chromium`).
+  in the `e2e` job (`make test-e2e PLAYWRIGHT_DEPS=--with-deps`).
 - **Page readiness:** `waitForURL` only confirms navigation. Lazy routes can still
   render nothing during the delayed `RouteFallback`, and data can still be loading.
   Use retrying assertions on the expected page content before reading the DOM.
   The goals demo always contains savings targets, so its E2E test requires the
   named goal cards and their progress bars. A CSS grid or an immediate `count()`
   does not establish that the goals have loaded.
-- Run commands:
-  ```bash
-  bunx vitest run         # unit tests
-  bun run test:e2e        # E2E tests (starts Vite with VITE_DEMO_MODE=true)
-  ```
+- Run them with `make test-frontend` and `make test-e2e` (starts Vite with `VITE_DEMO_MODE=true`).
 
 ## Sidecar tests
 
@@ -219,16 +215,9 @@ modules for the standard library's `unittest`: no pytest, no `tests/` subfolder,
 `sys.path` edits. CI discovers them, so adding a connector or a test file touches no
 workflow file. The only inputs are the folder and the `ARG SIDECAR_BASE=picsou-sidecar-…`
 line of its Dockerfile (`.github/scripts/sidecars.py` lists them). The `sidecar` job
-builds the base and the image, then runs, from the repository root:
-
-```bash
-docker run --rm --ipc=host --entrypoint python \
-  --env PYTHONDONTWRITEBYTECODE=1 --env APP_SIDECAR_API_KEY=test-key --env CORUM_BROWSER_TESTS=1 \
-  --volume "$PWD/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro" \
-  --volume "$PWD/services/base/euro_information/testing.py:/opt/sidecar-base/lib/euro_information/testing.py:ro" \
-  --volume "$PWD/services:/src/services:ro" --workdir /src/services/<name>-auth \
-  picsou-<name>-auth:test -m unittest discover -v
-```
+runs `make test-sidecar SIDECAR=<name>-auth`: it builds the base and the image, then
+runs `python -m unittest discover` in the image, from the checkout mounted read-only,
+with the test-only helpers the image does not ship mounted back in.
 
 The checkout is mounted read-only, so a test must not write next to itself. A test
 that needs a live account or a real login is a script, not a `test_*.py` module (e.g.
@@ -238,19 +227,9 @@ the Python one (`sidecar-base` job). Camoufox sidecars also run on a native ARM6
 
 ## Running tests
 
-Backend Maven runs enforce Java 21 during `validate`; set `JAVA_HOME` to a JDK 21
-installation before running backend tests locally.
-
-```bash
-# Backend — all tests
-JAVA_HOME=$(/usr/libexec/java_home -v 21) mvn test
-
-# Backend — single test class
-JAVA_HOME=$(/usr/libexec/java_home -v 21) mvn test -Dtest=GoalServiceTest
-
-# Backend — single test method
-JAVA_HOME=$(/usr/libexec/java_home -v 21) mvn test -Dtest=GoalServiceTest#progressCalculation_onTrack
-```
+`make test-backend`, `make test-frontend`, `make test-e2e` and `make test-sidecar SIDECAR=<name>`,
+from the repository root. Options (one class, one method, the Sofidy contract) are in
+[`CONTRIBUTING.md`](../../CONTRIBUTING.md#commands).
 
 ## Current coverage
 

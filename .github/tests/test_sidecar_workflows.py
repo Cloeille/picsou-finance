@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -29,8 +30,21 @@ def _load(path):
         return yaml.safe_load(workflow)
 
 
+def _expand(run):
+    """A step's commands, with each `make` line replaced by what the target runs."""
+    lines = []
+    for line in run.splitlines():
+        if line.startswith("make ") and "${{" not in line:
+            line = subprocess.run(
+                ["make", "-n", "--no-print-directory", "-C", str(ROOT), *shlex.split(line)[1:]],
+                capture_output=True, text=True, check=True,
+            ).stdout
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _run_commands(job):
-    return "\n".join(step.get("run", "") for step in job.get("steps", []))
+    return "\n".join(_expand(step.get("run", "")) for step in job.get("steps", []))
 
 
 SIDECARS_SCRIPT = ROOT / ".github/scripts/sidecars.py"
@@ -66,7 +80,7 @@ def _sidecar_steps(service, arch="x86_64"):
         text = step.get("run", "")
         for key, value in entry.items():
             text = re.sub(r"\$\{\{ matrix\." + key + r" \}\}", value, text)
-        steps.append(text.replace('"$IMAGE"', job["env"]["IMAGE"].replace("${{ matrix.service }}", service)))
+        steps.append(_expand(text))
     return "\n".join(steps)
 
 
@@ -227,7 +241,8 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
                 self.assertIn("--env APP_SIDECAR_API_KEY=test-key", commands)
                 self.assertTrue(list((ROOT / "services" / service).glob("test_*.py")))
                 self.assertFalse((ROOT / "services" / service / "tests").exists())
-        self.assertNotIn("pytest", _run_commands(_load(CI_WORKFLOW)["jobs"]["sidecar"]))
+        for entry in _inventory():
+            self.assertNotIn("pytest", _sidecar_steps(entry["service"]))
 
     def test_every_sidecar_test_module_is_stdlib_unittest(self):
         for path in sorted((ROOT / "services").glob("*-auth/test_*.py")):
@@ -671,6 +686,21 @@ class CiJobSelectionTest(unittest.TestCase):
                 result = _gate(state)
                 self.assertEqual(result.returncode == 0, green, result.stderr)
 
+    def test_ci_runs_the_make_targets_contributors_run(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        expected = {
+            "backend": "make test-backend SOFIDY_PYTHON=python3",
+            "frontend": "make test-frontend",
+            "e2e": "make test-e2e PLAYWRIGHT_DEPS=--with-deps",
+            "sidecar-base": "make test-sidecar-base",
+            "sidecar": "make test-sidecar SIDECAR=${{ matrix.service }} ARCH=${{ matrix.arch }}",
+            "compose-sidecar-build": 'make build SERVICES="tr-auth bourso-auth amex-auth"',
+        }
+        for job, command in expected.items():
+            with self.subTest(job=job):
+                lines = [line.strip() for step in jobs[job]["steps"] for line in step.get("run", "").splitlines()]
+                self.assertIn(command, lines)
+
     def test_the_demo_playwright_suite_runs_once(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         running = [name for name, job in jobs.items() if "test:e2e" in _run_commands(job)]
@@ -686,7 +716,7 @@ class CiJobSelectionTest(unittest.TestCase):
                     index for index, step in enumerate(steps)
                     if step.get("with", {}).get("path") == "~/.bun/install/cache"
                 )
-                install = next(index for index, step in enumerate(steps) if "bun install" in step.get("run", ""))
+                install = next(index for index, step in enumerate(steps) if "bun install" in _expand(step.get("run", "")))
                 self.assertLess(cache, install)
                 self.assertIn("hashFiles('frontend/bun.lock')", steps[cache]["with"]["key"])
 

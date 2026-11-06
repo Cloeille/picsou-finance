@@ -75,8 +75,8 @@ Register handlers only for supported backend routes, using their response shapes
 
 ## Tests
 
-From `frontend/`, run `bun run typecheck` and `bun run lint` alongside the demo
-tests (`bunx vitest run src/demo src/features/auth/guards.test.tsx src/features/accounts/hooks.test.tsx`). Vitest
+`make test-frontend` runs lint, typecheck and these tests (`src/demo`,
+`src/features/auth/guards.test.tsx`, `src/features/accounts/hooks.test.tsx`). Vitest
 transpiles TypeScript without checking for unused imports. An unused import in
 `src/demo/index.ts` fails both checks and blocks `bun run build`, including the
 demo build used by the Docker image.
@@ -92,7 +92,7 @@ demo build used by the Docker image.
 - `frontend/src/demo/data/budget.test.ts` checks local cycle dates and every projected recurring due date in Paris, Tokyo, and Los Angeles, including DST changes, month ends, and year ends.
 - `frontend/src/demo/transactions.test.ts` checks date, account, and category filters, newest-first order, spending amounts and counts including the review inbox, and session recategorization through the adapter. Category filters select an explicitly categorized row, including on October 31, November 1, and January 1.
 
-The Playwright suite (`frontend/e2e/*.spec.ts`, `bun run test:e2e`) runs entirely against demo mode — it is the de-facto regression net for the handler table. `playwright.config.ts` forces `VITE_DEMO_MODE=true` on the Vite dev server it starts, so a missing `frontend/.env` still runs the suite in demo mode. The specs find demo data by its displayed text (a goal or account name, a label), so renaming a fixture means updating the specs that name it: `e2e/mobile-layout.spec.ts` still looked for the goal "Vacances été 2025" after it became "Voyage au Japon". The same holds for counts that follow from a fixture's relative dates: `e2e/goals.spec.ts` counts goal 2's calendar months, which is its `createdMonthsAgo` + 1 (12) on any date.
+The Playwright suite (`frontend/e2e/*.spec.ts`, `make test-e2e`) runs entirely against demo mode — it is the de-facto regression net for the handler table. `playwright.config.ts` forces `VITE_DEMO_MODE=true` on the Vite dev server it starts, so a missing `frontend/.env` still runs the suite in demo mode. The specs find demo data by its displayed text (a goal or account name, a label), so renaming a fixture means updating the specs that name it: `e2e/mobile-layout.spec.ts` still looked for the goal "Vacances été 2025" after it became "Voyage au Japon". The same holds for counts that follow from a fixture's relative dates: `e2e/goals.spec.ts` counts goal 2's calendar months, which is its `createdMonthsAgo` + 1 (12) on any date.
 
 The goals E2E test waits for each named savings goal and its progress bar, including "Voyage au Japon". Navigation alone does not establish readiness because route fallbacks wait 200 ms before appearing. The demo session probe still sets the signed-in user while `RequireAuth` renders immediately. The admin guard waits for the user before checking the role and uses the same delayed loading spinner as other guards.
 
