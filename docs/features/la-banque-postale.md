@@ -277,6 +277,9 @@ layer is `httpx` cookie replay.
 - `components/shared/AddAccountModal.tsx` and the setup integration
   (`SetupStepLbp`, catalog, route, admin toggle) expose the connector from
   Comptes → Ajouter un compte and from the first-run wizard.
+- `components/sync/SyncAllModal.tsx` lists the connector (live session or LBP
+  accounts present), syncs it in place when the session is live, and routes an
+  expired one to `/sync?tab=lbp`.
 - Tests: `LbpTab.test.tsx` (5 cases, including the remembered identifier).
 
 **Verification** — the LBP backend tests pass, plus the shared
