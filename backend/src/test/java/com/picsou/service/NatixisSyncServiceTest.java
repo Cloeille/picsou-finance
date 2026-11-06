@@ -238,9 +238,9 @@ class NatixisSyncServiceTest {
         arrangeCommittableSession(session);
         NatixisAdapter.PlanData plan = new NatixisAdapter.PlanData(PEE_ID, "Plan d'Épargne Entreprise", "PEE",
             "UES ACME", new BigDecimal("300.00"), List.of(
-                new NatixisAdapter.Position(null, null, "IMPACT ISR PERFORMANCE SOLIDAIRE PART A",
+                new NatixisAdapter.Position(null, null, "FONDS SOLIDAIRE DIVERSIFIE EUROPE PART A",
                     new BigDecimal("10"), null, new BigDecimal("100.00"), null),
-                new NatixisAdapter.Position(null, null, "IMPACT ISR PERFORMANCE SOLIDAIRE PART B",
+                new NatixisAdapter.Position(null, null, "FONDS SOLIDAIRE DIVERSIFIE EUROPE PART B",
                     new BigDecimal("10"), null, new BigDecimal("200.00"), null)
             ), true);
         when(port.fetchPlans("plain-state")).thenReturn(positions("plain-state", plan));
@@ -252,7 +252,7 @@ class NatixisSyncServiceTest {
         List<String> tickers = holdingsCaptor.getValue().stream().map(AccountHolding::getTicker).toList();
         assertThat(tickers).hasSize(2).doesNotHaveDuplicates()
             .allSatisfy(ticker -> assertThat(ticker).hasSizeLessThanOrEqualTo(30)
-                .startsWith("IMPACT-ISR-PERFORMANC"));
+                .startsWith("FONDS-SOLIDAIRE-DIVER"));
     }
 
     @Test

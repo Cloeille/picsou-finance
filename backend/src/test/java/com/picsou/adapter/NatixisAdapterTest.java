@@ -73,9 +73,9 @@ class NatixisAdapterTest {
     void positionsDecodeTheOperationsHistory() {
         NatixisAdapter adapter = adapter(WebClientStubs.returning("""
             {"plans": [], "sessionState": "s", "operationsComplete": true, "operations": [{
-              "externalId": "natixis_1_D1_L1", "planExternalId": "natixis_1_PEE", "date": "2026-07-23",
+              "externalId": "natixis_1_D1_L1", "planExternalId": "natixis_1_PEE", "date": "2024-03-28",
               "type": "BUY", "label": "Abondement employeur", "fundLabel": "FONDS ACTIONS EUROPE I",
-              "fundCode": "NIE-1002", "quantity": "12.3456", "unitValue": "49.69", "amountEur": "613.42",
+              "fundCode": "NIE-1002", "quantity": "12.3456", "unitValue": "25.50", "amountEur": "314.81",
               "feesEur": null}]}
             """), GENEROUS);
 
@@ -83,10 +83,10 @@ class NatixisAdapterTest {
 
         assertThat(data.hasCompleteOperations()).isTrue();
         assertThat(data.operations()).singleElement().satisfies(operation -> {
-            assertThat(operation.date()).isEqualTo("2026-07-23");
+            assertThat(operation.date()).isEqualTo("2024-03-28");
             assertThat(operation.type()).isEqualTo("BUY");
             assertThat(operation.fundCode()).isEqualTo("NIE-1002");
-            assertThat(operation.amountEur()).isEqualByComparingTo("613.42");
+            assertThat(operation.amountEur()).isEqualByComparingTo("314.81");
             assertThat(operation.feesEur()).isNull();
         });
     }

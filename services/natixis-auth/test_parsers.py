@@ -31,7 +31,7 @@ class ParsePlansTest(unittest.TestCase):
         self.assertIsNone(line["isin"])
         self.assertEqual(line["fundCode"], "QS0000001002")
         self.assertGreater(line["quantity"], 0)
-        self.assertEqual(line["unitValue"], Decimal("49.69513"))
+        self.assertEqual(line["unitValue"], Decimal("25.5"))
         self.assertIsNotNone(line["pnlEur"])
         self.assertTrue(money_close(line["quantity"] * line["unitValue"], line["valueEur"]))
 
