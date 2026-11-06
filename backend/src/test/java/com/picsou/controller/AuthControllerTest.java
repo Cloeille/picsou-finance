@@ -2,23 +2,34 @@ package com.picsou.controller;
 
 import com.picsou.config.AuthCookieWriter;
 import com.picsou.config.JwtUtil;
+import com.picsou.config.SecureCookieProvider;
+import com.picsou.config.SsoClientRegistrationRepository;
+import com.picsou.config.SsoProperties;
 import com.picsou.dto.ActivationRequest;
 import com.picsou.dto.LoginRequest;
+import com.picsou.dto.LogoutResponse;
 import com.picsou.model.AppUser;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.UserRole;
 import com.picsou.repository.AppUserRepository;
+import com.picsou.service.ActivationService;
 import com.picsou.service.MfaService;
 import com.picsou.service.PersistentSessionService;
+import com.picsou.service.SessionIssuer;
 import com.picsou.service.SetupAuditService;
 import io.github.bucket4j.Bucket;
 import io.jsonwebtoken.Claims;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -28,9 +39,9 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import jakarta.servlet.http.Cookie;
-
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Map;
@@ -58,6 +69,7 @@ class AuthControllerTest {
     @Mock MfaService mfaService;
     @Mock PersistentSessionService persistentSessionService;
     @Mock SetupAuditService auditService;
+    @Mock ObjectProvider<SsoClientRegistrationRepository> registrations;
 
     Map<String, Bucket> loginBuckets;
     Map<String, Bucket> mfaVerifyBuckets;
@@ -67,6 +79,10 @@ class AuthControllerTest {
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.lenient().when(jwtUtil.generateAccessToken(any(), org.mockito.ArgumentMatchers.isNull()))
+            .thenAnswer(call -> jwtUtil.generateAccessToken(call.getArgument(0)));
+        org.mockito.Mockito.lenient().when(jwtUtil.generateRefreshToken(any(), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull()))
+            .thenAnswer(call -> jwtUtil.generateRefreshToken(call.getArgument(0)));
         loginBuckets = new HashMap<>();
         mfaVerifyBuckets = new HashMap<>();
         controller = newController(false);
@@ -83,8 +99,8 @@ class AuthControllerTest {
         return new AuthController(
             userRepository, passwordEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, auditService,
-            adminRecoveryEnabled,
+            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService, Clock.systemUTC()), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService, Clock.systemUTC()),
+            Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, adminRecoveryEnabled,
             loginRateLimitEnabled
         );
     }
@@ -269,7 +285,8 @@ class AuthControllerTest {
         AuthController timingController = new AuthController(
             userRepository, realEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, auditService, false, true);
+            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService, Clock.systemUTC()), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService, Clock.systemUTC()),
+            Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, false, true);
 
         // Path A — the username does not exist: there is no stored hash to compare,
         // yet the request must still cost a full bcrypt round against the dummy hash.
@@ -320,7 +337,8 @@ class AuthControllerTest {
         AuthController timingController = new AuthController(
             userRepository, realEncoder, jwtUtil,
             loginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, auditService, false, true);
+            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService, Clock.systemUTC()), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService, Clock.systemUTC()),
+            Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, false, true);
 
         AppUser pending = AppUser.builder()
             .id(11L).username("bob")
@@ -362,7 +380,8 @@ class AuthControllerTest {
         AuthController spoofTestController = new AuthController(
             userRepository, passwordEncoder, jwtUtil,
             mockedLoginBuckets, mfaVerifyBuckets, cookieWriter,
-            mfaService, persistentSessionService, auditService, false, true);
+            mfaService, persistentSessionService, new SessionIssuer(jwtUtil, cookieWriter, persistentSessionService, Clock.systemUTC()), new SsoProperties(), new ActivationService(userRepository, persistentSessionService, auditService, Clock.systemUTC()),
+            Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, false, true);
 
         MockHttpServletRequest firstCall = new MockHttpServletRequest();
         firstCall.setRemoteAddr("203.0.113.9");
@@ -406,6 +425,7 @@ class AuthControllerTest {
             .member(FamilyMember.builder().id(50L).displayName("Bob").build())
             .build();
         when(userRepository.findByActivationToken("tok")).thenReturn(Optional.of(member));
+        when(userRepository.findByActivationTokenForUpdate("tok")).thenReturn(Optional.of(member));
 
         ResponseEntity<?> res = controller.activate(
             "tok", new ActivationRequest("new-password-123", true), httpReq);
@@ -416,6 +436,43 @@ class AuthControllerTest {
         assertThat(member.getTokenVersion()).isEqualTo(6L);
         // ...and every Remember-Me persistent session for this user is wiped.
         verify(persistentSessionService).revokeAllForUser(11L);
+    }
+
+    @Test
+    void activate_refusesATokenAConcurrentActivationUsedWhileThePasswordWasHashed() {
+        AppUser member = AppUser.builder()
+            .id(11L).username("bob").role(UserRole.MEMBER).passwordHash("").activated(false)
+            .activationToken("tok").activationTokenExpires(Instant.now().plus(1, ChronoUnit.HOURS))
+            .build();
+        when(userRepository.findByActivationToken("tok")).thenReturn(Optional.of(member));
+        when(userRepository.findByActivationTokenForUpdate("tok")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> controller.activate("tok", new ActivationRequest("new-password-123", true), httpReq))
+            .isInstanceOf(BadCredentialsException.class);
+
+        verify(userRepository, never()).save(any());
+        verify(persistentSessionService, never()).revokeAllForUser(any());
+    }
+
+    @Test
+    void activate_answersExpiredWhenTheInvitationExpiresBeforeItIsLocked() {
+        AppUser checked = AppUser.builder()
+            .id(11L).username("bob").role(UserRole.MEMBER).passwordHash("").activated(false)
+            .activationToken("tok").activationTokenExpires(Instant.now().plus(1, ChronoUnit.HOURS))
+            .build();
+        AppUser locked = AppUser.builder()
+            .id(11L).username("bob").role(UserRole.MEMBER).passwordHash("").activated(false)
+            .activationToken("tok").activationTokenExpires(Instant.now().minusSeconds(1))
+            .build();
+        when(userRepository.findByActivationToken("tok")).thenReturn(Optional.of(checked));
+        when(userRepository.findByActivationTokenForUpdate("tok")).thenReturn(Optional.of(locked));
+
+        ResponseEntity<?> res = controller.activate("tok", new ActivationRequest("new-password-123", true), httpReq);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(res.getBody()).isEqualTo(Map.of("error", "Activation token has expired"));
+        assertThat(locked.isActivated()).isFalse();
+        verify(userRepository, never()).save(any());
     }
 
     // ─── mfa/verify ──────────────────────────────────────────────────────
@@ -451,6 +508,288 @@ class AuthControllerTest {
     }
 
     // ─── refresh ─────────────────────────────────────────────────────────
+
+    private static final String TEST_SECRET = "0123456789abcdef0123456789abcdef-test";
+    private static final Instant SSO_AT = Instant.parse("2026-10-31T12:00:00Z");
+
+    private AuthController realSessionController(JwtUtil jwt, boolean ssoEnabled) {
+        SsoProperties properties = new SsoProperties();
+        properties.setSessionRevalidateAfter("1m");
+        if (ssoEnabled) {
+            properties.setIssuerUri("http://127.0.0.1:18106/default");
+            properties.setClientId("picsou");
+        }
+        AuthCookieWriter writer = new AuthCookieWriter(mock(SecureCookieProvider.class), jwt);
+        return new AuthController(userRepository, passwordEncoder, jwt, loginBuckets, mfaVerifyBuckets,
+            writer, mfaService, persistentSessionService, new SessionIssuer(jwt, writer, persistentSessionService, Clock.systemUTC()),
+            properties, new ActivationService(userRepository, persistentSessionService, auditService, Clock.systemUTC()), Clock.fixed(SSO_AT.plusSeconds(30), ZoneOffset.UTC), registrations, false, true);
+    }
+
+    private String authorizationServerToken() {
+        return io.jsonwebtoken.Jwts.builder().subject("alice").claim("uid", 7L).claim("tv", 3L)
+            .claim("role", "ADMIN").claim("type", "access").audience().add("picsou-ios").and()
+            .issuer("http://127.0.0.1:18006").claim("sso_at", SSO_AT.getEpochSecond())
+            .signWith(io.jsonwebtoken.security.Keys.hmacShaKeyFor(TEST_SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+            .compact();
+    }
+
+    @Test
+    void refresh_filterRevalidation_winsOverRevokedPresentedSeries() {
+        httpReq.setAttribute("picsou.sso.revalidate", Boolean.TRUE);
+        httpReq.setCookies(new Cookie("persistent_token", "revoked:token"));
+
+        ResponseEntity<?> result = controller.refresh(null, httpReq, httpRes);
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(((ProblemDetail) result.getBody()).getProperties()).containsEntry("code", "SSO_REVALIDATE");
+        verify(cookieWriter).clearAuthCookies(httpRes);
+        org.mockito.Mockito.verifyNoInteractions(persistentSessionService);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,false", "true,true", "false,false"})
+    void refresh_ssoRevalidation_precedesBoundSeriesRevocation(boolean enabled, boolean revoked) {
+        JwtUtil jwt = new JwtUtil(TEST_SECRET, 15, 7, 5);
+        AuthController real = realSessionController(jwt, enabled);
+        AppUser active = user(true);
+        UUID series = revoked ? UUID.randomUUID() : null;
+        Instant marker = enabled ? SSO_AT.minusSeconds(31) : SSO_AT;
+        httpReq.setCookies(new Cookie("refresh_token", jwt.generateRefreshToken(active, series, marker)));
+        when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(active));
+
+        ResponseEntity<?> result = real.refresh(active, httpReq, httpRes);
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(((ProblemDetail) result.getBody()).getProperties()).containsEntry("code", "SSO_REVALIDATE");
+        assertThat(httpRes.getHeaders("Set-Cookie")).anySatisfy(header ->
+            assertThat(header).startsWith("access_token=;").contains("Max-Age=0"));
+        assertThat(httpRes.getHeaders("Set-Cookie")).anySatisfy(header ->
+            assertThat(header).startsWith("refresh_token=;").contains("Max-Age=0"));
+    }
+
+    static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> principalSessions() {
+        return java.util.stream.Stream.of("cookie", "bearer").flatMap(transport ->
+            java.util.stream.Stream.of(false, true).flatMap(series ->
+                java.util.stream.Stream.of(false, true).flatMap(invalidRefresh ->
+                    java.util.stream.Stream.of("fresh", "expired", "disabled").map(window ->
+                        org.junit.jupiter.params.provider.Arguments.of(transport, series, invalidRefresh, window)))));
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.MethodSource("principalSessions")
+    void refresh_accessPrincipal_respectsSsoWindow_withoutUsableRefresh(String transport, boolean series,
+                                                                       boolean invalidRefresh, String window) {
+        JwtUtil jwt = new JwtUtil(TEST_SECRET, 15, 7, 5);
+        AuthController real = realSessionController(jwt, !window.equals("disabled"));
+        AppUser active = user(true);
+        Instant marker = window.equals("expired") ? SSO_AT.minusSeconds(31) : SSO_AT;
+        String access = jwt.generateAccessToken(active, marker);
+        java.util.List<Cookie> cookies = new java.util.ArrayList<>();
+        if (transport.equals("cookie")) cookies.add(new Cookie("access_token", access));
+        else httpReq.addHeader("Authorization", "Bearer " + access);
+        if (invalidRefresh) cookies.add(new Cookie("refresh_token", "invalid"));
+        if (series) {
+            UUID sid = UUID.randomUUID();
+            cookies.add(new Cookie("persistent_token", "mine"));
+            when(persistentSessionService.seriesFromCookie("mine")).thenReturn(Optional.of(sid));
+            when(persistentSessionService.isSeriesActive(sid)).thenReturn(true);
+            org.mockito.Mockito.lenient().when(persistentSessionService.ownerUserId("mine")).thenReturn(Optional.of(7L));
+        }
+        httpReq.setCookies(cookies.toArray(Cookie[]::new));
+
+        ResponseEntity<?> result = real.refresh(active, httpReq, httpRes);
+
+        if (window.equals("fresh")) {
+            assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(jwt.getSsoAuthenticatedAt(jwt.validateAndParse(httpRes.getCookie("access_token").getValue())))
+                .isEqualTo(marker);
+            assertThat(jwt.getSsoAuthenticatedAt(jwt.validateAndParse(httpRes.getCookie("refresh_token").getValue())))
+                .isEqualTo(marker);
+        } else {
+            assertThat(result.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+            assertThat(((ProblemDetail) result.getBody()).getProperties()).containsEntry("code", "SSO_REVALIDATE");
+            assertThat(httpRes.getHeaders("Set-Cookie")).allSatisfy(header -> assertThat(header).contains("Max-Age=0"));
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,true,true,true", "false,true,true,true", "true,false,true,true", "true,true,false,true", "true,true,true,false"})
+    void logout_idpUrl_requiresSsoSession_optIn_repository_andEndpoint(boolean ssoSession, boolean optIn,
+                                                                     boolean available, boolean endpoint) {
+        JwtUtil jwt = new JwtUtil(TEST_SECRET, 15, 7, 5);
+        SsoProperties properties = new SsoProperties();
+        properties.setIssuerUri("https://idp.example");
+        properties.setClientId("picsou");
+        properties.setIdpLogout(Boolean.toString(optIn));
+        AuthCookieWriter writer = new AuthCookieWriter(mock(SecureCookieProvider.class), jwt);
+        AuthController real = new AuthController(userRepository, passwordEncoder, jwt, loginBuckets, mfaVerifyBuckets,
+            writer, mfaService, persistentSessionService, new SessionIssuer(jwt, writer, persistentSessionService, Clock.systemUTC()),
+            properties, new ActivationService(userRepository, persistentSessionService, auditService, Clock.systemUTC()), Clock.fixed(SSO_AT, ZoneOffset.UTC), registrations, false, true);
+        httpReq.setScheme("https");
+        httpReq.setServerName("picsou.example");
+        httpReq.setServerPort(443);
+        httpReq.setCookies(new Cookie("access_token", jwt.generateAccessToken(user(true), ssoSession ? SSO_AT : null)));
+        if (ssoSession && optIn) {
+            SsoClientRegistrationRepository repository = available ? mock(SsoClientRegistrationRepository.class) : null;
+            when(registrations.getIfAvailable()).thenReturn(repository);
+            if (available) when(repository.endSessionEndpoint()).thenReturn(endpoint
+                ? Optional.of("https://idp.example/endsession") : Optional.empty());
+        }
+
+        ResponseEntity<?> result = real.logout(httpReq, httpRes);
+
+        if (ssoSession && optIn && available && endpoint) {
+            assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(((LogoutResponse) result.getBody()).endSessionUrl()).isEqualTo(
+                "https://idp.example/endsession?client_id=picsou&post_logout_redirect_uri=https%3A%2F%2Fpicsou.example%2Flogin");
+        } else assertThat(result.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(httpRes.getHeaders("Set-Cookie")).hasSize(5)
+            .allSatisfy(header -> assertThat(header).contains("Max-Age=0"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"refresh", "cookie", "bearer", "series"})
+    void refresh_preservesSsoAt_inEverySessionSource(String source) {
+        JwtUtil jwt = new JwtUtil(TEST_SECRET, 15, 7, 5);
+        AuthController real = realSessionController(jwt, true);
+        AppUser active = user(true);
+        switch (source) {
+            case "refresh" -> {
+                httpReq.setCookies(new Cookie("refresh_token", jwt.generateRefreshToken(active, null, SSO_AT)));
+                when(userRepository.findByIdWithMember(7L)).thenReturn(Optional.of(active));
+            }
+            case "cookie" -> httpReq.setCookies(new Cookie("access_token", jwt.generateAccessToken(active, SSO_AT)));
+            case "bearer" -> httpReq.addHeader("Authorization", "Bearer " + jwt.generateAccessToken(active, SSO_AT));
+            case "series" -> {
+                UUID series = UUID.randomUUID();
+                httpReq.setCookies(new Cookie("persistent_token", "mine"));
+                when(persistentSessionService.seriesFromCookie("mine")).thenReturn(Optional.of(series));
+                when(persistentSessionService.isSeriesActive(series)).thenReturn(true);
+                when(persistentSessionService.ownerUserId("mine")).thenReturn(Optional.of(7L));
+                when(persistentSessionService.ssoAuthenticatedAtOf(series)).thenReturn(Optional.of(SSO_AT));
+            }
+            default -> throw new IllegalArgumentException(source);
+        }
+
+        ResponseEntity<?> result = real.refresh(source.equals("refresh") ? null : active, httpReq, httpRes);
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(jwt.getSsoAuthenticatedAt(jwt.validateAndParse(httpRes.getCookie("refresh_token").getValue())))
+            .isEqualTo(SSO_AT);
+        assertThat(jwt.getSsoAuthenticatedAt(jwt.validateAndParse(httpRes.getCookie("access_token").getValue())))
+            .isEqualTo(SSO_AT);
+    }
+
+    @Test
+    void logout_freshRepository_discoversEndSessionEndpointLazily() throws Exception {
+        com.sun.net.httpserver.HttpServer idp = com.sun.net.httpserver.HttpServer.create(
+            new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        String issuer = "http://127.0.0.1:" + idp.getAddress().getPort();
+        byte[] discovery = ("{\"issuer\":\"" + issuer + "\",\"authorization_endpoint\":\"" + issuer
+            + "/authorize\",\"token_endpoint\":\"" + issuer + "/token\",\"jwks_uri\":\"" + issuer
+            + "/jwks\",\"response_types_supported\":[\"code\"],\"subject_types_supported\":[\"public\"],"
+            + "\"id_token_signing_alg_values_supported\":[\"RS256\"],\"end_session_endpoint\":\"" + issuer
+            + "/endsession\"}").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        idp.createContext("/.well-known/openid-configuration", exchange -> {
+            try (exchange) {
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, discovery.length);
+                exchange.getResponseBody().write(discovery);
+            }
+        });
+        idp.start();
+        try {
+            SsoProperties properties = new SsoProperties();
+            properties.setIssuerUri(issuer);
+            properties.setClientId("picsou");
+            properties.setIdpLogout("true");
+            Clock clock = Clock.fixed(SSO_AT, ZoneOffset.UTC);
+            when(registrations.getIfAvailable()).thenReturn(new SsoClientRegistrationRepository(properties, clock));
+            JwtUtil jwt = new JwtUtil(TEST_SECRET, 15, 7, 5);
+            AuthCookieWriter writer = new AuthCookieWriter(mock(SecureCookieProvider.class), jwt);
+            AuthController real = new AuthController(userRepository, passwordEncoder, jwt, loginBuckets, mfaVerifyBuckets,
+                writer, mfaService, persistentSessionService, new SessionIssuer(jwt, writer, persistentSessionService, clock),
+                properties, new ActivationService(userRepository, persistentSessionService, auditService, Clock.systemUTC()), clock, registrations, false, true);
+            httpReq.setCookies(new Cookie("refresh_token", jwt.generateRefreshToken(user(true), null, SSO_AT)));
+
+            ResponseEntity<?> result = real.logout(httpReq, httpRes);
+
+            assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(((LogoutResponse) result.getBody()).endSessionUrl()).isEqualTo(issuer
+                + "/endsession?client_id=picsou&post_logout_redirect_uri=http%3A%2F%2Flocalhost%2Flogin");
+        } finally {
+            idp.stop(0);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"cookie,true", "bearer,true", "cookie,false", "bearer,false"})
+    void refresh_authorizationServerToken_mintsWebSessionOnlyWhenSsoDisabled(String transport, boolean ssoEnabled) {
+        JwtUtil jwt = new JwtUtil(TEST_SECRET, 15, 7, 5);
+        AuthController real = realSessionController(jwt, ssoEnabled);
+        if (transport.equals("cookie")) httpReq.setCookies(new Cookie("access_token", authorizationServerToken()));
+        else httpReq.addHeader("Authorization", "Bearer " + authorizationServerToken());
+
+        ResponseEntity<?> result = real.refresh(user(true), httpReq, httpRes);
+
+        assertThat(result.getStatusCode()).isEqualTo(ssoEnabled ? HttpStatus.UNAUTHORIZED : HttpStatus.OK);
+        if (ssoEnabled) {
+            assertThat(((ProblemDetail) result.getBody()).getDetail()).isEqualTo("No refresh token");
+            assertThat(httpRes.getCookie("access_token").getValue()).isEmpty();
+            assertThat(httpRes.getCookie("refresh_token").getValue()).isEmpty();
+        } else {
+            assertThat(jwt.isAccessToken(jwt.validateAndParse(httpRes.getCookie("access_token").getValue()))).isTrue();
+            assertThat(jwt.isRefreshToken(jwt.validateAndParse(httpRes.getCookie("refresh_token").getValue()))).isTrue();
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"cookie,true", "bearer,true", "cookie,false", "bearer,false"})
+    void changeUsername_authorizationServerToken_mintsCookiesOnlyWhenSsoDisabled(String transport, boolean ssoEnabled) {
+        JwtUtil jwt = new JwtUtil(TEST_SECRET, 15, 7, 5);
+        AuthController real = realSessionController(jwt, ssoEnabled);
+        AppUser active = user(true);
+        if (transport.equals("cookie")) httpReq.setCookies(new Cookie("access_token", authorizationServerToken()));
+        else httpReq.addHeader("Authorization", "Bearer " + authorizationServerToken());
+
+        ResponseEntity<?> result = real.changeUsername(active, new AuthController.ChangeUsernameRequest("renamed"), httpReq, httpRes);
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+        verify(userRepository).save(active);
+        assertThat(active.getUsername()).isEqualTo("renamed");
+        if (ssoEnabled) assertThat(httpRes.getHeaders("Set-Cookie")).isEmpty();
+        else {
+            assertThat(jwt.validateAndParse(httpRes.getCookie("access_token").getValue()).getSubject()).isEqualTo("renamed");
+            assertThat(jwt.validateAndParse(httpRes.getCookie("refresh_token").getValue()).getSubject()).isEqualTo("renamed");
+        }
+    }
+
+    @Test
+    void changeUsername_preservesSsoAt_fromWebSession() {
+        JwtUtil jwt = new JwtUtil(TEST_SECRET, 15, 7, 5);
+        AuthController real = realSessionController(jwt, true);
+        AppUser active = user(true);
+        httpReq.setCookies(new Cookie("refresh_token", jwt.generateRefreshToken(active, null, SSO_AT)));
+
+        real.changeUsername(active, new AuthController.ChangeUsernameRequest("renamed"), httpReq, httpRes);
+
+        assertThat(jwt.getSsoAuthenticatedAt(jwt.validateAndParse(httpRes.getCookie("access_token").getValue()))).isEqualTo(SSO_AT);
+        assertThat(jwt.getSsoAuthenticatedAt(jwt.validateAndParse(httpRes.getCookie("refresh_token").getValue()))).isEqualTo(SSO_AT);
+    }
+
+    @Test
+    void changePassword_issuesPasswordSession_withoutSsoAt() {
+        JwtUtil jwt = new JwtUtil(TEST_SECRET, 15, 7, 5);
+        AuthController real = realSessionController(jwt, true);
+        AppUser active = user(true);
+        httpReq.setCookies(new Cookie("refresh_token", jwt.generateRefreshToken(active, null, SSO_AT)));
+        when(passwordEncoder.matches("old", active.getPasswordHash())).thenReturn(true);
+
+        real.changePassword(active, new AuthController.ChangePasswordRequest("old", "new-password"), httpReq, httpRes);
+
+        assertThat(jwt.validateAndParse(httpRes.getCookie("access_token").getValue())).doesNotContainKey("sso_at");
+        assertThat(jwt.validateAndParse(httpRes.getCookie("refresh_token").getValue())).doesNotContainKey("sso_at");
+    }
 
     @Test
     void refresh_returns401_andClearsCookies_whenAccountNotActivated() {

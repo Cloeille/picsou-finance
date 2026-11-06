@@ -77,6 +77,11 @@ public class EssentialExpenseEstimator {
         this.priceService = priceService;
     }
 
+    /**
+     * Average monthly spending on the member's current accounts over the last complete months,
+     * weighted by their share. Internal transfers, investment legs and budget-neutral rows are not
+     * spending and are left out; the divisor counts only months that fed the total.
+     */
     public EssentialExpenseEstimateResponse estimate(Long memberId) {
         List<Account> readable = accessResolver.readableAccounts(memberId);
         if (readable.isEmpty()) {
@@ -102,6 +107,9 @@ public class EssentialExpenseEstimator {
         Map<Long, List<Transaction>> creditsByCents = new HashMap<>();
         Map<String, List<Transaction>> creditsByExternalId = new HashMap<>();
         for (Transaction t : all) {
+            // A budget-neutral credit (a coupon reinvested inside a life contract) never left a
+            // current account, so it is no transfer's other leg: matching it would hide real spending.
+            if (t.isBudgetNeutral()) continue;
             if (t.getAmount() != null && t.getAmount().signum() > 0) {
                 creditsByCents.computeIfAbsent(cents(t.getAmount()), k -> new ArrayList<>()).add(t);
                 if (t.getExternalId() != null && !t.getExternalId().isBlank()) {
@@ -118,6 +126,9 @@ public class EssentialExpenseEstimator {
             Account account = byId.get(t.getAccount().getId());
             if (account.getType() != AccountType.CHECKING) continue;
             if (t.getAmount() == null || t.getAmount().signum() >= 0) continue;
+            // A budget-neutral debit (a CORUM Life fee or switch-out kept on an account retyped
+            // to CHECKING) never left the member's money: it is no spending.
+            if (t.isBudgetNeutral()) continue;
 
             if (t.getTicker() != null && !t.getTicker().isBlank()) continue;
             if (t.getTxType() != null && INVESTMENT_TYPES.contains(t.getTxType())) continue;

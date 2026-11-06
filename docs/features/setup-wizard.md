@@ -1,6 +1,6 @@
 # Feature: First-launch Setup Wizard
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-04 (first admin through the SSO admin group; `SecretBootstrap` generates the secrets)
 
 ## Context
 
@@ -13,11 +13,12 @@ with a guided, web-based flow the first time the app is opened.
 
 The bootstrap runs on two levels.
 
-- **Invisible (Docker entrypoint)** auto-generates `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY`,
-  `POSTGRES_PASSWORD` into `/data/.secrets/` when the corresponding env vars are unset.
-  This happens before `supervisord` starts Spring, because those three secrets are
-  consumed by bean constructors (`JwtUtil`, `CryptoEncryption`) and by Flyway before any
-  DB-backed config is available.
+- **Invisible (`SecretBootstrap`)** generates `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` into
+  `$PICSOU_SECRETS_DIR` (`/data/.secrets` in the Docker image) when the corresponding env vars
+  are unset. It reads `POSTGRES_PASSWORD` from the environment or an existing file but never
+  generates it. It is an `EnvironmentPostProcessor`, so it runs before
+  any bean: those secrets are consumed by bean constructors (`JwtUtil`, `CryptoEncryption`)
+  and by Flyway before any DB-backed config is available.
 - **Visible (web wizard)** is served at `/setup` while `setup.state != COMPLETE`. It
   walks the user through: admin account → CORS & secure cookies → integration picker →
   per-integration sub-flows → Done (with confetti + auto-login).
@@ -26,13 +27,35 @@ The bootstrap runs on two levels.
 setup is complete, and with `410 Gone` after — so a stale browser tab can never re-POST
 admin creation.
 
+### SSO admin step
+
+`GET /api/setup/status` carries `sso: { enabled, providerName, adminBootstrap }`.
+`adminBootstrap` is `true` whenever `SSO_ADMIN_GROUP` is set. The admin step then shows no
+password form:
+
+- SSO enabled: a **"Continue with <provider>"** button (`SetupAdminSso.tsx`) posts the SSO start
+  form with `intent=setup`. The callback requires membership of `SSO_ADMIN_GROUP`
+  (`NOT_IN_ADMIN_GROUP` otherwise), and `SetupService.seedSsoAdmin` creates the member, a
+  password-less `ADMIN` and the linked identity in one SERIALIZABLE transaction, under the same
+  `PENDING_ADMIN` CAS and "no user yet" guards as `seedAdmin`. A lost race redirects with
+  `SETUP_ALREADY_CLAIMED`. The audit entry is `setup.admin.created` with `method=sso`. The user
+  lands on `/setup/security` signed in with session-scoped cookies; the rest of the wizard is
+  unchanged.
+- SSO not usable (invalid configuration): a notice explains the misconfiguration. The server
+  still refuses `POST /api/setup/admin` with 409 `SSO_ADMIN_REQUIRED` while `SSO_ADMIN_GROUP` is
+  set, so whoever reaches a fresh instance first cannot claim it with a password.
+
+The Done screen has no stashed password for an SSO admin, so it probes the session the callback
+opened (`POST /api/auth/refresh`) instead of logging in. See [sso-login.md](./sso-login.md).
+
 ### Key files
 
 Backend:
 - `backend/src/main/java/com/picsou/controller/SetupController.java` — all `/api/setup/*`
   endpoints (public, rate-limited by Bucket4j).
 - `backend/src/main/java/com/picsou/service/SetupService.java` — state-machine
-  transitions (`PENDING_ADMIN → IN_PROGRESS → COMPLETE`) and admin seeding.
+  transitions (`PENDING_ADMIN → IN_PROGRESS → COMPLETE`) and admin seeding (`seedAdmin`,
+  and `seedSsoAdmin` for the SSO first admin).
 - `backend/src/main/java/com/picsou/service/SetupAuditService.java` — append-only
   `setup_audit` table writes; swallows its own errors so audit failure never blocks a
   controller response.
@@ -43,7 +66,7 @@ Backend:
   idempotent AES-256 key checker/writer. If `CRYPTO_ENCRYPTION_KEY` is already present
   in the running process (the normal bare-metal `.env.local` flow), the wizard treats
   that as configured and does not touch Docker's `/data` path. Otherwise it writes the
-  same `/data/.secrets/crypto_key` path as the Docker entrypoint.
+  same `/data/.secrets/crypto_key` path as `SecretBootstrap`.
 - `backend/src/main/java/com/picsou/config/SetupFilter.java` — 503/410 gate.
 - `backend/src/main/java/com/picsou/config/DynamicCorsConfigurationSource.java` — reads
   `cors.allowed-origins` from `app_setting` so the wizard's Security step takes effect
@@ -51,8 +74,9 @@ Backend:
 - `backend/src/main/resources/db/migration/V25__setup_state.sql` — conditional seed:
   `setup.state='COMPLETE'` for existing installs (admin already present), else
   `'PENDING_ADMIN'`.
-- `backend/scripts/picsou-init.sh` — bare-metal equivalent of the Docker entrypoint;
-  prints an `.env.local` to stdout.
+- `backend/src/main/java/com/picsou/config/SecretBootstrap.java`: resolves the secrets from
+  `PICSOU_SECRETS_DIR` before any bean exists, generating the JWT and encryption keys (Docker
+  and bare metal).
 
 Frontend:
 - `frontend/src/pages/setup/SetupLayout.tsx` — the centered hero layout, top progress
@@ -60,7 +84,7 @@ Frontend:
 - `frontend/src/pages/setup/HelloGreeting.tsx` — 12-greeting multilingual opener in
   Homemade Apple font, `prefers-reduced-motion` aware.
 - `frontend/src/pages/setup/SetupStep{Intro,Admin,Security,Integrations,Complete}.tsx`
-  — the main-line steps.
+  — the main-line steps; `SetupAdminSso.tsx` is the admin step's SSO mode.
 - `frontend/src/pages/setup/integrations/SetupStepEnableBanking.tsx` + 5 substep
   components under `enablebanking/` — the guided EB flow.
 - `frontend/src/pages/setup/integrations/SetupStep{BoursoBank,BourseDirect,TradeRepublic,Finary,Crypto}.tsx`
@@ -78,8 +102,10 @@ Frontend:
 First boot
     │
     ▼
-docker entrypoint.sh  ──► writes /data/.secrets/{jwt_secret,crypto_key,postgres_password}
-                              (only if env vars unset — idempotent)
+SecretBootstrap       ──► writes $PICSOU_SECRETS_DIR/{jwt_secret,crypto_key}
+                              (generated when unset; a supplied value is copied
+                               when its file is missing; an existing file is never
+                               overwritten; postgres_password is only read, never written)
     │
     ▼
 Spring boots → Flyway V25 seeds setup.state='PENDING_ADMIN'
@@ -88,7 +114,7 @@ Spring boots → Flyway V25 seeds setup.state='PENDING_ADMIN'
 User opens http://host:8080  ──► RequireSetup redirects /login → /setup
     │
     ▼
-Hello greeting → Admin → Security → Integration picker
+Hello greeting → Admin (password, or SSO when SSO_ADMIN_GROUP is set) → Security → Integration picker
     │                                    │
     │                                    ├─ Enable Banking: 5 substeps
     │                                    ├─ BoursoBank: sidecar ping
@@ -98,7 +124,7 @@ Hello greeting → Admin → Security → Integration picker
     │                                    └─ Crypto: ensure key exists
     │
     ▼
-Done → POST /api/setup/complete → auto-login → /
+Done → POST /api/setup/complete → auto-login (or session probe after SSO) → /
 ```
 
 ### Enable Banking registration and key import
@@ -138,7 +164,7 @@ Application ID and PEM form remains possible follow-up work.
 
 | Choice | Why | Rejected alternative |
 |--------|-----|----------------------|
-| Two-layer bootstrap (entrypoint + web) | `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` are consumed in bean constructors before the DB is available, so they can't live in DB. | Storing every secret in DB (wouldn't boot). |
+| Two-layer bootstrap (`SecretBootstrap` + web) | `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` are consumed in bean constructors before the DB is available, so they can't live in DB. | Storing every secret in DB (wouldn't boot). |
 | `setup.state` as a DB row | Survives container restarts; single source of truth; Flyway can conditionally seed it. | Env var (ephemeral); file on disk (hard to CAS). |
 | SERIALIZABLE + CAS on admin creation | Two concurrent POST /admin calls on a fresh install can't both succeed. | Optimistic Hibernate version (doesn't block the second transaction). |
 | In-memory stash for auto-login | Password must never hit sessionStorage; refresh loses auto-login but never leaks credentials. | Persisting credentials in the Zustand store. |
@@ -146,15 +172,15 @@ Application ID and PEM form remains possible follow-up work.
 | Dedicated axios client for `/api/setup/*` | The main `api` instance has a 401 → refresh → `/login` interceptor that would bounce unauthenticated wizard calls. | Sharing the main client and special-casing 401 (fragile). |
 | Idempotent EB keypair | Re-generating the public PEM from an existing private key never invalidates what the user already uploaded to Enable Banking. | Overwriting on every call (silent data loss). |
 | Self-hosted Homemade Apple font | Picsou never phones home to fonts.googleapis.com. | Google Fonts CDN link (exfils user IP + user-agent on every fresh install). |
-| Nginx-level CSP + security headers | Applies to the index.html that serves the SPA — backend API-only CSP would have no browser effect. | Spring-level CSP (wouldn't apply since SPAs load HTML from nginx). |
+| Spring-level CSP + security headers | Spring serves `index.html` too, so one header customizer covers the SPA, the API and the authorization server ([ADR](../decisions/2026-11-03-spring-serves-the-spa.md)). | nginx-level headers (a second copy to keep in sync, and missing on direct backend access). |
 
 ## Gotchas / Pitfalls
 
 - **`CryptoKeyGeneratorService` must not write Docker's `/data` path when
   `CRYPTO_ENCRYPTION_KEY` is already loaded from `.env.local`.** Bare-metal macOS
   installs often cannot create `/data`; the runtime env key is already sufficient for
-  encryption. If a file fallback is needed, `CryptoKeyGeneratorService` and the Docker
-  entrypoint still share `/data/.secrets/crypto_key`. Covered by
+  encryption. If a file fallback is needed, `CryptoKeyGeneratorService` and
+  `SecretBootstrap` still share `/data/.secrets/crypto_key`. Covered by
   `CryptoKeyGeneratorServiceTest.ensureKey_treatsConfiguredRuntimeKeyAsExistingWithoutWritingFile`
   and `ensureKey_isIdempotent_neverOverwritesExistingKey`.
 - **V25 migration seeding logic** reads `EXISTS(SELECT 1 FROM app_user)` and seeds
@@ -165,14 +191,18 @@ Application ID and PEM form remains possible follow-up work.
   to `/setup`) and 410 (redirect to `/`).
 - **`SetupAuditService.record()` swallows its own exceptions**. A DB hiccup during
   audit must never block the controller response — audit is observability, not
-  correctness.
+  correctness. It writes in a transaction of its own (`REQUIRES_NEW`) and catches outside
+  it: a failed insert inside the caller's transaction would otherwise mark that
+  transaction rollback-only, and an activation or role change would roll back with it.
+  The flip side: an audit row commits even if the caller's transaction fails afterwards.
 - **The EB keypair endpoint is idempotent but the underlying file is the source of
   truth.** Deleting `/data/keys/enablebanking-private.pem` out-of-band and re-running
   the wizard will hand the user a new public PEM and invalidate what they uploaded to
   Enable Banking. A proper key-rotation flow is explicitly out of scope for this
   wizard.
 - **Auto-login at the Done screen is best-effort.** If the user refreshes mid-wizard,
-  the in-memory credentials are lost and the Done CTA falls back to the login page.
+  the in-memory credentials are lost; the Done screen then probes the existing session
+  (the path an SSO admin always takes) and falls back to the login page if it is gone.
   setup.state is COMPLETE either way; no data is lost.
 - **The "pick integrations" step writes nothing to the DB.** Flags only flip when the
   corresponding sub-step completion endpoint is hit (e.g., `/enablebanking/test`
@@ -224,14 +254,14 @@ future work):
 ## Security posture
 
 - **Rate limiting** on `/api/setup/*` via Bucket4j (10 rpm / IP). 429 on breach.
-- **Headers** (set by nginx, app-wide):
+- **Headers** (set by Spring Security, app-wide):
   `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy:
   strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`.
 - **`Strict-Transport-Security` is opt-in**, not app-wide: it is only sent when
   `HSTS_ENABLED=true` (see [docker-deployment.md](./docker-deployment.md)). Enabling it
   with a locally-issued certificate locks users out — the browser drops the
   "proceed anyway" bypass. Do not assume HSTS is enforced on a deployment.
-- **CSP** (nginx):
+- **CSP** (Spring Security):
   `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src
   'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'`.
   `'unsafe-inline'` is only in `style-src` because Tailwind's JIT injects inline
@@ -245,19 +275,32 @@ future work):
   longer be planted through `POST /api/setup/admin` during the `IN_PROGRESS` window (after
   the first admin is seeded but before `/api/setup/complete` is called). Further accounts
   are created from the authenticated Family admin UI, never from the wizard.
+  `seedSsoAdmin` applies the same guards.
+- **SSO bootstrap only through the group.** With `SSO_ADMIN_GROUP` set, the password admin
+  form is refused server-side (`SSO_ADMIN_REQUIRED`), even when the rest of the SSO settings
+  are invalid. `APP_USERNAME`/`APP_PASSWORD_HASH` still win if set (a WARN is logged).
 
 ## Running without Docker
 
-Bare-metal installs (`mvn spring-boot:run`) need the secrets bootstrap done manually
-on first boot:
+Bare-metal installs (`mvn spring-boot:run`) set `PICSOU_SECRETS_DIR`. The app generates
+`JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` there on first start and reuses them afterwards. The
+Maven project is `backend/` (there is no root `pom.xml`), so the path is relative to it, and
+`backend/.local/` is gitignored:
 
 ```bash
-./backend/scripts/picsou-init.sh > .env.local
-set -a && . .env.local && set +a
-mvn -pl backend spring-boot:run
+cd backend
+export PICSOU_SECRETS_DIR=.local/secrets
+mvn spring-boot:run
 ```
 
-The wizard itself works identically — only the secrets-generation step differs.
+Spring does not read `.env`: export every variable you set, `PICSOU_SECRETS_DIR` included, in the
+shell that starts Maven.
+
+The app never generates the database password, because it cannot change the database's own.
+It stays `picsou`, which matches the PostgreSQL container in
+[CONTRIBUTING.md](../../CONTRIBUTING.md), unless you export `POSTGRES_PASSWORD` or
+`SPRING_DATASOURCE_PASSWORD`. Exporting `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY` or
+`POSTGRES_PASSWORD` yourself wins over the files. The wizard itself works identically.
 
 ## Privacy
 
@@ -275,7 +318,10 @@ The wizard makes zero outbound requests on first load:
 - `SetupServiceTest` — state transitions (`PENDING_ADMIN → IN_PROGRESS → COMPLETE`),
   SERIALIZABLE CAS on admin claim, bcrypt-hash rejection, idempotent seed when user
   already exists, rejection when any account already exists (second-admin backdoor),
-  CSV origin persistence, empty-origin rejection, consistent integration-key formatting.
+  CSV origin persistence, empty-origin rejection, consistent integration-key formatting,
+  and `seedSsoAdmin` (password-less admin + identity, same guards).
+- `SsoLoginIntegrationTest` (scenarios 1-2) — an SSO `login` while setup is pending never
+  authorizes; the `setup` intent claims the first admin exactly once.
 - `SetupControllerTest` — endpoint-level: admin seed returns 410 after completion,
   EB keypair regenerate-flag on first call vs. idempotent subsequent calls, EB
   `test` only flips the integration flag on success, BoursoBank health / Bourse Direct / TR / Finary
@@ -294,6 +340,8 @@ failure modes are better exercised at the controller boundary.
 registration guidance, email-link sign-in, import by default, explicit generation, mode
 changes, pending imports, credential transport errors, and the success-to-Revolut transition.
 It renders the components with real setup hooks and synthetic responses from the setup API.
+`SetupStepAdmin.test.tsx` and `SetupStepComplete.test.tsx` cover the SSO mode, the
+misconfiguration notice and the session-probe fallback.
 `frontend/src/lib/errors.test.ts` covers transport-error formatting, and
 `frontend/src/i18n/locales-parity.test.ts` checks all four locales.
 

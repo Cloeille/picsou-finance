@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useDarkTheme } from '@/hooks/use-dark-theme'
+import { bundledHoldingLogoUrl } from '@/lib/provider-logos'
 import { cn, deriveMonogram } from '@/lib/utils'
 
 /**
@@ -28,6 +29,8 @@ import { cn, deriveMonogram } from '@/lib/utils'
  *   a corrected URL.
  * - `logoUrlDark` is used under the dark palette when the source drew a separate mark for it. A
  *   black logo (Apple's) on the light variant would otherwise vanish against a dark table.
+ * - A holding the backend has no mark for may still get a bundled one from its ticker prefix
+ *   (`bundledHoldingLogoUrl`): a CORUM Life fund line shows CORUM's mark instead of initials.
  */
 export function HoldingLogo({
   logoUrl,
@@ -45,7 +48,7 @@ export function HoldingLogo({
   className?: string
 }) {
   const dark = useDarkTheme()
-  const url = (dark && logoUrlDark) || logoUrl || null
+  const url = (dark && logoUrlDark) || logoUrl || bundledHoldingLogoUrl(ticker)
   // Keyed on the URL: changing it remounts the image, so a previously failed one is retried.
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const src = url && url !== failedUrl ? url : null

@@ -43,7 +43,8 @@ class JwtAuthenticationFilterTest {
     @BeforeEach
     void setUp() {
         filter = new JwtAuthenticationFilter(authenticator);
-        request = new MockHttpServletRequest();
+        request = new MockHttpServletRequest("GET", "/api/accounts");
+        request.setServletPath("/api/accounts");
         response = new MockHttpServletResponse();
         chain = new MockFilterChain();
     }
@@ -61,6 +62,18 @@ class JwtAuthenticationFilterTest {
         filter.doFilter(request, response, chain);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isSameAs(AUTH);
+    }
+
+    @Test
+    void spaPath_isNotAuthenticated() throws Exception {
+        request.setRequestURI("/assets/chunk-abc.js");
+        request.setServletPath("/assets/chunk-abc.js");
+        request.setCookies(new Cookie("access_token", "cookie-jwt"));
+
+        filter.doFilter(request, response, chain);
+
+        verify(authenticator, never()).authenticate(any());
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
     @Test

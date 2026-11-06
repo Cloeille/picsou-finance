@@ -67,6 +67,8 @@ public class AccountService {
      * <p>BoursoBank belongs here for a different reason: its trading board
      * exposes only its own instrument symbol, so a line whose ISIN cannot be
      * resolved is unpriceable by construction rather than by accident.
+     *
+     * <p>CORUM is not in this set: see {@link #isProviderValued}.
      */
     private static final Set<String> PROVIDER_VALUED = Set.of(
         BourseDirectSyncService.PROVIDER,
@@ -597,6 +599,14 @@ public class AccountService {
 
         List<AccountHolding> holdings = holdingRepository.findByAccount_Id(account.getId());
         if (holdings.isEmpty()) {
+            // A CORUM Life contract keeps its own cost basis without lines too (the last one
+            // deleted by hand): pairing the total with itself would report a zero gain. Both
+            // figures are the EUR amounts CORUM reported, so an edited account currency must
+            // not convert one of them.
+            if (account.getProviderInvestedEur() != null && isSyncedCorumLife(account)) {
+                return new Valuation(account.getCurrentBalance(), account.getProviderInvestedEur(),
+                    true, true, false);
+            }
             BigDecimal cash = priceService.toEur(
                 account.getCurrentBalance(), account.getCurrency(), account.getTicker());
             // Cash costs what it is worth, in the same currency on both sides: returning the
@@ -710,6 +720,15 @@ public class AccountService {
             } else {
                 invested = invested.add(costBasis);
             }
+        }
+
+        // A provider that values the account itself and states the contract's own cost basis
+        // (CORUM Life) is taken at its word on both sides. Its per-line costs leave out money
+        // switched between funds, so summing them gives a cost the contract never had and a
+        // gain to match; the contract figures are the only pair that agree.
+        if (account.getProviderInvestedEur() != null && isProviderValued(account)) {
+            return new Valuation(account.getCurrentBalance(), account.getProviderInvestedEur(),
+                allHoldingsPriced, true, anyStale);
         }
 
         // Some providers report an authoritative total in EUR. If Yahoo/OpenFIGI cannot
@@ -832,9 +851,29 @@ public class AccountService {
         return type == AccountType.CREDIT_CARD ? balance.abs().negate() : balance;
     }
 
-    /** Null-safe: {@code Set.of(...)} throws on a null lookup, and most accounts have no provider. */
+    /**
+     * Null-safe: {@code Set.of(...)} throws on a null lookup, and most accounts have no provider.
+     *
+     * <p>CORUM is provider-valued for the accounts CORUM Life sync writes only: no
+     * market feed quotes a CORUM Life unit. Those are recognised by {@link #isSyncedCorumLife},
+     * not by the provider string, which the member can edit. "CORUM" is also free text on a
+     * manual account, and the SCPI accounts its sync writes are manual, so neither takes the
+     * fallback.
+     */
     private boolean isProviderValued(Account account) {
-        return account.getProvider() != null && PROVIDER_VALUED.contains(account.getProvider());
+        if (isSyncedCorumLife(account)) {
+            return true;
+        }
+        if (account.getProvider() == null) {
+            return false;
+        }
+        return PROVIDER_VALUED.contains(account.getProvider());
+    }
+
+    /** An account the CORUM Life sync writes: non-manual, keyed by the contract's external id. */
+    private static boolean isSyncedCorumLife(Account account) {
+        return !account.isManual() && account.getExternalAccountId() != null
+            && account.getExternalAccountId().startsWith(Account.CORUM_LIFE_EXTERNAL_ID_PREFIX);
     }
 
     private boolean isCaisseEpargnePer(Account account) {
@@ -931,7 +970,12 @@ public class AccountService {
         if (averageBuyIn != null) h.setAverageBuyIn(averageBuyIn);
         // A user edit invalidates broker-derived valuation/P&L as a coherent
         // pair. A subsequent provider sync will repopulate both fields.
-        h.setProviderValueEur(null);
+        // Except a CORUM Life line's value: no feed quotes its unit, so clearing it would
+        // leave the line unvalued until the next sync. Only the P&L goes, which is what
+        // lets the edited buy-in become the line's cost basis.
+        if (!isSyncedCorumLife(account)) {
+            h.setProviderValueEur(null);
+        }
         h.setProviderPnlEur(null);
         holdingRepository.save(h);
         return toHoldingResponse(account, h, quotesFor(account, List.of(h)), logosFor(account, List.of(h)));
@@ -1180,7 +1224,8 @@ public class AccountService {
             pnlPercent,
             priceUpdatedAt,
             priceAsOf,
-            priceStale
+            priceStale,
+            holding.getProviderWealthTier()
         );
     }
 

@@ -404,7 +404,9 @@ public class HistoryService {
                 accountHoldings.put(accId, holdingDataList);
                 // A line with no cost at all would count as free units. valuation() then pairs
                 // the account with its own balance, and the 24H chart takes that same baseline.
-                accountHoldingsInvested.put(accId, anyCostUnknown
+                // A contract-level cost basis (CORUM Life) goes through valuation() too: the
+                // lines' own costs leave out switched money and would not match the daily chart.
+                accountHoldingsInvested.put(accId, anyCostUnknown || account.getProviderInvestedEur() != null
                     ? weigh(accountService.valuation(account).investedEur(), shares, accId)
                     : weigh(invested.add(cash), shares, accId));
             }

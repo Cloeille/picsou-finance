@@ -76,6 +76,7 @@ if [[ "$args" == *"ReleaseMigrationCli"* ]]; then
   [[ "${MOCK_FAIL:-}" == live && $db == picsou && $op == migrate ]] && exit 19
   [[ "${MOCK_FAIL:-}" == verify && $op == verify ]] && exit 19
 fi
+if [[ "$args" == *" run "* && "$args" == *"data-permissions"* && "${MOCK_FAIL:-}" == data_permissions ]]; then exit 19; fi
 if [[ "$args" == *" up "* && "$args" == *" app"* ]]; then
   [[ "$args" == *"--pull never"* && "$args" == *"--no-build"* ]] || exit 21
   override=; prev=
@@ -292,6 +293,28 @@ def test_cli_is_pinned_and_does_not_use_bootstrap_entrypoint(fake_tools, tmp_pat
     recreate = next(line for line in commands if "<up>" in line and "<app>" in line)
     assert "--no-deps" in recreate
     assert "--pull" in recreate and "<never>" in recreate and "--no-build" in recreate
+
+
+def test_data_permissions_runs_with_the_candidate_image_before_the_app_is_recreated(fake_tools, tmp_path):
+    result, commands, _ = run_deploy(fake_tools, tmp_path)
+    assert result.returncode == 0, result.stderr
+    handover = next(i for i, line in enumerate(commands) if "<data-permissions>" in line)
+    cutover = next(i for i, line in enumerate(commands) if "<up>" in line and "<app>" in line)
+    live_verify = max(i for i, line in enumerate(commands) if "ReleaseMigrationCli" in line)
+    assert live_verify < handover < cutover
+    line = commands[handover]
+    assert "<run>" in line and "<--rm>" in line and "<--no-deps>" in line
+    assert "<--pull> <never>" in line
+    assert "override.yml" in line
+    override = Path(str(tmp_path / "commands.log") + ".cutover-override").read_text()
+    assert override.index("data-permissions:") < override.index("  app:")
+    assert override.count(f"image: \"sha256:{'0' * 63}1\"") == 2
+
+
+def test_failed_data_permissions_never_recreates_app(fake_tools, tmp_path):
+    result, commands, _ = run_deploy(fake_tools, tmp_path, MOCK_FAIL="data_permissions")
+    assert result.returncode != 0
+    assert not _app_started(commands)
 
 
 def test_database_readiness_retries_before_dump(fake_tools, tmp_path):

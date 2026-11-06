@@ -37,8 +37,15 @@ interface TransactionDetailSheetProps {
   canAssignRepayment?: (tx: Transaction) => boolean
   onEdit?: (tx: Transaction) => void
   onDelete?: (txId: number) => void
+  /** The provider of the transaction's account, when the caller knows it. */
+  accountProvider?: string | null
 }
 
+/**
+ * One transaction in detail: a bottom sheet on mobile, a dialog elsewhere. Categorize applies to
+ * synced rows only, edit and delete to manual rows only, and each shows only when the caller
+ * passes its handler. The heading is the merchant label, else the displayed description.
+ */
 export function TransactionDetailSheet({
   transaction: tx,
   open,
@@ -52,6 +59,7 @@ export function TransactionDetailSheet({
   canAssignRepayment,
   onEdit,
   onDelete,
+  accountProvider,
 }: TransactionDetailSheetProps) {
   const { t, i18n } = useTranslation()
   const isMobile = useIsMobile()
@@ -76,7 +84,7 @@ export function TransactionDetailSheet({
 
   if (!tx) return null
 
-  const label = tx.merchantLabel || transactionDescription(tx, t)
+  const label = tx.merchantLabel || transactionDescription(tx, t, accountProvider)
   // The category is editable on any transaction, manual or synced: the endpoint stamps
   // `category_manual`, so a re-sync or the categorizer never overwrites the choice.
   const canCategorize = !!onCategorize && !!categories

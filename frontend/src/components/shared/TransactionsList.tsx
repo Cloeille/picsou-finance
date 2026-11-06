@@ -27,8 +27,15 @@ interface TransactionsListProps {
   canAssignRepayment?: (tx: Transaction) => boolean
   /** Buttons rendered in the card header (add, import). The card stays visible when empty if set. */
   actions?: ReactNode
+  /** The provider of the one account the list shows; left out on lists spanning accounts. */
+  accountProvider?: string | null
 }
 
+/**
+ * A card of transactions grouped by day. The search matches the label a row displays as well as
+ * the raw description and the merchant label, so what the user reads is what they can find. A row
+ * opens its detail sheet.
+ */
 export function TransactionsList({
   transactions,
   onDelete,
@@ -41,6 +48,7 @@ export function TransactionsList({
   onAssignRepayment,
   canAssignRepayment,
   actions,
+  accountProvider,
 }: TransactionsListProps) {
   const { t, i18n } = useTranslation()
   const [search, setSearch] = useState('')
@@ -50,7 +58,7 @@ export function TransactionsList({
   const filtered = search
     ? transactions.filter(tr => {
         const normalizedSearch = search.toLocaleLowerCase(locale)
-        const displayedDescription = transactionDescription(tr, t).toLocaleLowerCase(locale)
+        const displayedDescription = transactionDescription(tr, t, accountProvider).toLocaleLowerCase(locale)
         return (
           displayedDescription.includes(normalizedSearch) ||
           tr.description.toLocaleLowerCase(locale).includes(normalizedSearch) ||
@@ -105,6 +113,7 @@ export function TransactionsList({
                     logoUrlFor={logoUrlFor}
                     index={rowIdx}
                     onClick={setSelectedTx}
+                    accountProvider={accountProvider}
                   />
                 ))}
               </div>
@@ -126,6 +135,7 @@ export function TransactionsList({
         canAssignRepayment={canAssignRepayment}
         onEdit={onEdit}
         onDelete={onDelete}
+        accountProvider={accountProvider}
       />
     </>
   )

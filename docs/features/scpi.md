@@ -1,6 +1,6 @@
 # Feature: SCPI shares
 
-> Last updated: 2026-10-31
+> Last updated: 2026-11-05
 
 ## Context
 
@@ -84,6 +84,55 @@ balance alone and reports `PRICE_INCOMPLETE`, exactly as a manual entry would.
 CORUM displays `quantity × subscription price`, which is not the withdrawal value. The
 sync never uses that figure for a balance — see the
 [CORUM sidecar ADR](../decisions/2026-09-26-corum-scpi-sidecar.md).
+
+#### CORUM session and remembered credentials
+
+`POST /api/corum/auth` takes `{login, password, remember}`; `remember` defaults to `false`. The
+login form shows an unticked "Remember my credentials (encrypted)" checkbox, worded like
+Revolut's. Ticked, the credentials are stored encrypted through `CryptoEncryption` in
+`corum_session.encrypted_credentials` (V127, same shape as `cmes_session`, V117); unticked,
+nothing is stored and a login replaces any session (and credentials) stored before. The status
+exposes `credentialsRemembered`, a boolean, and never the credentials. The panel says so under
+the session badge; "Disconnect" (`DELETE /api/corum/session`) deletes the session with its
+credentials, and is the way to forget them. Deleting the member's last CORUM account does the
+same: `AccountConnectionService` resolves to the CORUM connection both a `corum_life_*` account
+and an SCPI account whose position is linked to a CORUM fund (`scpi_position.corum_fund_code`,
+read before the delete clears it; such an account is manual and has no external id). It calls
+`clearSession` once no other live account of either kind remains. It takes the member lock
+(`lockMemberForAccountDeletion`) before writing the account, the same order as the sync's
+`commitPortfolio`, so a deletion and a running sync cannot deadlock.
+
+The sync follows `CmesSyncService`: when the sidecar answers `SESSION_EXPIRED` to the portfolio
+read and credentials are stored, `reauthenticateAndFetch` logs in again through the sidecar's
+`/initiate` (CORUM has no second factor), replaces the stored session and reads with it. One
+re-login per run, never a loop: a fresh session that expires too ends the run as
+`SESSION_EXPIRED`. Without stored credentials an expired session turns inactive and the panel
+asks to reconnect, as before. `INVALID_CREDENTIALS` on the re-login clears the credentials (so a
+rejected password is not replayed daily) and turns the session inactive. Stored credentials that no
+longer decrypt or parse are cleared too (nothing could ever log in with them): the run still ends
+as `SESSION_EXPIRED` and the status reports `credentialsRemembered: false`. A fresh session that
+expires right after a successful re-login keeps them, since the password just worked.
+
+Re-logins are throttled per member on the CORUM login budget (`RateLimitConfig.createCorumAuthBucket`,
+5 per 15 minutes), in their own bounded store (`corumReloginBuckets`, keyed by member id), apart
+from the per-IP `/api/corum/sync` bucket, so neither the daily sync nor repeated manual syncs can
+replay the password faster than a person could type it. A throttled run calls nothing and ends as
+`UPSTREAM_UNAVAILABLE`, not `SESSION_EXPIRED`: that code keeps the session active and the
+credentials stored, so a later run logs in again once the budget refills instead of asking the
+member to reconnect. Neither path logs the credentials or the exception that carried them, only its
+type.
+
+CORUM runs in the daily 08:00 member sync (`MemberSyncService`, source `corum`, last in the
+canonical order), gated like `cmes`: an active session is queued; an inactive one is reported as
+`NEEDS_REAUTH` (`SESSION_EXPIRED`, `INVALID_CREDENTIALS`), `FAILED` (another stored error) or
+`SKIPPED_NOT_CONNECTED`, and never retried. A login still waiting on CORUM when the member
+disconnects stores nothing: `clearSession` bumps the member's auth generation under the member
+row lock, and `authenticate` refuses with `SESSION_EXPIRED` once it sees the change. See the
+[addendum to the CORUM Life ADR](../decisions/2026-11-05-corum-life-sync.md#addendum-2026-11-05-remembered-credentials-and-the-daily-sync).
+
+The same login can hold CORUM Life (assurance-vie) contracts. The sync reads them in the same
+session and commits them with the SCPI funds, one `ASSURANCE_VIE` account per contract. That
+side is not a SCPI and is documented in [CORUM Life sync](./corum-life.md).
 
 ### Sofidy sync
 
@@ -183,6 +232,7 @@ same `ScpiPositionService.save` and never sends a CORUM or Sofidy fund code. See
   The appended migrations are `V104` (`scpi_position`), `V105` (`corum_session`)
   and `V106` (`sofidy_session`), above the base branch's `V103`. `V115`
   (`scpi_provider_fund`) follows V114 (`account_holding_provider_price_date`) on the base branch.
+  `V127` adds `corum_session.encrypted_credentials`.
 - Deleting a SCPI account tombstones its funds. Without that, the next sync would
   recreate it, since a sync now creates the account of any fund it has not linked.
 - Adoption is unique-match only and never fuzzy. An account renamed away from the
@@ -250,5 +300,7 @@ Health checks produce no request log line.
 - Related ADR: [CORUM client space fills existing SCPI accounts through a browser sidecar](../decisions/2026-09-26-corum-scpi-sidecar.md)
 - Related ADR: [Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar](../decisions/2026-09-27-sofidy-scpi-sidecar.md)
 - Related ADR: [CORUM and Sofidy syncs create and link their SCPI accounts](../decisions/2026-10-16-scpi-sync-creates-accounts.md)
+- Related ADR: [CORUM Life contracts sync as one assurance-vie account each](../decisions/2026-11-05-corum-life-sync.md)
+- Related feature: [CORUM Life sync](./corum-life.md)
 - Ticket: https://github.com/Cloeille/picsou-finance/issues/157
 - Ticket: https://github.com/Cloeille/picsou-finance/issues/232

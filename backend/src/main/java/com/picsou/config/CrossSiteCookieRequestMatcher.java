@@ -25,7 +25,7 @@ import java.util.Set;
  *   <li>{@code Sec-Fetch-Site}: only {@code same-origin} and {@code none} (user-typed URL,
  *       bookmark) pass;</li>
  *   <li>{@code Origin}, then {@code Referer}, compared with the request's own scheme, host and
- *       port. Native forwarding accepts those from configured nginx peers, the same view
+ *       port. Native forwarding accepts those from the configured trusted proxy, the same view
  *       {@code CorsUtils} uses for same-origin detection;</li>
  *   <li>neither header: a non-browser client, which cannot be driven by another site. Allowed.</li>
  * </ol>
@@ -48,15 +48,21 @@ public class CrossSiteCookieRequestMatcher implements RequestMatcher {
     );
 
     private final CorsConfigurationSource corsConfigurationSource;
+    private final boolean requireCredentialCookie;
 
     public CrossSiteCookieRequestMatcher(CorsConfigurationSource corsConfigurationSource) {
+        this(corsConfigurationSource, true);
+    }
+
+    public CrossSiteCookieRequestMatcher(CorsConfigurationSource corsConfigurationSource, boolean requireCredentialCookie) {
         this.corsConfigurationSource = corsConfigurationSource;
+        this.requireCredentialCookie = requireCredentialCookie;
     }
 
     @Override
     public boolean matches(HttpServletRequest request) {
         return STATE_CHANGING_METHODS.contains(request.getMethod())
-            && carriesCredentialCookie(request)
+            && (!requireCredentialCookie || carriesCredentialCookie(request))
             && isCrossOrigin(request)
             && !isAllowListedOrigin(request);
     }

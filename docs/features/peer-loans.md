@@ -36,9 +36,9 @@ page, the way a `SCPI` position is.
 ### Data model
 
 ```sql
--- V124: ALTER TYPE account_type ADD VALUE 'PEER_LOAN' BEFORE 'OTHER';
--- V125: tables below.  V126: the two cash-leg links.  V127: cash_leg_owned.
--- V128: rate_period.
+-- V129: ALTER TYPE account_type ADD VALUE 'PEER_LOAN' BEFORE 'OTHER';
+-- V130: tables below.  V131: the two cash-leg links.  V132: cash_leg_owned.
+-- V133: rate_period.
 
 peer_counterparty (id, member_id, name, note)
     UNIQUE (member_id, lower(name))
@@ -302,10 +302,10 @@ Backend:
   distribution; the response also carries an `assets` list (receivable included) that the
   wealth modes, history and gross figure use
 - `backend/.../model/AssetClass.java`, `WealthTier.java` — exhaustive switches
-- `backend/.../db/migration/V124__account_type_peer_loan.sql`,
-  `V125__peer_loans.sql`, `V126__peer_loan_cash_leg.sql`,
-  `V127__peer_loan_linked_repayment.sql`, `V128__peer_loan_rate_period.sql`,
-  `V129__widen_peer_loan_rate.sql`, `V130__peer_loan_rate_no_upper_bound.sql`
+- `backend/.../db/migration/V129__account_type_peer_loan.sql`,
+  `V130__peer_loans.sql`, `V131__peer_loan_cash_leg.sql`,
+  `V132__peer_loan_linked_repayment.sql`, `V133__peer_loan_rate_period.sql`,
+  `V134__widen_peer_loan_rate.sql`, `V135__peer_loan_rate_no_upper_bound.sql`
 
 Frontend:
 

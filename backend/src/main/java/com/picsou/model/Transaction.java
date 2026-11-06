@@ -103,6 +103,17 @@ public class Transaction {
     private boolean isManual = false;
 
     /**
+     * Money moving inside an investment wrapper rather than in or out of the budget (a coupon
+     * reinvested in a life-insurance contract, its fees, a switch between funds). Shown on its
+     * account's ledger only: every budget, cashflow, categorisation and global-transactions
+     * query in {@code TransactionRepository} leaves it out, and {@code EssentialExpenseEstimator}
+     * never takes it as the other leg of a transfer.
+     */
+    @Column(name = "budget_neutral", nullable = false)
+    @Builder.Default
+    private boolean budgetNeutral = false;
+
+    /**
      * Dedup key for provider-imported rows: the bank's own entry reference when it
      * sends one, otherwise a content fingerprint computed by the importer. Null for
      * manual rows and for importers that replace their rows wholesale (Finary).

@@ -1,6 +1,11 @@
 package com.picsou.service;
 
 import com.picsou.dto.SetupStatusResponse;
+import com.picsou.config.SsoProperties;
+import com.picsou.model.UserIdentity;
+import com.picsou.model.UserRole;
+import com.picsou.repository.UserIdentityRepository;
+import com.picsou.service.sso.SsoIdentity;
 import com.picsou.model.AppSetting;
 import com.picsou.model.AppUser;
 import com.picsou.model.FamilyMember;
@@ -13,10 +18,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Optional;
+import java.util.Set;
+import java.time.Clock;
+import java.time.Instant;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,8 +45,100 @@ class SetupServiceTest {
     @Mock AppUserRepository userRepository;
     @Mock FamilyMemberRepository memberRepository;
     @Mock PasswordEncoder passwordEncoder;
+    @Mock UserIdentityRepository identityRepository;
+    @Mock Clock clock;
+    @Spy SsoProperties ssoProperties = new SsoProperties();
 
     @InjectMocks SetupService setupService;
+
+    private static SsoIdentity aliceIdentity() {
+        return new SsoIdentity("https://idp.test", "alice-sub", "alice@idp.test", "Alice", "alice", null,
+            Optional.of(Set.of("picsou-admin")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://idp.test", "not-a-url"})
+    void status_reportsRawAdminBootstrapEvenWhenIssuerIsInvalid(String issuer) {
+        ssoProperties.setIssuerUri(issuer);
+        ssoProperties.setClientId("picsou");
+        ssoProperties.setAdminGroup("picsou-admin");
+        ssoProperties.setProviderName("My IdP");
+
+        var sso = setupService.getStatus().sso();
+
+        assertThat(sso.enabled()).isEqualTo(issuer.equals("https://idp.test"));
+        assertThat(sso.providerName()).isEqualTo("My IdP");
+        assertThat(sso.adminBootstrap()).isTrue();
+    }
+
+    @Test
+    void seedSsoAdmin_createsPasswordlessAdminAndLoggedInIdentity() {
+        Instant now = Instant.parse("2026-11-03T10:00:00Z");
+        when(clock.instant()).thenReturn(now);
+        when(settingRepository.compareAndSet(SetupService.KEY_SETUP_STATE, "PENDING_ADMIN", "IN_PROGRESS"))
+            .thenReturn(1);
+
+        AppUser user = setupService.seedSsoAdmin(aliceIdentity(), "alice", "Alice");
+
+        var member = ArgumentCaptor.forClass(FamilyMember.class);
+        verify(memberRepository).save(member.capture());
+        assertThat(member.getValue().getDisplayName()).isEqualTo("Alice");
+        assertThat(member.getValue().isManaged()).isFalse();
+        verify(userRepository).save(user);
+        assertThat(user.getMember()).isSameAs(member.getValue());
+        assertThat(user.getUsername()).isEqualTo("alice");
+        assertThat(user.getPasswordHash()).isEmpty();
+        assertThat(user.getRole()).isEqualTo(UserRole.ADMIN);
+        assertThat(user.isActivated()).isTrue();
+        assertThat(user.isAcknowledgedWarning()).isTrue();
+        var identity = ArgumentCaptor.forClass(UserIdentity.class);
+        verify(identityRepository).save(identity.capture());
+        assertThat(identity.getValue().getUser()).isSameAs(user);
+        assertThat(identity.getValue().getIssuer()).isEqualTo("https://idp.test");
+        assertThat(identity.getValue().getSubject()).isEqualTo("alice-sub");
+        assertThat(identity.getValue().getEmail()).isEqualTo("alice@idp.test");
+        assertThat(identity.getValue().getDisplayName()).isEqualTo("Alice");
+        assertThat(identity.getValue().getLastLoginAt()).isEqualTo(now);
+    }
+
+    @Test
+    void seedSsoAdmin_refusesExistingUsernameWithoutReturningExistingAdmin() {
+        // A second IdP subject deriving the same username must not receive the existing account.
+        org.mockito.Mockito.lenient().when(userRepository.existsByUsername("alice")).thenReturn(true);
+        org.mockito.Mockito.lenient().when(userRepository.findByUsernameWithMember("alice"))
+            .thenReturn(Optional.of(AppUser.builder().username("alice").role(UserRole.ADMIN).build()));
+        when(userRepository.count()).thenReturn(1L);
+
+        assertThatThrownBy(() -> setupService.seedSsoAdmin(aliceIdentity(), "alice", "Alice"))
+            .isInstanceOf(IllegalStateException.class);
+
+        org.mockito.Mockito.verifyNoInteractions(memberRepository, identityRepository);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void seedSsoAdmin_refusesCompleteSetupBeforeWriting() {
+        when(settingRepository.findByKey(SetupService.KEY_SETUP_STATE))
+            .thenReturn(Optional.of(AppSetting.builder().value("COMPLETE").build()));
+
+        assertThatThrownBy(() -> setupService.seedSsoAdmin(aliceIdentity(), "alice", "Alice"))
+            .isInstanceOf(IllegalStateException.class);
+
+        org.mockito.Mockito.verifyNoInteractions(memberRepository, identityRepository);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void seedSsoAdmin_refusesLostBootstrapClaimBeforeWriting() {
+        when(settingRepository.compareAndSet(SetupService.KEY_SETUP_STATE, "PENDING_ADMIN", "IN_PROGRESS"))
+            .thenReturn(0);
+
+        assertThatThrownBy(() -> setupService.seedSsoAdmin(aliceIdentity(), "alice", "Alice"))
+            .isInstanceOf(IllegalStateException.class);
+
+        org.mockito.Mockito.verifyNoInteractions(memberRepository, identityRepository);
+        verify(userRepository, never()).save(any());
+    }
 
     @Test
     void status_defaultsToPendingAdmin_whenNoSettingExists() {
