@@ -51,6 +51,7 @@ class SyncStatusServiceTest {
     @Mock AmundiSyncService amundiSyncService;
     @Mock CmesSyncService cmesSyncService;
     @Mock CicSyncService cicSyncService;
+    @Mock CorumSyncService corumSyncService;
     @Mock FortuneoSyncService fortuneoSyncService;
     @Mock AmexSyncService amexSyncService;
     @Mock IbkrConnectionRepository ibkrConnectionRepository;
@@ -66,7 +67,8 @@ class SyncStatusServiceTest {
     void setUp() {
         service = new SyncStatusService(
             revolutSyncService, requisitionRepository, tradeRepublicSyncService, tradeRepublicSessionRepository,
-            boursoSyncService, bourseDirectSyncService, amundiSyncService, cmesSyncService, cicSyncService, fortuneoSyncService,
+            boursoSyncService, bourseDirectSyncService, amundiSyncService, cmesSyncService, cicSyncService, corumSyncService,
+            fortuneoSyncService,
             amexSyncService, ibkrConnectionRepository, simplefinConnectionRepository, cryptoExchangeSyncService,
             walletAddressRepository,
             finarySessionRepository, degiroSessionRepository);
@@ -83,6 +85,7 @@ class SyncStatusServiceTest {
             new AmundiSyncService.SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null));
         when(cmesSyncService.getStatus(MID)).thenReturn(CmesSyncService.SessionStatusResponse.inactive());
         when(cicSyncService.getStatus(MID)).thenReturn(CicSyncService.SessionStatusResponse.inactive());
+        when(corumSyncService.getStatus(MID)).thenReturn(CorumSyncService.SessionStatusResponse.inactive());
         when(fortuneoSyncService.getStatus(MID)).thenReturn(
             new FortuneoSyncService.SessionStatusResponse(false, null, SidecarSyncStatus.IDLE, null, null, null));
         when(amexSyncService.getStatus(MID)).thenReturn(
@@ -136,6 +139,20 @@ class SyncStatusServiceTest {
             false, SidecarSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.INVALID_CREDENTIALS));
         assertThat(service.describe(MID))
             .contains("cmes: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true — INVALID_CREDENTIALS");
+    }
+
+    @Test
+    void corumReportsItsConnectionAndAsksForAReconnectionOnceItsPasswordIsRejected() {
+        assertThat(service.describe(MID)).contains("corum: NOT_CONNECTED lastSync=none reauth=false");
+
+        when(corumSyncService.getStatus(MID)).thenReturn(new CorumSyncService.SessionStatusResponse(
+            true, SidecarSyncStatus.SUCCESS, null, SYNCED_AT, null, 0, true));
+        assertThat(service.describe(MID)).contains("corum: CONNECTED lastSync=2026-10-04T06:00:00Z reauth=false");
+
+        when(corumSyncService.getStatus(MID)).thenReturn(new CorumSyncService.SessionStatusResponse(
+            false, SidecarSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.INVALID_CREDENTIALS, 0, false));
+        assertThat(service.describe(MID))
+            .contains("corum: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true — INVALID_CREDENTIALS");
     }
 
     @ParameterizedTest

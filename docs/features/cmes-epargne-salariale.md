@@ -75,7 +75,7 @@ never values.
 ### Backend
 
 `CmesSyncService` follows `AmundiSyncService` for the import and `BoursoSyncService` for the
-session: credentials are stored encrypted (`sidecar_session.encrypted_credentials`, added to `cmes_session` by V117 and moved by V124), and a
+session: credentials are stored encrypted (`sidecar_session.encrypted_credentials`, added to `cmes_session` by V117 and moved by V128), and a
 sync whose session expired logs in again with them, passing the previous session for its
 remembered-device cookie. The site's sessions last minutes, so this is the normal path of the
 daily 08:00 sync (`MemberSyncService`, source `cmes`). Only when the site asks for a new

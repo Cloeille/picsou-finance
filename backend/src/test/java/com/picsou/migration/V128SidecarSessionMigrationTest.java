@@ -22,11 +22,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Proves a database at V121 keeps every sidecar session through V124: same member, cookies,
- * stored login, unsupported contracts, sync state and timestamps, so nobody has to reconnect.
+ * Proves a database at V127 keeps every sidecar session through V128: same member, cookies,
+ * stored login, unsupported contracts, CORUM Life ambiguous count, sync state and timestamps,
+ * so nobody has to reconnect.
  */
 @RequiresPostgres
-class V124SidecarSessionMigrationTest {
+class V128SidecarSessionMigrationTest {
 
     private static final String[] TABLES = {
         "amex", "amundi", "bourse_direct", "bourso", "caisse_epargne",
@@ -36,7 +37,7 @@ class V124SidecarSessionMigrationTest {
     private static final String ROW = """
         SELECT bank, member_id, session_state, encrypted_credentials, unsupported_contracts,
                last_validated_at, is_active, sync_status, last_sync_started_at,
-               last_sync_completed_at, last_sync_error, created_at, updated_at
+               last_sync_completed_at, last_sync_error, created_at, updated_at, last_sync_life_ambiguous
           FROM sidecar_session WHERE bank = ? AND member_id = ?
         """;
 
@@ -49,8 +50,8 @@ class V124SidecarSessionMigrationTest {
     static long dave;
 
     @BeforeAll
-    static void seedV121AndMigrate() throws SQLException {
-        PostgresContainers.migrateToOutOfOrder(POSTGRES, "121");
+    static void seedV127AndMigrate() throws SQLException {
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "127");
         try (Connection c = PostgresContainers.connection(POSTGRES)) {
             alice = newMember(c, "alice");
             bob = newMember(c, "bob");
@@ -66,6 +67,9 @@ class V124SidecarSessionMigrationTest {
             execute(c, "UPDATE bourso_session SET encrypted_credentials = 'bourso-login'");
             execute(c, "UPDATE cic_session SET encrypted_credentials = 'cic-login'");
             execute(c, "UPDATE cmes_session SET encrypted_credentials = 'cmes-login'");
+            // V127 and V124 gave corum_session a stored login and the CORUM Life ambiguous count.
+            execute(c, "UPDATE corum_session SET encrypted_credentials = 'corum-login', last_sync_life_ambiguous = 2 "
+                + "WHERE member_id = " + alice);
             execute(c, "UPDATE caisse_epargne_session SET unsupported_contracts = '[{\"externalId\":\"x\"}]'");
             carol = newMember(c, "carol");
             dave = newMember(c, "dave");
@@ -78,7 +82,7 @@ class V124SidecarSessionMigrationTest {
                     + "VALUES (" + dave + ", 'dave', 'FAILED')");
             }
         }
-        PostgresContainers.migrateToOutOfOrder(POSTGRES, "124");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "128");
     }
 
     @Test
@@ -92,12 +96,13 @@ class V124SidecarSessionMigrationTest {
                     case BOURSO -> "bourso-login";
                     case CIC -> "cic-login";
                     case CMES -> "cmes-login";
+                    case CORUM -> "corum-login";
                     default -> null;
                 },
                 bank == SidecarBank.CAISSE_EPARGNE ? "[{\"externalId\":\"x\"}]" : null,
                 Instant.parse("2026-10-01T08:00:00Z"), false, "FAILED", Instant.parse("2026-10-02T08:00:00Z"),
                 Instant.parse("2026-10-02T08:05:00Z"), "SESSION_EXPIRED", Instant.parse("2026-09-01T08:00:00Z"),
-                Instant.parse("2026-10-02T08:05:00Z"));
+                Instant.parse("2026-10-02T08:05:00Z"), bank == SidecarBank.CORUM ? 2 : 0);
             // Index 6 is is_active, 7 sync_status, 10 last_sync_error.
             List<Object> bobRow = row(bank, bob);
             assertThat(bobRow.subList(0, 3)).containsExactly(bank.name(), bob, "bob-" + table);
@@ -173,11 +178,22 @@ class V124SidecarSessionMigrationTest {
                 String insert = "INSERT INTO sidecar_session (bank, member_id, session_state, encrypted_credentials) "
                     + "VALUES ('" + bank.name() + "', " + member + ", 's', 'login')";
                 switch (bank) {
-                    case BOURSO, CIC, CMES -> execute(c, insert);
+                    case BOURSO, CIC, CMES, CORUM -> execute(c, insert);
                     default -> assertThatThrownBy(() -> execute(c, insert)).as(bank.name())
                         .hasMessageContaining("ck_sidecar_session_credentials");
                 }
             }
+        }
+    }
+
+    /** V124's ck_corum_session_life_ambiguous, carried over. */
+    @Test
+    void theLifeAmbiguousCountCannotBeNegative() throws SQLException {
+        try (Connection c = PostgresContainers.connection(POSTGRES)) {
+            long member = newMember(c, "ambiguous");
+            assertThatThrownBy(() -> execute(c, "INSERT INTO sidecar_session (bank, member_id, session_state, "
+                + "last_sync_life_ambiguous) VALUES ('CORUM', " + member + ", 's', -1)"))
+                .hasMessageContaining("ck_sidecar_session_life_ambiguous");
         }
     }
 
@@ -213,6 +229,7 @@ class V124SidecarSessionMigrationTest {
                 values.add(rs.getString("last_sync_error"));
                 values.add(instant(rs, "created_at"));
                 values.add(instant(rs, "updated_at"));
+                values.add(rs.getInt("last_sync_life_ambiguous"));
                 return values;
             }
         }

@@ -1,6 +1,7 @@
 -- One session table for the ten sidecar banks that shared the same shape (#337).
--- Each row keeps its bank, member, encrypted session and sync state byte for byte, so
--- nobody has to reconnect. The one exception is a CORUM or Sofidy row breaking the
+-- Each row keeps its bank, member, encrypted session, stored login and sync state byte for
+-- byte, so nobody has to reconnect. CORUM keeps the two columns V124 and V127 added to
+-- corum_session: the CORUM Life ambiguous count and the opt-in stored login. The one exception is a CORUM or Sofidy row breaking the
 -- FAILED/error rule, repaired below before the copy. Copy and drop run in this one
 -- migration, so in one transaction.
 
@@ -17,6 +18,7 @@ CREATE TABLE sidecar_session (
     last_sync_started_at   TIMESTAMPTZ,
     last_sync_completed_at TIMESTAMPTZ,
     last_sync_error        VARCHAR(40),
+    last_sync_life_ambiguous INTEGER    NOT NULL DEFAULT 0,
     created_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_sidecar_session_bank_member UNIQUE (bank, member_id),
@@ -33,7 +35,10 @@ CREATE TABLE sidecar_session (
             OR (sync_status <> 'FAILED' AND last_sync_error IS NULL)
         ),
     CONSTRAINT ck_sidecar_session_credentials
-        CHECK (encrypted_credentials IS NULL OR bank IN ('BOURSO', 'CIC', 'CMES')),
+        CHECK (encrypted_credentials IS NULL OR bank IN ('BOURSO', 'CIC', 'CMES', 'CORUM')),
+    -- V124's ck_corum_session_life_ambiguous.
+    CONSTRAINT ck_sidecar_session_life_ambiguous
+        CHECK (last_sync_life_ambiguous >= 0),
     CONSTRAINT ck_sidecar_session_unsupported_contracts
         CHECK (unsupported_contracts IS NULL OR bank = 'CAISSE_EPARGNE'),
     -- The codes each bank may store, generated from SidecarBank; SidecarBankCodesTest keeps them equal.
@@ -161,10 +166,10 @@ FROM cmes_session;
 
 INSERT INTO sidecar_session (bank, member_id, session_state, encrypted_credentials, unsupported_contracts,
     last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, last_sync_error,
-    created_at, updated_at)
-SELECT 'CORUM', member_id, session_state, NULL, NULL,
+    last_sync_life_ambiguous, created_at, updated_at)
+SELECT 'CORUM', member_id, session_state, encrypted_credentials, NULL,
     last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, last_sync_error,
-    created_at, updated_at
+    last_sync_life_ambiguous, created_at, updated_at
 FROM corum_session;
 
 INSERT INTO sidecar_session (bank, member_id, session_state, encrypted_credentials, unsupported_contracts,

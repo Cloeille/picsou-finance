@@ -71,9 +71,9 @@ class SidecarSyncContractTest {
     /** The banks SidecarSyncRecovery does not run at boot, as before this refactor. */
     private static final Set<SidecarBank> NO_BOOT_RECOVERY = EnumSet.of(SidecarBank.CORUM, SidecarBank.SOFIDY);
 
-    /** The banks the daily scheduler does not resync, as before this refactor. */
+    /** The banks the daily scheduler does not resync. CORUM joined it with its stored login (#452). */
     private static final Set<SidecarBank> NOT_SCHEDULED =
-        EnumSet.of(SidecarBank.CORUM, SidecarBank.SOFIDY, SidecarBank.CAISSE_EPARGNE);
+        EnumSet.of(SidecarBank.SOFIDY, SidecarBank.CAISSE_EPARGNE);
 
     private SidecarSessionRepository sessions;
     private FamilyMemberRepository members;

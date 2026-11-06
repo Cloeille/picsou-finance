@@ -90,7 +90,7 @@ sync never uses that figure for a balance — see the
 `POST /api/corum/auth` takes `{login, password, remember}`; `remember` defaults to `false`. The
 login form shows an unticked "Remember my credentials (encrypted)" checkbox, worded like
 Revolut's. Ticked, the credentials are stored encrypted through `CryptoEncryption` in
-`corum_session.encrypted_credentials` (V127, same shape as `cmes_session`, V117); unticked,
+`sidecar_session.encrypted_credentials` (added to `corum_session` by V127, moved by V128); unticked,
 nothing is stored and a login replaces any session (and credentials) stored before. The status
 exposes `credentialsRemembered`, a boolean, and never the credentials. The panel says so under
 the session badge; "Disconnect" (`DELETE /api/corum/session`) deletes the session with its
@@ -230,9 +230,9 @@ same `ScpiPositionService.save` and never sends a CORUM or Sofidy fund code. See
   failure.
 - `V82` already adds `SCPI` and `ASSURANCE_VIE` on 1.1.0; do not add the enum twice.
   The appended migrations are `V104` (`scpi_position`), `V105` (`corum_session`)
-  and `V106` (`sofidy_session`), both folded into `sidecar_session` by `V124`, above the base branch's `V103`. `V115`
+  and `V106` (`sofidy_session`), both folded into `sidecar_session` by `V128`, above the base branch's `V103`. `V115`
   (`scpi_provider_fund`) follows V114 (`account_holding_provider_price_date`) on the base branch.
-  `V127` adds `corum_session.encrypted_credentials`.
+  `V127` adds `corum_session.encrypted_credentials`, which `V128` copies into `sidecar_session`.
 - Deleting a SCPI account tombstones its funds. Without that, the next sync would
   recreate it, since a sync now creates the account of any fund it has not linked.
 - Adoption is unique-match only and never fuzzy. An account renamed away from the

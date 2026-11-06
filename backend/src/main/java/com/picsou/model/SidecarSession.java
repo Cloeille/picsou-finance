@@ -11,7 +11,7 @@ import java.util.Objects;
 
 /**
  * One sidecar bank session per member and bank. Holds the encrypted session state, the
- * optional encrypted stored login (BoursoBank, CIC, CMES) and the state of the last sync.
+ * optional encrypted stored login (BoursoBank, CIC, CMES, CORUM) and the state of the last sync.
  */
 @Entity
 @Table(name = "sidecar_session")
@@ -71,6 +71,11 @@ public class SidecarSession extends AuditableEntity {
     @Column(name = "last_sync_error", length = 40)
     private SidecarErrorCode lastSyncError;
 
+    /** CORUM only: CORUM Life contracts the last successful sync could not write, see {@code CorumLifeWriter}. */
+    @Column(name = "last_sync_life_ambiguous", nullable = false)
+    @Builder.Default
+    private int lastSyncLifeAmbiguous = 0;
+
     public static SidecarSession create(
         SidecarBank bank,
         FamilyMember member,
@@ -101,6 +106,21 @@ public class SidecarSession extends AuditableEntity {
         this.unsupportedContracts = json;
     }
 
+    /** CORUM: how many life contracts the sync being committed left unwritten. */
+    public void recordLifeAmbiguous(int count) {
+        if (bank != SidecarBank.CORUM) {
+            throw new IllegalStateException("Only a CORUM session counts life contracts");
+        }
+        if (count < 0) {
+            throw new IllegalArgumentException("lifeAmbiguous must not be negative");
+        }
+        this.lastSyncLifeAmbiguous = count;
+    }
+
+    /**
+     * Queues a sync. Refused for an inactive session or one already queued or running; the previous
+     * run's timestamps, error and CORUM Life ambiguous count are cleared.
+     */
     public void markQueued() {
         if (!active) {
             throw new IllegalStateException("Inactive " + bank.label() + " sessions cannot be queued");
@@ -112,6 +132,7 @@ public class SidecarSession extends AuditableEntity {
         lastSyncStartedAt = null;
         lastSyncCompletedAt = null;
         lastSyncError = null;
+        lastSyncLifeAmbiguous = 0;
     }
 
     public void markRunning(Instant startedAt) {
@@ -172,9 +193,9 @@ public class SidecarSession extends AuditableEntity {
             case CAISSE_EPARGNE -> error == SidecarErrorCode.SESSION_EXPIRED
                 || error == SidecarErrorCode.INVALID_SESSION_STATE;
             // The stored password was rejected: replaying it would lock the access.
-            case CIC, CMES -> error == SidecarErrorCode.SESSION_EXPIRED
+            case CIC, CMES, CORUM -> error == SidecarErrorCode.SESSION_EXPIRED
                 || error == SidecarErrorCode.INVALID_CREDENTIALS;
-            case AMEX, AMUNDI, BOURSE_DIRECT, BOURSO, CORUM, FORTUNEO, SOFIDY ->
+            case AMEX, AMUNDI, BOURSE_DIRECT, BOURSO, FORTUNEO, SOFIDY ->
                 error == SidecarErrorCode.SESSION_EXPIRED;
         };
     }

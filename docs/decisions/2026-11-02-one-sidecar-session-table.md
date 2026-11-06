@@ -16,14 +16,15 @@ existed for some banks and not others (issue #337, part of #326).
 ## Decision
 
 - **One table, `sidecar_session`**, keyed by `(bank, member_id)`, created by
-  `V124__sidecar_session.sql`. V124 copies the ten tables row for row,
+  `V128__sidecar_session.sql`. V128 copies the ten tables row for row,
   including the encrypted state as stored, and drops them in the same
   transaction. One entity `SidecarSession`, one enum `SidecarSyncStatus`, one
   `SidecarSessionRepository`.
 - **The database enforces each bank's own rules.** The CHECK on
   `(bank, last_sync_error)` has one branch per `SidecarBank`, generated from the
-  enum's declared codes. `encrypted_credentials` is allowed only for BOURSO, CIC
-  and CMES. FAILED requires an error code.
+  enum's declared codes. `encrypted_credentials` is allowed only for BOURSO, CIC,
+  CMES and CORUM. FAILED requires an error code. CORUM keeps the CORUM Life
+  ambiguous count V124 added to `corum_session`.
 - **One sync cycle, `SidecarSyncTemplate`.** It queues, runs, commits or fails a
   job in three short transactions fenced on the session row, recovers
   interrupted jobs at boot, and reports to the daily scheduler. Each bank keeps
@@ -69,17 +70,17 @@ PostgreSQL.
   the same state bytes, status, error and dates, and a real Caisse d'Epargne
   sync ran on the migrated row.
 - A bank that does not recover at boot (CORUM, Sofidy) or is not scheduled
-  (CORUM, Sofidy, Caisse d'Epargne) is listed in the contract suite, so a change
+  (Sofidy, Caisse d'Epargne) is listed in the contract suite, so a change
   to either list fails a test.
 
 ## Consequences
 
 - Adding a sidecar bank means one `SidecarBank` constant, one strategy, and
   one CHECK branch generated from the enum.
-- Rolling back past V124 needs a database restore. V124 drops the old tables.
+- Rolling back past V128 needs a database restore. V128 drops the old tables.
   It is a destructive change, so it needs the planned offline upgrade of the
   [safe release deployment](../features/release-deployment.md): stop the old app
   first, or a session it writes after the copy is dropped with its table.
 - The CORUM and Sofidy tables never enforced "FAILED requires an error code".
-  V124 repairs a row that breaks it before the copy (stale error cleared,
+  V128 repairs a row that breaks it before the copy (stale error cleared,
   missing one set to `INTERNAL_ERROR`) instead of failing the boot.
