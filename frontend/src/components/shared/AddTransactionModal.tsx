@@ -132,7 +132,12 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
     setName(product?.name ?? '')
   }
 
-  const selectedProduct = isPreciousMetals ? preciousMetals?.find(p => p.ticker === ticker) : undefined
+  // A stored ticker may differ from the catalogue's spelling by case or padding; the catalogue's
+  // wins. One that is not in the catalogue at all stays visible as an extra option, so opening
+  // the editor never silently blanks the field (the backend still refuses to save it).
+  const catalogueTicker = ticker.trim().toUpperCase()
+  const selectedProduct = isPreciousMetals ? preciousMetals?.find(p => p.ticker === catalogueTicker) : undefined
+  const productValue = selectedProduct?.ticker ?? ticker
   const quantityLabel = selectedProduct?.unit === 'GRAM'
     ? t('accounts.quantityGrams')
     : selectedProduct?.unit === 'COIN'
@@ -217,7 +222,7 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
               <Label>{t('accounts.preciousMetalProduct')}</Label>
               <select
                 aria-label={t('accounts.preciousMetalProduct')}
-                value={ticker}
+                value={productValue}
                 onChange={e => handleProductChange(e.target.value)}
                 className={SELECT_CLS}
                 required
@@ -228,6 +233,7 @@ function TransactionForm({ onOpenChange, accountId, accountType, onSubmit, isLoa
                 {(preciousMetals ?? []).map(p => (
                   <option key={p.ticker} value={p.ticker}>{p.name}</option>
                 ))}
+                {ticker.trim() !== '' && !selectedProduct && <option value={ticker}>{ticker}</option>}
               </select>
             </div>
           ) : (

@@ -110,6 +110,41 @@ describe('AddTransactionModal precious metals', () => {
     expect(screen.getByText('accounts.quantityGrams')).toBeInTheDocument()
   })
 
+  it('shows a stored product under the catalogue spelling, whatever its case or padding', () => {
+    usePreciousMetals.mockReturnValue({ data: catalogue })
+    render(<AddTransactionModal open onOpenChange={vi.fn()} accountId={9} accountType="PRECIOUS_METALS" onSubmit={vi.fn()}
+      initialValues={{ id: 1, date: '2026-10-01', description: 'Buy', amount: -710, txType: 'BUY',
+        ticker: ' gold:napoleon-20f ', quantity: 1, pricePerUnit: 710 }} />)
+
+    expect(screen.getByLabelText('accounts.preciousMetalProduct')).toHaveValue('GOLD:NAPOLEON-20F')
+    expect(screen.getByText('accounts.quantityCoins')).toBeInTheDocument()
+    expect(screen.getAllByRole('option')).toHaveLength(3)
+  })
+
+  it('keeps a stored product the catalogue no longer lists visible, as an extra option', async () => {
+    usePreciousMetals.mockReturnValue({ data: catalogue })
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    render(<AddTransactionModal open onOpenChange={vi.fn()} accountId={9} accountType="PRECIOUS_METALS" onSubmit={onSubmit}
+      initialValues={{ id: 1, date: '2026-10-01', description: 'Buy', amount: -710, txType: 'BUY',
+        ticker: 'AAPL', quantity: 1, pricePerUnit: 710 }} />)
+
+    const select = screen.getByLabelText('accounts.preciousMetalProduct')
+    expect(select).toHaveValue('AAPL')
+    expect(screen.getByRole('option', { name: 'AAPL' })).toBeInTheDocument()
+    expect(screen.getAllByRole('option')).toHaveLength(4)
+
+    // The form still submits what it shows: the backend refuses it, and that error is displayed.
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ ticker: 'AAPL' })))
+  })
+
+  it('adds no extra option on a blank new transaction', () => {
+    usePreciousMetals.mockReturnValue({ data: catalogue })
+    render(<AddTransactionModal open onOpenChange={vi.fn()} accountId={9} accountType="PRECIOUS_METALS" onSubmit={vi.fn()} />)
+
+    expect(screen.getAllByRole('option')).toHaveLength(3)
+  })
+
   it('keeps the free ticker input on a securities account and skips the catalogue fetch', () => {
     usePreciousMetals.mockReturnValue({ data: undefined })
     render(<AddTransactionModal open onOpenChange={vi.fn()} accountId={2} accountType="COMPTE_TITRES" onSubmit={vi.fn()} />)
