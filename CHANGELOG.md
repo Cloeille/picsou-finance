@@ -13,12 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `get_ai_categorization_status` reports its progress as counters only, under a new
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
   browser session. See [Budget + OAuth2 tools in MCP](docs/features/mcp-budget-oauth2.md).
+- **Unused-file check for the frontend.** `frontend/knip.jsonc` lets
+  `bunx knip --production` report unused files under `src/`. German and Spanish strings still
+  in English are listed for translators in `docs/features/i18n-untranslated.md`.
+
 ### Fixed
 
 - **Caisse d'Epargne: a long-held current account no longer fails the import.** The sidecar
   read the whole transaction history and refused it past 1,000 rows (`UPSTREAM_FORMAT_CHANGED`).
   It now asks for rows ordered by date and stops paging past the last 365 days when they come
   newest first; older rows already imported stay. (#397)
+
+- **The account export dialog says "2 accounts selected".** Its count key used the legacy
+  `_plural` suffix, which i18next ignores, so every language showed the singular form.
 
 - **Trade Republic bond values no longer use percentage quotes as euro prices.** EUR bond
   ticker prices are divided by 100. Non-EUR or unknown bond currencies keep the position's
@@ -74,6 +81,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   See [testing conventions](docs/conventions/testing.md#sidecar-tests).
 
 ### Removed
+
+- **Unreachable frontend code.** `PortfolioView`, `CashflowTab`, `types/app.ts`, thirteen hooks
+  and helpers and three constants with no caller, the API functions only they called, the
+  Trade Republic sync-progress client stub (the backend never served it) and 94 translation
+  keys nothing reads. No screen changes.
 
 - **Split Docker stack.** The root `docker-compose.yml`, `backend/Dockerfile`,
   `frontend/Dockerfile`, `frontend/nginx.conf`, `frontend/picsou-realip.conf`, both

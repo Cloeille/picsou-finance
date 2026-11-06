@@ -25,6 +25,16 @@ describe('translations', () => {
     expect(t('dashboard.otherGoals', { count: 2 })).toBe(other)
   })
 
+  it.each([
+    ['fr', '2 comptes sélectionnés'],
+    ['en', '2 accounts selected'],
+    ['de', '2 Konten ausgewählt'],
+    ['es', '2 cuentas seleccionadas'],
+  ] as const)('%s pluralizes the export selection count', async (lng, two) => {
+    const t = await translatorFor(lng)
+    expect(t('accounts.export.selected', { count: 2 })).toBe(two)
+  })
+
   it('puts a no-break space before the colon of a French label only', async () => {
     const label = 'Objectif mensuel'
     expect((await translatorFor('fr'))('common.labelColon', { label })).toBe('Objectif mensuel\u00a0:')

@@ -10,12 +10,3 @@ export function useHistory(accountIds: number[], months = 12, split = false) {
     enabled: accountIds.length > 0,
   })
 }
-
-export function usePnl(accountIds: number[]) {
-  return useQuery({
-    queryKey: ['pnl', accountIds],
-    queryFn: () => historyApi.getPnl(accountIds),
-    staleTime: QUERY_STALE_TIMES.dashboard,
-    enabled: accountIds.length > 0,
-  })
-}
