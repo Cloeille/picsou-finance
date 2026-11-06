@@ -13,7 +13,7 @@ Trade Republic is a German neobroker popular in France. Picsou syncs portfolio b
 `TradeRepublicAdapter` calls three endpoints of the sidecar through the shared `SidecarClient`, which keeps the sidecar's `{"detail": CODE}` as the `SyncException` code:
 
 1. **`POST /initiate`** -- Sends phone number + PIN. Returns `{processId, flow, countdownInSeconds}`. `flow` is `confirmInApp` (the member confirms in the Trade Republic app) or `otp` (TR fell back to a 4-digit code).
-2. **`POST /complete`** -- Sends `processId` and `tan` (`null` for `confirmInApp`). Blocks while the member confirms, up to 120 s in the sidecar and 150 s in the adapter, then returns an opaque `sessionState`. The adapter always sends the `tan` key, with an explicit `null`, because the sidecar forbids unknown fields but declares it.
+2. **`POST /complete`** -- Sends `processId` and `tan` (`null` for `confirmInApp`). Blocks while the member confirms, up to 120 s in the sidecar and 150 s in the adapter, then returns an opaque `sessionState`. The 120 s is one deadline over the whole wait: a poll or a WAF token refresh still running when it passes is cancelled, so the sidecar answers `APP_VALIDATION_TIMEOUT` before the adapter gives up. The adapter always sends the `tan` key, with an explicit `null`, because the sidecar forbids unknown fields but declares it.
 3. **`POST /session`** -- Sends the stored `sessionState`. Returns `{sessionToken, claims}`: a live `tr_session` cookie value and the decoded claims, which list the securities and cash accounts in `act.acc.owner`. The refresh cookie is not rotated, so the stored state never changes.
 
 Phone number and PIN are never stored: they are used for the `/initiate` call and dropped. The state holds only the refresh cookie, the device cookie and the subject.
@@ -37,16 +37,16 @@ failures:
 
 Sessions live in the shared `sidecar_session` table (bank `TRADE_REPUBLIC`), like the other sidecar banks; see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md). `V130__trade_republic_sidecar_session.sql` widens the table's two CHECK constraints with the Trade Republic branch and drops `trade_republic_session`.
 
-**Members reconnect Trade Republic once after this upgrade.** The old rows are not copied: their refresh token only worked with the v1 refresh route, which Trade Republic now answers with 401. The member sees the connection as needing re-authentication and confirms once in the app.
+**Members reconnect Trade Republic once after this upgrade.** The old rows are not copied: their refresh token only worked with the v1 refresh route, which Trade Republic now answers with 401. With no row left, the daily sync reports Trade Republic as `SKIPPED_NOT_CONNECTED`, not `NEEDS_REAUTH`, and logs nothing. The Trade Republic accounts keep their last balances and holdings, frozen, until the member signs in again. The Trade Republic tab says so: with no session and at least one synced Trade Republic account, it shows "no longer updated" above the login form.
 
 `TradeRepublicSyncService` builds a `SidecarSyncTemplate` with a `Strategy`:
 
-- `completeAuth()` calls `/complete`, then `replaceAndQueue` stores the encrypted `sessionState` (AES-256-GCM through `CryptoEncryption`, see [encryption-at-rest.md](./encryption-at-rest.md)), lifts the soft-delete tombstones on the member's TR accounts in the same transaction, and queues the first import on the `tradeRepublicSyncExecutor` single-worker executor. It returns a `SessionStatusResponse` straight away.
-- A job runs in three short transactions fenced on the session row. `fetch` calls `/session`, then reads the portfolio over the WebSocket, outside any transaction. `commit` runs `upsertAccount` for each account inside the job's transaction.
+- `completeAuth()` calls `/complete`, then `insertQueued` stores the encrypted `sessionState` (AES-256-GCM through `CryptoEncryption`, see [encryption-at-rest.md](./encryption-at-rest.md)), lifts the soft-delete tombstones on the member's TR accounts in the same transaction, and queues the first import on the `tradeRepublicSyncExecutor` single-worker executor. It returns a `SessionStatusResponse` straight away. A Disconnect clicked during the in-app wait bumps a per-member generation, so the login that finishes afterwards stores nothing and answers `AUTH_ATTEMPT_EXPIRED` (the fence CIC and CMES use).
+- A job runs in three short transactions fenced on the session row. `fetch` calls `/session`, reads the portfolio over the WebSocket and resolves every ISIN to its ticker through OpenFIGI, outside any transaction. `commit` runs `upsertAccount` for each account inside the job's transaction, with no network call while it holds the session row lock.
 - `SESSION_EXPIRED` and `INVALID_SESSION_STATE` end the session: it is kept but inactive, the member sees "reconnect". Any other failure (`UPSTREAM_UNAVAILABLE`, `RATE_LIMITED`...) leaves it active so the next sync retries.
 - A backend restart turns `QUEUED`/`RUNNING` rows into a retryable failure: `TradeRepublicSyncService` is one of the services `SidecarSyncRecovery` runs at boot.
 
-`POST /api/tr/sync` queues an import and returns the status; `GET /api/tr/status` and `DELETE /api/tr/session` read and delete the row. All of them answer `{isActive, syncStatus, lastSyncStartedAt, lastSyncCompletedAt, lastSyncError}`, except the delete (204) and the two auth steps.
+`POST /api/tr/sync` queues an import and returns the status (throttled per client IP by the shared `syncBuckets`, 10 a minute, like the other sync entry points); `GET /api/tr/status` and `DELETE /api/tr/session` read and delete the row. All of them answer `{isActive, syncStatus, lastSyncStartedAt, lastSyncCompletedAt, lastSyncError}`, except the delete (204) and the two auth steps.
 
 ### Data fetching (WebSocket, no sidecar)
 
@@ -156,7 +156,7 @@ Member confirms in the TR app (or types the 4-digit code)
 TRController.completeAuth() --> TRSyncService.completeAuth()
         |                         sidecar POST /complete (processId, tan|null)  [blocks <= 150 s]
         |                         <-- sessionState
-        |                         SidecarSyncTemplate.replaceAndQueue (store + lift tombstones + queue)
+        |                         generation fence, then SidecarSyncTemplate.insertQueued (store + lift tombstones + queue)
         |                         <-- SessionStatusResponse
         v
   tradeRepublicSyncExecutor, SidecarSyncTemplate:
@@ -241,10 +241,13 @@ Without rule 2, Playwright installs to `/root/.cache/ms-playwright/`, which the 
 - `HoldingDedupTest` -- VWAP math + null handling + order independence (see [trade-republic-holding-deduplication.md](./trade-republic-holding-deduplication.md))
 - `TradeRepublicSyncServiceTest#sync_mergesDuplicateTickersWithVwap` -- wiring test: two ISINs → same ticker → VWAP-merged `averageBuyIn` persisted
 - `TradeRepublicSyncServiceTest#sync_deletesOldHoldingsWhenPortfolioReturnsEmpty` -- regression test: an authoritative empty WebSocket portfolio clears previous holdings
-- `TradeRepublicSyncServiceTest#completeAuth_*`, `#sync_*` -- session stored encrypted, tombstones lifted, expired session deactivated, transient failure keeps it connected
+- `TradeRepublicSyncServiceTest#completeAuth_*`, `#sync_*` -- session stored encrypted, tombstones lifted, a Disconnect during the in-app wait wins, ISINs resolved before the commit transaction, expired session deactivated, transient failure keeps it connected
+- `TradeRepublicControllerTest`, `SyncStatusServiceTest#tradeRepublic*` -- `/api/tr/sync` throttling; `INVALID_SESSION_STATE` reported as `NEEDS_REAUTH`
+- `services/tr-auth/test_endpoints.py` -- the sidecar endpoints against a fake TR API, including a WAF refresh that hangs at the confirmation deadline
 - `TradeRepublicAdapterTest#initiateAuth_*`, `#completeAuth_*`, `#openSession_*` -- the sidecar's `detail` codes, bare-status fallbacks, explicit-null `tan`, the 150 s completion wait
 - `TradeRepublicAdapterTest#fetchAccounts_*` -- against a fake TR WebSocket: the `tr_session` cookie on the handshake, accounts read from the claims, the ticker subscribed on the venue the `instrument` answer lists, `LSX` when it lists none, and a refused ticker leaves `currentPrice` null with the account total at cost (#268)
 - `SidecarSyncContractTest`, `SidecarBankCodesTest`, `V130TradeRepublicSidecarSessionMigrationTest` -- the shared sync scenarios, the Java/SQL code lists, the migration
+- `frontend/src/pages/sync/TradeRepublicTab.test.tsx` -- also the login form under the expiry message, and the "no longer updated" hint without a session
 - `frontend/src/pages/sync/TradeRepublicTab.test.tsx` and `frontend/src/components/shared/AddAccountModal.test.tsx` -- frontend regression tests for initiation failure staying on phone/PIN and a failed confirmation staying on the confirmation step
 - Manual integration testing against real TR accounts (auth flow, CSV import)
 
