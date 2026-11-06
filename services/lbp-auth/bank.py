@@ -468,6 +468,30 @@ class BrowserBankClient(HttpxBankClient):
                 viewport={"width": 1280, "height": 900},
             )
             page = await context.new_page()
+            # Diagnostics only: paths and statuses, never query strings or bodies
+            # outside the failure helper below.
+            page.on(
+                "requestfailed",
+                lambda request: log.warning(
+                    "La Banque Postale request failed path=%s", urlparse(request.url).path
+                ),
+            )
+
+            def _response(response: Any) -> None:
+                if response.status >= 400 and "labanquepostale" in response.url:
+                    log.warning(
+                        "La Banque Postale response path=%s status=%s",
+                        urlparse(response.url).path,
+                        response.status,
+                    )
+
+            page.on("response", _response)
+            page.on(
+                "pageerror",
+                lambda error: log.warning(
+                    "La Banque Postale page error type=%s", type(error).__name__
+                ),
+            )
             await page.goto(
                 BASE + IDENTIF + "?origin=particuliers",
                 wait_until="domcontentloaded",
@@ -494,6 +518,7 @@ class BrowserBankClient(HttpxBankClient):
                 "context": context,
                 "page": page,
                 "customer_id": customer_id,
+                "keys": keys,
                 "created_at": time.time(),
             }
             try:
@@ -531,6 +556,12 @@ class BrowserBankClient(HttpxBankClient):
 
             step = "keys"
             buttons = page.locator("div[data-tb-cvd-id='password'] button")
+            current_keys = [
+                key.strip() for key in await buttons.all_text_contents()
+            ][:10]
+            if current_keys != state.get("keys"):
+                log.warning("La Banque Postale keypad order changed between initiate and keypad")
+                raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
             count = await buttons.count()
             for position in positions:
                 if position < 0 or position >= count:
@@ -578,6 +609,7 @@ class BrowserBankClient(HttpxBankClient):
                     title,
                     "Erreur Technique" in body,
                 )
+                await self._page_diagnostics(page, "challenge")
                 raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
             if "afficheSynthese" in url or "synthese_ccp" in url:
                 state["session_ready"] = True
@@ -631,6 +663,7 @@ class BrowserBankClient(HttpxBankClient):
                         urlparse(url).path,
                         parse_qs(urlparse(url).query).get("param", [""])[0],
                     )
+                    await self._page_diagnostics(page, "approval-error")
                     raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
                 await asyncio.sleep(2)
             raise HTTPException(status_code=408, detail="APP_VALIDATION_TIMEOUT")
@@ -659,6 +692,41 @@ class BrowserBankClient(HttpxBankClient):
             state.get("playwright"), state.get("browser"), state.get("context")
         )
         await super()._dispose(state)
+
+    @staticmethod
+    async def _page_diagnostics(page: Any, label: str) -> None:
+        """Log the failure page's visible message and keep a screenshot.
+
+        Only called on a failure page (the bank's generic message, or a page
+        that should have been the approval page). The text is the bank's own
+        error wording; the screenshot may show the identifier field, never the
+        password.
+        """
+        try:
+            title = await page.title()
+        except Exception:
+            title = ""
+        try:
+            body_text = await page.locator("body").inner_text(timeout=3_000)
+        except Exception:
+            body_text = ""
+        parsed = urlparse(page.url)
+        params = parse_qs(parsed.query)
+        safe = {key: params[key][0] for key in ("param", "ERROR_CODE", "cu", "phase") if key in params}
+        log.warning(
+            "La Banque Postale page %s title=%s path=%s params=%s text=%s",
+            label,
+            title,
+            parsed.path,
+            safe,
+            " ".join(body_text.split())[:400],
+        )
+        try:
+            path = f"/tmp/lbp-{label}.png"
+            await page.screenshot(path=path, full_page=True)
+            log.warning("La Banque Postale page %s screenshot=%s", label, path)
+        except Exception:
+            log.debug("La Banque Postale screenshot failed", exc_info=True)
 
     @staticmethod
     async def _close_browser(pw: Any, browser: Any, context: Any) -> None:
