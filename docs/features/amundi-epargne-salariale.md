@@ -65,7 +65,7 @@ listPositionsSalarieDispositifsDto[]          one entry per plan (dispositif)
 - `backend/.../controller/AmundiController.java` — `/api/amundi/*`
 - `backend/.../model/SidecarSession.java`, `SidecarSyncStatus.java` (shared, see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md))
 - `backend/.../config/SyncExecutorConfig.java` (single-thread executor),
-  `SidecarSyncRecovery.java` (fails interrupted jobs at boot, every sidecar bank)
+  `SidecarSyncRecovery.java` (fails interrupted jobs at boot for every sidecar bank except CORUM and Sofidy)
 - `backend/src/main/resources/db/migration/V69__account_type_employee_savings.sql`,
   `V70__amundi_session.sql`
 - `frontend/src/components/sync/AmundiPanel.tsx` (serves both the Sync tab and

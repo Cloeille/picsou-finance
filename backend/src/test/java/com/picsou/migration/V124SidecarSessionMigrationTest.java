@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -83,7 +84,7 @@ class V124SidecarSessionMigrationTest {
     @Test
     void everyRowOfEveryBankIsCopiedByteForByte() throws SQLException {
         for (SidecarBank bank : SidecarBank.values()) {
-            String table = bank.name().toLowerCase();
+            String table = bank.name().toLowerCase(Locale.ROOT);
             List<Object> row = row(bank, alice);
             assertThat(row).as(bank.name()).containsExactly(
                 bank.name(), alice, "state-" + table,
@@ -97,7 +98,11 @@ class V124SidecarSessionMigrationTest {
                 Instant.parse("2026-10-01T08:00:00Z"), false, "FAILED", Instant.parse("2026-10-02T08:00:00Z"),
                 Instant.parse("2026-10-02T08:05:00Z"), "SESSION_EXPIRED", Instant.parse("2026-09-01T08:00:00Z"),
                 Instant.parse("2026-10-02T08:05:00Z"));
-            assertThat(row(bank, bob).subList(0, 3)).containsExactly(bank.name(), bob, "bob-" + table);
+            // Index 6 is is_active, 7 sync_status, 10 last_sync_error.
+            List<Object> bobRow = row(bank, bob);
+            assertThat(bobRow.subList(0, 3)).containsExactly(bank.name(), bob, "bob-" + table);
+            assertThat(List.of(bobRow.get(6), bobRow.get(7))).as(bank.name()).containsExactly(true, "SUCCESS");
+            assertThat(bobRow.get(10)).as(bank.name()).isNull();
         }
         assertThat(count("SELECT count(*) FROM sidecar_session WHERE member_id IN (" + alice + ", " + bob + ")"))
             .isEqualTo(2L * TABLES.length);

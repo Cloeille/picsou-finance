@@ -77,8 +77,9 @@ PostgreSQL.
 - Adding a sidecar bank means one `SidecarBank` constant, one strategy, and
   one CHECK branch generated from the enum.
 - Rolling back past V124 needs a database restore. V124 drops the old tables.
-  Upgrade with the [safe release deployment](../features/release-deployment.md),
-  which takes the backup first.
+  It is a destructive change, so it needs the planned offline upgrade of the
+  [safe release deployment](../features/release-deployment.md): stop the old app
+  first, or a session it writes after the copy is dropped with its table.
 - The CORUM and Sofidy tables never enforced "FAILED requires an error code".
   V124 repairs a row that breaks it before the copy (stale error cleared,
   missing one set to `INTERNAL_ERROR`) instead of failing the boot.
