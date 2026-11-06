@@ -454,6 +454,23 @@ class CompleteAuthenticatorTest(EndpointCase):
         self.assertEqual(len(tr.requests), before)
         self.assertEqual(self.complete(process_id).status_code, 200)
 
+    def test_the_token_fetch_and_the_confirmation_wait_share_one_budget(self):
+        # A slow WAF token leaves less time for the in-app confirmation, not a fresh full wait,
+        # so the authenticator flow also answers before the backend's /complete timeout.
+        tr, process_id = self.start({V2_AUTHENTICATOR: reply(200, {})})
+        tr.routes[V2_POLL] = pending()
+
+        async def slow_token():
+            await asyncio.sleep(0.5)
+            return "waf"
+
+        with patch.object(main, "get_waf_token", slow_token):
+            started = time.monotonic()
+            response = self.complete(process_id)
+
+        self.assertDetail(response, 408, "APP_VALIDATION_TIMEOUT")
+        self.assertLess(time.monotonic() - started, 0.65)
+
     def test_the_code_is_never_logged(self):
         _, process_id = self.start({V2_AUTHENTICATOR: reply(200, {})})
         with self.assertLogs(level="DEBUG") as logs:

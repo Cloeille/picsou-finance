@@ -9,7 +9,7 @@ const inactiveSession = {
   lastSyncStartedAt: null,
   lastSyncCompletedAt: null,
   lastSyncError: null,
-  maskedPhone: '+33 6 ** ** 56 78',
+  maskedPhone: '+33 * ** ** ** 78',
 } satisfies TrSessionStatus
 
 const initiated = {

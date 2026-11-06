@@ -1073,7 +1073,7 @@
       "openFinary": "Abrir la página de Finary para sincronizar",
       "sessionExpired": "Sesión caducada",
       "reconnect": "Volver a conectar desde la pestaña del proveedor",
-      "trManualInfo": "Trade Republic es el único banco que requiere volver a autenticarse manualmente. Tendrás que introducir de nuevo tu número de teléfono y tu PIN o contraseña en cada sincronización.",
+      "trManualInfo": "Las sesiones de Trade Republic caducan tras unas 24 horas. Para volver a conectarte, introduce de nuevo tu PIN o contraseña; el número de teléfono se conserva.",
       "trSlowWarning": "La conexión puede tardar unos instantes, es normal.",
       "openRevolut": "Open the Revolut page to connect",
       "revolutManualInfo": "Revolut requires approval on your phone. Click the icon to enter your credentials."

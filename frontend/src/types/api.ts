@@ -882,7 +882,7 @@ export type TrErrorCode =
 export type TrSessionStatus = SidecarSessionStatusOf<
   TrErrorCode,
   {
-    /** Phone stored with the session (e.g. `+33 6 ** ** 56 78`), `null` when none: reconnect needs it. */
+    /** Phone stored with the session (e.g. `+33 * ** ** ** 78`), `null` when none: reconnect needs it. */
     maskedPhone: string | null
   }
 >

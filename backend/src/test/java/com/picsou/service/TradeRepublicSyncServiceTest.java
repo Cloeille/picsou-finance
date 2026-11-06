@@ -329,6 +329,12 @@ class TradeRepublicSyncServiceTest {
     }
 
     @Test
+    void maskPhone_ignoresSeparatorsLeftInAnOlderStoredState() {
+        assertThat(TradeRepublicSyncService.maskPhone("+33 6 12 34 56 99")).isEqualTo("+33 * ** ** ** 99");
+        assertThat(TradeRepublicSyncService.maskPhone("+33-6-12-34-56-99")).isEqualTo("+33 * ** ** ** 99");
+    }
+
+    @Test
     void storedPhone_isReadFromADeactivatedSessionToo() {
         FamilyMember member = FamilyMember.builder().id(7L).displayName("Owner").build();
         SidecarSession session = arrangeSession(member);

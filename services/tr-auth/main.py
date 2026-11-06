@@ -69,9 +69,6 @@ MAX_PENDING = 16
 APP_VALIDATION_TIMEOUT_SECONDS = 120
 APP_VALIDATION_POLL_SECONDS = 2.0
 AUTHENTICATOR_COUNTDOWN_SECONDS = 120
-# After TR accepts an authenticator code it still asks for the in-app confirmation
-# (measured live), so the process gets the same human budget as confirmInApp.
-AUTHENTICATOR_CONFIRM_TIMEOUT_SECONDS = APP_VALIDATION_TIMEOUT_SECONDS
 # v1 says nothing about the code's lifetime; the countdown only paces the UI.
 OTP_COUNTDOWN_SECONDS = 30
 
@@ -286,7 +283,8 @@ def tr_headers(waf_token: Optional[str], device_info: str) -> dict:
 
 
 def normalise_phone(phone: str) -> str:
-    phone = phone.strip()
+    # Separators are dropped so the stored phone is +<digits>, which the backend can mask.
+    phone = re.sub(r"[\s.\-()]", "", phone)
     if phone.startswith("0"):
         phone = "+33" + phone[1:]
     return phone
@@ -694,7 +692,12 @@ def raise_for_authenticator_status(resp: httpx.Response) -> None:
 
 async def submit_authenticator_code(state: dict, code: str) -> tuple[dict, Any]:
     """v2 authenticator: posts the 6-digit code, then reads the process until TR
-    has finished it; returns (cookies of the verification and of the polls, claims)."""
+    has finished it; returns (cookies of the verification and of the polls, claims).
+
+    TR still asks for the in-app confirmation after the code (measured live). The token
+    fetch, the code check and that wait share one APP_VALIDATION_TIMEOUT_SECONDS budget,
+    so this flow also answers before the backend's 150 s /complete timeout."""
+    deadline = time.monotonic() + APP_VALIDATION_TIMEOUT_SECONDS
     waf_token = await get_waf_token()
     if not waf_token:
         raise waf_blocked()
@@ -707,7 +710,7 @@ async def submit_authenticator_code(state: dict, code: str) -> tuple[dict, Any]:
     verified = parse_set_cookies(resp.headers)
     cookies, body_claims = await await_app_confirmation(
         {**state, "wafToken": waf_token, "cookies": {**state["cookies"], **verified}},
-        AUTHENTICATOR_CONFIRM_TIMEOUT_SECONDS)
+        max(0.0, deadline - time.monotonic()))
     return {**verified, **cookies}, body_claims
 
 

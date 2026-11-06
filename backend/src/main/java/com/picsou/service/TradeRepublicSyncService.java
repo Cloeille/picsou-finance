@@ -79,6 +79,7 @@ public class TradeRepublicSyncService {
     private static final int EXPORT_MAX_DAYS = 1830;
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final Pattern INTERNATIONAL_PHONE = Pattern.compile("\\+\\d{6,15}");
+    private static final Pattern PHONE_SEPARATORS = Pattern.compile("[\\s.\\-()]");
     private static final int COUNTRY_PREFIX_LENGTH = 3;
     private static final int VISIBLE_PHONE_DIGITS = 2;
 
@@ -711,9 +712,11 @@ public class TradeRepublicSyncService {
 
     /**
      * Keeps the country prefix and the last two digits: {@code +33612345699} becomes
-     * {@code +33 * ** ** ** 99}. Null for anything that is not an international number.
+     * {@code +33 * ** ** ** 99}. Separators are ignored, since a state stored before the sidecar
+     * dropped them can hold {@code +33 6 12 ...}. Null for anything that is not an international number.
      */
     static String maskPhone(String phone) {
+        phone = phone == null ? null : PHONE_SEPARATORS.matcher(phone).replaceAll("");
         if (phone == null || !INTERNATIONAL_PHONE.matcher(phone).matches()) {
             return null;
         }
