@@ -60,9 +60,11 @@ function notifyRefreshSubscribers() {
 }
 
 // A 401 from /auth/ is the server refusing credentials, a challenge or the refresh itself, so a
-// silent refresh would replay a wrong password or loop. The SSO sign-in-method endpoints are plain
-// authenticated calls whose 401 means an expired access token, so they refresh like any other.
-const REFRESHABLE_AUTH_PATH = /^\/auth\/(sign-in-methods|password|identities\/\d+)$/
+// silent refresh would replay a wrong password or loop. The SSO sign-in-method endpoints and the
+// password re-authentication are plain authenticated calls whose 401 means an expired access token
+// (a refused re-authentication answers REAUTH_FAILED, which never refreshes), so they refresh like
+// any other.
+const REFRESHABLE_AUTH_PATH = /^\/auth\/(sign-in-methods|password|identities\/\d+|reauth)$/
 
 function refreshesOn401(url: string | undefined): boolean {
   if (!url?.includes('/auth/')) return true

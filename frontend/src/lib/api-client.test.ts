@@ -187,6 +187,21 @@ describe('api-client SSO revalidation flag', () => {
     expect(calls).toEqual(['post /auth/reauth'])
   })
 
+  it('refreshes an expired session for the password re-authentication and retries it', async () => {
+    const calls: string[] = []
+    let refreshed = false
+    api.defaults.adapter = async (config) => {
+      calls.push(`${config.method} ${config.url}`)
+      if (config.url === '/auth/refresh') refreshed = true
+      else if (!refreshed) return Promise.reject({ config, response: { status: 401, data: {} } })
+      return { data: '', status: 204, statusText: 'No Content', headers: {}, config }
+    }
+
+    await expect(api.post('/auth/reauth', { password: 'right' })).resolves.toMatchObject({ status: 204 })
+
+    expect(calls).toEqual(['post /auth/reauth', 'post /auth/refresh', 'post /auth/reauth'])
+  })
+
   it.each([
     ['put', '/auth/password'],
     ['delete', '/auth/password'],
