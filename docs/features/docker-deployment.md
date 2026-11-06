@@ -771,6 +771,7 @@ docker build -f docker/Dockerfile --build-arg APP_VERSION=1.0.13 .
 - **Enabling the `tls` profile against a pre-built GHCR image does not get the HSTS fix.** An image built before the HSTS gate existed still sends HSTS unconditionally — which is precisely the lockout combination with an internal-CA certificate. Pull a current image, or rebuild with `--build`.
 - **Sidecar URLs live only in `application.yml`.** Compose sets no `*_AUTH_URL`; an operator `.env` value still overrides the default.
 - **Bourse Direct 2FA state is process-local.** Keep `bourse-direct-auth` at one replica unless request affinity or shared pending state is added.
+- **La Banque Postale login state is process-local too.** Keep `app` at one replica (or add request affinity): `/api/lbp/auth/keypad` and `/auth/complete` must reach the backend that handled `/auth/initiate`, or they answer `AUTH_ATTEMPT_EXPIRED`.
 - **Secrets are never regenerated.** If `/data/.secrets/jwt_secret` exists, it is reused. Deleting it will log out all users and invalidate all encrypted secrets in the DB.
 - **Spring Boot env var naming:** Properties under `app.*` require the `APP_` prefix. `app.finary.email` → `APP_FINARY_EMAIL`. Variables like `JWT_SECRET` work because `application.yml` maps them explicitly.
 - **Stale env vars removed (2026-04-19):** `TR_PHONE_NUMBER`, `TR_PIN`, `FINARY_TOTP`, `POWENS_*`, `FINARY_EMAIL`, `FINARY_PASSWORD`. Do not re-add them.
