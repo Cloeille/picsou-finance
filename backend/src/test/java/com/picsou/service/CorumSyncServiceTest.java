@@ -675,8 +675,7 @@ class CorumSyncServiceTest {
         com.picsou.adapter.sidecar.SidecarWebClientFactory clients =
             mock(com.picsou.adapter.sidecar.SidecarWebClientFactory.class);
         when(clients.create(any(), any())).thenReturn(client);
-        return new com.picsou.adapter.CorumAdapter(clients, "http://corum-auth:8001",
-            new com.fasterxml.jackson.databind.ObjectMapper());
+        return new com.picsou.adapter.CorumAdapter(clients, new com.fasterxml.jackson.databind.ObjectMapper());
     }
 
     /**
