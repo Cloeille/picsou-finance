@@ -1009,11 +1009,16 @@ handlers.set(key('POST', '/banque-populaire/sync'), () => {
   demoBanquePopulaireState = 'synced'
   const syncedAt = new Date().toISOString()
   demoBanquePopulaireSyncedAt = syncedAt
+  // A later sync restamps the accounts it already made (createdAt kept) and adds none twice.
+  const fixtureIds = new Set(mockBanquePopulaireAccounts.map(a => a.id))
   const known = new Set(_demoAccounts.map(a => a.id))
   const added = mockBanquePopulaireAccounts
     .filter(a => !known.has(a.id))
     .map(a => ({ ...a, createdAt: syncedAt, lastSyncedAt: syncedAt }))
-  if (added.length) _demoAccounts = [..._demoAccounts, ...added]
+  _demoAccounts = [
+    ..._demoAccounts.map(a => (fixtureIds.has(a.id) ? { ...a, lastSyncedAt: syncedAt } : a)),
+    ...added,
+  ]
   return demoBanquePopulaireStatus()
 })
 for (const { id } of mockBanquePopulaireAccounts) {

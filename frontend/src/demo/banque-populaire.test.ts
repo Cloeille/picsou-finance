@@ -158,10 +158,21 @@ describe('demo Banque Populaire accounts', () => {
       expect(await call('GET', `/accounts/${account.id}/transactions`)).toEqual([])
     }
 
+    // A later sync adds nothing, keeps createdAt and restamps lastSyncedAt.
     vi.setSystemTime(new Date('2026-11-05T10:10:00Z'))
     await call('POST', '/banque-populaire/sync')
-    expect(await demoAccounts()).toEqual(after)
-  })
+    const resynced = await demoAccounts()
+    expect(idsOf(resynced)).toEqual(idsOf(after))
+    for (const account of resynced.filter((a) => fixtureIds.includes(a.id))) {
+      expect(account).toMatchObject({
+        createdAt: '2026-11-05T10:00:00.000Z',
+        lastSyncedAt: '2026-11-05T10:10:00.000Z',
+      })
+    }
+    expect(resynced.filter((a) => !fixtureIds.includes(a.id)))
+      .toEqual(after.filter((a) => !fixtureIds.includes(a.id)))
+    // Every demo call waits 200-600 ms, and this one makes about ten.
+  }, 15_000)
 
   it('keeps one of each account through a disconnect, a reconnect and a new sync', async () => {
     await call('POST', '/banque-populaire/auth/complete')
