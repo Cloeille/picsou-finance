@@ -155,6 +155,10 @@ transient failure leaves it usable.
   correct one.
 - Transactions are upserted by `(account, externalId)`; rows are never deleted
   and manual rows are never touched.
+- A read that hits a transient bank page (`502 UPSTREAM_UNAVAILABLE`) is retried
+  **once** inside the sidecar, reusing the same cookie jar; a login step is never
+  retried. The retry logs the failing path and status, so a deterministic failure
+  stays diagnosable.
 - A soft-deleted account is skipped, not recreated.
 - The bank's `compte.numero` UUID changes at every login; accounts are keyed on
   a hash of the displayed account number so two sessions cannot create

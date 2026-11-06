@@ -117,6 +117,9 @@ must be diagnosed from the sidecar's typed error, never by replaying it.
   identifier encrypted when the user ticks "remember the identifier"; it never
   keeps the password or the keypad positions.
 - No login step is retried: a wrong password can lock the bank account.
+- `/accounts` retries a transient `502 UPSTREAM_UNAVAILABLE` once, with the same
+  cookie jar: it is an idempotent read, not a login step. The retry logs the
+  failing path and status.
 - Pending login state lives in memory only. A restart drops it and the user
   starts again.
 

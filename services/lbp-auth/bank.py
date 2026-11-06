@@ -323,38 +323,17 @@ class HttpxBankClient:
         client = self._new_client()
         try:
             self._restore(client, session_state)
-            accounts: list[dict[str, Any]] = []
-            for path in (SYNTHESE_CCP, SYNTHESE_EP):
-                response = await client.get(path, follow_redirects=False)
-                if response.status_code in (301, 302, 303, 307, 308):
-                    raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
-                if response.status_code != 200:
-                    raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
-                if "formAccesCompte" in response.text:
-                    raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
-                accounts.extend(parsers.parse_account_cards(response.text))
-
-            if not accounts:
-                raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
-
-            for account in accounts:
-                path = RELEVE_CCP if account["typeRecherche"] == "5" else RELEVE_CNE
-                params = {
-                    "compte.numero": account["statementId"],
-                    "typeRecherche": account["typeRecherche"],
-                }
-                response = await client.get(path, params=params, follow_redirects=True)
-                if response.status_code == 404 and path == RELEVE_CNE:
-                    # The savings statement also exists behind its frame page.
-                    response = await client.get(FRAME_CNE, params=params, follow_redirects=True)
-                if response.status_code != 200 or "formAccesCompte" in response.text:
-                    raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
-                account["transactions"] = parsers.parse_transactions(response.text)
-
-            return {
-                "accounts": [self._normalized(account) for account in accounts],
-                "unsupported": [],
-            }
+            try:
+                return await self._read_accounts(client)
+            except HTTPException as exc:
+                if exc.status_code != 502 or exc.detail != "UPSTREAM_UNAVAILABLE":
+                    raise
+                # A read is idempotent: one transient bank page must not fail the whole
+                # sync and force another interactive login. The retry reuses the same
+                # cookie jar, so a cookie rotated by the first attempt is kept.
+                log.warning("La Banque Postale accounts read hit a transient failure, retrying once")
+                await asyncio.sleep(1)
+                return await self._read_accounts(client)
         except parsers.FormatError as exc:
             raise HTTPException(status_code=502, detail=exc.code) from None
         except HTTPException:
@@ -363,6 +342,51 @@ class HttpxBankClient:
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from None
         finally:
             await client.aclose()
+
+    async def _read_accounts(self, client: httpx.AsyncClient) -> dict[str, Any]:
+        accounts: list[dict[str, Any]] = []
+        for path in (SYNTHESE_CCP, SYNTHESE_EP):
+            response = await client.get(path, follow_redirects=False)
+            if response.status_code in (301, 302, 303, 307, 308):
+                raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
+            if response.status_code != 200:
+                log.warning(
+                    "La Banque Postale synthesis read failed path=%s status=%s",
+                    path,
+                    response.status_code,
+                )
+                raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+            if "formAccesCompte" in response.text:
+                raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
+            accounts.extend(parsers.parse_account_cards(response.text))
+
+        if not accounts:
+            raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+
+        for account in accounts:
+            path = RELEVE_CCP if account["typeRecherche"] == "5" else RELEVE_CNE
+            params = {
+                "compte.numero": account["statementId"],
+                "typeRecherche": account["typeRecherche"],
+            }
+            response = await client.get(path, params=params, follow_redirects=True)
+            if response.status_code == 404 and path == RELEVE_CNE:
+                # The savings statement also exists behind its frame page.
+                response = await client.get(FRAME_CNE, params=params, follow_redirects=True)
+            if response.status_code != 200 or "formAccesCompte" in response.text:
+                log.warning(
+                    "La Banque Postale statement read failed path=%s status=%s login_page=%s",
+                    path,
+                    response.status_code,
+                    "formAccesCompte" in response.text,
+                )
+                raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+            account["transactions"] = parsers.parse_transactions(response.text)
+
+        return {
+            "accounts": [self._normalized(account) for account in accounts],
+            "unsupported": [],
+        }
 
     # ─── plumbing ────────────────────────────────────────────────────────────
 
