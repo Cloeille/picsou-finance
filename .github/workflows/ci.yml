@@ -135,7 +135,9 @@ jobs:
       - name: Exercise packaged CLI, repeat deployment, and incompatible-schema isolation
         if: matrix.task != 'unit'
         env: {PICSOU_RELEASE_TEST_IMAGE: 'picsou-release-smoke:test', CASE: '${{ matrix.task }}'}
+        # pipefail: without it tee would hide pytest's exit code (an error after the pass).
         run: |
+          set -o pipefail
           python3 -m pip install pytest
           python3 -m pytest -v -s \
             "docker/tests/test_deploy_integration.py::test_packaged_release_migrates_repeats_and_preserves_api_on_bad_schema[$CASE]" \
