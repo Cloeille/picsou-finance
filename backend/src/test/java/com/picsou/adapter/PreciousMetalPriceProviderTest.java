@@ -1,10 +1,17 @@
 package com.picsou.adapter;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.picsou.model.PreciousMetal;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -12,6 +19,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -30,6 +38,24 @@ import static org.mockito.Mockito.when;
 class PreciousMetalPriceProviderTest {
 
     @Mock YahooFinancePriceProvider yahoo;
+
+    private final Logger providerLogger = (Logger) LoggerFactory.getLogger(PreciousMetalPriceProvider.class);
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
+
+    @BeforeEach
+    void captureLogs() {
+        logs.start();
+        providerLogger.addAppender(logs);
+    }
+
+    @AfterEach
+    void releaseLogs() {
+        providerLogger.detachAppender(logs);
+    }
+
+    private List<String> warnings() {
+        return logs.list.stream().filter(e -> e.getLevel() == Level.WARN).map(ILoggingEvent::getFormattedMessage).toList();
+    }
 
     private static String fixture() {
         try (var in = PreciousMetalPriceProviderTest.class.getResourceAsStream("/loomis/quotes.html")) {
@@ -65,8 +91,17 @@ class PreciousMetalPriceProviderTest {
     }
 
     @Test
-    void parseQuotes_pageWithoutRowsGivesNothing() {
+    void parseQuotes_pageWithoutRowsGivesNothing_andSaysSo() {
         assertThat(PreciousMetalPriceProvider.parseQuotes("<html><body>maintenance</body></html>")).isEmpty();
+
+        assertThat(warnings()).singleElement().asString().contains("Loomis FXGS").contains("no readable quote");
+    }
+
+    @Test
+    void parseQuotes_aPageWithQuotesLogsNothing() {
+        PreciousMetalPriceProvider.parseQuotes(fixture());
+
+        assertThat(warnings()).isEmpty();
     }
 
     @Test

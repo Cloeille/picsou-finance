@@ -214,6 +214,9 @@ public class PreciousMetalPriceProvider implements PriceProviderPort {
             if (!link.find() || !price.find()) continue;
             parseFrenchAmount(price.group(1)).ifPresent(amount -> quotes.putIfAbsent(link.group(1), amount));
         }
+        if (quotes.isEmpty()) {
+            log.warn("Loomis FXGS quote page has no readable quote: markup change or maintenance page?");
+        }
         return quotes;
     }
 

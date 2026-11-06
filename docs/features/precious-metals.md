@@ -69,8 +69,9 @@ PriceService ──► CompositePriceProvider ──► PreciousMetalPriceProvid
   from the result, so `PriceService` falls back to its last recorded price, like any unpriced ticker.
 - No price history is reachable for coins: the history and intraday calls return nothing, and the
   account's history starts from the daily snapshots taken after the account exists.
-- The page is HTML. A redesign of the Loomis page drops coin prices (logged), it does not break
-  the app; bullion keeps its spot price.
+- The page is HTML. A redesign of the Loomis page drops coin prices, it does not break the app;
+  bullion keeps its spot price. A page that is fetched but yields no quote logs a `WARN` naming
+  Loomis (markup change or maintenance page).
 
 ## Tests
 
