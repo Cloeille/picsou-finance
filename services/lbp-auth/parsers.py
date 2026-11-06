@@ -121,7 +121,7 @@ def parse_account_cards(source: str) -> list[dict]:
     starts = [
         m.start()
         for m in re.finditer(
-            r'<div\s+class="(?=[^"]*\baccount-resume2020\b)[^"]*"', source, re.I
+            r'<div\b[^>]*?\bclass="(?=[^"]*\baccount-resume2020\b)[^"]*"', source, re.I
         )
     ]
     accounts: list[dict] = []

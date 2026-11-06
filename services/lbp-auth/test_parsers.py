@@ -87,6 +87,16 @@ class AccountCardsTest(unittest.TestCase):
         self.assertEqual(len(accounts), 1)
         self.assertEqual(accounts[0]["kind"], "CURRENT_ACCOUNT")
 
+    def test_finds_the_card_when_an_attribute_precedes_class(self):
+        reordered = fixtures.SYNTHESE_CCP_HTML.replace(
+            '<div class="account-resume2020 account-resume--ccp">',
+            '<div data-slot="account" class="account-resume2020 account-resume--ccp">',
+        )
+        accounts = parsers.parse_account_cards(reordered)
+
+        self.assertEqual(len(accounts), 1)
+        self.assertEqual(accounts[0]["kind"], "CURRENT_ACCOUNT")
+
 
 class TransactionsTest(unittest.TestCase):
     def test_reads_dates_labels_and_the_raw_signed_amount(self):
