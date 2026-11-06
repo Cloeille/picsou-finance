@@ -135,6 +135,11 @@ class SidecarContractTest {
             return new Calls(() -> a.fetchSnapshot(STATE), () -> a.initiateAuth("000000", "password"),
                 () -> a.completeAuth("process", "123456"));
         }, null, MFA_INVALID, SESSION_EXPIRED);
+        rig(SidecarBank.TRADE_REPUBLIC, (c, t) -> {
+            var a = new TradeRepublicAdapter(JSON, c, t, java.net.URI.create("ws://127.0.0.1:1/"));
+            return new Calls(() -> a.openSession(STATE), () -> a.initiateAuth("+33600000000", "1234"),
+                () -> a.completeAuth("process", "1234"));
+        }, null, INVALID_OTP, SESSION_EXPIRED);
     }
 
     /** A declared {@code detail} keeps its code whatever the status, and speaks in the bank's words. */
@@ -188,7 +193,15 @@ class SidecarContractTest {
         coded(SidecarBank.SOFIDY, Call.FETCH, HttpStatus.BAD_GATEWAY, PORTFOLIO_INCOMPLETE),
         coded(SidecarBank.SOFIDY, Call.INITIATE, HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS),
         coded(SidecarBank.SOFIDY, Call.COMPLETE, HttpStatus.UNAUTHORIZED, MFA_INVALID),
-        coded(SidecarBank.SOFIDY, Call.COMPLETE, HttpStatus.GONE, AUTH_ATTEMPT_EXPIRED)
+        coded(SidecarBank.SOFIDY, Call.COMPLETE, HttpStatus.GONE, AUTH_ATTEMPT_EXPIRED),
+        coded(SidecarBank.TRADE_REPUBLIC, Call.FETCH, HttpStatus.UNAUTHORIZED, SESSION_EXPIRED),
+        coded(SidecarBank.TRADE_REPUBLIC, Call.FETCH, HttpStatus.UNPROCESSABLE_ENTITY, INVALID_SESSION_STATE),
+        coded(SidecarBank.TRADE_REPUBLIC, Call.FETCH, HttpStatus.TOO_MANY_REQUESTS, RATE_LIMITED),
+        coded(SidecarBank.TRADE_REPUBLIC, Call.INITIATE, HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS),
+        coded(SidecarBank.TRADE_REPUBLIC, Call.COMPLETE, HttpStatus.UNAUTHORIZED, INVALID_OTP),
+        coded(SidecarBank.TRADE_REPUBLIC, Call.COMPLETE, HttpStatus.UNAUTHORIZED, APP_VALIDATION_CANCELLED),
+        coded(SidecarBank.TRADE_REPUBLIC, Call.COMPLETE, HttpStatus.REQUEST_TIMEOUT, APP_VALIDATION_TIMEOUT),
+        coded(SidecarBank.TRADE_REPUBLIC, Call.COMPLETE, HttpStatus.GONE, AUTH_ATTEMPT_EXPIRED)
     );
 
     // -- the table of rows each scenario runs over ---------------------------------------------

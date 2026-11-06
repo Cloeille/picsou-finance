@@ -408,7 +408,7 @@ IDLE -> QUEUED -> RUNNING -> SUCCESS
 
 Jobs carry the session id that created them, so a session cleared or replaced
 mid-flight cannot be committed over. Jobs interrupted by a restart are failed at
-boot by `BoursoSyncRecovery`. Upstream I/O happens outside any transaction; one
+boot by `SidecarSyncRecovery`. Upstream I/O happens outside any transaction; one
 short transaction then replaces every account's holdings and writes the daily
 snapshot. The 08:00 scheduler calls `resyncIfSessionActive` through the same gates.
 
@@ -432,8 +432,8 @@ disconnect removes saved credentials with the session.
 - `backend/.../adapter/BoursoAdapter.java` — 45 s auth / 150 s validation / 90 s accounts
 - `backend/.../service/BoursoSyncService.java` — job state machine, validation, atomic persistence
 - `backend/.../controller/BoursoController.java` — `/api/bourso/*`
-- `backend/.../model/BoursoSession.java`, `BoursoSyncStatus.java`
-- `backend/.../config/SyncExecutorConfig.java`, `BoursoSyncRecovery.java`
+- `backend/.../model/SidecarSession.java`, `SidecarSyncStatus.java` (shared, see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md))
+- `backend/.../config/SyncExecutorConfig.java`, `SidecarSyncRecovery.java`
 - `backend/src/main/resources/db/migration/V78__bourso_session.sql`
 - `frontend/src/components/sync/BoursoPanel.tsx` (serves the Sync tab and the
   Add-account modal), `frontend/src/pages/sync/BoursoTab.tsx`

@@ -800,7 +800,6 @@
       "clearSession": "Trennen",
       "noSession": "Keine aktive Sitzung",
       "sessionActive": "Aktive Sitzung",
-      "expiresAt": "Läuft ab am",
       "errors": {
         "tooManyAttempts": "Zu viele Versuche. Bitte warte ein paar Minuten.",
         "invalidPhoneNumber": "Ungültige Telefonnummer.",
@@ -808,13 +807,24 @@
         "invalidTan": "Der Bestätigungscode ist falsch oder abgelaufen. Verwende den zuletzt erhaltenen Code oder starte den Schritt neu, um einen neuen zu erhalten.",
         "authenticationFailed": "Trade-Republic-Authentifizierung fehlgeschlagen.",
         "serviceUnavailable": "Der lokale Trade-Republic-Dienst ist nicht verfügbar. Starte die Server neu und versuche es erneut.",
-        "temporarilyBlocked": "Trade Republic hat die Anfrage blockiert. Versuche es in einer Minute erneut.",
         "serverError": "Trade-Republic-Serverfehler. Bitte versuche es erneut.",
         "phoneNumberRequired": "Telefonnummer ist erforderlich.",
         "pinRequired": "PIN ist erforderlich.",
         "validationFailed": "Ungültige Daten.",
-        "unknownError": "Ein unerwarteter Fehler ist aufgetreten."
-      }
+        "unknownError": "Ein unerwarteter Fehler ist aufgetreten.",
+        "invalidCredentials": "Falsche Trade-Republic-Telefonnummer oder PIN.",
+        "appValidationTimeout": "Die Anmeldung wurde nicht rechtzeitig in der App bestätigt. Bitte erneut beginnen.",
+        "appValidationCancelled": "Die Anmeldung wurde in der Trade-Republic-App abgelehnt. Bitte erneut beginnen.",
+        "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Bitte erneut beginnen.",
+        "sessionExpired": "Die Trade-Republic-Sitzung ist abgelaufen. Bitte erneut verbinden."
+      },
+      "appConfirmPrompt": "Bestätige die Anmeldung in deiner Trade-Republic-App.",
+      "appConfirmHint": "Diese Seite aktualisiert sich, sobald du bestätigt hast.",
+      "countdownLabel": "Verbleibende Zeit:",
+      "queued": "Synchronisierung eingeplant…",
+      "syncing": "Synchronisierung läuft…",
+      "syncSuccess": "Letzte Synchronisierung erfolgreich.",
+      "staleAccounts": "Deine Trade-Republic-Konten werden nicht mehr aktualisiert: Ihre Sitzung ist beendet. Melde dich unten erneut an, um die tägliche Synchronisierung fortzusetzen."
     },
     "ibkr": {
       "title": "Interactive Brokers",
