@@ -187,6 +187,17 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-member CORUM unattended re-login limiter: the {@link #createCorumAuthBucket()} budget,
+     * keyed by member id (not IP), because a sync logging in again with the stored credentials
+     * has no client IP and must not lean on the {@code /api/corum/sync} bucket. Member ids are
+     * server-assigned, but the store is bounded like every other for uniformity.
+     */
+    @Bean("corumReloginBuckets")
+    public Map<Long, Bucket> corumReloginBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-IP Sofidy auth rate limiter: 5 attempts per 15 minutes.
      */
     @Bean("sofidyAuthBuckets")

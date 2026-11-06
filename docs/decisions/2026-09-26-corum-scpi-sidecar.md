@@ -1,7 +1,7 @@
 # ADR: CORUM client space fills existing SCPI accounts through a browser sidecar
 
 > Date: 2026-09-26
-> Status: ✅ Active — point 5 superseded by [SCPI syncs create and link their accounts](2026-10-16-scpi-sync-creates-accounts.md)
+> Status: ✅ Active — point 5 superseded by [SCPI syncs create and link their accounts](2026-10-16-scpi-sync-creates-accounts.md), point 7 by [CORUM Life sync](2026-11-05-corum-life-sync.md)
 
 ## Context
 
@@ -63,7 +63,9 @@ URL. That is the argument for `test_live_contract.py` existing at all.
    knows CORUM's HTML or its routes.
 2. Credentials are ephemeral. Only the sidecar's opaque session blob — Playwright storage
    state plus the harvested cookie jar — is persisted, encrypted through `CryptoEncryption`.
-   The password is never stored and never logged.
+   The password is never stored and never logged. (Since 2026-11-05 a member may opt in to
+   storing it encrypted for the daily re-login: see the
+   [addendum](2026-11-05-corum-life-sync.md#addendum-2026-11-05-remembered-credentials-and-the-daily-sync).)
 3. The cookie jar is harvested by watching the requests the SPA itself makes, not by
    reading a CORUM-internal storage key. Watching live traffic is also the capture point
    that does not depend on CORUM's internal storage keys, which is what makes this
@@ -81,7 +83,7 @@ URL. That is the argument for `test_live_contract.py` existing at all.
    bypass it.
 6. A portfolio whose funds do not sum to the contract total is refused wholesale, in the
    sidecar and again in the service. The last known-good balances are kept.
-7. CORUM Life, PER and capitalisation are insurance, not shares. One login can see all
+7. *Superseded by [2026-11-05](2026-11-05-corum-life-sync.md): CORUM Life is now read, as one assurance-vie account per contract. PER and capitalisation, and the `MULTIPLE_CONTRACTS` rule below, still apply.* CORUM Life, PER and capitalisation are insurance, not shares. One login can see all
    of them, and only the real-estate contract is read. A login holding more than one
    real-estate contract is refused as `MULTIPLE_CONTRACTS` rather than guessing.
 8. Upstream I/O happens outside any transaction; the write is then one short

@@ -413,6 +413,7 @@ function leafTransactions(cat: Category, totalAbs: number, cycle: number, from: 
       merchantLabel: merchant,
       merchantBrandId: null,
       fees: null,
+      budgetNeutral: false,
     }
   })
 }
@@ -435,6 +436,7 @@ const inboxTransactions = inboxSeed.map((tx): Transaction => ({
   merchantLabel: tx.merchantLabel,
   merchantBrandId: tx.merchantBrandId,
   fees: null,
+  budgetNeutral: false,
 }))
 
 const checkingAccount = mockAccounts.find((account) => account.type === 'CHECKING')!

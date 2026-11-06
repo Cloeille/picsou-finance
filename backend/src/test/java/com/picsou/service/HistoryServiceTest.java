@@ -8,6 +8,7 @@ import com.picsou.dto.DashboardResponse.NetWorthIntradayPoint;
 import com.picsou.dto.DashboardResponse.NetWorthPoint;
 import com.picsou.dto.PnlResponse;
 import com.picsou.exception.ResourceNotFoundException;
+import com.picsou.model.ScpiProvider;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
@@ -894,6 +895,64 @@ class HistoryServiceTest {
             assertThat(p.total()).isEqualByComparingTo("90");
             assertThat(p.invested()).isEqualByComparingTo("81");
         });
+    }
+
+    /**
+     * CORUM Life: the contract's own cost goes through valuation(), the figure the daily chart
+     * uses too, even when every line carries a cost of its own: within the allowance the lines'
+     * costs may still differ from the contract's by a few cents.
+     */
+    @Test
+    void buildIntradayHistory_contractLevelCost_takesTheValuationCost() {
+        Account life = corumLife(1L);
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(life));
+        // Lines' own costs: 480 + 1000.
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(
+            AccountHolding.builder().account(life).ticker("CORUM-LIFE-XL").quantity(new BigDecimal("2.65955"))
+                .providerValueEur(new BigDecimal("518.61")).providerPnlEur(new BigDecimal("38.61")).build(),
+            AccountHolding.builder().account(life).ticker("CORUM-LIFE-FGCORUM").quantity(new BigDecimal("1015.76"))
+                .providerValueEur(new BigDecimal("1015.76")).providerPnlEur(new BigDecimal("15.76")).build()));
+        stubValuation(life, "1534.37", "1480.05");
+
+        List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        assertThat(result).isNotEmpty().allSatisfy(p -> {
+            assertThat(p.total()).isEqualByComparingTo("1534.37");
+            assertThat(p.invested()).isEqualByComparingTo("1480.05");
+        });
+    }
+
+    @Test
+    void buildIntradayHistory_contractLevelCost_isWeighedOnASharedAccount() {
+        Account life = corumLife(1L);
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(life));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(corumLifeLines(life));
+        stubValuation(life, "1534.37", "1580");
+        doReturn(java.util.Map.of(1L, new BigDecimal("50")))
+            .when(accessResolver).sharesFor(any(), any());
+
+        List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        assertThat(result).isNotEmpty().allSatisfy(p -> {
+            assertThat(p.total()).isEqualByComparingTo("767.185");
+            assertThat(p.invested()).isEqualByComparingTo("790");
+        });
+    }
+
+    private static Account corumLife(Long id) {
+        return Account.builder().id(id).name("CORUM Life").type(AccountType.ASSURANCE_VIE)
+            .provider(ScpiProvider.CORUM.displayName()).isManual(false).currency("EUR")
+            .currentBalance(new BigDecimal("1534.37")).cashBalance(BigDecimal.ZERO)
+            .providerInvestedEur(new BigDecimal("1580")).member(MEMBER).build();
+    }
+
+    /** Lines whose own costs were dropped because they did not add up to the contract's. */
+    private static List<AccountHolding> corumLifeLines(Account life) {
+        return List.of(
+            AccountHolding.builder().account(life).ticker("CORUM-LIFE-XL").quantity(new BigDecimal("2.65955"))
+                .providerValueEur(new BigDecimal("518.61")).build(),
+            AccountHolding.builder().account(life).ticker("CORUM-LIFE-FGCORUM").quantity(new BigDecimal("1015.76"))
+                .providerValueEur(new BigDecimal("1015.76")).build());
     }
 
     @Test

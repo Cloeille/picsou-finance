@@ -65,7 +65,13 @@ vi.mock('@/components/shared/NetWorthChart', () => ({ NetWorthChart: () => null 
 vi.mock('@/components/shared/HoldingsTable', () => ({ HoldingsTable: () => null }))
 vi.mock('@/components/shared/PositionsByProduct', () => ({ PositionsByProduct: () => null }))
 vi.mock('@/components/shared/RealizedPnlSection', () => ({ RealizedPnlSection: () => null }))
-vi.mock('@/components/shared/TransactionsList', () => ({ TransactionsList: () => null }))
+const transactionsListProps = vi.hoisted(() => ({ last: null as { accountProvider?: string | null } | null }))
+vi.mock('@/components/shared/TransactionsList', () => ({
+  TransactionsList: (props: { accountProvider?: string | null }) => {
+    transactionsListProps.last = props
+    return null
+  },
+}))
 vi.mock('@/components/shared/AddTransactionModal', () => ({ AddTransactionModal: () => null }))
 vi.mock('@/components/shared/ImportTransactionsModal', () => ({ ImportTransactionsModal: () => null }))
 vi.mock('@/components/shared/EditHoldingModal', () => ({ EditHoldingModal: () => null }))
@@ -136,5 +142,50 @@ describe('AccountDetailPage PER balance', () => {
     expect(screen.getByText('1234')).toBeInTheDocument()
     expect(screen.queryByText('dashboard.portfolioPerformance')).not.toBeInTheDocument()
     expect(screen.queryByText('0')).not.toBeInTheDocument()
+  })
+
+  it('shows the insurer-reported contract figures on a synced assurance-vie', () => {
+    hooks.useAccount.mockReturnValue({
+      data: {
+        ...PER_ACCOUNT,
+        type: 'ASSURANCE_VIE',
+        provider: 'CORUM',
+        cashBalance: null,
+        openedAt: '2020-03-12',
+        contract: { paidInEur: 10200, netInvestedEur: 9000, scheduledPaymentEur: 150, scheduledPaymentCadence: 'MONTHLY' },
+      } satisfies Account,
+      isLoading: false,
+    })
+    const client = new QueryClient()
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/accounts/42']}>
+          <Routes>
+            <Route path="/accounts/:id" element={<AccountDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(screen.getByText('accounts.lifeContract.title')).toBeInTheDocument()
+    expect(screen.getByText('accounts.lifeContract.taxAdvantageFrom')).toBeInTheDocument()
+    expect(screen.getByText('accounts.lifeContract.scheduledPayment')).toBeInTheDocument()
+    // The ledger knows its account is CORUM's, so it can label the contract's payments.
+    expect(transactionsListProps.last?.accountProvider).toBe('CORUM')
+  })
+
+  it('leaves the contract section off an account without contract figures', () => {
+    const client = new QueryClient()
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/accounts/42']}>
+          <Routes>
+            <Route path="/accounts/:id" element={<AccountDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(screen.queryByText('accounts.lifeContract.title')).not.toBeInTheDocument()
   })
 })
