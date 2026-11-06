@@ -692,7 +692,7 @@ class CiJobSelectionTest(unittest.TestCase):
         expected = {
             "backend": "make test-backend SOFIDY_PYTHON=python3",
             "frontend": "make test-frontend",
-            "e2e": "make test-e2e PLAYWRIGHT_DEPS=--with-deps",
+            "e2e": "make test-e2e",
             "sidecar-base": "make test-sidecar-base",
             "sidecar": "make test-sidecar SIDECAR=${{ matrix.service }} ARCH=${{ matrix.arch }}",
             "compose-sidecar-build": 'make build SERVICES="tr-auth bourso-auth amex-auth"',

@@ -319,8 +319,23 @@ jobs:
       - name: Cache Playwright browsers
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: {path: ~/.cache/ms-playwright, key: "playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}"}
-      - name: Install Playwright Chromium and run E2E (demo mode)
-        run: make test-e2e PLAYWRIGHT_DEPS=--with-deps
+      - name: Install Playwright Chromium
+        run: cd frontend && bunx playwright install chromium
+      - name: Probe a headless Chromium launch
+        id: chromium-probe
+        continue-on-error: true
+        timeout-minutes: 3
+        working-directory: frontend
+        # Node, as the Playwright CLI runs under it (its shebang), not bun's runtime.
+        run: node -e "require('@playwright/test').chromium.launch().then((browser) => browser.close())"
+      - name: Install Chromium system libraries (fallback)
+        if: steps.chromium-probe.outcome == 'failure'
+        timeout-minutes: 12
+        run: |
+          echo "::notice title=e2e-deps-fallback::Chromium could not start; installing its system libraries"
+          cd frontend && bunx playwright install-deps chromium
+      - name: Run E2E (demo mode)
+        run: make test-e2e
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
