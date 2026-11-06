@@ -136,10 +136,13 @@ spending. The rows stay visible on the account page and in exports.
   contract carries no session state. Natixis does not rotate today; if it starts, a
   failed read means a new code at the next sync, and the sidecar logs a warning when
   this happens.
-- **Each sidecar route gives up after 40 s** (`UPSTREAM_UNAVAILABLE`), and each
-  Natixis call after 15 s. That stays under the backend's 45 s adapter timeout, so a
-  slow Natixis never leaves a code sent or tokens minted that the backend has stopped
-  waiting for.
+- **Timeouts.** The login routes (`/initiate`, `/complete`) give up after 40 s,
+  under the backend's 45 s adapter timeout, so a slow Natixis never leaves a code sent
+  or tokens minted that the backend has stopped waiting for. `/positions` gives up
+  after 100 s, under its 120 s adapter timeout; inside it, fund details get 10 s and
+  the operations history 30 s, and only those parts are dropped when they overrun.
+  Each Natixis call is capped at 15 s. A deadline that expires answers
+  `UPSTREAM_UNAVAILABLE`.
 - **At most 5 wrong codes per login attempt**: the fifth drops the attempt
   (`AUTH_ATTEMPT_EXPIRED`), well before Natixis would lock the account.
 - **Accounts without a password login** (passkey only), or without an SMS, e-mail or

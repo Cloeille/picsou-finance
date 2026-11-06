@@ -1560,7 +1560,7 @@
       "errors": {
         "tooManyAttempts": "Natixis Interépargne blocked further attempts. Please try again later.",
         "invalidCredentials": "Natixis Interépargne rejected the e-mail or password.",
-        "mfaTypeUnsupported": "This account only offers passkey sign-in or a second factor Picsou cannot handle. Enable SMS, e-mail or voice call codes in your Natixis Interépargne security settings.",
+        "mfaTypeUnsupported": "This account only offers passkey sign-in, or a second factor Picsou cannot handle. Picsou needs password sign-in and codes by SMS, e-mail or voice call: enable both in your Natixis Interépargne security settings.",
         "authAttemptExpired": "The authentication attempt expired. Please start over.",
         "sessionExpired": "The Natixis Interépargne session expired. Reconnect to resume syncing.",
         "portfolioIncomplete": "Natixis Interépargne returned incomplete savings plans. Your existing data was kept.",

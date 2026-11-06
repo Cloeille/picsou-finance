@@ -1252,7 +1252,7 @@
       "errors": {
         "tooManyAttempts": "Natixis Interépargne hat weitere Versuche blockiert. Bitte versuche es später erneut.",
         "invalidCredentials": "Natixis Interépargne hat die E-Mail oder das Passwort abgelehnt.",
-        "mfaTypeUnsupported": "Dieses Konto bietet nur die Anmeldung per Passkey oder einen zweiten Faktor, den Picsou nicht unterstützt. Aktiviere Codes per SMS, E-Mail oder Sprachanruf in den Sicherheitseinstellungen von Natixis Interépargne.",
+        "mfaTypeUnsupported": "Dieses Konto bietet nur die Anmeldung per Passkey oder einen zweiten Faktor, den Picsou nicht unterstützt. Picsou braucht die Anmeldung mit Passwort und Codes per SMS, E-Mail oder Sprachanruf: Aktiviere beides in den Sicherheitseinstellungen von Natixis Interépargne.",
         "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Bitte starte neu.",
         "sessionExpired": "Die Natixis-Interépargne-Sitzung ist abgelaufen. Verbinde dich erneut, um die Synchronisierung fortzusetzen.",
         "portfolioIncomplete": "Natixis Interépargne hat unvollständige Sparpläne geliefert. Deine bestehenden Daten wurden beibehalten.",

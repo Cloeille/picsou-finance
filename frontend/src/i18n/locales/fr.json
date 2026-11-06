@@ -1560,7 +1560,7 @@
       "errors": {
         "tooManyAttempts": "Natixis Interépargne a bloqué les nouvelles tentatives. Réessayez plus tard.",
         "invalidCredentials": "Natixis Interépargne a refusé l'e-mail ou le mot de passe.",
-        "mfaTypeUnsupported": "Ce compte ne propose que la connexion par passkey ou un second facteur que Picsou ne sait pas gérer. Activez les codes par SMS, e-mail ou appel vocal dans les paramètres de sécurité de Natixis Interépargne.",
+        "mfaTypeUnsupported": "Ce compte ne propose que la connexion par passkey, ou un second facteur que Picsou ne sait pas gérer. Picsou a besoin de la connexion par mot de passe et des codes par SMS, e-mail ou appel vocal : activez les deux dans les paramètres de sécurité de Natixis Interépargne.",
         "authAttemptExpired": "La tentative d'authentification a expiré. Recommencez.",
         "sessionExpired": "La session Natixis Interépargne a expiré. Reconnectez-vous pour reprendre la synchronisation.",
         "portfolioIncomplete": "Natixis Interépargne a renvoyé des plans d'épargne incomplets. Vos données existantes ont été conservées.",
