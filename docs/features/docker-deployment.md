@@ -320,6 +320,12 @@ and PRODUCTION is the only mode listing real banks — so bank sync is unreachab
 | Public FQDN | ACME (Let's Encrypt / ZeroSSL) | Public, zero manual steps |
 | `.localhost` / `.local` / `.internal` / bare IP | `local` (Caddy's built-in CA) | Root must be installed per device, from `/data/caddy/pki/authorities/local/root.crt` in the `caddy_data` volume |
 
+When a client omits SNI (common for HTTPS URLs whose host is a literal IP address), Caddy uses
+`PICSOU_DOMAIN` as `default_sni`. Because it is also the site address, this selects the matching
+managed certificate rather than failing the TLS handshake with no certificate. Clients that send
+an explicit SNI continue to use their requested name. This does not change certificate trust:
+LAN devices must still trust the Caddy local CA.
+
 Caddy sets `X-Forwarded-Proto`/`-Host`/`-For` by default. Tomcat's native forwarding support reads
 them from the known Caddy peer only. See [trusted proxy client addresses](#trusted-proxy-client-addresses).
 
