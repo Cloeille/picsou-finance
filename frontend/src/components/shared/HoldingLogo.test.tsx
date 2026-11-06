@@ -70,6 +70,22 @@ describe('HoldingLogo', () => {
     expect(container.querySelector('[data-slot="avatar-fallback"]')).toBeInTheDocument()
   })
 
+  it("shows the provider's bundled mark for a CORUM Life line without a logo", async () => {
+    const { container } = render(<HoldingLogo logoUrl={null} ticker="CORUM-LIFE-EURO" name="Corum Euro" />)
+
+    await waitFor(() => {
+      expect(container.querySelector('img')).toHaveAttribute('src', '/providers/corum.svg')
+    })
+  })
+
+  it('prefers the backend logo over the bundled prefix mark', async () => {
+    const { container } = render(<HoldingLogo logoUrl={LOGO} ticker="CORUM-LIFE-EURO" />)
+
+    await waitFor(() => {
+      expect(container.querySelector('img')).toHaveAttribute('src', LOGO)
+    })
+  })
+
   it('keeps the ticker as the image alt text', async () => {
     const { container } = render(<HoldingLogo logoUrl={LOGO} ticker="GOOGL" />)
 

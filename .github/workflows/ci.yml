@@ -140,7 +140,7 @@ jobs:
           while read -r count class; do
             grep -q "Tests run: $count, Failures: 0, Errors: 0, Skipped: 0" "com.picsou.$class.txt"
           done <<'EOF'
-          7 service.ScpiSyncSessionPostgresTest
+          11 service.ScpiSyncSessionPostgresTest
           2 service.HomeBankImportPersistenceTest
           1 service.HomeBankQifPersistenceTest
           15 migration.LegacyMigrationRenumberingTest

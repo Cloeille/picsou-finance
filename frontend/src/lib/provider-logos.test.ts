@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { LOGO_KEYS, PROVIDER_LOGOS, WALLET_LOGO_CHOICES, logoKeyUrl, providerLogoUrl } from './provider-logos'
+import {
+  HOLDING_PREFIX_LOGOS,
+  LOGO_KEYS,
+  PROVIDER_LOGOS,
+  WALLET_LOGO_CHOICES,
+  bundledHoldingLogoUrl,
+  logoKeyUrl,
+  providerLogoUrl,
+} from './provider-logos'
 
 /**
  * Vite expands this glob against the filesystem at transform time, so the keys are exactly
@@ -20,6 +28,28 @@ describe('PROVIDER_LOGOS', () => {
   it.each(Object.entries(PROVIDER_LOGOS))('ships the asset mapped for %s', (provider, path) => {
     expect(path.startsWith('/'), `${provider}: path must be root-relative`).toBe(true)
     expect(bundledAssets, `missing frontend/public${path}`).toContain(path)
+  })
+})
+
+describe('HOLDING_PREFIX_LOGOS', () => {
+  it.each(Object.entries(HOLDING_PREFIX_LOGOS))('ships the asset mapped for %s', (prefix, path) => {
+    expect(path.startsWith('/'), `${prefix}: path must be root-relative`).toBe(true)
+    expect(bundledAssets, `missing frontend/public${path}`).toContain(path)
+  })
+})
+
+describe('bundledHoldingLogoUrl', () => {
+  // CorumLifeWriter.TICKER_PREFIX: every CORUM Life fund line's ticker starts with it.
+  it('resolves a CORUM Life fund line by its ticker prefix', () => {
+    expect(bundledHoldingLogoUrl('CORUM-LIFE-EURO')).toBe('/providers/corum.svg')
+    expect(bundledHoldingLogoUrl('corum-life-ccp')).toBe('/providers/corum.svg')
+  })
+
+  it('returns null for a ticker no prefix matches', () => {
+    expect(bundledHoldingLogoUrl('IWDA')).toBeNull()
+    expect(bundledHoldingLogoUrl('CORUM')).toBeNull()
+    expect(bundledHoldingLogoUrl(null)).toBeNull()
+    expect(bundledHoldingLogoUrl('')).toBeNull()
   })
 })
 
@@ -82,6 +112,12 @@ describe('providerLogoUrl', () => {
   // Copied verbatim from the literal TradeRepublicSyncService.upsertAccount() writes.
   it('resolves the provider string the Trade Republic connector writes', () => {
     expect(providerLogoUrl('Trade Republic')).toBe('/providers/trade-republic.svg')
+  })
+
+  // Copied verbatim from ScpiProvider.CORUM.displayName(), which both the CORUM SCPI and the
+  // CORUM Life connectors write as the account's provider.
+  it('resolves the provider string the CORUM connectors write', () => {
+    expect(providerLogoUrl('CORUM')).toBe('/providers/corum.svg')
   })
 
   it('resolves the exchange name the backend writes as provider', () => {

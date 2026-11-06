@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CORUM re-logs in by itself and syncs daily.** The CORUM login form gains an opt-in, unticked
+  "Remember my credentials (encrypted)" checkbox. Ticked, the credentials are stored encrypted and
+  a sync whose session expired logs in again once before reading; a rejected password clears them
+  and asks to reconnect, and "Disconnect" forgets them. So does deleting the last CORUM account
+  (no CORUM Life account and no SCPI account linked to a CORUM fund left): the
+  confirmation names CORUM and the session goes with its credentials. Unticked, nothing is
+  stored, as before.
+  CORUM now runs in the daily 08:00 sync, in `trigger_full_sync`/`trigger_broker_sync` and in
+  `get_sync_status`. Migration V127. See
+  [CORUM session and remembered credentials](docs/features/scpi.md#corum-session-and-remembered-credentials).
+
+- **CORUM Life (assurance-vie) sync.** A CORUM login holding a CORUM Life contract no longer
+  fails with `PORTFOLIO_INCOMPLETE`: each contract becomes an assurance-vie account, synced with
+  the SCPI funds in one all-or-nothing run. Holdings are CORUM's funds (aggregated across
+  management pockets, euro fund included); performance uses the contract's net invested amount,
+  so it matches CORUM; the account page shows the opening date, 8-year tax date, payments and
+  scheduled payment; the contract's operations are imported as transactions (payments as
+  investment transfers, coupons as dividends, fees and switches marked "in the contract" and kept
+  out of the budget). SCPI units held in the policy count as real estate in the wealth pyramid.
+  An existing manual "CORUM Life" account is adopted, or reported instead of duplicated.
+  Migrations V124–V126. Deploy the `app` and `corum-auth` images together. See
+  [CORUM Life sync](docs/features/corum-life.md).
+
+- **Budget-neutral transactions.** Money moving inside an investment wrapper (coupons, fees,
+  switches) can be flagged `budget_neutral`: it stays on the account's ledger and export but is
+  left out of budget, cashflow, categorisation and the global transactions view.
+
 - **Precious metals.** A new *Métaux précieux* account type holds physical gold as positions:
   bullion in grams, priced at spot (COMEX `GC=F` converted to euros), and gold coins (Napoléon,
   Krugerrand, Souverain, …) priced at their daily Loomis FXGS (ex-CPoR) quote, premium included.
@@ -80,6 +107,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Diversification leaves out lines classified outside equity.** A holding whose wealth tier
+  (your override, or the provider's) is not equity — for example a money-market ETF set to
+  safety net — is no longer counted in the sector and geography breakdown, matching the
+  wealth pyramid.
 - **Secret generation moved from shell into the app.** `SecretBootstrap`, a Spring Boot
   `EnvironmentPostProcessor`, resolves or generates `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY`
   under `PICSOU_SECRETS_DIR` (`/data/.secrets` in the image) with the same rules as the old

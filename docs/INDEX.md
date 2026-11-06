@@ -70,7 +70,7 @@
 | 2026-09-17 | [Defer the MCP protocol upgrade until the Spring Boot 4 migration](./decisions/2026-09-17-defer-mcp-protocol-upgrade.md) | Superseded by opt-in Streamable HTTP |
 | 2026-10-31 | [Opt-in Streamable HTTP for modern MCP clients](./decisions/2026-10-31-opt-in-streamable-mcp.md) | Active |
 | 2026-09-23 | [A SCPI share is not a property](./decisions/2026-09-23-scpi-not-a-property.md) | Active |
-| 2026-09-26 | [CORUM client space fills existing SCPI accounts through a browser sidecar](./decisions/2026-09-26-corum-scpi-sidecar.md) | Active (point 5 superseded) |
+| 2026-09-26 | [CORUM client space fills existing SCPI accounts through a browser sidecar](./decisions/2026-09-26-corum-scpi-sidecar.md) | Active (points 5 and 7 superseded) |
 | 2026-09-27 | [Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar](./decisions/2026-09-27-sofidy-scpi-sidecar.md) | Active (point 5 superseded) |
 | 2026-10-04 | [SimpleFIN as its own connector, beside Enable Banking](./decisions/2026-10-04-simplefin-beside-enable-banking.md) | Active |
 | 2026-10-16 | [CORUM and Sofidy syncs create and link their SCPI accounts](./decisions/2026-10-16-scpi-sync-creates-accounts.md) | Active |
@@ -82,6 +82,7 @@
 | 2026-11-01 | [Sidecars share one Python package for their plumbing](./decisions/2026-11-01-shared-sidecar-package.md) | Active |
 | 2026-11-02 | [Ports only for swappable providers](./decisions/2026-11-02-ports-only-for-swappable-providers.md) | Active |
 | 2026-11-03 | [Spring Boot serves the SPA and every response header](./decisions/2026-11-03-spring-serves-the-spa.md) | Active |
+| 2026-11-05 | [CORUM Life contracts sync as one assurance-vie account each](./decisions/2026-11-05-corum-life-sync.md) | Active |
 
 ## Feature notes
 
@@ -98,7 +99,7 @@
 | Dashboard — Time range isolation | 2026-04-13 | [dashboard-time-range-isolation.md](./features/dashboard-time-range-isolation.md) |
 | Bank sync | 2026-10-31 | [bank-sync.md](./features/bank-sync.md) |
 | SimpleFIN sync | 2026-10-04 | [simplefin-sync.md](./features/simplefin-sync.md) |
-| Budget & Cashflow | 2026-06-28 | [budget.md](./features/budget.md) |
+| Budget & Cashflow | 2026-11-05 | [budget.md](./features/budget.md) |
 | Budget categorization rules (word-picker authoring UX) | 2026-06-28 | [budget-rules.md](./features/budget-rules.md) |
 | Optional AI transaction categorization | 2026-06-26 | [ai-categorization.md](./features/ai-categorization.md) |
 | Dashboard — Liabilities separated from performance | 2026-07-12 | [dashboard-liabilities-separation.md](./features/dashboard-liabilities-separation.md) |
@@ -116,8 +117,8 @@
 | ISIN → Ticker conversion | 2026-08-10 | [ISIN_TO_TICKER_CONVERSION.md](./features/ISIN_TO_TICKER_CONVERSION.md) |
 | Encryption at rest | 2026-04-08 | [encryption-at-rest.md](./features/encryption-at-rest.md) |
 | Crypto tracking | 2026-08-11 | [crypto-tracking.md](./features/crypto-tracking.md) |
-| Wealth pyramid (Analysis) | 2026-08-16 | [wealth-pyramid.md](./features/wealth-pyramid.md) |
-| Portfolio diversification (sector + geography) | 2026-08-15 | [portfolio-diversification.md](./features/portfolio-diversification.md) |
+| Wealth pyramid (Analysis) | 2026-11-05 | [wealth-pyramid.md](./features/wealth-pyramid.md) |
+| Portfolio diversification (sector + geography) | 2026-11-05 | [portfolio-diversification.md](./features/portfolio-diversification.md) |
 | Recurring investment plans + wealth projection | 2026-08-19 | [goal-recurring-investment.md](./features/goal-recurring-investment.md) |
 | Member profile (age, TMI, income) | 2026-08-19 | [member-profile.md](./features/member-profile.md) |
 | Savings goals | 2026-06-02 | [goals.md](./features/goals.md) |
@@ -128,16 +129,16 @@
 | Finary import + auto-sync | 2026-08-17 | [finary-import.md](./features/finary-import.md) |
 | HomeBank iOS and desktop history import (.hbk / encrypted .hbexport / .qif) | 2026-10-05 | [homebank-import.md](./features/homebank-import.md) |
 | Manual transactions + holdings derivation | 2026-09-02 | [manual-transactions.md](./features/manual-transactions.md) |
-| Transactions — global view (all accounts) | 2026-06-28 | [transactions-global-view.md](./features/transactions-global-view.md) |
+| Transactions — global view (all accounts) | 2026-11-05 | [transactions-global-view.md](./features/transactions-global-view.md) |
 | CSV transaction import (investment accounts) | 2026-07-11 | [csv-transaction-import.md](./features/csv-transaction-import.md) |
 | Actual Budget import | 2026-10-04 | [actual-budget-import.md](./features/actual-budget-import.md) |
 | Realized P&L on closed positions | 2026-07-11 | [realized-pnl.md](./features/realized-pnl.md) |
 | BoursoBank sync | 2026-09-28 | [bourso-bank.md](./features/bourso-bank.md) |
 | Caisse d'Epargne sync (sidecar and on-demand backend, no login yet) | 2026-10-07 | [caisse-epargne.md](./features/caisse-epargne.md) |
-| Accounts overview (PnL chart + summary card + filters + card anatomy + sortable positions) | 2026-08-19 | [accounts-overview.md](./features/accounts-overview.md) |
+| Accounts overview (PnL chart + summary card + filters + card anatomy + sortable positions) | 2026-11-05 | [accounts-overview.md](./features/accounts-overview.md) |
 | Savings livrets (classification + projected interest) | 2026-06-28 | [savings-livrets.md](./features/savings-livrets.md) |
-| Logos on account cards (catalog-resolved, bundled, wallet picker, property kind) | 2026-08-13 | [bank-logos.md](./features/bank-logos.md) |
-| Logos beside holding tickers (crypto: batched CoinGecko lookup; shares/ETFs: Yahoo quote page, stored in PostgreSQL) | 2026-10-03 | [holding-logos.md](./features/holding-logos.md) |
+| Logos on account cards (catalog-resolved, bundled, wallet picker, property kind) | 2026-11-05 | [bank-logos.md](./features/bank-logos.md) |
+| Logos beside holding tickers (crypto: batched CoinGecko lookup; shares/ETFs: Yahoo quote page, stored in PostgreSQL) | 2026-11-05 | [holding-logos.md](./features/holding-logos.md) |
 | Add Account modal (unified sync + manual) | 2026-08-13 | [add-account-modal.md](./features/add-account-modal.md) |
 | Account visibility (hidden accounts, `/sync` Comptes tab) | 2026-07-15 | [account-visibility.md](./features/account-visibility.md) |
 | Docker deployment and migration-safe releases | 2026-10-31 | [docker-deployment.md](./features/docker-deployment.md) |
@@ -156,7 +157,8 @@
 | Frontend error display (`extractErrorMessage`) | 2026-05-31 | [frontend-error-display.md](./features/frontend-error-display.md) |
 | Loan accounts (LOAN type, amortization view) | 2026-04-26 | [loans.md](./features/loans.md) |
 | Real estate valuation | 2026-08-11 | [real-estate-valuation.md](./features/real-estate-valuation.md) |
-| SCPI shares | 2026-10-31 | [scpi.md](./features/scpi.md) |
+| SCPI shares | 2026-11-05 | [scpi.md](./features/scpi.md) |
+| CORUM Life (assurance-vie) sync | 2026-11-05 | [corum-life.md](./features/corum-life.md) |
 | Precious metals (gold bullion and coins) | 2026-11-06 | [precious-metals.md](./features/precious-metals.md) |
 | Ownership shares | 2026-08-10 | [account-ownership-shares.md](./features/account-ownership-shares.md) |
 | 2FA (TOTP) and Remember Me | 2026-10-31 | [mfa-and-remember-me.md](./features/mfa-and-remember-me.md) |
@@ -166,7 +168,7 @@
 | Account spreadsheet export (xlsx) | 2026-08-18 | [account-xlsx-export.md](./features/account-xlsx-export.md) |
 | Revolut pockets (reconstruction from PSD2 internal-transfer rows) (removed, 2026-07-14) | 2026-06-28 | [revolut-pockets.md](./features/revolut-pockets.md) |
 | Revolut sidecar (assisted-enrolment login connector) | 2026-10-31 | [revolut-sidecar.md](./features/revolut-sidecar.md) |
-| Dividend forecast (shares, ETFs, SCPI) as upcoming capital income | 2026-10-20 | [dividend-forecast.md](./features/dividend-forecast.md) |
+| Dividend forecast (shares, ETFs, SCPI) as upcoming capital income | 2026-11-05 | [dividend-forecast.md](./features/dividend-forecast.md) |
 
 ## Lessons
 

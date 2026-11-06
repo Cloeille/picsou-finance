@@ -46,6 +46,7 @@ function transaction(date: string): Transaction {
     quantity: null,
     pricePerUnit: null,
     fees: null,
+    budgetNeutral: false,
   }
 }
 
