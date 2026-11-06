@@ -1,7 +1,6 @@
 import type {
   AssetClass,
   CategoryKind,
-  RecurringActivityType,
   RecurringCadence,
   RecurringRuntimeStatus,
   RecurringStatus,
@@ -57,11 +56,6 @@ export const RUNTIME_STATUS_META: Record<
     labelKey: 'budget.recurring.runtime.dueSoon',
     className: 'border-transparent bg-amber-500/15 text-amber-600 dark:text-amber-400',
   },
-}
-
-export const ACTIVITY_TYPE_LABEL_KEY: Record<RecurringActivityType, string> = {
-  AUTO_CONFIRMED: 'budget.recurring.activity.autoConfirmed',
-  PRICE_CHANGE: 'budget.recurring.activity.priceChange',
 }
 
 export const ASSET_CLASS_LABEL_KEY: Record<AssetClass, string> = {
