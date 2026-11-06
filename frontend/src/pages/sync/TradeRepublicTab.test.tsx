@@ -236,6 +236,16 @@ describe('TradeRepublicTab session status', () => {
     expect(screen.queryByRole('button', { name: 'sync.tr.clearSession' })).not.toBeInTheDocument()
   })
 
+  // An unreadable stored session also ends it (NEEDS_REAUTH in the status report): same advice.
+  it('asks to reconnect when the stored session could not be read', async () => {
+    serve({ ...DISCONNECTED, isActive: false, syncStatus: 'FAILED', lastSyncError: 'INVALID_SESSION_STATE' })
+
+    renderTab()
+
+    expect(await screen.findByText('sync.tr.errors.sessionExpired')).toBeInTheDocument()
+    expect(screen.getByLabelText('sync.tr.phone')).toBeInTheDocument()
+  })
+
   it('says the imported accounts are no longer updated when no session is left', async () => {
     serve(DISCONNECTED, [{ id: 1, provider: 'Trade Republic', isManual: false }])
 
