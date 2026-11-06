@@ -7,7 +7,7 @@
 ## Checklist
 
 - [ ] **One concern**, about 600 changed lines or fewer (lockfiles, changelog, snapshots and fixtures excluded). If bigger, say why it cannot be split: <!-- reason -->
-- [ ] **Synced with `main`** (merged in, no conflicts) and **CI is green**; this is a draft until it is.
+- [ ] **Synced with the branch you target** (a `release/*` branch, merged in, no conflicts) and **CI is green**; this is a draft until it is.
 - [ ] **Tests** cover the behaviour change and its failure case; none depends on today's date (inject a `Clock`).
 - [ ] **Migration** (if any): `V<n>` is the next free number on an up-to-date `main`: <!-- V123, or "none" -->
 - [ ] **Docs and CHANGELOG**: feature note / ADR updated, one `[Unreleased]` entry for a user-visible change, added after the last sync, new i18n keys in all four locales.
