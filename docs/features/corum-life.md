@@ -239,10 +239,11 @@ provider) is not `EQUITY`, so the SCPI units do not show as unclassified equity.
 
 `GET /api/operations/` lists every contract of the login, split by year:
 `[{contractCode, contractType, yearData: [{year, operations: [{operationType, operationCategory,
-date: "DD/MM/YYYY", amount, operationIds: [int], fundCodes: str | null}]}]}]`. There is no
+date: "DD/MM/YYYY", amount, operationIds: [str | int], fundCodes: str | null}]}]}]`, where the
+live payload sends each id as a digit string (`["1234567"]`). There is no
 per-operation detail endpoint. The sidecar reads it once, after the Life details, and
 `parse_operations` keeps the Life codes only: ISO dates, numbers only, `fundCodes` split on commas
-and upper-cased, `operationIds` exactly one integer (as a string). Any malformed entry, or a failed
+and upper-cased, `operationIds` exactly one id (a digit string or an integer, kept as a string). Any malformed entry, or a failed
 read, gives `operations: null` for every contract and a log line with the cause only; the
 valuation is synced all the same and the UI shows nothing amber. A Life code the payload does not
 list is `null` too. Two operations of one contract that share an id **and** a sign (which the
@@ -364,9 +365,11 @@ every row of a run with the same instant. Strings live under `sync.corum.life` i
 - **A stale sidecar skips its own checks.** The backend repeats the reconciliation for that
   reason. Keep both.
 - **No removal path.** A contract CORUM stops listing leaves its account as it is.
-- **The operation list never fails a sync.** A failed or malformed `/api/operations/` read only
-  logs; the stored rows stay. Check the sidecar log (`CORUM Life operations not read` /
-  `rejected`) when a contract's ledger stops moving.
+- **A failed operations read never fails a sync.** A failed or malformed `/api/operations/`
+  read in the sidecar only logs; the stored rows stay. Check the sidecar log (`CORUM Life
+  operations not read` / `rejected`) when a contract's ledger stops moving. The backend side
+  can still fail: an operation that `CorumLifeWriter.validate` refuses fails the sync with
+  `INVALID_DATA`, and an operation write failure rolls back the whole portfolio transaction.
 - **Deletion is bounded by the oldest reported date.** CORUM returning a shorter history deletes
   nothing older than what it still reports.
 - **Unproven live.** The euro fund's unit semantics and a contract with several Life accounts
