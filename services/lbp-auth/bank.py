@@ -569,30 +569,22 @@ class BrowserBankClient(HttpxBankClient):
                 await self._follow_continue(page, url)
                 url = await self._wait_for_challenge(page, 30, previous=url)
 
+            # Let the redirect chain settle, then classify on the page content
+            # rather than on the URL alone: a trusted device lands on the client
+            # home page, a new one on the challenge, and the bank sometimes
+            # bounces to a generic message page.
+            step = "classify"
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=10_000)
+            except Exception:
+                pass
+            url = page.url
+
             if "afficheSynthese" in url or "synthese_ccp" in url:
                 state["session_ready"] = True
                 await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
+                log.info("La Banque Postale browser login ready path=%s", urlparse(url).path)
                 return
-            if "loginform" in url and "cu=attenteAF" in url:
-                # The URL alone is not enough: the bank sometimes lands on its
-                # generic "Erreur Technique" page instead. Confirm the page is
-                # really the mobile-approval page before parking.
-                step = "challenge"
-                try:
-                    await page.wait_for_load_state("domcontentloaded", timeout=10_000)
-                except Exception:
-                    pass
-                try:
-                    body = await page.content()
-                except Exception:
-                    body = ""
-                if "appareil de confiance" in body or "URL_AF_POLLING" in body:
-                    await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
-                    log.info("La Banque Postale browser login awaits mobile approval")
-                    return
-                log.warning("La Banque Postale approval page is not the challenge")
-                await self._log_bank_message(page, "challenge")
-                raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
             if "message.html" in url:
                 log.warning(
                     "La Banque Postale approval failed param=%s",
@@ -601,19 +593,24 @@ class BrowserBankClient(HttpxBankClient):
                 await self._log_bank_message(page, "approval-error")
                 raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
 
-            # The form may have re-rendered (refused identifier or password) or
-            # the page may not have submitted. Read the body only now.
+            # The form may have re-rendered (refused identifier or password), the
+            # device may be trusted (home page), or the challenge may be up.
             step = "inspect"
             try:
                 body = await page.content()
             except Exception:
                 body = ""
+            if "formAccesCompte" in body:
+                raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
+            if "Se déconnecter" in body or "Mon profil" in body:
+                state["session_ready"] = True
+                await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
+                log.info("La Banque Postale browser login ready path=%s", urlparse(url).path)
+                return
             if "appareil de confiance" in body or "URL_AF_POLLING" in body:
                 await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
                 log.info("La Banque Postale browser login awaits mobile approval")
                 return
-            if "formAccesCompte" in body:
-                raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
             await self._log_bank_message(page, "unexpected")
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
         except HTTPException:
