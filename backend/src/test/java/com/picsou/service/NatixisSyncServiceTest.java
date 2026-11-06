@@ -58,6 +58,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 @SuppressWarnings("unchecked")
 class NatixisSyncServiceTest {
+    private static final LocalDate HISTORY_FROM = LocalDate.now().minusYears(5).plusDays(1);
+
     private static final String PEE_ID = "natixis_10000-1000000000001_PEE-4242";
     private static final String PERCO_ID = "natixis_10000-1000000000001_PERCO-4242";
 
@@ -414,7 +416,7 @@ class NatixisSyncServiceTest {
     }
 
     private NatixisAdapter.PositionsData positions(String sessionState, NatixisAdapter.PlanData... plans) {
-        return new NatixisAdapter.PositionsData(List.of(plans), sessionState, null, null);
+        return new NatixisAdapter.PositionsData(List.of(plans), sessionState, null, null, null);
     }
 
     // ─── Operations history ─────────────────────────────────────────────────
@@ -483,17 +485,33 @@ class NatixisSyncServiceTest {
     }
 
     @Test
-    void anOperationGoneFromTheHistoryIsDeletedOnlyInsideTheFiveYearsNatixisCovers() {
+    void anOperationGoneFromTheHistoryIsDeletedOnlyInsideWhatTheReadCovered() {
         Account pee = arrangeOperationsSync(true, buy("natixis_1_D1_L1", "2024-01-10"));
         Transaction recent = storedRow(pee, "natixis_1_D2_L1", LocalDate.now().minusYears(1), false);
         Transaction ancient = storedRow(pee, "natixis_1_D0_L1", LocalDate.now().minusYears(6), false);
+        // Dated just after the first listing date: its demand may have been listed before it,
+        // outside the read, so its absence proves nothing.
+        Transaction settling = storedRow(pee, "natixis_1_D3_L1", HISTORY_FROM.plusDays(30), false);
         Transaction manual = storedRow(pee, null, LocalDate.now().minusMonths(2), true);
         Transaction foreign = storedRow(pee, "other_123", LocalDate.now().minusMonths(2), false);
 
         service.queueSync(7L);
 
-        assertThat(store).doesNotContain(recent).contains(ancient, manual, foreign);
+        assertThat(store).doesNotContain(recent).contains(ancient, settling, manual, foreign);
         assertThat(store).extracting(Transaction::getExternalId).contains("natixis_1_D1_L1");
+    }
+
+    @Test
+    void aHistoryThatDoesNotSayWhatItCoveredDeletesNothing() {
+        Account pee = arrangeOperationsSync(true, buy("natixis_1_D1_L1", "2024-01-10"));
+        when(port.fetchPlans("plain-state")).thenReturn(new NatixisAdapter.PositionsData(List.of(peePlan()),
+            "plain-state", true, List.of(buy("natixis_1_D1_L1", "2024-01-10")), null));
+        Transaction recent = storedRow(pee, "natixis_1_D2_L1", LocalDate.now().minusYears(1), false);
+
+        service.queueSync(7L);
+
+        assertThat(store).contains(recent);
+        verify(transactionRepository, never()).deleteAll(anyIterable());
     }
 
     @Test
@@ -571,7 +589,7 @@ class NatixisSyncServiceTest {
 
     private NatixisAdapter.PositionsData operationsPositions(boolean complete, NatixisAdapter.Operation... operations) {
         return new NatixisAdapter.PositionsData(List.of(peePlan()), "plain-state", complete,
-            complete ? List.of(operations) : List.of());
+            complete ? List.of(operations) : List.of(), complete ? HISTORY_FROM.toString() : null);
     }
 
     private NatixisAdapter.Operation buy(String externalId, String date) {

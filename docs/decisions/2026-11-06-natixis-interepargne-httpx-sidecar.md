@@ -38,9 +38,10 @@ ISIN.
    `picsou_sidecar.create_app` and `PendingStore`.
 2. **The login runs in two calls.** `/initiate {email, password}` goes as far as
    sending the code. `/complete {processId, code}` verifies it, posts the SAML
-   response back, exchanges the authorization code and returns
-   `sessionState = {refreshToken, deviceId, employeeId}`. A mistyped code keeps the
-   attempt open for a retry.
+   response back, exchanges the authorization code and returns `sessionState`. That
+   is an opaque string (it encodes the refresh token, device id and employee id as
+   JSON); clients pass it back unchanged and never parse it. A mistyped code keeps
+   the attempt open for a retry.
 3. **Only the session is stored, never the credentials.** A stored password could
    not log in again without someone at the phone, because the code is asked on
    every login. Java encrypts `sessionState` with `CryptoEncryption`. When the

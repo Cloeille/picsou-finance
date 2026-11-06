@@ -234,6 +234,8 @@ class HappyPathTest(SidecarTestCase):
         session = self.login().json()["sessionState"]
         body = self.post("/positions", {"sessionState": session}).json()
         self.assertTrue(body["operationsComplete"])
+        # The deletion window downstream starts from the date the history was asked from.
+        self.assertRegex(body["operationsFrom"], r"^\d{4}-\d{2}-\d{2}$")
         operations = body["operations"]
         plan_ids = {p["externalId"] for p in body["plans"]}
         self.assertTrue(all(op["planExternalId"] in plan_ids for op in operations))
@@ -253,6 +255,7 @@ class HappyPathTest(SidecarTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertFalse(body["operationsComplete"])
+        self.assertIsNone(body["operationsFrom"])
         self.assertEqual(body["operations"], [])
         self.assertEqual(len(body["plans"]), 2)
 

@@ -35,7 +35,7 @@ from contextlib import asynccontextmanager
 from decimal import Decimal
 from html import unescape
 from typing import Any, Literal
-from urllib.parse import parse_qs, urljoin, urlsplit
+from urllib.parse import parse_qs, quote, urljoin, urlsplit
 
 import httpx
 from fastapi import HTTPException, Response
@@ -186,6 +186,8 @@ class PositionsResponse(BaseModel):
     sessionState: str
     plans: list[PlanPayload]
     operationsComplete: bool
+    # The first listing date the history was requested from; null when it was not read.
+    operationsFrom: str | None = None
     operations: list[OperationPayload]
 
 
@@ -497,8 +499,17 @@ def parse_session(raw: str) -> dict[str, str]:
 # ─── Positions ──────────────────────────────────────────────────────────────
 
 
+def _employee_path(employee_id: str) -> str:
+    """The saver's path segment. The id was checked against a strict pattern already
+    (users/me, parse_session); it is still percent-encoded so nothing in it can ever
+    change the path or the host of an API call."""
+    if not re.fullmatch(r"[0-9A-Za-z-]{1,40}", employee_id):
+        raise HTTPException(status_code=400, detail="INVALID_DATA")
+    return quote(employee_id, safe="")
+
+
 async def collect_plans(client: httpx.AsyncClient, access_token: str, employee_id: str) -> dict:
-    base = f"/saving/v1/employees/{employee_id}"
+    base = f"/saving/v1/employees/{_employee_path(employee_id)}"
     savings = await _api_get(client, access_token, f"{base}/savings", {"gainsOrLosses": "true"})
     products = await _api_get(client, access_token, f"{base}/products",
                               {"includeGainsOrLosses": "true", "includeExternalAccounts": "true"})
@@ -508,36 +519,39 @@ async def collect_plans(client: httpx.AsyncClient, access_token: str, employee_i
     codes = await _fund_codes(client, access_token, held + sold_out)
     plans = parse_plans(savings, products, employee_id, codes)
     operations = None
+    operations_from = None
     if history is not None:
         try:
             operations = parse_operations(history[0], history[1], employee_id, codes)
+            operations_from = history[2]
         except SavingsFormatError as exc:
             log.warning("Natixis operations not imported code=%s: %s", exc.code, exc)
-    return {"plans": plans, "operations": operations}
+    return {"plans": plans, "operations": operations,
+            "operationsFrom": operations_from if operations is not None else None}
 
 
 async def _operation_details(client: httpx.AsyncClient, access_token: str,
-                             employee_id: str) -> tuple[list[dict], list[dict]] | None:
+                             employee_id: str) -> tuple[list[dict], list[dict], str] | None:
     """The finished operations and their details, or None when the history cannot be
     read in full -- a partial history must never pass for the whole one."""
     today = time.strftime("%Y-%m-%d")
     since = time.strftime("%Y-%m-%d", time.localtime(time.time() - OPERATIONS_HISTORY_YEARS * 365 * 86400 + 86400))
     try:
         async with asyncio.timeout(OPERATIONS_BUDGET_SECONDS):
-            listing = await _api_get(client, access_token, f"/transaction/v1/employees/{employee_id}/transactions",
+            listing = await _api_get(client, access_token, f"/transaction/v1/employees/{_employee_path(employee_id)}/transactions",
                                      {"fromDate": since, "toDate": today, "status": ""})
             demands = finished_demands(listing)
             gate = asyncio.Semaphore(FUND_DETAIL_CONCURRENCY)
 
             async def detail(demand: dict) -> dict:
                 path = demand["href"].split("nie.api.natixis.com", 1)[-1]
-                if not path.startswith(f"/transaction/v1/employees/{employee_id}/"):
+                if not path.startswith(f"/transaction/v1/employees/{_employee_path(employee_id)}/"):
                     raise SavingsFormatError("UPSTREAM_FORMAT_CHANGED", "Operation detail outside the saver's space")
                 async with gate:
                     return await _api_get(client, access_token, path)
 
             details = await asyncio.gather(*(detail(d) for d in demands))
-            return demands, list(details)
+            return demands, list(details), since
     except NatixisError as exc:
         if exc.code == "SESSION_EXPIRED":
             raise
@@ -665,6 +679,7 @@ async def positions(req: PositionsRequest) -> dict:
                 "sessionState": state,
                 "plans": [PlanPayload.model_validate(p) for p in read["plans"]],
                 "operationsComplete": operations is not None,
+                "operationsFrom": read["operationsFrom"],
                 "operations": [OperationPayload.model_validate(o) for o in operations or []],
             }
 

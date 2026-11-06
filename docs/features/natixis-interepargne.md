@@ -65,7 +65,11 @@ taken from `transaction/v1/employees/{id}/transactions` and one detail per opera
 The backend reconciles these rows on the plan accounts in the same transaction as
 the plans:
 - they are upserted by external id;
-- a Natixis row that vanished inside the five-year window is deleted;
+- a Natixis row that vanished is deleted only when it is dated at least 90 days
+  after `operationsFrom`, the first listing date the read asked Natixis for. Natixis
+  lists by demand date but dates an operation when it settles, days later, so an
+  operation dated near the start may belong to a demand listed just before it,
+  outside the read. Without `operationsFrom` (an older sidecar), nothing is deleted;
 - older rows and manual rows are kept.
 
 When `operationsComplete` is false (the history could not be read in full), the

@@ -89,7 +89,13 @@ public class NatixisSyncService {
     /** Hex characters of the label hash that keeps two label-only fund tickers apart. */
     private static final int LABEL_HASH_LENGTH = 8;
     /** Natixis keeps five years of operations: a stored one older than that is never deleted. */
-    private static final int OPERATIONS_HISTORY_YEARS = 5;
+    /**
+     * Natixis lists operations by the date the demand was made, but an operation is dated when
+     * the units were bought or sold, days later (2 to 16 days observed). A stored operation dated
+     * within this margin of the first listing date may belong to a demand listed just before it:
+     * it is outside what the read covered, so it is never deleted on its absence.
+     */
+    private static final int SETTLEMENT_MARGIN_DAYS = 90;
 
     private final NatixisAdapter port;
     private final NatixisSessionRepository sessionRepository;
@@ -282,7 +288,7 @@ public class NatixisSyncService {
             // already be spent, so even a read discarded below must not lose it.
             storeRefreshedState(job, fetched.sessionState());
             List<PreparedPlan> prepared = preparePlans(fetched.plans());
-            List<PreparedOperation> operations = prepareOperations(fetched);
+            OperationsHistory operations = prepareOperations(fetched);
             if (commitPlans(job, prepared, operations)) {
                 log.info("Natixis sync completed (member={}; plans={})", job.memberId(), prepared.size());
             } else {
@@ -447,7 +453,7 @@ public class NatixisSyncService {
     }
 
     /** @param operations null when the history is not complete: stored operations are then left alone */
-    private boolean commitPlans(SyncJob job, List<PreparedPlan> prepared, List<PreparedOperation> operations) {
+    private boolean commitPlans(SyncJob job, List<PreparedPlan> prepared, OperationsHistory operations) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
             // Lock order: the member's Natixis accounts, then the session row. Deleting an
             // account takes them in that order too -- AccountConnectionService soft-deletes
@@ -482,7 +488,7 @@ public class NatixisSyncService {
             }
             closeUnlistedPlans(prepared, imported, job.memberId(), syncedAt);
             if (operations != null) {
-                reconcileOperations(operations, job.memberId());
+                reconcileOperations(operations.operations(), operations.deletableFrom(), job.memberId());
             }
 
             session.markSuccessful(syncedAt);
@@ -546,7 +552,7 @@ public class NatixisSyncService {
      * serve in full, or a line this backend cannot read -- so the stored operations stay as
      * they are. A bad history never fails the plans: they are valid on their own.
      */
-    private List<PreparedOperation> prepareOperations(NatixisAdapter.PositionsData fetched) {
+    private OperationsHistory prepareOperations(NatixisAdapter.PositionsData fetched) {
         if (!fetched.hasCompleteOperations()) {
             return null;
         }
@@ -555,9 +561,25 @@ public class NatixisSyncService {
             for (NatixisAdapter.Operation operation : fetched.operations()) {
                 prepared.add(prepareOperation(operation));
             }
-            return List.copyOf(prepared);
+            return new OperationsHistory(List.copyOf(prepared), deletableFrom(fetched.operationsFrom()));
         } catch (SyncException | DateTimeParseException ex) {
             log.warn("Natixis returned an unreadable operations history, keeping the stored one");
+            return null;
+        }
+    }
+
+    /**
+     * The first date an operation may be deleted on its absence: the read's first listing date
+     * plus the settlement margin. Null -- delete nothing -- when the sidecar did not say what it
+     * covered (an older sidecar) or said it in a form this backend cannot read.
+     */
+    private static LocalDate deletableFrom(String operationsFrom) {
+        if (operationsFrom == null) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(operationsFrom).plusDays(SETTLEMENT_MARGIN_DAYS);
+        } catch (DateTimeParseException ex) {
             return null;
         }
     }
@@ -614,10 +636,11 @@ public class NatixisSyncService {
     /**
      * Mirrors the complete history onto each plan account, keyed on Natixis' stable
      * operation id. History only: balances, holdings and snapshots stay the plan
-     * snapshot's. Deletes only this connector's rows inside the five years Natixis
-     * covers; manual rows and anything older are never touched.
+     * snapshot's. Deletes only this connector's rows dated on or after {@code deletableFrom},
+     * i.e. inside what the read covered; manual rows and anything older are never touched,
+     * and nothing is deleted when {@code deletableFrom} is null.
      */
-    private void reconcileOperations(List<PreparedOperation> operations, Long memberId) {
+    private void reconcileOperations(List<PreparedOperation> operations, LocalDate deletableFrom, Long memberId) {
         Map<String, Account> accounts = new LinkedHashMap<>();
         for (Account account : accountRepository.findAllByMemberIdAndProvider(memberId, PROVIDER)) {
             String externalId = account.getExternalAccountId();
@@ -640,7 +663,6 @@ public class NatixisSyncService {
             log.info("Natixis skipped {} operation(s) of plans without an account (member={})", unmatched, memberId);
         }
 
-        LocalDate windowStart = LocalDate.now().minusYears(OPERATIONS_HISTORY_YEARS);
         List<Transaction> obsolete = new ArrayList<>();
         List<Transaction> upserts = new ArrayList<>();
         for (Map.Entry<String, Map<String, PreparedOperation>> entry : byAccount.entrySet()) {
@@ -654,7 +676,7 @@ public class NatixisSyncService {
                 }
                 if (reported.containsKey(externalId)) {
                     storedById.put(externalId, row);
-                } else if (row.getDate() != null && !row.getDate().isBefore(windowStart)) {
+                } else if (deletableFrom != null && row.getDate() != null && !row.getDate().isBefore(deletableFrom)) {
                     obsolete.add(row);
                 }
             }
@@ -962,6 +984,9 @@ public class NatixisSyncService {
     private record PendingAttempt(Long memberId, long generation, Instant expiresAt) {}
     private record QueueDecision(SyncJob job, SessionStatusResponse status) {}
     /** Carries the decrypted session state: its {@code toString()} must never print it. */
+    /** A complete history to apply, and the first date its absences may delete from. */
+    private record OperationsHistory(List<PreparedOperation> operations, LocalDate deletableFrom) {}
+
     private record SyncJob(Long sessionId, Long memberId, String plainState) {
         @Override
         public String toString() {

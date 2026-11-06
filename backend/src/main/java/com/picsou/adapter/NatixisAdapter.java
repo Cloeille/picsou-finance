@@ -146,8 +146,9 @@ public class NatixisAdapter {
      * {@code operationsComplete} is null from a sidecar that predates the history: read as
      * false, like an incomplete history, so stored operations are left alone.
      */
+    /** @param operationsFrom the first listing date the history covers; null when it was not read */
     public record PositionsData(List<PlanData> plans, String sessionState,
-                                Boolean operationsComplete, List<Operation> operations) {
+                                Boolean operationsComplete, List<Operation> operations, String operationsFrom) {
         public boolean hasCompleteOperations() {
             return Boolean.TRUE.equals(operationsComplete) && operations != null;
         }
