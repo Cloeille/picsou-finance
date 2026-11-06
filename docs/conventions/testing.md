@@ -225,6 +225,13 @@ that needs a live account or a real login is a script, not a `test_*.py` module 
 from it). `services/base` tests run the same way in the Camoufox base, which includes
 the Python one (`sidecar-base` job). Camoufox sidecars also run on a native ARM64 runner.
 
+## Release smoke tests
+
+`docker/tests/test_deploy_integration.py` runs one `release-deployment` leg per parametrize
+id (`.github/scripts/release_cases.py` reads them), each building the image and requiring
+`1 passed`; the `unit` leg runs shellcheck, `test_deploy.py`, and checks the collected ids
+match the legs.
+
 ## Running tests
 
 `make test-backend`, `make test-frontend`, `make test-e2e` and `make test-sidecar SIDECAR=<name>`,
