@@ -60,6 +60,37 @@ class NatixisAdapterTest {
         assertThatCode(() -> adapter.cancelAuth("process-1")).doesNotThrowAnyException();
     }
 
+    @Test
+    void positionsFromAnOlderSidecarCarryNoCompleteHistory() {
+        NatixisAdapter adapter = adapter(WebClientStubs.returning("{\"plans\":[],\"sessionState\":\"s\"}"), GENEROUS);
+
+        NatixisAdapter.PositionsData data = adapter.fetchPlans("state");
+
+        assertThat(data.hasCompleteOperations()).isFalse();
+    }
+
+    @Test
+    void positionsDecodeTheOperationsHistory() {
+        NatixisAdapter adapter = adapter(WebClientStubs.returning("""
+            {"plans": [], "sessionState": "s", "operationsComplete": true, "operations": [{
+              "externalId": "natixis_1_D1_L1", "planExternalId": "natixis_1_PEE", "date": "2026-07-23",
+              "type": "BUY", "label": "Abondement employeur", "fundLabel": "FONDS ACTIONS EUROPE I",
+              "fundCode": "NIE-1002", "quantity": "12.3456", "unitValue": "49.69", "amountEur": "613.42",
+              "feesEur": null}]}
+            """), GENEROUS);
+
+        NatixisAdapter.PositionsData data = adapter.fetchPlans("state");
+
+        assertThat(data.hasCompleteOperations()).isTrue();
+        assertThat(data.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.date()).isEqualTo("2026-07-23");
+            assertThat(operation.type()).isEqualTo("BUY");
+            assertThat(operation.fundCode()).isEqualTo("NIE-1002");
+            assertThat(operation.amountEur()).isEqualByComparingTo("613.42");
+            assertThat(operation.feesEur()).isNull();
+        });
+    }
+
     private static NatixisAdapter adapter(WebClient client,
                                           Duration cancelTimeout) {
         return new NatixisAdapter(client, JSON, GENEROUS, GENEROUS, GENEROUS, cancelTimeout);

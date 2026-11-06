@@ -9,12 +9,16 @@ import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.NatixisSession;
 import com.picsou.model.NatixisSyncStatus;
+import com.picsou.model.Transaction;
+import com.picsou.model.TransactionType;
+import com.picsou.dto.RealizedPnlResponse;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.NatixisSessionRepository;
+import com.picsou.repository.TransactionRepository;
 import com.picsou.service.sync.SourceSyncResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +35,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -40,6 +46,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyIterable;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -58,6 +65,7 @@ class NatixisSyncServiceTest {
     @Mock NatixisSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
+    @Mock TransactionRepository transactionRepository;
     @Mock FamilyMemberRepository memberRepository;
     @Mock AccountService accountService;
     @Mock CryptoEncryption encryption;
@@ -72,7 +80,7 @@ class NatixisSyncServiceTest {
     void setUp() {
         executeTransactionsImmediately();
         service = new NatixisSyncService(
-            port, sessionRepository, accountRepository, holdingRepository, memberRepository,
+            port, sessionRepository, accountRepository, holdingRepository, transactionRepository, memberRepository,
             accountService, encryption, txTemplate, Runnable::run
         );
     }
@@ -406,7 +414,182 @@ class NatixisSyncServiceTest {
     }
 
     private NatixisAdapter.PositionsData positions(String sessionState, NatixisAdapter.PlanData... plans) {
-        return new NatixisAdapter.PositionsData(List.of(plans), sessionState);
+        return new NatixisAdapter.PositionsData(List.of(plans), sessionState, null, null);
+    }
+
+    // ─── Operations history ─────────────────────────────────────────────────
+
+    private final List<Transaction> store = new ArrayList<>();
+
+    @Test
+    void aCompleteHistoryInsertsBuysAndSalesOnTheirPlanAccountWithTheHoldingsTicker() {
+        Account pee = arrangeOperationsSync(true, buy("natixis_1_D1_L1", "2024-01-10"),
+            sell("natixis_1_P1_L1", "2025-03-01"),
+            new NatixisAdapter.Operation("natixis_1_D9_L1", "natixis_1_UNKNOWN", "2024-02-01", "BUY", "Versement",
+                "AVENIR ACTIONS EUROPE I", "QS0004086763", BigDecimal.ONE, null, BigDecimal.TEN, null));
+
+        service.queueSync(7L);
+
+        assertThat(store).hasSize(2).allSatisfy(row -> {
+            assertThat(row.getAccount()).isSameAs(pee);
+            assertThat(row.isManual()).isFalse();
+            assertThat(row.getNativeCurrency()).isEqualTo("EUR");
+            assertThat(row.getName()).isEqualTo("AVENIR ACTIONS EUROPE I");
+        });
+        Transaction bought = store.getFirst();
+        assertThat(bought.getExternalId()).isEqualTo("natixis_1_D1_L1");
+        assertThat(bought.getTxType()).isEqualTo(TransactionType.BUY);
+        assertThat(bought.getDate()).isEqualTo(LocalDate.parse("2024-01-10"));
+        assertThat(bought.getDescription()).isEqualTo("Investissement de votre intéressement");
+        assertThat(bought.getQuantity()).isEqualByComparingTo("10");
+        assertThat(bought.getPricePerUnit()).isEqualByComparingTo("20");
+        assertThat(bought.getFees()).isEqualByComparingTo("1");
+        // A buy is an outflow of the amount plus its fees, a sale an inflow of its proceeds.
+        assertThat(bought.getAmount()).isEqualByComparingTo("-201");
+        Transaction sold = store.get(1);
+        assertThat(sold.getTxType()).isEqualTo(TransactionType.SELL);
+        assertThat(sold.getAmount()).isEqualByComparingTo("100");
+        // The same ticker as the holding, so realized P&L lines the sale up with its buys.
+        verify(holdingRepository).saveAll(holdingsCaptor.capture());
+        assertThat(holdingsCaptor.getValue().getFirst().getTicker()).isEqualTo(bought.getTicker());
+        assertThat(sold.getTicker()).isEqualTo("NATIXIS-QS0004086763");
+        // History only: the plan's balance and snapshot are the snapshot's alone.
+        assertThat(pee.getCurrentBalance()).isEqualByComparingTo("1500.50");
+        verify(accountService).upsertSnapshot(pee, new BigDecimal("1500.50"), new BigDecimal("1500.50"), LocalDate.now());
+    }
+
+    @Test
+    void anIdenticalSecondSyncChangesNothingAndAChangedOperationIsUpdatedInPlace() {
+        arrangeOperationsSync(true, buy("natixis_1_D1_L1", "2024-01-10"), sell("natixis_1_P1_L1", "2025-03-01"));
+        service.queueSync(7L);
+        List<Transaction> first = List.copyOf(store);
+
+        service.queueSync(7L);
+        assertThat(store).containsExactlyElementsOf(first);
+
+        NatixisAdapter.Operation corrected = new NatixisAdapter.Operation("natixis_1_P1_L1", PEE_ID,
+            "2025-03-02", "SELL", "Déblocage anticipé", "AVENIR ACTIONS EUROPE I", "QS0004086763",
+            new BigDecimal("4"), new BigDecimal("26"), new BigDecimal("104"), null);
+        when(port.fetchPlans("plain-state")).thenReturn(operationsPositions(true, buy("natixis_1_D1_L1", "2024-01-10"),
+            corrected));
+        service.queueSync(7L);
+
+        assertThat(store).containsExactlyElementsOf(first);
+        assertThat(first.get(1).getAmount()).isEqualByComparingTo("104");
+        assertThat(first.get(1).getDate()).isEqualTo(LocalDate.parse("2025-03-02"));
+        assertThat(first.get(1).getDescription()).isEqualTo("Déblocage anticipé");
+    }
+
+    @Test
+    void anOperationGoneFromTheHistoryIsDeletedOnlyInsideTheFiveYearsNatixisCovers() {
+        Account pee = arrangeOperationsSync(true, buy("natixis_1_D1_L1", "2024-01-10"));
+        Transaction recent = storedRow(pee, "natixis_1_D2_L1", LocalDate.now().minusYears(1), false);
+        Transaction ancient = storedRow(pee, "natixis_1_D0_L1", LocalDate.now().minusYears(6), false);
+        Transaction manual = storedRow(pee, null, LocalDate.now().minusMonths(2), true);
+        Transaction foreign = storedRow(pee, "other_123", LocalDate.now().minusMonths(2), false);
+
+        service.queueSync(7L);
+
+        assertThat(store).doesNotContain(recent).contains(ancient, manual, foreign);
+        assertThat(store).extracting(Transaction::getExternalId).contains("natixis_1_D1_L1");
+    }
+
+    @Test
+    void anIncompleteHistoryLeavesTheStoredOperationsUntouched() {
+        Account pee = arrangeOperationsSync(false);
+        Transaction recent = storedRow(pee, "natixis_1_D2_L1", LocalDate.now().minusYears(1), false);
+        BigDecimal amount = recent.getAmount();
+
+        service.queueSync(7L);
+
+        assertThat(store).containsExactly(recent);
+        assertThat(recent.getAmount()).isEqualByComparingTo(amount);
+        verify(transactionRepository, never()).deleteAll(anyIterable());
+        verify(transactionRepository, never()).saveAllAndFlush(anyIterable());
+    }
+
+    @Test
+    void anOlderSidecarWithoutAHistoryLeavesTheStoredOperationsUntouched() {
+        Account pee = arrangeOperationsSync(true);
+        when(port.fetchPlans("plain-state")).thenReturn(positions("plain-state", peePlan()));
+        storedRow(pee, "natixis_1_D2_L1", LocalDate.now().minusYears(1), false);
+
+        service.queueSync(7L);
+
+        assertThat(store).hasSize(1);
+        verify(transactionRepository, never()).saveAllAndFlush(anyIterable());
+    }
+
+    @Test
+    void realizedPnlPairsTheImportedSaleWithItsBuys() {
+        Account pee = arrangeOperationsSync(true, sell("natixis_1_P1_L1", "2025-03-01"), buy("natixis_1_D1_L1", "2024-01-10"));
+        service.queueSync(7L);
+        AccountRepository pnlAccounts = org.mockito.Mockito.mock(AccountRepository.class);
+        TransactionRepository pnlTransactions = org.mockito.Mockito.mock(TransactionRepository.class);
+        when(pnlAccounts.findByIdAndMemberId(11L, 7L)).thenReturn(Optional.of(pee));
+        // Saved oldest first, which is the (date, id) order the repository replays.
+        when(pnlTransactions.findByAccountIdAndTxTypeInOrderByDateAscIdAsc(eq(11L), any()))
+            .thenReturn(store.stream().sorted(Comparator.comparing(Transaction::getDate)).toList());
+
+        RealizedPnlResponse realized = new RealizedPnlService(pnlAccounts, pnlTransactions).compute(11L, 7L);
+
+        // Cost (10 x 20 + 1 fee) / 10 = 20.1 a unit; 4 sold at 25: 100 - 80.4.
+        assertThat(realized.realizedTotal()).isEqualByComparingTo("19.6");
+        assertThat(realized.byTicker()).singleElement()
+            .satisfies(line -> assertThat(line.warning()).isFalse());
+    }
+
+    private Account arrangeOperationsSync(boolean complete, NatixisAdapter.Operation... operations) {
+        NatixisSession session = activeSession(owner());
+        arrangeCommittableSession(session);
+        Account pee = Account.builder().id(11L).externalAccountId(PEE_ID).provider(NatixisSyncService.PROVIDER)
+            .member(owner()).name("PEE").currentBalance(new BigDecimal("1500.50")).build();
+        when(accountRepository.findByExternalAccountIdAndMemberId(PEE_ID, 7L)).thenReturn(Optional.of(pee));
+        lenient().when(accountRepository.findAllByMemberIdAndProvider(7L, NatixisSyncService.PROVIDER))
+            .thenReturn(List.of(pee));
+        lenient().when(port.fetchPlans("plain-state")).thenReturn(operationsPositions(complete, operations));
+        lenient().when(transactionRepository.findByAccountIdAndIsManualFalse(anyLong())).thenAnswer(invocation ->
+            store.stream()
+                .filter(row -> !row.isManual() && row.getAccount().getId().equals(invocation.getArgument(0)))
+                .toList());
+        lenient().when(transactionRepository.saveAllAndFlush(anyIterable())).thenAnswer(invocation -> {
+            Iterable<Transaction> rows = invocation.getArgument(0);
+            rows.forEach(row -> {
+                if (!store.contains(row)) store.add(row);
+            });
+            return rows;
+        });
+        lenient().doAnswer(invocation -> {
+            Iterable<Transaction> rows = invocation.getArgument(0);
+            rows.forEach(store::remove);
+            return null;
+        }).when(transactionRepository).deleteAll(anyIterable());
+        return pee;
+    }
+
+    private NatixisAdapter.PositionsData operationsPositions(boolean complete, NatixisAdapter.Operation... operations) {
+        return new NatixisAdapter.PositionsData(List.of(peePlan()), "plain-state", complete,
+            complete ? List.of(operations) : List.of());
+    }
+
+    private NatixisAdapter.Operation buy(String externalId, String date) {
+        return new NatixisAdapter.Operation(externalId, PEE_ID, date, "BUY",
+            "Investissement de votre intéressement", "AVENIR ACTIONS EUROPE I", "QS0004086763",
+            new BigDecimal("10"), new BigDecimal("20"), new BigDecimal("200"), BigDecimal.ONE);
+    }
+
+    private NatixisAdapter.Operation sell(String externalId, String date) {
+        return new NatixisAdapter.Operation(externalId, PEE_ID, date, "SELL",
+            "Déblocage anticipé", "AVENIR ACTIONS EUROPE I", "QS0004086763",
+            new BigDecimal("4"), new BigDecimal("25"), new BigDecimal("100"), null);
+    }
+
+    private Transaction storedRow(Account account, String externalId, LocalDate date, boolean manual) {
+        Transaction row = Transaction.builder().account(account).externalId(externalId).date(date)
+            .description("stored").amount(new BigDecimal("-50")).txType(TransactionType.BUY)
+            .isManual(manual).build();
+        store.add(row);
+        return row;
     }
 
     private void arrangeCommittableSession(NatixisSession session) {

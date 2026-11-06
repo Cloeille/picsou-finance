@@ -133,5 +133,23 @@ public class NatixisAdapter {
     public record PlanData(String externalId, String name, String planKind, String employer,
                            BigDecimal balanceEur, List<Position> positions, boolean snapshotComplete) {}
 
-    public record PositionsData(List<PlanData> plans, String sessionState) {}
+    /**
+     * One investment (BUY) or disinvestment (SELL) of a fund inside a plan, from the
+     * five years of history Natixis keeps. {@code amountEur} and {@code feesEur} are
+     * positive magnitudes; {@code date} is an ISO {@code yyyy-MM-dd} string.
+     */
+    public record Operation(String externalId, String planExternalId, String date, String type,
+                            String label, String fundLabel, String fundCode, BigDecimal quantity,
+                            BigDecimal unitValue, BigDecimal amountEur, BigDecimal feesEur) {}
+
+    /**
+     * {@code operationsComplete} is null from a sidecar that predates the history: read as
+     * false, like an incomplete history, so stored operations are left alone.
+     */
+    public record PositionsData(List<PlanData> plans, String sessionState,
+                                Boolean operationsComplete, List<Operation> operations) {
+        public boolean hasCompleteOperations() {
+            return Boolean.TRUE.equals(operationsComplete) && operations != null;
+        }
+    }
 }

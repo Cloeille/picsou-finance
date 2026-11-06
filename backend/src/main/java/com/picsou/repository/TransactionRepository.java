@@ -138,10 +138,16 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     /** Member-scoped batch lookup by id set — used by the async AI job. */
     List<Transaction> findAllByIdInAndAccountMemberId(Collection<Long> ids, Long memberId);
 
-    /** Transactions belonging to a member that have no managed category yet. */
+    /**
+     * Transactions belonging to a member that have no managed category yet: the rule, brand and
+     * AI categorizers' candidates. Employee-savings fund trades are left out -- see
+     * {@link #findByMemberIdAndDateBetween}.
+     */
     @Query("""
         SELECT t FROM Transaction t
         WHERE t.account.member.id = :memberId AND t.categoryRef IS NULL
+          AND (CAST(t.account.type AS String) <> 'EMPLOYEE_SAVINGS' OR t.txType IS NULL
+               OR t.txType NOT IN (com.picsou.model.TransactionType.BUY, com.picsou.model.TransactionType.SELL))
         ORDER BY t.date DESC, t.id DESC
         """)
     List<Transaction> findUncategorizedByMemberId(@Param("memberId") Long memberId);
@@ -165,12 +171,21 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     // views already do: an account is typically hidden because a second connector syncs the
     // same bank account, and counting both copies would double the member's spending.
 
-    /** All member transactions in a date range (cashflow / detection input). */
+    /**
+     * All member transactions in a date range (cashflow / detection input).
+     *
+     * <p>BUY/SELL rows on an employee-savings account are left out: they are the plan's fund
+     * history (Natixis Interépargne), paid from a bonus or an employer top-up that never crossed
+     * a current account, so counting them would book years of intéressement as spending. Every
+     * other account type keeps its trades here.
+     */
     @Query("""
         SELECT t FROM Transaction t
         JOIN FETCH t.account
         WHERE t.account.member.id = :memberId AND t.account.hidden = false
         AND t.date BETWEEN :from AND :to
+        AND (CAST(t.account.type AS String) <> 'EMPLOYEE_SAVINGS' OR t.txType IS NULL
+             OR t.txType NOT IN (com.picsou.model.TransactionType.BUY, com.picsou.model.TransactionType.SELL))
         ORDER BY t.date ASC, t.id ASC
         """)
     List<Transaction> findByMemberIdAndDateBetween(@Param("memberId") Long memberId,
@@ -279,6 +294,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
         SELECT t FROM Transaction t
         WHERE t.account.member.id = :memberId
           AND (t.categoryRef IS NULL OR t.categoryManual = false)
+          AND (CAST(t.account.type AS String) <> 'EMPLOYEE_SAVINGS' OR t.txType IS NULL
+               OR t.txType NOT IN (com.picsou.model.TransactionType.BUY, com.picsou.model.TransactionType.SELL))
         ORDER BY t.date DESC, t.id DESC
         """)
     List<Transaction> findChangeable(@Param("memberId") Long memberId);

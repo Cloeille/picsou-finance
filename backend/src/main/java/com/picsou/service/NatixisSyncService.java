@@ -11,12 +11,15 @@ import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.NatixisSession;
 import com.picsou.model.NatixisSyncStatus;
+import com.picsou.model.Transaction;
+import com.picsou.model.TransactionType;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.NatixisSessionRepository;
+import com.picsou.repository.TransactionRepository;
 import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +38,9 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -83,11 +88,14 @@ public class NatixisSyncService {
     static final Duration STALE_SYNC_AFTER = Duration.ofMinutes(10);
     /** Hex characters of the label hash that keeps two label-only fund tickers apart. */
     private static final int LABEL_HASH_LENGTH = 8;
+    /** Natixis keeps five years of operations: a stored one older than that is never deleted. */
+    private static final int OPERATIONS_HISTORY_YEARS = 5;
 
     private final NatixisAdapter port;
     private final NatixisSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
+    private final TransactionRepository transactionRepository;
     private final FamilyMemberRepository memberRepository;
     private final AccountService accountService;
     private final CryptoEncryption encryption;
@@ -111,6 +119,7 @@ public class NatixisSyncService {
         NatixisSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,
+        TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
         AccountService accountService,
         CryptoEncryption encryption,
@@ -121,6 +130,7 @@ public class NatixisSyncService {
         this.sessionRepository = sessionRepository;
         this.accountRepository = accountRepository;
         this.holdingRepository = holdingRepository;
+        this.transactionRepository = transactionRepository;
         this.memberRepository = memberRepository;
         this.accountService = accountService;
         this.encryption = encryption;
@@ -272,7 +282,8 @@ public class NatixisSyncService {
             // already be spent, so even a read discarded below must not lose it.
             storeRefreshedState(job, fetched.sessionState());
             List<PreparedPlan> prepared = preparePlans(fetched.plans());
-            if (commitPlans(job, prepared)) {
+            List<PreparedOperation> operations = prepareOperations(fetched);
+            if (commitPlans(job, prepared, operations)) {
                 log.info("Natixis sync completed (member={}; plans={})", job.memberId(), prepared.size());
             } else {
                 log.info("Discarded stale Natixis sync result (member={})", job.memberId());
@@ -435,7 +446,8 @@ public class NatixisSyncService {
         return invested;
     }
 
-    private boolean commitPlans(SyncJob job, List<PreparedPlan> prepared) {
+    /** @param operations null when the history is not complete: stored operations are then left alone */
+    private boolean commitPlans(SyncJob job, List<PreparedPlan> prepared, List<PreparedOperation> operations) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
             // Lock order: the member's Natixis accounts, then the session row. Deleting an
             // account takes them in that order too -- AccountConnectionService soft-deletes
@@ -469,6 +481,9 @@ public class NatixisSyncService {
                 upsertAccount(data, member, job.memberId(), syncedAt);
             }
             closeUnlistedPlans(prepared, imported, job.memberId(), syncedAt);
+            if (operations != null) {
+                reconcileOperations(operations, job.memberId());
+            }
 
             session.markSuccessful(syncedAt);
             sessionRepository.save(session);
@@ -523,6 +538,158 @@ public class NatixisSyncService {
         holdingRepository.flush();
 
         accountService.upsertSnapshot(savedAccount, data.balanceEur(), data.investedAmountEur(), LocalDate.now());
+    }
+
+    /**
+     * Validates the operations history before the commit, like the plans. Returns null when
+     * there is no complete history to apply -- an older sidecar, a history Natixis could not
+     * serve in full, or a line this backend cannot read -- so the stored operations stay as
+     * they are. A bad history never fails the plans: they are valid on their own.
+     */
+    private List<PreparedOperation> prepareOperations(NatixisAdapter.PositionsData fetched) {
+        if (!fetched.hasCompleteOperations()) {
+            return null;
+        }
+        try {
+            List<PreparedOperation> prepared = new ArrayList<>();
+            for (NatixisAdapter.Operation operation : fetched.operations()) {
+                prepared.add(prepareOperation(operation));
+            }
+            return List.copyOf(prepared);
+        } catch (SyncException | DateTimeParseException ex) {
+            log.warn("Natixis returned an unreadable operations history, keeping the stored one");
+            return null;
+        }
+    }
+
+    private PreparedOperation prepareOperation(NatixisAdapter.Operation operation) {
+        if (operation == null || operation.quantity() == null || operation.quantity().signum() <= 0
+            || operation.amountEur() == null || operation.amountEur().signum() < 0
+            || operation.feesEur() != null && operation.feesEur().signum() < 0) {
+            throw error(SidecarErrorCode.INVALID_DATA, "Natixis returned an incomplete operation", null);
+        }
+        String externalId = clean(operation.externalId());
+        if (externalId != null && !externalId.startsWith(EXTERNAL_ID_PREFIX)) {
+            // The prefix is what marks a row as this connector's in reconcileOperations.
+            externalId = EXTERNAL_ID_PREFIX + externalId;
+        }
+        String planId = clean(operation.planExternalId());
+        String date = clean(operation.date());
+        if (externalId == null || externalId.length() > 100 || planId == null || date == null) {
+            throw error(SidecarErrorCode.INVALID_DATA, "Natixis returned an operation without identifiers", null);
+        }
+        TransactionType type = switch (String.valueOf(operation.type())) {
+            case "BUY" -> TransactionType.BUY;
+            case "SELL" -> TransactionType.SELL;
+            default -> throw error(SidecarErrorCode.INVALID_DATA, "Natixis returned an unknown operation type", null);
+        };
+        // The holdings' own resolution, so a sale pairs with the buys of the same fund.
+        String ticker = resolveTicker(new NatixisAdapter.Position(null, operation.fundCode(), operation.fundLabel(),
+            operation.quantity(), operation.unitValue(), operation.amountEur(), null));
+        BigDecimal fees = operation.feesEur();
+        BigDecimal net = fees != null ? fees : BigDecimal.ZERO;
+        BigDecimal unitValue = operation.unitValue() != null
+            ? operation.unitValue()
+            : operation.amountEur().divide(operation.quantity(), 8, RoundingMode.HALF_UP);
+        // The repo's ledger sign (TransactionAmountCalculator): a buy is an outflow of the
+        // amount plus its fees, a sale an inflow of the proceeds less its fees.
+        BigDecimal amount = type == TransactionType.BUY
+            ? operation.amountEur().add(net).negate()
+            : operation.amountEur().subtract(net);
+        return new PreparedOperation(
+            externalId,
+            planId.startsWith(EXTERNAL_ID_PREFIX) ? planId : EXTERNAL_ID_PREFIX + planId,
+            LocalDate.parse(date),
+            type,
+            limit(operation.label(), 255, type == TransactionType.BUY ? "Investissement" : "Désinvestissement"),
+            limit(operation.fundLabel(), 100, ticker),
+            ticker,
+            operation.quantity(),
+            unitValue,
+            fees,
+            amount
+        );
+    }
+
+    /**
+     * Mirrors the complete history onto each plan account, keyed on Natixis' stable
+     * operation id. History only: balances, holdings and snapshots stay the plan
+     * snapshot's. Deletes only this connector's rows inside the five years Natixis
+     * covers; manual rows and anything older are never touched.
+     */
+    private void reconcileOperations(List<PreparedOperation> operations, Long memberId) {
+        Map<String, Account> accounts = new LinkedHashMap<>();
+        for (Account account : accountRepository.findAllByMemberIdAndProvider(memberId, PROVIDER)) {
+            String externalId = account.getExternalAccountId();
+            if (externalId != null && externalId.startsWith(EXTERNAL_ID_PREFIX)) {
+                accounts.put(externalId, account);
+            }
+        }
+        Map<String, Map<String, PreparedOperation>> byAccount = new LinkedHashMap<>();
+        accounts.keySet().forEach(id -> byAccount.put(id, new LinkedHashMap<>()));
+        int unmatched = 0;
+        for (PreparedOperation operation : operations) {
+            Map<String, PreparedOperation> reported = byAccount.get(operation.planExternalId());
+            if (reported == null) {
+                unmatched++;
+                continue;
+            }
+            reported.put(operation.externalId(), operation);
+        }
+        if (unmatched > 0) {
+            log.info("Natixis skipped {} operation(s) of plans without an account (member={})", unmatched, memberId);
+        }
+
+        LocalDate windowStart = LocalDate.now().minusYears(OPERATIONS_HISTORY_YEARS);
+        List<Transaction> obsolete = new ArrayList<>();
+        List<Transaction> upserts = new ArrayList<>();
+        for (Map.Entry<String, Map<String, PreparedOperation>> entry : byAccount.entrySet()) {
+            Account account = accounts.get(entry.getKey());
+            Map<String, PreparedOperation> reported = entry.getValue();
+            Map<String, Transaction> storedById = new LinkedHashMap<>();
+            for (Transaction row : transactionRepository.findByAccountIdAndIsManualFalse(account.getId())) {
+                String externalId = row.getExternalId();
+                if (externalId == null || !externalId.startsWith(EXTERNAL_ID_PREFIX)) {
+                    continue;
+                }
+                if (reported.containsKey(externalId)) {
+                    storedById.put(externalId, row);
+                } else if (row.getDate() != null && !row.getDate().isBefore(windowStart)) {
+                    obsolete.add(row);
+                }
+            }
+            // Oldest first, buys before sales on a day: same-day rows replay in id order
+            // (RealizedPnlService), so a sale inserted ahead of its buy would read as an over-sell.
+            reported.values().stream()
+                .sorted(Comparator.comparing(PreparedOperation::date)
+                    .thenComparing(operation -> operation.txType() == TransactionType.SELL))
+                .forEach(operation -> upserts.add(toTransaction(
+                    operation, storedById.get(operation.externalId()), account)));
+        }
+        if (!obsolete.isEmpty()) {
+            transactionRepository.deleteAll(obsolete);
+            transactionRepository.flush();
+        }
+        transactionRepository.saveAllAndFlush(upserts);
+    }
+
+    private Transaction toTransaction(PreparedOperation operation, Transaction stored, Account account) {
+        Transaction row = stored != null ? stored : Transaction.builder()
+            .account(account)
+            .externalId(operation.externalId())
+            .isManual(false)
+            .build();
+        row.setDate(operation.date());
+        row.setTxType(operation.txType());
+        row.setDescription(operation.description());
+        row.setName(operation.name());
+        row.setTicker(operation.ticker());
+        row.setQuantity(operation.quantity());
+        row.setPricePerUnit(operation.unitValue());
+        row.setFees(operation.fees());
+        row.setAmount(operation.amount());
+        row.setNativeCurrency("EUR");
+        return row;
     }
 
     /**
@@ -804,6 +971,19 @@ public class NatixisSyncService {
         BigDecimal balanceEur,
         BigDecimal investedAmountEur,
         List<PreparedPosition> positions
+    ) {}
+    private record PreparedOperation(
+        String externalId,
+        String planExternalId,
+        LocalDate date,
+        TransactionType txType,
+        String description,
+        String name,
+        String ticker,
+        BigDecimal quantity,
+        BigDecimal unitValue,
+        BigDecimal fees,
+        BigDecimal amount
     ) {}
     private record PreparedPosition(
         String ticker,

@@ -4,6 +4,7 @@ import com.picsou.model.Account;
 import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
 import com.picsou.model.Transaction;
+import com.picsou.model.TransactionType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -100,6 +101,48 @@ class TransactionRepositoryAccountFetchTest {
             .extracting(Transaction::getDescription).containsExactly("hidden-transfer", "hidden-copy");
         assertThat(transactionRepository.searchByMember(1L, from, to, 4L, 11L))
             .extracting(Transaction::getDescription).containsExactly("hidden-copy");
+    }
+
+    @Test
+    @Sql(scripts = "classpath:sql/transaction-repository-account-fetch.sql", statements = {
+        "INSERT INTO account (id, is_manual, type) VALUES (5, FALSE, 'EMPLOYEE_SAVINGS')",
+        "INSERT INTO account (id, is_manual, type) VALUES (6, FALSE, 'PEA')"
+    })
+    void employeeSavingsTradesStayOutOfBudgetAndCategorizationButOtherTradesStayIn() {
+        LocalDate from = LocalDate.of(2026, 6, 1);
+        LocalDate to = LocalDate.of(2026, 6, 30);
+        persistTrade(5L, TransactionType.BUY, "natixis-buy");
+        persistTrade(5L, TransactionType.SELL, "natixis-sell");
+        persistTrade(5L, null, "plan-untyped");
+        persistTrade(5L, TransactionType.DIVIDEND, "plan-dividend");
+        persistTrade(6L, TransactionType.BUY, "pea-buy");
+        persistTrade(6L, TransactionType.SELL, "pea-sell");
+        testEntityManager.flush();
+        testEntityManager.clear();
+
+        List<String> kept = List.of("plan-untyped", "plan-dividend", "pea-buy", "pea-sell");
+        // Cashflow, the Sankey and recurring detection all read this one.
+        assertThat(transactionRepository.findByMemberIdAndDateBetween(1L, from, to))
+            .extracting(Transaction::getDescription).containsExactlyInAnyOrderElementsOf(kept);
+        // Rule, brand and AI categorizer candidates, and rule preview.
+        assertThat(transactionRepository.findUncategorizedByMemberId(1L))
+            .extracting(Transaction::getDescription).containsExactlyInAnyOrderElementsOf(kept);
+        assertThat(transactionRepository.findChangeable(1L))
+            .extracting(Transaction::getDescription).containsExactlyInAnyOrderElementsOf(kept);
+        // The account page still lists the plan's history.
+        assertThat(transactionRepository.searchByMember(1L, from, to, 5L, null))
+            .extracting(Transaction::getDescription)
+            .contains("natixis-buy", "natixis-sell");
+    }
+
+    private void persistTrade(long accountId, TransactionType type, String description) {
+        transactionRepository.save(Transaction.builder()
+            .account(testEntityManager.getEntityManager().getReference(Account.class, accountId))
+            .date(LocalDate.of(2026, 6, 15))
+            .description(description)
+            .amount(BigDecimal.ONE.negate())
+            .txType(type)
+            .build());
     }
 
     private void persist(long accountId, long categoryId, LocalDate date, String description) {
