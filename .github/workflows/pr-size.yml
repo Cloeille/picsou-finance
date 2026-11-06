@@ -21,13 +21,15 @@ jobs:
     if: github.event.pull_request.user.type != 'Bot' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: true  # a nudge: an API hiccup must never show a red check
     permissions: {contents: read, pull-requests: write}
     steps:
       # No `ref`: pull_request_target checks out the base branch, never the pull request.
+      # `continue-on-error` sits on the steps: set on the job, a failure still shows as a red check.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        continue-on-error: true  # a nudge: an API hiccup must never show a red check
         with: {persist-credentials: false}
       - name: Comment when the pull request is over the size budget
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}

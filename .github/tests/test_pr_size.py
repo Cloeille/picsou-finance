@@ -23,9 +23,19 @@ class PrSizeTest(unittest.TestCase):
         ]
         self.assertEqual(pr_size.counted(files), 120)
 
+    def test_fixture_files_next_to_the_code_are_not_counted(self):
+        files = [
+            ("services/cic-auth/fixtures.py", 400, 0),
+            ("services/caisse-epargne-auth/fixtures_synthetic.json", 800, 0),
+            ("backend/src/test/java/com/picsou/imports/actual/ActualBudgetFixture.java", 300, 0),
+            ("services/cic-auth/cic_auth.py", 25, 5),
+        ]
+        self.assertEqual(pr_size.counted(files), 30)
+
     def test_documentation_and_tests_are_counted(self):
-        files = [("docs/features/x.md", 30, 0), ("backend/src/test/java/com/picsou/AT.java", 50, 10)]
-        self.assertEqual(pr_size.counted(files), 90)
+        files = [("docs/features/x.md", 30, 0), ("backend/src/test/java/com/picsou/AT.java", 50, 10),
+                 ("frontend/src/demo/fixtures.test.ts", 20, 0)]
+        self.assertEqual(pr_size.counted(files), 110)
 
     def test_comment_flags_only_what_is_over_the_budget(self):
         over = pr_size.render(pr_size.BUDGET + 1, "o/r")

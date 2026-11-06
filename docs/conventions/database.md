@@ -77,8 +77,12 @@ Note: V8 is absent by design (skipped — never rolled into another migration). 
 
 1. Create `V{next}__descriptive_name.sql` in `db/migration/`, where `{next}` is the next free
    version on an up-to-date `main`. Another open pull request may take the same number; the one
-   that merges second renumbers its own, still unmerged, file after syncing with `main`, along
-   with every test or doc that names it. `MigrationVersionsTest` fails on a duplicate version.
+   that merges second renumbers its own, still unmerged, files after syncing with `main`, along
+   with every test or doc that names them. Keep their relative order and number them after the
+   latest version on `main`: a later migration may depend on an earlier one. A local database that
+   already applied the old numbers has to be recreated, which deletes its data and encryption key
+   ([how to do it safely](../../CONTRIBUTING.md#before-you-open-a-pull-request)).
+   `MigrationVersionsTest` fails on a duplicate version.
 2. Use plain SQL — no Hibernate-generated DDL.
 3. Include constraints, indexes, and foreign keys explicitly.
 4. For new enums, use `CREATE TYPE ... AS ENUM (...)` at the top of the file.

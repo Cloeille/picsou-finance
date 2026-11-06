@@ -21,6 +21,8 @@ BOT = "github-actions[bot]"
 EXCLUDED = re.compile(
     r"(^|/)(bun\.lockb?|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|poetry\.lock|Cargo\.lock|CHANGELOG\.md)$"
     r"|\.lock$|\.snap$|(^|/)(__snapshots__|fixtures)/"
+    # fixture files that sit next to the code: fixtures.py, fixtures_synthetic.json, SomeFixture.java
+    r"|(^|/)fixtures[^/]*\.(py|json)$|(^|/)[A-Za-z]*Fixture\.java$"
 )
 
 

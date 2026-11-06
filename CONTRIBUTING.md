@@ -91,9 +91,10 @@ the checklist below.
 1. **One concern per pull request.** A refactor, a feature and a dependency bump are three pull
    requests. Do not mix a mechanical change (rename, move, reformat) with behaviour changes.
 2. **Stay under about 600 changed lines**, not counting lockfiles, `CHANGELOG.md`, snapshots and
-   fixtures. It is a soft budget: a workflow comments when a pull request is above it and never
-   blocks it. If the work is bigger, land a small refactor first, then the feature in slices that
-   each build and pass on their own. If it cannot be split, say why in the description.
+   fixtures. It is a soft budget: a workflow comments when a ready, human-authored pull request
+   against `main` is above it (never on a draft or a bot's) and never blocks it. If the work is
+   bigger, land a small refactor first, then the feature in slices that each build and pass on
+   their own. If it cannot be split, say why in the description.
 3. **Discuss first** what is not a bug fix: open an issue for a feature, a new bank connector or a
    schema change, and agree on the approach before writing it. Check
    [`docs/decisions/`](docs/decisions/) for a choice that was already evaluated.
@@ -105,11 +106,16 @@ the checklist below.
    use dates relative to a fixed one, never `LocalDate.now()` against a literal date. A test that
    is green today and red next month blocks every other pull request.
 6. **Migrations.** Take the next free `V<n>` on an up-to-date `main`. Another open pull request
-   may take the same number: whichever merges second renumbers its own **unmerged** file (and
-   anything that names it) after syncing; `MigrationVersionsTest` fails the build on a duplicate.
+   may take the same number: whichever merges second renumbers its own **unmerged** files (and
+   anything that names them) after syncing, keeping their order and numbering them after the
+   latest version on `main`; `MigrationVersionsTest` fails the build on a duplicate.
    Never renumber or edit a migration that is already on `main`
    ([why](docs/conventions/database.md#writing-a-new-migration)). Name the version in the pull
-   request description, and recreate your local `picsou-db` after a renumber.
+   request description. A local `picsou-db` that already applied the old number refuses the
+   renumbered file (checksum mismatch): `docker rm -f picsou-db` then `make db` starts it over,
+   and **deletes its data and its generated `CRYPTO_ENCRYPTION_KEY`**. Dump what you need first
+   (`pg_dump`) and keep the key (`docker exec picsou-db printenv PICSOU_DEV_CRYPTO_ENCRYPTION_KEY`),
+   because encrypted credentials in a dump cannot be read without it.
 7. **`CHANGELOG.md`**: one entry under `[Unreleased]` for a user-visible change, written as the
    last step, after your final sync with `main`, so it rarely conflicts. When it does (every pull
    request appends to the same place), keep both entries. The same goes for the table in
