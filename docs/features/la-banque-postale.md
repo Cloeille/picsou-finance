@@ -1,8 +1,9 @@
 # Feature: La Banque Postale sync (sidecar, replaces Enable Banking)
 
 > Last updated: 2026-11-06
-> Status: 🟢 **Live-validated on a test stack.** The backend contract, storage,
-> adapter, sync service and REST endpoints are in place. `services/lbp-auth`
+> Status: 🟢 **Live-validated by the author on a test stack; the maintainer's
+> live run is still pending.** The backend contract, storage, adapter, sync
+> service and REST endpoints are in place. `services/lbp-auth`
 > runs the login in headless Chromium (base `chromium`) so the bank's anti-fraud
 > scripts set `iscdName`; the keypad is clicked in that browser and the password
 > never leaves it. After the keypad, the sidecar clicks the bank's
@@ -88,7 +89,9 @@ bank-specific.
 | `snapshotComplete` | The sidecar read the whole account, not a partial page |
 
 `unsupported` lists products the bank reported but the sidecar does not import
-(`{externalId, familyCode}`). They never become accounts and never fail a sync.
+(`{externalId, familyCode}`). They never become accounts; a list longer than 100
+is truncated (and counted), while a malformed entry refuses the sync as a format
+change.
 
 ### Login (built from two live captures)
 
@@ -138,7 +141,7 @@ Table `lbp_session`, modelled on `caisse_epargne_session`: one row per member,
 `session_state` encrypted with `CryptoEncryption`, `encrypted_identifier` (the
 optional remembered 10-digit identifier, also encrypted), `last_validated_at`,
 `is_active`, `sync_status`, `last_sync_started_at`, `last_sync_completed_at`,
-`last_sync_error` (CHECK on the error codes), `unsupported_contracts`.
+`last_sync_error` (CHECK on the error codes), `unsupported_products`.
 Deliberately no password or keypad-position column.
 
 A session the bank rejects (`SESSION_EXPIRED`) or that cannot be decrypted
@@ -170,7 +173,8 @@ transient failure leaves it usable.
   `LEP`) when the account has none: product, `RegulatedRates` rate, NET basis and
   the legal ceiling. A config the user edited is never overwritten; a deleted one
   is recreated by the next sync. Livret Jeune, PEL and CEL stay manual because
-  the current `SavingsProduct` model has no entry for them.
+  the current `SavingsProduct` model has no entry for them; Compte sur Livret
+  stays manual because its rate is bank-specific (`COMMERCIAL`), not regulated.
 
 ### Configuration
 
@@ -257,11 +261,11 @@ layer is `httpx` cookie replay.
   The pending store pins one browser context per login.
 - `services/lbp-auth/parsers.py` — login form/keypad, account cards, operations
   table and polling URL, with typed `FormatError`.
-- `services/lbp-auth/fixtures.py` — anonymized XHTML from the two captures,
-  used by the tests only.
+- `services/lbp-auth/fixtures.py` — synthetic XHTML modelled on the structure of the
+  two captures, with every value invented; used by the tests only.
 - Tests: the shared key contract, request validation, parsers and the
   `HttpxBankClient` login/approval/import flow through `httpx.MockTransport`
-  (29 cases), run in the published image like every other sidecar. The browser
+  (30 cases), run in the published image like every other sidecar. The browser
   login is exercised live only.
 - Wired into Compose (`lbp` profile, `sidecar-chromium` base) and the Helm chart.
 
@@ -280,7 +284,7 @@ layer is `httpx` cookie replay.
 - `components/sync/SyncAllModal.tsx` lists the connector (live session or LBP
   accounts present), syncs it in place when the session is live, and routes an
   expired one to `/sync?tab=lbp`.
-- Tests: `LbpTab.test.tsx` (5 cases, including the remembered identifier).
+- Tests: `LbpTab.test.tsx` (7 cases, including the remembered identifier).
 
 **Verification** — the LBP backend tests pass, plus the shared
 `SidecarContractTest` (214 cases across every bank), `SidecarBankCodesTest`
@@ -300,9 +304,10 @@ three accounts. The session row was `SUCCESS` and active afterwards.
 
 ## Not in this slice
 
-- Automatic savings configuration for Livret Jeune, PEL and CEL: the model has
-  no `SavingsProduct` for them, so they stay manual. The three regulated books
-  that do map (`LIVRET_A`, `LDDS`, `LEP`) are configured on import.
+- Automatic savings configuration for Livret Jeune, PEL, CEL and Compte sur
+  Livret: the model has no `SavingsProduct` for them, so they stay manual. The
+  three regulated books that do map (`LIVRET_A`, `LDDS`, `LEP`) are configured on
+  import.
 - A long-lived session: the bank logs the web session out after a few minutes of
   inactivity, so a sync after that window requires a new login + A2F. Keeping
   the session warm would need a scheduled request and is deliberately not done.
@@ -311,8 +316,10 @@ three accounts. The session row was `SUCCESS` and active afterwards.
   parsed.
 - Scheduled sync and automatic re-authentication.
 - Enable Banking adoption/deduplication by IBAN.
-- Health check and sync-status feeds (`SyncStatusService`, `MemberSyncService`,
-  MCP `SyncTools`) until the connector is live.
+- `AccountConnectionService` / `SyncStatusService` / MCP `SyncTools`
+  integration: deleting the last LBP account does not clear its session, and
+  the connector is not in the status/broker feeds. The connector is on demand and
+  not in the daily scheduler.
 
 ## Links
 

@@ -321,6 +321,7 @@ and the [ADR](./decisions/2026-11-04-sso-login-alongside-passwords.md).
 | BoursoBank | Current accounts, livrets and PEA/CTO sync via internal Python sidecar | `BOURSO_AUTH_URL` |
 | CORUM | SCPI shares and CORUM Life (assurance-vie) contracts via internal Python sidecar (`corum-auth`) | `CORUM_AUTH_URL` |
 | Caisse d'Epargne | Current account, Livret A and deferred-debit card read via internal Python sidecar, on demand, no in-app login yet | `CAISSE_EPARGNE_AUTH_URL` |
+| La Banque Postale | Current account and livrets (Livret A, LDDS, LEP) via internal Chromium login sidecar, on demand | `LBP_AUTH_URL` |
 | DEGIRO | Compte-titres sync via internal Python sidecar (`degiro-auth` in `docker/docker-compose.yml`) | `DEGIRO_AUTH_URL` |
 | Binance | Crypto exchange balances | Via CryptoExchangePort |
 | Meria | Crypto exchange balances (wallets + staking + lending) | Via CryptoExchangePort |

@@ -38,8 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mobile approval), the identifier can be remembered encrypted, and the regulated
   livrets get their default savings configuration on import. The connector is wired
   into the Sync tab, Add-account and the dashboard Sync all modal. Migrations V129-V130.
-  Validated live on an isolated stack (current account, Livret A and LEP, 27
-  transactions). See [La Banque Postale](docs/features/la-banque-postale.md).
+  Validated live on an isolated stack by the author (current account, Livret A and
+  LEP, 27 transactions); the maintainer live run is still pending. See
+  [La Banque Postale](docs/features/la-banque-postale.md).
 
 - **Sign in with your identity provider (SSO).** Set `SSO_ISSUER_URI` and `SSO_CLIENT_ID` to add
   a "Sign in with <provider>" button that works with any OpenID Connect provider (Zitadel,

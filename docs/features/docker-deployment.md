@@ -1,16 +1,17 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-11-04 (the app generates the JWT and encryption keys, never the database password; connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility)
+> Last updated: 2026-11-06 (the app generates the JWT and encryption keys, never the database password; connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in application.yml; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility; La Banque Postale on the shared Chromium base)
 
 ## Context
 
-Picsou deploys as the app, PostgreSQL and up to thirteen opt-in authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
+Picsou deploys as the app, PostgreSQL and up to fourteen opt-in authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
 - **`picsou:latest`** — main app: frontend + backend in one Spring Boot process, no Python, no nginx. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
 - **`amundi-auth`** — Amundi login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/amundi-auth`.
 - **`bourso-auth`** — BoursoBank login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourso-auth`.
 - **`caisse-epargne-auth`** — browserless Caisse d'Epargne read sidecar (session replay, no in-app login yet), published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
+- **`lbp-auth`** — La Banque Postale browser-login sidecar (current account and livrets, on demand), published to GHCR as `ghcr.io/cloeille/picsou-finance/lbp-auth`.
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
 - **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (`application.yml` defaults to `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).

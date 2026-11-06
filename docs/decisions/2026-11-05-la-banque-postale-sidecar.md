@@ -1,7 +1,7 @@
 # ADR: La Banque Postale through a dedicated sidecar, replacing Enable Banking
 
 > Date: 2026-11-05
-> Status: 🟡 Proposed
+> Status: 🟢 Accepted — author live run done, maintainer live run pending
 
 ## Context
 
@@ -21,9 +21,10 @@ account, but it produces two sources for the same bank: two sets of external
 account ids, an IBAN-matching problem for the current account, and two sync
 histories in the UI. One connector for one bank is simpler to reason about.
 
-The bank's web client is the only known surface that exposes the livrets. No
-live capture of it has been taken yet: the login flow, the anti-bot posture and
-whether the account data is JSON or server-rendered HTML are all unverified.
+The bank's web client is the only known surface that exposes the livrets. Two
+live captures fixed the login flow, the anti-fraud posture and the server-rendered
+XHTML structure, and the author ran the whole connector end to end on an isolated
+stack. The maintainer's own live run is still pending.
 
 ## Decision
 
@@ -102,6 +103,14 @@ sequence that produced the BoursoBank and Caisse d'Epargne sidecars.
 Explicit product kinds are the main functional win over Enable Banking:
 `savings_interest_config` gets the right product from the first import, and the
 account never sits in the `CHECKING` bucket waiting for the name-based detector.
+
+That is an explicit exception to the savings feature's *suggest, never
+auto-apply* rule, which remains true for the name-based detector: LBP reports
+`LIVRET_A`, `LDDS` or `LEP` directly in `kind`, so `SavingsAutoConfigService`
+writes the default product, `RegulatedRates` rate and legal ceiling when the
+account has no configuration. It never overwrites a user-saved config. The rates
+and ceilings are defaults dated 2025-02-01, editable by the user; they are not a
+live feed.
 
 ## Trade-offs accepted
 
