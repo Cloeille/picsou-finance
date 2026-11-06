@@ -71,7 +71,8 @@ export function DashboardPage() {
         // Assets only (no liabilities)
         return data.distribution.map(d => d.accountId)
       case 'financial':
-        // Financial assets: drop checking and any loan that slipped into distribution
+        // Financial assets: drop everything in EXCLUDED_FINANCIAL (checking,
+        // loans, real estate, physical metals, OTHER)
         return data.distribution
           .filter(d => !EXCLUDED_FINANCIAL.has(d.accountType))
           .map(d => d.accountId)
@@ -82,7 +83,7 @@ export function DashboardPage() {
   }, [data, wealthMode])
   // Accounts that actually have holdings/tickers — used for PnL only.
   // Mirrors the chart filter: in "financial" mode we still drop excluded categories
-  // (in practice CHECKING/LOAN don't carry holdings, so this is a no-op safety net).
+  // (e.g. a real-estate or metals account carrying holdings).
   const investmentAccountIds = useMemo(() => {
     if (!data) return []
     return data.distribution

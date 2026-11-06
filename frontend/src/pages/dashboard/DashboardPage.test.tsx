@@ -169,9 +169,9 @@ describe('DashboardPage financial wealth mode', () => {
     netWorthHistory: [],
     distribution: [
       { accountId: 1, name: 'Livret', color: '#1', balanceEur: 1000, percentage: 0, accountType: 'SAVINGS', hasHoldings: false },
-      { accountId: 2, name: 'Appart', color: '#2', balanceEur: 215000, percentage: 0, accountType: 'REAL_ESTATE', hasHoldings: false },
+      { accountId: 2, name: 'Appart', color: '#2', balanceEur: 215000, percentage: 0, accountType: 'REAL_ESTATE', hasHoldings: true },
       { accountId: 3, name: 'Courant', color: '#3', balanceEur: 300, percentage: 0, accountType: 'CHECKING', hasHoldings: false },
-      { accountId: 4, name: 'SCPI Rendement', color: '#4', balanceEur: 2000, percentage: 0, accountType: 'SCPI', hasHoldings: false },
+      { accountId: 4, name: 'SCPI Rendement', color: '#4', balanceEur: 2000, percentage: 0, accountType: 'SCPI', hasHoldings: true },
       { accountId: 5, name: 'Divers', color: '#5', balanceEur: 500, percentage: 0, accountType: 'OTHER', hasHoldings: false },
       { accountId: 6, name: 'Napoleon', color: '#6', balanceEur: 700, percentage: 0, accountType: 'PRECIOUS_METALS', hasHoldings: false },
     ],
@@ -206,8 +206,9 @@ describe('DashboardPage financial wealth mode', () => {
   it('excludes real estate, checking, other and metals from the headline value but keeps SCPI', () => {
     switchToFinancialWealth()
 
+    // The hero figure is the only amount on screen (no liabilities, no goals)
     const values = screen.getAllByTestId('currency').map(el => el.textContent)
-    expect(values[0]).toBe('3000')
+    expect(values).toEqual(['3000'])
   })
 
   it('feeds only financial accounts to the history curve', () => {
@@ -215,6 +216,13 @@ describe('DashboardPage financial wealth mode', () => {
 
     const lastCall = hooks.useHistory.mock.calls.at(-1)
     expect(lastCall?.[0]).toEqual([1, 4])
+  })
+
+  it('feeds only financial holding accounts to the PnL', () => {
+    switchToFinancialWealth()
+
+    const lastCall = hooks.usePnl.mock.calls.at(-1)
+    expect(lastCall?.[0]).toEqual([4])
   })
 
   it('hides non-financial accounts from the distribution donut', () => {
