@@ -3008,6 +3008,7 @@
     "REAUTH_FAILED": "La nouvelle authentification a échoué. Vérifiez vos identifiants et réessayez.",
     "SSO_REVALIDATE": "Votre session doit être revalidée auprès de votre fournisseur de connexion.",
     "SSO_DISABLED": "La connexion unique n'est pas activée sur cette instance.",
+    "SELF_UNLINK_FORBIDDEN": "Pour dissocier vos propres identités SSO, utilisez Méthodes de connexion dans les Paramètres.",
     "generic": "La connexion unique a échoué. Veuillez réessayer."
   }
 }

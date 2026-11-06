@@ -22,6 +22,7 @@ export const SSO_ERROR_CODES = [
   'REAUTH_FAILED',
   'SSO_REVALIDATE',
   'SSO_DISABLED',
+  'SELF_UNLINK_FORBIDDEN',
 ] as const
 
 export type SsoErrorCode = (typeof SSO_ERROR_CODES)[number]

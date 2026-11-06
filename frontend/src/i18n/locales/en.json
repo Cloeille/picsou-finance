@@ -3008,6 +3008,7 @@
     "REAUTH_FAILED": "Re-authentication failed. Check your credentials and try again.",
     "SSO_REVALIDATE": "Your session needs to be re-validated with your sign-in provider.",
     "SSO_DISABLED": "Single sign-on is not enabled on this instance.",
+    "SELF_UNLINK_FORBIDDEN": "To unlink your own SSO identities, use Sign-in methods in Settings.",
     "generic": "Single sign-on failed. Please try again."
   }
 }

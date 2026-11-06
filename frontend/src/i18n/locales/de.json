@@ -3008,6 +3008,7 @@
     "REAUTH_FAILED": "Die erneute Authentifizierung ist fehlgeschlagen. Prüfe deine Zugangsdaten und versuche es erneut.",
     "SSO_REVALIDATE": "Deine Sitzung muss beim Anmeldeanbieter erneut bestätigt werden.",
     "SSO_DISABLED": "Single Sign-on ist auf dieser Instanz nicht aktiviert.",
+    "SELF_UNLINK_FORBIDDEN": "Um deine eigenen SSO-Identitäten zu trennen, nutze Anmeldemethoden in den Einstellungen.",
     "generic": "Die Single-Sign-on-Anmeldung ist fehlgeschlagen. Bitte versuche es erneut."
   }
 }

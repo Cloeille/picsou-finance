@@ -37,6 +37,10 @@ describe('formatSsoApiError', () => {
     expect(formatSsoApiError(apiError(409, 'LAST_SIGN_IN_METHOD'), t)).toBe('ssoErrors.LAST_SIGN_IN_METHOD')
   })
 
+  it('translates the refusal to unlink your own identities from the member list', () => {
+    expect(formatSsoApiError(apiError(403, 'SELF_UNLINK_FORBIDDEN'), t)).toBe('ssoErrors.SELF_UNLINK_FORBIDDEN')
+  })
+
   it('uses the rate-limit message for 429', () => {
     expect(formatSsoApiError(apiError(429), t)).toBe('common.errors.tooManyRequests')
   })

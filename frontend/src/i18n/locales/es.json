@@ -3008,6 +3008,7 @@
     "REAUTH_FAILED": "La reautenticación ha fallado. Comprueba tus credenciales e inténtalo de nuevo.",
     "SSO_REVALIDATE": "Tu sesión debe revalidarse con tu proveedor de inicio de sesión.",
     "SSO_DISABLED": "El inicio de sesión único no está activado en esta instancia.",
+    "SELF_UNLINK_FORBIDDEN": "Para desvincular tus propias identidades SSO, usa Métodos de inicio de sesión en Ajustes.",
     "generic": "El inicio de sesión único ha fallado. Inténtalo de nuevo."
   }
 }
