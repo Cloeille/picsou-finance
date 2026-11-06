@@ -869,6 +869,37 @@ handlers.set(key('DELETE', '/simplefin/connection'), () => {
   return null
 })
 
+// Wise jars follow the SimpleFIN demo: connect imports the jars at once (no jar accounts
+// exist in the demo data, so the list is empty), sync stamps lastSyncedAt, disconnect resets.
+const demoWise = {
+  connected: false,
+  connectionId: null as number | null,
+  status: null as string | null,
+  lastSyncedAt: null as string | null,
+  maskedToken: null as string | null,
+}
+handlers.set(key('GET', '/wise/status'), () => ({ ...demoWise }))
+handlers.set(key('POST', '/wise/connect'), () => {
+  demoWise.connected = true
+  demoWise.connectionId = 1
+  demoWise.status = 'CONNECTED'
+  demoWise.maskedToken = '••••demo'
+  demoWise.lastSyncedAt = new Date().toISOString()
+  return []
+})
+handlers.set(key('POST', '/wise/sync'), () => {
+  demoWise.lastSyncedAt = new Date().toISOString()
+  return []
+})
+handlers.set(key('DELETE', '/wise/connection'), () => {
+  demoWise.connected = false
+  demoWise.connectionId = null
+  demoWise.status = null
+  demoWise.lastSyncedAt = null
+  demoWise.maskedToken = null
+  return null
+})
+
 // Amundi Épargne Salariale — same demo convention: reads report a disconnected
 // session, mutations fake-succeed with the real response shapes.
 const demoAmundiStatus = {

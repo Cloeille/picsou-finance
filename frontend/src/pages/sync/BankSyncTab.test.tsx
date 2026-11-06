@@ -50,7 +50,7 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-function renderTab() {
+function renderTab(props: { onOpenWiseJars?: () => void } = {}) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -66,7 +66,7 @@ function renderTab() {
     )
   }
 
-  render(<BankSyncTab />, { wrapper: Wrapper })
+  render(<BankSyncTab {...props} />, { wrapper: Wrapper })
 }
 
 function retryButton(bankName: string) {
@@ -128,5 +128,79 @@ describe('BankSyncTab retries', () => {
       expect(retryButton('Bank B')).toBeEnabled()
       expect(reconnectButton('Bank B')).toBeEnabled()
     })
+  })
+})
+
+describe('BankSyncTab Wise connection', () => {
+  const WISE_CONNECTION = { id: 3, institutionId: 'Wise::BE', institutionName: 'Wise', status: 'LINKED', lastSyncedAt: null }
+  const WISE_DISCONNECTED = { connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null }
+
+  function givenStatuses(connections: unknown[], wiseStatus: unknown) {
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/sync/status') return Promise.resolve({ data: connections })
+      if (url === '/wise/status') return Promise.resolve({ data: wiseStatus })
+      return Promise.reject(new Error(`Unexpected GET ${url}`))
+    })
+  }
+
+  beforeEach(() => {
+    apiGet.mockReset()
+  })
+
+  it('says the Jars are missing under a Wise row and opens the Wise Jars connector', async () => {
+    const onOpenWiseJars = vi.fn()
+    givenStatuses([WISE_CONNECTION], WISE_DISCONNECTED)
+
+    renderTab({ onOpenWiseJars })
+
+    expect(await screen.findByText('sync.banks.wiseJarsMissing')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.banks.wiseJarsConnect' }))
+    expect(onOpenWiseJars).toHaveBeenCalledTimes(1)
+  })
+
+  it('confirms the Jars once the Wise Jars connector is connected', async () => {
+    givenStatuses([WISE_CONNECTION], { ...WISE_DISCONNECTED, connected: true, connectionId: 1, status: 'CONNECTED' })
+
+    renderTab({ onOpenWiseJars: vi.fn() })
+
+    expect(await screen.findByText('sync.banks.wiseJarsConnected')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'sync.banks.wiseJarsConnect' })).not.toBeInTheDocument()
+  })
+
+  it.each(['ERROR', 'REAUTH_REQUIRED'])('says the last Jars sync failed when Wise Jars is %s and keeps the way there', async (status) => {
+    const onOpenWiseJars = vi.fn()
+    givenStatuses([WISE_CONNECTION], { ...WISE_DISCONNECTED, connected: true, connectionId: 1, status })
+
+    renderTab({ onOpenWiseJars })
+
+    expect(await screen.findByText('sync.banks.wiseJarsFailed')).toBeInTheDocument()
+    expect(screen.queryByText('sync.banks.wiseJarsConnected')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'sync.banks.wiseJarsOpen' }))
+    expect(onOpenWiseJars).toHaveBeenCalledTimes(1)
+  })
+
+  it('says the Jars status is unavailable, without a way to connect, when the status request fails', async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/sync/status') return Promise.resolve({ data: [WISE_CONNECTION] })
+      if (url === '/wise/status') return Promise.reject(new Error('Network Error'))
+      return Promise.reject(new Error(`Unexpected GET ${url}`))
+    })
+
+    renderTab({ onOpenWiseJars: vi.fn() })
+
+    expect(await screen.findByText('sync.banks.wiseJarsStatusError')).toBeInTheDocument()
+    expect(screen.queryByText('sync.banks.wiseJarsMissing')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'sync.banks.wiseJarsConnect' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'sync.banks.wiseJarsOpen' })).not.toBeInTheDocument()
+  })
+
+  it('stays silent under other banks and never asks for the Wise status', async () => {
+    givenStatuses(FAILED_CONNECTIONS, WISE_DISCONNECTED)
+
+    renderTab({ onOpenWiseJars: vi.fn() })
+
+    await screen.findByText('Bank A')
+    expect(screen.queryByText('sync.banks.wiseJarsMissing')).not.toBeInTheDocument()
+    expect(apiGet).not.toHaveBeenCalledWith('/wise/status')
   })
 })

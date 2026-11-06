@@ -70,7 +70,7 @@ class SyncToolsTest {
         String text = tools.triggerBankSync();
 
         assertThat(text).contains("enable-banking: FAILED — denied");
-        verify(memberSyncService).resyncForUser(MID, Set.of("enable-banking", "enable-banking-retry", "simplefin"));
+        verify(memberSyncService).resyncForUser(MID, Set.of("enable-banking", "enable-banking-retry", "simplefin", "wise"));
     }
 
     @Test

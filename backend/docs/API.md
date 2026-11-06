@@ -2084,6 +2084,76 @@ the credit as booked, not weighted by the member's share.
 
 ---
 
+### 16d. Wise jars — `/api/wise`
+
+One connection per member: a Wise personal API token, stored encrypted. Each sync reads the jars
+(`SAVINGS` balances) of every profile the token sees and keeps them as savings accounts, balance
+only. Only `https://api.wise.com` is contacted. Connect and sync share one per-IP limit of 6
+requests per minute; over it, both return `429`. See
+[`docs/features/wise-jars.md`](../../docs/features/wise-jars.md).
+
+#### `POST /api/wise/connect`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 6 / min, shared with `/sync`
+
+**Request body:**
+```json
+{ "token": "Wise personal API token (required, at most 512 characters)" }
+```
+
+**Response `200` — `AccountResponse[]`:** the imported jars. The token is stored only when Wise
+accepted it.
+
+**Errors:** 422 (blank or oversized token; malformed token, with `code: "INVALID_TOKEN"`; Wise
+refused it (HTTP 401), with `code: "SESSION_EXPIRED"`; Wise refused the data (HTTP 403), with
+`code: "ACCESS_DENIED"`; Wise rate limiting, with `code: "RATE_LIMITED"`; Wise unreachable or
+slower than 45 s in total), 404 (unknown member), 429
+
+---
+
+#### `GET /api/wise/status`
+
+- **Auth:** Required
+
+**Response `200` — `WiseConnectionStatusResponse`:**
+```json
+{
+  "connected": true,
+  "connectionId": 3,
+  "status": "CONNECTED",
+  "lastSyncedAt": "2026-11-03T08:00:00Z",
+  "maskedToken": "••••e1f0"
+}
+```
+
+Without a connection every field but `connected: false` is `null`. `status` is
+`REAUTH_REQUIRED` after Wise refused the stored token with HTTP 401 (connect again with a new one
+to replace it in place) and `ERROR` after any other failed sync, HTTP 403 included.
+
+---
+
+#### `POST /api/wise/sync`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 6 / min, shared with `/connect`
+
+**Response `200` — `AccountResponse[]`:** the jars updated by this sync.
+
+**Errors:** 422 (no connection; Wise refused the token, with `code: "SESSION_EXPIRED"`, and the
+connection becomes `REAUTH_REQUIRED`; Wise refused the data, with `code: "ACCESS_DENIED"`; Wise
+rate limiting, with `code: "RATE_LIMITED"`; other Wise failures), 429
+
+---
+
+#### `DELETE /api/wise/connection`
+
+- **Auth:** Required
+
+**Response `204`.** The token is removed; imported jars and their history are kept.
+
+---
+
 ### 17. Member profile — `/api/me/profile`
 
 The authenticated member's personal and fiscal context: age, marginal tax rate, household,
