@@ -196,9 +196,14 @@ jobs:
           EOF
 
   frontend:
+    name: frontend (${{ matrix.task }})
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'frontend')
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: [{task: lint}, {task: test-1, shard: 1, total: 2}, {task: test-2, shard: 2, total: 2}]
     steps:
       - *checkout
       - &bun
@@ -210,8 +215,16 @@ jobs:
       - &bun-install
         name: Install
         run: make deps
-      - name: Lint, typecheck and unit tests
-        run: make test-frontend
+      - name: Lint and typecheck
+        if: matrix.task == 'lint'
+        run: make lint-frontend
+      - name: Unit tests (shard ${{ matrix.shard }}/${{ matrix.total }})
+        if: matrix.task != 'lint'
+        run: make unit-frontend SHARD=${{ matrix.shard }}/${{ matrix.total }} VITEST_JSON=${{ runner.temp }}/vitest-${{ matrix.task }}.json
+      - name: Upload the Vitest report
+        if: matrix.task != 'lint'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: {name: "vitest-${{ matrix.task }}", path: "${{ runner.temp }}/vitest-${{ matrix.task }}.json", if-no-files-found: error, retention-days: 7}
 
   # services/base tests. The Camoufox target inherits the python one, so it runs them all.
   sidecar-base:
@@ -359,6 +372,18 @@ jobs:
                     or $out.all == "true" or ($out.jobs // "" | if . == "" then "[]" else . end | fromjson | index($job)) != null))
                 | "\(.key): \(.value.result)"]
             | if . == [] then true else error("not green: \(join(", "))") end'
+      # A shard that silently ran too little must not pass: every test file runs exactly once.
+      - name: Check out the test files
+        if: needs.frontend.result == 'success'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false, sparse-checkout: "frontend/src\n.github/scripts"}
+      - name: Download the Vitest reports
+        if: needs.frontend.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {pattern: "vitest-*", path: "${{ runner.temp }}/vitest"}
+      - name: Every frontend test file ran exactly once
+        if: needs.frontend.result == 'success'
+        run: python3 .github/scripts/vitest_coverage.py frontend/src "$RUNNER_TEMP/vitest"
 
   # Images are only published after every release-blocking CI job is green, and
   # only on a push to main or a version tag — not on pull requests or release branches.
