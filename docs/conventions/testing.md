@@ -199,7 +199,8 @@ unspecified, so otherwise the other tests may assert against post-mutation state
 
 - **Unit tests:** Vitest (`vitest`) with `@testing-library/react` and `jsdom`.
 - **E2E tests:** Playwright (`@playwright/test`) against demo mode. CI runs them
-  in the `e2e` job (`make test-e2e PLAYWRIGHT_DEPS=--with-deps`).
+  in the `e2e` job (`make test-e2e`). The job probes a headless Chromium launch and
+  runs `playwright install-deps chromium` (apt) only if the probe fails.
 - **Page readiness:** `waitForURL` only confirms navigation. Lazy routes can still
   render nothing during the delayed `RouteFallback`, and data can still be loading.
   Use retrying assertions on the expected page content before reading the DOM.
@@ -226,6 +227,13 @@ that needs a live account or a real login is a script, not a `test_*.py` module 
 `services/sofidy-auth/test_live_portal.py` has no test case, so discovery runs nothing
 from it). `services/base` tests run the same way in the Camoufox base, which includes
 the Python one (`sidecar-base` job). Camoufox sidecars also run on a native ARM64 runner.
+
+## Release smoke tests
+
+`docker/tests/test_deploy_integration.py` runs one `release-deployment` leg per parametrize
+id (`.github/scripts/release_cases.py` reads them), each building the image and requiring
+`1 passed`; the `unit` leg runs shellcheck, `test_deploy.py`, and checks the collected ids
+match the legs.
 
 ## Running tests
 

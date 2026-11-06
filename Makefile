@@ -95,7 +95,8 @@ lint-frontend: | frontend/node_modules
 unit-frontend: | frontend/node_modules
 	cd frontend && bun run test $(if $(SHARD),--shard=$(SHARD)) $(if $(VITEST_JSON),--reporter=default --reporter=json --outputFile.json=$(abspath $(VITEST_JSON)))
 
-# CI adds PLAYWRIGHT_DEPS=--with-deps: a fresh runner lacks Chromium's system libraries.
+# PLAYWRIGHT_DEPS=--with-deps also installs Chromium's system libraries through apt. CI no
+# longer sets it: it installs them only when a headless launch probe fails.
 test-e2e: | frontend/node_modules
 	cd frontend && bunx playwright install $(PLAYWRIGHT_DEPS) chromium && VITE_DEMO_MODE=true bun run test:e2e
 

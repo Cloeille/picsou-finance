@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
     tags: ['[0-9]*', 'v[0-9]*']
 
 permissions: {contents: read}
@@ -25,6 +25,8 @@ jobs:
       all: ${{ steps.filter.outcome == 'skipped' }}
       jobs: ${{ steps.sidecars.outputs.jobs }}
       sidecar-matrix: ${{ steps.sidecars.outputs.matrix }}
+      # The release smoke case ids, one release-deployment leg each.
+      release-cases: ${{ steps.release.outputs.release-cases }}
     steps:
       # &name defines a step that later jobs reuse as *name.
       - &checkout
@@ -39,6 +41,9 @@ jobs:
           # (its interpreter's pins).
           filters: |
             workflows: &workflows ['.github/**', 'Makefile']
+            # Not a job: a change to the dependencies the release image downloads
+            # makes the release smoke build refresh its cache.
+            release-deps: ['backend/pom.xml', 'frontend/package.json', 'frontend/bun.lock']
             release-deployment: [*workflows, 'backend/**', 'frontend/**', 'docker/**', '.dockerignore']
             docker-compose: [*workflows, 'docker/**']
             backend: [*workflows, 'backend/**', 'services/base/**', 'services/sofidy-auth/**']
@@ -61,20 +66,46 @@ jobs:
           CHANGES: ${{ steps.filter.outputs.changes }}
           FILES: ${{ steps.filter.outputs.sidecar_count < 1000 && steps.filter.outputs.sidecar_files || '[]' }}
         run: python3 .github/scripts/sidecars.py --select
+      - name: List the release smoke cases
+        id: release
+        run: python3 .github/scripts/release_cases.py >> "$GITHUB_OUTPUT"
   release-deployment:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'release-deployment')
+    name: release-deployment (${{ matrix.task }})
     runs-on: ubuntu-latest
+    # `unit` runs the script checks; every other leg builds the image and runs one case.
+    strategy:
+      fail-fast: false
+      matrix:
+        task: ${{ fromJSON(needs.changes.outputs.release-cases) }}
+        include: [{task: unit}]
     steps:
       - *checkout
       - &python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with: {python-version: '3.12'}
       - name: Check and lint the deployment shell script
+        if: matrix.task == 'unit'
         run: bash -n docker/deploy.sh && shellcheck -x docker/deploy.sh
       - name: Test preflight ordering, failure isolation, and API readiness
+        if: matrix.task == 'unit'
         run: python3 -m pip install pytest && python3 -m pytest docker/tests/test_deploy.py -v
+      # The legs come from changes.outputs.release-cases: a case pytest collects but no
+      # leg runs would never be tested.
+      - name: Every collected smoke case has its own leg
+        if: matrix.task == 'unit'
+        env: {CASES: '${{ needs.changes.outputs.release-cases }}'}
+        run: |
+          ids=$(python3 -m pytest --collect-only -q docker/tests/test_deploy_integration.py \
+            | tee /dev/stderr | sed -n 's/.*\[\(.*\)\]$/\1/p' | jq -Rnc '[inputs]')
+          [ "$ids" = "$(jq -c . <<< "$CASES")" ] || { echo "::error::collected $ids, legs $CASES"; exit 1; }
+      # The case pulls these images; fetching them during the build saves the wait.
+      - name: Pull the PostgreSQL and Caddy images in the background
+        if: matrix.task != 'unit'
+        run: grep -oE '(postgres|caddy):[^ ]+' docker/docker-compose.yml | sort -u | xargs -P 0 -n 1 docker pull --quiet > /dev/null &
       - name: Set up Docker Buildx
+        if: matrix.task != 'unit'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # A cold build downloads every Maven and bun dependency, and Maven Central answers
       # shared runner IPs with 429 Too Many Requests. Reusing the layers of the release
@@ -83,7 +114,10 @@ jobs:
       # changed, or the cached layers are missing (evicted or cache unavailable).
       # mode=max is required: the dependency layers live in the build stages, not the
       # final image. ignore-error keeps a cache export failure from failing the job.
+      # Only the http leg exports, and on a pull request only when those files changed:
+      # the export costs 20-60 s and a pull request's cache is invisible to main.
       - name: Build the real release image for migration smoke tests
+        if: matrix.task != 'unit'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -93,10 +127,22 @@ jobs:
           cache-from: |
             type=gha,scope=release-smoke
             type=gha,scope=app
-          cache-to: type=gha,mode=max,scope=release-smoke,ignore-error=true
+          cache-to: >-
+            ${{ matrix.task == 'http' && (github.event_name == 'push'
+            || contains(fromJSON(needs.changes.outputs.jobs), 'release-deps'))
+            && 'type=gha,mode=max,scope=release-smoke,ignore-error=true' || '' }}
+      # A skipped case reports green: require the one selected case to pass.
       - name: Exercise packaged CLI, repeat deployment, and incompatible-schema isolation
-        env: {PICSOU_RELEASE_TEST_IMAGE: 'picsou-release-smoke:test'}
-        run: python3 -m pytest docker/tests/test_deploy_integration.py -v -s
+        if: matrix.task != 'unit'
+        env: {PICSOU_RELEASE_TEST_IMAGE: 'picsou-release-smoke:test', CASE: '${{ matrix.task }}'}
+        # pipefail: without it tee would hide pytest's exit code (an error after the pass).
+        run: |
+          set -o pipefail
+          python3 -m pip install pytest
+          python3 -m pytest -v -s \
+            "docker/tests/test_deploy_integration.py::test_packaged_release_migrates_repeats_and_preserves_api_on_bad_schema[$CASE]" \
+            | tee case.txt
+          grep -q ' 1 passed' case.txt
 
   docker-compose:
     needs: changes
@@ -286,8 +332,23 @@ jobs:
       - name: Cache Playwright browsers
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with: {path: ~/.cache/ms-playwright, key: "playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}"}
-      - name: Install Playwright Chromium and run E2E (demo mode)
-        run: make test-e2e PLAYWRIGHT_DEPS=--with-deps
+      - name: Install Playwright Chromium
+        run: cd frontend && bunx playwright install chromium
+      - name: Probe a headless Chromium launch
+        id: chromium-probe
+        continue-on-error: true
+        timeout-minutes: 3
+        working-directory: frontend
+        # Node, as the Playwright CLI runs under it (its shebang), not bun's runtime.
+        run: node -e "require('@playwright/test').chromium.launch().then((browser) => browser.close())"
+      - name: Install Chromium system libraries (fallback)
+        if: steps.chromium-probe.outcome == 'failure'
+        timeout-minutes: 12
+        run: |
+          echo "::notice title=e2e-deps-fallback::Chromium could not start; installing its system libraries"
+          cd frontend && bunx playwright install-deps chromium
+      - name: Run E2E (demo mode)
+        run: make test-e2e
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -325,10 +386,10 @@ jobs:
         run: python3 .github/scripts/vitest_coverage.py frontend/src "$RUNNER_TEMP/vitest"
 
   # Images are only published after every release-blocking CI job is green, and
-  # only on a push to main or a version tag — not on pull requests.
+  # only on a push to main or a version tag — not on pull requests or release branches.
   docker:
     needs: [ci-ok, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, compose-sidecar-build, workflow-inventory]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/release/')
     uses: ./.github/workflows/docker.yml
     secrets: inherit
     permissions: {contents: read, packages: write}
