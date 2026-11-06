@@ -637,6 +637,15 @@ class CiJobSelectionTest(unittest.TestCase):
         self.assertEqual(set(jobs[GATE]["needs"]), _gated(jobs) | {SELECTOR})
         self.assertIn(GATE, jobs[PUBLISH]["needs"])
 
+    def test_every_job_has_a_timeout(self):
+        # A hung step otherwise holds a runner for GitHub's 6-hour default.
+        for name, job in _load(CI_WORKFLOW)["jobs"].items():
+            if "uses" in job:
+                continue  # a reusable workflow sets its own job limits
+            with self.subTest(job=name):
+                self.assertIsInstance(job.get("timeout-minutes"), int)
+                self.assertLessEqual(job["timeout-minutes"], 20)
+
     def test_helm_validation_does_not_block_ci_or_image_publishing(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         self.assertTrue(NON_BLOCKING <= _selectable(jobs))

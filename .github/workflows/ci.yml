@@ -19,6 +19,7 @@ jobs:
   # large for the files API (3000 files) skip the filter, which selects every job.
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions: {contents: read, pull-requests: read}
     outputs:
       # The jobs to run, as a JSON list; `all` is 'true' when the filter did not run.
@@ -65,6 +66,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'release-deployment')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - *checkout
       - &python
@@ -102,6 +104,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'docker-compose')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - *checkout
       - *python
@@ -117,6 +120,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'backend')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - *checkout
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
@@ -153,6 +157,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'frontend')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - *checkout
       - &bun
@@ -172,6 +177,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'sidecar-base')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - *checkout
       - name: Run the shared package, installer and entrypoint tests in the Camoufox base
@@ -185,6 +191,7 @@ jobs:
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'sidecar')
     name: sidecar (${{ matrix.service }}, ${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -202,6 +209,7 @@ jobs:
     # The Compose wiring (build-only bases, `additional_contexts: service:`)
     # as users run it, not only as YAML assertions.
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env: {APP_SIDECAR_API_KEY: ci-test-only}
     steps:
       - *checkout
@@ -222,6 +230,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'workflow-inventory')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - *checkout
       - *python
@@ -237,6 +246,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'helm-chart')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - *checkout
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
@@ -265,6 +275,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'e2e')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - *checkout
       - *bun
@@ -287,6 +298,7 @@ jobs:
     if: always()
     needs: [changes, release-deployment, docker-compose, backend, frontend, e2e, sidecar-base, sidecar, compose-sidecar-build, workflow-inventory]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Every selected job succeeded
         env: {NEEDS: '${{ toJSON(needs) }}'}
