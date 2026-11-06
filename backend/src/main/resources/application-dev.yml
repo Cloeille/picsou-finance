@@ -31,6 +31,9 @@ app:
       url: ${CIC_AUTH_URL:http://127.0.0.1:8012}
     amex-auth:
       url: ${AMEX_AUTH_URL:http://127.0.0.1:8013}
+    # 8014 is taken by banque-populaire-auth on its own branch.
+    natixis-auth:
+      url: ${NATIXIS_AUTH_URL:http://127.0.0.1:8015}
   enablebanking:
     private-key-path: ${ENABLEBANKING_PRIVATE_KEY_PATH:.local/keys/enablebanking-private.pem}
 

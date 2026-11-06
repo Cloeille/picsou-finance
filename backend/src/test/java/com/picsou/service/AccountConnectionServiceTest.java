@@ -48,6 +48,7 @@ class AccountConnectionServiceTest {
     @Mock AmundiSyncService amundiSyncService;
     @Mock CmesSyncService cmesSyncService;
     @Mock CicSyncService cicSyncService;
+    @Mock NatixisSyncService natixisSyncService;
     @Mock TradeRepublicSyncService tradeRepublicSyncService;
     @Mock BourseDirectSyncService bourseDirectSyncService;
     @Mock BoursoSyncService boursoSyncService;
@@ -59,7 +60,7 @@ class AccountConnectionServiceTest {
     private AccountConnectionService service() {
         return new AccountConnectionService(
             accountRepository, accountService, walletRepository, exchangeSessionRepository,
-            requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService, cmesSyncService, cicSyncService,
+            requisitionRepository, walletSyncService, cryptoExchangeSyncService, amundiSyncService, cmesSyncService, cicSyncService, natixisSyncService,
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
             fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService);
     }

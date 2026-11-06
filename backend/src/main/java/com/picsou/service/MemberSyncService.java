@@ -38,7 +38,9 @@ public class MemberSyncService {
         // Last so the existing sources keep their order. Re-logs in with stored
         // credentials when its short session has expired.
         "cmes",
-        "cic"
+        "cic",
+        // Never logs in again by itself: an expired session waits for the saver.
+        "natixis"
     );
 
     private final RevolutSyncService revolutSyncService;
@@ -58,6 +60,7 @@ public class MemberSyncService {
     private final ReceivedDividendClassifier dividendClassifier;
     private final CmesSyncService cmesSyncService;
     private final CicSyncService cicSyncService;
+    private final NatixisSyncService natixisSyncService;
 
     public MemberSyncService(
             RevolutSyncService revolutSyncService,
@@ -76,7 +79,8 @@ public class MemberSyncService {
             DegiroSyncService degiroSyncService,
             ReceivedDividendClassifier dividendClassifier,
             CmesSyncService cmesSyncService,
-            CicSyncService cicSyncService) {
+            CicSyncService cicSyncService,
+            NatixisSyncService natixisSyncService) {
         this.revolutSyncService = revolutSyncService;
         this.syncService = syncService;
         this.trSyncService = trSyncService;
@@ -94,6 +98,7 @@ public class MemberSyncService {
         this.dividendClassifier = dividendClassifier;
         this.cmesSyncService = cmesSyncService;
         this.cicSyncService = cicSyncService;
+        this.natixisSyncService = natixisSyncService;
     }
 
     public List<SourceSyncResult> resyncScheduled(Long memberId) {
@@ -154,6 +159,8 @@ public class MemberSyncService {
                     return cmesSyncService.resyncReporting(memberId);
                 case "cic":
                     return cicSyncService.resyncReporting(memberId);
+                case "natixis":
+                    return natixisSyncService.resyncReporting(memberId);
                 case "fortuneo":
                     return fortuneoSyncService.resyncReporting(memberId);
                 case "amex":

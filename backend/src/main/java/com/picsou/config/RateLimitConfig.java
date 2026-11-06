@@ -178,6 +178,20 @@ public class RateLimitConfig {
         return boundedBucketStore();
     }
 
+    @Bean("natixisAuthBuckets")
+    public Map<String, Bucket> natixisAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
+     * Per-IP Natixis Interépargne second-factor rate limiter, kept apart from
+     * the login budget so a retyped code is never refused once it was sent.
+     */
+    @Bean("natixisCompleteBuckets")
+    public Map<String, Bucket> natixisCompleteBuckets() {
+        return boundedBucketStore();
+    }
+
     /**
      * Per-IP CORUM auth rate limiter: 5 attempts per 15 minutes.
      */
@@ -499,6 +513,16 @@ public class RateLimitConfig {
                 .refillIntervally(10, Duration.ofMinutes(15))
                 .build())
             .build();
+    }
+
+    /** Natixis Interépargne: same budget as Épargne Salariale, only {@code /auth/initiate} sends the password. */
+    public static Bucket createNatixisAuthBucket() {
+        return createCmesAuthBucket();
+    }
+
+    /** Natixis Interépargne second factor: a wrong code can be typed again on the same attempt. */
+    public static Bucket createNatixisCompleteBucket() {
+        return createCmesCompleteBucket();
     }
 
     public static Bucket createFortuneoAuthBucket() {

@@ -44,6 +44,7 @@ public class AccountConnectionService {
     private static final String AMUNDI_PREFIX = "amundi_";
     private static final String CMES_PREFIX = "cmes_";
     private static final String CIC_PREFIX = "cic_";
+    private static final String NATIXIS_PREFIX = "natixis_";
     private static final String TR_PREFIX = "tr_";
     private static final String BOURSE_DIRECT_PREFIX = "bd_";
     private static final String BOURSO_PREFIX = "bourso_";
@@ -55,7 +56,7 @@ public class AccountConnectionService {
     /** One connection instance. {@code discriminator} separates two of the same kind. */
     public record ConnectionRef(Kind kind, String discriminator) {}
 
-    public enum Kind { WALLET, EXCHANGE, AMUNDI, CMES, CIC, TRADE_REPUBLIC, BOURSE_DIRECT, BOURSO, FORTUNEO, IBKR, SIMPLEFIN, DEGIRO, ENABLE_BANKING }
+    public enum Kind { WALLET, EXCHANGE, AMUNDI, CMES, CIC, NATIXIS, TRADE_REPUBLIC, BOURSE_DIRECT, BOURSO, FORTUNEO, IBKR, SIMPLEFIN, DEGIRO, ENABLE_BANKING }
 
     /**
      * What deleting an account would cost ({@link #describeDeletion}, a prediction) or what it
@@ -73,6 +74,7 @@ public class AccountConnectionService {
     private final AmundiSyncService amundiSyncService;
     private final CmesSyncService cmesSyncService;
     private final CicSyncService cicSyncService;
+    private final NatixisSyncService natixisSyncService;
     private final TradeRepublicSyncService tradeRepublicSyncService;
     private final BourseDirectSyncService bourseDirectSyncService;
     private final BoursoSyncService boursoSyncService;
@@ -92,6 +94,7 @@ public class AccountConnectionService {
         AmundiSyncService amundiSyncService,
         CmesSyncService cmesSyncService,
         CicSyncService cicSyncService,
+        NatixisSyncService natixisSyncService,
         TradeRepublicSyncService tradeRepublicSyncService,
         BourseDirectSyncService bourseDirectSyncService,
         BoursoSyncService boursoSyncService,
@@ -110,6 +113,7 @@ public class AccountConnectionService {
         this.amundiSyncService = amundiSyncService;
         this.cmesSyncService = cmesSyncService;
         this.cicSyncService = cicSyncService;
+        this.natixisSyncService = natixisSyncService;
         this.tradeRepublicSyncService = tradeRepublicSyncService;
         this.bourseDirectSyncService = bourseDirectSyncService;
         this.boursoSyncService = boursoSyncService;
@@ -196,6 +200,7 @@ public class AccountConnectionService {
             if (externalId.startsWith(AMUNDI_PREFIX)) return singleton(Kind.AMUNDI);
             if (externalId.startsWith(CMES_PREFIX)) return singleton(Kind.CMES);
             if (externalId.startsWith(CIC_PREFIX)) return singleton(Kind.CIC);
+            if (externalId.startsWith(NATIXIS_PREFIX)) return singleton(Kind.NATIXIS);
             if (externalId.startsWith(TR_PREFIX)) return singleton(Kind.TRADE_REPUBLIC);
             if (externalId.startsWith(BOURSE_DIRECT_PREFIX)) return singleton(Kind.BOURSE_DIRECT);
             if (externalId.startsWith(BOURSO_PREFIX)) return singleton(Kind.BOURSO);
@@ -246,6 +251,7 @@ public class AccountConnectionService {
             case AMUNDI -> amundiSyncService.clearSession(memberId);
             case CMES -> cmesSyncService.clearSession(memberId);
             case CIC -> cicSyncService.clearSession(memberId);
+            case NATIXIS -> natixisSyncService.clearSession(memberId);
             case TRADE_REPUBLIC -> tradeRepublicSyncService.clearSession(memberId);
             case BOURSE_DIRECT -> bourseDirectSyncService.clearSession(memberId);
             case BOURSO -> boursoSyncService.clearSession(memberId);
@@ -272,6 +278,7 @@ public class AccountConnectionService {
             case AMUNDI -> "Amundi";
             case CMES -> "Crédit Mutuel / CIC Épargne Salariale";
             case CIC -> "CIC";
+            case NATIXIS -> "Natixis Interépargne";
             case TRADE_REPUBLIC -> "Trade Republic";
             case BOURSE_DIRECT -> "Bourse Direct";
             case BOURSO -> "BoursoBank";

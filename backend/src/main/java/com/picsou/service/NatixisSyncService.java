@@ -1,0 +1,743 @@
+package com.picsou.service;
+
+import com.picsou.adapter.NatixisAdapter;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.config.CryptoEncryption;
+import com.picsou.exception.ResourceNotFoundException;
+import com.picsou.exception.SyncException;
+import com.picsou.model.Account;
+import com.picsou.model.AccountHolding;
+import com.picsou.model.AccountType;
+import com.picsou.model.FamilyMember;
+import com.picsou.model.NatixisSession;
+import com.picsou.model.NatixisSyncStatus;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.port.SidecarInitiate;
+import com.picsou.repository.AccountHoldingRepository;
+import com.picsou.repository.AccountRepository;
+import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.NatixisSessionRepository;
+import com.picsou.service.sync.SourceSyncResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DataAccessException;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+
+import static com.picsou.service.SyncValues.clean;
+import static com.picsou.service.SyncValues.limit;
+import static com.picsou.service.SyncValues.moneyClose;
+import static com.picsou.service.SyncValues.requireTransactionResult;
+import static com.picsou.service.SyncValues.sumComplete;
+import static com.picsou.service.SyncValues.weightedAverage;
+
+/**
+ * Imports Natixis Interépargne plans, one Picsou account per plan.
+ *
+ * <p>Shaped like {@link CmesSyncService} without its stored credentials: Natixis
+ * asks for a code on every login, so a password could never log in again
+ * unattended. The session is a refresh token the sidecar may rotate on each
+ * read; the one {@code /positions} returns replaces the stored one every time.
+ * Once Natixis refuses it, the session goes inactive until the saver
+ * reconnects. A partial read is discarded rather than merged.
+ */
+@Service
+public class NatixisSyncService {
+    private static final Logger log = LoggerFactory.getLogger(NatixisSyncService.class);
+    static final String PROVIDER = "Natixis Interépargne";
+    static final String SOURCE = "natixis";
+    private static final String EXTERNAL_ID_PREFIX = "natixis_";
+    private static final String ACCOUNT_COLOR = "#8b5cf6";
+    private static final int MAX_TICKER_LENGTH = 30;
+    /** The sidecar forgets a login attempt after 600 s. */
+    private static final long PENDING_ATTEMPT_SECONDS = 600;
+
+    private final NatixisAdapter port;
+    private final NatixisSessionRepository sessionRepository;
+    private final AccountRepository accountRepository;
+    private final AccountHoldingRepository holdingRepository;
+    private final FamilyMemberRepository memberRepository;
+    private final AccountService accountService;
+    private final CryptoEncryption encryption;
+    private final TransactionTemplate txTemplate;
+    private final Executor syncExecutor;
+    /**
+     * Which member opened each login attempt, so one member cannot finish
+     * another's. Holds no secret: the sidecar keeps the login itself.
+     */
+    private final Map<String, PendingAttempt> pendingAttempts = new ConcurrentHashMap<>();
+    /**
+     * Bumped by {@link #clearSession}: a login that was waiting on the code when
+     * the connection was removed carries an older generation and stores nothing.
+     * Checked and bumped under {@link #sessionWriteLock}.
+     */
+    private final Map<Long, Long> authGenerations = new ConcurrentHashMap<>();
+    private final Object sessionWriteLock = new Object();
+
+    public NatixisSyncService(
+        NatixisAdapter port,
+        NatixisSessionRepository sessionRepository,
+        AccountRepository accountRepository,
+        AccountHoldingRepository holdingRepository,
+        FamilyMemberRepository memberRepository,
+        AccountService accountService,
+        CryptoEncryption encryption,
+        TransactionTemplate txTemplate,
+        @Qualifier("natixisSyncExecutor") Executor syncExecutor
+    ) {
+        this.port = port;
+        this.sessionRepository = sessionRepository;
+        this.accountRepository = accountRepository;
+        this.holdingRepository = holdingRepository;
+        this.memberRepository = memberRepository;
+        this.accountService = accountService;
+        this.encryption = encryption;
+        this.txTemplate = txTemplate;
+        this.syncExecutor = syncExecutor;
+    }
+
+    public AuthInitResponse initiateAuth(String email, String password, Long memberId) {
+        long generation = authGeneration(memberId);
+        SidecarInitiate result = port.initiateAuth(email, password);
+        // Natixis always asks for a second factor: an answer without an attempt
+        // to complete is not one this connector knows how to finish.
+        if (!result.mfaRequired() || result.processId() == null || result.processId().isBlank()) {
+            throw error(SidecarErrorCode.INVALID_DATA, "Natixis did not return a login attempt", null);
+        }
+        evictExpiredPendingAttempts();
+        synchronized (sessionWriteLock) {
+            requireGeneration(memberId, generation);
+            pendingAttempts.put(result.processId(), new PendingAttempt(
+                memberId, generation, Instant.now().plusSeconds(PENDING_ATTEMPT_SECONDS)));
+        }
+        return new AuthInitResponse(result.processId(), true, result.mfaType());
+    }
+
+    @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
+    public void evictExpiredPendingAttempts() {
+        Instant now = Instant.now();
+        pendingAttempts.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
+    }
+
+    public SessionStatusResponse completeAuth(String processId, String code, Long memberId) {
+        PendingAttempt attempt = pendingAttempts.get(processId);
+        if (attempt == null
+            || !attempt.memberId().equals(memberId)
+            || !attempt.expiresAt().isAfter(Instant.now())) {
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED, "Natixis authentication attempt expired", null);
+        }
+        // A wrong code throws INVALID_OTP before the attempt is dropped, so the
+        // saver can type it again on the same attempt.
+        String plainState = port.completeAuth(processId, code);
+        pendingAttempts.remove(processId);
+        if (plainState == null || plainState.isBlank()) {
+            throw error(SidecarErrorCode.INVALID_DATA, "Natixis did not return a session", null);
+        }
+        SyncJob job;
+        synchronized (sessionWriteLock) {
+            requireGeneration(memberId, attempt.generation());
+            job = insertSession(plainState, memberId);
+        }
+        submit(job);
+        return getStatus(memberId);
+    }
+
+    public SessionStatusResponse queueSync(Long memberId) {
+        QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
+            NatixisSession session = sessionRepository.findByMemberIdForUpdate(memberId)
+                .orElseThrow(() -> error(
+                    SidecarErrorCode.SESSION_EXPIRED,
+                    "No active Natixis session. Please reconnect.",
+                    null
+                ));
+            if (!session.isActive()) {
+                throw error(
+                    SidecarErrorCode.SESSION_EXPIRED,
+                    "The Natixis session expired. Please reconnect.",
+                    null
+                );
+            }
+            if (session.isSyncInFlight()) {
+                return new QueueDecision(null, toStatus(session));
+            }
+
+            String plainState = encryption.decrypt(session.getSessionState());
+            session.markQueued();
+            sessionRepository.save(session);
+            return new QueueDecision(new SyncJob(session.getId(), memberId, plainState), toStatus(session));
+        }));
+
+        if (decision.job() != null) {
+            submit(decision.job());
+            return getStatus(memberId);
+        }
+        return decision.status();
+    }
+
+    private long authGeneration(Long memberId) {
+        return authGenerations.getOrDefault(memberId, 0L);
+    }
+
+    /** Must be called under {@link #sessionWriteLock}, in the same block as the write it guards. */
+    private void requireGeneration(Long memberId, long generation) {
+        if (authGeneration(memberId) != generation) {
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED, "The Natixis connection was removed during the login", null);
+        }
+    }
+
+    private SyncJob insertSession(String plainState, Long memberId) {
+        return requireTransactionResult(txTemplate.execute(status -> {
+            FamilyMember member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
+            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+            sessionRepository.flush();
+
+            NatixisSession newSession = NatixisSession.create(member, encryption.encrypt(plainState), Instant.now());
+            newSession.markQueued();
+            NatixisSession stored = sessionRepository.saveAndFlush(newSession);
+            return new SyncJob(stored.getId(), memberId, plainState);
+        }));
+    }
+
+    private void submit(SyncJob job) {
+        try {
+            syncExecutor.execute(() -> executeJob(job));
+        } catch (RuntimeException ex) {
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
+            throw error(SidecarErrorCode.INTERNAL_ERROR, "Could not schedule the Natixis synchronization", ex);
+        }
+    }
+
+    private void executeJob(SyncJob job) {
+        if (!markRunning(job)) {
+            return;
+        }
+        try {
+            NatixisAdapter.PositionsData fetched = port.fetchPlans(job.plainState());
+            if (fetched == null) {
+                throw error(SidecarErrorCode.INVALID_DATA, "Natixis returned no answer", null);
+            }
+            // Stored before the plans are checked: the old refresh token may
+            // already be spent, so even a read discarded below must not lose it.
+            storeRefreshedState(job, fetched.sessionState());
+            List<PreparedPlan> prepared = preparePlans(fetched.plans());
+            if (commitPlans(job, prepared)) {
+                log.info("Natixis sync completed (member={}; plans={})", job.memberId(), prepared.size());
+            } else {
+                log.info("Discarded stale Natixis sync result (member={})", job.memberId());
+            }
+        } catch (SyncException ex) {
+            SidecarErrorCode code = codeOf(ex);
+            markFailed(job, code);
+            log.warn("Natixis sync failed (member={}; code={})", job.memberId(), code);
+        } catch (Exception ex) {
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
+            log.error("Natixis sync failed unexpectedly (member={})", job.memberId(), ex);
+        }
+    }
+
+    private void storeRefreshedState(SyncJob job, String plainState) {
+        if (plainState == null || plainState.isBlank()) {
+            log.warn("Natixis returned no session state, keeping the stored one (member={})", job.memberId());
+            return;
+        }
+        txTemplate.executeWithoutResult(status -> sessionRepository
+            .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
+            .filter(NatixisSession::isActive)
+            .ifPresent(session -> {
+                session.updateSessionState(encryption.encrypt(plainState));
+                sessionRepository.save(session);
+            }));
+    }
+
+    private boolean markRunning(SyncJob job) {
+        return Boolean.TRUE.equals(txTemplate.execute(status -> {
+            Optional<NatixisSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+                job.sessionId(),
+                job.memberId()
+            );
+            if (current.isEmpty()) {
+                log.info("Natixis sync session disappeared before execution (member={})", job.memberId());
+                return false;
+            }
+            NatixisSession session = current.get();
+            if (!session.isActive() || session.getSyncStatus() != NatixisSyncStatus.QUEUED) {
+                log.warn(
+                    "Natixis sync cannot start from state {} (member={}; active={})",
+                    session.getSyncStatus(),
+                    job.memberId(),
+                    session.isActive()
+                );
+                return false;
+            }
+            session.markRunning(Instant.now());
+            sessionRepository.save(session);
+            return true;
+        }));
+    }
+
+    private List<PreparedPlan> preparePlans(List<NatixisAdapter.PlanData> fetched) {
+        if (fetched == null || fetched.isEmpty()) {
+            throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "Natixis returned no complete plan", null);
+        }
+
+        Set<String> externalIds = new HashSet<>();
+        List<PreparedPlan> prepared = new ArrayList<>();
+        for (NatixisAdapter.PlanData plan : fetched) {
+            if (plan == null || !plan.snapshotComplete()) {
+                throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "Natixis returned an incomplete plan", null);
+            }
+            String externalId = stableExternalId(plan.externalId());
+            if (!externalIds.add(externalId)) {
+                throw error(SidecarErrorCode.INVALID_DATA, "Natixis returned duplicate plans", null);
+            }
+            if (plan.balanceEur() == null || plan.positions() == null) {
+                throw error(SidecarErrorCode.INVALID_DATA, "Natixis returned incomplete plan values", null);
+            }
+
+            List<PreparedPosition> positions = preparePositions(plan.positions());
+            BigDecimal positionValue = positions.stream()
+                .map(PreparedPosition::valueEur)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+            // The sidecar already checked this, and it stays checked here: a
+            // total that disagrees with its lines means the read was partial,
+            // and overwriting a good snapshot with it would erase real money.
+            if (!moneyClose(positionValue, plan.balanceEur())) {
+                throw error(SidecarErrorCode.PORTFOLIO_INCOMPLETE, "Natixis returned an incomplete plan", null);
+            }
+
+            prepared.add(new PreparedPlan(
+                externalId,
+                accountName(plan),
+                plan.balanceEur(),
+                investedAmount(plan, positions),
+                positions
+            ));
+        }
+        return List.copyOf(prepared);
+    }
+
+    private List<PreparedPosition> preparePositions(List<NatixisAdapter.Position> rawPositions) {
+        Map<String, PreparedPosition> positions = new LinkedHashMap<>();
+        for (NatixisAdapter.Position position : rawPositions) {
+            if (position == null || position.quantity() == null || position.valueEur() == null) {
+                throw error(SidecarErrorCode.INVALID_DATA, "Natixis returned an incomplete position", null);
+            }
+            if (position.quantity().signum() == 0 && position.valueEur().signum() == 0) {
+                continue;
+            }
+            String ticker = resolveTicker(position);
+            PreparedPosition resolved = new PreparedPosition(
+                ticker,
+                limit(position.label(), 100, ticker),
+                position.quantity(),
+                averageBuyIn(position),
+                position.unitValue(),
+                position.valueEur(),
+                position.pnlEur()
+            );
+            positions.merge(ticker, resolved, this::mergePositions);
+        }
+        return List.copyOf(positions.values());
+    }
+
+    /** FCPE units carry no purchase price: the cost basis is the valuation minus the unrealized gain. */
+    private BigDecimal averageBuyIn(NatixisAdapter.Position position) {
+        if (position.pnlEur() == null || position.quantity().signum() == 0) {
+            return null;
+        }
+        return position.valueEur()
+            .subtract(position.pnlEur())
+            .divide(position.quantity(), 8, RoundingMode.HALF_UP);
+    }
+
+    private PreparedPosition mergePositions(PreparedPosition left, PreparedPosition right) {
+        // Two lines share a ticker when they are the same fund. If the labels
+        // disagree, the identifier collided: refuse rather than fuse two funds.
+        if (!Objects.equals(left.name(), right.name())) {
+            throw error(SidecarErrorCode.INVALID_DATA, "Natixis returned colliding fund identifiers", null);
+        }
+        BigDecimal quantity = left.quantity().add(right.quantity());
+        return new PreparedPosition(
+            left.ticker(),
+            left.name(),
+            quantity,
+            weightedAverage(left.averageBuyInEur(), left.quantity(), right.averageBuyInEur(), right.quantity(), quantity),
+            left.unitValue() != null ? left.unitValue() : right.unitValue(),
+            left.valueEur().add(right.valueEur()),
+            sumComplete(left.pnlEur(), right.pnlEur())
+        );
+    }
+
+    private BigDecimal investedAmount(NatixisAdapter.PlanData plan, List<PreparedPosition> positions) {
+        BigDecimal invested = BigDecimal.ZERO;
+        for (PreparedPosition position : positions) {
+            if (position.pnlEur() == null) {
+                return plan.balanceEur();
+            }
+            invested = invested.add(position.valueEur().subtract(position.pnlEur()));
+        }
+        return invested;
+    }
+
+    private boolean commitPlans(SyncJob job, List<PreparedPlan> prepared) {
+        return Boolean.TRUE.equals(txTemplate.execute(status -> {
+            Optional<NatixisSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+                job.sessionId(),
+                job.memberId()
+            );
+            if (current.isEmpty()) {
+                log.info("Natixis sync session disappeared before commit (member={})", job.memberId());
+                return false;
+            }
+            NatixisSession session = current.get();
+            if (!session.isActive() || session.getSyncStatus() != NatixisSyncStatus.RUNNING) {
+                log.warn(
+                    "Natixis sync cannot commit from state {} (member={}; active={})",
+                    session.getSyncStatus(),
+                    job.memberId(),
+                    session.isActive()
+                );
+                return false;
+            }
+
+            FamilyMember member = memberRepository.findById(job.memberId())
+                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
+            Instant syncedAt = Instant.now();
+            List<Account> imported = accountRepository.findAllByMemberIdAndProvider(job.memberId(), PROVIDER);
+            for (PreparedPlan data : prepared) {
+                upsertAccount(data, member, job.memberId(), syncedAt);
+            }
+            closeUnlistedPlans(prepared, imported, job.memberId(), syncedAt);
+
+            session.markSuccessful(syncedAt);
+            sessionRepository.save(session);
+            return true;
+        }));
+    }
+
+    private void upsertAccount(PreparedPlan data, FamilyMember member, Long memberId, Instant syncedAt) {
+        Optional<Account> existing = accountRepository.findByExternalAccountIdAndMemberId(data.externalId(), memberId);
+        if (existing.isEmpty()
+            && accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(data.externalId(), memberId)) {
+            log.info("Natixis skipped a soft-deleted account (member={})", memberId);
+            return;
+        }
+
+        Account account = existing.orElseGet(() -> Account.builder()
+            .member(member)
+            .provider(PROVIDER)
+            .currency("EUR")
+            .isManual(false)
+            .color(ACCOUNT_COLOR)
+            .build());
+        account.setExternalAccountId(data.externalId());
+        account.setName(data.name());
+        account.setType(AccountType.EMPLOYEE_SAVINGS);
+        account.setProvider(PROVIDER);
+        account.setCurrency("EUR");
+        account.setManual(false);
+        account.setCurrentBalance(data.balanceEur());
+        // Every euro of an employee savings plan sits in a fund: no cash sleeve.
+        account.setCashBalance(null);
+        account.setLastSyncedAt(syncedAt);
+        Account savedAccount = accountRepository.save(account);
+
+        holdingRepository.deleteByAccountId(savedAccount.getId());
+        holdingRepository.flush();
+        List<AccountHolding> holdings = data.positions().stream()
+            .map(position -> AccountHolding.builder()
+                .account(savedAccount)
+                .ticker(position.ticker())
+                .name(position.name())
+                .quantity(position.quantity())
+                .averageBuyIn(position.averageBuyInEur())
+                .currentPrice(position.unitValue())
+                .quoteCurrency(position.unitValue() != null ? "EUR" : null)
+                .providerValueEur(position.valueEur())
+                .providerPnlEur(position.pnlEur())
+                .lastSyncedAt(syncedAt)
+                .build())
+            .toList();
+        holdingRepository.saveAll(holdings);
+        holdingRepository.flush();
+
+        accountService.upsertSnapshot(savedAccount, data.balanceEur(), data.investedAmountEur(), LocalDate.now());
+    }
+
+    /**
+     * Zeroes the imported plans a complete fetch no longer lists: the saver
+     * closed or transferred them. Closed at zero rather than soft deleted, which
+     * would read as removed by the user and block a plan that reopens.
+     */
+    private void closeUnlistedPlans(List<PreparedPlan> prepared, List<Account> imported, Long memberId,
+                                    Instant syncedAt) {
+        Set<String> listed = new HashSet<>();
+        prepared.forEach(plan -> listed.add(plan.externalId()));
+        for (Account account : imported) {
+            String externalId = account.getExternalAccountId();
+            if (externalId == null || !externalId.startsWith(EXTERNAL_ID_PREFIX) || listed.contains(externalId)) {
+                continue;
+            }
+            if (account.getCurrentBalance() != null && account.getCurrentBalance().signum() == 0) {
+                continue;
+            }
+            log.info("Natixis no longer lists an imported plan, closing it at zero (member={}; account={})",
+                memberId, account.getId());
+            account.setCurrentBalance(BigDecimal.ZERO);
+            account.setCashBalance(null);
+            account.setLastSyncedAt(syncedAt);
+            Account saved = accountRepository.save(account);
+            holdingRepository.deleteByAccountId(saved.getId());
+            accountService.upsertSnapshot(saved, BigDecimal.ZERO, BigDecimal.ZERO, LocalDate.now());
+        }
+    }
+
+    private void markFailed(SyncJob job, SidecarErrorCode code) {
+        try {
+            txTemplate.executeWithoutResult(status -> {
+                Optional<NatixisSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+                    job.sessionId(),
+                    job.memberId()
+                );
+                if (current.isEmpty()) {
+                    log.info("Natixis sync session disappeared before failure was recorded (member={})", job.memberId());
+                    return;
+                }
+                NatixisSession session = current.get();
+                if (!session.isSyncInFlight()) {
+                    log.warn(
+                        "Natixis sync failure ignored from state {} (member={}; code={})",
+                        session.getSyncStatus(),
+                        job.memberId(),
+                        code
+                    );
+                    return;
+                }
+                session.markFailed(code, Instant.now());
+                sessionRepository.save(session);
+            });
+        } catch (RuntimeException ex) {
+            log.error("Could not persist Natixis sync failure (member={}; code={})", job.memberId(), code, ex);
+        }
+    }
+
+    /**
+     * Queued jobs live in a process-local executor and cannot survive a backend
+     * restart. Turn persisted in-flight states into a retryable failure instead
+     * of leaving the UI polling QUEUED/RUNNING forever.
+     */
+    @Transactional
+    public void recoverInterruptedSyncs() {
+        int recovered = sessionRepository.markInterruptedSyncsFailed(
+            List.of(NatixisSyncStatus.QUEUED, NatixisSyncStatus.RUNNING),
+            NatixisSyncStatus.FAILED,
+            Instant.now(),
+            SidecarErrorCode.INTERNAL_ERROR
+        );
+        if (recovered > 0) {
+            log.warn("Recovered {} interrupted Natixis sync job(s)", recovered);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public SessionStatusResponse getStatus(Long memberId) {
+        return sessionRepository.findByMemberId(memberId)
+            .map(this::toStatus)
+            .orElseGet(SessionStatusResponse::inactive);
+    }
+
+    /**
+     * Returns whether a stored session was there to delete. A login waiting on
+     * its code is cancelled too, so finishing it cannot bring the connection back.
+     */
+    public boolean clearSession(Long memberId) {
+        synchronized (sessionWriteLock) {
+            authGenerations.merge(memberId, 1L, Long::sum);
+            boolean removed = Boolean.TRUE.equals(txTemplate.execute(status -> {
+                var session = sessionRepository.findByMemberIdForUpdate(memberId);
+                session.ifPresent(sessionRepository::delete);
+                return session.isPresent();
+            }));
+            pendingAttempts.entrySet().removeIf(entry -> entry.getValue().memberId().equals(memberId));
+            return removed;
+        }
+    }
+
+    public SourceSyncResult resyncReporting(Long memberId) {
+        try {
+            SessionStatusResponse status = getStatus(memberId);
+            if (!status.isActive()) {
+                if (status.lastSyncError() == SidecarErrorCode.SESSION_EXPIRED
+                    || status.lastSyncError() == SidecarErrorCode.INVALID_CREDENTIALS) {
+                    return new SourceSyncResult(SOURCE, SourceSyncResult.Status.NEEDS_REAUTH,
+                        status.lastSyncError().name());
+                }
+                if (status.lastSyncError() != null) {
+                    return new SourceSyncResult(SOURCE, SourceSyncResult.Status.FAILED,
+                        status.lastSyncError().name());
+                }
+                return new SourceSyncResult(SOURCE, SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session");
+            }
+            queueSync(memberId);
+            return new SourceSyncResult(SOURCE, SourceSyncResult.Status.QUEUED, "");
+        } catch (ResourceNotFoundException ex) {
+            return new SourceSyncResult(SOURCE, SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "Member not found");
+        } catch (DataAccessException ex) {
+            log.error("Database error during scheduled Natixis sync (member={})", memberId, ex);
+            return new SourceSyncResult(SOURCE, SourceSyncResult.Status.FAILED, "Database error");
+        } catch (SyncException ex) {
+            log.warn("Could not queue scheduled Natixis sync (member={}; code={})", memberId, ex.getCode(), ex);
+            SourceSyncResult classified = SourceSyncResult.fromSyncException(SOURCE, ex);
+            return new SourceSyncResult(SOURCE, classified.status(),
+                classified.status() == SourceSyncResult.Status.NEEDS_REAUTH ? ex.getCode() : "Sync failed");
+        } catch (Exception ex) {
+            log.error("Natixis scheduled sync failed unexpectedly for member {}", memberId, ex);
+            return new SourceSyncResult(SOURCE, SourceSyncResult.Status.FAILED, "Unexpected sync error");
+        }
+    }
+
+    private SessionStatusResponse toStatus(NatixisSession session) {
+        return new SessionStatusResponse(
+            session.isActive(),
+            session.getSyncStatus(),
+            session.getLastSyncStartedAt(),
+            session.getLastSyncCompletedAt(),
+            session.getLastSyncError()
+        );
+    }
+
+    private SidecarErrorCode codeOf(SyncException exception) {
+        return SyncValues.errorCode(exception, SidecarBank.NATIXIS, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
+    }
+
+    private SyncException error(SidecarErrorCode code, String message, Throwable cause) {
+        return new SyncException(message, cause, code.name());
+    }
+
+    /** "Plan d'Épargne Entreprise — ACME" reads better than the plan label alone. */
+    private String accountName(NatixisAdapter.PlanData plan) {
+        String label = clean(plan.name());
+        String kind = clean(plan.planKind());
+        String base = label != null ? label : kind;
+        if (base == null) {
+            base = "Épargne salariale";
+        }
+        String employer = clean(plan.employer());
+        String composed = employer != null && !base.toLowerCase(Locale.ROOT).contains(employer.toLowerCase(Locale.ROOT))
+            ? base + " — " + employer
+            : base;
+        return limit(composed, 100, "Épargne salariale");
+    }
+
+    private String stableExternalId(String raw) {
+        String cleaned = clean(raw);
+        if (cleaned == null) {
+            throw error(SidecarErrorCode.INVALID_DATA, "Natixis returned an invalid plan identifier", null);
+        }
+        String externalId = cleaned.startsWith(EXTERNAL_ID_PREFIX) ? cleaned : EXTERNAL_ID_PREFIX + cleaned;
+        if (externalId.length() > 100) {
+            throw error(SidecarErrorCode.INVALID_DATA, "Natixis returned an invalid plan identifier", null);
+        }
+        return externalId;
+    }
+
+    /**
+     * Employer funds are not quoted anywhere Picsou can price them: the ISIN is
+     * the ticker when there is one, else the AMF fund code prefixed to keep it
+     * apart from a real symbol, and the label as the last resort, behind the
+     * collision guard in {@link #mergePositions}.
+     */
+    private String resolveTicker(NatixisAdapter.Position position) {
+        String isin = clean(position.isin());
+        if (isin != null) {
+            isin = isin.toUpperCase(Locale.ROOT);
+            if (isin.matches("[A-Z]{2}[A-Z0-9]{9}[0-9]")) {
+                return isin;
+            }
+        }
+        String fundCode = slug(position.fundCode());
+        if (fundCode != null) {
+            return slug("NATIXIS-" + fundCode);
+        }
+        String label = slug(position.label());
+        if (label == null) {
+            throw error(SidecarErrorCode.INVALID_DATA, "Natixis returned a fund without any identifier", null);
+        }
+        return label;
+    }
+
+    /** Uppercase alphanumeric slug, capped at {@value #MAX_TICKER_LENGTH}, or null if nothing is left. */
+    private String slug(String value) {
+        String cleaned = clean(value);
+        if (cleaned == null) {
+            return null;
+        }
+        String slug = cleaned.toUpperCase(Locale.ROOT)
+            .replaceAll("[^A-Z0-9]+", "-")
+            .replaceAll("^-+|-+$", "");
+        if (slug.isEmpty()) {
+            return null;
+        }
+        return slug.length() <= MAX_TICKER_LENGTH ? slug : slug.substring(0, MAX_TICKER_LENGTH);
+    }
+
+    public record AuthInitResponse(String processId, boolean mfaRequired, String mfaType) {}
+
+    public record SessionStatusResponse(
+        boolean isActive,
+        NatixisSyncStatus syncStatus,
+        Instant lastSyncStartedAt,
+        Instant lastSyncCompletedAt,
+        SidecarErrorCode lastSyncError
+    ) {
+        static SessionStatusResponse inactive() {
+            return new SessionStatusResponse(false, NatixisSyncStatus.IDLE, null, null, null);
+        }
+    }
+
+    private record PendingAttempt(Long memberId, long generation, Instant expiresAt) {}
+    private record QueueDecision(SyncJob job, SessionStatusResponse status) {}
+    /** Carries the decrypted session state: its {@code toString()} must never print it. */
+    private record SyncJob(Long sessionId, Long memberId, String plainState) {
+        @Override
+        public String toString() {
+            return "SyncJob[sessionId=" + sessionId + ", memberId=" + memberId + ", plainState=<redacted>]";
+        }
+    }
+    private record PreparedPlan(
+        String externalId,
+        String name,
+        BigDecimal balanceEur,
+        BigDecimal investedAmountEur,
+        List<PreparedPosition> positions
+    ) {}
+    private record PreparedPosition(
+        String ticker,
+        String name,
+        BigDecimal quantity,
+        BigDecimal averageBuyInEur,
+        BigDecimal unitValue,
+        BigDecimal valueEur,
+        BigDecimal pnlEur
+    ) {}
+}

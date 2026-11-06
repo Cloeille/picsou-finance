@@ -14,6 +14,7 @@ import com.picsou.repository.BourseDirectSessionRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
 import com.picsou.repository.CicSessionRepository;
 import com.picsou.repository.CmesSessionRepository;
+import com.picsou.repository.NatixisSessionRepository;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.FortuneoSessionRepository;
@@ -417,7 +418,7 @@ class InstanceStatusServiceTest {
             mock(AmundiSessionRepository.class), mock(AmexSessionRepository.class),
             mock(FortuneoSessionRepository.class), mock(CorumSessionRepository.class),
             mock(SofidySessionRepository.class), mock(CmesSessionRepository.class),
-            mock(CicSessionRepository.class),
+            mock(CicSessionRepository.class), mock(NatixisSessionRepository.class),
             "1.1.0");
 
         assertThat(byName(wired, "tr-auth").url().get()).isEmpty();
@@ -435,6 +436,7 @@ class InstanceStatusServiceTest {
             Map.entry("sofidy-auth", "http://sofidy"),
             Map.entry("cmes-auth", "http://cmes"),
             Map.entry("cic-auth", "http://cic"),
+            Map.entry("natixis-auth", "http://natixis"),
             Map.entry("degiro-auth", "http://degiro"),
             Map.entry("tr-auth", "http://tr"),
             Map.entry("caisse-epargne-auth", "http://caisse"),
@@ -456,6 +458,7 @@ class InstanceStatusServiceTest {
         var sofidy = mock(SofidySessionRepository.class);
         var cmes = mock(CmesSessionRepository.class);
         var cic = mock(CicSessionRepository.class);
+        var natixis = mock(NatixisSessionRepository.class);
         when(tr.count()).thenReturn(1L);
         when(bourso.count()).thenReturn(2L);
         when(caisse.count()).thenReturn(3L);
@@ -469,12 +472,13 @@ class InstanceStatusServiceTest {
         when(sofidy.count()).thenReturn(11L);
         when(cmes.count()).thenReturn(12L);
         when(cic.count()).thenReturn(13L);
+        when(natixis.count()).thenReturn(14L);
 
         InstanceStatusService wired = new InstanceStatusService(
             disabledReleases(),
             setup,
             sidecars,
-            tr, bourso, caisse, revolut, bourse, degiro, amundi, amex, fortuneo, corum, sofidy, cmes, cic,
+            tr, bourso, caisse, revolut, bourse, degiro, amundi, amex, fortuneo, corum, sofidy, cmes, cic, natixis,
             "1.1.0");
 
         assertThat(wired.targets())
@@ -484,6 +488,7 @@ class InstanceStatusServiceTest {
                 tuple("sofidy-auth", "sidecar-python"),
                 tuple("cmes-auth", "sidecar-python"),
                 tuple("cic-auth", "sidecar-python"),
+                tuple("natixis-auth", "sidecar-python"),
                 tuple("degiro-auth", "sidecar-python"),
                 tuple("tr-auth", "sidecar-chromium"),
                 tuple("caisse-epargne-auth", "sidecar-chromium"),
@@ -504,6 +509,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "sofidy-auth").url().get()).isEqualTo("http://sofidy");
         assertThat(byName(wired, "cmes-auth").url().get()).isEqualTo("http://cmes");
         assertThat(byName(wired, "cic-auth").url().get()).isEqualTo("http://cic");
+        assertThat(byName(wired, "natixis-auth").url().get()).isEqualTo("http://natixis");
         assertThat(byName(wired, "degiro-auth").url().get()).isEqualTo("http://degiro");
         assertThat(byName(wired, "caisse-epargne-auth").url().get()).isEqualTo("http://caisse");
         assertThat(byName(wired, "revolut-auth").url().get()).isEqualTo("http://revolut");
@@ -526,6 +532,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "sofidy-auth").sessions().getAsLong()).isEqualTo(11L);
         assertThat(byName(wired, "cmes-auth").sessions().getAsLong()).isEqualTo(12L);
         assertThat(byName(wired, "cic-auth").sessions().getAsLong()).isEqualTo(13L);
+        assertThat(byName(wired, "natixis-auth").sessions().getAsLong()).isEqualTo(14L);
     }
 
     private static AppSetting setting(String value) {

@@ -70,6 +70,7 @@ public class AccountService {
         BourseDirectSyncService.PROVIDER,
         AmundiSyncService.PROVIDER,
         CmesSyncService.PROVIDER,
+        NatixisSyncService.PROVIDER,
         BoursoSyncService.PROVIDER,
         FortuneoSyncService.PROVIDER
     );

@@ -130,6 +130,11 @@ class SidecarContractTest {
             return new Calls(() -> a.fetchAccounts(STATE), () -> a.initiateAuth("login", "password"),
                 () -> a.completeAuth("process", "123456"));
         }, PORTFOLIO_INCOMPLETE, INVALID_OTP, null);
+        rig(SidecarBank.NATIXIS, (c, t) -> {
+            var a = new NatixisAdapter(c, JSON, t, t, t);
+            return new Calls(() -> a.fetchPlans(STATE), () -> a.initiateAuth("saver@example.com", "password"),
+                () -> a.completeAuth("process", "123456"));
+        }, null, INVALID_OTP, SESSION_EXPIRED);
         rig(SidecarBank.SOFIDY, (c, t) -> {
             var a = new SofidyAdapter(c, JSON, t, t, t);
             return new Calls(() -> a.fetchSnapshot(STATE), () -> a.initiateAuth("000000", "password"),
@@ -185,6 +190,14 @@ class SidecarContractTest {
         coded(SidecarBank.FORTUNEO, Call.FETCH, HttpStatus.BAD_GATEWAY, PORTFOLIO_INCOMPLETE),
         coded(SidecarBank.FORTUNEO, Call.FETCH, HttpStatus.CONFLICT, INVESTOR_PROFILE_REQUIRED),
         coded(SidecarBank.FORTUNEO, Call.COMPLETE, HttpStatus.BAD_REQUEST, INVALID_OTP),
+        coded(SidecarBank.NATIXIS, Call.FETCH, HttpStatus.UNAUTHORIZED, SESSION_EXPIRED),
+        coded(SidecarBank.NATIXIS, Call.FETCH, HttpStatus.BAD_GATEWAY, PORTFOLIO_INCOMPLETE),
+        coded(SidecarBank.NATIXIS, Call.FETCH, HttpStatus.BAD_GATEWAY, UPSTREAM_FORMAT_CHANGED),
+        coded(SidecarBank.NATIXIS, Call.INITIATE, HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS),
+        coded(SidecarBank.NATIXIS, Call.INITIATE, HttpStatus.NOT_IMPLEMENTED, MFA_TYPE_UNSUPPORTED),
+        coded(SidecarBank.NATIXIS, Call.INITIATE, HttpStatus.TOO_MANY_REQUESTS, RATE_LIMITED),
+        coded(SidecarBank.NATIXIS, Call.COMPLETE, HttpStatus.BAD_REQUEST, INVALID_OTP),
+        coded(SidecarBank.NATIXIS, Call.COMPLETE, HttpStatus.GONE, AUTH_ATTEMPT_EXPIRED),
         coded(SidecarBank.SOFIDY, Call.FETCH, HttpStatus.BAD_GATEWAY, PORTFOLIO_INCOMPLETE),
         coded(SidecarBank.SOFIDY, Call.INITIATE, HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS),
         coded(SidecarBank.SOFIDY, Call.COMPLETE, HttpStatus.UNAUTHORIZED, MFA_INVALID),
