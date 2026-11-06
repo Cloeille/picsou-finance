@@ -329,15 +329,16 @@ Backend (`mvn test`):
 - Slice: `config/ssoslice/SsoSecurityConfigTest` (the chain exists only when SSO is configured,
   routing, GET and cross-site refusals, allow-listed origins, `GET /api/auth/sso` public).
 - Integration: `SsoLoginIntegrationTest`, a Testcontainers `@SpringBootTest` against the in-process
-  `FakeOidcProvider` (discovery, JWKS, authorize, token with PKCE check, userinfo). Sixteen ordered
+  `FakeOidcProvider` (discovery, JWKS, authorize, token with PKCE check, userinfo). Twenty ordered
   scenarios: first admin, refusals, no auto-link by email, provisioning, demotion and the last
   admin, PKCE and nonce, Remember Me, the window, re-authentication, activation, POST-only
   handshake, discarded IdP tokens, log sanitizing, public app clients receiving no refresh
   token (scenario 15), and a password-reset link that cannot take over an activated account
-  (scenario 16).
+  (scenario 16), then one rejected callback for each invalid ID token the
+  provider can issue: bad signature, wrong audience, wrong issuer, expired (scenarios 17-20).
 - **CI skip guard.** The integration test self-skips without Docker, which a green build would
   hide. CI runs with `PICSOU_REQUIRE_DOCKER_TESTS=true` and its "Require the SSO login integration
-  tests" step greps the Surefire report for `Tests run: 16, Failures: 0, Errors: 0, Skipped: 0`.
+  tests" step greps the Surefire report for `Tests run: 20, Failures: 0, Errors: 0, Skipped: 0`.
 
 Frontend (`bunx vitest run`): `features/sso/{start,errors}.test.ts`, `lib/sso-revalidate.test.ts`,
 `lib/safe-redirect.test.ts`, `lib/api-client.test.ts`, `features/auth/{guards,hooks}.test.*`,

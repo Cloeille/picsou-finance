@@ -34,6 +34,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /** Wire-level provider: production discovery, JOSE validation and token exchange remain real. */
@@ -41,9 +42,13 @@ final class FakeOidcProvider implements AutoCloseable {
     private record Identity(String subject, Map<String, Object> claims, Instant authTime) {}
     private record Grant(Map<String, String> authorization, Identity identity) {}
 
+    /** One way the next ID token is made invalid, for the callback's rejection scenarios. */
+    enum IdTokenFault { BAD_SIGNATURE, WRONG_AUDIENCE, WRONG_ISSUER, EXPIRED }
+
     private final ObjectMapper json = new ObjectMapper();
     private final HttpServer server;
     private final RSAKey key;
+    private final RSAKey impostorKey;
     private final HttpClient browser = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private final Map<String, Identity> pending = new ConcurrentHashMap<>();
     private final Map<String, Grant> codes = new ConcurrentHashMap<>();
@@ -53,9 +58,11 @@ final class FakeOidcProvider implements AutoCloseable {
     private final Map<String, Map<String, String>> exchanges = new ConcurrentHashMap<>();
     final AtomicBoolean tamperNextVerifier = new AtomicBoolean();
     final AtomicBoolean tamperNextNonce = new AtomicBoolean();
+    final AtomicReference<IdTokenFault> faultNextIdToken = new AtomicReference<>();
 
     FakeOidcProvider() throws IOException, JOSEException {
         key = new RSAKeyGenerator(2048).keyID("fake-oidc").generate();
+        impostorKey = new RSAKeyGenerator(2048).keyID(key.getKeyID()).generate();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
@@ -145,12 +152,18 @@ final class FakeOidcProvider implements AutoCloseable {
         Instant now = Instant.now();
         String nonce = grant.authorization().get("nonce");
         if (tamperNextNonce.getAndSet(false)) nonce = "tampered-" + nonce;
-        var claims = new JWTClaimsSet.Builder().issuer(issuer()).subject(identity.subject()).audience("picsou-test")
-            .issueTime(Date.from(now)).expirationTime(Date.from(now.plusSeconds(300)))
+        IdTokenFault fault = faultNextIdToken.getAndSet(null);
+        var claims = new JWTClaimsSet.Builder()
+            .issuer(fault == IdTokenFault.WRONG_ISSUER ? "https://other-idp.example" : issuer())
+            .subject(identity.subject())
+            .audience(fault == IdTokenFault.WRONG_AUDIENCE ? "another-client" : "picsou-test")
+            .issueTime(Date.from(fault == IdTokenFault.EXPIRED ? now.minusSeconds(7200) : now))
+            .expirationTime(Date.from(fault == IdTokenFault.EXPIRED ? now.minusSeconds(3600) : now.plusSeconds(300)))
             .claim("nonce", nonce)
             .claim("auth_time", identity.authTime().getEpochSecond()).build();
         SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(key.getKeyID()).build(), claims);
-        jwt.sign(new RSASSASigner(key));
+        // Same key id as the published key, so the verifier looks the right key up and the signature is what fails.
+        jwt.sign(new RSASSASigner(fault == IdTokenFault.BAD_SIGNATURE ? impostorKey : key));
         String access = UUID.randomUUID().toString();
         accessTokens.put(access, identity);
         respond(exchange, 200, Map.of("access_token", access, "token_type", "Bearer", "expires_in", 300,

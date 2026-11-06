@@ -12,7 +12,7 @@ PostgreSQL 16 via Testcontainers (Docker Engine ≥ 25.0) where H2 can't reprodu
 `OAuth2SchemaMigrationTest` / `WalletEvmMigrationTest` (Flyway migration fidelity), and the
 OAuth2/MCP authorization-server suite (`AuthorizationServerConfigTest` and friends), and
 `SsoLoginIntegrationTest` (SSO flows against the in-process `FakeOidcProvider`; CI also checks
-that its 16 scenarios ran and none was skipped). They all
+that its 20 scenarios ran and none was skipped). They all
 self-skip when no Docker daemon is present, so the rest of the suite still runs.
 
 That skip is invisible in a green build, so CI sets `PICSOU_REQUIRE_DOCKER_TESTS=true`,

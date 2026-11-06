@@ -65,7 +65,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-// allow: SIZE_OK - the required 16 ordered scenarios share one bootstrap lifecycle and one real Spring context.
+// allow: SIZE_OK - the required 20 ordered scenarios share one bootstrap lifecycle and one real Spring context.
 @SpringBootTest
 @AutoConfigureMockMvc
 @Testcontainers(disabledWithoutDocker = true)
@@ -354,6 +354,38 @@ class SsoLoginIntegrationTest {
                 .content("{\"password\":\"a-brand-new-password\",\"acknowledgedWarning\":true}"))
             .andExpect(status().isOk());
         assertThat(passwords.matches("a-brand-new-password", user("resetvictim").getPasswordHash())).isTrue();
+    }
+
+    @Test @Order(17)
+    void idToken_withBadSignature_isRejected() throws Exception {
+        assertIdTokenRejected(FakeOidcProvider.IdTokenFault.BAD_SIGNATURE);
+    }
+
+    @Test @Order(18)
+    void idToken_forAnotherAudience_isRejected() throws Exception {
+        assertIdTokenRejected(FakeOidcProvider.IdTokenFault.WRONG_AUDIENCE);
+    }
+
+    @Test @Order(19)
+    void idToken_fromAnotherIssuer_isRejected() throws Exception {
+        assertIdTokenRejected(FakeOidcProvider.IdTokenFault.WRONG_ISSUER);
+    }
+
+    @Test @Order(20)
+    void expiredIdToken_isRejected() throws Exception {
+        assertIdTokenRejected(FakeOidcProvider.IdTokenFault.EXPIRED);
+    }
+
+    /** "dave" is linked and would sign in with a valid token, so the refusal can only come from the token. */
+    private void assertIdTokenRejected(FakeOidcProvider.IdTokenFault fault) throws Exception {
+        Flow flow = begin(start("login"), "dave", false);
+        int userinfoCalls = IDP.calls("/userinfo");
+        IDP.faultNextIdToken.set(fault);
+        MvcResult result = finish(flow);
+        assertThat(result.getResponse().getRedirectedUrl()).isEqualTo("/login?ssoError=IDP_ERROR");
+        assertThat(result.getResponse().getHeaders("Set-Cookie")).noneMatch(h -> h.startsWith("access_token=")
+            || h.startsWith("refresh_token=") || h.startsWith("persistent_token="));
+        assertThat(IDP.calls("/userinfo")).as("the ID token is validated before userinfo is called").isEqualTo(userinfoCalls);
     }
 
     private record Flow(MockHttpSession session, Map<String, String> parameters, String code) {}
