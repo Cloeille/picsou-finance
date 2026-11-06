@@ -215,7 +215,7 @@ it decides which listing is *preferred among those that work*.
   - `IE00B4L5Y983` (iShares MSCI World) → `IWDA.AS`
   - `KYG9830T1067` (Xiaomi) → `1810.HK`
   - `DE0007100000` (Mercedes-Benz) → `MBG.DE`
-- Backend tests: `mvn test` passes (`GoalServiceTest`)
+- Backend tests: `make test-backend TEST=GoalServiceTest` passes
 
 ## Links
 

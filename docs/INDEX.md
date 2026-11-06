@@ -13,13 +13,8 @@
 ## Architecture
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) -- Overview, modules, data flows
-
-## Release deliverables
-
-- [release/1.0.0/](./release/1.0.0/README.md) -- IEEE-style docs for 1.0.0:
-  [SRS](./release/1.0.0/SRS.md), [SDD](./release/1.0.0/SDD.md),
-  [SDS](./release/1.0.0/SDS.md), [STP](./release/1.0.0/STP.md),
-  [User Manual](./release/1.0.0/USER_MANUAL.md)
+- The IEEE-style 1.0.0 documents (SRS, SDD, SDS, STP, user manual) live in the `1.0.0` git tag:
+  `git show 1.0.0:docs/release/1.0.0/README.md`.
 
 ## Technical decisions (ADR)
 

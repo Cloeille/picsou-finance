@@ -276,7 +276,7 @@ Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month r
 | Service | Usage | Config |
 |---------|-------|--------|
 | PostgreSQL 16 | Persistence | `SPRING_DATASOURCE_URL` |
-| Flyway | Schema migrations | `db/migration/` (latest V81) |
+| Flyway | Schema migrations | `db/migration/` |
 | Enable Banking | PSD2 bank sync (optional) | `ENABLEBANKING_*` |
 | SimpleFIN | Bank balances and posted transactions from a setup token (optional, no app credentials) | User-supplied token |
 | Powens / Budget Insight | Scraping bank sync (**experimental, disabled in 1.0.0**) | `POWENS_*` |
@@ -299,7 +299,7 @@ Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month r
 ## Key constraints
 
 - **Ports & adapters:** a port exists only where providers are swappable (two implementations or a real swap seam); services depend on the port there. A single-provider connector client is injected as its concrete class. See [the ADR](./decisions/2026-11-02-ports-only-for-swappable-providers.md).
-- **Flyway owns schema:** never use `ddl-auto: create/update`. Every schema change is a new migration file (latest: V81).
+- **Flyway owns schema:** never use `ddl-auto: create/update`. Every schema change is a new migration file.
 - **Multi-member families:** each authenticated user is an `AppUser` linked to a `FamilyMember`. All financial rows are scoped by `member_id`; cross-member visibility is gated by `SharingSettings` + `SharedResource`. Admin role can impersonate any member.
 - **Auth:** JWT (`access_token` + `refresh_token`) in HttpOnly `SameSite=Lax` cookies. Optional TOTP 2FA, rotating persistent sessions ("Remember Me"), stateless invalidation via `tokenVersion` claim on password change.
 - **First-launch setup wizard:** on a fresh install, `SetupFilter` redirects to a wizard that creates the admin, configures CORS, generates the encryption key, and seeds integration credentials. No env-var editing required.

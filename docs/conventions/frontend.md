@@ -326,17 +326,12 @@ A new native `<select>` goes through `NativeSelect` (`components/shared/NativeSe
 ## Scripts
 
 Build tools and compiled CSS inputs (`@tailwindcss/vite`, `tailwindcss`,
-`tw-animate-css`, and the `shadcn` CLI) live in `devDependencies`.
+`tw-animate-css`, and the `shadcn` CLI) live in `devDependencies`. The `shadcn` CLI
+has no make target: run it with `bunx shadcn` from `frontend/`.
 
-```bash
-bun run dev          # Dev server on :5173, proxies /api/* to localhost:8080
-bun run build        # tsc + vite build (fails on type errors)
-bun run typecheck    # TypeScript checking only
-bun run lint         # ESLint
-bun run format       # Prettier
-bun run test:e2e     # Playwright E2E tests (e2e/*.spec.ts)
-bunx vitest run      # Vitest unit tests (src/**/*.{test,spec}.{ts,tsx})
-```
+Develop, test and format through `make dev`, `make test-frontend`, `make test-e2e` and `make format`
+(Prettier), listed in [`CONTRIBUTING.md`](../../CONTRIBUTING.md#commands). Vitest picks up
+`src/**/*.{test,spec}.{ts,tsx}`, Playwright `e2e/*.spec.ts`.
 
 Vitest and Playwright both claim the `.spec.ts` extension, so `vitest.config.ts`
 scopes `include` to `src/` — otherwise `vitest run` would try to execute the Playwright

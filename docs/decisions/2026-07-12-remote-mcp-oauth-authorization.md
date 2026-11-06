@@ -94,4 +94,3 @@ without adding risk.
 ## Links
 
 - Feature note: [mcp-oauth-remote.md](../features/mcp-oauth-remote.md)
-- Design brief: `docs/briefs/2026-07-12-remote-mcp-oauth-design.md`
