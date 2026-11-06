@@ -27,7 +27,7 @@ ends the session.
 - `backend/.../controller/NatixisController.java`: `/api/natixis` with
   `/auth/initiate`, `/auth/complete`, `/sync`, `GET /status` and `DELETE /session`.
 - `backend/.../model/NatixisSession.java` and
-  `db/migration/V129__natixis_session.sql`: one session per member, holding the
+  `db/migration/V130__natixis_session.sql`: one session per member, holding the
   encrypted session state and the sync status. No credentials are stored.
 - `frontend/src/components/sync/NatixisPanel.tsx` and
   `frontend/src/pages/sync/NatixisTab.tsx`: the connection panel, also reachable
