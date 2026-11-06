@@ -76,6 +76,18 @@ class LbpSidecarContractTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"detail": "INVALID_REQUEST"})
 
+    def test_keypad_requires_exactly_six_positions(self):
+        for positions in ([7, 3, 0, 9, 4], [7, 3, 0, 9, 4, 1, 2]):
+            with self.subTest(positions=positions):
+                response = self.post("/keypad", {"processId": "proc-1", "positions": positions})
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json(), {"detail": "INVALID_REQUEST"})
+
+    def test_keypad_positions_must_be_zero_to_nine(self):
+        response = self.post("/keypad", {"processId": "proc-1", "positions": [7, 3, 0, 9, 4, 10]})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"detail": "INVALID_REQUEST"})
+
     def test_complete_refuses_a_code_field(self):
         # Certicode is not part of the flow: a caller that still sends a code is refused.
         response = self.post("/complete", {"processId": "proc-1", "code": "987654"})

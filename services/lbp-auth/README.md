@@ -3,8 +3,8 @@
 > Status: **live-validated by the author on a test stack (2026-11-06); the
 > maintainer's live run is still pending.** The login runs in
 > headless Chromium (base `chromium`), so the bank's anti-fraud scripts set the
-> `iscdName` device fingerprint naturally; the keypad is clicked in that browser
-> and the password never leaves it. After the keypad, the sidecar clicks the
+> `iscdName` device fingerprint naturally; the keypad is clicked in that browser,
+> and the digits are never typed anywhere. After the keypad, the sidecar clicks the
 > strong-authentication notice (**Continuer**), which is what sends the mobile
 > notification. The session cookies are then replayed with `httpx` for the
 > server-rendered pages.
@@ -117,6 +117,10 @@ must be diagnosed from the sidecar's typed error, never by replaying it.
   are **never logged, echoed or stored** by the sidecar. The backend may keep the
   identifier encrypted when the user ticks "remember the identifier"; it never
   keeps the password or the keypad positions.
+- The shuffled keypad **labels** and the clicked **positions** together reveal the
+  password (the server maps positions back to digits with the per-load keypad).
+  They cross to the backend in transit and are never logged or persisted there:
+  only the encrypted cookie session is kept.
 - No login step is retried: a wrong password can lock the bank account.
 - `/accounts` retries a transient `502 UPSTREAM_UNAVAILABLE` once, with the same
   cookie jar: it is an idempotent read, not a login step. The retry logs the
@@ -145,8 +149,11 @@ must be diagnosed from the sidecar's typed error, never by replaying it.
 ## Tests
 
 ```bash
-PYTHONPATH=../base python -m unittest discover -v
+cd services/lbp-auth && PYTHONPATH=../base python -m unittest discover -v
 ```
+
+Or, from the repository root, `make test-sidecar SIDECAR=lbp-auth`, which builds
+the image and runs the same suite inside it.
 
 `test_sidecar_auth.py` binds the shared key contract. `test_main.py` covers
 request validation and the normalized passthrough. `test_parsers.py` covers the

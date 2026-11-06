@@ -72,6 +72,11 @@ class AccountCardsTest(unittest.TestCase):
         self.assertEqual(before[0]["externalId"], after[0]["externalId"])
         self.assertNotEqual(before[0]["statementId"], after[0]["statementId"])
 
+    def test_an_unknown_product_label_is_a_format_error(self):
+        changed = fixtures.SYNTHESE_CCP_HTML.replace("Compte Bancaire", "Produit inconnu")
+        with self.assertRaises(parsers.FormatError):
+            parsers.parse_account_cards(changed)
+
 
 class TransactionsTest(unittest.TestCase):
     def test_reads_dates_labels_and_the_raw_signed_amount(self):

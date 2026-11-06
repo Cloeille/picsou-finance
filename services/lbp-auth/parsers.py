@@ -141,7 +141,10 @@ def parse_account_cards(source: str) -> list[dict]:
         label = text(product.group(1)) if product else ""
         kind = _PRODUCTS.get(label.casefold().rstrip(" ."))
         if not kind:
-            continue
+            # Never skip a recognized account card: a supported account with an
+            # unrecognized label must not be dropped from an otherwise "successful"
+            # snapshot. Fail closed so the format change is diagnosed, not silent.
+            raise FormatError()
 
         # `compte.numero` is a per-session UUID, not a stable account id: it
         # differs between two logins. The bank's displayed account number does

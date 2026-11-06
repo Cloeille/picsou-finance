@@ -3,7 +3,7 @@
 Status: **browser-assisted login implemented and live-validated by the author;
 the maintainer's live run is still pending.** The login runs in headless Chromium
 so the bank's anti-fraud scripts set the `iscdName` device fingerprint naturally;
-the keypad is clicked in that browser, and the password never leaves it. The
+the keypad is clicked in that browser, and the digits are never typed anywhere. The
 session cookies are then replayed with `httpx` for the server-rendered pages.
 
 Sign-in is identifier → shuffled virtual keypad → **approval in the bank's
@@ -29,7 +29,7 @@ Safety rules, same as the other bank sidecars:
   * no login step is retried: a wrong password can lock the account.
 """
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import HTTPException, Request
 from picsou_sidecar import configure_logging, create_app
@@ -71,8 +71,11 @@ class KeypadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", repr=False)
 
     processId: str = Field(min_length=1, max_length=200)
-    # The positions the user clicked. The password itself never leaves his browser.
-    positions: list[StrictInt] = Field(min_length=1, max_length=200)
+    # The six DOM positions the user clicked (0-9, one per keypad key). The password
+    # itself never leaves the browser. Rejected here, before any browser action.
+    positions: list[Annotated[StrictInt, Field(ge=0, le=9)]] = Field(
+        min_length=6, max_length=6
+    )
 
 
 class CompleteRequest(BaseModel):

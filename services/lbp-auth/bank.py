@@ -333,6 +333,12 @@ class HttpxBankClient:
                 log.warning("La Banque Postale accounts read hit a transient failure, retrying once")
                 await asyncio.sleep(1)
                 return await self._read_accounts(client)
+            except httpx.HTTPError:
+                # A transport error (reset, timeout) is just as transient and must not
+                # fail the whole sync either.
+                log.warning("La Banque Postale accounts read hit a transient transport failure, retrying once")
+                await asyncio.sleep(1)
+                return await self._read_accounts(client)
         except parsers.FormatError as exc:
             raise HTTPException(status_code=502, detail=exc.code) from None
         except HTTPException:
