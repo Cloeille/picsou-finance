@@ -1785,15 +1785,21 @@ export function createDemoAdapter() {
       console.warn(`[demo] no handler registered for "${k}" — returning empty 200`)
     }
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       setTimeout(() => {
-        resolve({
-          data: match ? match.handler(config, match.params) : {},
-          status: 200,
-          statusText: 'OK',
-          headers: {},
-          config,
-        } as AxiosResponse)
+        // A handler that throws (for example the peer-loan simulation when a payment never
+        // amortises) must reject the promise, otherwise the caller awaits forever.
+        try {
+          resolve({
+            data: match ? match.handler(config, match.params) : {},
+            status: 200,
+            statusText: 'OK',
+            headers: {},
+            config,
+          } as AxiosResponse)
+        } catch (error) {
+          reject(error)
+        }
       }, randomDelay())
     })
   }

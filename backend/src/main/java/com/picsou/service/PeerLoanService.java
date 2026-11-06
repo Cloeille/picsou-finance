@@ -139,8 +139,8 @@ public class PeerLoanService {
             throw new IllegalArgumentException("Provide exactly one of months or monthlyPayment");
         }
         PeerLoanCalculator.Simulation simulation = byMonths
-            ? PeerLoanCalculator.simulateByMonths(request.principal(), request.annualRate(), request.months())
-            : PeerLoanCalculator.simulateByPayment(request.principal(), request.annualRate(), request.monthlyPayment());
+            ? PeerLoanCalculator.simulateByMonths(request.principal(), PeerLoanCalculator.rate(request.annualRate()), request.months())
+            : PeerLoanCalculator.simulateByPayment(request.principal(), PeerLoanCalculator.rate(request.annualRate()), request.monthlyPayment());
         return PeerLoanSimulationResponse.from(simulation);
     }
 
@@ -379,7 +379,7 @@ public class PeerLoanService {
         terms.setPrincipal(request.principal());
         terms.setLentAt(request.lentAt());
         terms.setExpectedBack(request.expectedBack());
-        terms.setAnnualRate(request.annualRate());
+        terms.setAnnualRate(PeerLoanCalculator.rate(request.annualRate()));
         terms.setRatePeriod(request.ratePeriod() != null
             ? request.ratePeriod()
             : PeerLoanRatePeriod.ANNUAL);

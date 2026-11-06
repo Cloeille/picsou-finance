@@ -16,7 +16,7 @@ import java.math.BigDecimal;
 public record PeerLoanSimulationRequest(
     @NotNull @DecimalMin(value = "0.01") @Digits(integer = 12, fraction = 2)
     BigDecimal principal,
-    @DecimalMin("0") @DecimalMax("1000") @Digits(integer = 6, fraction = 6)
+    @DecimalMin("0") @DecimalMax("1000")
     BigDecimal annualRate,
     @Min(1) @Max(1200) Integer months,
     @DecimalMin("0.01") @Digits(integer = 12, fraction = 2)

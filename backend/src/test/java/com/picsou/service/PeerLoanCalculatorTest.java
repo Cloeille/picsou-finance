@@ -236,6 +236,16 @@ class PeerLoanCalculatorTest {
     }
 
     @Test
+    void rateRoundsToTheStoredPrecision() {
+        // The dialog sends a floating-point double, e.g. 1.1 % -> 0.011000000000000001.
+        assertThat(PeerLoanCalculator.rate(new BigDecimal("0.011000000000000001")))
+            .isEqualByComparingTo("0.011000");
+        assertThat(PeerLoanCalculator.rate(new BigDecimal("0.028999999999999998")))
+            .isEqualByComparingTo("0.029000");
+        assertThat(PeerLoanCalculator.rate(null)).isEqualByComparingTo("0");
+    }
+
+    @Test
     void repaidPercentExcludesWriteOffs() {
         assertThat(PeerLoanCalculator.repaidPct(new BigDecimal("500"), new BigDecimal("300")))
             .isEqualByComparingTo("60.00");

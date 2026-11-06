@@ -70,7 +70,7 @@ public final class PeerLoanCalculator {
         BigDecimal writtenOff = BigDecimal.ZERO;
 
         LocalDate cursor = terms.getLentAt();
-        BigDecimal rate = nonNull(terms.getAnnualRate());
+        BigDecimal rate = rate(terms.getAnnualRate());
 
         List<PeerLoanRepayment> ordered = repayments == null ? List.of() : repayments.stream()
             .sorted(Comparator.comparing(PeerLoanRepayment::getPaidOn)
@@ -160,7 +160,7 @@ public final class PeerLoanCalculator {
         // Clamp on read: a value stored before the request bound existed must not make a GET
         // walk a million-month annuity.
         int totalMonths = Math.min(terms.getPlannedMonths(), MAX_MONTHS);
-        BigDecimal monthlyRate = nonNull(terms.getAnnualRate()).divide(new BigDecimal("12"), MC);
+        BigDecimal monthlyRate = rate(terms.getAnnualRate()).divide(new BigDecimal("12"), MC);
 
         LocalDate start = terms.getLentAt();
         long elapsed = start == null ? 0 : ChronoUnit.MONTHS.between(YearMonth.from(start), YearMonth.from(asOf));
@@ -203,7 +203,7 @@ public final class PeerLoanCalculator {
             throw new IllegalArgumentException("A simulation cannot exceed " + MAX_MONTHS + " months");
         }
         BigDecimal p = nonNull(principal);
-        BigDecimal monthlyRate = nonNull(annualRate).divide(new BigDecimal("12"), MC);
+        BigDecimal monthlyRate = rate(annualRate).divide(new BigDecimal("12"), MC);
         BigDecimal monthly;
         if (monthlyRate.signum() == 0) {
             monthly = p.divide(BigDecimal.valueOf(months), INTERNAL_SCALE, RoundingMode.HALF_UP);
@@ -230,7 +230,7 @@ public final class PeerLoanCalculator {
             throw new IllegalArgumentException("monthlyPayment must be greater than zero");
         }
         BigDecimal p = nonNull(principal);
-        BigDecimal monthlyRate = nonNull(annualRate).divide(new BigDecimal("12"), MC);
+        BigDecimal monthlyRate = rate(annualRate).divide(new BigDecimal("12"), MC);
         if (monthlyRate.signum() == 0) {
             double rawMonths =
                 p.divide(monthlyPayment, INTERNAL_SCALE, RoundingMode.HALF_UP).doubleValue();
@@ -313,6 +313,15 @@ public final class PeerLoanCalculator {
 
     private static BigDecimal nonNull(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
+    }
+
+    /**
+     * Null-safe rate, rounded to the six decimals the column stores. The dialog sends a
+     * floating-point double, so a 1.1 % rate arrives as {@code 0.011000000000000001}; the
+     * backend owns the rounding rather than rejecting an ordinary rate.
+     */
+    public static BigDecimal rate(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value.setScale(6, RoundingMode.HALF_UP);
     }
 
     private static BigDecimal scale(BigDecimal value) {

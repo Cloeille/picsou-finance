@@ -76,6 +76,18 @@ class PeerLoanControllerTest {
     }
 
     @Test
+    void simulateAcceptsAnUnroundedRate() throws Exception {
+        when(peerLoanService.simulate(org.mockito.ArgumentMatchers.any())).thenReturn(null);
+
+        // A 1.1 % rate arrives as a floating-point double with 17 fraction digits; the
+        // service owns the rounding, so validation must not reject it as a 422.
+        mvc.perform(post("/api/peer-loans/simulate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"principal\":1000,\"months\":12,\"annualRate\":0.011000000000000001}"))
+            .andExpect(status().isOk());
+    }
+
+    @Test
     void simulateRejectsAnUnboundedMonthCount() throws Exception {
         mvc.perform(post("/api/peer-loans/simulate")
                 .contentType(MediaType.APPLICATION_JSON)

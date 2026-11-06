@@ -113,7 +113,9 @@ export function PeerLoanTermsDialog({
   /** The normalized annual fraction, whatever period the field is displayed in. */
   const annualRateFromInput = (): number => {
     const pct = numberOrNull(ratePct) ?? 0
-    return (ratePeriod === 'MONTHLY' ? pct * 12 : pct) / 100
+    // Round here too so the request reads cleanly, but the backend rounds again: a client
+    // can always send a double, and the column stores six decimals.
+    return Number((((ratePeriod === 'MONTHLY' ? pct * 12 : pct) / 100)).toFixed(6))
   }
 
   /** The backend only rejects a negative rate; short-term loans may carry high ones. */

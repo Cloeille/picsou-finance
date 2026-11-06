@@ -29,8 +29,9 @@ public record PeerLoanTermsRequest(
     LocalDate expectedBack,
     // The cap is deliberate: the rate is exponentiated by the forecast, and an unbounded
     // value is both a CPU sink and a NUMERIC(12,6) overflow. 1 000 is already 100 000 %/yr.
+    // No @Digits here: the dialog sends a double (0.011000000000000001), and the backend
+    // rounds it to six decimals instead of rejecting an ordinary rate as a 422.
     @DecimalMin("0") @DecimalMax(value = "1000", message = "The rate is too high")
-    @Digits(integer = 6, fraction = 6, message = "The rate has too many digits")
     BigDecimal annualRate,
     /** How the rate was stated; it defaults to annual. The stored rate is annual either way. */
     PeerLoanRatePeriod ratePeriod,
