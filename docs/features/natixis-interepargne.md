@@ -52,6 +52,32 @@ backend stores the returned sessionState, re-checks plan totals and writes one
 EMPLOYEE_SAVINGS account per plan with its fund holdings
 ```
 
+### Operations history
+
+`/positions` also returns the saver's finished operations from the last five years,
+taken from `transaction/v1/employees/{id}/transactions` and one detail per operation:
+
+- **An investment** (profit-sharing, a voluntary payment…) gives one `BUY` per fund
+  line. The employer top-up (`additionalInvestment`) is a separate `BUY` labelled
+  "Abondement employeur".
+- **A release** (early release, maturity) gives one `SELL` per fund line sold.
+
+The backend reconciles these rows on the plan accounts in the same transaction as
+the plans:
+- they are upserted by external id;
+- a Natixis row that vanished inside the five-year window is deleted;
+- older rows and manual rows are kept.
+
+When `operationsComplete` is false (the history could not be read in full), the
+existing rows are left as they are. Operations are history only. They never change
+balances, holdings or snapshots, and they feed the realized-gains section of the
+account.
+
+**Budget:** BUY/SELL rows on `EMPLOYEE_SAVINGS` accounts are excluded from cash flow,
+recurring detection and categorization (rules and AI), in `TransactionRepository`.
+Without that, years of profit-sharing would read as spending. Other account types,
+the Fortuneo PEA included, keep their current behaviour.
+
 ## Technical choices
 
 | Choice | Why | Rejected alternative |

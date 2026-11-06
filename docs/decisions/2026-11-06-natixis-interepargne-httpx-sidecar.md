@@ -58,7 +58,11 @@ ISIN.
 6. **The second factor is chosen as SMS, then e-mail, then voice**, among the
    modes the account offers. An account with no password login, or with none of
    these channels, gets `MFA_TYPE_UNSUPPORTED`.
-7. **Errors use the strict `{"detail": CODE}` contract** with codes already in
+7. **Operations are imported as history.** BUY and SELL transactions per fund line
+   (investments, the employer top-up, releases) from Natixis' five-year history. They
+   are reconciled by external id, never change balances, and are kept out of the
+   budget and of categorization on employee-savings accounts.
+8. **Errors use the strict `{"detail": CODE}` contract** with codes already in
    `SidecarErrorCode`. As with every connector since the ports ADR, there is no
    port: `NatixisAdapter` is a concrete component.
 
