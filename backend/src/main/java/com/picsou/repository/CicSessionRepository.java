@@ -2,7 +2,7 @@ package com.picsou.repository;
 
 import com.picsou.model.CicSession;
 import com.picsou.model.CicSyncStatus;
-import com.picsou.port.CicErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -31,7 +31,7 @@ public interface CicSessionRepository extends JpaRepository<CicSession, Long> {
         @Param("interrupted") Collection<CicSyncStatus> interrupted,
         @Param("failed") CicSyncStatus failed,
         @Param("completedAt") Instant completedAt,
-        @Param("errorCode") CicErrorCode errorCode
+        @Param("errorCode") SidecarErrorCode errorCode
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

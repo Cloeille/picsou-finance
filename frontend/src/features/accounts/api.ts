@@ -1,5 +1,5 @@
 import { api } from '@/lib/api-client'
-import type { Account, AccountDeletionImpact, AccountRequest, BalanceSnapshot, DebtRequest, DebtInfo, HoldingResponse, LoanScheduleResponse, Ownership, OwnershipRequest, PropertyValuation, PropertyValuationHistoryEntry, RealEstateMetadataRequest, RealEstateMetadata, RealEstateSummary, RealizedPnlResponse, ScpiFund, ScpiPosition, ScpiPositionRequest, ScpiProvider, SecurityInsight, Transaction, TransactionImportPreviewResponse, TransactionImportRequest, TransactionImportResultResponse, TransactionRequest, ExchangePositionResponse } from '@/types/api'
+import type { Account, AccountDeletionImpact, AccountRequest, BalanceSnapshot, DebtRequest, DebtInfo, HoldingResponse, LoanScheduleResponse, Ownership, OwnershipRequest, PropertyValuation, PropertyValuationHistoryEntry, RealEstateMetadataRequest, RealEstateMetadata, RealEstateSummary, RealizedPnlResponse, ScpiFund, ScpiPosition, ScpiPositionRequest, ScpiProvider, SecurityInsight, Transaction, TransactionImportPreviewResponse, TransactionImportRequest, TransactionImportResultResponse, TransactionRequest, ExchangePositionResponse, PreciousMetalProduct } from '@/types/api'
 
 export const accountsApi = {
   list: () => api.get<Account[]>('/accounts').then(r => r.data),
@@ -22,6 +22,8 @@ export const accountsApi = {
     api.get<Transaction[]>(`/accounts/${id}/transactions`).then(r => r.data),
   prices: (tickers: string[]) =>
     api.get<Record<string, number>>('/prices', { params: { tickers: tickers.join(',') } }).then(r => r.data),
+  preciousMetals: () =>
+    api.get<PreciousMetalProduct[]>('/prices/precious-metals').then(r => r.data),
   priceHistory: (ticker: string, months: number = 12) =>
     api.get<Array<{ date: string; priceEur: number }>>(`/prices/${ticker}/history`, { params: { months } }).then(r => r.data),
   priceIntraday: (ticker: string) =>
@@ -39,8 +41,6 @@ export const accountsApi = {
   scpiFunds: () => api.get<ScpiFund[]>('/scpi/funds').then(r => r.data),
   ignoreScpiFund: (provider: ScpiProvider, fundCode: string) =>
     api.post(`/scpi/funds/${provider}/${encodeURIComponent(fundCode)}/ignore`),
-  restoreScpiFund: (provider: ScpiProvider, fundCode: string) =>
-    api.post(`/scpi/funds/${provider}/${encodeURIComponent(fundCode)}/restore`),
   updateDebtMetadata: (id: number, data: DebtRequest) =>
     api.put<DebtInfo>(`/accounts/${id}/debt`, data).then(r => r.data),
   loanSummary: (id: number) =>

@@ -1,6 +1,7 @@
 package com.picsou.service;
 
 import com.picsou.adapter.OpenFigiIsinConverter;
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
@@ -10,8 +11,9 @@ import com.picsou.model.AccountType;
 import com.picsou.model.BoursoSession;
 import com.picsou.model.BoursoSyncStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.port.BoursoErrorCode;
-import com.picsou.port.BoursoPort;
+import com.picsou.port.SidecarErrorCode;
+import com.picsou.adapter.BoursoAdapter;
+import com.picsou.port.SidecarInitiate;
 import com.picsou.port.SidecarTransaction;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
@@ -80,7 +82,7 @@ public class BoursoSyncService {
         AccountType.ASSURANCE_VIE
     );
 
-    private final BoursoPort port;
+    private final BoursoAdapter port;
     private final BoursoSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
@@ -97,7 +99,7 @@ public class BoursoSyncService {
     private final Map<String, PendingCredentials> pendingCredentials = new java.util.concurrent.ConcurrentHashMap<>();
 
     public BoursoSyncService(
-        BoursoPort port,
+        BoursoAdapter port,
         BoursoSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,
@@ -129,10 +131,10 @@ public class BoursoSyncService {
     }
 
     public AuthInitResponse initiateAuth(String customerId, String password, Long memberId) {
-        BoursoPort.InitiateResult result = port.initiateAuth(customerId, password);
+        SidecarInitiate result = port.initiateAuth(customerId, password);
         if (!result.mfaRequired()) {
             if (result.sessionState() == null || result.sessionState().isBlank()) {
-                throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank did not return a session", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank did not return a session", null);
             }
             storeSessionAndQueue(result.sessionState(), memberId, customerId, password);
         } else if (result.processId() != null) {
@@ -146,10 +148,10 @@ public class BoursoSyncService {
         String plainState = port.completeAuth(processId);
         PendingCredentials credentials = pendingCredentials.remove(processId);
         if (credentials != null && !credentials.memberId().equals(memberId)) {
-            throw error(BoursoErrorCode.AUTH_ATTEMPT_EXPIRED, "BoursoBank authentication attempt expired", null);
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED, "BoursoBank authentication attempt expired", null);
         }
         if (plainState == null || plainState.isBlank()) {
-            throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank did not return a session", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank did not return a session", null);
         }
         boolean credentialsValid = credentials != null && credentials.expiresAt().isAfter(Instant.now());
         return storeSessionAndQueue(plainState, memberId,
@@ -161,13 +163,13 @@ public class BoursoSyncService {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
             BoursoSession session = sessionRepository.findByMemberIdForUpdate(memberId)
                 .orElseThrow(() -> error(
-                    BoursoErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "No active BoursoBank session. Please reconnect.",
                     null
                 ));
             if (!session.isActive()) {
                 throw error(
-                    BoursoErrorCode.SESSION_EXPIRED,
+                    SidecarErrorCode.SESSION_EXPIRED,
                     "The BoursoBank session expired. Please reconnect.",
                     null
                 );
@@ -221,9 +223,9 @@ public class BoursoSyncService {
         try {
             syncExecutor.execute(() -> executeJob(job));
         } catch (RuntimeException ex) {
-            markFailed(job, BoursoErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             throw error(
-                BoursoErrorCode.INTERNAL_ERROR,
+                SidecarErrorCode.INTERNAL_ERROR,
                 "Could not schedule the BoursoBank synchronization",
                 ex
             );
@@ -235,10 +237,10 @@ public class BoursoSyncService {
             return;
         }
         try {
-            List<BoursoPort.AccountData> fetched;
+            List<BoursoAdapter.AccountData> fetched;
             try { fetched = port.fetchAccounts(job.plainState()); }
             catch (SyncException ex) {
-                if (codeOf(ex) != BoursoErrorCode.SESSION_EXPIRED) throw ex;
+                if (codeOf(ex) != SidecarErrorCode.SESSION_EXPIRED) throw ex;
                 fetched = reauthenticateAndFetch(job);
             }
             List<PreparedAccount> prepared = prepareAccounts(fetched);
@@ -249,16 +251,16 @@ public class BoursoSyncService {
                 log.info("Discarded stale BoursoBank sync result (member={})", job.memberId());
             }
         } catch (SyncException ex) {
-            BoursoErrorCode code = codeOf(ex);
+            SidecarErrorCode code = codeOf(ex);
             markFailed(job, code);
             log.warn("BoursoBank sync failed (member={}; code={})", job.memberId(), code);
         } catch (Exception ex) {
-            markFailed(job, BoursoErrorCode.INTERNAL_ERROR);
+            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
             log.error("BoursoBank sync failed unexpectedly (member={})", job.memberId(), ex);
         }
     }
 
-    private List<BoursoPort.AccountData> reauthenticateAndFetch(SyncJob job) {
+    private List<BoursoAdapter.AccountData> reauthenticateAndFetch(SyncJob job) {
         Optional<BoursoSession> found = requireTransactionResult(txTemplate.execute(
             status -> sessionRepository.findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
         ));
@@ -267,26 +269,26 @@ public class BoursoSyncService {
         if (session == null || !session.isActive()
             || session.getSyncStatus() != BoursoSyncStatus.RUNNING
             || session.getEncryptedCredentials() == null) {
-            throw error(BoursoErrorCode.SESSION_EXPIRED, "BoursoBank session expired", null);
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "BoursoBank session expired", null);
         }
         Credentials credentials;
         try { credentials = parseCredentials(encryption.decrypt(session.getEncryptedCredentials())); }
-        catch (RuntimeException ex) { throw error(BoursoErrorCode.SESSION_EXPIRED, "BoursoBank session expired", ex); }
-        BoursoPort.InitiateResult result;
+        catch (RuntimeException ex) { throw error(SidecarErrorCode.SESSION_EXPIRED, "BoursoBank session expired", ex); }
+        SidecarInitiate result;
         try {
             result = port.initiateAuth(credentials.customerId(), credentials.password());
         } catch (SyncException ex) {
-            if (codeOf(ex) == BoursoErrorCode.INVALID_CREDENTIALS) {
+            if (codeOf(ex) == SidecarErrorCode.INVALID_CREDENTIALS) {
                 clearStoredCredentials(job);
                 throw ex;
             }
             throw ex;
         }
         if (result.mfaRequired()) {
-            throw error(BoursoErrorCode.SESSION_EXPIRED, "BoursoBank requires interactive validation", null);
+            throw error(SidecarErrorCode.SESSION_EXPIRED, "BoursoBank requires interactive validation", null);
         }
         if (result.sessionState() == null || result.sessionState().isBlank()) {
-            throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned no session", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned no session", null);
         }
         String newState = result.sessionState();
         Boolean updated = txTemplate.execute(status -> sessionRepository
@@ -298,7 +300,7 @@ public class BoursoSyncService {
                 return true;
             })
             .orElse(false));
-        if (!Boolean.TRUE.equals(updated)) throw error(BoursoErrorCode.SESSION_EXPIRED, "BoursoBank session changed", null);
+        if (!Boolean.TRUE.equals(updated)) throw error(SidecarErrorCode.SESSION_EXPIRED, "BoursoBank session changed", null);
         return port.fetchAccounts(newState);
     }
 
@@ -356,10 +358,10 @@ public class BoursoSyncService {
         }));
     }
 
-    private List<PreparedAccount> prepareAccounts(List<BoursoPort.AccountData> fetched) {
+    private List<PreparedAccount> prepareAccounts(List<BoursoAdapter.AccountData> fetched) {
         if (fetched == null || fetched.isEmpty()) {
             throw error(
-                BoursoErrorCode.PORTFOLIO_INCOMPLETE,
+                SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                 "BoursoBank returned no account",
                 null
             );
@@ -367,28 +369,28 @@ public class BoursoSyncService {
 
         Set<String> externalIds = new HashSet<>();
         List<PreparedAccount> prepared = new ArrayList<>();
-        for (BoursoPort.AccountData account : fetched) {
+        for (BoursoAdapter.AccountData account : fetched) {
             if (account == null || !account.snapshotComplete()) {
                 throw error(
-                    BoursoErrorCode.PORTFOLIO_INCOMPLETE,
+                    SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                     "BoursoBank returned an incomplete snapshot",
                     null
                 );
             }
             String externalId = stableExternalId(account.externalId());
             if (!externalIds.add(externalId)) {
-                throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned duplicate accounts", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned duplicate accounts", null);
             }
             if (account.type() == null || !SUPPORTED_TYPES.contains(account.type())) {
-                throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned an unsupported account type", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned an unsupported account type", null);
             }
             if (account.balanceEur() == null || account.positions() == null) {
-                throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned incomplete account values", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned incomplete account values", null);
             }
 
             boolean holdsPositions = account.type().isInvestment();
             if (!holdsPositions && !account.positions().isEmpty()) {
-                throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank reported positions on a cash account", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank reported positions on a cash account", null);
             }
 
             List<PreparedPosition> positions = preparePositions(account.positions());
@@ -396,7 +398,7 @@ public class BoursoSyncService {
             BigDecimal investedAmount;
             if (holdsPositions) {
                 if (cashBalance == null) {
-                    throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned no cash balance for a securities account", null);
+                    throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned no cash balance for a securities account", null);
                 }
                 // Re-run the sidecar's reconciliation rather than trust it: this is
                 // the check that stops a truncated position list being written over
@@ -410,7 +412,7 @@ public class BoursoSyncService {
                     : moneyClose(positionValue, expectedValue);
                 if (!reconciled) {
                     throw error(
-                        BoursoErrorCode.PORTFOLIO_INCOMPLETE,
+                        SidecarErrorCode.PORTFOLIO_INCOMPLETE,
                         "BoursoBank returned an incomplete portfolio",
                         null
                     );
@@ -438,12 +440,12 @@ public class BoursoSyncService {
         return List.copyOf(prepared);
     }
 
-    private List<PreparedPosition> preparePositions(List<BoursoPort.Position> rawPositions) {
+    private List<PreparedPosition> preparePositions(List<BoursoAdapter.Position> rawPositions) {
         Map<String, PreparedPosition> positions = new LinkedHashMap<>();
         Map<String, String> isinByTicker = new LinkedHashMap<>();
-        for (BoursoPort.Position position : rawPositions) {
+        for (BoursoAdapter.Position position : rawPositions) {
             if (position == null || position.quantity() == null || position.currentValueEur() == null) {
-                throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned an incomplete position", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned an incomplete position", null);
             }
             if (position.quantity().signum() == 0) {
                 continue;
@@ -451,7 +453,7 @@ public class BoursoSyncService {
             String currency = normalizeCurrency(position.quoteCurrency());
             if (position.currentPrice() != null && currency == null) {
                 throw error(
-                    BoursoErrorCode.INVALID_DATA,
+                    SidecarErrorCode.INVALID_DATA,
                     "BoursoBank returned a quote without its currency",
                     null
                 );
@@ -464,7 +466,7 @@ public class BoursoSyncService {
             // holding filed under a single ISIN, and fund facts and composition would then
             // be looked up for the wrong fund.
             if (positions.containsKey(ticker) && (isin == null || !isin.equals(isinByTicker.get(ticker)))) {
-                throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned two instruments under one ticker", null);
+                throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned two instruments under one ticker", null);
             }
             if (isin != null) {
                 isinByTicker.put(ticker, isin);
@@ -496,7 +498,7 @@ public class BoursoSyncService {
      * by Yahoo, and {@code AccountService.PROVIDER_VALUED} then falls back to
      * BoursoBank's own valuation instead of reading the line as zero.
      */
-    private String resolveTicker(BoursoPort.Position position, String isin) {
+    private String resolveTicker(BoursoAdapter.Position position, String isin) {
         String ticker = clean(position.symbol());
         if (isin != null) {
             OpenFigiIsinConverter.TickerResult resolved = isinConverter.resolve(isin);
@@ -509,7 +511,7 @@ public class BoursoSyncService {
             ticker = isin;
         }
         if (ticker == null || ticker.length() > MAX_TICKER_LENGTH) {
-            throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned an invalid instrument identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned an invalid instrument identifier", null);
         }
         return ticker;
     }
@@ -521,7 +523,7 @@ public class BoursoSyncService {
         }
         isin = isin.toUpperCase(Locale.ROOT);
         if (!isin.matches("[A-Z]{2}[A-Z0-9]{10}")) {
-            throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned an invalid ISIN", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned an invalid ISIN", null);
         }
         return isin;
     }
@@ -535,7 +537,7 @@ public class BoursoSyncService {
      */
     private PreparedPosition mergePositions(PreparedPosition left, PreparedPosition right) {
         if (!Objects.equals(left.quoteCurrency(), right.quoteCurrency())) {
-            throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned conflicting quote currencies", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned conflicting quote currencies", null);
         }
         BigDecimal quantity = left.quantity().add(right.quantity());
         return new PreparedPosition(
@@ -576,7 +578,7 @@ public class BoursoSyncService {
      * the size of the missing positions.
      */
     private BigDecimal investedAmount(
-        BoursoPort.AccountData account,
+        BoursoAdapter.AccountData account,
         BigDecimal cashBalance,
         List<PreparedPosition> positions
     ) {
@@ -735,7 +737,7 @@ public class BoursoSyncService {
         };
     }
 
-    private void markFailed(SyncJob job, BoursoErrorCode code) {
+    private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
                 Optional<BoursoSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
@@ -756,7 +758,7 @@ public class BoursoSyncService {
                     );
                     return;
                 }
-                if (code == BoursoErrorCode.INVALID_CREDENTIALS) session.setEncryptedCredentials(null);
+                if (code == SidecarErrorCode.INVALID_CREDENTIALS) session.setEncryptedCredentials(null);
                 session.markFailed(code, Instant.now());
                 sessionRepository.save(session);
             });
@@ -781,7 +783,7 @@ public class BoursoSyncService {
             List.of(BoursoSyncStatus.QUEUED, BoursoSyncStatus.RUNNING),
             BoursoSyncStatus.FAILED,
             Instant.now(),
-            BoursoErrorCode.INTERNAL_ERROR
+            SidecarErrorCode.INTERNAL_ERROR
         );
         if (recovered > 0) {
             log.warn("Recovered {} interrupted BoursoBank sync job(s)", recovered);
@@ -813,8 +815,8 @@ public class BoursoSyncService {
         try {
             SessionStatusResponse status = getStatus(memberId);
             if (!status.isActive()) {
-                if (status.lastSyncError() == BoursoErrorCode.SESSION_EXPIRED
-                    || status.lastSyncError() == BoursoErrorCode.INVALID_CREDENTIALS) {
+                if (status.lastSyncError() == SidecarErrorCode.SESSION_EXPIRED
+                    || status.lastSyncError() == SidecarErrorCode.INVALID_CREDENTIALS) {
                     return new SourceSyncResult("bourso", SourceSyncResult.Status.NEEDS_REAUTH,
                         status.lastSyncError().name());
                 }
@@ -856,29 +858,22 @@ public class BoursoSyncService {
         );
     }
 
-    private BoursoErrorCode codeOf(SyncException exception) {
-        if (exception.getCode() == null) {
-            return BoursoErrorCode.UPSTREAM_UNAVAILABLE;
-        }
-        try {
-            return BoursoErrorCode.valueOf(exception.getCode());
-        } catch (IllegalArgumentException ignored) {
-            return BoursoErrorCode.UPSTREAM_UNAVAILABLE;
-        }
+    private SidecarErrorCode codeOf(SyncException exception) {
+        return SyncValues.errorCode(exception, SidecarBank.BOURSO, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
-    private SyncException error(BoursoErrorCode code, String message, Throwable cause) {
+    private SyncException error(SidecarErrorCode code, String message, Throwable cause) {
         return new SyncException(message, cause, code.name());
     }
 
     private String stableExternalId(String raw) {
         String cleaned = clean(raw);
         if (cleaned == null) {
-            throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned an invalid account identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned an invalid account identifier", null);
         }
         String externalId = cleaned.startsWith(EXTERNAL_ID_PREFIX) ? cleaned : EXTERNAL_ID_PREFIX + cleaned;
         if (externalId.length() > 100) {
-            throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned an invalid account identifier", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned an invalid account identifier", null);
         }
         return externalId;
     }
@@ -890,7 +885,7 @@ public class BoursoSyncService {
         }
         currency = currency.toUpperCase(Locale.ROOT);
         if (!currency.matches("[A-Z]{3}")) {
-            throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned an invalid quote currency", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned an invalid quote currency", null);
         }
         return currency;
     }
@@ -923,10 +918,10 @@ public class BoursoSyncService {
      * single holding, zero-unit rows are dropped and euro-fund rows are summed into
      * the cash leg. Fewer rows than positions received cannot be true.
      */
-    private int valuationLineCount(BoursoPort.AccountData account) {
+    private int valuationLineCount(BoursoAdapter.AccountData account) {
         Integer lines = account.valuationLineCount();
         if (lines == null || lines < account.positions().size()) {
-            throw error(BoursoErrorCode.INVALID_DATA, "BoursoBank returned no valid line count for an assurance vie", null);
+            throw error(SidecarErrorCode.INVALID_DATA, "BoursoBank returned no valid line count for an assurance vie", null);
         }
         return lines;
     }
@@ -954,7 +949,7 @@ public class BoursoSyncService {
         BoursoSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
-        BoursoErrorCode lastSyncError
+        SidecarErrorCode lastSyncError
     ) {
         static SessionStatusResponse inactive() {
             return new SessionStatusResponse(false, BoursoSyncStatus.IDLE, null, null, null);

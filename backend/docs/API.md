@@ -35,7 +35,7 @@
 
 ### AccountType
 
-`LEP` · `LIVRET_A` · `LDDS` · `LIVRET_JEUNE` · `PEL` · `CEL` · `PEA` · `COMPTE_TITRES` · `CRYPTO` · `CHECKING` · `SAVINGS` · `REAL_ESTATE` · `SCPI` · `LOAN` · `EMPLOYEE_SAVINGS` · `ASSURANCE_VIE` · `PER` · `CREDIT_CARD` · `OTHER`
+`LEP` · `LIVRET_A` · `LDDS` · `LIVRET_JEUNE` · `PEL` · `CEL` · `PEA` · `COMPTE_TITRES` · `CRYPTO` · `CHECKING` · `SAVINGS` · `REAL_ESTATE` · `SCPI` · `LOAN` · `EMPLOYEE_SAVINGS` · `ASSURANCE_VIE` · `PER` · `CREDIT_CARD` · `PRECIOUS_METALS` · `OTHER`
 
 ### WealthTier
 
@@ -1796,6 +1796,22 @@ quantity`. The per-line figures therefore still add up to the holding's own cost
 ```
 
 Prices are in EUR. Results are cached for 15 minutes.
+
+#### `GET /api/prices/precious-metals`
+
+- **Auth:** Required
+
+The gold products a `PRECIOUS_METALS` holding can carry, in registry order. The `ticker` is the
+holding's ticker. `unit` says what its quantity counts: `GRAM` (fine grams, priced from the
+gold spot) or `COIN` (pieces, priced from the Loomis FXGS quote).
+
+**Response `200`:**
+```json
+[
+  { "ticker": "GOLD:GRAM", "name": "Gold (fine gram)", "unit": "GRAM" },
+  { "ticker": "GOLD:NAPOLEON-20F", "name": "Napoléon 20 F", "unit": "COIN" }
+]
+```
 
 ---
 

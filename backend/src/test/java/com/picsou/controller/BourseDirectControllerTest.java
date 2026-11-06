@@ -3,7 +3,7 @@ package com.picsou.controller;
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
 import com.picsou.model.BourseDirectSyncStatus;
-import com.picsou.port.BourseDirectErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.BourseDirectSyncService;
 import com.picsou.service.UserContext;
 import io.github.bucket4j.Bucket;
@@ -108,7 +108,7 @@ class BourseDirectControllerTest {
             new SyncException(
                 "Bourse Direct rejected the verification code",
                 null,
-                BourseDirectErrorCode.INVALID_OTP.name()
+                SidecarErrorCode.INVALID_OTP.name()
             )
         );
 

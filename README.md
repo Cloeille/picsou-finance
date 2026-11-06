@@ -58,19 +58,13 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
                (PSD2/OAuth)     (crypto)       (stocks/ETF)    (WebSocket)
 ```
 
-- **Ports & Adapters** — `BankConnectorPort`, `PriceProviderPort`, `TradeRepublicPort`, `BoursoPort`, etc. Swap providers without touching business logic.
-- **Two-tier identity** — `AppUser` (auth) → `FamilyMember` (domain). Every entity is scoped by `member_id`; admins can act on behalf of a managed profile via `?memberId=X`.
-- **Flyway** — Versioned database migrations
-- **JWT auth** — HttpOnly cookies, SameSite=Lax (Safari iOS compatibility), refresh token rotation
-- **2FA (TOTP)** — Opt-in, with hashed recovery codes and trusted-device cookies
-- **AES-256-GCM** — Mandatory encryption for API secrets at rest (Binance, TOTP secrets, bank session tokens)
-- **Rate limiting** — Bucket4j on login, MFA challenge, sync endpoints, and data export
+Modules, data flows and key constraints: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Tech stack
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Java 21, Spring Boot 3.4, Maven |
+| Backend | Java 21, Spring Boot 3.5, Maven |
 | Frontend | React 19, TypeScript 5.9, Vite 7, Tailwind v4, Bun |
 | Database | PostgreSQL 16, Flyway |
 | Runtime | Docker (Nginx + Spring Boot + supervisor) |
@@ -84,19 +78,9 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 
 ### 1. Clone
 
-Published releases:
-
 ```bash
 git clone https://github.com/Cloeille/picsou-finance.git
 cd picsou-finance
-```
-
-Unreleased work on this fork (Finary holdings, account matching, CI e2e, `/mcp` nginx proxy):
-
-```bash
-git clone https://github.com/christopheche/picsou-finance.git
-cd picsou-finance
-git checkout feature/finary-holdings-import
 ```
 
 ### 2. Run (zero-config)
@@ -443,130 +427,14 @@ Each release publishes the chart under its version; every push to `main` publish
 
 ## Another machine
 
-Git has the **code** only. It does **not** contain your Postgres data, encryption keys, Finary session, or bank export zips (`data/` is untracked on purpose).
-
-| What | In git? | On the other Mac if you only clone |
-|------|---------|--------------------------------------|
-| `feature/finary-holdings-import` | yes | checkout that branch |
-| Accounts, holdings, transactions | no (`docker_pgdata`) | empty database |
-| `JWT_SECRET`, `CRYPTO_ENCRYPTION_KEY`, Postgres password | no (`docker_picsou_data`) | new secrets, wizard again |
-| TLS profile only: Caddy's internal CA and certificates, `PICSOU_DOMAIN` | no (`docker_caddy_data`, `docker/.env`) | new root CA, every device must trust it again |
-| Finary / bank logins | no (encrypted in DB) | reconnect + TOTP |
-| `data/*.zip` bank exports | no | not required to run |
-
-### Code only (fresh instance)
-
-`ghcr.io/zoeille/picsou-finance:latest` does **not** include this branch until the upstream PR is merged. Always **build from source**:
-
-```bash
-git clone https://github.com/christopheche/picsou-finance.git
-cd picsou-finance
-git checkout feature/finary-holdings-import
-docker compose -f docker/docker-compose.yml up --build -d
-```
-
-Open http://localhost:8080, complete the wizard, then Synchronisation → Finary (TOTP). Map **Fortuneo Assurance-vie (investments)** to the CTO, not the fonds-euros row; map **Main Brokerage (investments)** to the Trade Republic CTO, not the BTC account.
-
-### Same data as this Mac
-
-Compose project name must stay `docker` so volumes stay `docker_pgdata` and `docker_picsou_data`. Always use `-f docker/docker-compose.yml` from the repo root.
-
-**On this Mac** (source):
-
-```bash
-docker compose -f docker/docker-compose.yml stop
-docker run --rm -v docker_pgdata:/from -v "$PWD:/to" alpine tar czf /to/pgdata.tar.gz -C /from .
-docker run --rm -v docker_picsou_data:/from -v "$PWD:/to" alpine tar czf /to/picsou_data.tar.gz -C /from .
-# TLS profile only: the internal CA's root key lives here
-docker run --rm -v docker_caddy_data:/from -v "$PWD:/to" alpine tar czf /to/caddy_data.tar.gz -C /from .
-```
-
-Copy `pgdata.tar.gz` and `picsou_data.tar.gz` (AirDrop, USB, `scp`), plus `caddy_data.tar.gz` and `docker/.env` if you run the `tls` profile. Do **not** commit them.
-
-**On the other Mac**, after clone + checkout, **before** the first `up`:
-
-```bash
-docker volume create docker_pgdata
-docker volume create docker_picsou_data
-docker run --rm -v docker_pgdata:/to -v "$PWD:/from" alpine tar xzf /from/pgdata.tar.gz -C /to
-docker run --rm -v docker_picsou_data:/to -v "$PWD:/from" alpine tar xzf /from/picsou_data.tar.gz -C /to
-docker compose -f docker/docker-compose.yml up --build -d
-```
-
-With the `tls` profile, put the copied `docker/.env` (same `PICSOU_DOMAIN` and `tls` in
-`COMPOSE_PROFILES`) in place and restore Caddy's volume before starting it:
-
-```bash
-docker volume create docker_caddy_data
-docker run --rm -v docker_caddy_data:/to -v "$PWD:/from" alpine tar xzf /from/caddy_data.tar.gz -C /to
-docker compose -f docker/docker-compose.yml up --build -d
-```
-
-You must copy **both** `pgdata` and `picsou_data`. Restoring Postgres without `picsou_data` uses a new encryption key and Finary/bank secrets in the DB will not decrypt. Without `caddy_data`, Caddy generates a new root CA and devices that trusted the old one reject its certificate.
+Git holds the code, not your data or keys. To move an install, copy the Docker volumes as described in
+[Moving the stack to another machine](docs/features/docker-deployment.md#moving-the-stack-to-another-machine).
 
 ## Development
 
-### Backend
-
-```bash
-cd backend
-JAVA_HOME=$(/usr/libexec/java_home -v 21) mvn spring-boot:run -Dspring-boot.run.profiles=dev   # Requires PostgreSQL on :5432
-JAVA_HOME=$(/usr/libexec/java_home -v 21) mvn test                                              # Run tests
-```
-
-Backend Maven runs enforce Java 21 during `validate`; set `JAVA_HOME` to a JDK 21 installation before running backend commands locally.
-
-### Frontend
-
-```bash
-cd frontend
-bun install        # Install dependencies
-bun run dev        # HTTPS dev server on https://localhost:5173 (proxies /api/* → localhost:8080)
-bun run build      # TypeScript check + Vite build
-bunx vitest run    # Unit tests
-bun run test:e2e   # Playwright E2E (demo mode; starts Vite itself)
-```
-
-### CI
-
-GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and every
-push to `main` or a version tag:
-
-- backend `mvn test` (Docker required for Flyway migration tests)
-- frontend lint, typecheck, Vitest
-- Playwright e2e in demo mode
-- Bourse Direct sidecar unit tests
-
-A pull request runs only the jobs its changed paths can affect, unless it changes
-3,000 or more files; then it runs every job. A new push cancels its stale run; the
-`ci-ok` job is green only when every selected job passed.
-Docker images are published to GHCR **only after that suite is green**, and only
-on a push to `main` or a version tag — not on pull requests.
-
-#### 🔒 HTTPS in Development (Hybrid Mode)
-
-To comply with the strict security requirements of certain banking integrations, the Vite development server is configured to run over **HTTPS**. The project utilizes a hybrid approach to make setup seamless for all environments:
-
-* **Premium Mode (Recommended for your host machine):** Install `mkcert` on your system, then generate your local certificates at the root of the `frontend/` directory:
-  ```bash
-  mkdir -p .local/certs
-  mkcert -cert-file .local/certs/picsou-local-cert.pem -key-file .local/certs/picsou-local-key.pem localhost 127.0.0.1 ::1
-  ```
-  *Benefit: You will get a natively trusted green padlock in your browser with zero security warnings.*
-
-* **Fallback Mode (Zero-Config / Dev Container):** If the `.pem` files are not detected inside `.local/certs/`, the `@vitejs/plugin-basic-ssl` plugin will automatically take over.
-  *Note: The development server will still start over HTTPS, but you will need to bypass your browser's security warning on first access. Automation can instead opt in to ignoring the self-signed certificate.*
-
-## Contributing
-
-Contributions are welcome — bug fixes, features, translations, or documentation.
-
-1. Fork the repository
-2. Create a feature branch (`feat/xxx`, `fix/xxx`)
-3. Write conventional commits
-4. Open a pull request against `main`
-
-Please read the relevant [feature docs](docs/features/) and [conventions](docs/conventions/) before touching existing code.
+Contributions are welcome: bug fixes, features, translations or documentation. Commands, conventions,
+the HTTPS dev certificate and the pull-request checklist are in [CONTRIBUTING.md](CONTRIBUTING.md).
+CI is described in [docker-deployment.md](docs/features/docker-deployment.md#pulling-from-ghcr).
 
 ## Security
 

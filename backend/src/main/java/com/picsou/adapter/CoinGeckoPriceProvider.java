@@ -1,11 +1,14 @@
 package com.picsou.adapter;
 
 import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.picsou.port.LogoProviderPort;
 import com.picsou.port.PriceProviderPort;
 import com.picsou.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
@@ -22,6 +25,7 @@ import java.util.*;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
 import java.util.function.LongFunction;
+import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 
 /**
@@ -45,78 +49,31 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
      */
     private static final Duration MAX_COOLDOWN = Duration.ofMinutes(15);
 
-    // Map from ticker (uppercase) → CoinGecko coin ID.
-    //
-    // This map is also a *router*: PriceService sends anything supports() accepts to CoinGecko and
-    // everything else to Yahoo Finance, with no notion of which account a ticker came from. So an
-    // entry here is not free — adding a symbol that is also a listed equity (STX/Seagate,
-    // SNX/TD SYNNEX) makes that stock get priced as a token. Only add symbols whose equity
-    // namesake is implausible in a portfolio, and prefer leaving a coin unpriced over that.
-    // (Crypto-side callers use refreshCryptoPrices, which never falls back to Yahoo.)
-    //
-    // Resolve each id against /api/v3/coins/list and pick the canonical entry, never a
-    // binance-peg-*, *-wormhole or bridged-* homonym — a wrong id is a wrong valuation, and
-    // nothing surfaces it.
-    private static final Map<String, String> TICKER_TO_ID = Map.ofEntries(
-        Map.entry("BTC", "bitcoin"),
-        Map.entry("ETH", "ethereum"),
-        Map.entry("SOL", "solana"),
-        Map.entry("BNB", "binancecoin"),
-        Map.entry("ADA", "cardano"),
-        Map.entry("XRP", "ripple"),
-        Map.entry("DOGE", "dogecoin"),
-        Map.entry("DOT", "polkadot"),
-        Map.entry("MATIC", "matic-network"),
-        Map.entry("POL", "polygon-ecosystem-token"),
-        Map.entry("AVAX", "avalanche-2"),
-        Map.entry("USDT", "tether"),
-        Map.entry("USDC", "usd-coin"),
-        Map.entry("DAI", "dai"),
-        Map.entry("EURC", "euro-coin"),
-        Map.entry("LINK", "chainlink"),
-        Map.entry("UNI", "uniswap"),
-        Map.entry("ATOM", "cosmos"),
-        Map.entry("LTC", "litecoin"),
-        Map.entry("NEAR", "near"),
-        Map.entry("ARB", "arbitrum"),
-        Map.entry("OP", "optimism"),
-        Map.entry("SHIB", "shiba-inu"),
-        Map.entry("PEPE", "pepe"),
-        Map.entry("SUI", "sui"),
-        // Coins reachable through Meria's wallets, staking and lending products. Each id was
-        // resolved on /coins/list and confirmed to return an EUR price on /simple/price.
-        // Deliberately NOT mapped, despite Meria offering them: STX (Nasdaq: Seagate),
-        // SNX (NYSE: TD SYNNEX), SEI (NYSE: Solaris Energy Infrastructure) and APT
-        // (NYSE American: Alpha Pro Tech) are all live equity symbols, and an entry here would
-        // reroute those stock holdings to CoinGecko. They stay unpriced on the crypto side
-        // instead — a missing value, not a wrong one. ONE is left out for the neighbouring
-        // reason: six CoinGecko coins share that symbol, so no id can be picked with confidence.
-        Map.entry("EGLD", "elrond-erd-2"),
-        Map.entry("XTZ", "tezos"),
-        Map.entry("ALGO", "algorand"),
-        Map.entry("KSM", "kusama"),
-        Map.entry("TIA", "celestia"),
-        Map.entry("INJ", "injective-protocol"),
-        Map.entry("ROSE", "oasis-network"),
-        Map.entry("KAVA", "kava"),
-        Map.entry("ZEC", "zcash"),
-        Map.entry("ETC", "ethereum-classic"),
-        Map.entry("XLM", "stellar"),
-        Map.entry("TRX", "tron"),
-        Map.entry("BCH", "bitcoin-cash"),
-        Map.entry("MINA", "mina-protocol"),
-        Map.entry("OSMO", "osmosis"),
-        Map.entry("AKT", "akash-network"),
-        Map.entry("DYDX", "dydx-chain"),
-        Map.entry("CELO", "celo"),
-        Map.entry("BAND", "band-protocol"),
-        Map.entry("XMR", "monero"),
-        Map.entry("VET", "vechain"),
-        Map.entry("HBAR", "hedera-hashgraph"),
-        Map.entry("GRT", "the-graph")
-    );
+    /** Page size of {@code /coins/markets}, the API maximum. */
+    private static final int SYMBOL_LOOKUP_PAGE = 250;
+
+    /**
+     * Pages a symbol lookup reads at most. Each page is a request against the shared free-tier
+     * budget, and a batch whose ranked homonyms still fill the last allowed page is left
+     * undecided rather than judged on a partial list.
+     */
+    private static final int SYMBOL_LOOKUP_MAX_PAGES = 4;
+
+    /**
+     * Most symbols one {@code /coins/markets} request may carry with {@code include_tokens=all}:
+     * CoinGecko answers HTTP 400 from the 51st. Larger batches are queried in groups of this size.
+     */
+    private static final int SYMBOL_LOOKUP_BATCH = 50;
+
+    /**
+     * A symbol's leading coin must be worth at least this many times the next ranked one to be
+     * taken as <em>the</em> coin for that ticker. Every curated coin clears it by a wide margin
+     * (DAI, the closest, by 90x); ONE, shared by six coins, sits at 3.6x and must not pass.
+     */
+    private static final BigDecimal DOMINANCE_RATIO = BigDecimal.TEN;
 
     private final WebClient webClient;
+    private final CryptoAssetRegistry registry;
 
     /**
      * While this instant is in the future, no request is sent at all.
@@ -131,21 +88,43 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
      */
     private volatile Instant rateLimitedUntil = Instant.EPOCH;
 
-    public CoinGeckoPriceProvider() {
+    /**
+     * The monotonic clock the shared symbol-lookup deadline is measured on ({@code System::nanoTime}
+     * in production). A deadline on the wall clock would move with an NTP step or a suspended VM:
+     * a backwards step stretches the budget, a forwards one spends it at once. Only the tests
+     * replace it, to advance time without sleeping.
+     */
+    private final LongSupplier nanoTime;
+
+    @Autowired
+    public CoinGeckoPriceProvider(CryptoAssetRegistry registry) {
         this(WebClient.builder()
             .baseUrl("https://api.coingecko.com/api/v3")
             .defaultHeader("Accept", "application/json")
-            .build());
+            .build(), registry);
     }
 
     // Package-private constructor for tests — inject a WebClient backed by an ExchangeFunction.
-    CoinGeckoPriceProvider(WebClient webClient) {
-        this.webClient = webClient;
+    CoinGeckoPriceProvider(WebClient webClient, CryptoAssetRegistry registry) {
+        this(webClient, registry, System::nanoTime);
     }
 
+    // Package-private constructor for tests that need to move the lookup clock without sleeping.
+    CoinGeckoPriceProvider(WebClient webClient, CryptoAssetRegistry registry, LongSupplier nanoTime) {
+        this.webClient = webClient;
+        this.registry = registry;
+        this.nanoTime = nanoTime;
+    }
+
+    /**
+     * A ticker is crypto exactly when the {@link CryptoAssetRegistry} knows it. That makes this
+     * the router PriceService relies on, so what enters the registry matters: see
+     * {@code CompositePriceProvider#learnCryptoTickers} for why a learned row can never be a
+     * symbol a listed equity owns.
+     */
     @Override
     public boolean supports(String ticker) {
-        return ticker != null && TICKER_TO_ID.containsKey(ticker.toUpperCase(Locale.ROOT));
+        return registry.find(ticker).isPresent();
     }
 
     @Override
@@ -154,20 +133,12 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
     }
 
     /**
-     * A human-readable display name for a known crypto {@code ticker}, derived from its
-     * CoinGecko coin id (e.g. BTC &rarr; "Bitcoin", MATIC &rarr; "Matic Network"), or
-     * {@code null} if the ticker is unknown. Keeps crypto naming in the single
-     * {@link #TICKER_TO_ID} registry rather than a second per-coin map elsewhere; used by
-     * {@link OpenFigiIsinConverter} to name Trade Republic's on-platform crypto holdings.
+     * The stored display name of a known crypto {@code ticker} (e.g. BTC &rarr; "Bitcoin"), or
+     * {@code null} if the ticker is unknown. Used by {@link OpenFigiIsinConverter} to name Trade
+     * Republic's on-platform crypto holdings.
      */
     public String displayName(String ticker) {
-        if (ticker == null) return null;
-        String coinId = TICKER_TO_ID.get(ticker.toUpperCase(Locale.ROOT));
-        if (coinId == null) return null;
-        return Arrays.stream(coinId.split("-"))
-            .filter(word -> !word.isBlank())
-            .map(word -> Character.toUpperCase(word.charAt(0)) + word.substring(1))
-            .collect(java.util.stream.Collectors.joining(" "));
+        return registry.find(ticker).map(CryptoAssetRegistry.Coin::name).orElse(null);
     }
 
     /**
@@ -176,7 +147,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
      * <p>Reads {@code image} off {@code /coins/markets}, the one endpoint that returns a mark for
      * a whole batch of coin ids — so a portfolio page costs a single request no matter how many
      * assets it shows. Deliberately crypto-only: this is the same registry-gated
-     * {@link #TICKER_TO_ID} the prices come from, so an equity ticker resolves to no image rather
+     * {@link CryptoAssetRegistry} the prices come from, so an equity ticker resolves to no image rather
      * than to some unrelated coin that happens to share its symbol.
      *
      * <p>The URLs point at {@code coin-images.coingecko.com} and are handed to the browser to
@@ -203,7 +174,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
         if (coolingDown("logos", supported)) return Map.of();
 
         String ids = supported.stream()
-            .map(TICKER_TO_ID::get)
+            .map(this::coinId)
             .filter(Objects::nonNull)
             .reduce((a, b) -> a + "," + b)
             .orElse("");
@@ -240,7 +211,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
 
             Map<String, String> result = new HashMap<>();
             for (String ticker : supported) {
-                String url = byCoinId.get(TICKER_TO_ID.get(ticker));
+                String url = byCoinId.get(coinId(ticker));
                 if (url != null) result.put(ticker, url);
             }
             return result;
@@ -273,7 +244,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
         if (coolingDown("spot prices", supported)) return Map.of();
 
         String ids = supported.stream()
-            .map(TICKER_TO_ID::get)
+            .map(this::coinId)
             .filter(Objects::nonNull)
             .reduce((a, b) -> a + "," + b)
             .orElse("");
@@ -297,7 +268,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
 
             Map<String, BigDecimal> result = new HashMap<>();
             for (String ticker : supported) {
-                String coinId = TICKER_TO_ID.get(ticker);
+                String coinId = coinId(ticker);
                 if (coinId != null && response.containsKey(coinId)) {
                     BigDecimal price = response.get(coinId).eur();
                     if (price != null) result.put(ticker, price);
@@ -317,6 +288,169 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
             handleFetchFailure("spot prices", supported, TIMEOUT, ex);
             return Map.of();
         }
+    }
+
+    private String coinId(String ticker) {
+        return registry.find(ticker).map(CryptoAssetRegistry.Coin::id).orElse(null);
+    }
+
+    /**
+     * What {@link #resolveBySymbol} found. {@code answered} is false when CoinGecko could not be
+     * asked (cooling down, outage): the tickers missing from {@code accepted} are then
+     * <em>undecided</em>, not refused, and the caller must retry soon rather than remember a no.
+     */
+    public record Resolution(Map<String, CryptoAssetRegistry.Coin> accepted, boolean answered) {}
+
+    /**
+     * Looks each ticker up by symbol on {@code /coins/markets} (one request per group of at most
+     * {@link #SYMBOL_LOOKUP_BATCH} tickers, the API's limit) and
+     * returns the coins it is safe to treat as <em>the</em> coin for that ticker. Persists
+     * nothing: deciding whether a symbol may be learned at all is the caller's job.
+     *
+     * <p>Only candidates whose symbol equals the ticker and that carry a {@code market_cap_rank}
+     * count: CoinGecko lists hundreds of unranked bridged and wrapped homonyms per symbol
+     * ({@code include_tokens=all}), and a wrong id is a wrong valuation that nothing surfaces.
+     * The best-ranked candidate is accepted when alone, or when its market cap is at least
+     * {@link #DOMINANCE_RATIO} times the runner-up's; otherwise the symbol is ambiguous and is
+     * rejected with a WARN saying why.
+     *
+     * <p>The rule is only sound on every ranked candidate: a runner-up cut off by the page limit
+     * would let the leader skip the dominance check. Pages are read in {@code market_cap_desc}
+     * order until one comes back short, or until a page ends on an entry with no market cap
+     * (everything after it is uncapped, so unranked). A batch still crowded after
+     * {@link #SYMBOL_LOOKUP_MAX_PAGES} pages is undecided.
+     *
+     * <p>The whole lookup shares one {@link #TIMEOUT} budget rather than getting one per page,
+     * so four slow pages cannot stack up to forty seconds inside a refresh or a sync. The budget
+     * is measured on the monotonic clock, so a wall-clock adjustment cannot stretch or spend it.
+     * A page that times out, or a budget spent before the next page starts, leaves the batch
+     * undecided; the caller asks again in 15 minutes. The 429 cooldown is checked before
+     * <em>every</em> page, because a price call on another thread can arm it between two pages
+     * and the free tier counts the requests it rejects.
+     *
+     * <p>A group left undecided stops the lookup and {@code answered} is false, whatever the
+     * earlier groups decided: their accepted coins are returned, but the tickers they refused
+     * are retried soon rather than remembered as a no.
+     */
+    public Resolution resolveBySymbol(Set<String> tickers) {
+        Set<String> wanted = tickers == null ? Set.of() : tickers.stream()
+            .filter(t -> t != null && !t.isBlank())
+            .map(t -> t.trim().toUpperCase(Locale.ROOT))
+            .collect(java.util.stream.Collectors.toCollection(TreeSet::new));
+        if (wanted.isEmpty()) return new Resolution(Map.of(), true);
+
+        long deadlineNanos = nanoTime.getAsLong() + TIMEOUT.toNanos();
+        Map<String, CryptoAssetRegistry.Coin> accepted = new TreeMap<>();
+        List<String> sorted = List.copyOf(wanted);
+        // The first group left undecided ends the lookup: the rest would hit the same spent
+        // budget or cooldown. What earlier groups accepted is kept, but the whole is unanswered.
+        for (int from = 0; from < sorted.size(); from += SYMBOL_LOOKUP_BATCH) {
+            Set<String> group = new TreeSet<>(sorted.subList(from, Math.min(from + SYMBOL_LOOKUP_BATCH, sorted.size())));
+            Map<String, CryptoAssetRegistry.Coin> found;
+            try {
+                found = resolveGroup(group, deadlineNanos);
+            } catch (RuntimeException ex) {
+                handleFetchFailure("symbol lookup", group, TIMEOUT, ex);
+                found = null;
+            }
+            if (found == null) return new Resolution(accepted, false);
+            accepted.putAll(found);
+        }
+        return new Resolution(accepted, true);
+    }
+
+    /** One group of at most {@link #SYMBOL_LOOKUP_BATCH} tickers; {@code null} when it is left undecided. */
+    private Map<String, CryptoAssetRegistry.Coin> resolveGroup(Set<String> wanted, long deadlineNanos) {
+        String symbols = wanted.stream()
+            .map(t -> t.toLowerCase(Locale.ROOT))
+            .collect(java.util.stream.Collectors.joining(","));
+
+        List<MarketEntry> markets = new ArrayList<>();
+        for (int page = 1; ; page++) {
+            if (coolingDown("symbol lookup", wanted)) return null;
+            long remainingNanos = deadlineNanos - nanoTime.getAsLong();
+            if (remainingNanos <= 0) {
+                log.warn("CoinGecko symbol lookup {} ran out of its {} budget after {} pages -- learning nothing",
+                    LogSanitizer.safe(wanted), TIMEOUT, page - 1);
+                return null;
+            }
+            List<MarketEntry> batch = symbolLookupPage(symbols, page, Duration.ofNanos(remainingNanos));
+            if (batch == null) {
+                log.warn("CoinGecko returned an empty body for symbol lookup {} -- learning nothing", LogSanitizer.safe(wanted));
+                return null;
+            }
+            markets.addAll(batch);
+            if (batch.size() < SYMBOL_LOOKUP_PAGE || endsUncapped(batch)) break;
+            if (page == SYMBOL_LOOKUP_MAX_PAGES) {
+                log.warn("CoinGecko symbol lookup {} still lists ranked coins after {} pages -- learning nothing",
+                    LogSanitizer.safe(wanted), SYMBOL_LOOKUP_MAX_PAGES);
+                return null;
+            }
+        }
+
+        Map<String, CryptoAssetRegistry.Coin> accepted = new TreeMap<>();
+        for (String ticker : wanted) {
+            List<MarketEntry> ranked = markets.stream()
+                .filter(e -> e != null && e.id() != null && e.symbol() != null
+                    && e.symbol().equalsIgnoreCase(ticker) && e.rank() != null)
+                .sorted(java.util.Comparator.comparing(MarketEntry::rank))
+                .toList();
+            pickDominant(ticker, ranked).ifPresent(coin -> accepted.put(ticker, coin));
+        }
+        return accepted;
+    }
+
+    private List<MarketEntry> symbolLookupPage(String symbols, int page, Duration timeout) {
+        return webClient.get()
+            .uri(uriBuilder -> uriBuilder
+                .path("/coins/markets")
+                .queryParam("vs_currency", "eur")
+                // A template variable, not the literal: a held ticker is user data, and a "{X}" in
+                // it would be parsed as a URI variable and throw. Variables are encoded, not parsed.
+                .queryParam("symbols", "{symbols}")
+                .queryParam("include_tokens", "all")
+                .queryParam("order", "market_cap_desc")
+                .queryParam("per_page", SYMBOL_LOOKUP_PAGE)
+                .queryParam("page", page)
+                .build(Map.of("symbols", symbols)))
+            .retrieve()
+            .bodyToMono(new org.springframework.core.ParameterizedTypeReference<List<MarketEntry>>() {})
+            .timeout(timeout)
+            .block();
+    }
+
+    /** Whether a {@code market_cap_desc} page has reached the coins with no market cap, which carry no rank. */
+    private static boolean endsUncapped(List<MarketEntry> page) {
+        MarketEntry last = page.get(page.size() - 1);
+        return last == null || last.marketCap() == null || last.marketCap().signum() <= 0;
+    }
+
+    /** The accept rule of {@link #resolveBySymbol}; logs the reason for a rejection. */
+    private static Optional<CryptoAssetRegistry.Coin> pickDominant(String ticker, List<MarketEntry> ranked) {
+        if (ranked.isEmpty()) {
+            log.warn("CoinGecko has no ranked coin for symbol {} -- not learning it", LogSanitizer.safe(ticker));
+            return Optional.empty();
+        }
+        MarketEntry top = ranked.get(0);
+        if (ranked.size() > 1) {
+            BigDecimal topCap = top.marketCap();
+            BigDecimal nextCap = ranked.get(1).marketCap();
+            if (topCap == null || nextCap == null || nextCap.signum() <= 0
+                    || topCap.compareTo(nextCap.multiply(DOMINANCE_RATIO)) < 0) {
+                String ratio = topCap == null || nextCap == null || nextCap.signum() <= 0
+                    ? "unknown"
+                    : topCap.divide(nextCap, 1, RoundingMode.HALF_UP).toPlainString() + "x";
+                log.warn("CoinGecko symbol {} is ambiguous: {} coins share it and the best ranked is only {} the next -- not learning it",
+                    LogSanitizer.safe(ticker), ranked.size(), ratio);
+                return Optional.empty();
+            }
+        }
+        String name = top.name() == null || top.name().isBlank() ? ticker : top.name();
+        // The one trace of a learned coin: the registry insert that follows is silent, and the
+        // rank is what a reviewer needs to judge the pick.
+        log.info("CoinGecko symbol {} resolves to {} ({}), market cap rank {}",
+            LogSanitizer.safe(ticker), LogSanitizer.safe(top.id()), LogSanitizer.safe(name), top.rank());
+        return Optional.of(new CryptoAssetRegistry.Coin(top.id(), name));
     }
 
     /**
@@ -377,7 +511,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
                 log.warn("CoinGecko server error (HTTP {}) fetching {} for {} -- returning no prices: {}",
                     status, operation, where, bodySnippet(http));
             } else if (status == 400 || status == 404) {
-                // A malformed request or an unknown coin id points at a bad TICKER_TO_ID
+                // A malformed request or an unknown coin id points at a bad registry
                 // entry -- something we can actually fix, so ERROR.
                 log.error("CoinGecko rejected the {} request for {} with HTTP {} -- returning no prices: {}",
                     operation, where, status, bodySnippet(http));
@@ -530,7 +664,7 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
         LongFunction<K> keyOf,
         Predicate<K> inRange
     ) {
-        String coinId = TICKER_TO_ID.get(ticker.toUpperCase(Locale.ROOT));
+        String coinId = coinId(ticker);
         if (coinId == null) return Map.of();
         String context = LogSanitizer.safe(ticker + " (" + coinId + ")");
         if (coolingDown(operation, context)) return Map.of();
@@ -585,8 +719,15 @@ public class CoinGeckoPriceProvider implements PriceProviderPort, LogoProviderPo
         );
     }
 
-    /** The subset of {@code /coins/markets} we read: the coin's id and its image URL. */
-    private record MarketEntry(String id, String image) {}
+    /** The subset of {@code /coins/markets} we read: id, image, and what the symbol lookup ranks on. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record MarketEntry(
+        String id,
+        String image,
+        String symbol,
+        String name,
+        @JsonProperty("market_cap_rank") Integer rank,
+        @JsonProperty("market_cap") BigDecimal marketCap) {}
 
     static class PriceData {
         private BigDecimal eur;

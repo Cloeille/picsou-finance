@@ -144,7 +144,7 @@ Used by:
 
 ## Tests
 
-- `frontend/src/lib/errors.test.ts` — 18 cases, all green via `bunx vitest run`.
+- `frontend/src/lib/errors.test.ts` — 18 cases, all green via `make test-frontend`.
   - `extractErrorMessage` (8): Spring detail with embedded JSON; plain Spring
     detail; `data.message` when no detail; JSON inside `err.message`; plain
     `err.message`; the Axios `"Request failed with status code N"` skip; fallback

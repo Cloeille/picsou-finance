@@ -2,7 +2,7 @@ package com.picsou.repository;
 
 import com.picsou.model.BourseDirectSession;
 import com.picsou.model.BourseDirectSyncStatus;
-import com.picsou.port.BourseDirectErrorCode;
+import com.picsou.port.SidecarErrorCode;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -31,7 +31,7 @@ public interface BourseDirectSessionRepository extends JpaRepository<BourseDirec
         @Param("interrupted") Collection<BourseDirectSyncStatus> interrupted,
         @Param("failed") BourseDirectSyncStatus failed,
         @Param("completedAt") Instant completedAt,
-        @Param("errorCode") BourseDirectErrorCode errorCode
+        @Param("errorCode") SidecarErrorCode errorCode
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
