@@ -208,11 +208,14 @@ jobs:
           SHARD_INCLUDES: ${{ steps.shard.outputs.includes }}
           SHARD_EXCLUDES: ${{ steps.shard.outputs.excludes }}
         run: make test-backend SOFIDY_PYTHON=python3
+      # A re-run of a failed shard uploads under the same name as its first attempt, which
+      # stays in the run: overwrite it, or the upload fails with a 409 conflict.
       - name: Upload the test reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: surefire-${{ matrix.shard }}
+          overwrite: true
           path: |
             backend/target/surefire-reports/*.xml
             backend/target/surefire-reports/*.txt

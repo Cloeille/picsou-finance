@@ -705,6 +705,8 @@ class CiJobSelectionTest(unittest.TestCase):
         upload = next(step for step in backend["steps"] if "upload-artifact" in step.get("uses", ""))
         self.assertEqual(upload["with"]["name"], "surefire-${{ matrix.shard }}")
         self.assertEqual(upload["with"]["if-no-files-found"], "error")
+        # A re-run shard replaces its first attempt's reports instead of failing on the name.
+        self.assertIs(upload["with"]["overwrite"], True)
 
         steps = jobs[GATE]["steps"]
         self.assertEqual(steps[0]["name"], "Every selected job succeeded")
