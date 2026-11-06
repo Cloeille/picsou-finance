@@ -571,21 +571,18 @@ class BrowserBankClient(HttpxBankClient):
             step = "submit"
             await page.click("#btnConfirmer")
 
-            # The page waits 500 ms then submits. Read only the URL here: the DOM
-            # is replaced while the page navigates, and touching it throws.
+            # The page waits 500 ms then submits. Poll the driver-side URL: a
+            # navigation destroys the JS context, so wait_for_function can hang.
             step = "navigation"
-            try:
-                await page.wait_for_function(
-                    "() => location.href.includes('afficheSynthese')"
-                    " || location.href.includes('synthese_ccp')"
-                    " || (location.href.includes('loginform')"
-                    "     && (location.href.includes('phase=') || location.href.includes('cu=')))"
-                    " || location.href.includes('message.html')",
-                    timeout=15_000,
-                )
-            except Exception:
-                pass
+            before_submit = page.url
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                url = page.url
+                if url != before_submit:
+                    break
+                await asyncio.sleep(0.5)
             url = page.url
+            log.warning("La Banque Postale after submit path=%s", urlparse(url).path)
             if "loginform" in url and ("phase=" in url or "cu=" in url):
                 # The URL alone is not enough: the bank sometimes lands on its
                 # generic "Erreur Technique" page immediately. Confirm the page
@@ -616,6 +613,12 @@ class BrowserBankClient(HttpxBankClient):
                 await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
                 return
             if "message.html" in url:
+                log.warning(
+                    "La Banque Postale approval failed path=%s param=%s",
+                    urlparse(url).path,
+                    parse_qs(urlparse(url).query).get("param", [""])[0],
+                )
+                await self._page_diagnostics(page, "approval-error")
                 raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
 
             # The form may have re-rendered (refused identifier or password) or
@@ -631,6 +634,7 @@ class BrowserBankClient(HttpxBankClient):
                 return
             if "formAccesCompte" in body:
                 raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
+            await self._page_diagnostics(page, "unexpected")
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
         except HTTPException:
             await self._dispose(state)
