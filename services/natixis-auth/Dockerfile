@@ -7,7 +7,7 @@ FROM ${SIDECAR_BASE}
 
 RUN groupadd -r natixis && useradd -r -g natixis natixis
 
-COPY main.py savings_parser.py ./
+COPY main.py savings_parser.py operations_parser.py ./
 
 RUN chown -R natixis:natixis /app
 USER natixis

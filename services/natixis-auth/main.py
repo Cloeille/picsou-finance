@@ -42,6 +42,7 @@ from fastapi import HTTPException, Response
 from picsou_sidecar import PendingStore, configure_logging, create_app, otp_field_detail
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from operations_parser import finished_demands, operation_fund_ids, parse_operations
 from savings_parser import SavingsFormatError, fund_code, fund_ids, parse_plans
 
 # httpx logs every URL at INFO, and the redirect after login carries the code.
@@ -74,6 +75,12 @@ ROUTE_DEADLINE_SECONDS = 40.0
 # Fund details only add the AMF code to a line: they get a slice of the route's
 # deadline, read a few at a time, and whatever is not back by then goes without.
 FUND_DETAIL_BUDGET_SECONDS = 10.0
+# /positions answers the backend's 120 s adapter timeout, not the 45 s of the login
+# routes; the operations history gets its own slice, and is dropped (not the plans)
+# when it overruns.
+POSITIONS_DEADLINE_SECONDS = 100.0
+OPERATIONS_BUDGET_SECONDS = 30.0
+OPERATIONS_HISTORY_YEARS = 5
 FUND_DETAIL_CONCURRENCY = 4
 SESSION_STATE_VERSION = 1
 
@@ -159,9 +166,27 @@ class PlanPayload(BaseModel):
     snapshotComplete: Literal[True]
 
 
+class OperationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    externalId: str = Field(min_length=1, max_length=100)
+    planExternalId: str = Field(min_length=1, max_length=100)
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    type: Literal["BUY", "SELL"]
+    label: str = Field(min_length=1, max_length=200)
+    fundLabel: str = Field(min_length=1, max_length=200)
+    fundCode: str | None = Field(default=None, max_length=20)
+    quantity: Decimal
+    unitValue: Decimal | None = None
+    amountEur: Decimal
+    feesEur: Decimal | None = None
+
+
 class PositionsResponse(BaseModel):
     sessionState: str
     plans: list[PlanPayload]
+    operationsComplete: bool
+    operations: list[OperationPayload]
 
 
 # ─── Plumbing ───────────────────────────────────────────────────────────────
@@ -194,10 +219,10 @@ def _new_client() -> httpx.AsyncClient:
 
 
 @asynccontextmanager
-async def _errors(step: str):
+async def _errors(step: str, deadline: float | None = None):
     """Turn every failure into the `{"detail": CODE}` contract."""
     try:
-        async with asyncio.timeout(ROUTE_DEADLINE_SECONDS):
+        async with asyncio.timeout(deadline or ROUTE_DEADLINE_SECONDS):
             yield
     except HTTPException:
         raise
@@ -208,7 +233,7 @@ async def _errors(step: str):
         log.warning("Natixis %s answer rejected code=%s: %s", step, exc.code, exc)
         raise HTTPException(status_code=502, detail=exc.code) from exc
     except TimeoutError as exc:
-        log.warning("Natixis %s took longer than %ss", step, ROUTE_DEADLINE_SECONDS)
+        log.warning("Natixis %s took longer than %ss", step, deadline or ROUTE_DEADLINE_SECONDS)
         raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
     except (AttributeError, KeyError, TypeError, ValueError, ValidationError) as exc:
         log.warning("Natixis %s answer has an unexpected shape error_type=%s", step, type(exc).__name__)
@@ -472,13 +497,54 @@ def parse_session(raw: str) -> dict[str, str]:
 # ─── Positions ──────────────────────────────────────────────────────────────
 
 
-async def collect_plans(client: httpx.AsyncClient, access_token: str, employee_id: str) -> list[dict]:
+async def collect_plans(client: httpx.AsyncClient, access_token: str, employee_id: str) -> dict:
     base = f"/saving/v1/employees/{employee_id}"
     savings = await _api_get(client, access_token, f"{base}/savings", {"gainsOrLosses": "true"})
     products = await _api_get(client, access_token, f"{base}/products",
                               {"includeGainsOrLosses": "true", "includeExternalAccounts": "true"})
-    codes = await _fund_codes(client, access_token, fund_ids(savings))
-    return parse_plans(savings, products, employee_id, codes)
+    held = fund_ids(savings)
+    history = await _operation_details(client, access_token, employee_id)
+    sold_out = [f for f in (operation_fund_ids(history[1]) if history else []) if f not in held]
+    codes = await _fund_codes(client, access_token, held + sold_out)
+    plans = parse_plans(savings, products, employee_id, codes)
+    operations = None
+    if history is not None:
+        try:
+            operations = parse_operations(history[0], history[1], employee_id, codes)
+        except SavingsFormatError as exc:
+            log.warning("Natixis operations not imported code=%s: %s", exc.code, exc)
+    return {"plans": plans, "operations": operations}
+
+
+async def _operation_details(client: httpx.AsyncClient, access_token: str,
+                             employee_id: str) -> tuple[list[dict], list[dict]] | None:
+    """The finished operations and their details, or None when the history cannot be
+    read in full -- a partial history must never pass for the whole one."""
+    today = time.strftime("%Y-%m-%d")
+    since = time.strftime("%Y-%m-%d", time.localtime(time.time() - OPERATIONS_HISTORY_YEARS * 365 * 86400 + 86400))
+    try:
+        async with asyncio.timeout(OPERATIONS_BUDGET_SECONDS):
+            listing = await _api_get(client, access_token, f"/transaction/v1/employees/{employee_id}/transactions",
+                                     {"fromDate": since, "toDate": today, "status": ""})
+            demands = finished_demands(listing)
+            gate = asyncio.Semaphore(FUND_DETAIL_CONCURRENCY)
+
+            async def detail(demand: dict) -> dict:
+                path = demand["href"].split("nie.api.natixis.com", 1)[-1]
+                if not path.startswith(f"/transaction/v1/employees/{employee_id}/"):
+                    raise SavingsFormatError("UPSTREAM_FORMAT_CHANGED", "Operation detail outside the saver's space")
+                async with gate:
+                    return await _api_get(client, access_token, path)
+
+            details = await asyncio.gather(*(detail(d) for d in demands))
+            return demands, list(details)
+    except NatixisError as exc:
+        if exc.code == "SESSION_EXPIRED":
+            raise
+        log.warning("Natixis operations not read code=%s", exc.code)
+    except (TimeoutError, httpx.HTTPError, SavingsFormatError, AttributeError, KeyError, TypeError, ValueError) as exc:
+        log.warning("Natixis operations not read error_type=%s", type(exc).__name__)
+    return None
 
 
 async def _fund_codes(client: httpx.AsyncClient, access_token: str, ids: list[int]) -> dict[int, str | None]:
@@ -581,10 +647,10 @@ async def cancel(req: CancelRequest) -> Response:
 async def positions(req: PositionsRequest) -> dict:
     session = parse_session(req.sessionState)
     async with _new_client() as client:
-        async with _errors("positions"):
+        async with _errors("positions", POSITIONS_DEADLINE_SECONDS):
             tokens = await _token(client, {"grant_type": "refresh_token", "refresh_token": session["refreshToken"]})
             try:
-                plans = await collect_plans(client, tokens["access_token"], session["employeeId"])
+                read = await collect_plans(client, tokens["access_token"], session["employeeId"])
             except Exception:
                 if tokens["refresh_token"] != session["refreshToken"]:
                     # The error contract carries no session state, so a rotated
@@ -594,5 +660,11 @@ async def positions(req: PositionsRequest) -> dict:
             # Natixis hands back the same refresh token today; storing whatever it
             # returns keeps the session alive if it ever starts rotating them.
             state = serialize_session(tokens["refresh_token"], session["deviceId"], session["employeeId"])
-            return {"sessionState": state, "plans": [PlanPayload.model_validate(p) for p in plans]}
+            operations = read["operations"]
+            return {
+                "sessionState": state,
+                "plans": [PlanPayload.model_validate(p) for p in read["plans"]],
+                "operationsComplete": operations is not None,
+                "operations": [OperationPayload.model_validate(o) for o in operations or []],
+            }
 

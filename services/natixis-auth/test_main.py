@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 from picsou_sidecar import KEY_HEADER
 
 import main
+from op_fixtures import INVESTMENT_DEMAND, PAYMENT_DEMAND, TRANSACTIONS
 
 from fixtures import (
     AUTHENTICATION_MODES,
@@ -62,6 +63,7 @@ class FakeNatixis:
         self.api_status = 200
         self.fund_status = 200
         self.fund_error = None
+        self.operations_status = 200
         self.code_challenge = None
         self.exchanged_verifier = None
         self.service_provider_url = "https://nie-auth.api.natixis.com/api/oauth/authorize"
@@ -152,6 +154,16 @@ class FakeNatixis:
             return httpx.Response(200, json=self.savings)
         if path.endswith("/products"):
             return httpx.Response(200, json=PRODUCTS)
+        if path.startswith("/transaction/v1/employees/"):
+            if self.operations_status != 200:
+                return httpx.Response(self.operations_status, json={})
+            if path.endswith("/transactions"):
+                return httpx.Response(200, json=TRANSACTIONS)
+            demand_id = path.rsplit("/", 1)[1]
+            if "/investmentDemands/" in path:
+                return httpx.Response(200, json={**INVESTMENT_DEMAND, "id": demand_id})
+            if "/paymentDemands/" in path:
+                return httpx.Response(200, json={**PAYMENT_DEMAND, "id": demand_id})
         if path.startswith("/fund/v1/funds/"):
             if self.fund_error is not None:
                 raise self.fund_error
@@ -217,6 +229,32 @@ class HappyPathTest(SidecarTestCase):
         codes = {p["label"]: p["fundCode"] for p in plans[0]["positions"]}
         ids = {o["label"]: o["fundId"] for o in SAVINGS["items"][0]["compartments"][0]["investmentOptions"]}
         self.assertEqual(codes, {label: f"QS{fund_id:010d}" for label, fund_id in ids.items()})
+
+    def test_positions_carry_the_operations_history(self):
+        session = self.login().json()["sessionState"]
+        body = self.post("/positions", {"sessionState": session}).json()
+        self.assertTrue(body["operationsComplete"])
+        operations = body["operations"]
+        plan_ids = {p["externalId"] for p in body["plans"]}
+        self.assertTrue(all(op["planExternalId"] in plan_ids for op in operations))
+        buys = [op for op in operations if op["type"] == "BUY"]
+        sells = [op for op in operations if op["type"] == "SELL"]
+        # Two investment demands of six fund lines, each with its employer top-up; one release of four lines.
+        self.assertEqual(len(buys), 24)
+        self.assertEqual(len(sells), 4)
+        self.assertEqual(sum(op["label"] == "Abondement employeur" for op in buys), 12)
+        self.assertTrue(all(op["fundCode"].startswith("QS") for op in operations))
+        self.assertEqual(len({op["externalId"] for op in operations}), len(operations))
+
+    def test_unreadable_history_keeps_the_plans(self):
+        session = self.login().json()["sessionState"]
+        self.fake.operations_status = 503
+        response = self.post("/positions", {"sessionState": session})
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertFalse(body["operationsComplete"])
+        self.assertEqual(body["operations"], [])
+        self.assertEqual(len(body["plans"]), 2)
 
     def test_login_exchanges_the_pkce_verifier(self):
         self.assertEqual(self.login().status_code, 200)
