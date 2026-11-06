@@ -55,8 +55,9 @@ FLOW_OTP = "otp"
 PENDING_TTL_SECONDS = 600
 MAX_PENDING = 16
 
-# A confirmation is a human opening an app. Stay under the backend's 150 s
-# /complete timeout so the sidecar is always the one to give up.
+# A confirmation is a human opening an app. The whole wait, polls and WAF token
+# refreshes included, stays under the backend's 150 s /complete timeout, so the
+# sidecar is always the one to give up.
 APP_VALIDATION_TIMEOUT_SECONDS = 120
 APP_VALIDATION_POLL_SECONDS = 2.0
 # v1 says nothing about the code's lifetime; the countdown only paces the UI.
@@ -526,40 +527,48 @@ def confirmation_outcome(resp: httpx.Response) -> Optional[tuple[dict, Any]]:
 
 
 async def await_app_confirmation(state: dict) -> tuple[dict, Any]:
-    """Polls the v2 process until TR confirms; returns (cookies, claims from the body)."""
-    deadline = time.monotonic() + APP_VALIDATION_TIMEOUT_SECONDS
-    url = poll_url(state["trProcessId"])
-    async with new_client() as client:
-        while time.monotonic() < deadline:
-            try:
-                resp = await send(client, "GET", url, headers={
-                    **tr_headers(state["wafToken"], state["deviceInfo"]),
-                    **login_cookie_header(state["cookies"])})
-            except (TimeoutError, httpx.TransportError) as error:
-                log.warning("TR poll did not answer error_type=%s", type(error).__name__)
-                resp = None
+    """Polls the v2 process until TR confirms; returns (cookies, claims from the body).
 
-            if resp is not None:
-                if is_waf_rejection(resp):
-                    # The token can expire while the member looks for their phone.
-                    log.info("TR poll refused by the WAF, fetching a new token")
-                    state["wafToken"] = await get_waf_token()
-                    if not state["wafToken"]:
-                        raise waf_blocked()
-                    continue
-                if resp.status_code == 429:
-                    raise rate_limited()
-                if resp.status_code == 404:
-                    raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
-                if 400 <= resp.status_code < 500:
-                    raise HTTPException(status_code=401, detail="APP_VALIDATION_CANCELLED")
-                if resp.is_success:
-                    outcome = confirmation_outcome(resp)
-                    if outcome is not None:
-                        return outcome
-                else:
-                    log.warning("TR poll → %d", resp.status_code)
-            await asyncio.sleep(APP_VALIDATION_POLL_SECONDS)
+    One deadline bounds the whole wait: a poll or a WAF token fetch still running
+    when it passes is cancelled, so the call never outlasts APP_VALIDATION_TIMEOUT_SECONDS.
+    """
+    url = poll_url(state["trProcessId"])
+    try:
+        async with asyncio.timeout(APP_VALIDATION_TIMEOUT_SECONDS) as deadline:
+            async with new_client() as client:
+                while True:
+                    try:
+                        resp = await send(client, "GET", url, headers={
+                            **tr_headers(state["wafToken"], state["deviceInfo"]),
+                            **login_cookie_header(state["cookies"])})
+                    except (TimeoutError, httpx.TransportError) as error:
+                        log.warning("TR poll did not answer error_type=%s", type(error).__name__)
+                        resp = None
+
+                    if resp is not None:
+                        if is_waf_rejection(resp):
+                            # The token can expire while the member looks for their phone.
+                            log.info("TR poll refused by the WAF, fetching a new token")
+                            state["wafToken"] = await get_waf_token()
+                            if not state["wafToken"]:
+                                raise waf_blocked()
+                            continue
+                        if resp.status_code == 429:
+                            raise rate_limited()
+                        if resp.status_code == 404:
+                            raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
+                        if 400 <= resp.status_code < 500:
+                            raise HTTPException(status_code=401, detail="APP_VALIDATION_CANCELLED")
+                        if resp.is_success:
+                            outcome = confirmation_outcome(resp)
+                            if outcome is not None:
+                                return outcome
+                        else:
+                            log.warning("TR poll → %d", resp.status_code)
+                    await asyncio.sleep(APP_VALIDATION_POLL_SECONDS)
+    except TimeoutError:
+        if not deadline.expired():
+            raise
     raise HTTPException(status_code=408, detail="APP_VALIDATION_TIMEOUT")
 
 
