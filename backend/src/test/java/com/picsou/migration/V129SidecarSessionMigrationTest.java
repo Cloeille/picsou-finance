@@ -34,8 +34,8 @@ class V129SidecarSessionMigrationTest {
         "cic", "cmes", "corum", "fortuneo", "sofidy"
     };
 
-    /** The banks V122 knew: Trade Republic joined in V123. */
-    private static final List<SidecarBank> V122_BANKS = java.util.Arrays.stream(SidecarBank.values())
+    /** The banks V129 knew: Trade Republic joined in V130. */
+    private static final List<SidecarBank> V129_BANKS = java.util.Arrays.stream(SidecarBank.values())
         .filter(bank -> bank != SidecarBank.TRADE_REPUBLIC).toList();
 
     private static final String ROW = """
@@ -108,7 +108,7 @@ class V129SidecarSessionMigrationTest {
 
     @Test
     void everyRowOfEveryBankIsCopiedByteForByte() throws SQLException {
-        for (SidecarBank bank : V122_BANKS) {
+        for (SidecarBank bank : V129_BANKS) {
             String table = bank.name().toLowerCase(Locale.ROOT);
             List<Object> row = row(bank, alice);
             assertThat(row).as(bank.name()).containsExactly(
@@ -136,7 +136,7 @@ class V129SidecarSessionMigrationTest {
 
     @Test
     void everyStatusIsCopied() throws SQLException {
-        for (SidecarBank bank : SidecarBank.values()) {
+        for (SidecarBank bank : V129_BANKS) {
             assertStatusCopied(bank, erin, "QUEUED", STARTED);
             assertStatusCopied(bank, frank, "RUNNING", STARTED);
             assertStatusCopied(bank, gina, "IDLE", null);
@@ -204,7 +204,7 @@ class V129SidecarSessionMigrationTest {
     void onlyTheBanksThatKeepALoginCanStoreOne() throws SQLException {
         try (Connection c = PostgresContainers.connection(POSTGRES)) {
             long member = newMember(c, "login");
-            for (SidecarBank bank : V122_BANKS) {
+            for (SidecarBank bank : V129_BANKS) {
                 String insert = "INSERT INTO sidecar_session (bank, member_id, session_state, encrypted_credentials) "
                     + "VALUES ('" + bank.name() + "', " + member + ", 's', 'login')";
                 switch (bank) {

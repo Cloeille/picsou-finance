@@ -150,6 +150,7 @@ jobs:
           config.SsoHandshakeSessionRaceIntegrationTest
           adapter.sidecar.SidecarBankCodesTest
           migration.V129SidecarSessionMigrationTest
+          migration.V130TradeRepublicSidecarSessionMigrationTest
           EOF
 
   frontend:

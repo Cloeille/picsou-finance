@@ -177,7 +177,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CI calls the same targets, and `CONTRIBUTING.md` is the one place that lists commands.
 - **Trade Republic moves to the shared sidecar session table; members reconnect it once.**
   The old refresh route no longer works, so stored Trade Republic sessions are dropped by
-  migration V123. Each member signs in again once, with phone number and PIN, and confirms in
+  migration V130. Each member signs in again once, with phone number and PIN, and confirms in
   the Trade Republic app (a 4-digit code if Trade Republic asks for one). Syncing then queues
   in the background like the other banks, and an interrupted sync is recovered at startup.
   See [Trade Republic](docs/features/trade-republic.md).
