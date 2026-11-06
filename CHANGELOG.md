@@ -10,10 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **La Banque Postale replacement connector (in progress).** A dedicated sidecar
-  will read the current account and the savings products Enable Banking cannot
-  reach (Livret A, LDDS, LEP, Compte sur Livret, Livret Jeune), then replace the
-  Enable Banking connection for this bank. The design is recorded; the connector
-  is not usable until a live session is captured. See
+  reads the current account and the savings products Enable Banking cannot reach
+  (Livret A, LDDS, LEP, Compte sur Livret, Livret Jeune), then replaces the Enable
+  Banking connection for this bank. The login form, the shuffled keypad (only the
+  clicked positions leave the browser), the mobile-approval polling and the XHTML
+  import are implemented from two live captures. The connector is not yet
+  validated end to end against the bank. See
   [La Banque Postale](docs/features/la-banque-postale.md).
 
 - **Precious metals.** A new *Métaux précieux* account type holds physical gold as positions:

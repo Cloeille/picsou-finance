@@ -15,7 +15,6 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -37,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ExtendWith(MockitoExtension.class)
 class LbpControllerTest {
     private static final Long MEMBER_ID = 7L;
-    private static final String IMAGE = "data:image/png;base64,iVBORw0KGgo=";
+    private static final List<String> KEYS = List.of("5", "3", "9", "8", "6", "1", "0", "7", "2", "4");
 
     @Mock LbpSyncService service;
     @Mock UserContext userContext;
@@ -64,7 +63,7 @@ class LbpControllerTest {
 
     private static LbpSyncService.InitiateResponse initiate() {
         return new LbpSyncService.InitiateResponse("proc-1",
-            new LbpAdapter.Keypad(Collections.nCopies(10, IMAGE), 5), 90);
+            new LbpAdapter.Keypad(KEYS, 5), 90);
     }
 
     @Test
@@ -79,7 +78,8 @@ class LbpControllerTest {
             .andExpect(jsonPath("$.processId").value("proc-1"))
             .andExpect(jsonPath("$.expiresInSeconds").value(90))
             .andExpect(jsonPath("$.keypad.columns").value(5))
-            .andExpect(jsonPath("$.keypad.images.length()").value(10));
+            .andExpect(jsonPath("$.keypad.keys.length()").value(10))
+            .andExpect(jsonPath("$.keypad.keys[0]").value("5"));
     }
 
     @Test

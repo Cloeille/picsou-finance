@@ -1,13 +1,15 @@
 """La Banque Postale sidecar: session replay and normalized account snapshot.
 
-Status: **scaffold**. The HTTP contract and its validation are real; the
-bank-specific layer (`bank.py`) is a stub that answers 503
-`BANK_FLOW_UNVERIFIED` until a live session has been captured. No request has
-ever reached La Banque Postale from this service.
+Status: **cookie-replay client implemented, not validated against a live bank
+session by the project.** The HTTP contract, the login form, the mobile-approval
+polling and the XHTML parsers are covered by offline tests built from two real
+captures. The one unverified risk is the bank's `iscdName` device fingerprint.
 
-Sign-in is identifier → virtual keypad → **approval in the bank's mobile app**
-(Certicode is no longer the flow for a modern account). There is no code to
-type, so `/complete` waits for the human, like Caisse d'Epargne's Sécur'Pass.
+Sign-in is identifier → shuffled virtual keypad → **approval in the bank's
+mobile app** (Certicode is no longer the flow for a modern account). The UI
+shows the ten digit labels and sends back the clicked **positions**; the bank's
+own script stores those positions, not the digits, in the password field. There
+is no code to type, so `/complete` waits for the human.
 
 The backend-facing contract is deliberately shaped like the Caisse d'Epargne
 sidecar's:
@@ -36,8 +38,8 @@ import bank
 
 log = configure_logging("lbp-auth", quiet=("httpx", "httpcore"))
 
-# Test seam: tests bind a fake client. The production binding stays unverified.
-bank_client: bank.BankClient = bank.UnverifiedBankClient()
+# Test seam: tests bind a fake client. The production binding speaks httpx.
+bank_client: bank.BankClient = bank.HttpxBankClient()
 
 LOGIN_PATHS = {"/initiate", "/keypad", "/complete"}
 
@@ -50,6 +52,7 @@ def _validation_detail(request: Request, _) -> str:
 app = create_app(
     title="picsou-lbp-auth",
     request_log=(log, "La Banque Postale"),
+    background=getattr(bank_client, "pending", None),
     validation_detail=_validation_detail,
 )
 

@@ -15,7 +15,6 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -30,14 +29,14 @@ class LbpAdapterTest {
 
     private static final String CUSTOMER_ID = "1234567890";
     private static final List<Integer> POSITIONS = List.of(7, 3, 0, 9, 4, 1);
-    private static final String IMAGE = "data:image/png;base64,iVBORw0KGgo=";
+    private static final List<String> KEYS = List.of("5", "3", "9", "8", "6", "1", "0", "7", "2", "4");
     private static final String INITIATE_OK = initiateJson("proc-1", 5, 90);
     private static final String KEYPAD_OK = "{\"processId\":\"proc-1\",\"status\":\"APPROVAL_PENDING\"}";
     private static final String COMPLETE_OK = "{\"sessionState\":\"opaque-cookie-jar\"}";
 
     private static String initiateJson(String processId, int columns, int expiresIn) {
-        String images = String.join(",", Collections.nCopies(10, "\"" + IMAGE + "\""));
-        return "{\"processId\":\"" + processId + "\",\"keypad\":{\"images\":[" + images
+        String keys = KEYS.stream().map(k -> "\"" + k + "\"").collect(java.util.stream.Collectors.joining(","));
+        return "{\"processId\":\"" + processId + "\",\"keypad\":{\"keys\":[" + keys
             + "],\"columns\":" + columns + "},\"expiresInSeconds\":" + expiresIn + "}";
     }
 
@@ -56,7 +55,7 @@ class LbpAdapterTest {
         });
         assertThat(result.processId()).isEqualTo("proc-1");
         assertThat(result.keypad().columns()).isEqualTo(5);
-        assertThat(result.keypad().images()).hasSize(10).allMatch(IMAGE::equals);
+        assertThat(result.keypad().keys()).containsExactlyElementsOf(KEYS);
         assertThat(result.expiresInSeconds()).isEqualTo(90);
     }
 

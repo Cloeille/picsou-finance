@@ -1,43 +1,73 @@
-"""The bank-specific layer of the La Banque Postale sidecar.
+"""La Banque Postale web client.
 
-Nothing here talks to the real bank yet: no live session has been captured, so
-the login page, the anti-bot posture and the account payloads are unknown. The
-HTTP contract in `main.py` is final; only this module changes when the recon is
-done.
+The login is a normal HTML form: identifier + a six-position virtual keypad,
+where the bank's own script writes the clicked **positions** (not the digits)
+into the `password` field. A new device then gets a mobile-approval page that
+the page polls every 3 s until the bank redirects. The account pages are
+server-rendered XHTML, so a cookie jar is enough to replay them.
 
-To implement it, provide an object with the five async methods below and bind it
-to `main.bank_client` (or replace `UnverifiedBankClient`). The methods must
-return the normalized shapes documented in the README and must raise the typed
-errors `main` maps to the backend's codes. Never log a password, a keypad
-position, a cookie or a raw bank payload.
+Everything here can be replayed with `httpx`. The one unverified risk is
+`iscdName`, a 52-character device fingerprint the bank's anti-fraud scripts put
+in the form; if the server insists on it, only the login layer needs a browser.
 """
 
+import asyncio
+import json
+import logging
+import time
+import uuid
 from typing import Any, Protocol
+
+import httpx
+from fastapi import HTTPException
+from picsou_sidecar import PendingStore
+
+import parsers
+
+log = logging.getLogger("lbp-auth")
+
+BASE = "https://voscomptesenligne.labanquepostale.fr"
+LOGIN_FORM = "/wsost/OstBrokerWeb/loginform"
+AUTH = "/wsost/OstBrokerWeb/auth"
+SYNTHESE_CCP = "/voscomptes/canalXHTML/comptesCommun/synthese_ccp/afficheSyntheseCCP-synthese_ccp.ea"
+SYNTHESE_EP = "/voscomptes/canalXHTML/comptesCommun/synthese_ep/afficheSyntheseEP-synthese_ep.ea"
+RELEVE_CCP = "/voscomptes/canalXHTML/CCP/releves_ccp/init-releve_ccp.ea"
+RELEVE_CNE = "/voscomptes/canalXHTML/CNE/releveCNE/init-releve_cne.ea"
+FRAME_CNE = "/voscomptes/canalXHTML/CNE/releveCNE/frame-releve_cne.ea"
+
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+)
+REQUEST_TIMEOUT_SECONDS = 30.0
+# The bank's own approval page polls every 3 s and says the user has "a few minutes".
+POLL_INTERVAL_SECONDS = 3.0
+APPROVAL_TIMEOUT_SECONDS = 150.0
+PENDING_TTL_SECONDS = 300
+MAX_PENDING = 8
+# Unknown, and the bank may rotate it. A conservative value: the cookies are
+# replayed on every sync and a dead session is detected on the next read.
+CHECK_EXPIRES_IN_SECONDS = 600
 
 
 class BankFlowUnverified(Exception):
-    """Raised until the bank's web client has been observed and implemented."""
+    """Kept for tests and for the explicit stub binding."""
 
 
 class BankClient(Protocol):
-    async def initiate(self, customer_id: str) -> dict[str, Any]:
-        """Start a login and return {processId, keypad: {images, columns}, expiresInSeconds}."""
+    async def initiate(self, customer_id: str) -> dict[str, Any]: ...
 
-    async def keypad(self, process_id: str, positions: list[int]) -> None:
-        """Submit the clicked key positions and leave the attempt waiting for the mobile approval."""
+    async def keypad(self, process_id: str, positions: list[int]) -> None: ...
 
-    async def complete(self, process_id: str) -> str:
-        """Wait for the mobile approval (up to 150 s) and return the opaque session state."""
+    async def complete(self, process_id: str) -> str: ...
 
-    async def check(self, session_state: str) -> int:
-        """Replay the session and return how many seconds it stays usable."""
+    async def check(self, session_state: str) -> int: ...
 
-    async def accounts(self, session_state: str) -> dict[str, Any]:
-        """Return the normalized {accounts, unsupported} snapshot."""
+    async def accounts(self, session_state: str) -> dict[str, Any]: ...
 
 
 class UnverifiedBankClient:
-    """Refuses every call until the recon is done, with one honest typed error."""
+    """Refuses every call; used by tests and as a deliberate stub."""
 
     async def initiate(self, customer_id: str) -> dict[str, Any]:
         raise BankFlowUnverified()
@@ -53,3 +83,300 @@ class UnverifiedBankClient:
 
     async def accounts(self, session_state: str) -> dict[str, Any]:
         raise BankFlowUnverified()
+
+
+class HttpxBankClient:
+    """Cookie-replay client. The pending store pins one HTTP client per login."""
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self._transport = transport
+        self.pending = PendingStore(
+            dispose=self._dispose,
+            log=log,
+            ttl_seconds=PENDING_TTL_SECONDS,
+            sweep_seconds=30,
+            max_size=MAX_PENDING,
+        )
+
+    # ─── login ───────────────────────────────────────────────────────────────
+
+    async def initiate(self, customer_id: str) -> dict[str, Any]:
+        client = self._new_client()
+        try:
+            response = await client.get(LOGIN_FORM)
+            if response.status_code != 200:
+                raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+            form = parsers.parse_login_form(response.text)
+            process_id = str(uuid.uuid4())
+            state = {
+                "client": client,
+                "customer_id": customer_id,
+                "action": form["action"],
+                "hidden": form["hidden"],
+                "created_at": time.time(),
+            }
+            await self.pending.put_or_raise(process_id, state, "TOO_MANY_PENDING")
+            return {
+                "processId": process_id,
+                "keypad": {"keys": form["keys"], "columns": 5},
+                "expiresInSeconds": PENDING_TTL_SECONDS,
+            }
+        except parsers.FormatError as exc:
+            await client.aclose()
+            raise HTTPException(status_code=502, detail=exc.code) from None
+        except HTTPException:
+            await client.aclose()
+            raise
+        except httpx.HTTPError:
+            await client.aclose()
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from None
+        except Exception:
+            await client.aclose()
+            raise
+
+    async def keypad(self, process_id: str, positions: list[int]) -> None:
+        state = await self.pending.take(process_id)
+        if state is None:
+            raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
+        client: httpx.AsyncClient = state["client"]
+        try:
+            data = dict(state["hidden"])
+            data["username"] = state["customer_id"]
+            # The bank's script stores the clicked DOM positions in `password`;
+            # the server maps them back to digits with the per-load keypad.
+            data["password"] = "".join(str(position) for position in positions)
+            response = await client.post(
+                state["action"],
+                data=data,
+                headers={"Origin": BASE, "Referer": BASE + LOGIN_FORM},
+                follow_redirects=False,
+            )
+
+            if response.status_code in (301, 302, 303, 307, 308):
+                location = response.headers.get("location", "")
+                if "loginform" in location and ("cu=" in location or "TAM_OP=" in location):
+                    await self._park_challenge(process_id, state, client, location)
+                    return
+                if "identif.ea" in location:
+                    await self._park_session(process_id, state, client, location)
+                    return
+                raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+
+            if response.status_code in (401, 403):
+                raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
+            if response.status_code == 200:
+                # The bank re-renders the login form with an error banner.
+                raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+        except parsers.FormatError as exc:
+            await self._dispose(state)
+            raise HTTPException(status_code=502, detail=exc.code) from None
+        except HTTPException:
+            await self._dispose(state)
+            raise
+        except httpx.HTTPError:
+            await self._dispose(state)
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from None
+        except Exception:
+            await self._dispose(state)
+            raise
+
+    async def _park_challenge(
+        self, process_id: str, state: dict[str, Any], client: httpx.AsyncClient, location: str
+    ) -> None:
+        challenge = await client.get(location, follow_redirects=True)
+        if challenge.status_code != 200:
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+        pph, polling = parsers.parse_polling(challenge.text)
+        if not polling:
+            raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+        state["poll_url"] = (pph or BASE + "/wsost").rstrip("/") + polling
+        state.pop("hidden", None)
+        await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
+        log.info("La Banque Postale mobile approval pending")
+
+    async def _park_session(
+        self, process_id: str, state: dict[str, Any], client: httpx.AsyncClient, location: str
+    ) -> None:
+        final = await client.get(location, follow_redirects=True)
+        if final.status_code != 200 or "formAccesCompte" in final.text:
+            # A challenge can also appear on the direct path; park it if so.
+            pph, polling = parsers.parse_polling(final.text)
+            if polling:
+                state["poll_url"] = (pph or BASE + "/wsost").rstrip("/") + polling
+                state.pop("hidden", None)
+                await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
+                return
+            raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+        state["session_ready"] = True
+        state.pop("hidden", None)
+        await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
+
+    async def complete(self, process_id: str) -> str:
+        state = await self.pending.take(process_id)
+        if state is None:
+            raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
+        client: httpx.AsyncClient = state["client"]
+        try:
+            if state.get("session_ready"):
+                return self._serialize(client)
+            poll_url = state.get("poll_url")
+            if not poll_url:
+                raise HTTPException(status_code=410, detail="AUTH_ATTEMPT_EXPIRED")
+
+            deadline = time.monotonic() + APPROVAL_TIMEOUT_SECONDS
+            while time.monotonic() < deadline:
+                response = await client.get(poll_url, follow_redirects=False)
+                if response.status_code in (301, 302, 303, 307, 308):
+                    final = await client.get(
+                        response.headers.get("location", ""), follow_redirects=True
+                    )
+                    if final.status_code != 200 or "formAccesCompte" in final.text:
+                        raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+                    return self._serialize(client)
+                if response.status_code in (401, 403):
+                    raise HTTPException(status_code=401, detail="APP_VALIDATION_TIMEOUT")
+                if response.status_code not in (200, 204, 429) and response.status_code < 500:
+                    raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            raise HTTPException(status_code=408, detail="APP_VALIDATION_TIMEOUT")
+        finally:
+            await self._dispose(state)
+
+    # ─── data ────────────────────────────────────────────────────────────────
+
+    async def check(self, session_state: str) -> int:
+        client = self._new_client()
+        try:
+            self._restore(client, session_state)
+            response = await client.get(SYNTHESE_CCP, follow_redirects=False)
+            if response.status_code in (301, 302, 303, 307, 308):
+                raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
+            if response.status_code != 200 or "formAccesCompte" in response.text:
+                raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
+            return CHECK_EXPIRES_IN_SECONDS
+        except HTTPException:
+            raise
+        except httpx.HTTPError:
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from None
+        finally:
+            await client.aclose()
+
+    async def accounts(self, session_state: str) -> dict[str, Any]:
+        client = self._new_client()
+        try:
+            self._restore(client, session_state)
+            accounts: list[dict[str, Any]] = []
+            for path in (SYNTHESE_CCP, SYNTHESE_EP):
+                response = await client.get(path, follow_redirects=False)
+                if response.status_code in (301, 302, 303, 307, 308):
+                    raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
+                if response.status_code != 200:
+                    raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+                if "formAccesCompte" in response.text:
+                    raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
+                accounts.extend(parsers.parse_account_cards(response.text))
+
+            if not accounts:
+                raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+
+            for account in accounts:
+                path = RELEVE_CCP if account["typeRecherche"] == "5" else RELEVE_CNE
+                params = {
+                    "compte.numero": account["statementId"],
+                    "typeRecherche": account["typeRecherche"],
+                }
+                response = await client.get(path, params=params, follow_redirects=True)
+                if response.status_code == 404 and path == RELEVE_CNE:
+                    # The savings statement also exists behind its frame page.
+                    response = await client.get(FRAME_CNE, params=params, follow_redirects=True)
+                if response.status_code != 200 or "formAccesCompte" in response.text:
+                    raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+                account["transactions"] = parsers.parse_transactions(response.text)
+
+            return {
+                "accounts": [self._normalized(account) for account in accounts],
+                "unsupported": [],
+            }
+        except parsers.FormatError as exc:
+            raise HTTPException(status_code=502, detail=exc.code) from None
+        except HTTPException:
+            raise
+        except httpx.HTTPError:
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from None
+        finally:
+            await client.aclose()
+
+    # ─── plumbing ────────────────────────────────────────────────────────────
+
+    def _new_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            base_url=BASE,
+            timeout=httpx.Timeout(REQUEST_TIMEOUT_SECONDS),
+            follow_redirects=False,
+            transport=self._transport,
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept-Language": "fr-FR,fr;q=0.9",
+            },
+        )
+
+    async def _dispose(self, state: dict[str, Any]) -> None:
+        client: httpx.AsyncClient | None = state.get("client")
+        if client is not None:
+            try:
+                await client.aclose()
+            except Exception:  # pragma: no cover -- teardown must not raise
+                log.debug("La Banque Postale pending client close failed", exc_info=True)
+
+    @staticmethod
+    def _serialize(client: httpx.AsyncClient) -> str:
+        cookies = [
+            {
+                "name": cookie.name,
+                "value": cookie.value or "",
+                "domain": cookie.domain or "",
+                "path": cookie.path or "/",
+            }
+            for cookie in client.cookies.jar
+        ]
+        return json.dumps({"cookies": cookies}, separators=(",", ":"))
+
+    @staticmethod
+    def _restore(client: httpx.AsyncClient, raw: str) -> None:
+        try:
+            payload = json.loads(raw)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="INVALID_SESSION_STATE") from exc
+        cookies = payload.get("cookies") if isinstance(payload, dict) else None
+        if not isinstance(cookies, list) or not cookies:
+            raise HTTPException(status_code=400, detail="INVALID_SESSION_STATE")
+        for cookie in cookies:
+            if not isinstance(cookie, dict) or not cookie.get("name"):
+                raise HTTPException(status_code=400, detail="INVALID_SESSION_STATE")
+            client.cookies.set(
+                cookie["name"],
+                cookie.get("value", ""),
+                domain=cookie.get("domain", ""),
+                path=cookie.get("path", "/"),
+            )
+
+    @staticmethod
+    def _normalized(account: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "externalId": account["externalId"],
+            "kind": account["kind"],
+            "name": account["name"] or account["kind"],
+            "balance": str(account["balance"]),
+            "currency": "EUR",
+            "iban": None,
+            "authorizedOverdraft": None,
+            "ceiling": None,
+            "remainingDepositCapacity": None,
+            "fillingRatio": None,
+            "cardNature": None,
+            "parentExternalId": None,
+            "nextDueDate": None,
+            "transactions": account["transactions"],
+            "snapshotComplete": True,
+        }

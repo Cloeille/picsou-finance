@@ -255,9 +255,13 @@ public class LbpAdapter {
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     public record InitiateResult(String processId, Keypad keypad, int expiresInSeconds) {}
 
-    /** Ten {@code data:image/png;base64,...} images in DOM order, laid out in {@code columns}. */
+    /**
+     * Ten digit labels in DOM order, laid out in {@code columns} columns. The labels are the
+     * visual digits of a per-load shuffled keypad; the UI sends back the clicked <b>positions</b>,
+     * which is what the bank's form expects in its {@code password} field.
+     */
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
-    public record Keypad(List<String> images, int columns) {}
+    public record Keypad(List<String> keys, int columns) {}
 
     /** Products the sidecar saw but does not import (family code not supported). */
     public record Unsupported(String externalId, String familyCode) {}

@@ -1,11 +1,13 @@
 # Feature: La Banque Postale sync (sidecar, replaces Enable Banking)
 
-> Last updated: 2026-11-05
-> Status: 🟡 **Proposed** — the backend contract, storage, adapter, sync service
-> and REST endpoints are in place, and `services/lbp-auth` exposes the same
-> contract with a stub bank layer. **No live bank call has been made yet:** the
-> login flow, the data endpoints and the anti-bot posture are unverified. Do not
-> present this connector as usable until the recon described below is done.
+> Last updated: 2026-11-06
+> Status: 🟡 **Implemented offline, not live-validated.** The backend contract,
+> storage, adapter, sync service and REST endpoints are in place. `services/lbp-auth`
+> now has a real `httpx` client built from two live captures: login form,
+> shuffled keypad (positions only), mobile-approval polling and XHTML parsers.
+> The project has not run it against the bank yet; the only known risk is the
+> bank's `iscdName` device fingerprint. Do not present this connector as usable
+> until a live end-to-end run succeeds.
 
 ## Context
 
@@ -69,7 +71,7 @@ bank-specific.
 
 | Field | Meaning |
 |---|---|
-| `externalId` | Bank id, prefixed `lbp_` by the backend |
+| `externalId` | SHA-1 of the bank's displayed account number, prefixed `lbp_` by the backend. The per-session `compte.numero` UUID is **not** stable and is used only for the statement URL. |
 | `kind` | `CURRENT_ACCOUNT`, `LIVRET_A`, `LDDS`, `LEP`, `CSL`, `LIVRET_JEUNE`, `PEL`, `CEL`, `CARD`, `LOAN` |
 | `name` | As the bank shows it |
 | `balance` | Signed; a card's is its outstanding (≤ 0), a loan's is the bank's signed capital |
@@ -83,19 +85,23 @@ bank-specific.
 `unsupported` lists products the bank reported but the sidecar does not import
 (`{externalId, familyCode}`). They never become accounts and never fail a sync.
 
-### Login (provisional — to be confirmed by recon)
+### Login (built from two live captures)
 
-The flow is the Caisse d'Epargne shape: a virtual keypad for the password, then
-the human approves the sign-in in the bank's **mobile app** (a push, not a code
-to type). It will be adjusted to the observed bank page; nothing in the backend
-depends on the keypad specifically. Certicode is no longer the flow for a
-modern account, but a bank may still fall back to an SMS code for some
-customers — if the recon shows one, an additive `/otp` step can be added
-without changing the rest of the contract.
+The keypad is **ten text buttons shuffled on every page load**. The bank's own
+script writes the clicked **DOM positions**, not the digits, into the `password`
+field; the server maps them back with the per-load keypad. The sidecar therefore
+returns the labels to the UI, the user clicks his digits, and only the positions
+travel onward: the password itself never reaches Picsou.
+
+A trusted device skips the second factor. A new device gets *Votre appareil de
+confiance* ("une notification a été envoyée vers …"), and the sidecar polls the
+page's `URL_AF_POLLING` every 3 s until the bank redirects. No SMS path was
+observed, but an additive `/otp` step could be added without changing the rest
+of the contract.
 
 | Endpoint | Body | Answer |
 |---|---|---|
-| `POST /initiate` | `{customerId}` | `{processId, keypad: {images[10], columns}, expiresInSeconds}` |
+| `POST /initiate` | `{customerId}` | `{processId, keypad: {keys[10], columns}, expiresInSeconds}` |
 | `POST /keypad` | `{processId, positions}` | `{processId, status: "APPROVAL_PENDING"}` |
 | `POST /complete` | `{processId}` | `{sessionState}` |
 | `POST /token-check` | `{sessionState}` | `{ok, expiresIn}` |
@@ -108,6 +114,9 @@ without changing the rest of the contract.
 - An unknown, used, expired or other-member `processId` is refused before the
   sidecar is called.
 - Pending logins live in memory only; a restart drops the attempt.
+- `iscdName` is a 52-character device fingerprint set by the bank's anti-fraud
+  scripts. The client sends the form's value; if the server enforces it, only
+  the login layer moves to Camoufox, with the same contract.
 
 ### Storage
 
@@ -132,6 +141,9 @@ transient failure leaves it usable.
 - Transactions are upserted by `(account, externalId)`; rows are never deleted
   and manual rows are never touched.
 - A soft-deleted account is skipped, not recreated.
+- The bank's `compte.numero` UUID changes at every login; accounts are keyed on
+  a hash of the displayed account number so two sessions cannot create
+  duplicates.
 - The IBAN is not stored, so an Enable Banking sync cannot adopt these accounts
   by accident.
 - Account types are set directly from `kind`; the savings config and its
@@ -155,28 +167,29 @@ store are declared once by `SidecarBank.LBP`:
 The `lbp_session.last_sync_error` CHECK enumerates exactly that set;
 `SidecarBankCodesTest` fails if the two drift apart.
 
-## Recon checklist (blocking)
+## What the captures showed
 
-Capture one real session, with `Cookie`, `Authorization` and any token redacted,
-and note:
+Two real sessions were captured (trusted device and new device):
 
-1. **Password entry** — virtual keypad or text field? Are key images shuffled?
-   Is the keypad value computed by page JavaScript?
-2. **Mobile approval** — requested on every login, only on a new device, or
-   only for sensitive operations? Is there a trusted-device cookie? Does the
-   bank still fall back to an SMS code (Certicode) for some accounts?
-3. **Account data** — JSON XHR or server-rendered HTML? Which calls return the
-   account list, a livret's balance and its transactions?
-4. **Anti-bot** — TLS fingerprint, JavaScript challenge, CAPTCHA, rate limiting?
-5. **Session lifetime** — how long a replayed cookie jar stays usable.
-6. **Transaction history** — does the bank expose it for livrets, or only
-   balances?
+1. **Password entry** — ten text buttons, **shuffled on every load**. The
+   bank's script writes the clicked DOM positions into `password`, not the
+   digits; the server decodes them. No JS-computed password.
+2. **Mobile approval** — only on a non-trusted device. Trusted device skips it.
+   No SMS path observed.
+3. **Account data** — server-rendered XHTML, no account JSON. Synthesis pages
+   plus `init-releve_ccp` / `init-releve_cne`.
+4. **Anti-bot** — `fruprem.js` / `loreo.js` set a 52-character `iscdName`; no
+   CAPTCHA observed.
+5. **Session lifetime** — still not measured. `check` returns a conservative
+   600 s and a dead session is detected on the next read.
+6. **Transaction history** — `init-releve_ccp` returns about 90 days;
+   `telechargementMouvements.ea` is the export path; the `relevePdf` history
+   holds monthly statements.
 
-The answers choose between an `httpx` sidecar (light, replay only) and a
-Camoufox sidecar (drives the login itself). The rest of the design does not
-change.
+The login layer is `httpx`; only if `iscdName` is enforced does it move to
+Camoufox. The data layer stays cookie replay either way.
 
-## State of the implementation (2026-11-05)
+## State of the implementation (2026-11-06)
 
 **Backend**
 
@@ -201,26 +214,35 @@ change.
 **Sidecar**
 
 - `services/lbp-auth/main.py` implements the contract and its validation.
-- `services/lbp-auth/bank.py` is a stub: every bank call answers
-  `503 BANK_FLOW_UNVERIFIED` until the recon. Replacing `UnverifiedBankClient`
-  is the only code change the live connector needs.
-- Tests: the shared key contract and the request/response contract (with a fake
-  client), run in the published image like every other sidecar.
+- `services/lbp-auth/bank.py` — `HttpxBankClient`: login form, keypad positions,
+  mobile-approval polling, cookie serialization and page import. The pending
+  store pins one HTTP client per login.
+- `services/lbp-auth/parsers.py` — login form/keypad, account cards, operations
+  table and polling URL, with typed `FormatError`.
+- `services/lbp-auth/fixtures.py` — anonymized XHTML from the two captures,
+  used by the tests only.
+- Tests: the shared key contract, request validation, parsers and the full
+  login/approval/import flow through `httpx.MockTransport` (29 cases), run in
+  the published image like every other sidecar.
 - Wired into Compose (`lbp` profile, `sidecar-python` base) and the Helm chart.
 
-**Verification** — 33 LBP backend tests pass, plus the shared
+**Verification** — 36 LBP backend tests pass, plus the shared
 `SidecarContractTest` (214 cases across every bank), `SidecarBankCodesTest`
 (23 cases, including the `lbp_session` CHECK) and the `V131` migration test on
-real PostgreSQL (5 cases). The 12 sidecar tests pass in the published image.
+real PostgreSQL (5 cases). The 29 sidecar tests pass in the published image.
 The previous date-dependent `DividendControllerAuthorizationTest` failure was
 fixed upstream (relative ex-dates).
 
 ## Not in this slice
 
-- Any live bank call: the connector has never authenticated against La Banque
-  Postale.
+- A live end-to-end run: the client is built from two captures, but the project
+  has not run it against the bank.
+- Enforcement of `iscdName`: unknown. The Camoufox fallback is designed but not
+  written.
 - A frontend tab and login panel.
-- Loan, life-insurance and PER parsing.
+- Card, loan, life-insurance and PER parsing.
+- History beyond roughly 90 days: the export and the monthly PDFs are not
+  parsed.
 - Scheduled sync and automatic re-authentication.
 - Enable Banking adoption/deduplication by IBAN.
 - Health check and sync-status feeds (`SyncStatusService`, `MemberSyncService`,

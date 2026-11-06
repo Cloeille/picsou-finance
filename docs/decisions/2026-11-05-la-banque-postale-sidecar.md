@@ -47,12 +47,12 @@ whether the account data is JSON or server-rendered HTML are all unverified.
    initially: if the bank asks for a mobile approval on every login, a scheduled
    sync cannot run unattended. A scheduled sync is reconsidered only after the
    session lifetime has been measured.
-6. **The login layer is chosen from the recon, not guessed.** The sidecar's
-   backend-facing contract (a normalized account snapshot) does not depend on
-   it. If the web client can be replayed with cookies, the transport is
-   `httpx`, like Caisse d'Epargne. If it is protected by JavaScript or an
-   anti-bot challenge, the transport moves to Camoufox. This choice is
-   deliberately deferred.
+6. **The login layer is `httpx`, with a Camoufox fallback.** Two live captures
+   showed a normal HTML form, a per-load shuffled keypad that sends **positions**
+   (never the digits) and a mobile-approval page polled every 3 s. The sidecar
+   implements that with `httpx` on the `python` base. The only unverified risk
+   is the bank's 52-character `iscdName` device fingerprint; if the server
+   enforces it, only the login layer moves to Camoufox.
 7. **No retry on a login step.** A wrong password or second factor can lock the
    bank account. The adapter has no retry filter, the service calls the sidecar
    once per request, and a failed attempt is never replayed.
@@ -108,8 +108,8 @@ account never sits in the `CHECKING` bucket waiting for the name-based detector.
   The sync stays on demand.
 - **No PSD2 guarantee.** The bank may rate-limit, challenge or block automated
   access. Failures must be typed so they are diagnosable.
-- **A live recon is still required.** No endpoint, selector or payload is
-  confirmed yet; the first version must not claim otherwise.
+- **A live end-to-end run is still required.** Two captures fixed the flow and
+  the page structure, but the project has not run the client against the bank.
 
 ## Consequences
 
@@ -125,16 +125,21 @@ account never sits in the `CHECKING` bucket waiting for the name-based detector.
   existing Enable Banking connection for this bank is deleted by the user.
 - New feature note: [docs/features/la-banque-postale.md](../features/la-banque-postale.md).
 
-## Open questions (blocking the live implementation)
+## Captures answered
 
-1. Is the password entered on a virtual keypad (as at Caisse d'Epargne) or in a
-   text field? Are the key images shuffled per connection?
-2. Is a mobile approval requested on every login, only on a new device, or only
-   for sensitive operations? Is there a "trusted device" cookie? Does the bank
-   still fall back to an SMS code (Certicode) for some accounts?
-3. Is the account data fetched as JSON XHR or rendered server-side?
-4. Is there an anti-bot layer (TLS fingerprint, JavaScript challenge, CAPTCHA)?
-5. How long does a session stay usable, and can it be refreshed without the
-   user?
-6. Does the web client expose transaction history for livrets, or only
-   balances?
+1. The password is entered on a **shuffled text keypad**; the bank's script
+   writes the DOM positions, not the digits, into `password`.
+2. Mobile approval is requested **only on a non-trusted device**; a trusted
+   device skips it. No SMS path was observed.
+3. Account data is **server-rendered XHTML**, not JSON.
+4. The anti-fraud scripts set `iscdName`; no CAPTCHA was observed.
+6. Operations are exposed for about **90 days** on `init-releve_ccp`; older
+   history is in the export and the monthly PDFs.
+
+## Remaining unknowns
+
+1. How long a replayed session stays usable (the client assumes 600 s and
+   revalidates).
+2. Whether the server enforces the full 52-character `iscdName` fingerprint.
+3. How to parse the `telechargementMouvements.ea` export for history beyond the
+   90-day window.

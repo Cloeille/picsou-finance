@@ -63,15 +63,12 @@ public class LbpSyncService {
     private static final String EXTERNAL_ID_PREFIX = "lbp_";
     private static final int MAX_EXTERNAL_ID_LENGTH = 100;
     private static final int MAX_UNSUPPORTED = 100;
-    /** The bank's pad is 10 images laid out in 5 columns; anything else is a changed page. */
+    /** The bank's pad is 10 digit labels laid out in 5 columns; anything else is a changed page. */
     private static final int KEYPAD_KEY_COUNT = 10;
     private static final int KEYPAD_COLUMNS = 5;
-    /** A key image is a small PNG. Bigger is not a key image. */
-    private static final int KEYPAD_MAX_IMAGE_LENGTH = 16 * 1024;
-    private static final String KEYPAD_IMAGE_PREFIX = "data:image/png;base64,";
+    private static final java.util.regex.Pattern KEY_DIGIT = java.util.regex.Pattern.compile("[0-9]");
     /** How long the user has to approve on the phone once the keypad was submitted. */
     private static final int APPROVAL_WINDOW_SECONDS = 180;
-    private static final java.util.regex.Pattern BASE64 = java.util.regex.Pattern.compile("[A-Za-z0-9+/]+={0,2}");
 
     private final LbpAdapter adapter;
     private final LbpSessionRepository sessionRepository;
@@ -158,11 +155,13 @@ public class LbpSyncService {
     private void requireSafeKeypad(LbpAdapter.Keypad keypad) {
         boolean safe = keypad != null
             && keypad.columns() == KEYPAD_COLUMNS
-            && keypad.images() != null
-            && keypad.images().size() == KEYPAD_KEY_COUNT;
+            && keypad.keys() != null
+            && keypad.keys().size() == KEYPAD_KEY_COUNT;
         if (safe) {
-            for (String image : keypad.images()) {
-                if (!isDisplayableKeyImage(image)) {
+            // Exactly the ten digits: a duplicate or a non-digit means the page moved.
+            Set<String> seen = new HashSet<>();
+            for (String key : keypad.keys()) {
+                if (key == null || !KEY_DIGIT.matcher(key).matches() || !seen.add(key)) {
                     safe = false;
                     break;
                 }
@@ -172,19 +171,6 @@ public class LbpSyncService {
             throw error(SidecarErrorCode.KEYPAD_CHANGED,
                 "La Banque Postale changed its login page. Nothing was sent.", null);
         }
-    }
-
-    /**
-     * PNG data URI only, over the size cap refused, and the payload must be plain base64: the
-     * string is handed to the UI, so nothing else may ride along in it.
-     */
-    private static boolean isDisplayableKeyImage(String image) {
-        if (image == null || !image.startsWith(KEYPAD_IMAGE_PREFIX)
-            || image.length() > KEYPAD_MAX_IMAGE_LENGTH) {
-            return false;
-        }
-        String payload = image.substring(KEYPAD_IMAGE_PREFIX.length());
-        return !payload.isEmpty() && BASE64.matcher(payload).matches();
     }
 
     /**

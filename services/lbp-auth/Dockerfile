@@ -7,7 +7,7 @@ FROM ${SIDECAR_BASE}
 
 RUN groupadd -r lbp && useradd -r -g lbp lbp
 
-COPY main.py bank.py ./
+COPY main.py bank.py parsers.py ./
 
 USER lbp
 EXPOSE 8001
