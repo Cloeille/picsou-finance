@@ -397,7 +397,15 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
     try {
       const result = await lbpApi.initiateAuth(customerIdValue, rememberValue)
       const keys = result.keypad?.keys
-      if (!result.processId || !Array.isArray(keys) || keys.length !== 10) {
+      // Mirror the backend's keypad guard: ten distinct digit labels, or nothing is
+      // clickable. The backend refuses such a keypad too, but the UI must not render
+      // one if it ever arrives.
+      const safeKeypad =
+        Array.isArray(keys) &&
+        keys.length === 10 &&
+        new Set(keys).size === 10 &&
+        keys.every(key => typeof key === "string" && /^[0-9]$/.test(key))
+      if (!result.processId || !safeKeypad) {
         setError(t("sync.lbp.errors.formatChanged"))
         setAuthState("ERROR")
         return

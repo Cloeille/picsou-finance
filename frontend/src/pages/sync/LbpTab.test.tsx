@@ -197,6 +197,30 @@ describe('LbpTab', () => {
     expect(screen.queryByTestId('lbp-keypad-grid')).not.toBeInTheDocument()
   })
 
+  it('refuses ten duplicate keypad labels', async () => {
+    apiPost.mockResolvedValueOnce({
+      data: { ...INITIATED, keypad: { keys: Array(10).fill('1'), columns: 5 } },
+    })
+
+    renderTab()
+    await signIn()
+
+    expect(await screen.findByText('sync.lbp.errors.formatChanged')).toBeInTheDocument()
+    expect(screen.queryByTestId('lbp-keypad-grid')).not.toBeInTheDocument()
+  })
+
+  it('refuses ten labels containing a non-digit', async () => {
+    apiPost.mockResolvedValueOnce({
+      data: { ...INITIATED, keypad: { keys: [...KEYS.slice(0, 9), 'x'], columns: 5 } },
+    })
+
+    renderTab()
+    await signIn()
+
+    expect(await screen.findByText('sync.lbp.errors.formatChanged')).toBeInTheDocument()
+    expect(screen.queryByTestId('lbp-keypad-grid')).not.toBeInTheDocument()
+  })
+
   it('maps a changed keypad to its message instead of retrying', async () => {
     apiPost
       .mockResolvedValueOnce({ data: INITIATED })
