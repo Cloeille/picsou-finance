@@ -1,8 +1,9 @@
 -- One session table for the ten sidecar banks that shared the same shape (#337).
 -- Each row keeps its bank, member, encrypted session, stored login and sync state byte for
 -- byte, so nobody has to reconnect. CORUM keeps the two columns V124 and V127 added to
--- corum_session: the CORUM Life ambiguous count and the opt-in stored login. The one exception is a CORUM or Sofidy row breaking the
--- FAILED/error rule, repaired below before the copy. Copy and drop run in this one
+-- corum_session: the CORUM Life ambiguous count and the opt-in stored login. The one
+-- exception is a CORUM or Sofidy row breaking the FAILED/error rule, repaired below
+-- before the copy. Copy and drop run in this one
 -- migration, so in one transaction.
 
 CREATE TABLE sidecar_session (
@@ -36,9 +37,9 @@ CREATE TABLE sidecar_session (
         ),
     CONSTRAINT ck_sidecar_session_credentials
         CHECK (encrypted_credentials IS NULL OR bank IN ('BOURSO', 'CIC', 'CMES', 'CORUM')),
-    -- V124's ck_corum_session_life_ambiguous.
+    -- V124's ck_corum_session_life_ambiguous; the count is CORUM's alone.
     CONSTRAINT ck_sidecar_session_life_ambiguous
-        CHECK (last_sync_life_ambiguous >= 0),
+        CHECK (last_sync_life_ambiguous >= 0 AND (bank = 'CORUM' OR last_sync_life_ambiguous = 0)),
     CONSTRAINT ck_sidecar_session_unsupported_contracts
         CHECK (unsupported_contracts IS NULL OR bank = 'CAISSE_EPARGNE'),
     -- The codes each bank may store, generated from SidecarBank; SidecarBankCodesTest keeps them equal.

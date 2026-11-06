@@ -212,13 +212,16 @@ class V129SidecarSessionMigrationTest {
         }
     }
 
-    /** V124's ck_corum_session_life_ambiguous, carried over. */
+    /** V124's ck_corum_session_life_ambiguous, carried over, and kept to CORUM. */
     @Test
-    void theLifeAmbiguousCountCannotBeNegative() throws SQLException {
+    void theLifeAmbiguousCountIsNeverNegativeAndOnlyCorumHasOne() throws SQLException {
         try (Connection c = PostgresContainers.connection(POSTGRES)) {
             long member = newMember(c, "ambiguous");
             assertThatThrownBy(() -> execute(c, "INSERT INTO sidecar_session (bank, member_id, session_state, "
                 + "last_sync_life_ambiguous) VALUES ('CORUM', " + member + ", 's', -1)"))
+                .hasMessageContaining("ck_sidecar_session_life_ambiguous");
+            assertThatThrownBy(() -> execute(c, "INSERT INTO sidecar_session (bank, member_id, session_state, "
+                + "last_sync_life_ambiguous) VALUES ('SOFIDY', " + member + ", 's', 1)"))
                 .hasMessageContaining("ck_sidecar_session_life_ambiguous");
         }
     }

@@ -70,7 +70,7 @@ V{n}__description.sql
 | `V119__widen_holding_ticker.sql` | `account_holding.ticker` 30→100, `name` 100→255 (Finary RealT codes) |
 | `V121__cic_session.sql` | CIC session, encrypted credentials, and persisted sync status |
 | `V122__crypto_asset.sql` | `crypto_asset` registry: curated CoinGecko tickers, plus coins learned at runtime |
-| `V129__sidecar_session.sql` | One `sidecar_session` table replaces the ten sidecar session tables (after V124–V127 of CORUM Life); rows copied as stored, CORUM stored login and Life ambiguous count included (inconsistent CORUM/Sofidy failure states repaired), per-bank error-code CHECK generated from `SidecarBank` |
+| `V129__sidecar_session.sql` | One `sidecar_session` table replaces the ten sidecar session tables (after V124–V127 of CORUM Life and V128 of SSO); rows copied as stored, CORUM stored login and Life ambiguous count included (inconsistent CORUM/Sofidy failure states repaired), per-bank error-code CHECK generated from `SidecarBank` |
 
 Note: V8 is absent by design (skipped — never rolled into another migration). Numbering after V32 is not contiguous (V33–V36 unused).
 
