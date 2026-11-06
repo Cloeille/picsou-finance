@@ -179,7 +179,9 @@ Two real sessions were captured (trusted device and new device):
    bank's script writes the clicked DOM positions into `password`, not the
    digits; the server decodes them. No JS-computed password.
 2. **Mobile approval** — only on a non-trusted device. Trusted device skips it.
-   No SMS path observed.
+   The bank first shows the *Pour plus de sécurité* notice; its **Continuer**
+   button opens `cu=attenteAF`, which sends the notification. No SMS path
+   observed.
 3. **Account data** — server-rendered XHTML, no account JSON. Synthesis pages
    plus `init-releve_ccp` / `init-releve_cne`.
 4. **Anti-bot** — `fruprem.js` / `loreo.js` set a 52-character `iscdName`; no
@@ -219,10 +221,11 @@ layer is `httpx` cookie replay.
 
 - `services/lbp-auth/main.py` implements the contract and its validation.
 - `services/lbp-auth/bank.py` — `BrowserBankClient`: headless Chromium opens
-  `identif.ea`, fills the identifier, clicks the shuffled keypad, waits for the
-  mobile approval and serializes the cookie jar. The inherited `HttpxBankClient`
-  replays those cookies for `/token-check` and `/accounts`. The pending store
-  pins one browser context per login.
+  `identif.ea`, fills the identifier, clicks the shuffled keypad, clicks the
+  strong-authentication notice's **Continuer** (which is what sends the push),
+  waits for the mobile approval and serializes the cookie jar. The inherited
+  `HttpxBankClient` replays those cookies for `/token-check` and `/accounts`.
+  The pending store pins one browser context per login.
 - `services/lbp-auth/parsers.py` — login form/keypad, account cards, operations
   table and polling URL, with typed `FormatError`.
 - `services/lbp-auth/fixtures.py` — anonymized XHTML from the two captures,

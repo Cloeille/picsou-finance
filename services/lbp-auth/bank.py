@@ -574,19 +574,40 @@ class BrowserBankClient(HttpxBankClient):
             # The page waits 500 ms then submits. Poll the driver-side URL: a
             # navigation destroys the JS context, so wait_for_function can hang.
             step = "navigation"
-            before_submit = page.url
-            deadline = time.monotonic() + 15
-            while time.monotonic() < deadline:
-                url = page.url
-                if url != before_submit:
-                    break
-                await asyncio.sleep(0.5)
-            url = page.url
+            url = await self._wait_for_url_change(page, page.url, 15)
             log.warning("La Banque Postale after submit path=%s", urlparse(url).path)
-            if "loginform" in url and ("phase=" in url or "cu=" in url):
+
+            # A non-trusted device first gets the AuthentInfoAF notice ("Vous
+            # allez devoir vous authentifier de façon renforcée"). Its Continuer
+            # button opens the cu=attenteAF page, and *that* page sends the
+            # mobile notification. Without the click the bank waits forever and
+            # no push arrives.
+            if "message.html" in url:
+                param = parse_qs(urlparse(url).query).get("param", [""])[0]
+                if param != "AuthentInfoAF":
+                    log.warning(
+                        "La Banque Postale login refused path=%s param=%s",
+                        urlparse(url).path,
+                        param,
+                    )
+                    await self._page_diagnostics(page, "login-refused")
+                    if param == "0x132120c8":
+                        raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
+                    raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+                step = "authent-info"
+                log.info("La Banque Postale strong authentication notice, clicking Continuer")
+                await self._follow_continue(page, url)
+                url = await self._wait_for_challenge(page, 30, previous=url)
+                log.warning("La Banque Postale after continue path=%s", urlparse(url).path)
+
+            if "afficheSynthese" in url or "synthese_ccp" in url:
+                state["session_ready"] = True
+                await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
+                return
+            if "loginform" in url and "cu=attenteAF" in url:
                 # The URL alone is not enough: the bank sometimes lands on its
-                # generic "Erreur Technique" page immediately. Confirm the page
-                # really is the mobile-approval page before parking.
+                # generic "Erreur Technique" page instead. Confirm the page is
+                # really the mobile-approval page before parking.
                 step = "challenge"
                 try:
                     await page.wait_for_load_state("domcontentloaded", timeout=10_000)
@@ -608,10 +629,6 @@ class BrowserBankClient(HttpxBankClient):
                 )
                 await self._page_diagnostics(page, "challenge")
                 raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
-            if "afficheSynthese" in url or "synthese_ccp" in url:
-                state["session_ready"] = True
-                await self.pending.repark(process_id, state, "TOO_MANY_PENDING")
-                return
             if "message.html" in url:
                 log.warning(
                     "La Banque Postale approval failed path=%s param=%s",
@@ -698,6 +715,56 @@ class BrowserBankClient(HttpxBankClient):
         await super()._dispose(state)
 
     @staticmethod
+    async def _wait_for_url_change(page: Any, previous: str, timeout: float) -> str:
+        """Return the page URL as soon as it leaves ``previous``."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            url = page.url
+            if url != previous:
+                return url
+            await asyncio.sleep(0.5)
+        return page.url
+
+    @staticmethod
+    async def _follow_continue(page: Any, url: str) -> None:
+        """Click the strong-authentication notice's Continuer button.
+
+        The notice page renders its button from JavaScript, so wait for it.
+        Falling back to ``url_retour`` covers a page whose script did not run.
+        """
+        try:
+            await page.wait_for_selector("#back-link", timeout=20_000)
+            await page.click("#back-link")
+            return
+        except Exception:
+            log.debug("La Banque Postale Continuer button not usable", exc_info=True)
+        retour = parse_qs(urlparse(url).query).get("url_retour", [""])[0]
+        if not retour:
+            await BrowserBankClient._page_diagnostics(page, "no-continue")
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+        await page.goto(retour, wait_until="domcontentloaded", timeout=45_000)
+
+    @staticmethod
+    async def _wait_for_challenge(page: Any, timeout: float, previous: str | None = None) -> str:
+        """Wait until the page is the approval challenge, the synthesis or an error.
+
+        ``previous`` is the notice URL: a message URL equal to it only means the
+        click has not committed yet, not that the bank refused.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            url = page.url
+            if url != previous and (
+                "cu=attenteAF" in url
+                or "afficheSynthese" in url
+                or "synthese_ccp" in url
+                or "message.html" in url
+            ):
+                return url
+            await asyncio.sleep(0.5)
+        return page.url
+
+    @staticmethod
     async def _page_diagnostics(page: Any, label: str) -> None:
         """Log the failure page's visible message and keep a screenshot.
 
@@ -710,6 +777,12 @@ class BrowserBankClient(HttpxBankClient):
             title = await page.title()
         except Exception:
             title = ""
+        # The bank's message pages render their body with JavaScript after the
+        # JSON fetch; read too early and the text is empty.
+        try:
+            await page.wait_for_timeout(1_500)
+        except Exception:
+            pass
         try:
             body_text = await page.locator("body").inner_text(timeout=3_000)
         except Exception:
@@ -717,6 +790,12 @@ class BrowserBankClient(HttpxBankClient):
         parsed = urlparse(page.url)
         params = parse_qs(parsed.query)
         safe = {key: params[key][0] for key in ("param", "ERROR_CODE", "cu", "phase") if key in params}
+        if "url_retour" in params:
+            safe["has_return_url"] = True
+        try:
+            safe["has_continue"] = await page.locator("#back-link").count() > 0
+        except Exception:
+            safe["has_continue"] = False
         log.warning(
             "La Banque Postale page %s title=%s path=%s params=%s text=%s",
             label,

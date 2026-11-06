@@ -91,8 +91,10 @@ the sidecar, for the statement request of the current session.
    `iscdName` themselves; the form's password field receives the positions, not
    the digits.
 3. If the device is trusted, the page goes straight to the synthesis. Otherwise
-   it shows *Votre appareil de confiance* and its own script polls until the
-   phone approves.
+   the bank first shows the *Pour plus de sécurité* notice; its **Continuer**
+   button opens the `cu=attenteAF` page, and that page is what sends the mobile
+   notification. The sidecar clicks it, then waits on *Votre appareil de
+   confiance*, whose own script polls until the phone approves.
 4. `POST /complete` waits for the browser to leave the challenge (up to 150 s),
    then serializes the cookie jar.
 
