@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **HTTPS access by LAN IP.** The bundled Caddy proxy now uses `PICSOU_DOMAIN` as its default TLS SNI when a client omits SNI, allowing it to select the certificate for the configured site address.
+
 ### Changed
 
 - **The app image is one non-root Java process.** nginx, supervisord and the shell entrypoint are
