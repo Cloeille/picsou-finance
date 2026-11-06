@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a sync whose session expired logs in again once before reading; a rejected password clears them
   and asks to reconnect, and "Disconnect" forgets them. Unticked, nothing is stored, as before.
   CORUM now runs in the daily 08:00 sync, in `trigger_full_sync`/`trigger_broker_sync` and in
-  `get_sync_status`. Migration V126. See
+  `get_sync_status`. Migration V127. See
   [CORUM session and remembered credentials](docs/features/scpi.md#corum-session-and-remembered-credentials).
 
 - **CORUM Life (assurance-vie) sync.** A CORUM login holding a CORUM Life contract no longer
@@ -26,12 +26,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   investment transfers, coupons as dividends, fees and switches marked "in the contract" and kept
   out of the budget). SCPI units held in the policy count as real estate in the wealth pyramid.
   An existing manual "CORUM Life" account is adopted, or reported instead of duplicated.
-  Migrations V123–V125. Deploy the `app` and `corum-auth` images together. See
+  Migrations V124–V126. Deploy the `app` and `corum-auth` images together. See
   [CORUM Life sync](docs/features/corum-life.md).
 
 - **Budget-neutral transactions.** Money moving inside an investment wrapper (coupons, fees,
   switches) can be flagged `budget_neutral`: it stays on the account's ledger and export but is
   left out of budget, cashflow, categorisation and the global transactions view.
+
+- **Precious metals.** A new *Métaux précieux* account type holds physical gold as positions:
+  bullion in grams, priced at spot (COMEX `GC=F` converted to euros), and gold coins (Napoléon,
+  Krugerrand, Souverain, …) priced at their daily Loomis FXGS (ex-CPoR) quote, premium included.
+  It counts in net worth and in the *Alternative* tier. The accounts page's *Métaux* filter now
+  lists these accounts only; `OTHER` accounts get their own filter. See
+  [Precious metals](docs/features/precious-metals.md). (#448)
 
 - **AI categorization over MCP.** `start_ai_categorization` starts the inbox's AI job and
   `get_ai_categorization_status` reports its progress as counters only, under a new

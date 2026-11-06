@@ -29,6 +29,12 @@ public final class CoinGeckoStubs {
 
     /** The composite over an offline CoinGecko and the given Yahoo, sharing one registry. */
     public static CompositePriceProvider composite(YahooFinancePriceProvider yahoo, CryptoAssetRegistry registry) {
-        return new CompositePriceProvider(provider(registry), yahoo, registry, Clock.systemUTC());
+        return composite(yahoo, registry, new PreciousMetalPriceProvider(yahoo));
+    }
+
+    /** Same, with a chosen precious-metals provider (a canned Loomis page, see {@link PreciousMetalStubs}). */
+    public static CompositePriceProvider composite(YahooFinancePriceProvider yahoo, CryptoAssetRegistry registry,
+                                                   PreciousMetalPriceProvider preciousMetals) {
+        return new CompositePriceProvider(provider(registry), yahoo, preciousMetals, registry, Clock.systemUTC());
     }
 }

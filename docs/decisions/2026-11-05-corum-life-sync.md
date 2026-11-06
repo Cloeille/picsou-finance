@@ -197,7 +197,7 @@ on the provider too makes that case `LINKED` or `AMBIGUOUS`, never a duplicate.
   `/portfolio`. The sidecar Dockerfile copies `life_parser.py`.
 - Frontend: `CorumLifeSyncSummary`, `lifeRun`, a `hideWhenEmpty` prop on `ScpiSyncSummary`, new
   `sync.corum.life` strings in the four locales.
-- `V123` stores the `AMBIGUOUS` count on the session; `V124` adds the contract facts to
+- `V124` stores the `AMBIGUOUS` count on the session; `V125` adds the contract facts to
   `account` and `provider_wealth_tier` to `account_holding`. `AccountResponse` gains a nested
   `contract` and `HoldingResponse` a `providerWealthTier`.
 - An existing CORUM connection starts creating a Life account on its next sync, without a new
@@ -214,7 +214,7 @@ for a list in which two operations still share an id and a sign: the sidecar rep
 that contract, and the backend, should a stale sidecar let one through, logs a count and keeps
 the stored rows instead of refusing the sync as `INVALID_DATA`.
 
-A new column, `transaction.budget_neutral` (V125, default false), marks a row that moves money
+A new column, `transaction.budget_neutral` (V126, default false), marks a row that moves money
 inside the wrapper rather than in or out of the budget. Every CORUM operation except a payment is
 budget-neutral.
 
@@ -254,7 +254,7 @@ member typed the password again; CORUM was also absent from the 08:00 member syn
 ([feature note](../features/cmes-epargne-salariale.md#backend)), with Revolut's opt-in: the login
 form has an unticked "Remember my credentials (encrypted)" checkbox. Ticked, the login and
 password are stored encrypted (`CryptoEncryption`, AES-256-GCM) in
-`corum_session.encrypted_credentials` (V126); a sync whose session expired logs in again once
+`corum_session.encrypted_credentials` (V127); a sync whose session expired logs in again once
 through `/initiate`, replaces the session and reads. A rejected password clears them and turns the
 session inactive; so do credentials that no longer decrypt or parse (the run ends as
 `SESSION_EXPIRED`); disconnecting deletes them with the session; a login without the box ticked

@@ -28,6 +28,11 @@ public enum AccountType {
      */
     PER,
     CREDIT_CARD,
+    /**
+     * Physical gold held as positions: bars priced per gram and coins priced per piece. The
+     * tickers come from {@link PreciousMetal}, whose {@code :} keeps them away from Yahoo.
+     */
+    PRECIOUS_METALS,
     OTHER;
 
     /**
@@ -43,14 +48,16 @@ public enum AccountType {
      * life insurance would be invisible to the sector and country breakdowns. Its euro fund
      * goes in {@code cashBalance}, the slot the cash inside a PEA/CTO envelope already uses.
      * {@code PER} is in for the same reason: an individual plan holds the same unit-linked lines
-     * plus a euro fund.
+     * plus a euro fund. {@code PRECIOUS_METALS} is in because gold is held as a quantity (grams
+     * or coins) of a priced product, not as a balance.
      *
      * <p>{@code SCPI} is deliberately out: SCPI shares have no Yahoo ticker, so pricing them
      * per line would take the "held but unpriced" branch and value the account at zero. It
      * stays a balance, like {@code REAL_ESTATE}.
      */
     public boolean isInvestment() {
-        return this == PEA || this == COMPTE_TITRES || this == CRYPTO || this == ASSURANCE_VIE || this == PER;
+        return this == PEA || this == COMPTE_TITRES || this == CRYPTO || this == ASSURANCE_VIE || this == PER
+            || this == PRECIOUS_METALS;
     }
 
     /**

@@ -211,6 +211,12 @@
     "amount": "Amount",
     "tickerOrIsin": "Ticker or ISIN",
     "tickerOrIsinPlaceholder": "IWDA.AS, IE00B4L5Y983, BTC...",
+    "preciousMetalProduct": "Product",
+    "preciousMetalProductPlaceholder": "Choose a product",
+    "preciousMetalCatalogueLoading": "Loading catalogue…",
+    "preciousMetalCatalogueError": "Could not load the product catalogue.",
+    "quantityGrams": "Grams",
+    "quantityCoins": "Coins",
     "assetNamePlaceholder": "Example: iShares Core MSCI World",
     "priceLive": "Live price",
     "priceStale": "Price from {{time}}",
@@ -284,7 +290,8 @@
       "CHECKING": "Current accounts",
       "CRYPTO": "Crypto",
       "REAL_ESTATE": "Real estate",
-      "DEBTS": "Debts"
+      "DEBTS": "Debts",
+      "OTHER": "Other"
     },
     "fees": "Fees",
     "export": {
@@ -450,6 +457,7 @@
     "employeeSavings": "Employee savings",
     "assuranceVie": "Life insurance",
     "per": "PER (retirement savings)",
+    "preciousMetals": "Precious metals",
     "scpi": "SCPI",
     "creditCard": "Credit card"
   },

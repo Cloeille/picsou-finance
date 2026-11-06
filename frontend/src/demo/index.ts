@@ -1,5 +1,5 @@
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
-import type { CicSessionStatus, ScpiPosition, ScpiPositionRequest } from '@/types/api'
+import type { CicSessionStatus, PreciousMetalProduct, ScpiPosition, ScpiPositionRequest } from '@/types/api'
 import { mockAccounts } from './data/accounts'
 import {
   mockAllocationTargets,
@@ -317,6 +317,27 @@ for (const line of [...Object.values(mockHoldings).flat(), ...demoExchangePositi
   const price = 'currentPrice' in line ? line.currentPrice : line.currentPriceEur
   if (price != null) demoPrices[line.ticker] ??= price
 }
+
+// Same catalogue and order as the backend's PreciousMetal registry.
+const demoPreciousMetals: PreciousMetalProduct[] = [
+  { ticker: 'GOLD:GRAM', name: 'Gold (fine gram)', unit: 'GRAM' },
+  { ticker: 'GOLD:NAPOLEON-20F', name: 'Napoléon 20 F', unit: 'COIN' },
+  { ticker: 'GOLD:NAPOLEON-10F', name: 'Napoléon 10 F', unit: 'COIN' },
+  { ticker: 'GOLD:SWISS-20F', name: '20 Francs Suisse', unit: 'COIN' },
+  { ticker: 'GOLD:LATIN-UNION-20F', name: 'Union latine 20 F', unit: 'COIN' },
+  { ticker: 'GOLD:TUNISIA-20F', name: '20 Francs Tunisie', unit: 'COIN' },
+  { ticker: 'GOLD:SOVEREIGN', name: 'Souverain', unit: 'COIN' },
+  { ticker: 'GOLD:SOVEREIGN-EII', name: 'Souverain Elizabeth II', unit: 'COIN' },
+  { ticker: 'GOLD:HALF-SOVEREIGN', name: 'Demi-souverain', unit: 'COIN' },
+  { ticker: 'GOLD:KRUGERRAND', name: 'Krugerrand', unit: 'COIN' },
+  { ticker: 'GOLD:USD-20', name: '20 Dollars US', unit: 'COIN' },
+  { ticker: 'GOLD:USD-10', name: '10 Dollars US', unit: 'COIN' },
+  { ticker: 'GOLD:USD-5', name: '5 Dollars US', unit: 'COIN' },
+  { ticker: 'GOLD:PESO-50', name: '50 Pesos', unit: 'COIN' },
+  { ticker: 'GOLD:FLORIN-10', name: '10 Florins', unit: 'COIN' },
+  { ticker: 'GOLD:REICHSMARK-20', name: '20 Reichsmark', unit: 'COIN' },
+]
+handlers.set(key('GET', '/prices/precious-metals'), () => demoPreciousMetals)
 
 handlers.set(key('GET', '/prices'), (config) => {
   const tickers = String(config.params?.tickers ?? '').split(',').map(t => t.trim())

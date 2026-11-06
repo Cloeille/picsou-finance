@@ -357,6 +357,16 @@ export function useAccount(id: number) {
 // ['accounts', id, 'holdings'] with useHoldingsWithLivePrices while running a
 // different queryFn — a cache-collision trap.)
 
+/** The gold products a PRECIOUS_METALS account can hold; fetched only when the form needs them. */
+export function usePreciousMetals(enabled: boolean) {
+  return useQuery({
+    queryKey: ['prices', 'precious-metals'],
+    queryFn: accountsApi.preciousMetals,
+    staleTime: QUERY_STALE_TIMES.preciousMetals,
+    enabled,
+  })
+}
+
 export function useAccountPositions(id: number) {
   return useQuery({
     queryKey: ['accounts', id, 'positions'],

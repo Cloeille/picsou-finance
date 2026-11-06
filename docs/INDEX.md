@@ -158,6 +158,7 @@
 | Real estate valuation | 2026-08-11 | [real-estate-valuation.md](./features/real-estate-valuation.md) |
 | SCPI shares | 2026-11-05 | [scpi.md](./features/scpi.md) |
 | CORUM Life (assurance-vie) sync | 2026-11-05 | [corum-life.md](./features/corum-life.md) |
+| Precious metals (gold bullion and coins) | 2026-11-06 | [precious-metals.md](./features/precious-metals.md) |
 | Ownership shares | 2026-08-10 | [account-ownership-shares.md](./features/account-ownership-shares.md) |
 | 2FA (TOTP) and Remember Me | 2026-10-31 | [mfa-and-remember-me.md](./features/mfa-and-remember-me.md) |
 | Login timing equalization (username-enumeration defense, GHSA-ww5m-pxgq-8qq6) | 2026-06-27 | [login-timing-attack.md](./features/login-timing-attack.md) |

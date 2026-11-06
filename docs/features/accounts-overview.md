@@ -126,7 +126,7 @@ another type is one entry in `OPENING_DATE_TYPES`.
 A synced assurance-vie (CORUM Life) carries `AccountResponse.contract` — `paidInEur` (gross
 payments), `netInvestedEur`, `scheduledPaymentEur` and `scheduledPaymentCadence` — null when the
 insurer reports none of them. They come from the `account` columns `provider_paid_in_eur`,
-`provider_invested_eur`, `scheduled_payment_eur` and `scheduled_payment_cadence` (V124), mapped by
+`provider_invested_eur`, `scheduled_payment_eur` and `scheduled_payment_cadence` (V125), mapped by
 `AccountContractResponse.from`; the cadence is a `RecurringCadence`. `AccountDetailPage` renders `LifeContractSection` for an
 `ASSURANCE_VIE` whose `contract` is non-null: the opening date, the date the eight-year tax
 advantage starts (`openedAt` + 8 years, computed on the date string so no timezone shifts the
@@ -199,16 +199,17 @@ PnL is only computable from the account itself — that is where its cost basis 
 
 ### Asset type filters
 
-Six asset categories defined in `AccountsPage.tsx`:
+Seven asset categories defined in `AccountsPage.tsx`:
 
 | Filter key | Account types | Chart color |
 |-----------|--------------|-------------|
 | STOCKS | PEA, COMPTE_TITRES, EMPLOYEE_SAVINGS, ASSURANCE_VIE, PER | `#6366f1` |
-| METALS | OTHER | `#eab308` |
+| METALS | PRECIOUS_METALS | `#eab308` |
 | SAVINGS | LEP, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL, SAVINGS | `#22c55e` |
 | CHECKING | CHECKING | `#0ea5e9` |
 | CRYPTO | CRYPTO | `#f97316` |
 | REAL_ESTATE | REAL_ESTATE, SCPI | `#a855f7` |
+| OTHER | OTHER | see `AccountsPage.tsx` |
 
 The filter affects the summary card, chart, and account card grid simultaneously.
 

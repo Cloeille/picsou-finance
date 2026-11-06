@@ -32,7 +32,7 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 | BoursoBank login and password (JSON), stored at every login | `BoursoSession` | `bourso_session.encrypted_credentials` | V103 (2026-09-28) |
 | Crédit Mutuel Épargne Salariale login and password (JSON), stored at every login | `CmesSession` | `cmes_session.encrypted_credentials` | V117 (2026-10-31) |
 | CIC login and password (JSON), stored at every login | `CicSession` | `cic_session.encrypted_credentials` | V121 (2026-10-31) |
-| CORUM login and password (JSON), opt-in ("Remember my credentials"), NULL otherwise | `CorumSession` | `corum_session.encrypted_credentials` | V126 (2026-11-05) |
+| CORUM login and password (JSON), opt-in ("Remember my credentials"), NULL otherwise | `CorumSession` | `corum_session.encrypted_credentials` | V127 (2026-11-05) |
 
 ### What is NOT encrypted (and why)
 

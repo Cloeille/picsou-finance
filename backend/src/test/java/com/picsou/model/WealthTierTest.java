@@ -41,6 +41,18 @@ class WealthTierTest {
     }
 
     @Test
+    void goldIsAnAlternativeAsset() {
+        assertThat(WealthTier.of(AccountType.PRECIOUS_METALS)).isEqualTo(WealthTier.ALTERNATIVE);
+    }
+
+    @Test
+    void everyAccountTypeMapsToATier() {
+        for (AccountType type : AccountType.values()) {
+            assertThat(WealthTier.of(type)).as(type.name()).isNotNull();
+        }
+    }
+
+    @Test
     void scpiIsPropertyRatherThanABrokerageLine() {
         assertThat(WealthTier.of(AccountType.SCPI)).isEqualTo(WealthTier.REAL_ESTATE);
         assertThat(WealthTier.of(AccountType.REAL_ESTATE)).isEqualTo(WealthTier.REAL_ESTATE);

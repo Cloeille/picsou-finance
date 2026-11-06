@@ -604,4 +604,83 @@ class ManualTransactionServiceTest {
         assertThat(result.description()).isEqualTo("My World ETF");
         verify(openFigiIsinConverter, never()).resolve(any());
     }
+
+    private Account metalsAccount() {
+        return Account.builder()
+            .id(5L)
+            .name("Safe")
+            .type(AccountType.PRECIOUS_METALS)
+            .currency("EUR")
+            .currentBalance(BigDecimal.ZERO)
+            .build();
+    }
+
+    private TransactionRequest buy(String ticker) {
+        return new TransactionRequest(
+            LocalDate.of(2026, 10, 1), "Buy", new BigDecimal("-1420"), TransactionType.BUY,
+            ticker, null, new BigDecimal("2"), new BigDecimal("710"), "EUR");
+    }
+
+    @Test
+    void addTransaction_metalsAccount_storesTheCanonicalCatalogueTicker() {
+        when(accountRepository.findByIdAndMemberId(5L, 10L)).thenReturn(Optional.of(metalsAccount()));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TransactionResponse result = manualTransactionService.addTransaction(5L, 10L, buy(" gold:napoleon-20f "));
+
+        assertThat(result.ticker()).isEqualTo("GOLD:NAPOLEON-20F");
+    }
+
+    @Test
+    void addTransaction_metalsAccount_rejectsATickerOutsideTheCatalogue() {
+        when(accountRepository.findByIdAndMemberId(5L, 10L)).thenReturn(Optional.of(metalsAccount()));
+
+        assertThatThrownBy(() -> manualTransactionService.addTransaction(5L, 10L, buy("AAPL")))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("AAPL");
+
+        verify(transactionRepository, never()).save(any());
+        verify(holdingComputeService, never()).recomputeHoldings(any());
+    }
+
+    @Test
+    void updateTransaction_metalsAccount_rejectsATickerOutsideTheCatalogue() {
+        Account account = metalsAccount();
+        Transaction existing = Transaction.builder()
+            .id(8L).account(account).date(LocalDate.of(2026, 10, 1)).description("Buy")
+            .amount(new BigDecimal("-1420")).txType(TransactionType.BUY).ticker("GOLD:GRAM")
+            .isManual(true).nativeCurrency("EUR").build();
+        when(accountRepository.findByIdAndMemberId(5L, 10L)).thenReturn(Optional.of(account));
+        when(transactionRepository.findByIdAndAccountId(8L, 5L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> manualTransactionService.updateTransaction(5L, 8L, 10L, buy("GOLD:UNKNOWN")))
+            .isInstanceOf(IllegalArgumentException.class);
+
+        assertThat(existing.getTicker()).isEqualTo("GOLD:GRAM");
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void updateTransaction_metalsAccount_normalizesTheTicker() {
+        Account account = metalsAccount();
+        Transaction existing = Transaction.builder()
+            .id(8L).account(account).date(LocalDate.of(2026, 10, 1)).description("Buy")
+            .amount(new BigDecimal("-1420")).txType(TransactionType.BUY).ticker("GOLD:GRAM")
+            .isManual(true).nativeCurrency("EUR").build();
+        when(accountRepository.findByIdAndMemberId(5L, 10L)).thenReturn(Optional.of(account));
+        when(transactionRepository.findByIdAndAccountId(8L, 5L)).thenReturn(Optional.of(existing));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        manualTransactionService.updateTransaction(5L, 8L, 10L, buy("gold:krugerrand"));
+
+        assertThat(existing.getTicker()).isEqualTo("GOLD:KRUGERRAND");
+    }
+
+    @Test
+    void addTransaction_securitiesAccount_stillTakesAnyTicker() {
+        when(accountRepository.findByIdAndMemberId(2L, 10L)).thenReturn(Optional.of(peaAccount()));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThat(manualTransactionService.addTransaction(2L, 10L, buy("aapl")).ticker()).isEqualTo("AAPL");
+    }
 }

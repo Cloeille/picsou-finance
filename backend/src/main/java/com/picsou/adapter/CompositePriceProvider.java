@@ -32,6 +32,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * itself reports as unsupported — falls back to Yahoo Finance. It is therefore a
  * deliberate {@code coinGecko.supports(t) ? coinGecko : yahoo} fallback, not a
  * "first provider whose supports() is true" scan.
+ *
+ * <p>The one exception is the precious-metals registry ({@code GOLD:} tickers): they are routed
+ * to {@link PreciousMetalPriceProvider} before that split, because neither of the other two can
+ * price them.
  */
 @Component
 @Primary
@@ -59,6 +63,7 @@ public class CompositePriceProvider implements PriceProviderPort {
 
     private final CoinGeckoPriceProvider coinGecko;
     private final YahooFinancePriceProvider yahoo;
+    private final PreciousMetalPriceProvider preciousMetals;
     private final CryptoAssetRegistry registry;
     private final Clock clock;
 
@@ -67,14 +72,17 @@ public class CompositePriceProvider implements PriceProviderPort {
 
     @Autowired
     public CompositePriceProvider(CoinGeckoPriceProvider coinGecko, YahooFinancePriceProvider yahoo,
+                                  PreciousMetalPriceProvider preciousMetals,
                                   CryptoAssetRegistry registry, Clock clock) {
         this.coinGecko = coinGecko;
         this.yahoo = yahoo;
+        this.preciousMetals = preciousMetals;
         this.registry = registry;
         this.clock = clock;
     }
 
     private PriceProviderPort providerFor(String ticker) {
+        if (preciousMetals.supports(ticker)) return preciousMetals;
         return coinGecko.supports(ticker) ? coinGecko : yahoo;
     }
 
@@ -82,13 +90,16 @@ public class CompositePriceProvider implements PriceProviderPort {
     public Map<String, BigDecimal> getPricesEur(Set<String> tickers) {
         if (tickers == null || tickers.isEmpty()) return Map.of();
 
+        Set<String> metals = new HashSet<>();
         Set<String> crypto = new HashSet<>();
         Set<String> other = new HashSet<>();
         for (String ticker : tickers) {
-            (coinGecko.supports(ticker) ? crypto : other).add(ticker);
+            if (preciousMetals.supports(ticker)) metals.add(ticker);
+            else (coinGecko.supports(ticker) ? crypto : other).add(ticker);
         }
 
         Map<String, BigDecimal> result = new HashMap<>();
+        if (!metals.isEmpty()) result.putAll(preciousMetals.getPricesEur(metals));
         if (!crypto.isEmpty()) result.putAll(coinGecko.getPricesEur(crypto));
         if (!other.isEmpty()) result.putAll(yahoo.getPricesEur(other));
         return result;
@@ -174,7 +185,7 @@ public class CompositePriceProvider implements PriceProviderPort {
 
     @Override
     public boolean supports(String ticker) {
-        return coinGecko.supports(ticker) || yahoo.supports(ticker);
+        return preciousMetals.supports(ticker) || coinGecko.supports(ticker) || yahoo.supports(ticker);
     }
 
     @Override

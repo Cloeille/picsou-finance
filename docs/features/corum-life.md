@@ -43,14 +43,14 @@ validates both parts, then writes both in one transaction.
 - `backend/.../service/CorumLifeWriter.java` — `validate` and `write`, adoption
 - `backend/.../service/CorumLifeOperationWriter.java` — operations to transactions, reconcile
   (`Propagation.MANDATORY`)
-- `backend/src/main/resources/db/migration/V125__transaction_budget_neutral.sql` —
+- `backend/src/main/resources/db/migration/V126__transaction_budget_neutral.sql` —
   `transaction.budget_neutral`
 - `backend/.../service/SyncValues.java` — `linesClose`, shared with BoursoBank
 - `backend/.../service/AccountService.java` — `isProviderValued` / `isSyncedCorumLife`: non-manual
   accounts whose `externalAccountId` starts with `Account.CORUM_LIFE_EXTERNAL_ID_PREFIX`
-- `backend/src/main/resources/db/migration/V123__corum_session_life_ambiguous.sql` —
+- `backend/src/main/resources/db/migration/V124__corum_session_life_ambiguous.sql` —
   `corum_session.last_sync_life_ambiguous`, exposed as `lifeAmbiguousCount` in the CORUM status
-- `backend/src/main/resources/db/migration/V124__corum_life_contract_facts.sql` — the contract
+- `backend/src/main/resources/db/migration/V125__corum_life_contract_facts.sql` — the contract
   facts on `account` and `account_holding.provider_wealth_tier`
 - `backend/.../service/AccountService.java` — `valuation`: the contract's value and net invested
   pair; `HistoryService.buildIntradayHistory` takes the same pair
@@ -409,8 +409,8 @@ every row of a run with the same instant. Strings live under `sync.corum.life` i
 - `PortfolioDiversificationServiceTest` — real-estate lines left out, member tier wins, a
   member's non-`EQUITY` tier leaves an ordinary (non-CORUM) line out
 - `ScpiSyncSessionPostgresTest` — one account created once, deleted account not recreated, a
-  Life write failure rolls back the SCPI funds of the same run, the V124 columns read back;
-  operations written once across two syncs (V125, the external-id unique index, both switch
+  Life write failure rolls back the SCPI funds of the same run, the V125 columns read back;
+  operations written once across two syncs (V126, the external-id unique index, both switch
   legs), the payment in `investissement`, only the payment visible to the budget queries
 - `test_life_parser.py` `ParseOperationsTest`, `test_live_contract.py` — `/api/operations/` parsing,
   one read for all contracts, failure (HTTP, format or browser) → `operations: null` with the

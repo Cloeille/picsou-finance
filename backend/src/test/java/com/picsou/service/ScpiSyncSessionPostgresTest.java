@@ -248,7 +248,7 @@ class ScpiSyncSessionPostgresTest {
             assertThat(a.isManual()).isFalse();
             assertThat(a.getCurrentBalance()).isEqualByComparingTo("1534.37");
             assertThat(a.getCashBalance()).isEqualByComparingTo("0");
-            // The V124 columns, read back from PostgreSQL.
+            // The V125 columns, read back from PostgreSQL.
             assertThat(a.getProviderInvestedEur()).isEqualByComparingTo("1480");
             assertThat(a.getProviderPaidInEur()).isEqualByComparingTo("1500");
             assertThat(a.getScheduledPaymentEur()).isEqualByComparingTo("50");
@@ -290,7 +290,7 @@ class ScpiSyncSessionPostgresTest {
         assertThat(funds.findByMemberIdAndProviderAndFundCode(fresh.getId(), ScpiProvider.CORUM, "US")).isEmpty();
     }
 
-    /** V126 on the real schema: remembered credentials re-log in an expired session, a rejected password clears them. */
+    /** V127 on the real schema: remembered credentials re-log in an expired session, a rejected password clears them. */
     @Test
     void corumRememberedCredentialsReLogInAndARejectedPasswordClearsThem() {
         when(encryption.encrypt(anyString())).thenAnswer(inv -> inv.getArgument(0));
@@ -338,7 +338,7 @@ class ScpiSyncSessionPostgresTest {
                 null, new BigDecimal("1800"), null)));
     }
 
-    /** CORUM Life operations end to end on the real schema (V125, the external-id unique index). */
+    /** CORUM Life operations end to end on the real schema (V126, the external-id unique index). */
     @Test
     void corumLifeOperationsAreWrittenOnceAndKeptOutOfTheBudget() {
         FamilyMember fresh = members.saveAndFlush(FamilyMember.builder().displayName("CORUM ops").build());
