@@ -286,6 +286,15 @@ public class PeerLoanService {
         if (termsRepository.findByLendingTransactionId(transaction.getId()).isPresent()) {
             throw new IllegalArgumentException("This transaction is already linked to a peer loan");
         }
+        // The transaction's date becomes the lending date, so it follows the same bounds:
+        // a future or ancient bank date would otherwise feed an unbounded curve.
+        LocalDate lendingDate = transaction.getDate();
+        if (lendingDate != null && lendingDate.isAfter(LocalDate.now())) {
+            throw new IllegalArgumentException("The transaction date cannot be in the future");
+        }
+        if (lendingDate != null && lendingDate.isBefore(MIN_LENDING_DATE)) {
+            throw new IllegalArgumentException("The transaction date is too far in the past");
+        }
 
         String name = beneficiaryName(request.beneficiary(), transaction);
         BigDecimal principal = transaction.getAmount().abs();
@@ -383,6 +392,9 @@ public class PeerLoanService {
 
         terms.setCounterparty(getOrCreateCounterparty(memberId, account.getName()));
         terms.setPrincipal(request.principal());
+        // Postponing the lending date must repair history from the earlier date too: the
+        // snapshots between the old and the new date still show the old principal.
+        LocalDate previousLentAt = terms.getLentAt();
         terms.setLentAt(request.lentAt());
         terms.setExpectedBack(request.expectedBack());
         terms.setAnnualRate(PeerLoanCalculator.rate(request.annualRate()));
@@ -403,7 +415,10 @@ public class PeerLoanService {
         }
         termsRepository.save(terms);
 
-        refreshBalance(account, terms, request.lentAt());
+        refreshBalance(account, terms,
+            previousLentAt != null && previousLentAt.isBefore(request.lentAt())
+                ? previousLentAt
+                : request.lentAt());
         return build(account, terms, LocalDate.now());
     }
 
@@ -605,7 +620,12 @@ public class PeerLoanService {
 
         List<PeerLoanRepayment> repayments =
             repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(accountId);
-        BigDecimal residual = PeerLoanCalculator.compute(terms, repayments, date).principalRemaining();
+        // Only the ledger up to the closure date counts: a repayment dated after it belongs
+        // to a future that the write-off must not erase.
+        List<PeerLoanRepayment> upToDate = repayments.stream()
+            .filter(repayment -> repayment.getPaidOn() == null || !repayment.getPaidOn().isAfter(date))
+            .toList();
+        BigDecimal residual = PeerLoanCalculator.compute(terms, upToDate, date).principalRemaining();
         if (residual.signum() > 0) {
             repaymentRepository.save(PeerLoanRepayment.builder()
                 .account(account)

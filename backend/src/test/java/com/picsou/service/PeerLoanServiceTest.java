@@ -662,6 +662,99 @@ class PeerLoanServiceTest {
     }
 
     @Test
+    void closeIgnoresRepaymentsDatedAfterTheClosureDate() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("1000")).lentAt(LocalDate.parse("2026-01-01"))
+            .annualRate(BigDecimal.ZERO).linkedAccount(cashAccount(false))
+            .build();
+        PeerLoanRepayment february = PeerLoanRepayment.builder()
+            .id(21L).account(account).paidOn(LocalDate.parse("2026-02-01"))
+            .amount(new BigDecimal("300")).kind(PeerLoanRepaymentKind.PRINCIPAL).build();
+        PeerLoanRepayment march = PeerLoanRepayment.builder()
+            .id(22L).account(account).paidOn(LocalDate.parse("2026-03-01"))
+            .amount(new BigDecimal("200")).kind(PeerLoanRepaymentKind.PRINCIPAL).build();
+        List<PeerLoanRepayment> ledger = new ArrayList<>(List.of(february, march));
+
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenAnswer(invocation -> List.copyOf(ledger));
+        when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
+            PeerLoanRepayment saved = invocation.getArgument(0);
+            saved.setId(23L);
+            ledger.add(saved);
+            return saved;
+        });
+        when(termsRepository.save(any(PeerLoanTerms.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.close(ACCOUNT_ID, MEMBER_ID, LocalDate.parse("2026-01-15"));
+
+        // The February and March rows belong to a future the write-off must not erase:
+        // the residual is the full 1 000, not 1 000 − 300 − 200.
+        ArgumentCaptor<PeerLoanRepayment> writeOff = ArgumentCaptor.forClass(PeerLoanRepayment.class);
+        verify(repaymentRepository).save(writeOff.capture());
+        assertThat(writeOff.getValue().getKind()).isEqualTo(PeerLoanRepaymentKind.WRITE_OFF);
+        assertThat(writeOff.getValue().getAmount()).isEqualByComparingTo("1000");
+    }
+
+    @Test
+    void createFromTransactionRejectsAnUnusableTransactionDate() {
+        Account cash = cashAccount(false);
+        Transaction future = Transaction.builder()
+            .id(50L).account(cash).date(LocalDate.now().plusDays(1))
+            .description("Virement").amount(new BigDecimal("-350")).build();
+        Transaction ancient = Transaction.builder()
+            .id(51L).account(cash).date(LocalDate.parse("1800-01-01"))
+            .description("Virement").amount(new BigDecimal("-350")).build();
+
+        when(transactionRepository.findById(50L)).thenReturn(Optional.of(future));
+        when(transactionRepository.findById(51L)).thenReturn(Optional.of(ancient));
+        when(termsRepository.findByLendingTransactionId(50L)).thenReturn(Optional.empty());
+        when(termsRepository.findByLendingTransactionId(51L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createFromTransaction(
+            MEMBER_ID, new PeerLoanFromTransactionRequest(50L, null)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("future");
+        assertThatThrownBy(() -> service.createFromTransaction(
+            MEMBER_ID, new PeerLoanFromTransactionRequest(51L, null)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("past");
+    }
+
+    @Test
+    void saveTermsPostponingLentAtRepairsFromTheOldDate() {
+        Account account = loanAccount("Jean");
+        Account linked = cashAccount(true);
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("500")).lentAt(LocalDate.parse("2026-01-01"))
+            .annualRate(BigDecimal.ZERO).linkedAccount(linked)
+            .build();
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(accountRepository.findByIdAndMemberId(CASH_ID, MEMBER_ID)).thenReturn(Optional.of(linked));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.save(any(PeerLoanTerms.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID)).thenReturn(List.of());
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(snapshotRepository.findByAccountIdOrderByDateAsc(ACCOUNT_ID)).thenReturn(List.of(
+            snapshot(account, "2026-02-01")));
+
+        service.saveTerms(ACCOUNT_ID, MEMBER_ID, new PeerLoanTermsRequest(
+            new BigDecimal("500"), LocalDate.parse("2026-03-01"), null, BigDecimal.ZERO, null,
+            null, null, CASH_ID, null, false));
+
+        // The February snapshot still showed the old principal; it is recomputed from January.
+        verify(accountService).upsertSnapshot(eq(account), any(BigDecimal.class),
+            eq(LocalDate.parse("2026-01-01")));
+        verify(accountService).upsertSnapshot(eq(account), any(BigDecimal.class),
+            eq(LocalDate.parse("2026-02-01")));
+    }
+
+    @Test
     void closeWritesTheResidualOffAndZeroesTheAccount() {
         Account account = loanAccount("Jean");
         PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
