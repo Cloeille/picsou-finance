@@ -57,6 +57,19 @@ Before coding, check the relevant docs in `docs/`.
 - Conventional commits: `feat(scope):`, `fix(scope):`, `refactor(scope):`, `docs:`, `test:`
 - Always commit `docs/` updates alongside the related code
 
+## Contributing with an agent
+
+Before opening or updating a pull request, read [`CONTRIBUTING.md`](CONTRIBUTING.md#before-you-open-a-pull-request) and follow it; the pull request template mirrors it. The rules agents break most:
+
+- One concern per pull request, about 600 changed lines at most (lockfiles, `CHANGELOG.md`, snapshots, fixtures excluded). Split bigger work: a small refactor first, then the feature in slices. Do not stack pull requests unless the maintainer agreed.
+- Sync with `main` (merge it in) and have CI green before asking for review. Never weaken a lint, test or convention to pass.
+- Every behaviour change has a test that fails without it. No test may depend on the current date: inject a `Clock`.
+- A new migration takes the next free `V<n>` on an up-to-date `main`; after another pull request merges first, renumber your own unmerged file. `MigrationVersionsTest` enforces unique versions. Never renumber one already on `main`.
+- For a user-visible change, add one `CHANGELOG.md` entry under `[Unreleased]` as the last step, after your final sync. On a conflict there, keep both entries.
+- Bank connectors: synthetic fixtures only. Never put real account data, sessions, tokens, screenshots or logs in code, tests, fixtures or the pull request.
+- Before the first push and after every later one, review your whole diff against `main` with a reviewer agent (for example Claude Code's `/code-review`) and iterate until it reports no blocking issue. Do the impact analysis first (callers, docs, tests, migrations, i18n) and fix the whole bug class, not only the reported line. Put what the review found, and the design decisions, in the pull request description.
+- Recommended, not required: the open-source pstack playbooks (`poteto-mode` skill) and the `grilling` skill to settle design decisions before coding; links in [`CONTRIBUTING.md`](CONTRIBUTING.md#contributing-with-a-coding-agent).
+
 ## Design Context
 
 Authoritative design files: [`PRODUCT.md`](PRODUCT.md) (strategy: register, users, positioning, personality, anti-references, principles) and [`DESIGN.md`](DESIGN.md) (visual system: palette, typography, elevation, components, do's/don'ts). Sidecar with tonal ramps and component snippets lives at `.impeccable/design.json`.
