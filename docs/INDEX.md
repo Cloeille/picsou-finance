@@ -85,6 +85,7 @@
 | 2026-11-03 | [One non-root Java process in the app image](./decisions/2026-11-03-one-non-root-process.md) | Active |
 | 2026-11-04 | [SSO login through an external OIDC provider, alongside passwords](./decisions/2026-11-04-sso-login-alongside-passwords.md) | Active |
 | 2026-11-05 | [CORUM Life contracts sync as one assurance-vie account each](./decisions/2026-11-05-corum-life-sync.md) | Active |
+| 2026-11-06 | [Parallel CI legs that prove their own completeness](./decisions/2026-11-06-parallel-ci-legs.md) | Active |
 
 ## Feature notes
 
