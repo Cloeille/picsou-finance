@@ -123,6 +123,33 @@ describe('useLogout (server-confirmed logout only)', () => {
       Object.defineProperty(window, 'location', { value: original, configurable: true })
     }
   })
+
+  it.each(['javascript:alert(1)', 'data:text/html,<p>x</p>'])(
+    'signs out locally without following the end-session URL %s',
+    async (endSessionUrl) => {
+      const assign = vi.fn()
+      const original = window.location
+      Object.defineProperty(window, 'location', {
+        value: { assign, href: 'http://localhost/' },
+        configurable: true,
+        writable: true,
+      })
+      try {
+        logout.mockResolvedValue({ endSessionUrl })
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+        const { result } = renderHook(() => useLogout(), { wrapper: makeWrapper(queryClient) })
+        await act(async () => {
+          await result.current.mutateAsync()
+        })
+
+        expect(useAuthStore.getState().isAuthenticated).toBe(false)
+        expect(assign).not.toHaveBeenCalled()
+      } finally {
+        Object.defineProperty(window, 'location', { value: original, configurable: true })
+      }
+    },
+  )
 })
 
 describe('useSessionProbe SSO revalidation marking', () => {

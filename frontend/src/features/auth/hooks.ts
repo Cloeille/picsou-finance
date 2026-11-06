@@ -12,6 +12,17 @@ export const authKeys = {
   sessionProbe: ['session-probe'] as const,
 }
 
+// The server reads the end-session URL from the IdP's discovery document; following only an
+// absolute http(s) URL keeps any other scheme from running in the page.
+function isHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value)
+    return protocol === 'https:' || protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
 // The interactive login path lives in features/mfa/hooks.ts
 // (`useLoginWithRememberMe` / `useVerifyMfa`) because login is MFA-aware. This
 // file only owns logout; both crossings funnel through `resetClientState` so no
@@ -28,7 +39,7 @@ export function useLogout() {
     onSuccess: (data) => {
       logout()
       resetClientState(queryClient)
-      if (data?.endSessionUrl) window.location.assign(data.endSessionUrl)
+      if (data?.endSessionUrl && isHttpUrl(data.endSessionUrl)) window.location.assign(data.endSessionUrl)
     },
     // The click leaves local state intact on failure (by design, above), so surface
     // the error -- otherwise the button just silently re-enables and the user can't
