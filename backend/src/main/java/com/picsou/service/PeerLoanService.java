@@ -435,6 +435,12 @@ public class PeerLoanService {
         PeerLoanRepaymentKind kind = request.kind() != null
             ? request.kind()
             : PeerLoanRepaymentKind.PRINCIPAL;
+        // A write-off is a closure decision, not a payment: it is recorded by close(),
+        // which stamps closedAt next to it. An open loan must never carry one.
+        if (kind == PeerLoanRepaymentKind.WRITE_OFF) {
+            throw new IllegalArgumentException(
+                "A write-off is recorded by closing the loan, not by adding a repayment");
+        }
         validateInterestRepayment(terms, kind, request.amount(), request.paidOn(), null);
 
         PeerLoanRepayment repayment = PeerLoanRepayment.builder()
@@ -537,8 +543,14 @@ public class PeerLoanService {
                     + "transaction again to change it.");
         }
         requireCompletedRepaymentDate(request.paidOn());
+        PeerLoanRepaymentKind effectiveKind =
+            request.kind() != null ? request.kind() : repayment.getKind();
+        if (effectiveKind == PeerLoanRepaymentKind.WRITE_OFF) {
+            throw new IllegalArgumentException(
+                "A write-off is recorded by closing the loan, not by editing a repayment");
+        }
         validateInterestRepayment(terms,
-            request.kind() != null ? request.kind() : repayment.getKind(),
+            effectiveKind,
             request.amount(), request.paidOn(), repayment.getId());
 
         // Moving a repayment changes the balance from the earlier of its two dates: the days

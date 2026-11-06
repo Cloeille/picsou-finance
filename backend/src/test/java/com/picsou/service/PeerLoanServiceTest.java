@@ -393,6 +393,20 @@ class PeerLoanServiceTest {
     }
 
     @Test
+    void addRepaymentRejectsAWriteOffKind() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+
+        assertThatThrownBy(() -> service.addRepayment(ACCOUNT_ID, MEMBER_ID,
+            new PeerLoanRepaymentRequest(LocalDate.now(), new BigDecimal("50"),
+                PeerLoanRepaymentKind.WRITE_OFF, null, false)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("closing the loan");
+    }
+
+    @Test
     void addRepaymentIsRefusedOnAClosedLoan() {
         Account account = loanAccount("Jean");
         PeerLoanTerms terms = terms(account, new BigDecimal("500"), LocalDate.parse("2026-06-01"));
