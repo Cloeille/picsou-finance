@@ -14,8 +14,9 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -103,12 +104,17 @@ public class PreciousMetalPriceProvider implements PriceProviderPort {
         return false;
     }
 
+    /**
+     * Prices keyed by the strings in {@code tickers}, as received: {@code PriceService} uppercases
+     * a ticker but does not trim it, and reads the result back under that same string, so a
+     * padded or lower-case spelling must find its price there rather than under the canonical key.
+     */
     @Override
     public Map<String, BigDecimal> getPricesEur(Set<String> tickers) {
         Map<String, BigDecimal> result = new HashMap<>();
         if (tickers == null || tickers.isEmpty()) return result;
 
-        Set<PreciousMetal> coins = new HashSet<>();
+        Set<PreciousMetal> coins = EnumSet.noneOf(PreciousMetal.class);
         boolean wantsGram = false;
         for (String ticker : tickers) {
             Optional<PreciousMetal> metal = PreciousMetal.fromTicker(ticker);
@@ -117,12 +123,11 @@ public class PreciousMetalPriceProvider implements PriceProviderPort {
             else coins.add(metal.get());
         }
 
+        Map<PreciousMetal, BigDecimal> priced = new EnumMap<>(PreciousMetal.class);
         if (wantsGram) {
             try {
                 BigDecimal ounce = yahoo.getPricesEur(Set.of(SPOT_SYMBOL)).get(SPOT_SYMBOL);
-                if (ounce != null && ounce.signum() > 0) {
-                    result.put(PreciousMetal.GOLD_GRAM.ticker(), perGram(ounce));
-                }
+                if (ounce != null && ounce.signum() > 0) priced.put(PreciousMetal.GOLD_GRAM, perGram(ounce));
             } catch (Exception ex) {
                 log.warn("Gold spot price failed: {}", LogSanitizer.safe(ex.getMessage()));
             }
@@ -132,8 +137,12 @@ public class PreciousMetalPriceProvider implements PriceProviderPort {
             Map<String, BigDecimal> bySlug = quotesBySlug();
             for (PreciousMetal coin : coins) {
                 BigDecimal price = bySlug.get(coin.loomisSlug());
-                if (price != null) result.put(coin.ticker(), price);
+                if (price != null) priced.put(coin, price);
             }
+        }
+
+        for (String ticker : tickers) {
+            PreciousMetal.fromTicker(ticker).map(priced::get).ifPresent(price -> result.put(ticker, price));
         }
         return result;
     }

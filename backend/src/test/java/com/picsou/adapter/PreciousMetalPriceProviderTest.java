@@ -131,6 +131,24 @@ class PreciousMetalPriceProviderTest {
     }
 
     @Test
+    void getPricesEur_keysEachPriceByTheRequestedSpelling() {
+        when(yahoo.getPricesEur(Set.of("GC=F"))).thenReturn(Map.of("GC=F", new BigDecimal("3500.00")));
+        PreciousMetalPriceProvider provider = provider(() -> Optional.of(fixture()));
+
+        // PriceService uppercases a ticker but never trims it, then reads the price back under
+        // that same string: the canonical key would leave the position unpriced.
+        Map<String, BigDecimal> prices = provider.getPricesEur(Set.of(
+            " GOLD:GRAM ", " GOLD:KRUGERRAND", "GOLD:KRUGERRAND", "gold:napoleon-20f"));
+
+        assertThat(prices).containsOnlyKeys(
+            " GOLD:GRAM ", " GOLD:KRUGERRAND", "GOLD:KRUGERRAND", "gold:napoleon-20f");
+        assertThat(prices.get(" GOLD:GRAM ")).isEqualTo(new BigDecimal("112.52761299"));
+        assertThat(prices.get(" GOLD:KRUGERRAND")).isEqualByComparingTo("3875.00");
+        assertThat(prices.get("GOLD:KRUGERRAND")).isEqualByComparingTo("3875.00");
+        assertThat(prices.get("gold:napoleon-20f")).isEqualByComparingTo("709.90");
+    }
+
+    @Test
     void getPricesEur_gramOnly_neverFetchesTheCoinPage() {
         when(yahoo.getPricesEur(Set.of("GC=F"))).thenReturn(Map.of("GC=F", new BigDecimal("3499.99")));
         PreciousMetalPriceProvider provider = provider(() -> {
@@ -138,7 +156,7 @@ class PreciousMetalPriceProviderTest {
         });
 
         assertThat(provider.getPricesEur(Set.of("gold:gram")))
-            .containsExactly(Map.entry("GOLD:GRAM", new BigDecimal("112.52729148")));
+            .containsExactly(Map.entry("gold:gram", new BigDecimal("112.52729148")));
     }
 
     @Test
