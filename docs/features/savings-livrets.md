@@ -52,8 +52,8 @@ production implementation is `NameBasedSavingsBookDetector`, which:
 3. Returns an `Optional<SavingsBookSuggestion>` with `(product, defaultAnnualRate, uncertain)`.
    `COMMERCIAL` matches carry `uncertain = true` and `defaultAnnualRate = null` (the user must
    supply their own rate). Regulated defaults come from `RegulatedRates` constants:
-   `LIVRET_A = LDDS = 1.70 %`, `LEP = 2.50 %`, with ceilings `22 950 €`, `12 000 €` and
-   `10 000 €` (rates as of 2026-08-01 per service-public.fr / Banque de France). They are defaults,
+   `LIVRET_A = LDDS = 2.40 %`, `LEP = 3.50 %`, with ceilings `22 950 €`, `12 000 €` and
+   `10 000 €` (rates as of 2025-02-01 per service-public.fr / Banque de France). They are defaults,
    not a live feed: the user can edit the rate at any time.
 4. **The detector never writes anything.** Classification is a suggestion only; the user confirms
    before a `SavingsInterestConfig` row is persisted. A connector that supplies an explicit

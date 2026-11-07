@@ -37,8 +37,7 @@ class SavingsAutoConfigServiceTest {
         account = Account.builder().id(42L).name("Livret A").build();
     }
 
-    private static ArgumentMatcher<BigDecimal> amount(String value) {
-        BigDecimal expected = new BigDecimal(value);
+    private static ArgumentMatcher<BigDecimal> amount(BigDecimal expected) {
         return actual -> actual != null && actual.compareTo(expected) == 0;
     }
 
@@ -53,8 +52,8 @@ class SavingsAutoConfigServiceTest {
 
         assertThat(service.configureIfMissing(account, AccountType.LIVRET_A)).isTrue();
 
-        verify(repository).insertIfAbsent(eq(42L), eq("LIVRET_A"), argThat(amount("1.70")),
-            eq("NET"), argThat(amount("22950.00")));
+        verify(repository).insertIfAbsent(eq(42L), eq("LIVRET_A"), argThat(amount(RegulatedRates.LIVRET_A)),
+            eq("NET"), argThat(amount(new BigDecimal("22950.00"))));
     }
 
     @Test
@@ -65,10 +64,10 @@ class SavingsAutoConfigServiceTest {
         assertThat(service.configureIfMissing(account, AccountType.LEP)).isTrue();
         assertThat(service.configureIfMissing(account, AccountType.LDDS)).isTrue();
 
-        verify(repository).insertIfAbsent(eq(42L), eq("LEP"), argThat(amount("2.50")),
-            eq("NET"), argThat(amount("10000.00")));
-        verify(repository).insertIfAbsent(eq(42L), eq("LDDS"), argThat(amount("1.70")),
-            eq("NET"), argThat(amount("12000.00")));
+        verify(repository).insertIfAbsent(eq(42L), eq("LEP"), argThat(amount(RegulatedRates.LEP)),
+            eq("NET"), argThat(amount(new BigDecimal("10000.00"))));
+        verify(repository).insertIfAbsent(eq(42L), eq("LDDS"), argThat(amount(RegulatedRates.LDDS)),
+            eq("NET"), argThat(amount(new BigDecimal("12000.00"))));
     }
 
     @Test

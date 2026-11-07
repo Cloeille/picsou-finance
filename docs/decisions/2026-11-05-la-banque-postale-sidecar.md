@@ -110,9 +110,9 @@ That is an explicit exception to the savings feature's *suggest, never
 auto-apply* rule, which remains true for the name-based detector: LBP reports
 `LIVRET_A`, `LDDS` or `LEP` directly in `kind`, so `SavingsAutoConfigService`
 writes the default product, `RegulatedRates` rate and legal ceiling when the
-account has no configuration. It never overwrites a user-saved config. The rates
-and ceilings are defaults dated 2026-08-01, editable by the user; they are not a
-live feed.
+account has no configuration. It never overwrites a user-saved config. The rate in
+force in `RegulatedRates` and the legal ceilings are defaults, editable by the
+user; they are not a live feed.
 
 ## Trade-offs accepted
 
