@@ -400,6 +400,8 @@ class BrowserRedirectHopTest(unittest.IsolatedAsyncioTestCase):
 
         cls.bank = ThreadingHTTPServer(("127.0.0.1", 0), BankFixture)
         tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        # Test-only local server: pin the floor so no legacy version is offered.
+        tls.minimum_version = ssl.TLSVersion.TLSv1_2
         tls.load_cert_chain(cert, key)
         cls.bank.socket = tls.wrap_socket(cls.bank.socket, server_side=True)
         cls.origin = "https://127.0.0.1:" + str(cls.bank.server_port)
