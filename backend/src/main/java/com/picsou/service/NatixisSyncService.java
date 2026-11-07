@@ -119,6 +119,9 @@ public class NatixisSyncService {
     private final Map<Long, Long> authGenerations = new ConcurrentHashMap<>();
     private final Object sessionWriteLock = new Object();
 
+    /** When this backend built the service: rows touched earlier belong to a previous process. */
+    private final Instant startedAt;
+
     public NatixisSyncService(
         NatixisAdapter port,
         NatixisSessionRepository sessionRepository,
@@ -141,6 +144,7 @@ public class NatixisSyncService {
         this.encryption = encryption;
         this.txTemplate = txTemplate;
         this.syncExecutor = syncExecutor;
+        this.startedAt = Instant.now();
     }
 
     public AuthInitResponse initiateAuth(String email, String password, Long memberId) {
@@ -776,24 +780,34 @@ public class NatixisSyncService {
 
     /**
      * Queued jobs live in a process-local executor and cannot survive a backend
-     * restart. Turn persisted in-flight states into a retryable failure instead
-     * of leaving the UI polling QUEUED/RUNNING forever.
-     *
-     * <p>Only jobs untouched for {@link #STALE_SYNC_AFTER} are failed: another
-     * backend sharing the database may be running a fresh one. Run at boot and
-     * then periodically, so a job interrupted just before a restart is still
-     * recovered once it goes stale.
+     * restart. At boot, every in-flight job last touched before this backend
+     * started is an orphan of the previous process: it is failed (retryable) at
+     * once, so "Sync all" and the scheduled sync are not held up for the stale
+     * window. A job queued since the start is left alone.
+     */
+    @Transactional
+    public void recoverSyncsInterruptedByRestart() {
+        markInterruptedSyncsFailed(startedAt);
+    }
+
+    /**
+     * The periodic sweep, for a job whose worker died without a restart: only
+     * jobs untouched for {@link #STALE_SYNC_AFTER} are failed, as a live one
+     * keeps updating its row.
      */
     @Transactional
     @Scheduled(fixedDelay = 300_000, initialDelay = 300_000)
     public void recoverInterruptedSyncs() {
-        Instant now = Instant.now();
+        markInterruptedSyncsFailed(Instant.now().minus(STALE_SYNC_AFTER));
+    }
+
+    private void markInterruptedSyncsFailed(Instant touchedBefore) {
         int recovered = sessionRepository.markInterruptedSyncsFailed(
             List.of(NatixisSyncStatus.QUEUED, NatixisSyncStatus.RUNNING),
             NatixisSyncStatus.FAILED,
-            now,
+            Instant.now(),
             SidecarErrorCode.INTERNAL_ERROR,
-            now.minus(STALE_SYNC_AFTER)
+            touchedBefore
         );
         if (recovered > 0) {
             log.warn("Recovered {} interrupted Natixis sync job(s)", recovered);

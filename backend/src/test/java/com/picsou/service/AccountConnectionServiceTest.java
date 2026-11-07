@@ -355,6 +355,32 @@ class AccountConnectionServiceTest {
     }
 
     @Test
+    void keepsTheNatixisSessionWhileAnotherPlanRemains() {
+        given(account(10L, "natixis_10000-1000000000001_PEE-4242"),
+            account(11L, "natixis_10000-1000000000001_PERCO-4243"));
+
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
+
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(natixisSyncService, never()).clearSession(anyLong());
+    }
+
+    @Test
+    void deletingTheLastNatixisPlanClearsItsSession() {
+        given(account(10L, "natixis_10000-1000000000001_PEE-4242"), account(11L, "cmes_employee-plan"));
+        when(natixisSyncService.clearSession(MEMBER_ID)).thenReturn(true);
+
+        AccountConnectionService service = service();
+        assertThat(service.describeDeletion(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "Natixis Interépargne"));
+        assertThat(service.deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "Natixis Interépargne"));
+        verify(accountService).delete(10L, MEMBER_ID);
+        verify(natixisSyncService).clearSession(MEMBER_ID);
+        verify(cmesSyncService, never()).clearSession(anyLong());
+    }
+
+    @Test
     void deletingTheLastCicAccountClearsItsSessionAndCredentials() {
         given(account(10L, "cic_1000000012345602"), account(11L, "cmes_employee-plan"));
         when(cicSyncService.clearSession(MEMBER_ID)).thenReturn(true);

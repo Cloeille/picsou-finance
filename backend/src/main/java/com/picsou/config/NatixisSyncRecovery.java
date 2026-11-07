@@ -18,6 +18,6 @@ public class NatixisSyncRecovery implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        syncService.recoverInterruptedSyncs();
+        syncService.recoverSyncsInterruptedByRestart();
     }
 }

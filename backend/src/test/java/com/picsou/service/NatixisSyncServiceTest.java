@@ -183,6 +183,24 @@ class NatixisSyncServiceTest {
     }
 
     @Test
+    void aPlanWhoseAccountTheMemberDeletedIsNotImportedAgain() {
+        NatixisSession session = activeSession(owner());
+        arrangeCommittableSession(session);
+        when(port.fetchPlans("plain-state")).thenReturn(positions("plain-state", peePlan(), emptyPerco()));
+        when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(PEE_ID, 7L)).thenReturn(true);
+
+        NatixisSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(NatixisSyncStatus.SUCCESS);
+        // Only the PERCO is written: the deleted PEE gets no account, holdings or snapshot.
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getExternalAccountId()).isEqualTo(PERCO_ID);
+        verify(holdingRepository).saveAll(any());
+        verify(accountService).upsertSnapshot(any(Account.class), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
+            eq(LocalDate.now()));
+    }
+
+    @Test
     void anUnlistedPlanIsClosedAtZero() {
         NatixisSession session = activeSession(owner());
         arrangeCommittableSession(session);
@@ -277,7 +295,26 @@ class NatixisSyncServiceTest {
     }
 
     @Test
-    void bootRecoveryOnlyFailsJobsThatWentStale() {
+    void bootRecoveryFailsEveryJobFromBeforeTheStartWithoutWaitingForTheStaleWindow() {
+        // The service was built in setUp: any row touched before that belongs to the previous process.
+        Instant afterStart = Instant.now();
+
+        service.recoverSyncsInterruptedByRestart();
+
+        ArgumentCaptor<Instant> touchedBefore = ArgumentCaptor.forClass(Instant.class);
+        verify(sessionRepository).markInterruptedSyncsFailed(
+            eq(List.of(NatixisSyncStatus.QUEUED, NatixisSyncStatus.RUNNING)),
+            eq(NatixisSyncStatus.FAILED),
+            any(Instant.class),
+            eq(SidecarErrorCode.INTERNAL_ERROR),
+            touchedBefore.capture());
+        assertThat(touchedBefore.getValue())
+            .isBeforeOrEqualTo(afterStart)
+            .isAfter(afterStart.minus(NatixisSyncService.STALE_SYNC_AFTER));
+    }
+
+    @Test
+    void periodicRecoveryOnlyFailsJobsThatWentStale() {
         Instant before = Instant.now();
 
         service.recoverInterruptedSyncs();
