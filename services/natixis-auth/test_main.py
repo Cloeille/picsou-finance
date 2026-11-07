@@ -65,6 +65,8 @@ class FakeNatixis:
         self.fund_status = 200
         self.fund_error = None
         self.operations_status = 200
+        self.detail_status = 200
+        self.detail_delay = 0.0
         self.code_challenge = None
         self.exchanged_verifier = None
         self.service_provider_url = "https://nie-auth.api.natixis.com/api/oauth/authorize"
@@ -162,6 +164,8 @@ class FakeNatixis:
                 return httpx.Response(self.operations_status, json={})
             if path.endswith("/transactions"):
                 return httpx.Response(200, json=self.transactions)
+            if self.detail_status != 200:
+                return httpx.Response(self.detail_status, json={})
             demand_id = path.rsplit("/", 1)[1]
             if "/investmentDemands/" in path:
                 return httpx.Response(200, json={**self.investment_demand, "id": demand_id})
@@ -288,6 +292,34 @@ class HappyPathTest(SidecarTestCase):
         session = self.login().json()["sessionState"]
         self.fake.operations_status = 401
         self.assert_plans_without_history(self.post("/positions", {"sessionState": session}))
+
+    def test_a_history_the_parser_cannot_read_keeps_the_plans(self):
+        # Not a format error the parser names: any failure there drops the history only.
+        session = self.login().json()["sessionState"]
+        self.fake.investment_demand["investments"][0]["product"] = "PEE"
+        self.assert_plans_without_history(self.post("/positions", {"sessionState": session}))
+
+    def test_a_failed_detail_drops_the_history_and_keeps_the_session(self):
+        for status in (401, 503):
+            with self.subTest(status=status):
+                session = self.login().json()["sessionState"]
+                self.fake.detail_status = status
+                self.assert_plans_without_history(self.post("/positions", {"sessionState": session}))
+                self.fake.detail_status = 200
+
+    def test_a_history_over_its_budget_is_dropped_not_the_plans(self):
+        session = self.login().json()["sessionState"]
+        self.fake.transactions["items"] = self.fake.transactions["items"][:1]
+        original = main._api_get
+
+        async def slow_details(client, token, path, params=None):
+            if "/investmentDemands/" in path:
+                await asyncio.sleep(1)
+            return await original(client, token, path, params)
+
+        with mock.patch.object(main, "OPERATIONS_BUDGET_SECONDS", 0.2), \
+                mock.patch.object(main, "_api_get", slow_details):
+            self.assert_plans_without_history(self.post("/positions", {"sessionState": session}))
 
     def test_a_detail_link_never_steers_the_token_elsewhere(self):
         base = f"/transaction/v1/employees/{USERS_ME['id']}"

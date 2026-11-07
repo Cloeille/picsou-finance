@@ -295,11 +295,19 @@ class NatixisSyncServiceTest {
     }
 
     @Test
-    void bootRecoveryFailsEveryJobFromBeforeTheStartWithoutWaitingForTheStaleWindow() {
-        // The service was built in setUp: any row touched before that belongs to the previous process.
+    void bootRecoveryFailsEveryJobFromBeforeTheStartAndSparesOnesQueuedSince() {
+        Instant beforeStart = Instant.now();
+        NatixisSyncService started = new NatixisSyncService(
+            port, sessionRepository, accountRepository, holdingRepository, transactionRepository, memberRepository,
+            accountService, encryption, txTemplate, Runnable::run
+        );
         Instant afterStart = Instant.now();
+        // A job this backend queues after starting is stamped later than the cut-off.
+        while (!Instant.now().isAfter(afterStart)) {
+            Thread.onSpinWait();
+        }
 
-        service.recoverSyncsInterruptedByRestart();
+        started.recoverSyncsInterruptedByRestart();
 
         ArgumentCaptor<Instant> touchedBefore = ArgumentCaptor.forClass(Instant.class);
         verify(sessionRepository).markInterruptedSyncsFailed(
@@ -308,9 +316,8 @@ class NatixisSyncServiceTest {
             any(Instant.class),
             eq(SidecarErrorCode.INTERNAL_ERROR),
             touchedBefore.capture());
-        assertThat(touchedBefore.getValue())
-            .isBeforeOrEqualTo(afterStart)
-            .isAfter(afterStart.minus(NatixisSyncService.STALE_SYNC_AFTER));
+        // The cut-off is the start itself, not the call time and not the stale window.
+        assertThat(touchedBefore.getValue()).isBetween(beforeStart, afterStart);
     }
 
     @Test

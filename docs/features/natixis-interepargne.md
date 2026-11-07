@@ -93,9 +93,10 @@ cancels the other reads at once.
 bought more than five years ago, so their `BUY` is outside the history. The `SELL`
 is still imported, as it is in the saver space. The realized-gains section then has
 no cost basis for those units and counts the whole proceeds as gain; the ticker's
-over-sell warning is the only signal. The plan balance and holdings are unaffected. Operations are history only. They never change
-balances, holdings or snapshots, and they feed the realized-gains section of the
-account.
+over-sell warning is the only signal. The plan balance and holdings are unaffected.
+
+Operations are history only. They never change balances, holdings or snapshots,
+and they feed the realized-gains section of the account.
 
 **Budget:** each operation is written with `budgetNeutral = true`. This is the
 `Transaction#budgetNeutral` flag (V126) that every budget, cash-flow, categorization

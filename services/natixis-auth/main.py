@@ -531,6 +531,8 @@ async def collect_plans(client: httpx.AsyncClient, access_token: str, employee_i
             log.warning("Natixis operations not imported code=%s: %s", exc.code, exc)
         except ValidationError as exc:
             log.warning("Natixis operations not imported error_type=ValidationError errors=%d", exc.error_count())
+        except Exception as exc:  # noqa: BLE001 -- any other shape the parser did not foresee
+            log.warning("Natixis operations not imported error_type=%s", type(exc).__name__)
     return {"plans": plans, "operations": operations,
             "operationsFrom": operations_from if operations is not None else None}
 
@@ -540,7 +542,8 @@ async def _operation_details(client: httpx.AsyncClient, access_token: str,
     """The finished operations and their details, or None when the history cannot be
     read in full -- a partial history must never pass for the whole one. The history
     is optional, like the fund details: no failure here, a 401 included, ever fails
-    the plans or ends a session the savings read just proved alive."""
+    the plans or ends a session the savings read just proved alive. Only the route's
+    own deadline (a cancellation, not an exception) goes through."""
     today = time.strftime("%Y-%m-%d")
     since = time.strftime("%Y-%m-%d", time.localtime(time.time() - OPERATIONS_HISTORY_YEARS * 365 * 86400 + 86400))
     failure = ""
@@ -560,12 +563,21 @@ async def _operation_details(client: httpx.AsyncClient, access_token: str,
             async with asyncio.TaskGroup() as group:
                 tasks = [group.create_task(detail(d)) for d in demands]
             return demands, [task.result() for task in tasks], since
-    except* NatixisError as errors:
-        failure += " code=" + ",".join(sorted({e.code for e in errors.exceptions}))
-    except* (TimeoutError, httpx.HTTPError, SavingsFormatError, AttributeError, KeyError, TypeError, ValueError) as errors:
-        failure += " error_type=" + ",".join(sorted({type(e).__name__ for e in errors.exceptions}))
+    except* Exception as errors:
+        # Codes and error types only: a message may quote what Natixis sent.
+        failure = " " + ",".join(sorted({
+            f"code={e.code}" if isinstance(e, NatixisError) else f"error_type={type(e).__name__}"
+            for e in _leaves(errors)
+        }))
     log.warning("Natixis operations not read%s", failure)
     return None
+
+
+def _leaves(group: BaseExceptionGroup) -> list[BaseException]:
+    leaves = []
+    for exc in group.exceptions:
+        leaves.extend(_leaves(exc) if isinstance(exc, BaseExceptionGroup) else [exc])
+    return leaves
 
 
 async def _fund_codes(client: httpx.AsyncClient, access_token: str, ids: list[int]) -> dict[int, str | None]:
