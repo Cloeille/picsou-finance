@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Savings interest projection counted early-year movements twice.** When the first balance
+  snapshot of the year came after some of that year's deposits or withdrawals (a livret connected
+  mid-year, or a snapshot rebuilt from the ledger), those movements were already in the opening
+  capital and were added again quinzaine by quinzaine. The opening capital is now the snapshot
+  minus the movements booked up to its date.
 - **HTTPS access by LAN IP.** The bundled Caddy proxy now uses `PICSOU_DOMAIN` as its default TLS SNI when a client omits SNI, allowing it to select the certificate for the configured site address.
 
 ### Changed
