@@ -62,7 +62,7 @@ public class CaisseEpargneSyncService {
     ) {
         this(port, sessionRepository, accountRepository, transactionRepository, memberRepository, debtRepository,
             accountService, categorizationService, categoryService, encryption, txTemplate, syncExecutor,
-            perService, Clock.systemUTC());
+            perService, Clock.systemDefaultZone());
     }
 
     CaisseEpargneSyncService(

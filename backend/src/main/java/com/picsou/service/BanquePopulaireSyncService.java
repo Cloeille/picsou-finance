@@ -72,7 +72,7 @@ public class BanquePopulaireSyncService {
     ) {
         this(port, sessionRepository, accountRepository, transactionRepository, memberRepository, debtRepository,
             accountService, categorizationService, categoryService, encryption, txTemplate, syncExecutor,
-            perService, logoResolver, Clock.systemUTC());
+            perService, logoResolver, Clock.systemDefaultZone());
     }
 
     BanquePopulaireSyncService(
