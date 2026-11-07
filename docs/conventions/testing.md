@@ -228,6 +228,8 @@ unspecified, so otherwise the other tests may assert against post-mutation state
   named goal cards and their progress bars. A CSS grid or an immediate `count()`
   does not establish that the goals have loaded.
 - Run them with `make test-frontend` and `make test-e2e` (starts Vite with `VITE_DEMO_MODE=true`).
+- CI runs `make lint-frontend` and two Vitest shards (`make unit-frontend SHARD=1/2`, `SHARD=2/2`) as
+  parallel legs; `ci-ok` checks their JSON reports together ran every test file exactly once.
 
 ## Sidecar tests
 

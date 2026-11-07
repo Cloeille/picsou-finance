@@ -480,9 +480,9 @@ def _selected(jobs, path):
 
 
 def _gate(needs):
-    """Runs the gate's job-result step; the backend completeness steps need real reports."""
+    """Runs the gate's job-result step; the completeness steps need real reports."""
     steps = _load(CI_WORKFLOW)["jobs"][GATE]["steps"]
-    script = next(step["run"] for step in steps if step.get("name") == "Every selected job succeeded")
+    script = _expand(next(s for s in steps if s.get("name") == "Every selected job succeeded")["run"])
     return subprocess.run(
         ["bash", "-c", script],
         env={**os.environ, "NEEDS": json.dumps(needs)},
@@ -502,6 +502,20 @@ class CiJobSelectionTest(unittest.TestCase):
                     " && github.event.pull_request.number || github.run_id }}",
                 )
                 self.assertEqual(concurrency["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}")
+
+    def test_codeql_selection_fails_open(self):
+        # Every way the file list can be missing or too big for an env var must analyse all languages.
+        jobs = _load(CODEQL_WORKFLOW)["jobs"]
+        steps = {step.get("id"): step for step in jobs["select"]["steps"]}
+        self.assertIs(steps["filter"]["continue-on-error"], True)
+        env = steps["languages"]["env"]
+        self.assertEqual(env["ALL"], "${{ steps.filter.outcome != 'success' || steps.filter.outputs.changed_count >= 1000 }}")
+        self.assertEqual(
+            env["FILES"],
+            "${{ steps.filter.outputs.changed_count < 1000 && steps.filter.outputs.changed_files || '[]' }}",
+        )
+        # An empty selection (docs only) skips the matrix instead of failing on an empty one.
+        self.assertEqual(jobs["analyze"]["if"], "needs.select.outputs.matrix != '[]'")
 
     def test_every_job_runs_only_when_the_selector_picks_it(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
@@ -740,7 +754,7 @@ class CiJobSelectionTest(unittest.TestCase):
         jobs = _load(CI_WORKFLOW)["jobs"]
         expected = {
             "backend": "make test-backend SOFIDY_PYTHON=python3",
-            "frontend": "make test-frontend",
+            "frontend": "make lint-frontend",
             "e2e": "make test-e2e",
             "sidecar-base": "make test-sidecar-base",
             "sidecar": "make test-sidecar SIDECAR=${{ matrix.service }} ARCH=${{ matrix.arch }}",
@@ -750,6 +764,19 @@ class CiJobSelectionTest(unittest.TestCase):
             with self.subTest(job=job):
                 lines = [line.strip() for step in jobs[job]["steps"] for line in step.get("run", "").splitlines()]
                 self.assertIn(command, lines)
+
+    def test_frontend_ci_splits_lint_and_sharded_unit_tests(self):
+        job = _load(CI_WORKFLOW)["jobs"]["frontend"]
+        lines = [line.strip() for step in job["steps"] for line in step.get("run", "").splitlines()]
+
+        self.assertEqual(job["strategy"], {"fail-fast": False, "matrix": {"include": [
+            {"task": "lint"}, {"task": "test-1", "shard": 1, "total": 2}, {"task": "test-2", "shard": 2, "total": 2},
+        ]}})
+        self.assertIn(
+            "make unit-frontend SHARD=${{ matrix.shard }}/${{ matrix.total }}"
+            " VITEST_JSON=${{ runner.temp }}/vitest-${{ matrix.task }}.json",
+            lines,
+        )
 
     def test_the_demo_playwright_suite_runs_once(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
@@ -779,6 +806,28 @@ def _dockerfile_stages(path):
         if stages and line.strip() and not line.lstrip().startswith("#"):
             stages[-1].append(line)
     return stages
+
+
+class JobTimeoutTest(unittest.TestCase):
+    """A hung step otherwise holds a runner for GitHub's 6-hour default."""
+
+    # Minutes a job may be given: about twice its slowest observed run. Per job overrides the file's cap.
+    FILE_CAP = {"ci.yml": 20, "codeql.yml": 60, "docker.yml": 30}
+    JOB_CAP = {("ci.yml", "e2e"): 30}  # bimodal: most runs take 2 min, the slow tail 9-15 min
+
+    def test_every_job_has_a_bounded_timeout(self):
+        workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))
+        self.assertEqual({w.name for w in workflows} - set(self.FILE_CAP) - {"pr-size.yml"}, set(), "give the new workflow a cap")
+        for workflow in workflows:
+            for name, job in _load(workflow)["jobs"].items():
+                if "uses" in job:
+                    continue  # actionlint rejects timeout-minutes on a job that calls a reusable workflow
+                with self.subTest(workflow=workflow.name, job=name):
+                    timeout = job.get("timeout-minutes")
+                    self.assertIs(type(timeout), int)  # not a bool, a string or an expression
+                    self.assertGreater(timeout, 0)
+                    cap = self.JOB_CAP.get((workflow.name, name), self.FILE_CAP.get(workflow.name, 20))
+                    self.assertLessEqual(timeout, cap)
 
 
 class AppImageBuildTest(unittest.TestCase):
