@@ -81,7 +81,7 @@ Cards are not imported (`Site.cards=False`): the `augmentedCards` list of a
 contract is checked for shape, then ignored. No card account, no card operation
 read, nothing listed in `unsupported` (a card is not a contract).
 
-Listed in `unsupported` (id and family code only), never read, never fatal:
+Listed in `unsupported` (id, family and sub-family code only), never read, never fatal:
 personal loans `6/12`, home loans `6/13`, PER `4/05`, the revolving credit `2/11`
 ("Credit Renouvelable Facelia", null balance), and any family not listed above.
 Only the main token is ever minted.

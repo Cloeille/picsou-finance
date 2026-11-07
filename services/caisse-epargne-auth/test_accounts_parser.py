@@ -13,6 +13,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from bpce.accounts_parser import (
+    PFM_KINDS,
     ParseError,
     _parse_synthesis,
     build_import,
@@ -139,13 +140,29 @@ class ContractsTest(unittest.TestCase):
         contract(s, 1002)["identity"]["subProductFamilyPFM"]["code"] = "99"
         self.assertNotIn("1002", {a["externalId"] for a in parse_synthesis(s)})
 
-    def test_build_import_reports_unsupported_contracts_by_id_and_family_only(self):
+    def test_build_import_reports_unsupported_contracts_by_id_and_codes_only(self):
         s = synthesis()
         contract(s, 1002)["identity"]["subProductFamilyPFM"]["code"] = "99"
         inputs = full_inputs()
         del inputs["1002"]
         result = build_import(s, inputs, today=TODAY)
-        self.assertEqual(result["unsupported"], [{"externalId": "1002", "familyCode": "3"}])
+        self.assertEqual(result["unsupported"], [{"externalId": "1002", "familyCode": "3", "subFamilyCode": "99", "productLabel": "LIVRET A", "hasPfmId": True}])
+
+    def test_unsupported_contract_without_sub_family_reports_a_null_sub_code(self):
+        s = synthesis()
+        identity = contract(s, 1001)["identity"]
+        identity["productFamilyPFM"]["code"] = "7"
+        identity.pop("subProductFamilyPFM", None)
+        self.assertIn(
+            {"externalId": "1001", "familyCode": "7", "subFamilyCode": None, "productLabel": "CPT DEPOT PART.", "hasPfmId": True}, _parse_synthesis(s)[1]
+        )
+
+    def test_unsupported_product_label_is_null_when_not_a_string(self):
+        s = synthesis()
+        identity = contract(s, 1002)["identity"]
+        identity["subProductFamilyPFM"]["code"] = "99"
+        identity["productLabel"] = 12
+        self.assertIsNone(_parse_synthesis(s)[1][0]["productLabel"])
 
     def test_unsupported_contract_with_malformed_identification_still_raises(self):
         s = synthesis()
@@ -345,14 +362,14 @@ class ProductFamiliesTest(unittest.TestCase):
             PER_ID: "PER",
             LOAN_ID: "LOAN",
         })
-        self.assertEqual(unsupported, [{"externalId": "contract:0000000016", "familyCode": "5"}])
+        self.assertEqual(unsupported, [{"externalId": "contract:0000000016", "familyCode": "5", "subFamilyCode": "99", "productLabel": "ASSURANCE", "hasPfmId": False}])
 
     def test_build_import_of_six_contracts_needs_transactions_for_imported_ones_only(self):
         # The current account keeps its active card (2001) from the base fixture.
         inputs = {k: [] for k in ("1001", "2001", "1002", "1003", PER_ID, LOAN_ID)}
         result = build_import(products(), inputs, today=TODAY)
         self.assertEqual(len([a for a in result["accounts"] if a["kind"] != "CARD"]), 5)
-        self.assertEqual(result["unsupported"], [{"externalId": "contract:0000000016", "familyCode": "5"}])
+        self.assertEqual(result["unsupported"], [{"externalId": "contract:0000000016", "familyCode": "5", "subFamilyCode": "99", "productLabel": "ASSURANCE", "hasPfmId": False}])
 
     def test_build_import_never_extracts_an_iban_for_per_or_loan(self):
         # Even if pages were handed over, a PER or a loan has no PFM IBAN.
@@ -380,6 +397,216 @@ class ProductFamiliesTest(unittest.TestCase):
         self.assertEqual(kinds["1002"], "LIVRET_A")
         self.assertEqual(kinds["1003"], "LDDS")
 
+    def test_pel_and_lep_sub_families_are_pfm_savings_keyed_by_their_pfm_id(self):
+        # Observed live 2026-11-06: PEL `3/04` and LEP `3/27`, both with a `contractPfmId`.
+        for sub, kind in [("04", "PEL"), ("27", "LEP")]:
+            with self.subTest(kind=kind):
+                s = products()
+                family(s, "3", "28")["identity"]["subProductFamilyPFM"]["code"] = sub
+                account = by_id(parse_synthesis(s))["1003"]
+                self.assertEqual(account["kind"], kind)
+                self.assertIn(kind, PFM_KINDS)
+                self.assertEqual(account["ceiling"], {"value": Decimal("22950.0"), "currency": "EUR"})
+                self.assertEqual(_parse_synthesis(s)[1], [
+                    {"externalId": "contract:0000000016", "familyCode": "5", "subFamilyCode": "99",
+                     "productLabel": "ASSURANCE", "hasPfmId": False},
+                ])
+
+    def test_pel_or_lep_without_a_pfm_id_is_unsupported_and_blocks_nothing(self):
+        # Only one live run showed them with a `contractPfmId`: another shape must not
+        # fail the current account, the livrets, the cards or the loans.
+        for sub in ("04", "27"):
+            with self.subTest(sub=sub):
+                s = products()
+                item = family(s, "3", "28")
+                item["identity"]["subProductFamilyPFM"]["code"] = sub
+                item["identification"]["contractPfmId"] = None
+                item["identification"]["contractId"] = {"id": "0000000017", "entityCode": "00000"}
+                accounts, unsupported = _parse_synthesis(s)
+                self.assertNotIn("1003", {a["externalId"] for a in accounts})
+                self.assertIn("contract:0000000017", {u["externalId"] for u in unsupported})
+                self.assertIn("1001", {a["externalId"] for a in accounts})
+
+    def test_a_malformed_pel_or_lep_is_unsupported_and_blocks_nothing(self):
+        # Provisional kinds (seen in one live run): whatever the parser cannot read about
+        # them lists them as unsupported; the other accounts still import.
+        def pfm_string(item):
+            item["identification"]["contractPfmId"] = "1003"
+
+        def pfm_bool(item):
+            item["identification"]["contractPfmId"] = True
+
+        def no_balance(item):
+            item["identity"]["balance"] = None
+
+        def negative(item):
+            item["identity"]["balance"]["value"] = -1.0
+
+        def string_balance(item):
+            item["identity"]["balance"]["value"] = "12.5"
+
+        def no_cards_key(item):
+            item["identity"].pop("augmentedCards", None)
+
+        for name, mutate in [
+            ("pfm string", pfm_string), ("pfm bool", pfm_bool), ("no balance", no_balance),
+            ("negative", negative), ("string balance", string_balance),
+        ]:
+            for sub in ("04", "27"):
+                with self.subTest(name=name, sub=sub):
+                    s = products()
+                    item = family(s, "3", "28")
+                    item["identity"]["subProductFamilyPFM"]["code"] = sub
+                    item["identification"]["contractId"] = {"id": "0000000017", "entityCode": "00000"}
+                    mutate(item)
+                    accounts, unsupported = _parse_synthesis(s)
+                    ids = {a["externalId"] for a in accounts}
+                    self.assertNotIn("1003", ids)
+                    self.assertIn("1001", ids)
+                    self.assertIn("contract:0000000017", {u["externalId"] for u in unsupported})
+
+        # A PEL has no card: a missing `augmentedCards` key does not matter, and a card listed
+        # on one is not read.
+        for sub, kind in (("04", "PEL"), ("27", "LEP")):
+            with self.subTest(cards=sub):
+                s = products()
+                item = family(s, "3", "28")
+                item["identity"]["subProductFamilyPFM"]["code"] = sub
+                no_cards_key(item)
+                self.assertEqual(by_id(parse_synthesis(s))["1003"]["kind"], kind)
+
+    def test_the_long_observed_savings_kinds_still_fail_loudly_on_an_odd_pfm_id(self):
+        # The leniency above is for PEL and LEP only: a Livret A or LDDS shape change must
+        # still refuse the snapshot, so a format change is never swallowed for them.
+        for sub in ("01", "28"):
+            with self.subTest(sub=sub):
+                s = products()
+                item = family(s, "3", "28")
+                item["identity"]["subProductFamilyPFM"]["code"] = sub
+                item["identification"]["contractPfmId"] = "1003"
+                with self.assertRaises(ParseError):
+                    parse_synthesis(s)
+
+    def test_a_demoted_pel_or_lep_says_which_field_was_unreadable(self):
+        # A format change must be told apart from a product that was never supported.
+        s = products()
+        item = family(s, "3", "28")
+        item["identity"]["subProductFamilyPFM"]["code"] = "04"
+        item["identity"]["balance"] = None
+        item["identification"]["contractId"] = {"id": "0000000017", "entityCode": "00000"}
+        entry = next(u for u in _parse_synthesis(s)[1] if u["subFamilyCode"] == "04")
+        self.assertIn("balance", entry["rejected"])
+        self.assertLessEqual(len(entry["rejected"]), 80)
+        self.assertRegex(entry["rejected"], r"^[A-Za-z0-9_.\[\]: ?-]+$")
+
+        # A product that was never supported has no such reason.
+        other = [u for u in _parse_synthesis(products())[1] if u["externalId"] == "contract:0000000016"]
+        self.assertEqual(len(other), 1)
+        self.assertNotIn("rejected", other[0])
+
+    def test_a_pel_or_lep_never_reads_its_cards(self):
+        s = products()
+        item = family(s, "3", "28")
+        item["identity"]["subProductFamilyPFM"]["code"] = "04"
+        item["identity"]["augmentedCards"] = "not even a list"
+        accounts = parse_synthesis(s)
+        self.assertEqual(by_id(accounts)["1003"]["kind"], "PEL")
+        self.assertFalse([a for a in accounts if a["kind"] == "CARD" and a["parentExternalId"] == "1003"])
+
+    def test_family_and_sub_family_codes_are_short_and_plain_or_a_question_mark(self):
+        for bad in ("04\nX", "9" * 9, "a;b", "é", "x" * 100_000):
+            with self.subTest(len(bad)):
+                s = products()
+                item = family(s, "6", "12")
+                item["identity"]["productFamilyPFM"]["code"] = bad
+                item["identity"]["subProductFamilyPFM"]["code"] = "99"
+                _, unsupported = _parse_synthesis(s)
+                self.assertEqual(
+                    [(u["familyCode"], u["subFamilyCode"]) for u in unsupported if u["externalId"] == LOAN_ID],
+                    [("?", "99")],
+                )
+
+    def test_code_keeps_plain_codes_and_rejects_everything_else(self):
+        from bpce.accounts_parser import _code
+
+        for plain in ("04", "3", "a-b_c", "Ab9", "12345678"):
+            self.assertEqual(_code(plain), plain)
+        # A trailing newline is the classic `$` vs `\\Z` slip; blanks, invisible and
+        # look-alike characters must not pass either.
+        for bad in ("04\n", "04\n\n", " 04", "04 ", "04\u200b", "\u202e04", "\uff10\uff14",
+                    "\u0660\u0664", "123456789", "", None, 4, ["04"]):
+            self.assertEqual(_code(bad), "?", repr(bad))
+
+    def test_has_pfm_id_is_true_for_a_zero_id_and_false_for_none(self):
+        # `contractPfmId` 0 is an id the bank sent: truthiness must not decide it.
+        s = products()
+        family(s, "5")["identification"]["contractPfmId"] = 0
+        entry = [u for u in _parse_synthesis(s)[1] if u["familyCode"] == "5"][0]
+        self.assertTrue(entry["hasPfmId"])
+
+    def test_two_provisional_contracts_with_the_same_contract_id_still_refuse(self):
+        # A duplicate id is a format fault, not an odd product: pinned so it stays deliberate.
+        s = products()
+        for _ in range(2):
+            item = copy.deepcopy(family(s, "3", "28"))
+            item["identity"]["subProductFamilyPFM"]["code"] = "04"
+            item["identification"]["contractPfmId"] = None
+            item["identification"]["contractId"] = {"id": "0000000099", "entityCode": "00000"}
+            s["items"].append(item)
+        with self.assertRaises(ParseError):
+            _parse_synthesis(s)
+
+    def test_an_empty_family_code_is_still_refused_not_reported(self):
+        s = products()
+        family(s, "6", "12")["identity"]["productFamilyPFM"]["code"] = ""
+        with self.assertRaises(ParseError):
+            parse_synthesis(s)
+
+    def test_a_provisional_contract_with_no_usable_id_is_keyed_by_its_position(self):
+        # No `contractPfmId`, no `contractId`: it still cannot block the other accounts.
+        for drop in (lambda i: i["identification"].pop("contractId", None),
+                     lambda i: i["identification"].update(contractId={"id": "   ", "entityCode": "1"}),
+                     lambda i: i["identification"].update(contractId="oops")):
+            with self.subTest():
+                s = products()
+                item = family(s, "3", "28")
+                item["identity"]["subProductFamilyPFM"]["code"] = "04"
+                item["identification"]["contractPfmId"] = None
+                drop(item)
+                accounts, unsupported = _parse_synthesis(s)
+                self.assertIn("1001", {a["externalId"] for a in accounts})
+                keys = [u["externalId"] for u in unsupported if u["subFamilyCode"] == "04"]
+                self.assertEqual(len(keys), 1)
+                self.assertTrue(keys[0].startswith("contract:?items["), keys[0])
+
+    def test_unsupported_contract_records_whether_the_bank_sent_a_pfm_id(self):
+        # A PEL with an integer pfm id but no balance is rejected for another reason: the
+        # diagnostic must still say the pfm id was there.
+        s = products()
+        item = family(s, "3", "28")
+        item["identity"]["subProductFamilyPFM"]["code"] = "04"
+        item["identity"]["balance"] = None
+        item["identification"]["contractId"] = {"id": "0000000017", "entityCode": "00000"}
+        unsupported = [u for u in _parse_synthesis(s)[1] if u["subFamilyCode"] == "04"]
+        self.assertEqual([(u["externalId"], u["hasPfmId"]) for u in unsupported], [("contract:0000000017", True)])
+
+    def test_the_iban_of_a_pel_or_lep_is_never_read(self):
+        # Only a current account can debit a loan: a PEL or LEP IBAN must not join that match.
+        for sub in ("04", "27"):
+            with self.subTest(sub=sub):
+                s = products()
+                family(s, "3", "28")["identity"]["subProductFamilyPFM"]["code"] = sub
+                page = with_iban(tx("livret_a"), IBAN_A)  # rows carrying an IBAN
+                for row in page["data"]:
+                    row["accountId"] = 1003
+                inputs = {k: [] for k in ("1001", "2001", "1002", PER_ID, LOAN_ID)}
+                inputs["1003"] = [page]
+                result = build_import(s, inputs, today=TODAY)
+                account = {a["externalId"]: a for a in result["accounts"]}["1003"]
+                self.assertIsNone(account["iban"])
+                self.assertFalse(account["ibanAmbiguous"])
+                self.assertTrue(result["transactions"]["1003"])
+
     def test_livret_a_label_still_counts_when_the_sub_family_is_absent(self):
         s = synthesis()
         contract(s, 1002)["identity"]["subProductFamilyPFM"] = None
@@ -394,7 +621,7 @@ class ProductFamiliesTest(unittest.TestCase):
                 item["identity"]["subProductFamilyPFM"]["code"] = sub
                 accounts, unsupported = _parse_synthesis(s)
                 self.assertNotIn(LOAN_ID, {a["externalId"] for a in accounts})
-                self.assertIn({"externalId": LOAN_ID, "familyCode": fam}, unsupported)
+                self.assertIn({"externalId": LOAN_ID, "familyCode": fam, "subFamilyCode": sub, "productLabel": "PRET", "hasPfmId": False}, unsupported)
 
     def test_ldds_carries_the_savings_fields(self):
         a = by_id(parse_synthesis(products()))["1003"]
@@ -416,6 +643,25 @@ class ProductFamiliesTest(unittest.TestCase):
         ids = {a["externalId"] for a in parse_synthesis(s)}
         self.assertLessEqual({PER_ID, LOAN_ID}, ids)
         self.assertNotIn("4004", ids)
+
+    def test_a_pel_without_identification_is_listed_by_position_and_never_fails_the_sync(self):
+        for broken in (None, "x", [], 5):
+            with self.subTest(identification=broken):
+                s = products()
+                pel = copy.deepcopy(family(s, "3", "28"))
+                pel["identity"]["subProductFamilyPFM"]["code"] = "04"
+                pel["identification"] = broken
+                s["items"].append(pel)
+                accounts, unsupported = _parse_synthesis(s)
+                self.assertEqual(len(accounts), len(parse_synthesis(products())))
+                self.assertEqual([u["externalId"] for u in unsupported if u["subFamilyCode"] == "04"],
+                                 [f"contract:?items[{len(s['items']) - 1}]"])
+
+    def test_a_non_provisional_kind_without_identification_still_fails_loudly(self):
+        s = products()
+        family(s, "3", "28")["identification"] = None
+        with self.assertRaises(ParseError):
+            parse_synthesis(s)
 
     def test_loan_balance_is_kept_negative(self):
         a = by_id(parse_synthesis(products()))[LOAN_ID]
@@ -454,7 +700,7 @@ class ProductFamiliesTest(unittest.TestCase):
     def test_unsupported_contract_uses_its_integer_pfm_id_when_it_has_one(self):
         s = products()
         family(s, "5")["identification"]["contractPfmId"] = 5005
-        self.assertEqual(_parse_synthesis(s)[1], [{"externalId": "5005", "familyCode": "5"}])
+        self.assertEqual(_parse_synthesis(s)[1], [{"externalId": "5005", "familyCode": "5", "subFamilyCode": "99", "productLabel": "ASSURANCE", "hasPfmId": True}])
 
     def test_contract_ids_never_reach_error_messages(self):
         s = products()

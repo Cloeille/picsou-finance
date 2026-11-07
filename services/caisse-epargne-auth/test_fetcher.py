@@ -18,6 +18,7 @@ from unittest.mock import patch
 import httpx
 
 from bpce import fetcher
+from bpce import per_client
 from bpce import replay
 import main
 from test_replay import SECRET_TOKEN, FakeBank
@@ -675,9 +676,185 @@ class UnsupportedPassThroughTest(unittest.IsolatedAsyncioTestCase):
 
         result = await run_fetch(ce)
 
-        self.assertEqual(result["unsupported"], [{"externalId": "1003", "familyCode": "7"}])
+        self.assertEqual(result["unsupported"], [{"externalId": "1003", "familyCode": "7", "subFamilyCode": "01"}])
         self.assertNotIn("1003", {a["externalId"] for a in result["accounts"]})
         self.assertNotIn("1003", {r.url.params["accountIds"] for r in ce.tx_requests()})
+
+    async def test_unsupported_contracts_are_logged_by_codes_and_masked_id_shape_only(self):
+        synth = synthesis()
+        extra = copy.deepcopy(synth["items"][1])
+        extra["identification"]["contractPfmId"] = None
+        extra["identification"]["contractId"] = {"id": "48213  AVXIC7351", "entityCode": "00000"}
+        extra["identity"]["productFamilyPFM"] = {"code": "4", "label": "Assurance vie"}
+        extra["identity"]["subProductFamilyPFM"] = {"code": "02", "label": "Assurance vie"}
+        extra["identity"]["productLabel"] = "PLAN EPARGNE 2024"
+        extra["identity"]["contractLabel"] = "MY SECRET NAME"
+        extra["identity"]["augmentedCards"] = None
+        synth["items"].append(extra)
+
+        with self.assertLogs("bpce", "INFO") as logs:
+            result = await run_fetch(FakeCE(synth=synth))
+
+        self.assertIn(
+            {"externalId": "contract:48213  AVXIC7351", "familyCode": "4", "subFamilyCode": "02"},
+            result["unsupported"],
+        )
+        lines = [line for line in logs.output if "unsupported contract:" in line]
+        self.assertEqual(len(lines), 1)
+        # The catalogue name is free text on a product not seen yet: off unless asked for.
+        self.assertTrue(lines[0].endswith("family=4 sub=02 pfmId=absent idShape=99999  999999999"), lines[0])
+        self.assertNotIn("AVX", "\n".join(logs.output))  # not even the product letters
+        self.assertNotIn("productLabel", result["unsupported"][-1])
+        for secret in ("48213", "7351", "00000", "2024", "MY SECRET NAME", "PLAN EPARGNE"):
+            self.assertNotIn(secret, "\n".join(logs.output))
+
+        with patch.dict("os.environ", {"CE_LOG_PRODUCT_DETAILS": "1"}):
+            with self.assertLogs("bpce", "INFO") as logs:
+                await run_fetch(FakeCE(synth=synth))
+        line = next(l for l in logs.output if "unsupported contract:" in l)
+        self.assertTrue(line.endswith("idShape=99999  AVXIC9999 product=PLAN EPARGNE 9999"), line)
+        for secret in ("2024", "MY SECRET NAME"):
+            self.assertNotIn(secret, "\n".join(logs.output))
+
+    async def test_a_demoted_pel_is_logged_with_the_unreadable_field_only(self):
+        synth = copy.deepcopy(FIXTURES["synthesis_products"])
+        for item in synth["items"]:
+            sub_family = item["identity"].get("subProductFamilyPFM")
+            if sub_family and sub_family.get("code") == "28":
+                sub_family["code"] = "04"
+                item["identity"]["balance"] = None
+        with self.assertLogs("bpce", "INFO") as logs:
+            result = await run_fetch(FakeCE(synth=synth))
+
+        line = next(l for l in logs.output if "unsupported contract:" in l and "sub=04" in l)
+        self.assertRegex(line, r"rejected=[A-Za-z0-9_.\[\]: ?-]*balance")
+        self.assertNotIn("rejected", json.dumps(result))  # diagnostic only, never returned
+        self.assertNotIn("1003", {a["externalId"] for a in result["accounts"]})
+
+    async def test_a_pel_or_lep_whose_transactions_fail_is_imported_without_them(self):
+        # Seen in one live run only: a feed fault must not make the plan vanish into
+        # `unavailable` (which the backend ignores). A Livret A or LDDS keeps that rule.
+        def fail_http(request):
+            return httpx.Response(500) if request.url.params.get("accountIds") == "1003" else None
+
+        def wrong_account(request):
+            if request.url.params.get("accountIds") == "1003":
+                return httpx.Response(200, json=FIXTURES["transactions"]["livret_a"])  # accountId 1002
+            return None
+
+        for sub, kind in (("04", "PEL"), ("27", "LEP"), ("28", "LDDS")):
+            for name, override in (("http 500", fail_http), ("other account's rows", wrong_account)):
+                with self.subTest(kind=kind, fault=name):
+                    synth = copy.deepcopy(FIXTURES["synthesis_products"])
+                    for item in synth["items"]:
+                        sub_family = item["identity"].get("subProductFamilyPFM")
+                        if sub_family and sub_family.get("code") == "28":
+                            sub_family["code"] = sub
+                    with self.assertLogs("bpce", "WARNING") as logs:
+                        result = await run_fetch(FakeCE(synth=synth, tx_override=override))
+
+                    imported = {a["externalId"]: a for a in result["accounts"]}
+                    unavailable = {u["externalId"] for u in result["unavailable"]}
+                    if kind == "LDDS":
+                        self.assertNotIn("1003", imported)
+                        self.assertIn("1003", unavailable)
+                    else:
+                        self.assertEqual(imported["1003"]["kind"], kind)
+                        self.assertEqual(imported["1003"]["transactions"], [])
+                        self.assertNotIn("1003", unavailable)
+                        self.assertTrue(any("imported without transactions" in l for l in logs.output))
+                    self.assertIn("1002", imported)  # the others are untouched
+
+    async def test_an_out_of_shape_family_or_sub_code_is_neither_logged_nor_returned(self):
+        for bad in ("04\nFORGED LINE", "9" * 100_000, "a;b", "\x1b[31m", "é"):
+            with self.subTest(len(bad)):
+                synth = synthesis()
+                extra = copy.deepcopy(synth["items"][1])
+                extra["identification"]["contractPfmId"] = 1003
+                extra["identity"]["productFamilyPFM"] = {"code": bad, "label": "x"}
+                extra["identity"]["subProductFamilyPFM"] = {"code": bad, "label": "x"}
+                synth["items"].append(extra)
+
+                with self.assertLogs("bpce", "INFO") as logs:
+                    result = await run_fetch(FakeCE(synth=synth))
+
+                self.assertEqual(
+                    result["unsupported"], [{"externalId": "1003", "familyCode": "?", "subFamilyCode": "?"}]
+                )
+                line = next(l for l in logs.output if "unsupported contract:" in l)
+                self.assertIn("family=? sub=? ", line)
+                self.assertLess(len(line), 200)
+
+    async def test_product_label_keeps_letters_only_and_is_capped(self):
+        self.assertEqual(fetcher._product_label("PEL 2/3"), "PEL 999")
+        self.assertEqual(fetcher._product_label("Épargne"), "9999999")  # same rule as the id shape
+        self.assertEqual(fetcher._product_label("DUPONT Jean"), "DUPONT J999")  # lowercase is masked, a capital initial is not
+        self.assertEqual(fetcher._product_label(None), "None")
+        self.assertEqual(fetcher._product_label(12), "None")  # not a string
+        self.assertEqual(fetcher._product_label("   "), "None")
+        self.assertEqual(fetcher._product_label("A\nB\x1b[0m"), "A9B9999")  # controls never survive
+        self.assertEqual(len(fetcher._product_label("A" * 100)), 40)
+        self.assertEqual(len(fetcher._product_label(" " * 10_000 + "A")), len("None"))  # cut before strip
+
+    async def test_the_product_label_flag_is_exactly_one(self):
+        synth = synthesis()
+        extra = copy.deepcopy(synth["items"][1])
+        extra["identification"]["contractPfmId"] = 1003
+        extra["identity"]["productFamilyPFM"] = {"code": "7", "label": "x"}
+        extra["identity"]["productLabel"] = "SOME PRODUCT"
+        synth["items"].append(extra)
+
+        for value in ("0", "true", "yes", "", " 1", "01"):
+            with self.subTest(value=value), patch.dict("os.environ", {"CE_LOG_PRODUCT_DETAILS": value}):
+                with self.assertLogs("bpce", "INFO") as logs:
+                    await run_fetch(FakeCE(synth=synth))
+                self.assertNotIn("SOME PRODUCT", "\n".join(logs.output))
+                self.assertNotIn("product=", "\n".join(logs.output))
+
+    async def test_id_shape_is_cut_at_32_characters(self):
+        self.assertEqual(fetcher._id_shape("contract:" + "A" * 40), "9" * 32)
+        with patch.dict("os.environ", {"CE_LOG_PRODUCT_DETAILS": "1"}):
+            self.assertEqual(fetcher._id_shape("contract:" + "A" * 40), "A" * 32)
+            self.assertEqual(fetcher._id_shape("A" * 40), "A" * 32)
+
+    async def test_id_shape_masks_every_digit_and_symbol_and_by_default_every_letter(self):
+        # Default: only the blanks and the length show.
+        self.assertEqual(fetcher._id_shape("contract:12 AB-3/é"), "99 999999")
+        self.assertEqual(fetcher._id_shape("5005"), "9999")
+        self.assertEqual(fetcher._id_shape("00000     PERIC123456"), "99999     99999999999")
+        # With `CE_LOG_PRODUCT_DETAILS=1`: the capitals of a product code show, nothing else.
+        with patch.dict("os.environ", {"CE_LOG_PRODUCT_DETAILS": "1"}):
+            self.assertEqual(fetcher._id_shape("contract:12 AB-3/é"), "99 AB9999")
+            self.assertEqual(fetcher._id_shape("5005"), "9999")
+            self.assertEqual(fetcher._id_shape("00000     PERIC123456"), "99999     PERIC999999")
+            self.assertEqual(fetcher._id_shape("holder Smith"), "999999 S9999")  # lowercase never
+
+    async def test_pel_and_lep_read_their_pfm_transactions_like_a_livret(self):
+        for sub, kind in [("04", "PEL"), ("27", "LEP")]:
+            with self.subTest(kind=kind):
+                synth = copy.deepcopy(FIXTURES["synthesis_products"])
+                for item in synth["items"]:
+                    sub_family = item["identity"].get("subProductFamilyPFM")
+                    if sub_family and sub_family.get("code") == "28":
+                        sub_family["code"] = sub
+                pages = default_pages()
+                own_page = copy.deepcopy(FIXTURES["transactions"]["livret_a"])
+                for row in own_page["data"]:
+                    row["accountId"] = 1003
+                pages["1003"] = [own_page]
+                ce = FakeCE(synth=synth, pages=pages)
+
+                result = await run_fetch(ce)
+
+                self.assertIn("1003", {r.url.params["accountIds"] for r in ce.tx_requests()})
+                account = {a["externalId"]: a for a in result["accounts"]}["1003"]
+                self.assertEqual(account["kind"], kind)
+                # The rows the bank returned are kept, not discarded with the account's feed.
+                self.assertEqual(
+                    {t["externalId"] for t in account["transactions"]},
+                    {str(row["id"]) for row in own_page["data"]},
+                )
+                self.assertNotIn("1003", {u["externalId"] for u in result["unsupported"]})
 
     async def test_per_and_loan_get_no_transactions_call_and_no_iban(self):
         # PER and loan have no PFM transactions: their contract id must never
@@ -1012,6 +1189,38 @@ class AccountIsolationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             result["unavailable"], [{"externalId": PER_ID, "kind": "PER", "code": "UPSTREAM_ERROR"}]
         )
+
+    async def test_a_per_id_the_reader_refuses_is_logged_by_masked_shape_only(self):
+        async def detail(_contract_id, _entity_code):
+            raise per_client.UnknownPerContract("Invalid PER contract identifier")
+
+        with self.assertLogs("bpce", "INFO") as logs:
+            result = await run_fetch(products_ce(), per_detail=detail)
+
+        self.assertEqual(
+            result["unavailable"], [{"externalId": PER_ID, "kind": "PER", "code": "INVALID_PER_REQUEST"}]
+        )
+        lines = [line for line in logs.output if "PER request refused:" in line]
+        self.assertEqual(lines, ["INFO:bpce:PER request refused: idShape=99999     999999999999"])
+
+        with patch.dict("os.environ", {"CE_LOG_PRODUCT_DETAILS": "1"}):
+            with self.assertLogs("bpce", "INFO") as logs:
+                await run_fetch(products_ce(), per_detail=detail)
+        lines = [line for line in logs.output if "PER request refused:" in line]
+        self.assertEqual(lines, ["INFO:bpce:PER request refused: idShape=99999     FAKE99999999"])
+
+    async def test_a_per_request_refused_for_another_reason_logs_no_id_shape(self):
+        # An invalid token or entity code is not a new product: blaming the id would mislead.
+        async def detail(_contract_id, _entity_code):
+            raise per_client.InvalidPerRequest("Invalid access token")
+
+        with self.assertLogs("bpce", "INFO") as logs:
+            result = await run_fetch(products_ce(), per_detail=detail)
+
+        self.assertEqual(
+            result["unavailable"], [{"externalId": PER_ID, "kind": "PER", "code": "INVALID_PER_REQUEST"}]
+        )
+        self.assertFalse([line for line in logs.output if "PER request refused:" in line])
 
     async def test_a_per_routed_to_an_unknown_insurer_host_is_isolated(self):
         # A PER URL refused by the host guard must not drop the current account,
