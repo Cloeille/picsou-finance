@@ -44,7 +44,9 @@ the login state machine.
    codes in `SidecarBank` (`CAISSE_EPARGNE`, `BANQUE_POPULAIRE`). Each bank keeps its
    own controller, session table, rate-limit buckets, executor and error-code CHECK. CE keeps `caisse_epargne_session`,
    the `ce_` prefix and its REST paths. BP gets `banque_populaire_session`
-   (`V134`), the `bp_` prefix and `/api/banque-populaire`.
+   (`V134`), the `bp_` prefix and `/api/banque-populaire`. Since #423 and #478,
+   both banks store their sessions in the shared `sidecar_session` table (V129,
+   V143) and keep their own prefix, paths, buckets and executor.
 3. **Frontend.** `BpceSessionPanel` holds the keypad pop-up, the Sécur'Pass
    wait and the recovery of a lost completion. `CaisseEpargnePanel` and
    `BanquePopulairePanel` wrap it with their own API, translation prefix and,

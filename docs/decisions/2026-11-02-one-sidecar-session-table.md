@@ -40,6 +40,15 @@ existed for some banks and not others (issue #337, part of #326).
 Degiro, Revolut and Trade Republic keep their own tables. Their schemas differ,
 and they are left to a follow-up.
 
+**Banque Populaire joined in V143 (#478).** Its table (V134) is created after
+V129 on a fresh database, so V129 could not take it. V143 adds the bank to the
+bank and error-code CHECKs, adds a `region` column (set, and one of
+`BanquePopulaireRegion`, for `BANQUE_POPULAIRE` rows; null for every other
+bank, `ck_sidecar_session_region`), allows `unsupported_contracts` for it as for
+Caisse d'Epargne, copies every `banque_populaire_session` row as stored and
+drops that table. Both BPCE banks keep the `BpceSyncEngine` cycle rather than
+`SidecarSyncTemplate`; `SidecarSession` is now the only `BpceSession`.
+
 ## Alternatives considered
 
 ### Keep ten tables, share only the Java code
@@ -52,9 +61,9 @@ and they are left to a follow-up.
 ### A generic table with a JSON column for bank-specific data
 
 - **Pros**: no column is null for most banks.
-- **Cons**: only two columns are bank-specific (`encrypted_credentials` and
-  `unsupported_contracts`), and JSON would move their constraints out of the
-  database.
+- **Cons**: only a few columns are bank-specific (`encrypted_credentials`,
+  `unsupported_contracts`, then `last_sync_life_ambiguous` and `region`), and
+  JSON would move their constraints out of the database.
 
 ## Reasoning
 

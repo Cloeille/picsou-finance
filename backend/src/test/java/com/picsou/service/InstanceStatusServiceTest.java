@@ -10,7 +10,6 @@ import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.AppSettingRepository;
 import com.picsou.repository.AppUserRepository;
 import com.picsou.repository.FamilyMemberRepository;
-import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.RevolutSessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
@@ -408,7 +407,6 @@ class InstanceStatusServiceTest {
                 new SsoProperties(), mock(UserIdentityRepository.class), Clock.systemUTC()),
             SidecarProperties.of(Map.of()),
             mock(TradeRepublicSessionRepository.class), mock(SidecarSessionRepository.class),
-            mock(BanquePopulaireSessionRepository.class),
             mock(RevolutSessionRepository.class), mock(DegiroSessionRepository.class),
             "1.1.0");
 
@@ -440,7 +438,6 @@ class InstanceStatusServiceTest {
             Map.entry("revolut-auth", "http://revolut")));
         var tr = mock(TradeRepublicSessionRepository.class);
         var sidecarSessions = mock(SidecarSessionRepository.class);
-        var banquePopulaire = mock(BanquePopulaireSessionRepository.class);
         var revolut = mock(RevolutSessionRepository.class);
         var degiro = mock(DegiroSessionRepository.class);
         when(tr.count()).thenReturn(1L);
@@ -456,13 +453,13 @@ class InstanceStatusServiceTest {
         when(sidecarSessions.countByBank(SidecarBank.SOFIDY)).thenReturn(11L);
         when(sidecarSessions.countByBank(SidecarBank.CMES)).thenReturn(12L);
         when(sidecarSessions.countByBank(SidecarBank.CIC)).thenReturn(13L);
-        when(banquePopulaire.count()).thenReturn(14L);
+        when(sidecarSessions.countByBank(SidecarBank.BANQUE_POPULAIRE)).thenReturn(14L);
 
         InstanceStatusService wired = new InstanceStatusService(
             disabledReleases(),
             setup,
             sidecars,
-            tr, sidecarSessions, banquePopulaire, revolut, degiro,
+            tr, sidecarSessions, revolut, degiro,
             "1.1.0");
 
         assertThat(wired.targets())

@@ -2,7 +2,7 @@ package com.picsou.port;
 
 /**
  * The regional banks offered by the Banque Populaire login page. The constant name is what the
- * sidecar's {@code /initiate} expects and what {@code banque_populaire_session.region} stores.
+ * sidecar's {@code /initiate} expects and what {@code sidecar_session.region} stores.
  */
 public enum BanquePopulaireRegion {
     ALSACE_LORRAINE_CHAMPAGNE("Banque Populaire Alsace Lorraine Champagne"),

@@ -49,38 +49,16 @@ class SidecarBankCodesTest {
     void theDeclaredCodesAreExactlyTheBanksBranchOfTheSessionCheck(SidecarBank bank) throws SQLException {
         Set<String> declared = new TreeSet<>();
         bank.codes().forEach(code -> declared.add(code.name()));
-        Set<String> allowed = bank.storedInSidecarSession()
-            ? allowedByCheck().get(bank.name())
-            : quotedBy("ck_banque_populaire_session_last_sync_error");
-        assertThat(allowed).isEqualTo(declared);
+        assertThat(allowedByCheck().get(bank.name())).isEqualTo(declared);
     }
 
     @Test
-    void theSessionCheckHasOneBranchPerBankStoredThere() throws SQLException {
+    void theSessionCheckHasOneBranchPerBank() throws SQLException {
         Set<String> banks = new TreeSet<>();
         for (SidecarBank bank : SidecarBank.values()) {
-            if (bank.storedInSidecarSession()) {
-                banks.add(bank.name());
-            }
+            banks.add(bank.name());
         }
         assertThat(allowedByCheck().keySet()).isEqualTo(banks);
-    }
-
-    /** Every code name quoted by one CHECK constraint, found by name. */
-    private static Set<String> quotedBy(String constraint) throws SQLException {
-        String sql = "SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c WHERE c.conname = ?";
-        Set<String> names = new TreeSet<>();
-        try (Connection c = PostgresContainers.connection(POSTGRES); PreparedStatement st = c.prepareStatement(sql)) {
-            st.setString(1, constraint);
-            try (ResultSet rs = st.executeQuery()) {
-                assertThat(rs.next()).as("%s exists", constraint).isTrue();
-                Matcher m = QUOTED.matcher(rs.getString(1));
-                while (m.find()) {
-                    names.add(m.group(1));
-                }
-            }
-        }
-        return names;
     }
 
     @Test

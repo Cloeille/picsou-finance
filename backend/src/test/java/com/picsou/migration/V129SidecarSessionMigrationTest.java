@@ -34,9 +34,9 @@ class V129SidecarSessionMigrationTest {
         "cic", "cmes", "corum", "fortuneo", "sofidy"
     };
 
-    /** The banks V129 moved: Banque Populaire (V134) keeps its own table. */
+    /** The banks V129 moved: Banque Populaire (V134) followed in V143. */
     private static final List<SidecarBank> V129_BANKS = java.util.Arrays.stream(SidecarBank.values())
-        .filter(SidecarBank::storedInSidecarSession).toList();
+        .filter(bank -> bank != SidecarBank.BANQUE_POPULAIRE).toList();
 
     private static final String ROW = """
         SELECT bank, member_id, session_state, encrypted_credentials, unsupported_contracts,

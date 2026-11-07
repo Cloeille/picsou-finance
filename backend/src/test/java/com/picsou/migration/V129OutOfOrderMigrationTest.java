@@ -24,7 +24,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * V129 lands after V131-V141 were released, so a deployed database is already at V141 when it
  * first sees V129. This proves application.yml's {@code out-of-order: true} applies it there: the
- * Caisse d'Epargne row moves to sidecar_session and the Banque Populaire table (V134) is untouched.
+ * Caisse d'Epargne row moves to sidecar_session and the Banque Populaire table (V134) is untouched
+ * until V143 moves it.
  */
 @RequiresPostgres
 class V129OutOfOrderMigrationTest {
@@ -51,7 +52,7 @@ class V129OutOfOrderMigrationTest {
             execute(c, "INSERT INTO banque_populaire_session (member_id, session_state, region) "
                 + "VALUES (?, 'bp-state', 'RIVES_DE_PARIS')", member);
         }
-        outOfOrder = PostgresContainers.flyway(POSTGRES).outOfOrder(true).load().migrate();
+        outOfOrder = PostgresContainers.flyway(POSTGRES).outOfOrder(true).target("141").load().migrate();
     }
 
     @AfterAll
