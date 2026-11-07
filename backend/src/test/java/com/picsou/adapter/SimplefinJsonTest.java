@@ -464,6 +464,16 @@ class SimplefinJsonTest {
         assertThat(account.holdingsComplete()).isFalse();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"1E-999999999", "1E+999999999", "0E-999999999"})
+    void holdings_shareCountWithAnAbsurdExponent_isDroppedNotLeftToThrowLater(String shares) {
+        SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":[{\"symbol\":\"A\",\"shares\":\""
+            + shares + "\",\"market_value\":\"10\"},{\"symbol\":\"OK\",\"shares\":\"1\"}]}");
+
+        assertThat(account.holdings()).extracting(h -> h.symbol()).containsExactly("OK");
+        assertThat(account.holdingsComplete()).isFalse();
+    }
+
     @Test
     void holdings_everyRowReadable_isComplete() {
         SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":["

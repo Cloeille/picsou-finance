@@ -259,10 +259,19 @@ final class SimplefinJson {
         return text.isEmpty() ? null : text;
     }
 
+    /** No amount needs more than this many decimals or trailing zeros; a larger exponent is garbage. */
+    private static final int MAX_SCALE = 30;
+
+    /**
+     * Null for text that is not a plain figure. An exponent such as {@code 1E+999999999} parses but
+     * makes every later {@code divide} or {@code setScale} throw, which would fail the whole sync
+     * for a value that is no money.
+     */
     private static BigDecimal decimal(String value) {
         if (value == null) return null;
         try {
-            return new BigDecimal(value);
+            BigDecimal parsed = new BigDecimal(value);
+            return Math.abs(parsed.scale()) > MAX_SCALE ? null : parsed;
         } catch (NumberFormatException ex) {
             return null;
         }

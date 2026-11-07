@@ -148,12 +148,15 @@ final class SimplefinHoldings {
     }
 
     /**
-     * numeric(20,8) holds 12 integer digits; a figure past that would fail the insert. Checked
-     * after rounding to the column's scale, as the database stores it: 999999999999.999999999 is
-     * 1e12 by then.
+     * The smallest magnitude that rounds (HALF_UP, to the column's 8 decimals) to 10^12, the first
+     * value numeric(20,8) cannot hold. A plain comparison: rounding the figure first would throw on
+     * an absurd exponent, and the parser already refuses those.
      */
+    private static final BigDecimal COLUMN_CEILING = new BigDecimal("999999999999.999999995");
+
+    /** numeric(20,8) holds 12 integer digits; a figure past that would fail the insert. */
     static boolean fits(BigDecimal value) {
-        return value == null || BankTransactionImportService.fitsLedgerAmount(value.setScale(8, RoundingMode.HALF_UP));
+        return value == null || value.abs().compareTo(COLUMN_CEILING) < 0;
     }
 
     /**

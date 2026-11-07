@@ -211,6 +211,13 @@ class SimplefinHoldingsTest {
     }
 
     @Test
+    void figureThatRoundsJustUnderTheColumnCeiling_stillFits() {
+        var mapped = map("0", h("AAA", "1", "999999999999.999999994", "0", "0"));
+
+        assertThat(mapped.complete()).isTrue();
+    }
+
+    @Test
     void derivedPriceThatOverflowsTheColumn_isIncomplete() {
         var mapped = map("20000", h("AAA", "0.00000001", "20000", "0", "0"));
 
