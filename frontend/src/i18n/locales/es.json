@@ -1135,6 +1135,9 @@
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Identificador",
+      "rememberedIdentifier": "Identificador guardado",
+      "useAnotherIdentifier": "Usar otro identificador",
+      "backToRememberedIdentifier": "Usar el identificador guardado",
       "connect": "Conectar",
       "connecting": "Conectando…",
       "sync": "Sincronizar",
@@ -1146,7 +1149,7 @@
       "disconnectConfirmAction": "Borrar la sesión guardada",
       "noSession": "Sin sesión activa",
       "sessionActive": "Sesión activa",
-      "scope": "Sincroniza bajo demanda tus cuentas corrientes, Livret A, LDDS, PER (solo saldo), préstamos personales y tarjetas de Caisse d'Epargne. Solo se guarda la sesión, cifrada. Los contratos que Picsou no puede importar se listan pero nunca se crean.",
+      "scope": "Sincroniza bajo demanda tus cuentas corrientes, Livret A, LDDS, PER (solo saldo), préstamos personales y tarjetas de Caisse d'Epargne. Solo se guardan la sesión y tu identificador, cifrados; nunca tu contraseña. Los contratos que Picsou no puede importar se listan pero nunca se crean.",
       "notice": {
         "neverStored": "Picsou nunca ve ni guarda tu contraseña. La pulsas tú mismo en el teclado del banco; solo se envían las posiciones de las teclas, una única vez.",
         "noRetry": "Picsou nunca reintenta un inicio de sesión. Si falla, no se vuelve a enviar nada hasta que envíes el formulario tú mismo.",

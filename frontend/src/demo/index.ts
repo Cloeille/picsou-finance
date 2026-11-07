@@ -984,6 +984,7 @@ const demoCaisseEpargneStatus = {
   lastSyncError: null,
   unsupported: [],
   unsupportedCount: 0,
+  remembered: false,
 }
 handlers.set(key('GET', '/caisse-epargne/status'), () => demoCaisseEpargneStatus)
 const DEMO_PAD_PNG =

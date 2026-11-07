@@ -138,6 +138,9 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   const { t } = useTranslation()
   const [authState, setAuthState] = useState<AuthState>("IDLE")
   const [customerId, setCustomerId] = useState("")
+  // The backend remembers the identifier of the last successful login (encrypted, never
+  // sent back): an empty one reuses it. This flag shows the field to type another one.
+  const [typingIdentifier, setTypingIdentifier] = useState(false)
   const [pad, setPad] = useState<KeypadPad | null>(null)
   // Key positions only (indexes in the pad's DOM order), never digits. Component
   // state only: no query, no mutation cache, no storage, no log.
@@ -215,6 +218,7 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
     setLostCompletionAt(null)
     setAuthState("IDLE")
     setCustomerId("")
+    setTypingIdentifier(false)
     void refetchStatus()
     // A fresh session holds no accounts yet. Both completion paths queue one
     // first sync, and the caller is told only once its accounts exist.
@@ -262,6 +266,7 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
   }, [lostCompletionAt, startFirstSync, t])
 
   const connected = status.data?.isActive === true
+  const useRememberedIdentifier = status.data?.remembered === true && !typingIdentifier
   const syncStatus = status.data?.syncStatus ?? "IDLE"
   const isSyncing = syncStatus === "QUEUED" || syncStatus === "RUNNING"
   const requestingSync = sync.isPending || isSyncing
@@ -346,7 +351,7 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
     setError(null)
     setAuthState("SUBMITTING")
     try {
-      const result = await caisseEpargneApi.initiateAuth(customerId)
+      const result = await caisseEpargneApi.initiateAuth(useRememberedIdentifier ? "" : customerId)
       const images = result.keypad?.images
       if (!result.processId || !Array.isArray(images) || images.length !== 10) {
         setError(t("sync.caisseEpargne.errors.formatChanged"))
@@ -365,6 +370,9 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
     } catch (value) {
       setError(formatError(value))
       setAuthState("ERROR")
+      // A rejected remembered identifier is forgotten server side: re-read the
+      // status so the field comes back.
+      if (useRememberedIdentifier) void refetchStatus()
     } finally {
       submitting.current = false
     }
@@ -554,18 +562,49 @@ export function CaisseEpargnePanel({ onConnected }: CaisseEpargnePanelProps = {}
           <Card size="sm">
             <CardContent className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="caisse-epargne-customer-id">
-                  <Landmark className="mr-1 inline-block size-4" />
-                  {t("sync.caisseEpargne.customerId")}
-                </Label>
-                <Input
-                  id="caisse-epargne-customer-id"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  value={customerId}
-                  onChange={(event) => setCustomerId(event.target.value.replace(/\D/g, ""))}
-                  required
-                />
+                {useRememberedIdentifier ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="flex items-center text-sm">
+                      <Landmark className="mr-1 inline-block size-4" />
+                      {t("sync.caisseEpargne.rememberedIdentifier")}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0"
+                      onClick={() => setTypingIdentifier(true)}
+                    >
+                      {t("sync.caisseEpargne.useAnotherIdentifier")}
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <Label htmlFor="caisse-epargne-customer-id">
+                      <Landmark className="mr-1 inline-block size-4" />
+                      {t("sync.caisseEpargne.customerId")}
+                    </Label>
+                    <Input
+                      id="caisse-epargne-customer-id"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={customerId}
+                      onChange={(event) => setCustomerId(event.target.value.replace(/\D/g, ""))}
+                      required
+                    />
+                    {status.data?.remembered === true && (
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0"
+                        onClick={() => setTypingIdentifier(false)}
+                      >
+                        {t("sync.caisseEpargne.backToRememberedIdentifier")}
+                      </Button>
+                    )}
+                  </>
+                )}
               </div>
               <Button type="submit" disabled={pending}>
                 {pending && <RefreshCw className="animate-spin" />}
