@@ -45,7 +45,7 @@ public class SidecarSession extends AuditableEntity implements BpceSession {
     @Column(name = "encrypted_credentials", columnDefinition = "TEXT")
     private String encryptedCredentials;
 
-    /** Caisse d'Epargne only: JSON array of {externalId, familyCode} seen but not imported. */
+    /** Caisse d'Epargne only: JSON array of {externalId, familyCode, subFamilyCode} seen but not imported. */
     @Column(name = "unsupported_contracts", columnDefinition = "TEXT")
     private String unsupportedContracts;
 

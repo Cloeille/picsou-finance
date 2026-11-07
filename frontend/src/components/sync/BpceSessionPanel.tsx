@@ -565,12 +565,16 @@ export function BpceSessionPanel({
                 <p className="text-xs text-muted-foreground">
                   {t(key("unsupportedHint"))}
                 </p>
-                {/* Family code only: the contract id is never shown. */}
+                {/* Family and sub-family codes only: the contract id is never shown. */}
                 <ul className="flex flex-wrap gap-2">
                   {status.data?.unsupported.map((contract, index) => (
                     <li key={`${contract.familyCode}-${index}`}>
                       <Badge variant="outline">
-                        <span>{contract.familyCode}</span>
+                        <span>
+                          {contract.subFamilyCode
+                            ? `${contract.familyCode}/${contract.subFamilyCode}`
+                            : contract.familyCode}
+                        </span>
                       </Badge>
                     </li>
                   ))}

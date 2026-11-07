@@ -53,13 +53,16 @@ public interface BpcePort {
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     record Keypad(java.util.List<String> images, int columns) {}
 
-    /** Contracts the sidecar saw but does not import (family code not supported). */
-    record Unsupported(String externalId, String familyCode) {}
+    /**
+     * Contracts the sidecar saw but does not import (family and sub-family pair not supported).
+     * {@code subFamilyCode} is null when the bank sends no sub family.
+     */
+    record Unsupported(String externalId, String familyCode, String subFamilyCode) {}
 
     /**
      * Money is carried as {@link BigDecimal} parsed from the sidecar's decimal strings; a
      * float never appears. {@code kind} is {@code CURRENT_ACCOUNT}, {@code LIVRET_A},
-     * {@code LIVRET_JEUNE}, {@code LEP}, {@code LDDS}, {@code PER}, {@code LOAN} or {@code CARD}; an unknown kind is rejected by
+     * {@code LIVRET_JEUNE}, {@code LEP}, {@code LDDS}, {@code PEL}, {@code PER}, {@code LOAN} or {@code CARD}; an unknown kind is rejected by
      * the sync service, not guessed here. A card's {@code balance} is its outstanding (sum of
      * operations with a future {@code dueDate}), zero or negative. A loan's {@code balance} is
      * its outstanding capital as the bank shows it, zero or negative; a PER's is zero or more.
