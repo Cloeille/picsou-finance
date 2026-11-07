@@ -27,7 +27,7 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 ## Features
 
 - **Account aggregation** — Bank accounts (LEP, PEA, Livret, current), brokerage, crypto wallets, on-chain addresses, debts/loans
-- **Bank sync** — Enable Banking (PSD2/OAuth, 2000+ EU banks) and SimpleFIN (setup token, mostly US banks via SimpleFIN Bridge).
+- **Bank sync** — Enable Banking (PSD2/OAuth, 2000+ EU banks) and SimpleFIN (setup token, mostly US banks via SimpleFIN Bridge). Wise jars through a Wise personal API token.
 - **BoursoBank** — Current accounts, livrets and the PEA/CTO with its cash and positions, via a local read-only sidecar. Reaches the securities account PSD2 cannot.
 - **Brokerage sync** — Trade Republic via WebSocket or CSV import, and Bourse Direct PEA/CTO positions via a local read-only sidecar
 - **Employee savings** — Amundi Épargne Salariale plans (PEE/PEG, PERCO, PER) and their FCPE lines, via a local read-only sidecar
@@ -436,7 +436,7 @@ Git holds the code, not your data or keys. To move an install, copy the Docker v
 
 Contributions are welcome: bug fixes, features, translations or documentation. Commands, conventions,
 the HTTPS dev certificate and the pull-request checklist are in [CONTRIBUTING.md](CONTRIBUTING.md).
-Keep pull requests to one concern and about 600 changed lines, synced with `main` and green before review;
+Keep pull requests to one concern and about 600 changed lines, synced with the release branch they target and green before review;
 open an issue first for a feature or a new bank connector.
 CI is described in [docker-deployment.md](docs/features/docker-deployment.md#pulling-from-ghcr).
 

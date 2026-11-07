@@ -743,6 +743,7 @@
       "degiro": "DEGIRO-Wertpapierkonto synchronisieren",
       "ibkr": "Synchronisieren Sie Ihr Interactive-Brokers-Konto per Flex Query",
       "simplefin": "Bankkonten mit einem SimpleFIN-Setup-Token importieren",
+      "wise": "Ihre Wise Jars, die die Bankverbindung nicht sieht",
       "finary": "Aus Finary importieren",
       "manual": "Konto manuell erstellen",
       "amundi": "PEE, PEG, PERCO, PER bei Amundi",
@@ -787,6 +788,11 @@
       "callbackError": "Synchronisierungsfehler",
       "initiateError": "Verbindung fehlgeschlagen",
       "psd2ScopeNote": "Enable Banking synchronisiert nur Girokonten (PSD2-Einschränkung). Für PEA, Lebensversicherung, Sparkonten: nutze Trade Republic, Boursobank, Finary oder füge sie manuell hinzu.",
+      "wiseJarsMissing": "Ihre Wise Jars kommen nicht über diese Verbindung.",
+      "wiseJarsConnect": "Jars verbinden",
+      "wiseJarsConnected": "Ihre Wise Jars werden über den Connector Wise Jars synchronisiert.",
+      "wiseJarsFailed": "Die letzte Synchronisierung Ihrer Wise Jars ist fehlgeschlagen.",
+      "wiseJarsOpen": "Wise Jars öffnen",
       "proBadge": "Pro",
       "proBadgeTitle": "Geschäftskonto — diese Bank richtet sich nur an Geschäftskunden"
     },
@@ -860,6 +866,37 @@
         "connectFailed": "Verbindung zu SimpleFIN fehlgeschlagen. Prüfen Sie das Token und versuchen Sie es erneut.",
         "syncFailed": "SimpleFIN-Synchronisierung fehlgeschlagen. Versuchen Sie es erneut oder erstellen Sie ein neues Token, wenn der Zugriff widerrufen wurde.",
         "disconnectFailed": "Verbindung konnte nicht entfernt werden. Bitte versuchen Sie es erneut."
+      }
+    },
+    "wise": {
+      "title": "Wise Jars",
+      "intro": "Dieser Connector ist nur für Ihre Wise Jars: Die Wise-Bankverbindung im Tab Banken sieht sie nicht. Ihr Wise-Girokonto und seine Umsätze bleiben im Tab Banken.",
+      "setupHint": "Erstellen Sie auf wise.com ein persönliches API-Token mit Lesezugriff und fügen Sie es hier ein.",
+      "createToken": "Token erstellen",
+      "token": "Wise-API-Token",
+      "tokenPlaceholder": "Wise-Token einfügen",
+      "connect": "Verbinden",
+      "sync": "Synchronisieren",
+      "syncing": "Synchronisierung…",
+      "disconnect": "Trennen",
+      "disconnectConfirm": "Gespeichertes Wise-Token entfernen? Importierte Jars bleiben erhalten, werden aber nicht mehr aktualisiert.",
+      "connected": "Verbunden",
+      "statusError": "Letzte Synchronisierung fehlgeschlagen",
+      "lastSync": "Letzte Sync",
+      "neverSynced": "Nie synchronisiert",
+      "syncedToast": "Wise synchronisiert: {{count}} Jar",
+      "syncedToast_other": "Wise synchronisiert: {{count}} Jars",
+      "statusTokenRefused": "Token von Wise abgelehnt",
+      "replaceTokenHint": "Wise hat das gespeicherte Token abgelehnt. Erstellen Sie auf wise.com ein neues und fügen Sie es hier ein, um die Synchronisierung fortzusetzen.",
+      "replaceToken": "Token ersetzen",
+      "scopeNote": "Nur die Salden der Jars werden verfolgt: In Europa teilt Wise ihren Verlauf nicht mit einem persönlichen Token.",
+      "errors": {
+        "tokenRefused": "Wise hat dieses Token abgelehnt. Es wurde möglicherweise widerrufen: Erstellen Sie auf wise.com ein neues mit Lesezugriff.",
+        "invalidToken": "Das ist kein Wise-API-Token. Kopieren Sie es erneut von wise.com.",
+        "rateLimited": "Wise begrenzt gerade die Anfragen. Versuchen Sie es in ein paar Minuten erneut.",
+        "connectFailed": "Verbindung zu Wise fehlgeschlagen. Prüfen Sie das Token und versuchen Sie es erneut.",
+        "syncFailed": "Wise-Synchronisierung fehlgeschlagen. Versuchen Sie es erneut oder erstellen Sie ein neues Token, falls es widerrufen wurde.",
+        "disconnectFailed": "Verbindung konnte nicht entfernt werden. Versuchen Sie es erneut."
       }
     },
     "exchanges": {

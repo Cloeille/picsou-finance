@@ -152,7 +152,8 @@ Backend (`make test-backend`):
   stays a plus
 - `SimplefinClientTest` — one wiring test per path, through the fake transport: a refused host
   sends nothing, a claim answer for another host is refused after one request, 403 on fetch
-  carries `SESSION_EXPIRED`, 402, other statuses, redirects and body caps
+  carries `SESSION_EXPIRED`, 402, other statuses and redirects; the body caps live in
+  `BoundedUtf8BodyTest`, since `BoundedUtf8Body` is shared with the Wise connector
 - `SimplefinJsonTest` — currency, balance, id, transaction and posted-date parsing; pending rows
   dropped; external ids hashed past 255 characters; Bridge error text collapsed to one line and
   cut at 300 characters without splitting a surrogate pair
