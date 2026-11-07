@@ -311,11 +311,16 @@ def _contract_account(
     item: dict, where: str, skipped_families: frozenset = frozenset(), provisional_kinds: frozenset = PROVISIONAL_KINDS
 ) -> tuple:
     """`(account, None)` for a supported contract, `(None, unsupported)` otherwise."""
-    identification = _object(item.get("identification"), INVALID_SYNTHESIS, f"{where}.identification")
     identity = _object(item.get("identity"), INVALID_SYNTHESIS, f"{where}.identity")
     # The kind decides which id to read: PER, loan and insurance contracts have
     # a null `contractPfmId`, and must not fail the sync of the others.
     kind = _contract_kind(identity, where, skipped_families)
+    if kind in provisional_kinds and not isinstance(item.get("identification"), dict):
+        # A kind seen in one live run whose `identification` is missing or odd is listed as
+        # unsupported (keyed by position) rather than failing the whole synthesis.
+        identification = {}
+    else:
+        identification = _object(item.get("identification"), INVALID_SYNTHESIS, f"{where}.identification")
     if kind == "PER":
         kind = _insurer_kind(identification)  # family 4/05 holds both products
     rejected = None

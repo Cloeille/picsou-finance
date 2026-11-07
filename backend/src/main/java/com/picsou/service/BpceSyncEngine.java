@@ -1139,8 +1139,13 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         try {
             List<UnsupportedContract> stored = JSON.readValue(json, UNSUPPORTED_TYPE);
             // A stored `null`, or a null entry, is as unreadable as malformed JSON: never an NPE.
+            // Lists stored by an earlier version were not bounded: apply the write-side bounds on read.
             return stored == null ? List.of() : stored.stream()
                 .filter(item -> item != null && item.externalId() != null && item.familyCode() != null)
+                .map(item -> new UnsupportedContract(
+                    limit(item.externalId(), MAX_UNSUPPORTED_ID, "?"),
+                    unsupportedCode(item.familyCode()),
+                    unsupportedCode(item.subFamilyCode())))
                 .toList();
         } catch (JsonProcessingException ex) {
             log.warn("Stored {} unsupported-contract list is unreadable", bank.provider());

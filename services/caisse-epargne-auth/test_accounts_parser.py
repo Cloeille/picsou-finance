@@ -644,6 +644,25 @@ class ProductFamiliesTest(unittest.TestCase):
         self.assertLessEqual({PER_ID, LOAN_ID}, ids)
         self.assertNotIn("4004", ids)
 
+    def test_a_pel_without_identification_is_listed_by_position_and_never_fails_the_sync(self):
+        for broken in (None, "x", [], 5):
+            with self.subTest(identification=broken):
+                s = products()
+                pel = copy.deepcopy(family(s, "3", "28"))
+                pel["identity"]["subProductFamilyPFM"]["code"] = "04"
+                pel["identification"] = broken
+                s["items"].append(pel)
+                accounts, unsupported = _parse_synthesis(s)
+                self.assertEqual(len(accounts), len(parse_synthesis(products())))
+                self.assertEqual([u["externalId"] for u in unsupported if u["subFamilyCode"] == "04"],
+                                 [f"contract:?items[{len(s['items']) - 1}]"])
+
+    def test_a_non_provisional_kind_without_identification_still_fails_loudly(self):
+        s = products()
+        family(s, "3", "28")["identification"] = None
+        with self.assertRaises(ParseError):
+            parse_synthesis(s)
+
     def _with_insurer_id(self, contract_id):
         s = products()
         family(s, "4", "05")["identification"]["contractId"]["id"] = contract_id

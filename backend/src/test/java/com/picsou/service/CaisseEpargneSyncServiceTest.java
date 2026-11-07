@@ -1045,6 +1045,21 @@ class CaisseEpargneSyncServiceTest {
     }
 
     @Test
+    void getStatus_boundsTheCodesOfAnUnsupportedListStoredBeforeThemBeingBounded() {
+        CaisseEpargneSession session = activeSession(owner());
+        session.recordUnsupportedContracts("[{\"externalId\":\"" + "x".repeat(300)
+            + "\",\"familyCode\":\"<script>alert(1)</script>\",\"subFamilyCode\":\"0123456789\"}]");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+
+        List<BpceSyncEngine.UnsupportedContract> unsupported = service.getStatus(7L).unsupported();
+
+        assertThat(unsupported).hasSize(1);
+        assertThat(unsupported.get(0).externalId()).hasSize(128);
+        assertThat(unsupported.get(0).familyCode()).isEqualTo("?");
+        assertThat(unsupported.get(0).subFamilyCode()).isEqualTo("?");
+    }
+
+    @Test
     void getStatus_ignoresFieldsAddedLaterToTheStoredUnsupportedList() {
         // Forward compatibility: a row written by a newer version still reads after a rollback to
         // this record, instead of the whole list disappearing.
