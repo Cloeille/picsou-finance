@@ -89,8 +89,8 @@ the path filter did not select it, which a renamed job would never match.
 - A typical pull request runs about 12 jobs at once instead of 8, against the free plan's
   per-account limit of about 20; wide pull requests (every sidecar) queue a little more.
 - More runner minutes per pull request.
-- New scripts to maintain: `backend_shards.py` and `release_cases.py`; the frontend split will add
-  a Vitest coverage check.
+- New scripts to maintain: `backend_shards.py` and `release_cases.py`; `vitest_coverage.py` checks
+  the frontend shards.
 - A main push that changes dependencies builds the release image cold in both case legs.
 - `changes` looks the class times up once and every backend leg restores that exact key, so the
   legs split on the same times, and a re-run splits as its first attempt did. When the cache is
@@ -102,5 +102,5 @@ the path filter did not select it, which a renamed job would never match.
 - Target pull-request wall clock: about 4 minutes (the ~200 s release floor plus set-up) once every
   leg has landed; not measured yet, each leg's pull request reports its own timings.
 - `make test-backend` takes `SHARD_INCLUDES` / `SHARD_EXCLUDES`; the plain target is unchanged.
-  The frontend pull request is to add `make lint-frontend` and `make unit-frontend [SHARD=i/n]`.
+  `make lint-frontend` and `make unit-frontend [SHARD=i/n]` run the frontend legs.
 - A test must not count entries in a shared folder such as `java.io.tmpdir`: inject the folder.

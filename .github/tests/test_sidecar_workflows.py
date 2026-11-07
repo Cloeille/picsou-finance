@@ -733,6 +733,14 @@ class CiJobSelectionTest(unittest.TestCase):
             "Download the backend test reports", "Require every backend test class to run exactly once",
             "Require the PostgreSQL tests",
         }, {step["name"] for step in gated})
+        # One sparse checkout serves the backend and the frontend completeness checks; a second
+        # one would clean away the files the first brought in.
+        checkouts = [step for step in steps if "actions/checkout" in step.get("uses", "")]
+        self.assertEqual(len(checkouts), 1)
+        self.assertEqual(checkouts[0]["with"]["sparse-checkout"].split("\n"),
+                         ["backend/src/test/java", "frontend/src", ".github/scripts"])
+        self.assertEqual(checkouts[0]["if"], "needs.backend.result == 'success' || needs.frontend.result == 'success'")
+        self.assertLess(steps.index(checkouts[0]), min(steps.index(step) for step in gated if step is not checkouts[0]))
         download = next(step for step in gated if "download-artifact" in step.get("uses", ""))
         self.assertEqual(download["with"], {"pattern": "surefire-*", "path": "${{ runner.temp }}/surefire"})
         commands = "\n".join(step.get("run", "") for step in gated)
