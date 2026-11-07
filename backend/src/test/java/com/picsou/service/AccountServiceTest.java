@@ -1233,6 +1233,28 @@ class AccountServiceTest {
     }
 
     @Test
+    void caisseEpargneAssuranceVie_isValuedFromInsurerFiguresLikeAPer_andAManualOneIsNot() {
+        AccountHolding uc = AccountHolding.builder()
+            .ticker("UC_A").quantity(new BigDecimal("10"))
+            .currentPrice(new BigDecimal("50")).quoteCurrency("USD")
+            .providerValueEur(new BigDecimal("500")).build();
+        when(holdingRepository.findByAccount_Id(6L)).thenReturn(List.of(uc));
+        when(priceService.getQuotes(any())).thenReturn(
+            Map.of("UC_A", new PriceService.Quote(new BigDecimal("60"), LocalDate.now(), true)));
+
+        Account synced = Account.builder().id(6L).name("Synthetic life insurance")
+            .type(AccountType.ASSURANCE_VIE).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .currentBalance(new BigDecimal("1500")).cashBalance(new BigDecimal("1000")).isManual(false).build();
+
+        AccountService.Valuation valuation = accountService.valuation(synced);
+
+        // 1000 euro fund + 10 units at the live 60, repriced between syncs.
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1600");
+        // The insurer baseline is the live value itself; the generic path would report a cost basis.
+        assertThat(valuation.investedEur()).isEqualByComparingTo("1600");
+    }
+
+    @Test
     void caisseEpargnePer_usesLiveQuotesAndKeepsUnresolvedBankValuationsStale() {
         Account account = Account.builder().id(6L).name("Synthetic pension")
             .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
@@ -1698,6 +1720,27 @@ class AccountServiceTest {
         assertThat(h.getAverageBuyIn()).isEqualByComparingTo("150");
         // 400 - 2 x 150
         assertThat(line.pnlEur()).isEqualByComparingTo("100");
+    }
+
+    @Test
+    void updateHolding_caisseEpargneInsurerContract_keepsTheInsurerValueAndClearsOnlyThePnl() {
+        for (AccountType type : List.of(AccountType.PER, AccountType.ASSURANCE_VIE)) {
+            Account insurer = Account.builder().id(1L).type(type).currency("EUR")
+                .provider(CaisseEpargneSyncService.PROVIDER).isManual(false).externalAccountId("ce_contract:V1").build();
+            AccountHolding h = AccountHolding.builder()
+                .account(insurer).ticker("UC_A").quantity(new BigDecimal("2"))
+                .providerValueEur(new BigDecimal("400")).providerPnlEur(new BigDecimal("40")).build();
+            when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(insurer));
+            when(holdingRepository.findByAccountIdAndTicker(1L, "UC_A")).thenReturn(Optional.of(h));
+            when(holdingRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            stubQuotes("UC_A", null);
+
+            accountService.updateHolding(1L, 9L, "UC_A", null, new BigDecimal("150"));
+
+            assertThat(h.getProviderValueEur()).as(type.name()).isEqualByComparingTo("400");
+            assertThat(h.getProviderPnlEur()).as(type.name()).isNull();
+            assertThat(h.getAverageBuyIn()).isEqualByComparingTo("150");
+        }
     }
 
     @Test

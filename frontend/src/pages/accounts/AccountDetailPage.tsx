@@ -8,6 +8,7 @@ import {
   useAccountTransactions, useAddTransaction, useDeleteTransaction,
   useUpdateTransaction, useUpdateHolding, useDeleteHolding, useImportTRTransactions
 } from '@/features/accounts/hooks'
+import { euroFundLabelKey, hasSyncedEuroFund } from '@/features/accounts/euro-fund'
 import { useCategories, useCategorize } from '@/features/budget/hooks'
 import { useHistory } from '@/features/history/hooks'
 import { BalanceHistoryChart } from '@/components/shared/BalanceHistoryChart'
@@ -331,7 +332,7 @@ export function AccountDetailPage() {
             <CurrencyDisplay value={displayBalance} className={`text-3xl font-bold ${isLoan ? 'text-red-500' : 'text-foreground'}`} />
             {showHoldings && account.cashBalance != null && (
               <p className="mt-1 text-xs text-muted-foreground">
-                {t('common.labelColon', { label: t(account.type === 'PER' ? 'accounts.perEuroFundBalance' : 'accounts.cashBalance') })} <CurrencyDisplay value={account.cashBalance} />
+                {t('common.labelColon', { label: t(hasSyncedEuroFund(account) ? euroFundLabelKey(account) : 'accounts.cashBalance') })} <CurrencyDisplay value={account.cashBalance} />
               </p>
             )}
             {account.currency !== 'EUR' && (

@@ -144,6 +144,25 @@ class HappyPathTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(str(insurer.requests[1].url).endswith("/clientToken/PERIC0001"))
         self.assertTrue(str(insurer.requests[2].url).endswith("/load/PER/IC/0001"))
 
+    async def test_an_assurance_vie_goes_through_the_same_chain_with_its_own_codes(self):
+        insurer = FakeInsurer(routing=lambda _r: httpx.Response(201, json=routing_body(producer="ESSEN246810")))
+
+        result = await fetch(insurer, contract_id="00000     ESSEN12345678")
+
+        self.assertEqual(result, RAW_DETAIL)
+        self.assertTrue(str(insurer.requests[0].url).endswith("12345-00000%20%20%20%20%20ESSEN12345678/prepareRouting"))
+        self.assertTrue(str(insurer.requests[1].url).endswith("/clientToken/ESSEN246810"))
+        self.assertTrue(str(insurer.requests[2].url).endswith("/load/ESS/EN/246810"))
+        self.assertEqual(insurer.requests[2].headers["iw4-product-code"], "ESS")
+
+    async def test_a_routing_answer_for_another_product_is_refused(self):
+        for bank_id, producer in (("00000     ESSEN12345678", "PERIC876543"), ("00000     PERIC12345678", "ESSEN876543")):
+            with self.subTest(bank_id):
+                insurer = FakeInsurer(routing=lambda _r, p=producer: httpx.Response(201, json=routing_body(producer=p)))
+                with self.assertRaises(replay.UpstreamError):
+                    await fetch(insurer, contract_id=bank_id)
+                self.assertEqual(len(insurer.requests), 1)  # no token step, no detail
+
     async def test_wrapped_routing_answers_are_accepted(self):
         for wrapper in ("characteristics", "prepareRouting"):
             with self.subTest(wrapper):
@@ -292,6 +311,8 @@ class InputTest(unittest.IsolatedAsyncioTestCase):
             "contract no bank prefix": {"contract_id": "PERIC12345678"},
             "contract no product": {"contract_id": "00000     12345678"},
             "contract other product": {"contract_id": "00000     PEAIC12345678"},
+            "contract unknown insurer product": {"contract_id": "00000     OTHER12345678"},
+            "contract essen wildcard": {"contract_id": "00000     ESSAB12345678"},
             "contract lowercase": {"contract_id": "00000     peric12345678"},
             "contract letters": {"contract_id": "00000     PERIC12AB"},
             "contract path": {"contract_id": "00000 PERIC12345678/../x"},
@@ -311,9 +332,16 @@ class InputTest(unittest.IsolatedAsyncioTestCase):
         for name, override in cases.items():
             with self.subTest(name):
                 insurer = FakeInsurer()
-                with self.assertRaises(per_client.InvalidPerRequest):
+                with self.assertRaises(per_client.InvalidPerRequest) as caught:
                     await fetch(insurer, **override)
                 self.assertEqual(insurer.requests, [])
+                # Only a bad contract id is "an unknown product": the diagnostic log
+                # keys on this subclass, so a bad token or entity code must not match.
+                self.assertEqual(
+                    isinstance(caught.exception, per_client.UnknownPerContract),
+                    name.startswith("contract"),
+                    name,
+                )
 
 
 class LifecycleTest(unittest.IsolatedAsyncioTestCase):
