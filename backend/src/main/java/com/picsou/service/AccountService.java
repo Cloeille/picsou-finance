@@ -635,7 +635,7 @@ public class AccountService {
         boolean anyHoldingPriced = false;
         boolean anyStale = false;
         boolean anyCostBasisUnknown = false;
-        boolean caisseEpargnePer = isCaisseEpargnePer(account);
+        boolean caisseEpargnePer = CaisseEpargneSyncService.isInsurerContract(account);
 
         for (AccountHolding h : holdings) {
             BigDecimal qty = h.getQuantity();
@@ -874,11 +874,6 @@ public class AccountService {
     private static boolean isSyncedCorumLife(Account account) {
         return !account.isManual() && account.getExternalAccountId() != null
             && account.getExternalAccountId().startsWith(Account.CORUM_LIFE_EXTERNAL_ID_PREFIX);
-    }
-
-    private boolean isCaisseEpargnePer(Account account) {
-        return account.getType() == AccountType.PER
-            && CaisseEpargneSyncService.PROVIDER.equals(account.getProvider());
     }
 
     /**
@@ -1154,7 +1149,7 @@ public class AccountService {
         // resolves and its logo does not, which reads as a missing image rather than a bug.
         boolean hasTicker = holding.getTicker() != null && !holding.getTicker().isBlank();
         String tickerKey = hasTicker ? holding.getTicker().toUpperCase(Locale.ROOT) : null;
-        boolean caisseEpargnePer = isCaisseEpargnePer(account);
+        boolean caisseEpargnePer = CaisseEpargneSyncService.isInsurerContract(account);
         BigDecimal providerValue = holding.getProviderValueEur();
         boolean hasProviderValue = providerValue != null;
         if (caisseEpargnePer && providerValue != null && providerValue.signum() <= 0) {

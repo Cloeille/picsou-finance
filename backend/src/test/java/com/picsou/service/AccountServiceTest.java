@@ -1233,6 +1233,26 @@ class AccountServiceTest {
     }
 
     @Test
+    void caisseEpargneAssuranceVie_isValuedFromInsurerFiguresLikeAPer_andAManualOneIsNot() {
+        AccountHolding uc = AccountHolding.builder()
+            .ticker("UC_A").quantity(new BigDecimal("10"))
+            .currentPrice(new BigDecimal("50")).quoteCurrency("USD")
+            .providerValueEur(new BigDecimal("500")).build();
+        when(holdingRepository.findByAccount_Id(6L)).thenReturn(List.of(uc));
+        when(priceService.getQuotes(any())).thenReturn(
+            Map.of("UC_A", new PriceService.Quote(new BigDecimal("60"), LocalDate.now(), true)));
+
+        Account synced = Account.builder().id(6L).name("Synthetic life insurance")
+            .type(AccountType.ASSURANCE_VIE).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .currentBalance(new BigDecimal("1500")).cashBalance(new BigDecimal("1000")).build();
+
+        AccountService.Valuation valuation = accountService.valuation(synced);
+
+        // 1000 euro fund + 10 units at the live 60, repriced between syncs.
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1600");
+    }
+
+    @Test
     void caisseEpargnePer_usesLiveQuotesAndKeepsUnresolvedBankValuationsStale() {
         Account account = Account.builder().id(6L).name("Synthetic pension")
             .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")

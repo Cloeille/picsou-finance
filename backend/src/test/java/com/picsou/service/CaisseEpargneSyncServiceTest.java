@@ -326,6 +326,64 @@ class CaisseEpargneSyncServiceTest {
     }
 
     @Test
+    void queueSync_importsAnAssuranceVieWithItsInsurerPocketAndTheSameColourAsThePer() {
+        Fixture f = new Fixture();
+        LocalDate valuationDate = TODAY.minusDays(3);
+        CaisseEpargnePort.PerDetails detail = new CaisseEpargnePort.PerDetails(
+            new BigDecimal("4200.00"), new BigDecimal("1000.00"), valuationDate,
+            List.of(new CaisseEpargnePort.PerPosition("XX0000000001", "Synthetic fund",
+                new BigDecimal("10"), new BigDecimal("320"), new BigDecimal("3200.00"), valuationDate, 1)));
+        CaisseEpargnePort.AccountData source = f.withName(f.per(), " ");
+        CaisseEpargnePort.AccountData av = new CaisseEpargnePort.AccountData(
+            "contract:V0001", "ASSURANCE_VIE", source.name(), source.balance(), source.currency(),
+            null, false, null, null, null, null, null, null, null, List.of(), true, null, detail);
+        CaisseEpargnePerService.Prepared prepared = new CaisseEpargnePerService.Prepared(
+            new BigDecimal("4200.00"), new BigDecimal("1000.00"), valuationDate, List.of(),
+            java.util.Map.of(), java.util.Set.of());
+        when(perService.prepare(detail, "EUR")).thenReturn(prepared);
+        arrangeCommittableSync(av);
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        Account saved = accountCaptor.getValue();
+        assertThat(saved.getType()).isEqualTo(AccountType.ASSURANCE_VIE);
+        assertThat(saved.getName()).isEqualTo("Assurance vie");
+        assertThat(saved.getColor()).isEqualTo("#8b5cf6");
+        assertThat(saved.getCashBalance()).isEqualByComparingTo("1000.00");
+        verify(perService).prepare(detail, "EUR");
+        verify(perService).backfill(prepared);
+    }
+
+    @Test
+    void queueSync_refusesTheWholeSnapshotWhenAnAssuranceVieHasANegativeBalance() {
+        Fixture f = new Fixture();
+        CaisseEpargnePort.AccountData negative = f.withBalance(f.per(), "-1.00");
+        CaisseEpargnePort.AccountData av = new CaisseEpargnePort.AccountData(
+            "contract:V0001", "ASSURANCE_VIE", negative.name(), negative.balance(), "EUR",
+            null, false, null, null, null, null, null, null, null, List.of(), true, null);
+        CaisseEpargneSession session = arrangeCommittableSync(f.current(), av);
+
+        service.queueSync(7L);
+
+        assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
+    }
+
+    @Test
+    void isInsurerContract_isTrueOnlyForACaisseEpargnePerOrAssuranceVie() {
+        for (AccountType type : AccountType.values()) {
+            boolean expected = type == AccountType.PER || type == AccountType.ASSURANCE_VIE;
+            assertThat(CaisseEpargneSyncService.isInsurerContract(
+                Account.builder().type(type).provider(CaisseEpargneSyncService.PROVIDER).build()))
+                .as(type.name()).isEqualTo(expected);
+            assertThat(CaisseEpargneSyncService.isInsurerContract(
+                Account.builder().type(type).provider("Amundi").build())).as("other " + type).isFalse();
+            assertThat(CaisseEpargneSyncService.isInsurerContract(
+                Account.builder().type(type).build())).as("manual " + type).isFalse();
+        }
+    }
+
+    @Test
     void queueSync_givesTheLddsTheSameColourAsTheLivretA() {
         Fixture f = new Fixture();
         arrangeCommittableSync(f.livret(), f.ldds());

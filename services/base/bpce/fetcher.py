@@ -356,7 +356,7 @@ def _serialise_account(
         "snapshotComplete": True,
         "loan": _serialise_loan(loan) if kind == "LOAN" else None,
     }
-    if per is not None and kind == "PER":
+    if per is not None and kind in accounts_parser.INSURER_KINDS:
         # The insurer valuation can be newer than the bank's synthesis total.
         result["balance"] = _dec(per["balance"])
         result["per"] = _serialise_per(per)
@@ -373,7 +373,9 @@ _CURRENT_KIND = "CURRENT_ACCOUNT"
 
 
 async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvider]) -> tuple[dict, dict]:
-    """`({externalId: parsed PER}, {externalId: code})`: complete positions, or the PER unavailable.
+    """`({externalId: parsed insurer detail}, {externalId: code})` for every PER and assurance vie.
+
+    Complete positions, or that contract unavailable.
 
     A missing provider is legacy compatibility for direct callers. Production supplies it
     using the stored session and never substitutes a successful balance-only import on failure.
@@ -386,7 +388,7 @@ async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvide
     if provider is None:
         return details, unavailable
     for account in accounts:
-        if account["kind"] != "PER":
+        if account["kind"] not in accounts_parser.INSURER_KINDS:
             continue
         ext = account["externalId"]
         entity_code = account.get("perEntityCode")
@@ -405,17 +407,26 @@ async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvide
         except replay.ReplayError as exc:
             if isinstance(exc, per_client.UnknownPerContract):
                 # Refused before any request: the contract id is not one the insurer
-                # reader knows. Its masked shape tells a new product (an assurance vie
-                # filed under the PER code) apart, without any number.
-                log.info("PER request refused: idShape=%s", _id_shape(ext))
+                # reader knows. Its masked shape tells a new insurer product (one filed
+                # under the PER code) apart, without any number.
+                log.info("insurer request refused: idShape=%s", _id_shape(ext))
             unavailable[ext] = exc.code
             continue
         except httpx.HTTPError:
             unavailable[ext] = UpstreamUnavailable.code
             continue
         try:
-            details[ext] = per_parser.parse_per_detail(raw, currency=account["balance"]["currency"])
+            details[ext] = per_parser.parse_per_detail(
+                raw,
+                currency=account["balance"]["currency"],
+                undated_prices_ok=account["kind"] == "ASSURANCE_VIE",
+            )
         except accounts_parser.ParseError as exc:
+            # Field path only (the parser names fields and positions, never a value): which
+            # part of an insurer answer changed, for a product seen in few live runs.
+            log.warning(
+                "insurer detail unreadable: kind=%s rejected=%s", account["kind"], accounts_parser._reason(exc)
+            )
             unavailable[ext] = exc.code
     return details, unavailable
 

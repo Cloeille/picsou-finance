@@ -559,15 +559,17 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
                 // The bank shows a loan's outstanding capital as a negative figure.
                 throw invalid("a loan with a positive outstanding");
             }
-            if (type == AccountType.PER && account.balance().signum() < 0) {
-                throw invalid("a retirement plan with a negative balance");
+            // A PER and an assurance vie are read from the insurer; both are assets.
+            boolean insurerContract = type == AccountType.PER || type == AccountType.ASSURANCE_VIE;
+            if (insurerContract && account.balance().signum() < 0) {
+                throw invalid("an insurer contract with a negative balance");
             }
             // Picsou stores a loan positive and applies the liability sign itself.
-            if (account.per() != null && type != AccountType.PER) {
-                throw invalid("PER details on another account type");
+            if (account.per() != null && !insurerContract) {
+                throw invalid("insurer details on another account type");
             }
             // Validated and resolved here, outside any database transaction: it may call market providers.
-            CaisseEpargnePerService.Prepared per = type == AccountType.PER
+            CaisseEpargnePerService.Prepared per = insurerContract
                 ? perService.prepare(account.per(), account.currency())
                 : null;
             BigDecimal balance = per != null
@@ -1170,6 +1172,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
             case "LDDS" -> AccountType.LDDS;
             case "PEL" -> AccountType.PEL;
             case "PER" -> AccountType.PER;
+            case "ASSURANCE_VIE" -> AccountType.ASSURANCE_VIE;
             case "LOAN" -> AccountType.LOAN;
             case "CARD" -> AccountType.CREDIT_CARD;
             // Never guess: an unknown kind means the format moved under us.
@@ -1186,6 +1189,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
             case LDDS -> "LDDS";
             case PEL -> "PEL";
             case PER -> "PER";
+            case ASSURANCE_VIE -> "Assurance vie";
             case LOAN -> bank.loanName();
             default -> bank.accountName();
         };
@@ -1195,7 +1199,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         return switch (type) {
             // Same colour for every regulated savings book, as the Bourso connector does.
             case LIVRET_A, LIVRET_JEUNE, LEP, LDDS, PEL -> "#f59e0b";
-            case PER -> "#8b5cf6";
+            case PER, ASSURANCE_VIE -> "#8b5cf6";
             case LOAN -> "#64748b";
             case CREDIT_CARD -> "#2563eb";
             default -> "#dc2626";

@@ -2,6 +2,8 @@ package com.picsou.service;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.picsou.config.CryptoEncryption;
+import com.picsou.model.Account;
+import com.picsou.model.AccountType;
 import com.picsou.model.CaisseEpargneSession;
 import com.picsou.model.CaisseEpargneSyncStatus;
 import com.picsou.adapter.sidecar.SidecarBank;
@@ -39,6 +41,17 @@ public class CaisseEpargneSyncService {
 
     static final String PROVIDER = "Caisse d'Epargne";
     static final BpceBank BANK = BpceBank.named(PROVIDER, "ce_");
+
+    /**
+     * A PER or an assurance vie imported from the insurer's app: valued from the insurer's own unit
+     * prices rather than the generic quote path. One definition for the sync and for the three
+     * services that value, snapshot and chart these accounts, so they cannot disagree.
+     */
+    static boolean isInsurerContract(Account account) {
+        AccountType type = account.getType();
+        return (type == AccountType.PER || type == AccountType.ASSURANCE_VIE)
+            && PROVIDER.equals(account.getProvider());
+    }
 
     private final CaisseEpargnePort port;
     private final CaisseEpargneSessionRepository sessionRepository;

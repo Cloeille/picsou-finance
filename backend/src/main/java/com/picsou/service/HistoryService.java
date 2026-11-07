@@ -145,7 +145,7 @@ public class HistoryService {
         // Per-account forward-filled balance + invested snapshots + sorted dates.
         ForwardFillData ffData = buildPerAccountForwardFill(from, accounts);
         Set<Long> caisseEpargnePerIds = accounts.stream()
-            .filter(this::isCaisseEpargnePer)
+            .filter(CaisseEpargneSyncService::isInsurerContract)
             .filter(account -> shares.getOrDefault(account.getId(), BigDecimal.ZERO).signum() > 0)
             .map(Account::getId)
             .collect(Collectors.toSet());
@@ -339,7 +339,7 @@ public class HistoryService {
                 receivableIds.add(accId);
             }
 
-            if (isCaisseEpargnePer(account)) {
+            if (CaisseEpargneSyncService.isInsurerContract(account)) {
                 caisseEpargnePerIds.add(accId);
                 List<AccountHolding> holdings = holdingRepository.findByAccount_Id(accId);
                 if (shares.getOrDefault(accId, BigDecimal.ZERO).signum() > 0
@@ -560,7 +560,7 @@ public class HistoryService {
 
         for (Account account : accounts) {
             List<AccountHolding> holdings = holdingRepository.findByAccount_Id(account.getId());
-            boolean caisseEpargnePer = isCaisseEpargnePer(account);
+            boolean caisseEpargnePer = CaisseEpargneSyncService.isInsurerContract(account);
             if (!caisseEpargnePer) {
                 rangeHoldings.addAll(holdings);
                 for (AccountHolding h : holdings) {
@@ -661,11 +661,6 @@ public class HistoryService {
         return buildPnl(accountIds, memberId, null);
     }
 
-    private boolean isCaisseEpargnePer(Account account) {
-        return account.getType() == AccountType.PER
-            && CaisseEpargneSyncService.PROVIDER.equals(account.getProvider());
-    }
-
     private boolean hasCompleteCostBasis(Account account, List<AccountHolding> holdings) {
         return !holdings.isEmpty()
             && (account.getCashBalance() == null || account.getCashBalance().signum() <= 0)
@@ -701,7 +696,7 @@ public class HistoryService {
         }
 
         for (Account account : accounts) {
-            if (!isCaisseEpargnePer(account)) continue;
+            if (!CaisseEpargneSyncService.isInsurerContract(account)) continue;
             snapshotRepository.findFirstByAccountIdAndDateLessThanEqualOrderByDateDesc(
                 account.getId(), from.minusDays(1)).ifPresent(snapshot -> {
                     balanceByAccount.computeIfAbsent(account.getId(), ignored -> new TreeMap<>())

@@ -58,10 +58,11 @@ public enum AccountType {
      * and three separate copies of the same set (manual entry, CSV import, ISIN repair) would be
      * three chances for them to disagree about what an account is.
      *
-     * <p>{@code ASSURANCE_VIE} is in: no connector syncs one, so typing the unit-linked lines
-     * by hand is the only way to get instrument-level detail, and without it every euro of
-     * life insurance would be invisible to the sector and country breakdowns. Its euro fund
-     * goes in {@code cashBalance}, the slot the cash inside a PEA/CTO envelope already uses.
+     * <p>{@code ASSURANCE_VIE} is in: most connectors cannot read one, so typing the unit-linked
+     * lines by hand is often the only way to get instrument-level detail, and without it every euro
+     * of life insurance would be invisible to the sector and country breakdowns (the Caisse
+     * d'Epargne connector reads the insurer's lines itself). Its euro fund goes in
+     * {@code cashBalance}, the slot the cash inside a PEA/CTO envelope already uses.
      * {@code PER} is in for the same reason: an individual plan holds the same unit-linked lines
      * plus a euro fund. {@code PRECIOUS_METALS} is in because gold is held as a quantity (grams
      * or coins) of a priced product, not as a balance.

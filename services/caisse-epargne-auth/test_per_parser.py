@@ -189,6 +189,24 @@ class PerParserTest(unittest.TestCase):
 
                 self.assertEqual(error.exception.code, "INVALID_PER_DETAIL")
 
+    def test_undated_nav_takes_the_valuation_date_only_when_allowed(self):
+        line = uc_line()
+        del line["dateValeurUniteCompte"]
+        detail = per_detail(line, euro_line())
+
+        with self.assertRaises(ParseError):
+            parse_per_detail(detail)
+        parsed = parse_per_detail(detail, undated_prices_ok=True)
+
+        self.assertEqual(parsed["positions"][0]["priceDate"], parsed["valuationDate"])
+
+    def test_undated_allowance_does_not_relax_other_checks(self):
+        line = uc_line(valeurUniteCompte=1.0)
+        del line["dateValeurUniteCompte"]
+
+        with self.assertRaises(ParseError):
+            parse_per_detail(per_detail(line, euro_line()), undated_prices_ok=True)
+
     def test_positive_uc_isin_must_match_strict_uppercase_source_format(self):
         for isin in ["aa0000000001", "AA000000000X", "AA00000000-1", "A00000000001"]:
             with self.subTest(isin=isin):

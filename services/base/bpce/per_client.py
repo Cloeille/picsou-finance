@@ -54,8 +54,13 @@ APP_CODE = "IW4"
 JWT_HEADER = "iw4-jwt-token"
 
 _ENTITY_CODE_RE = re.compile(r"[0-9]{5}\Z")
-_CONTRACT_ID_RE = re.compile(r"[0-9]{5} {1,16}PERIC(?P<number>[0-9]{1,64})\Z")
-_PRODUCER_ID_RE = re.compile(r"(?P<product>PER)(?P<company>IC)(?P<number>[0-9]{1,32})\Z")
+# The insurer products this reader knows, each pinned to its exact codes (never a
+# `[A-Z]{3}` wildcard): a PER (`PERIC`) and an assurance vie (`ESSEN`, Millevie Essentielle).
+# The bank contract id is `<entity> <PRODUCT><number>`; the insurer's own id is
+# `<product 3><company 2><number>` and starts with the same five letters.
+_CONTRACT_ID_RE = re.compile(r"[0-9]{5} {1,16}(?P<product>PERIC|ESSEN)(?P<number>[0-9]{1,64})\Z")
+_PRODUCER_ID_RE = re.compile(r"(?P<product>PER|ESS)(?P<company>IC|EN)(?P<number>[0-9]{1,32})\Z")
+_PRODUCER_PAIRS = frozenset({("PER", "IC"), ("ESS", "EN")})
 ROUTING_PATH = "/bapi/contract/v1/contracts"
 _ROUTING_BODY = {
     "characteristics": {
@@ -101,13 +106,17 @@ def _reject_json_constant(_: str) -> None:
     raise ValueError
 
 
-def _contract_number(contract_id: Any) -> str:
+def _parse_contract_id(contract_id: Any) -> re.Match:
     if not isinstance(contract_id, str) or len(contract_id) > 128:
         raise UnknownPerContract("Invalid PER contract identifier")
     match = _CONTRACT_ID_RE.fullmatch(contract_id)
     if match is None:
         raise UnknownPerContract("Invalid PER contract identifier")
-    return match.group("number")
+    return match
+
+
+def _contract_number(contract_id: Any) -> str:
+    return _parse_contract_id(contract_id).group("number")
 
 
 def _validate_entity_code(entity_code: Any) -> str:
@@ -203,8 +212,12 @@ def _check_status(status: int, *, stage: str) -> None:
     raise replay.UpstreamError("PER insurer request failed")
 
 
-def _producer_id(body: bytes, *, entity_code: str, insurer_host: str) -> str:
-    """The insurer contract id from a prepareRouting answer, bound to this contract."""
+def _producer_id(body: bytes, *, entity_code: str, insurer_host: str, product: str | None = None) -> str:
+    """The insurer contract id from a prepareRouting answer, bound to this contract.
+
+    `product` is the five-letter product code of the bank contract id asked for; the
+    answer must be for the same product.
+    """
     root = _json_object(body)
     # Three shapes: the characteristics object itself (logged live), or wrapped in
     # `characteristics`, or in `prepareRouting.characteristics`.
@@ -226,9 +239,16 @@ def _producer_id(body: bytes, *, entity_code: str, insurer_host: str) -> str:
         log.warning("PER detail refused: stage=routing reason=other-host")
         raise replay.HostNotAllowed("Refused a PER URL outside the exact HTTPS host")
     producer_id = query.get("producerContratId")
-    if not isinstance(producer_id, str) or (match := _PRODUCER_ID_RE.fullmatch(producer_id)) is None:
+    if (
+        not isinstance(producer_id, str)
+        or (match := _PRODUCER_ID_RE.fullmatch(producer_id)) is None
+        or (match.group("product"), match.group("company")) not in _PRODUCER_PAIRS
+    ):
         log.warning("PER detail refused: stage=routing reason=producer-id-format")
         raise replay.UpstreamError("PER routing returned an unusable contract id")
+    if product is not None and not producer_id.startswith(product):
+        log.warning("PER detail refused: stage=routing reason=other-product")
+        raise replay.UpstreamError("PER routing answered for another product")
     if query.get("cdEtab") != entity_code:
         log.warning("PER detail refused: stage=routing reason=other-establishment")
         raise replay.UpstreamError("PER routing answered for another establishment")
@@ -282,7 +302,7 @@ async def fetch_per_detail(
     _validate_token(access_token)
     _validate_token(routing_token)
     entity_code = _validate_entity_code(entity_code)
-    _contract_number(contract_id)
+    product = _parse_contract_id(contract_id).group("product")
     route_segment = urllib.parse.quote(f"{entity_code}-{contract_id}", safe="")
     routing_url = _guard_url(
         site, f"https://{gateway_host}{ROUTING_PATH}/{route_segment}/prepareRouting", gateway_host
@@ -301,7 +321,9 @@ async def fetch_per_detail(
         if not 200 <= status < 300:
             log.warning("PER detail refused: stage=routing status=%d", status)
             raise replay.UpstreamError("PER routing request failed")
-        producer_id = _producer_id(body, entity_code=entity_code, insurer_host=insurer_host)
+        producer_id = _producer_id(
+            body, entity_code=entity_code, insurer_host=insurer_host, product=product
+        )
         match = _PRODUCER_ID_RE.fullmatch(producer_id)
         token_url = _guard_url(site, f"https://{gateway_host}{CLIENT_TOKEN_PATH}/{producer_id}", gateway_host)
         detail_url = _guard_url(

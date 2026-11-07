@@ -44,8 +44,8 @@ log = configure_logging("caisse-epargne-auth", quiet=("httpx", "httpcore"))
 # Hosts and apps observed on the real bank. The login and data paths are the shared
 # BPCE ones (services/base/bpce); only these differ from Banque Populaire.
 SITE = Site(
-    # Seen in one live run (2026-11-06): PEL 3/04 and LEP 3/27.
-    provisional_kinds=frozenset({"PEL", "LEP"}),
+    # Seen in one live run (2026-11-06): PEL 3/04, LEP 3/27 and the assurance vie.
+    provisional_kinds=frozenset({"PEL", "LEP", "ASSURANCE_VIE"}),
     domain="caisse-epargne.fr",
     login_url="https://www.icgauth.caisse-epargne.fr/se-connecter/sso?service=dei",
     client_host="www.caisse-epargne.fr",

@@ -1069,6 +1069,83 @@ class PerHoldingsImportTest(unittest.IsolatedAsyncioTestCase):
             await run_fetch(products_ce(), per_detail=detail)
 
 
+class AssuranceVieImportTest(unittest.IsolatedAsyncioTestCase):
+    AV_ID = "contract:00000     ESSEN00000014"
+
+    def av_ce(self, **kwargs) -> FakeCE:
+        ce = products_ce(**kwargs)
+        for item in ce.synth["items"]:
+            ident = item["identification"]
+            if ident.get("contractId", {}).get("id") == "00000     FAKE00000014":
+                ident["contractId"]["id"] = "00000     ESSEN00000014"
+        return ce
+
+    async def test_an_assurance_vie_is_read_through_the_insurer_chain(self):
+        calls = []
+
+        async def detail(contract_id, entity_code):
+            calls.append((contract_id, entity_code))
+            return PerHoldingsImportTest.payload()
+
+        result = await run_fetch(self.av_ce(), per_detail=detail)
+        account = next(a for a in result["accounts"] if a["externalId"] == self.AV_ID)
+
+        self.assertEqual(calls, [("00000     ESSEN00000014", "00000")])
+        self.assertEqual(account["kind"], "ASSURANCE_VIE")
+        self.assertEqual(account["balance"], "1700")
+        self.assertEqual(account["per"]["euroFundBalance"], "1000")
+        self.assertEqual(account["per"]["positions"][0]["isin"], "XX0000000001")
+        self.assertEqual(account["transactions"], [])
+
+    async def test_an_undated_unit_price_takes_the_valuation_date_for_an_assurance_vie_only(self):
+        async def detail(_contract_id, _entity_code):
+            payload = PerHoldingsImportTest.payload()
+            del payload["detailContratVie"]["valorisation"]["supports"][0]["dateValeurUniteCompte"]
+            return payload
+
+        av = await run_fetch(self.av_ce(), per_detail=detail)
+        per = await run_fetch(products_ce(), per_detail=detail)
+
+        account = next(a for a in av["accounts"] if a["externalId"] == self.AV_ID)
+        self.assertEqual(account["per"]["positions"][0]["priceDate"], "2026-10-01")
+        self.assertEqual([u["kind"] for u in per["unavailable"]], ["PER"])
+
+    async def test_an_unreadable_assurance_vie_is_unavailable_and_the_rest_imports(self):
+        async def detail(_contract_id, _entity_code):
+            payload = PerHoldingsImportTest.payload()
+            payload["detailContratVie"]["valorisation"]["montant"] = 999999
+            return payload
+
+        result = await run_fetch(self.av_ce(), per_detail=detail)
+
+        self.assertEqual(
+            result["unavailable"],
+            [{"externalId": self.AV_ID, "kind": "ASSURANCE_VIE", "code": "INVALID_PER_DETAIL"}],
+        )
+        self.assertIn(LOAN_ID, {a["externalId"] for a in result["accounts"]})
+
+    async def test_an_unreadable_detail_logs_the_field_path_and_no_value(self):
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        root = logging.getLogger()
+        root.addHandler(handler)
+
+        async def detail(_contract_id, _entity_code):
+            payload = PerHoldingsImportTest.payload()
+            payload["detailContratVie"]["valorisation"]["montant"] = 987654
+            return payload
+
+        try:
+            await run_fetch(self.av_ce(), per_detail=detail)
+        finally:
+            root.removeHandler(handler)
+
+        rendered = stream.getvalue()
+        self.assertIn("insurer detail unreadable: kind=ASSURANCE_VIE", rendered)
+        for value in ("987654", "ESSEN00000014", "Synthetic fund", "XX0000000001"):
+            self.assertNotIn(value, rendered)
+
+
 class LogHygieneTest(unittest.IsolatedAsyncioTestCase):
     async def test_no_value_in_logs_or_error_messages(self):
         stream = io.StringIO()
@@ -1190,14 +1267,14 @@ class AccountIsolationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             result["unavailable"], [{"externalId": PER_ID, "kind": "PER", "code": "INVALID_PER_REQUEST"}]
         )
-        lines = [line for line in logs.output if "PER request refused:" in line]
-        self.assertEqual(lines, ["INFO:bpce:PER request refused: idShape=99999     999999999999"])
+        lines = [line for line in logs.output if "insurer request refused:" in line]
+        self.assertEqual(lines, ["INFO:bpce:insurer request refused: idShape=99999     999999999999"])
 
         with patch.dict("os.environ", {"CE_LOG_PRODUCT_DETAILS": "1"}):
             with self.assertLogs("bpce", "INFO") as logs:
                 await run_fetch(products_ce(), per_detail=detail)
-        lines = [line for line in logs.output if "PER request refused:" in line]
-        self.assertEqual(lines, ["INFO:bpce:PER request refused: idShape=99999     FAKE99999999"])
+        lines = [line for line in logs.output if "insurer request refused:" in line]
+        self.assertEqual(lines, ["INFO:bpce:insurer request refused: idShape=99999     FAKE99999999"])
 
     async def test_a_per_request_refused_for_another_reason_logs_no_id_shape(self):
         # An invalid token or entity code is not a new product: blaming the id would mislead.
@@ -1210,7 +1287,7 @@ class AccountIsolationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             result["unavailable"], [{"externalId": PER_ID, "kind": "PER", "code": "INVALID_PER_REQUEST"}]
         )
-        self.assertFalse([line for line in logs.output if "PER request refused:" in line])
+        self.assertFalse([line for line in logs.output if "insurer request refused:" in line])
 
     async def test_a_per_routed_to_an_unknown_insurer_host_is_isolated(self):
         # A PER URL refused by the host guard must not drop the current account,

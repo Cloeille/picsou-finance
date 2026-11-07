@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { accountsApi, realEstateApi } from './api'
 import type { AccountRequest, Account, DebtRequest, HoldingResponse, OwnershipRequest, RealEstateMetadataRequest, ScpiPositionRequest, ScpiProvider, TransactionImportRequest, TransactionRequest } from '@/types/api'
+import { euroFundLabelKey, hasSyncedEuroFund } from './euro-fund'
 import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES, QUERY_STALE_TIMES } from '@/lib/constants'
 
 export interface HoldingWithAccount extends HoldingResponse {
@@ -191,14 +192,15 @@ export function usePortfolio() {
       )
       lines.push(...holdingResults.flat())
 
-      // PER accounts keep the euro-fund balance separately from their account total. Do not
-      // use currentBalanceEur here: it already includes unit-linked holdings in the same PER.
+      // PER accounts, and assurance vie imported from the Caisse d'Epargne, keep the euro-fund
+      // balance separately from their account total. Do not use currentBalanceEur here: it
+      // already includes unit-linked holdings in the same contract.
       for (const account of accounts) {
-        if (account.type !== 'PER' || account.cashBalance == null || account.cashBalance <= 0) continue
+        if (!hasSyncedEuroFund(account) || account.cashBalance == null || account.cashBalance <= 0) continue
         lines.push({
           id: `per-euro-fund-${account.id}`,
           name: account.name,
-          nameKey: 'accounts.perEuroFundBalance',
+          nameKey: euroFundLabelKey(account),
           ticker: 'EUR',
           isCash: true,
           quantity: 0,
