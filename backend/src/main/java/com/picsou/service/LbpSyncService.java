@@ -629,7 +629,12 @@ public class LbpSyncService {
     /**
      * An account a complete fetch no longer lists (a closed livret) would keep its last
      * balance and still count in the net worth. Only a complete read reaches this point:
-     * {@link #prepare} refuses an empty or partial snapshot, so unlike the CIC connector
+     * {@link #prepare} refuses an empty snapshot and any account whose
+     * {@code snapshotComplete} is false, while the sidecar refuses each synthesis page
+     * that yields zero cards without both a recognised account-list container and an
+     * explicit empty-state message: a 200 maintenance/error/partial page answers
+     * {@code UPSTREAM_FORMAT_CHANGED} and never arrives here as a partial list. So
+     * unlike the CIC connector
      * there are no per-table categories to gate on and every stored {@code lbp_} account
      * of this member is in scope. The account is closed at zero rather than soft
      * deleted: a soft-deleted account reads as removed by the user and would never be

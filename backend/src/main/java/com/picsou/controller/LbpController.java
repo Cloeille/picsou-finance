@@ -123,7 +123,10 @@ public class LbpController {
     /**
      * Blocks while the customer approves the sign-in in the bank's mobile app (up to 150 s on
      * the sidecar), then stores the session. Takes no password and does not draw from the login
-     * bucket: it cannot spend a bank attempt.
+     * bucket: it cannot spend a bank attempt. Deliberately no rate-limit bucket (unlike CIC's
+     * {@code /auth/complete}): {@code LbpSyncService.takePending} removes the pending login
+     * before the sidecar is called, so a processId is single-use and a replay fails with the
+     * existing expiration error.
      */
     @PostMapping("/auth/complete")
     public ResponseEntity<?> complete(@RequestBody JsonNode body) {
