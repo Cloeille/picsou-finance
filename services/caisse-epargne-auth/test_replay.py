@@ -14,7 +14,8 @@ import urllib.parse
 
 import httpx
 
-import replay
+from bpce import replay
+import main as ce_main
 
 AUTHORIZE_HOST = "www.as-ext-bad-ce.caisse-epargne.fr"
 AUTHN_HOST = "www.icgauth.caisse-epargne.fr"
@@ -82,7 +83,7 @@ class AllowListTest(unittest.TestCase):
             "https://a.b.caisse-epargne.fr:443/x",
         ):
             with self.subTest(url=url):
-                self.assertTrue(replay.is_allowed_url(url))
+                self.assertTrue(replay.is_allowed_url(ce_main.SITE, url))
 
     def test_everything_else_is_refused(self):
         for url in (
@@ -108,7 +109,7 @@ class AllowListTest(unittest.TestCase):
             {"a": 1},
         ):
             with self.subTest(url=url):
-                self.assertFalse(replay.is_allowed_url(url))
+                self.assertFalse(replay.is_allowed_url(ce_main.SITE, url))
 
 
 class SessionStateTest(unittest.TestCase):
@@ -308,7 +309,7 @@ class FakeBank:
 class ReplayChainTest(unittest.IsolatedAsyncioTestCase):
     async def run_chain(self, bank: FakeBank, **kwargs) -> replay.TokenResult:
         state = replay.parse_session_state(make_state())
-        return await replay.replay_chain(state, transport=bank.transport(), **kwargs)
+        return await replay.replay_chain(ce_main.SITE, state, transport=bank.transport(), **kwargs)
 
     async def test_happy_chain_returns_the_token_and_its_lifetime(self):
         bank = FakeBank()
@@ -533,7 +534,7 @@ class ReplayChainTest(unittest.IsolatedAsyncioTestCase):
         state = replay.parse_session_state(make_state())
 
         with self.assertRaises(replay.UpstreamError):
-            await replay.replay_chain(state, transport=httpx.MockTransport(handler))
+            await replay.replay_chain(ce_main.SITE, state, transport=httpx.MockTransport(handler))
 
         self.assertEqual(len(seen), 1)
 
@@ -571,7 +572,7 @@ class ReplayChainTest(unittest.IsolatedAsyncioTestCase):
 
         state = replay.parse_session_state(make_state())
         with self.assertRaises(replay.UpstreamError) as ctx:
-            await replay.replay_chain(state, transport=httpx.MockTransport(handler))
+            await replay.replay_chain(ce_main.SITE, state, transport=httpx.MockTransport(handler))
 
         self.assertNotIn(SECRET_COOKIE, str(ctx.exception))
 
@@ -605,7 +606,7 @@ class ReplayChainTest(unittest.IsolatedAsyncioTestCase):
 class TokenCacheTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.now = 1000.0
-        self.cache = replay.TokenCache(clock=lambda: self.now)
+        self.cache = replay.TokenCache(ce_main.SITE, clock=lambda: self.now)
 
     async def get(self, bank, raw=None):
         return await self.cache.get(raw or make_state(), transport=bank.transport())
@@ -736,21 +737,21 @@ class LoanChainTest(unittest.IsolatedAsyncioTestCase):
 
     async def run_chain(self, bank: FakeBank, **kwargs) -> replay.TokenResult:
         state = replay.parse_session_state(make_state(params=params_with_claims()))
-        return await replay.replay_chain(state, transport=bank.transport(), **kwargs)
+        return await replay.replay_chain(ce_main.SITE, state, transport=bank.transport(), **kwargs)
 
     async def test_loan_authorize_carries_the_overrides_and_no_claims(self):
         bank = FakeBank()
-        await self.run_chain(bank, chain=replay.LOAN_CHAIN)
+        await self.run_chain(bank, chain=ce_main.LOAN_CHAIN)
 
         query = authorize_query_of(bank)
-        self.assertEqual(query["client_id"], replay.LOAN_CLIENT_ID)
-        self.assertEqual(query["scope"], replay.LOAN_SCOPE)
-        self.assertEqual(query["redirect_uri"], replay.LOAN_REDIRECT_URI)
+        self.assertEqual(query["client_id"], dict(ce_main.LOAN_CHAIN.overrides)["client_id"])
+        self.assertEqual(query["scope"], dict(ce_main.LOAN_CHAIN.overrides)["scope"])
+        self.assertEqual(query["redirect_uri"], dict(ce_main.LOAN_CHAIN.overrides)["redirect_uri"])
         self.assertNotIn("claims", query)
 
     async def test_loan_authorize_keeps_every_other_captured_param(self):
         bank = FakeBank()
-        await self.run_chain(bank, chain=replay.LOAN_CHAIN)
+        await self.run_chain(bank, chain=ce_main.LOAN_CHAIN)
 
         query = authorize_query_of(bank)
         captured = params_with_claims()
@@ -765,11 +766,11 @@ class LoanChainTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_loan_token_request_uses_the_overridden_client_and_redirect(self):
         bank = FakeBank()
-        await self.run_chain(bank, chain=replay.LOAN_CHAIN)
+        await self.run_chain(bank, chain=ce_main.LOAN_CHAIN)
 
         form = form_of(bank.requests[3])
-        self.assertEqual(form["client_id"], replay.LOAN_CLIENT_ID)
-        self.assertEqual(form["redirect_uri"], replay.LOAN_REDIRECT_URI)
+        self.assertEqual(form["client_id"], dict(ce_main.LOAN_CHAIN.overrides)["client_id"])
+        self.assertEqual(form["redirect_uri"], dict(ce_main.LOAN_CHAIN.overrides)["redirect_uri"])
         query = authorize_query_of(bank)
         expected = (
             base64.urlsafe_b64encode(hashlib.sha256(form["code_verifier"].encode()).digest())
@@ -793,9 +794,9 @@ class LoanChainTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(form["redirect_uri"], captured["redirect_uri"])
 
     def test_loan_redirect_and_detail_path_are_allow_listed(self):
-        self.assertTrue(replay.is_allowed_url(replay.LOAN_REDIRECT_URI))
+        self.assertTrue(replay.is_allowed_url(ce_main.SITE, dict(ce_main.LOAN_CHAIN.overrides)["redirect_uri"]))
         self.assertTrue(
-            replay.is_allowed_url(
+            replay.is_allowed_url(ce_main.SITE,
                 "https://www.rs-ext-bad-ce.caisse-epargne.fr"
                 "/bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/TESTLOAN0001"
             )
@@ -807,16 +808,16 @@ class PerChainTest(unittest.IsolatedAsyncioTestCase):
 
     async def run_chain(self, bank: FakeBank) -> replay.TokenResult:
         state = replay.parse_session_state(make_state(params=params_with_claims()))
-        return await replay.replay_chain(state, transport=bank.transport(), chain=replay.PER_CHAIN)
+        return await replay.replay_chain(ce_main.SITE, state, transport=bank.transport(), chain=ce_main.PER_CHAIN)
 
     async def test_per_authorize_carries_the_insurer_client_an_empty_scope_and_no_claims(self):
         bank = FakeBank()
         await self.run_chain(bank)
 
         query = dict(urllib.parse.parse_qsl(bank.requests[0].url.query.decode(), keep_blank_values=True))
-        self.assertEqual(query["client_id"], replay.PER_CLIENT_ID)
+        self.assertEqual(query["client_id"], dict(ce_main.PER_CHAIN.overrides)["client_id"])
         self.assertEqual(query["scope"], "")  # sent empty, as the insurer app does
-        self.assertEqual(query["redirect_uri"], replay.PER_REDIRECT_URI)
+        self.assertEqual(query["redirect_uri"], dict(ce_main.PER_CHAIN.overrides)["redirect_uri"])
         self.assertNotIn("claims", query)
         captured = params_with_claims()
         for key in ("bpcesta", "display", "login_hint", "response_mode", "response_type"):
@@ -827,37 +828,37 @@ class PerChainTest(unittest.IsolatedAsyncioTestCase):
         await self.run_chain(bank)
 
         form = form_of(bank.requests[3])
-        self.assertEqual(form["client_id"], replay.PER_CLIENT_ID)
-        self.assertEqual(form["redirect_uri"], replay.PER_REDIRECT_URI)
+        self.assertEqual(form["client_id"], dict(ce_main.PER_CHAIN.overrides)["client_id"])
+        self.assertEqual(form["redirect_uri"], dict(ce_main.PER_CHAIN.overrides)["redirect_uri"])
 
     def test_per_cache_key_is_distinct_from_main_and_loan(self):
         state = replay.parse_session_state(make_state())
         keys = {replay.TokenCache._key(state, chain)
-                for chain in (replay.MAIN_CHAIN, replay.LOAN_CHAIN, replay.PER_CHAIN)}
+                for chain in (replay.MAIN_CHAIN, ce_main.LOAN_CHAIN, ce_main.PER_CHAIN)}
         self.assertEqual(len(keys), 3)
 
     def test_per_redirect_and_insurer_urls_are_allow_listed(self):
         for url in (
-            replay.PER_REDIRECT_URI,
+            dict(ce_main.PER_CHAIN.overrides)["redirect_uri"],
             "https://www.rs-ext-bad-ce.caisse-epargne.fr/natixis/assurance/assuranceVieAuth/v1/clientToken/PERIC1",
             "https://www.espace-assurances-de-personnes.caisse-epargne.fr/etna-web/rest/v2/contratVie/load/PER/IC/1",
         ):
-            self.assertTrue(replay.is_allowed_url(url), url)
+            self.assertTrue(replay.is_allowed_url(ce_main.SITE, url), url)
 
 
 class LoanTokenCacheTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.now = 1000.0
-        self.cache = replay.TokenCache(clock=lambda: self.now)
+        self.cache = replay.TokenCache(ce_main.SITE, clock=lambda: self.now)
 
     async def test_loan_and_main_tokens_are_cached_under_distinct_keys(self):
         bank = FakeBank()
         raw = make_state()
         main = await self.cache.get(raw, transport=bank.transport())
-        loan = await self.cache.get(raw, transport=bank.transport(), chain=replay.LOAN_CHAIN)
+        loan = await self.cache.get(raw, transport=bank.transport(), chain=ce_main.LOAN_CHAIN)
         # Each one is served from its own entry afterwards.
         await self.cache.get(raw, transport=bank.transport())
-        await self.cache.get(raw, transport=bank.transport(), chain=replay.LOAN_CHAIN)
+        await self.cache.get(raw, transport=bank.transport(), chain=ce_main.LOAN_CHAIN)
 
         self.assertEqual(len(bank.requests), 8)  # exactly two chains, one per token
         self.assertEqual(len(self.cache), 2)
@@ -865,7 +866,7 @@ class LoanTokenCacheTest(unittest.IsolatedAsyncioTestCase):
         loan_authorize = bank.requests[4]
         self.assertEqual(
             dict(urllib.parse.parse_qsl(loan_authorize.url.query.decode()))["client_id"],
-            replay.LOAN_CLIENT_ID,
+            dict(ce_main.LOAN_CHAIN.overrides)["client_id"],
         )
         self.assertEqual(main.access_token, loan.access_token)  # same fake bank, distinct entries
 
@@ -873,19 +874,19 @@ class LoanTokenCacheTest(unittest.IsolatedAsyncioTestCase):
         state = replay.parse_session_state(make_state())
         self.assertNotEqual(
             replay.TokenCache._key(state, replay.MAIN_CHAIN),
-            replay.TokenCache._key(state, replay.LOAN_CHAIN),
+            replay.TokenCache._key(state, ce_main.LOAN_CHAIN),
         )
 
     async def test_evicting_the_loan_token_keeps_the_main_one(self):
         bank = FakeBank()
         raw = make_state()
         await self.cache.get(raw, transport=bank.transport())
-        await self.cache.get(raw, transport=bank.transport(), chain=replay.LOAN_CHAIN)
-        self.cache.evict(raw, chain=replay.LOAN_CHAIN)
+        await self.cache.get(raw, transport=bank.transport(), chain=ce_main.LOAN_CHAIN)
+        self.cache.evict(raw, chain=ce_main.LOAN_CHAIN)
         await self.cache.get(raw, transport=bank.transport())
 
         self.assertEqual(len(bank.requests), 8)  # main token still served from the cache
-        await self.cache.get(raw, transport=bank.transport(), chain=replay.LOAN_CHAIN)
+        await self.cache.get(raw, transport=bank.transport(), chain=ce_main.LOAN_CHAIN)
         self.assertEqual(len(bank.requests), 12)  # the loan one is replayed
 
 
@@ -915,7 +916,7 @@ class LogHygieneTest(unittest.IsolatedAsyncioTestCase):
         try:
             for bank in scenarios:
                 try:
-                    await replay.replay_chain(
+                    await replay.replay_chain(ce_main.SITE,
                         replay.parse_session_state(make_state()), transport=bank.transport()
                     )
                 except replay.ReplayError as exc:

@@ -42,6 +42,9 @@ export const mockBalanceHistory: Record<number, number[]> = {
   // Peer loans: capital still owed, stepping down with each repayment.
   16: Array.from({ length: 12 }, (_, i) => demoPeerLoanBalanceAt(16, monthStartFromToday(i - 11))),
   17: Array.from({ length: 12 }, (_, i) => demoPeerLoanBalanceAt(17, monthStartFromToday(i - 11))),
+  // Banque Populaire checking and Livret A, added by the connector's demo sync
+  18: [980, 1420, 1100, 1530, 1190, 1380, 1050, 1470, 1160, 1340, 1210, 1250],
+  19: [3500, 3560, 3620, 3680, 3740, 3800, 3860, 3920, 3980, 4040, 4170, 4300],
   ...Object.fromEntries(mockAccounts.filter((account) => account.type === 'LOAN').map((account) => [
     account.id,
     Array.from({ length: 12 }, (_, i) =>

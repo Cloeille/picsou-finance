@@ -13,7 +13,7 @@ import type {
   ScpiPosition,
   ScpiPositionRequest,
 } from '@/types/api'
-import { mockAccounts } from './data/accounts'
+import { mockAccounts, mockBanquePopulaireAccounts } from './data/accounts'
 import {
   mockAllocationTargets,
   mockDiversification,
@@ -1297,6 +1297,66 @@ handlers.set(key('POST', '/caisse-epargne/sync'), () => demoCaisseEpargneStatus)
 handlers.set(key('DELETE', '/caisse-epargne/session'), () => ({
   removed: true, bankSessionRevoked: false, message: '',
 }))
+
+// Banque Populaire — the same BPCE login as Caisse d'Epargne, so the same shortcut:
+// any region and identifier get the demo pad, and Sécur'Pass answers connected at once.
+// Completing the sign-in makes the session live but not yet synced; only the sync answers
+// SUCCESS, so the panel sees SUCCESS from its own sync and closes the add-account wizard.
+// The sync stamps its time once and every status read repeats it: a fresh timestamp per read
+// would look like a new sync to useProviderStatus and refetch the account views forever.
+// The first sync also adds the connector's accounts, and later syncs and reconnects leave them
+// be; disconnecting resets the status and the stamp but keeps the accounts, as the backend does.
+let demoBanquePopulaireState: 'idle' | 'connected' | 'synced' = 'idle'
+let demoBanquePopulaireSyncedAt: string | null = null
+const demoBanquePopulaireStatus = () => {
+  if (demoBanquePopulaireState === 'idle') return { ...demoCaisseEpargneStatus }
+  if (demoBanquePopulaireState === 'connected') return { ...demoCaisseEpargneStatus, isActive: true }
+  return {
+    ...demoCaisseEpargneStatus,
+    isActive: true,
+    syncStatus: 'SUCCESS',
+    lastSyncStartedAt: demoBanquePopulaireSyncedAt,
+    lastSyncCompletedAt: demoBanquePopulaireSyncedAt,
+  }
+}
+handlers.set(key('GET', '/banque-populaire/status'), () => demoBanquePopulaireStatus())
+handlers.set(key('POST', '/banque-populaire/auth/initiate'), () => ({
+  processId: 'demo',
+  keypad: { images: Array.from({ length: 10 }, () => DEMO_PAD_PNG), columns: 5 },
+  expiresInSeconds: 90,
+}))
+handlers.set(key('POST', '/banque-populaire/auth/keypad'), () => ({
+  processId: 'demo', status: 'SECURPASS_PENDING',
+}))
+handlers.set(key('POST', '/banque-populaire/auth/complete'), () => {
+  demoBanquePopulaireState = 'connected'
+  return { connected: true }
+})
+handlers.set(key('POST', '/banque-populaire/sync'), () => {
+  demoBanquePopulaireState = 'synced'
+  const syncedAt = new Date().toISOString()
+  demoBanquePopulaireSyncedAt = syncedAt
+  // A later sync restamps the accounts it already made (createdAt kept) and adds none twice.
+  const fixtureIds = new Set(mockBanquePopulaireAccounts.map(a => a.id))
+  const known = new Set(_demoAccounts.map(a => a.id))
+  const added = mockBanquePopulaireAccounts
+    .filter(a => !known.has(a.id))
+    .map(a => ({ ...a, createdAt: syncedAt, lastSyncedAt: syncedAt }))
+  _demoAccounts = [
+    ..._demoAccounts.map(a => (fixtureIds.has(a.id) ? { ...a, lastSyncedAt: syncedAt } : a)),
+    ...added,
+  ]
+  return demoBanquePopulaireStatus()
+})
+for (const { id } of mockBanquePopulaireAccounts) {
+  handlers.set(key('GET', `/accounts/${id}`), () => _demoAccounts.find(a => a.id === id))
+  handlers.set(key('GET', `/accounts/${id}/transactions`), () => [])
+}
+handlers.set(key('DELETE', '/banque-populaire/session'), () => {
+  demoBanquePopulaireState = 'idle'
+  demoBanquePopulaireSyncedAt = null
+  return { removed: true, bankSessionRevoked: false, message: '' }
+})
 
 // Demo authentication bypasses the bank's mobile/SMS confirmation.
 const demoCicStatus: CicSessionStatus = {

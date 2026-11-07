@@ -16,12 +16,13 @@ const cryptoExchangeApi = vi.hoisted(() => ({
   add: vi.fn(),
 }))
 
-const { amundiApi, corumApi, sofidyApi, boursoApi, caisseEpargneApi, fortuneoApi } = vi.hoisted(() => ({
+const { amundiApi, corumApi, sofidyApi, boursoApi, caisseEpargneApi, banquePopulaireApi, fortuneoApi } = vi.hoisted(() => ({
   amundiApi: { getStatus: vi.fn() },
   corumApi: { getStatus: vi.fn() },
   sofidyApi: { getStatus: vi.fn() },
   boursoApi: { getStatus: vi.fn() },
   caisseEpargneApi: { getStatus: vi.fn() },
+  banquePopulaireApi: { getStatus: vi.fn() },
   fortuneoApi: { getStatus: vi.fn() },
 }))
 
@@ -33,6 +34,7 @@ vi.mock("./api", () => ({
   finaryApi: {},
   boursoApi,
   caisseEpargneApi,
+  banquePopulaireApi,
   bourseDirectApi,
   amundiApi,
   cmesApi: {},
@@ -223,6 +225,7 @@ describe("completed bank-session syncs", () => {
   it.each([
     { name: "BoursoBank", api: boursoApi, id: "bourso" as const },
     { name: "Caisse d'Epargne", api: caisseEpargneApi, id: "caisseEpargne" as const },
+    { name: "Banque Populaire", api: banquePopulaireApi, id: "banquePopulaire" as const },
     { name: "Fortuneo", api: fortuneoApi, id: "fortuneo" as const },
   ])("refreshes accounts and dashboard only when $name finishes", async ({ api, id }) => {
     api.getStatus.mockResolvedValue({ ...queuedStatus, syncStatus: "RUNNING" })

@@ -13,8 +13,9 @@ from unittest.mock import patch
 
 import httpx
 
-import per_client
-import replay
+from bpce import per_client
+from bpce import replay
+import main
 
 
 API_HOST = "www.rs-ext-bad-ce.caisse-epargne.fr"
@@ -93,7 +94,7 @@ class FakeInsurer:
 async def fetch(insurer: FakeInsurer, **override):
     args = {"access_token": TOKEN, "contract_id": CONTRACT_ID, "entity_code": ENTITY,
             "routing_token": MAIN_TOKEN, **override}
-    return await per_client.fetch_per_detail(
+    return await per_client.fetch_per_detail(main.SITE,
         args["access_token"], args["contract_id"], entity_code=args["entity_code"],
         routing_token=args["routing_token"], transport=insurer.transport(),
     )
@@ -274,7 +275,7 @@ class BodyTest(unittest.IsolatedAsyncioTestCase):
             raise httpx.ReadTimeout(f"synthetic timeout {request.headers['authorization']}")
 
         with self.assertRaises(replay.UpstreamError) as caught:
-            await per_client.fetch_per_detail(
+            await per_client.fetch_per_detail(main.SITE,
                 TOKEN, CONTRACT_ID, entity_code=ENTITY, routing_token=MAIN_TOKEN,
                 transport=httpx.MockTransport(boom),
             )
@@ -332,7 +333,7 @@ class LifecycleTest(unittest.IsolatedAsyncioTestCase):
 
         transport = BlockingTransport()
         task = asyncio.create_task(
-            per_client.fetch_per_detail(TOKEN, CONTRACT_ID, entity_code=ENTITY,
+            per_client.fetch_per_detail(main.SITE, TOKEN, CONTRACT_ID, entity_code=ENTITY,
                                         routing_token=MAIN_TOKEN, transport=transport)
         )
         await asyncio.wait_for(transport.entered.wait(), timeout=1)
@@ -380,9 +381,9 @@ class LogHygieneTest(unittest.IsolatedAsyncioTestCase):
 
 class AllowListTest(unittest.TestCase):
     def test_both_insurer_urls_pass_the_replay_allow_list(self):
-        self.assertTrue(replay.is_allowed_url(ROUTING_URL))
-        self.assertTrue(replay.is_allowed_url(TOKEN_URL))
-        self.assertTrue(replay.is_allowed_url(DETAIL_URL))
+        self.assertTrue(replay.is_allowed_url(main.SITE, ROUTING_URL))
+        self.assertTrue(replay.is_allowed_url(main.SITE, TOKEN_URL))
+        self.assertTrue(replay.is_allowed_url(main.SITE, DETAIL_URL))
 
 
 if __name__ == "__main__":

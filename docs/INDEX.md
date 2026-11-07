@@ -88,6 +88,7 @@
 | 2026-11-03 | [One non-root Java process in the app image](./decisions/2026-11-03-one-non-root-process.md) | Active |
 | 2026-11-04 | [SSO login through an external OIDC provider, alongside passwords](./decisions/2026-11-04-sso-login-alongside-passwords.md) | Active |
 | 2026-11-05 | [CORUM Life contracts sync as one assurance-vie account each](./decisions/2026-11-05-corum-life-sync.md) | Active |
+| 2026-11-05 | [Banque Populaire shares the Caisse d'Epargne code through a BPCE package and sync engine](./decisions/2026-11-05-bpce-shared-sidecar-and-engine.md) | Active |
 
 ## Feature notes
 
@@ -140,7 +141,8 @@
 | Actual Budget import | 2026-10-04 | [actual-budget-import.md](./features/actual-budget-import.md) |
 | Realized P&L on closed positions | 2026-07-11 | [realized-pnl.md](./features/realized-pnl.md) |
 | BoursoBank sync | 2026-09-28 | [bourso-bank.md](./features/bourso-bank.md) |
-| Caisse d'Epargne sync (sidecar and on-demand backend, no login yet) | 2026-10-07 | [caisse-epargne.md](./features/caisse-epargne.md) |
+| Caisse d'Epargne sync (browser-assisted login, on-demand sync) | 2026-11-05 | [caisse-epargne.md](./features/caisse-epargne.md) |
+| Banque Populaire sync (shared BPCE code, region + keypad + Sécur'Pass login, on demand) | 2026-11-05 | [banque-populaire.md](./features/banque-populaire.md) |
 | Accounts overview (PnL chart + summary card + filters + card anatomy + sortable positions) | 2026-11-05 | [accounts-overview.md](./features/accounts-overview.md) |
 | Savings livrets (classification + projected interest) | 2026-06-28 | [savings-livrets.md](./features/savings-livrets.md) |
 | Logos on account cards (catalog-resolved, bundled, wallet picker, property kind) | 2026-11-05 | [bank-logos.md](./features/bank-logos.md) |

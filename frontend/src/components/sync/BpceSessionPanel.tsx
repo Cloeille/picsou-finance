@@ -1,0 +1,753 @@
+import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  AlertTriangle,
+  Landmark,
+  LogOut,
+  RefreshCw,
+  ShieldAlert,
+  Smartphone,
+} from "lucide-react"
+import { useTranslation } from "react-i18next"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { NativeSelect } from "@/components/shared/NativeSelect"
+import {
+  useProviderClear,
+  useProviderComplete,
+  useProviderStatus,
+  useProviderSync,
+} from "@/features/sync/hooks"
+import { getErrorCode, getErrorDetail, getErrorStatus } from "@/lib/errors"
+import type { BpceAuthInitResponse, BpceSessionStatus } from "@/types/api"
+
+/**
+ * `KEYPAD` is a pop-up showing the bank's virtual keypad: the user reads the
+ * pad and clicks his own digits. Picsou never sees the password, only the
+ * positions of the clicked keys, held in component state until Validate.
+ * `AWAITING_APP` has no form: the bank pushes a Sécur'Pass notification and the
+ * completion request stays open until the user approves it on their phone.
+ *
+ * One attempt only. A wrong password spends a bank attempt and can lock the
+ * account, so nothing in this panel replays `initiate` or `keypad` after a
+ * failure: after an error the form simply comes back and the user decides.
+ */
+type AuthState =
+  | "IDLE"
+  | "SUBMITTING"
+  | "KEYPAD"
+  | "SENDING_KEYPAD"
+  | "AWAITING_APP"
+  | "ERROR"
+
+/** The bank's password is 6 to 12 digits; the sidecar enforces the same bounds. */
+const MIN_POSITIONS = 6
+const MAX_POSITIONS = 12
+const DEFAULT_COLUMNS = 5
+
+interface KeypadPad {
+  processId: string
+  images: string[]
+  columns: number
+}
+
+/** The sidecar waits this long for the human to approve on the phone (COMPLETE_WAIT_SECONDS). */
+const HUMAN_WAIT_SECONDS = 150
+
+/**
+ * How long the panel keeps polling the session once the completion request is lost:
+ * the backend's own window (170 s, the human wait plus collecting the session) and a margin.
+ */
+const LOST_COMPLETION_WAIT_MS = 180_000
+const LOST_COMPLETION_POLL_MS = 3_000
+/**
+ * Each poll tick sends its own status read, bounded by this, rather than refetching the
+ * status query: a refetch every 3 s would cancel a read slower than that, so a slow network
+ * would never see the session; and waiting on one read could hang on a request that never
+ * returns. Reads may overlap; the first live answer wins.
+ */
+const LOST_COMPLETION_READ_TIMEOUT_MS = 10_000
+
+/**
+ * The completion request got no answer from the backend: iOS drops it while Safari sits
+ * in the background, which is exactly when the user approves Sécur'Pass in the bank's app
+ * on the same phone. The backend carries on and stores the session regardless.
+ */
+function isLostRequest(value: unknown) {
+  const httpStatus = getErrorStatus(value)
+  return httpStatus === undefined || httpStatus === 502 || httpStatus === 504
+}
+
+const KNOWN_CODES = new Set([
+  "INVALID_CREDENTIALS",
+  "KEYPAD_CHANGED",
+  "KEYPAD_EXPIRED",
+  "INVALID_POSITIONS",
+  "APP_VALIDATION_TIMEOUT",
+  "AUTH_ATTEMPT_EXPIRED",
+  "SESSION_EXPIRED",
+  "UPSTREAM_UNAVAILABLE",
+  "UPSTREAM_FORMAT_CHANGED",
+  "INVALID_SESSION_STATE",
+  "INTERNAL_ERROR",
+])
+
+/** The code is in `code` when the backend sends one, else in the problem `detail`. */
+function errorCodeOf(error: unknown): string | undefined {
+  const code = getErrorCode(error)
+  if (code && KNOWN_CODES.has(code)) return code
+  const detail = getErrorDetail(error)
+  return detail && KNOWN_CODES.has(detail) ? detail : undefined
+}
+
+/** Whole seconds of a `Retry-After` header, from a plain object or AxiosHeaders. */
+function retryAfterSeconds(error: unknown): number | null {
+  const headers = (error as { response?: { headers?: unknown } })?.response?.headers as
+    | { get?: (name: string) => unknown; [key: string]: unknown }
+    | undefined
+  if (!headers) return null
+  const raw =
+    typeof headers.get === "function"
+      ? headers.get("retry-after")
+      : (headers["retry-after"] ?? headers["Retry-After"])
+  const seconds = Number(raw)
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null
+}
+
+function formatCountdown(totalSeconds: number): string {
+  const safe = Math.max(0, totalSeconds)
+  const minutes = Math.floor(safe / 60)
+  const seconds = safe % 60
+  return `${minutes}:${String(seconds).padStart(2, "0")}`
+}
+
+/** The banks of the BPCE platform: same login, keypad, Sécur'Pass and payloads. */
+export type BpceProviderId = "caisseEpargne" | "banquePopulaire"
+
+/**
+ * The calls the panel makes itself, outside the mutation cache: `initiateAuth` and
+ * `sendKeypad` carry the identifier and the password positions, which must not
+ * linger in any cache. `region` is the empty string for a bank without a region step.
+ */
+export interface BpceLoginApi {
+  initiateAuth: (customerId: string, region: string) => Promise<BpceAuthInitResponse>
+  sendKeypad: (processId: string, positions: number[]) => Promise<unknown>
+  getStatusWithin: (timeoutMs: number) => Promise<BpceSessionStatus>
+}
+
+/** One choice of the region step: the code sent to the backend and its display name. */
+export interface BpceRegionOption {
+  value: string
+  label: string
+}
+
+export interface BpceSessionPanelProps {
+  /** Entry of `sidecarProviders` whose session this panel drives. */
+  provider: BpceProviderId
+  api: BpceLoginApi
+  /** i18n namespace holding the panel's copy, e.g. `sync.caisseEpargne`. */
+  translationPrefix: string
+  /** Prefix for the control ids and test ids, e.g. `caisse-epargne` -> `caisse-epargne-customer-id`. */
+  fieldIdPrefix: string
+  /**
+   * A bank whose login page first asks which regional bank holds the account
+   * (Banque Populaire). The form then shows a required select before the identifier,
+   * labelled by `<prefix>.region` with `<prefix>.regionPlaceholder` as its empty choice.
+   */
+  regions?: readonly BpceRegionOption[]
+  /** The bank's identifiers hold letters as well as digits (Banque Populaire). */
+  alphanumericIdentifier?: boolean
+  onConnected?: () => void
+}
+
+export function BpceSessionPanel({
+  provider,
+  api,
+  translationPrefix,
+  fieldIdPrefix,
+  regions,
+  alphanumericIdentifier = false,
+  onConnected,
+}: BpceSessionPanelProps) {
+  const { t } = useTranslation()
+  const key = useCallback((suffix: string) => `${translationPrefix}.${suffix}`, [translationPrefix])
+  const [authState, setAuthState] = useState<AuthState>("IDLE")
+  const [customerId, setCustomerId] = useState("")
+  const [region, setRegion] = useState("")
+  const [pad, setPad] = useState<KeypadPad | null>(null)
+  // Key positions only (indexes in the pad's DOM order), never digits. Component
+  // state only: no query, no mutation cache, no storage, no log.
+  const [positions, setPositions] = useState<number[]>([])
+  const [keypadSecondsLeft, setKeypadSecondsLeft] = useState(0)
+  const [error, setError] = useState<string | null>(null)
+  const [secondsLeft, setSecondsLeft] = useState(0)
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
+  // When the completion request was lost: the waiting card stays and the session is polled.
+  const [lostCompletionAt, setLostCompletionAt] = useState<number | null>(null)
+  // Synchronous guard: state updates are async, so a fast double click could
+  // otherwise reach the bank twice.
+  const submitting = useRef(false)
+  // Set once the login completed and its first sync was queued: the caller is told
+  // "connected" only when that sync succeeded, so the accounts exist by then.
+  const notifyConnectedOnSuccess = useRef(false)
+  const firstSyncStarted = useRef(false)
+  const authAttempt = useRef(0)
+
+  const status = useProviderStatus(provider)
+  const complete = useProviderComplete(provider)
+  const sync = useProviderSync(provider)
+  const logout = useProviderClear(provider)
+  const { mutate: completeMutate } = complete
+  const { mutate: syncMutate } = sync
+  const { refetch: refetchStatus } = status
+
+  const messageForCode = useCallback((value: string | null | undefined) => {
+    switch (value) {
+      case "INVALID_CREDENTIALS":
+        return t(key("errors.invalidCredentials"))
+      case "KEYPAD_CHANGED":
+        return t(key("errors.keypadChanged"))
+      case "KEYPAD_EXPIRED":
+        return t(key("errors.keypadExpired"))
+      case "INVALID_POSITIONS":
+        return t(key("errors.invalidPositions"))
+      case "APP_VALIDATION_TIMEOUT":
+        return t(key("errors.appValidationTimeout"))
+      case "AUTH_ATTEMPT_EXPIRED":
+        return t(key("errors.authAttemptExpired"))
+      case "SESSION_EXPIRED":
+        return t(key("errors.sessionExpired"))
+      case "UPSTREAM_FORMAT_CHANGED":
+        return t(key("errors.formatChanged"))
+      case "INVALID_SESSION_STATE":
+        return t(key("errors.invalidSessionState"))
+      case "UPSTREAM_UNAVAILABLE":
+      case "INTERNAL_ERROR":
+        return t(key("errors.serverError"))
+      default:
+        return null
+    }
+  }, [key, t])
+
+  // Never shows a raw backend message: the bank's own detail can carry
+  // internals, and an unknown failure gets the generic text.
+  const formatError = useCallback((value: unknown) => {
+    if (getErrorStatus(value) === 429) {
+      const seconds = retryAfterSeconds(value)
+      return seconds
+        ? t(key("errors.rateLimitedRetryAfter"), {
+            minutes: Math.ceil(seconds / 60),
+          })
+        : t(key("errors.rateLimited"))
+    }
+    return (
+      messageForCode(errorCodeOf(value)) ?? t(key("errors.serverError"))
+    )
+  }, [key, messageForCode, t])
+
+  const startFirstSync = useCallback(() => {
+    if (firstSyncStarted.current) return
+    firstSyncStarted.current = true
+    setLostCompletionAt(null)
+    setAuthState("IDLE")
+    setCustomerId("")
+    void refetchStatus()
+    // A fresh session holds no accounts yet. Both completion paths queue one
+    // first sync, and the caller is told only once its accounts exist.
+    syncMutate(undefined, {
+      onSuccess: () => {
+        notifyConnectedOnSuccess.current = true
+      },
+      onError: (value) => setError(formatError(value)),
+    })
+  }, [formatError, refetchStatus, syncMutate])
+
+  useEffect(() => {
+    if (lostCompletionAt === null) return
+    let cancelled = false
+    const attempt = authAttempt.current
+    const timer = setInterval(() => {
+      if (Date.now() - lostCompletionAt >= LOST_COMPLETION_WAIT_MS) {
+        clearInterval(timer)
+        // Stop sending reads, but let a recent in-flight read confirm the login.
+        // Keep its effect alive until success, a new attempt or unmount.
+        setError(t(key("errors.appValidationTimeout")))
+        setAuthState("ERROR")
+        return
+      }
+      const readStartedAt = Date.now()
+      void api
+        .getStatusWithin(LOST_COMPLETION_READ_TIMEOUT_MS)
+        .then((data) => {
+          if (cancelled || attempt !== authAttempt.current) return
+          if (Date.now() - readStartedAt >= LOST_COMPLETION_READ_TIMEOUT_MS) return
+          if (!data?.isActive) return
+          cancelled = true
+          clearInterval(timer)
+          setError(null)
+          startFirstSync()
+        })
+        .catch(() => {
+          // Only status reads are retried. Authentication is never replayed.
+        })
+    }, LOST_COMPLETION_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [api, key, lostCompletionAt, startFirstSync, t])
+
+  const connected = status.data?.isActive === true
+  const syncStatus = status.data?.syncStatus ?? "IDLE"
+  const isSyncing = syncStatus === "QUEUED" || syncStatus === "RUNNING"
+  const requestingSync = sync.isPending || isSyncing
+  const backgroundError =
+    syncStatus === "FAILED"
+      ? (messageForCode(status.data?.lastSyncError) ??
+        t(key("errors.serverError")))
+      : null
+  const statusError = status.isError ? formatError(status.error) : null
+  const visibleError = error ?? backgroundError ?? statusError
+
+  useEffect(() => {
+    if (syncStatus !== "SUCCESS" || !notifyConnectedOnSuccess.current) return
+    notifyConnectedOnSuccess.current = false
+    onConnected?.()
+  }, [onConnected, syncStatus])
+
+  useEffect(() => {
+    if (authState !== "AWAITING_APP") return
+    const timer = setInterval(() => setSecondsLeft((value) => Math.max(0, value - 1)), 1_000)
+    return () => clearInterval(timer)
+  }, [authState])
+
+  // The pad is stable for a short time only: once it is out of date nothing may
+  // be sent, so the pop-up closes and everything the user clicked is dropped.
+  useEffect(() => {
+    if (authState !== "KEYPAD") return
+    const timer = setInterval(() => setKeypadSecondsLeft((value) => Math.max(0, value - 1)), 1_000)
+    return () => clearInterval(timer)
+  }, [authState])
+
+  const expired = authState === "KEYPAD" && keypadSecondsLeft <= 0
+  if (expired) {
+    // Derived during render (React's "adjust state on change" pattern), not in an effect.
+    setPad(null)
+    setPositions([])
+    setKeypadSecondsLeft(0)
+    setError(t(key("errors.keypadExpired")))
+    setAuthState("ERROR")
+  }
+
+  const resetKeypad = () => {
+    setPad(null)
+    setPositions([])
+    setKeypadSecondsLeft(0)
+  }
+
+  const cancelKeypad = () => {
+    if (authState !== "KEYPAD") return
+    resetKeypad()
+    setError(null)
+    setAuthState("IDLE")
+  }
+
+  const awaitSecurPass = (processId: string) => {
+    // One completion call: only session status may be polled if its answer is lost.
+    completeMutate(
+      { processId },
+      {
+        onSuccess: startFirstSync,
+        onError: (value) => {
+          if (isLostRequest(value)) {
+            // Keep the waiting card: the session status tells whether it went through.
+            // Recovery gets a full window even if the approval countdown already elapsed.
+            setSecondsLeft(LOST_COMPLETION_WAIT_MS / 1_000)
+            setLostCompletionAt(Date.now())
+            return
+          }
+          setError(formatError(value))
+          setAuthState("ERROR")
+        },
+      }
+    )
+  }
+
+  const submit = async () => {
+    if (submitting.current) return
+    submitting.current = true
+    authAttempt.current += 1
+    firstSyncStarted.current = false
+    setLostCompletionAt(null)
+    setError(null)
+    setAuthState("SUBMITTING")
+    try {
+      const result = await api.initiateAuth(customerId, region)
+      const images = result.keypad?.images
+      if (!result.processId || !Array.isArray(images) || images.length !== 10) {
+        setError(t(key("errors.formatChanged")))
+        setAuthState("ERROR")
+        return
+      }
+      const columns = Number(result.keypad.columns)
+      setPad({
+        processId: result.processId,
+        images,
+        columns: Number.isInteger(columns) && columns >= 1 && columns <= 10 ? columns : DEFAULT_COLUMNS,
+      })
+      setPositions([])
+      setKeypadSecondsLeft(Math.max(0, Math.floor(result.expiresInSeconds ?? 0)))
+      setAuthState("KEYPAD")
+    } catch (value) {
+      setError(formatError(value))
+      setAuthState("ERROR")
+    } finally {
+      submitting.current = false
+    }
+  }
+
+  const pressKey = (index: number) => {
+    if (authState !== "KEYPAD") return
+    setPositions((current) => (current.length >= MAX_POSITIONS ? current : [...current, index]))
+  }
+
+  const validateKeypad = async () => {
+    if (!pad || authState !== "KEYPAD" || submitting.current) return
+    if (positions.length < MIN_POSITIONS || positions.length > MAX_POSITIONS) return
+    submitting.current = true
+    const { processId } = pad
+    const sent = positions
+    setAuthState("SENDING_KEYPAD")
+    // The request owns the only copy from here on: nothing of it stays in state.
+    resetKeypad()
+    try {
+      await api.sendKeypad(processId, sent)
+      // The keypad TTL is over: the user now only has the sidecar's 150 s human
+      // wait to approve, so that is what the countdown shows.
+      setSecondsLeft(HUMAN_WAIT_SECONDS)
+      setAuthState("AWAITING_APP")
+      awaitSecurPass(processId)
+    } catch (value) {
+      setError(formatError(value))
+      setAuthState("ERROR")
+    } finally {
+      submitting.current = false
+    }
+  }
+
+  if (status.isLoading)
+    return <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+
+  const showForm = !connected && authState !== "AWAITING_APP"
+  const pending =
+    authState === "SUBMITTING" || authState === "KEYPAD" || authState === "SENDING_KEYPAD"
+  // With a region step, nothing goes out before both choices are made.
+  const incomplete = regions !== undefined && (region === "" || customerId === "")
+
+  return (
+    <div className="space-y-6">
+      <Card size="sm">
+        <CardContent className="py-4">
+          <Badge
+            className={
+              connected ? "bg-green-500/10 text-green-600 dark:text-green-400" : undefined
+            }
+            variant={connected ? "default" : "outline"}
+          >
+            {connected
+              ? t(key("sessionActive"))
+              : t(key("noSession"))}
+          </Badge>
+          <p className="mt-2 text-xs text-muted-foreground">{t(key("scope"))}</p>
+          {isSyncing && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              {syncStatus === "QUEUED"
+                ? t(key("queued"))
+                : t(key("syncing"))}
+            </p>
+          )}
+          {syncStatus === "SUCCESS" && status.data?.lastSyncCompletedAt && (
+            <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">
+              {t(key("syncSuccess"))}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {visibleError && (
+        <Card size="sm" className="border-destructive/30">
+          <CardContent className="flex items-center gap-3 py-4">
+            <AlertTriangle className="size-5 shrink-0 text-destructive" />
+            <p className="flex-1 text-sm text-destructive">{visibleError}</p>
+            {statusError && !error && (
+              <Button variant="outline" size="sm" onClick={() => void status.refetch()}>
+                {t("common.retry")}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {connected && (
+        <>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={() => {
+                setError(null)
+                sync.mutate(undefined, {
+                  onError: (value) => setError(formatError(value)),
+                })
+              }}
+              disabled={requestingSync}
+            >
+              <RefreshCw className={requestingSync ? "animate-spin" : undefined} />
+              {requestingSync ? t(key("syncing")) : t(key("sync"))}
+            </Button>
+            {!confirmingDisconnect && (
+              <Button
+                variant="destructive"
+                onClick={() => setConfirmingDisconnect(true)}
+                disabled={logout.isPending}
+              >
+                <LogOut />
+                {t(key("clearSession"))}
+              </Button>
+            )}
+          </div>
+
+          {confirmingDisconnect && (
+            <Card size="sm" className="border-destructive/30">
+              <CardContent className="space-y-3 py-4">
+                <p className="text-sm">{t(key("disconnectConfirm"))}</p>
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    variant="destructive"
+                    disabled={logout.isPending}
+                    onClick={() => {
+                      setError(null)
+                      logout.mutate(undefined, {
+                        onSuccess: () => {
+                          setConfirmingDisconnect(false)
+                          setAuthState("IDLE")
+                        },
+                        onError: (value) => {
+                          setConfirmingDisconnect(false)
+                          setError(formatError(value))
+                        },
+                      })
+                    }}
+                  >
+                    <LogOut />
+                    {t(key("disconnectConfirmAction"))}
+                  </Button>
+                  <Button variant="outline" onClick={() => setConfirmingDisconnect(false)}>
+                    {t("common.cancel")}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {(status.data?.unsupported.length ?? 0) > 0 && (
+            <Card size="sm">
+              <CardContent className="space-y-2 py-4">
+                <p className="text-sm font-medium">{t(key("unsupportedTitle"))}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t(key("unsupportedHint"))}
+                </p>
+                {/* Family code only: the contract id is never shown. */}
+                <ul className="flex flex-wrap gap-2">
+                  {status.data?.unsupported.map((contract, index) => (
+                    <li key={`${contract.familyCode}-${index}`}>
+                      <Badge variant="outline">
+                        <span>{contract.familyCode}</span>
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+
+      {showForm && (
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void submit()
+          }}
+        >
+          <Card size="sm" className="border-amber-500/30">
+            <CardContent className="flex items-start gap-3 py-4">
+              <ShieldAlert className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                <li>{t(key("notice.neverStored"))}</li>
+                <li>{t(key("notice.noRetry"))}</li>
+                <li>{t(key("notice.lockRisk"))}</li>
+              </ul>
+            </CardContent>
+          </Card>
+          <Card size="sm">
+            <CardContent className="space-y-4 py-4">
+              {regions && (
+                <div className="space-y-2">
+                  <Label htmlFor={`${fieldIdPrefix}-region`}>{t(key("region"))}</Label>
+                  <NativeSelect
+                    id={`${fieldIdPrefix}-region`}
+                    value={region}
+                    onChange={(event) => setRegion(event.target.value)}
+                    required
+                  >
+                    <option value="" disabled>
+                      {t(key("regionPlaceholder"))}
+                    </option>
+                    {regions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor={`${fieldIdPrefix}-customer-id`}>
+                  <Landmark className="mr-1 inline-block size-4" />
+                  {t(key("customerId"))}
+                </Label>
+                <Input
+                  id={`${fieldIdPrefix}-customer-id`}
+                  inputMode={alphanumericIdentifier ? "text" : "numeric"}
+                  autoComplete="off"
+                  autoCapitalize={alphanumericIdentifier ? "characters" : undefined}
+                  spellCheck={false}
+                  value={customerId}
+                  onChange={(event) =>
+                    setCustomerId(
+                      event.target.value.replace(alphanumericIdentifier ? /[^A-Za-z0-9]/g : /\D/g, ""),
+                    )
+                  }
+                  required
+                />
+              </div>
+              <Button type="submit" disabled={pending || incomplete}>
+                {pending && <RefreshCw className="animate-spin" />}
+                {pending ? t(key("connecting")) : t(key("connect"))}
+              </Button>
+            </CardContent>
+          </Card>
+        </form>
+      )}
+
+      {!connected && authState === "AWAITING_APP" && (
+        <Card size="sm">
+          <CardContent className="flex items-center gap-3 py-4">
+            <Smartphone className="size-5 shrink-0 text-muted-foreground" />
+            <div className="flex-1 space-y-1">
+              <p className="text-sm">{t(key("securPassPrompt"))}</p>
+              <p className="text-xs text-muted-foreground">
+                {t(key("securPassHint"))}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t(key("countdownLabel"))}{" "}
+                <span data-testid={`${fieldIdPrefix}-countdown`} className="font-mono">
+                  {formatCountdown(secondsLeft)}
+                </span>
+              </p>
+            </div>
+            <RefreshCw className="size-4 shrink-0 animate-spin text-muted-foreground" />
+          </CardContent>
+        </Card>
+      )}
+      <Dialog
+        open={authState === "KEYPAD"}
+        onOpenChange={(open) => {
+          if (!open) cancelKeypad()
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="sm:max-w-md"
+          onInteractOutside={(event) => event.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>{t(key("keypad.title"))}</DialogTitle>
+            <DialogDescription>{t(key("keypad.description"))}</DialogDescription>
+          </DialogHeader>
+          {pad && (
+            <>
+              {/* Plain <img src> only: the pad comes from the bank, nothing is injected as HTML.
+                  Names are ranks ("Key 1"), never digits, so assistive tech cannot leak them. */}
+              <div
+                data-testid={`${fieldIdPrefix}-keypad-grid`}
+                className="grid gap-2"
+                style={{ gridTemplateColumns: `repeat(${pad.columns}, minmax(0, 1fr))` }}
+              >
+                {pad.images.map((src, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    aria-label={t(key("keypad.key"), { n: index + 1 })}
+                    className="flex aspect-square items-center justify-center rounded-lg border bg-background p-1 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => pressKey(index)}
+                  >
+                    <img src={src} alt="" draggable={false} className="size-full object-contain" />
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div
+                  data-testid={`${fieldIdPrefix}-keypad-dots`}
+                  role="img"
+                  aria-label={t(key("keypad.entered"), { count: positions.length })}
+                  className="flex min-h-4 flex-wrap items-center gap-1.5"
+                >
+                  {positions.map((_, index) => (
+                    <span key={index} data-dot className="size-2.5 rounded-full bg-foreground" />
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t(key("keypad.countdownLabel"))}{" "}
+                  <span data-testid={`${fieldIdPrefix}-keypad-countdown`} className="font-mono">
+                    {formatCountdown(keypadSecondsLeft)}
+                  </span>
+                </p>
+              </div>
+              <DialogFooter className="gap-2">
+                <Button type="button" variant="outline" onClick={cancelKeypad}>
+                  {t(key("keypad.cancel"))}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={positions.length === 0}
+                  onClick={() => setPositions([])}
+                >
+                  {t(key("keypad.clear"))}
+                </Button>
+                <Button
+                  type="button"
+                  disabled={positions.length < MIN_POSITIONS || positions.length > MAX_POSITIONS}
+                  onClick={() => void validateKeypad()}
+                >
+                  {t(key("keypad.validate"))}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}

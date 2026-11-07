@@ -230,11 +230,11 @@ a cousin does nothing.
 
 ## Consequences
 
-- New `AccountType.PEER_LOAN`; migration `V134` adds the enum value alone (PostgreSQL
+- New `AccountType.PEER_LOAN`; migration `V135` adds the enum value alone (PostgreSQL
   refuses to use a new enum value in the transaction that added it, as `V69`, `V79`,
-  `V100` and `V112` already document), `V135` creates the three tables, `V136` adds the
-  two cash-leg links, `V137` the `cash_leg_owned` flag, `V138` the `rate_period` and
-  `V139` widens `annual_rate` for high short-term rates and `V140` drops the
+  `V100` and `V112` already document), `V136` creates the three tables, `V137` adds the
+  two cash-leg links, `V138` the `cash_leg_owned` flag, `V139` the `rate_period` and
+  `V140` widens `annual_rate` for high short-term rates and `V141` drops the
   100 % check constraint so the widened column is actually usable.
 - `AccountType.isLedger()` must return **false** for `PEER_LOAN`: its balance derives from
   the principal and the ledger, not from transactions. The frontend mirror
