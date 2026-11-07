@@ -837,13 +837,23 @@ class UnsupportedPassThroughTest(unittest.IsolatedAsyncioTestCase):
                     sub_family = item["identity"].get("subProductFamilyPFM")
                     if sub_family and sub_family.get("code") == "28":
                         sub_family["code"] = sub
-                ce = FakeCE(synth=synth)
+                pages = default_pages()
+                own_page = copy.deepcopy(FIXTURES["transactions"]["livret_a"])
+                for row in own_page["data"]:
+                    row["accountId"] = 1003
+                pages["1003"] = [own_page]
+                ce = FakeCE(synth=synth, pages=pages)
 
                 result = await run_fetch(ce)
 
                 self.assertIn("1003", {r.url.params["accountIds"] for r in ce.tx_requests()})
                 account = {a["externalId"]: a for a in result["accounts"]}["1003"]
                 self.assertEqual(account["kind"], kind)
+                # The rows the bank returned are kept, not discarded with the account's feed.
+                self.assertEqual(
+                    {t["externalId"] for t in account["transactions"]},
+                    {str(row["id"]) for row in own_page["data"]},
+                )
                 self.assertNotIn("1003", {u["externalId"] for u in result["unsupported"]})
 
     async def test_per_and_loan_get_no_transactions_call_and_no_iban(self):
