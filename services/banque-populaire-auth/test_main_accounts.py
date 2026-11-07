@@ -233,7 +233,7 @@ class SiteTest(unittest.TestCase):
         self.assertIsNone(main.SITE.personal_loan)
         self.assertIsNone(main.SITE.home_loan)
         self.assertIsNone(main.SITE.per)
-        self.assertEqual(main.SITE.unsupported_families, frozenset({("6", "12"), ("6", "13"), ("4", "05"), ("3", "04")}))
+        self.assertEqual(main.SITE.unsupported_families, frozenset({("6", "12"), ("6", "13"), ("4", "05"), ("3", "04"), ("3", "27")}))
         self.assertEqual(main.SITE.provisional_kinds, frozenset())
 
     def test_the_allow_list_is_banque_populaire_only(self):

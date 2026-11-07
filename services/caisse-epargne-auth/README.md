@@ -52,7 +52,7 @@ GET-only calls on `https://www.rs-ext-bad-ce.caisse-epargne.fr` with
 `Authorization: Bearer <token>` and `Accept: application/json`:
 
 - `GET /bapi/contract/v2/augmentedSynthesisViews?pfmCharacteristicsIndicator=true&productFamilyPFM=1,2,3,4,6,7,17,18,20,19`
-- per imported account with PFM transactions (current account, Livret A, LDDS, PEL, card), `GET /pfm/user/v1.1/transactions` with the query observed in the spike (`accountIds=<id>`, ...), then `pageToken=<meta.nextPageToken>` until the token is absent. Current account, Livret A, LDDS, PEL and LEP are ordered by `accountingDate` and paging stops at the first page that reaches a row booked more than 365 days ago (`HISTORY_DAYS`), but only once a strictly newest-first step has been read; older rows already stored are kept. Until then, or if a row is newer than one read before it, the account is paged to the end (the sort direction is not yet confirmed live). Hard cap: 60 pages per account, beyond that `UPSTREAM_FORMAT_CHANGED` with `cause=page-cap` (never a silent truncation). Cards are paged to the end, under the same cap. All reads share one 100 s `/accounts` deadline, which can trip first (`UPSTREAM_UNAVAILABLE`). A PER or a loan has no PFM transactions: no call, no IBAN.
+- per imported account with PFM transactions (current account, Livret A, LDDS, PEL, LEP, card), `GET /pfm/user/v1.1/transactions` with the query observed in the spike (`accountIds=<id>`, ...), then `pageToken=<meta.nextPageToken>` until the token is absent. Current account, Livret A, LDDS, PEL and LEP are ordered by `accountingDate` and paging stops at the first page that reaches a row booked more than 365 days ago (`HISTORY_DAYS`), but only once a strictly newest-first step has been read; older rows already stored are kept. Until then, or if a row is newer than one read before it, the account is paged to the end (the sort direction is not yet confirmed live). Hard cap: 60 pages per account, beyond that `UPSTREAM_FORMAT_CHANGED` with `cause=page-cap` (never a silent truncation). Cards are paged to the end, under the same cap. All reads share one 100 s `/accounts` deadline, which can trip first (`UPSTREAM_UNAVAILABLE`). A PER or a loan has no PFM transactions: no call, no IBAN.
 - per loan, `GET /bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/<contractId.id>` with the **personal-loan token** (see below).
 
 Supported products, from `productFamilyPFM.code` / `subProductFamilyPFM.code`
@@ -64,13 +64,14 @@ Supported products, from `productFamilyPFM.code` / `subProductFamilyPFM.code`
 | `3` / `01` (or label `LIVRET A` without a sub code) | `LIVRET_A` | `contractPfmId` |
 | `3` / `28` | `LDDS` | `contractPfmId` |
 | `3` / `04` | `PEL` (observed live 2026-11-06) | `contractPfmId`; without one, listed in `unsupported` |
+| `3` / `27` | `LEP` (observed live 2026-11-06) | `contractPfmId`; without one, listed in `unsupported` |
 | `4` / `05` | `PER` (complete owned UC + euro-fund detail, total >= 0) | `contract:<contractId.id>` |
 | `6` / `12` | `LOAN` (personal loan; balance = outstanding capital, <= 0) | `contract:<contractId.id>` |
 | `6` / `13` | `LOAN` (home loan, "Crédit immobilier"; same balance rule) | `contract:<contractId.id>` |
 | anything else (home insurance `5`, other sub codes) | listed in `unsupported` with `familyCode` and `subFamilyCode`, never imported, never fatal | pfm id, else `contract:<id>` |
 
 Each unsupported contract also gets one INFO log line, to identify a product not observed yet
-(the PEL code was found this way) from a real sync without capturing traffic:
+(the PEL and LEP codes were found this way) from a real sync without capturing traffic:
 `unsupported contract: family=<code> sub=<code|None> pfmId=<present|absent> idShape=<shape>`.
 By default it carries codes and lengths only; `CE_LOG_PRODUCT_DETAILS=1` adds letters (below).
 - `family` and `sub` are the bank's codes. The parser keeps one only if it is 1 to 8 characters
@@ -92,7 +93,7 @@ A PER whose contract id the insurer reader does not know (`per_client.UnknownPer
 `PER request refused: idShape=<shape>`
 the same way; an invalid token or entity code logs nothing of the id.
 
-A PEL is a *provisional* kind (seen in one live run): a PEL the parser cannot read
+PEL and LEP are *provisional* kinds (seen in one live run): a PEL or LEP the parser cannot read
 (no integer `contractPfmId`, no balance, a negative balance...) is listed in `unsupported`, keyed
 by its `contract:<id>` (or by its position when it has no usable id), instead of failing the
 synthesis, and the log line then ends with `rejected=<field path>` (e.g. `rejected=items[3].balance:
@@ -102,7 +103,7 @@ transactions cannot be read (HTTP fault, rows of another account, page cap), the
 imported from its synthesis entry with no transactions and a warning
 `account imported without transactions: kind=<kind> code=<code>`, instead of landing in
 `unavailable` (which the backend ignores) and vanishing; a Livret A or LDDS keeps the
-`unavailable` rule. The leniency is only for an unreadable PEL: a Livret A, an LDDS or the
+`unavailable` rule. The leniency is only for an unreadable PEL/LEP: a Livret A, an LDDS or the
 current account whose *synthesis entry* is unreadable still refuses the whole snapshot.
 
 #### Second token: personal loan
@@ -177,7 +178,7 @@ Response 200 (money as decimal strings, never floats; a card's `balance` is its
 outstanding, the sum of operations with a future `dueDate`, so <= 0):
 
 ```json
-{"accounts": [{"externalId": "1001", "kind": "CURRENT_ACCOUNT|LIVRET_A|LDDS|PEL|PER|LOAN|CARD", "name": "str|null",
+{"accounts": [{"externalId": "1001", "kind": "CURRENT_ACCOUNT|LIVRET_A|LDDS|PEL|LEP|PER|LOAN|CARD", "name": "str|null",
   "balance": "1234.56", "currency": "EUR", "iban": "str|null", "ibanAmbiguous": false,
   "authorizedOverdraft": "str|null", "ceiling": "str|null", "remainingDepositCapacity": "str|null",
   "fillingRatio": "str|null", "cardNature": "CREDIT|DEFERRED_DEBIT|IMMEDIATE_DEBIT|null",
@@ -247,7 +248,7 @@ costs and historical quantities unavailable.
 
 Only the synthesis and the current account are all-or-nothing: a failure there gives
 `UPSTREAM_UNAVAILABLE` or `UPSTREAM_FORMAT_CHANGED` and no partial list. Any other account
-(Livret A, LDDS, card, loan detail, PER detail; a PEL only when its synthesis entry
+(Livret A, LDDS, card, loan detail, PER detail; a PEL or LEP only when its synthesis entry
 is unreadable) that cannot be read is left out of
 `accounts` and listed in `unavailable` as `{externalId, kind, code}`. An expired session
 still fails the whole import, and so does the overall deadline.
