@@ -49,7 +49,7 @@ import java.util.function.Supplier;
 /**
  * The sync engine shared by the BPCE banks (Caisse d'Epargne, Banque Populaire): their sidecars
  * speak one contract ({@link BpcePort}), so the login bookkeeping, the job state machine and the
- * import of current accounts, savings books (PEL included), cards, loans and PER live here once. Each bank keeps
+ * import of current accounts, savings books (PEL included), cards, loans, PER and assurance vie live here once. Each bank keeps
  * its own service, session table, port and error code, and hands the engine a {@link BpceBank}
  * descriptor, access to its sessions, and the {@link Branding} its imported accounts carry.
  *
