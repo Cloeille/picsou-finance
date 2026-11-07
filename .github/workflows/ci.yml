@@ -26,6 +26,8 @@ jobs:
       all: ${{ steps.filter.outcome == 'skipped' }}
       jobs: ${{ steps.sidecars.outputs.jobs }}
       sidecar-matrix: ${{ steps.sidecars.outputs.matrix }}
+      # The timings cache every backend shard restores; '' when there is none yet.
+      backend-timings-key: ${{ steps.backend-timings.outputs.cache-matched-key }}
       # The release smoke case ids, one release-deployment leg each.
       release-cases: ${{ steps.release.outputs.release-cases }}
     steps:
@@ -67,6 +69,13 @@ jobs:
           CHANGES: ${{ steps.filter.outputs.changes }}
           FILES: ${{ steps.filter.outputs.sidecar_count < 1000 && steps.filter.outputs.sidecar_files || '[]' }}
         run: python3 .github/scripts/sidecars.py --select
+      # Looked up once here, not per shard: a main ci-ok saving newer timings between two
+      # shards' restores would split them differently. A re-run keeps this output, so its
+      # shards split as the first attempt did.
+      - name: Find the backend class timings
+        id: backend-timings
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: {path: '${{ runner.temp }}/backend-timings.json', key: 'backend-timings-${{ github.run_id }}', restore-keys: backend-timings-}
       - name: List the release smoke cases
         id: release
         run: python3 .github/scripts/release_cases.py >> "$GITHUB_OUTPUT"
@@ -162,11 +171,19 @@ jobs:
           python3 -m pip install pytest
           python3 -m pytest docker/tests/test_proxy_client_ip.py -v
 
+  # The suite in shards of test classes, balanced by the last main run's class times
+  # (.github/scripts/backend_shards.py). ci-ok checks every class ran exactly once.
+  # One job key with a matrix: ci-ok reads a skipped `backend` as skipped, whatever its legs.
   backend:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'backend')
+    name: backend (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - *checkout
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
@@ -174,30 +191,40 @@ jobs:
       - *python
       - name: Install the Sofidy contract interpreter
         run: pip install -r services/base/requirements.txt
+      # The exact cache `changes` found, so every shard splits on the same timings. ci-ok
+      # saves them on main pushes. None (or evicted since) splits by hash: slower, still complete.
+      - name: Restore the backend class timings
+        if: needs.changes.outputs.backend-timings-key != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: {path: '${{ runner.temp }}/backend-timings.json', key: '${{ needs.changes.outputs.backend-timings-key }}'}
+      - name: Select this shard's test classes
+        id: shard
+        run: >-
+          python3 .github/scripts/backend_shards.py --shards ${{ strategy.job-total }} --shard ${{ matrix.shard }}
+          --timings "$RUNNER_TEMP/backend-timings.json" --out "$RUNNER_TEMP"
       - name: Run backend tests
         # Migration tests skip themselves when Docker is unreachable so local runs
         # without a socket still work. Runners always have Docker, so require it here --
         # otherwise environment drift would silently drop the PostgreSQL coverage of
         # data-mutating migrations and the build would stay green.
-        env: {PICSOU_REQUIRE_DOCKER_TESTS: 'true'}
+        env:
+          PICSOU_REQUIRE_DOCKER_TESTS: 'true'
+          SHARD_INCLUDES: ${{ steps.shard.outputs.includes }}
+          SHARD_EXCLUDES: ${{ steps.shard.outputs.excludes }}
         run: make test-backend SOFIDY_PYTHON=python3
-      # A skipped PostgreSQL test class reports green: require each one ran in full.
-      - name: Require the PostgreSQL tests
-        working-directory: backend/target/surefire-reports
-        run: |
-          while read -r count class; do
-            grep -q "Tests run: $count, Failures: 0, Errors: 0, Skipped: 0" "com.picsou.$class.txt"
-          done <<'EOF'
-          11 service.ScpiSyncSessionPostgresTest
-          2 service.HomeBankImportPersistenceTest
-          1 service.HomeBankQifPersistenceTest
-          15 migration.LegacyMigrationRenumberingTest
-          6 service.SidecarBudgetPostgresTest
-          1 service.SetupAuditServicePostgresTest
-          20 config.SsoLoginIntegrationTest
-          2 config.SsoHandshakeSessionRaceIntegrationTest
-          21 adapter.sidecar.SidecarBankCodesTest
-          EOF
+      # A re-run of a failed shard uploads under the same name as its first attempt, which
+      # stays in the run: overwrite it, or the upload fails with a 409 conflict.
+      - name: Upload the test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: surefire-${{ matrix.shard }}
+          overwrite: true
+          path: |
+            backend/target/surefire-reports/*.xml
+            backend/target/surefire-reports/*.txt
+          if-no-files-found: error
+          retention-days: 7
 
   frontend:
     name: frontend (${{ matrix.task }})
@@ -384,11 +411,48 @@ jobs:
                     or $out.all == "true" or ($out.jobs // "" | if . == "" then "[]" else . end | fromjson | index($job)) != null))
                 | "\(.key): \(.value.result)"]
             | if . == [] then true else error("not green: \(join(", "))") end'
-      # A shard that silently ran too little must not pass: every test file runs exactly once.
-      - name: Check out the test files
-        if: needs.frontend.result == 'success'
+      # A green matrix only proves each shard passed what it selected: check the reports
+      # cover every test file. One checkout of just the test sources and the scripts serves both.
+      - name: Check out the test sources
+        if: needs.backend.result == 'success' || needs.frontend.result == 'success'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {persist-credentials: false, sparse-checkout: "frontend/src\n.github/scripts"}
+        with: {persist-credentials: false, sparse-checkout: "backend/src/test/java\nfrontend/src\n.github/scripts"}
+      # One folder per shard: a merged download would hide a class that ran twice. Outside
+      # the workspace, so a later checkout's clean cannot delete the reports.
+      - name: Download the backend test reports
+        if: needs.backend.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {pattern: surefire-*, path: '${{ runner.temp }}/surefire'}
+      - name: Require every backend test class to run exactly once
+        if: needs.backend.result == 'success'
+        run: python3 .github/scripts/backend_shards.py --check "$RUNNER_TEMP/surefire"
+      # A skipped PostgreSQL test class reports green: require each one ran in full.
+      - name: Require the PostgreSQL tests
+        if: needs.backend.result == 'success'
+        working-directory: ${{ runner.temp }}/surefire
+        run: |
+          while read -r count class; do
+            grep -q "Tests run: $count, Failures: 0, Errors: 0, Skipped: 0" ./*/"com.picsou.$class.txt"
+          done <<'EOF'
+          11 service.ScpiSyncSessionPostgresTest
+          2 service.HomeBankImportPersistenceTest
+          1 service.HomeBankQifPersistenceTest
+          15 migration.LegacyMigrationRenumberingTest
+          6 service.SidecarBudgetPostgresTest
+          1 service.SetupAuditServicePostgresTest
+          20 config.SsoLoginIntegrationTest
+          2 config.SsoHandshakeSessionRaceIntegrationTest
+          21 adapter.sidecar.SidecarBankCodesTest
+          EOF
+      # The next runs balance their shards on these class times.
+      - name: Collect the backend class timings
+        if: github.event_name == 'push' && needs.backend.result == 'success'
+        run: python3 .github/scripts/backend_shards.py --write-timings "$RUNNER_TEMP/surefire" "$RUNNER_TEMP/backend-timings.json"
+      # The same path as the restores: the cache version depends on it.
+      - name: Save the backend class timings
+        if: github.event_name == 'push' && needs.backend.result == 'success'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with: {path: '${{ runner.temp }}/backend-timings.json', key: 'backend-timings-${{ github.run_id }}'}
       - name: Download the Vitest reports
         if: needs.frontend.result == 'success'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

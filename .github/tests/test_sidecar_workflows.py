@@ -480,6 +480,7 @@ def _selected(jobs, path):
 
 
 def _gate(needs):
+    """Runs the gate's job-result step; the completeness steps need real reports."""
     steps = _load(CI_WORKFLOW)["jobs"][GATE]["steps"]
     script = _expand(next(s for s in steps if s.get("name") == "Every selected job succeeded")["run"])
     return subprocess.run(
@@ -523,6 +524,7 @@ class CiJobSelectionTest(unittest.TestCase):
             "all": "${{ steps.filter.outcome == 'skipped' }}",
             "jobs": "${{ steps.sidecars.outputs.jobs }}",
             "sidecar-matrix": "${{ steps.sidecars.outputs.matrix }}",
+            "backend-timings-key": "${{ steps.backend-timings.outputs.cache-matched-key }}",
             "release-cases": "${{ steps.release.outputs.release-cases }}",
         })
         self.assertEqual(set(_filters(jobs)) - HELPER_FILTERS, _selectable(jobs))
@@ -701,6 +703,60 @@ class CiJobSelectionTest(unittest.TestCase):
             with self.subTest(case=case):
                 result = _gate(state)
                 self.assertEqual(result.returncode == 0, green, result.stderr)
+
+    def test_the_backend_runs_in_three_shards_that_ci_ok_checks_ran_every_class_once(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        backend = jobs["backend"]
+        self.assertEqual(backend["strategy"], {"fail-fast": False, "matrix": {"shard": [1, 2, 3]}})
+        run = next(step for step in backend["steps"] if "make test-backend" in step.get("run", ""))
+        self.assertEqual(run["env"], {
+            "PICSOU_REQUIRE_DOCKER_TESTS": "true",
+            "SHARD_INCLUDES": "${{ steps.shard.outputs.includes }}",
+            "SHARD_EXCLUDES": "${{ steps.shard.outputs.excludes }}",
+        })
+        select = next(step for step in backend["steps"] if step.get("id") == "shard")
+        self.assertIn("--shards ${{ strategy.job-total }} --shard ${{ matrix.shard }}", select["run"])
+        upload = next(step for step in backend["steps"] if "upload-artifact" in step.get("uses", ""))
+        self.assertEqual(upload["with"]["name"], "surefire-${{ matrix.shard }}")
+        self.assertEqual(upload["with"]["if-no-files-found"], "error")
+        # A re-run shard replaces its first attempt's reports instead of failing on the name.
+        self.assertIs(upload["with"]["overwrite"], True)
+
+        steps = jobs[GATE]["steps"]
+        self.assertEqual(steps[0]["name"], "Every selected job succeeded")
+        self.assertNotIn("if", steps[0])
+        gated = [step for step in steps if "needs.backend" in step.get("if", "")]
+        for step in gated:
+            with self.subTest(step=step["name"]):
+                self.assertIn("needs.backend.result == 'success'", step["if"])
+        self.assertLessEqual({
+            "Download the backend test reports", "Require every backend test class to run exactly once",
+            "Require the PostgreSQL tests",
+        }, {step["name"] for step in gated})
+        # One sparse checkout serves the backend and the frontend completeness checks; a second
+        # one would clean away the files the first brought in.
+        checkouts = [step for step in steps if "actions/checkout" in step.get("uses", "")]
+        self.assertEqual(len(checkouts), 1)
+        self.assertEqual(checkouts[0]["with"]["sparse-checkout"].split("\n"),
+                         ["backend/src/test/java", "frontend/src", ".github/scripts"])
+        self.assertEqual(checkouts[0]["if"], "needs.backend.result == 'success' || needs.frontend.result == 'success'")
+        self.assertLess(steps.index(checkouts[0]), min(steps.index(step) for step in gated if step is not checkouts[0]))
+        download = next(step for step in gated if "download-artifact" in step.get("uses", ""))
+        self.assertEqual(download["with"], {"pattern": "surefire-*", "path": "${{ runner.temp }}/surefire"})
+        commands = "\n".join(step.get("run", "") for step in gated)
+        self.assertIn('python3 .github/scripts/backend_shards.py --check "$RUNNER_TEMP/surefire"', commands)
+        self.assertIn("11 service.ScpiSyncSessionPostgresTest", commands)
+
+        # One lookup in `changes`; the shards restore exactly that key, so a re-run splits the same.
+        lookup = next(step for step in jobs[SELECTOR]["steps"] if step.get("id") == "backend-timings")
+        self.assertIn("restore-keys", lookup["with"])
+        restore = next(step for step in backend["steps"] if "actions/cache/restore" in step.get("uses", ""))
+        self.assertEqual(restore["if"], "needs.changes.outputs.backend-timings-key != ''")
+        self.assertEqual(restore["with"]["key"], "${{ needs.changes.outputs.backend-timings-key }}")
+        self.assertNotIn("restore-keys", restore["with"])
+        save = next(step for step in steps if "actions/cache/save" in step.get("uses", ""))
+        self.assertEqual({lookup["with"]["path"], restore["with"]["path"]}, {save["with"]["path"]})
+        self.assertNotIn("PostgresTest", "\n".join(step.get("run", "") for step in backend["steps"]))
 
     def test_ci_runs_the_make_targets_contributors_run(self):
         jobs = _load(CI_WORKFLOW)["jobs"]

@@ -183,6 +183,26 @@ learned the hard way. Do not re-implement them per class:
 The three interlock: the guard alone turns a config problem into a silent pass, and the
 API pin alone makes Docker-less machines fail the whole suite.
 
+CI runs the backend suite in 3 shards of test classes (`.github/scripts/backend_shards.py`),
+balanced on the class times of the last main run. `ci-ok` then fails when a top-level test
+class ran in two shards or in none, and checks the PostgreSQL classes ran in full. Which
+classes share a JVM changes with the timings, so a test must not count what other code leaves
+in shared places such as the system temp directory: give such code a root a `@TempDir` can
+replace (`ActualBudgetFileParser` does).
+
+To reproduce a shard locally (the `--out` folder must be absolute: Maven runs in `backend/`):
+
+```bash
+python3 .github/scripts/backend_shards.py --shards 3 --shard 2 --out /tmp/s
+make test-backend SHARD_INCLUDES=/tmp/s/backend-shard-2.includes
+# The last shard runs everything the others do not:
+python3 .github/scripts/backend_shards.py --shards 3 --shard 3 --out /tmp/s
+make test-backend SHARD_EXCLUDES=/tmp/s/backend-shard-3.excludes
+```
+
+Without `--timings <file.json>` the split is by hash, so a shard's classes differ from CI's
+timed split; `--write-timings <reports-dir> <file.json>` builds that file from surefire reports.
+
 Keep **one fresh container per test class** (`@Container static final`, never shared across
 classes): migration tests migrate to specific versions and seed rows, so a shared database would
 leak state between them. Helpers: `migrateTo` / `migrateToOutOfOrder` (the latter mirrors

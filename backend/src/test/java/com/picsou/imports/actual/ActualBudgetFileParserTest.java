@@ -5,6 +5,7 @@ import com.picsou.imports.actual.ParsedActualBudget.SourceAccount;
 import com.picsou.imports.actual.ParsedActualBudget.SourceCategory;
 import com.picsou.imports.actual.ParsedActualBudget.SourceTransaction;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -316,19 +317,21 @@ class ActualBudgetFileParserTest {
         assertThatThrownBy(() -> parser.parse(truncated)).isInstanceOf(IllegalArgumentException.class);
     }
 
+    // A private root: other test classes running in parallel shards or forks share the
+    // system one, so counting there would race with their copies.
     @Test
-    void deletesItsTemporaryCopyAfterSuccessAndFailure() throws IOException {
-        long before = temporaryCopies();
+    void deletesItsTemporaryCopyAfterSuccessAndFailure(@TempDir Path root) throws IOException {
+        ActualBudgetFileParser isolated = new ActualBudgetFileParser(root);
 
-        parser.parse(ActualBudgetFixture.household().zip());
-        assertThatThrownBy(() -> parser.parse(ActualBudgetFixture.empty().sql("DROP TABLE payees").sqlite()))
+        isolated.parse(ActualBudgetFixture.household().zip());
+        assertThatThrownBy(() -> isolated.parse(ActualBudgetFixture.empty().sql("DROP TABLE payees").sqlite()))
                 .isInstanceOf(IllegalArgumentException.class);
 
-        assertThat(temporaryCopies()).isEqualTo(before);
+        assertThat(temporaryCopies(root)).isZero();
     }
 
-    private static long temporaryCopies() throws IOException {
-        try (Stream<Path> paths = Files.list(Path.of(System.getProperty("java.io.tmpdir")))) {
+    private static long temporaryCopies(Path root) throws IOException {
+        try (Stream<Path> paths = Files.list(root)) {
             return paths.filter(path -> path.getFileName().toString().startsWith("picsou-actual-")).count();
         }
     }
