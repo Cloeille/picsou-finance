@@ -203,7 +203,7 @@ function assetClassOf(type: AccountType): AssetClass {
       return 'CURRENT'
     case 'LEP': case 'SAVINGS': case 'LIVRET_A': case 'LDDS': case 'LIVRET_JEUNE': case 'PEL': case 'CEL':
       return 'SAVINGS'
-    case 'PEA': case 'COMPTE_TITRES': case 'CRYPTO': case 'EMPLOYEE_SAVINGS': case 'ASSURANCE_VIE': case 'PER':
+    case 'PEA': case 'COMPTE_TITRES': case 'CRYPTO': case 'EMPLOYEE_SAVINGS': case 'ASSURANCE_VIE': case 'PER': case 'BROKERAGE':
       return 'INVESTMENT'
     default:
       return 'OTHER'

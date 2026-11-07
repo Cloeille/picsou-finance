@@ -136,9 +136,13 @@ describe('AccountDetailPage holdings (#231)', () => {
     expect(screen.queryByTestId('account-dividends')).not.toBeInTheDocument()
   })
 
-  it('mounts upcoming dividends once on a securities account and a PEA, not on a wrapper', () => {
+  it('mounts upcoming dividends once on a securities account, a brokerage account and a PEA, not on a wrapper', () => {
     account.mockReturnValue(investmentAccount({ type: 'COMPTE_TITRES' }))
     const { rerender } = render(<AccountDetailPage />)
+    expect(screen.getAllByTestId('account-dividends')).toHaveLength(1)
+
+    account.mockReturnValue(investmentAccount({ type: 'BROKERAGE' }))
+    rerender(<AccountDetailPage />)
     expect(screen.getAllByTestId('account-dividends')).toHaveLength(1)
 
     account.mockReturnValue(investmentAccount({ type: 'PEA' }))

@@ -73,6 +73,7 @@
 | 2026-09-26 | [CORUM client space fills existing SCPI accounts through a browser sidecar](./decisions/2026-09-26-corum-scpi-sidecar.md) | Active (points 5 and 7 superseded) |
 | 2026-09-27 | [Sofidy Espace Associé fills existing SCPI accounts through a browserless sidecar](./decisions/2026-09-27-sofidy-scpi-sidecar.md) | Active (point 5 superseded) |
 | 2026-10-04 | [SimpleFIN as its own connector, beside Enable Banking](./decisions/2026-10-04-simplefin-beside-enable-banking.md) | Active |
+| 2026-11-06 | [A generic BROKERAGE type and the bank behind a SimpleFIN account](./decisions/2026-11-06-brokerage-type-and-simplefin-institutions.md) | Active |
 | 2026-11-03 | [Wise jars through a personal API token, beside Enable Banking](./decisions/2026-11-03-wise-jars-beside-enable-banking.md) | Active |
 | 2026-10-16 | [CORUM and Sofidy syncs create and link their SCPI accounts](./decisions/2026-10-16-scpi-sync-creates-accounts.md) | Active |
 | 2026-10-08 | [Rehearse release migrations before replacing the production API](./decisions/2026-10-08-rehearse-release-migrations.md) | Active |

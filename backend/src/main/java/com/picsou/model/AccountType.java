@@ -33,6 +33,14 @@ public enum AccountType {
      * tickers come from {@link PreciousMetal}, whose {@code :} keeps them away from Yahoo.
      */
     PRECIOUS_METALS,
+    /**
+     * An investment account at a broker, in any country and under any tax wrapper: a US Roth IRA,
+     * HSA or 401(k), a taxable brokerage account. Not {@link #COMPTE_TITRES} or {@link #PEA},
+     * which are French wrappers with their own rules. The wrapper stays visible in the account's
+     * name, and it is not a {@link #isLockedWrapper() locked wrapper}: Picsou cannot tell which
+     * rules apply, so it assumes none.
+     */
+    BROKERAGE,
     OTHER;
 
     /**
@@ -57,7 +65,7 @@ public enum AccountType {
      */
     public boolean isInvestment() {
         return this == PEA || this == COMPTE_TITRES || this == CRYPTO || this == ASSURANCE_VIE || this == PER
-            || this == PRECIOUS_METALS;
+            || this == PRECIOUS_METALS || this == BROKERAGE;
     }
 
     /**
