@@ -4,6 +4,10 @@
 {{- if and (not .Values.app.persistence.enabled) (not .Values.secrets.existingSecret) (not (and .Values.secrets.jwtSecret .Values.secrets.cryptoEncryptionKey)) }}
 {{- fail "app.persistence.enabled=false requires both secrets.jwtSecret and secrets.cryptoEncryptionKey, or secrets.existingSecret containing jwt-secret and crypto-encryption-key" }}
 {{- end }}
+{{- $psc := .Values.app.podSecurityContext | default dict }}
+{{- if and .Values.app.enableBanking.existingSecret (or (not (hasKey $psc "fsGroup")) (kindIs "invalid" $psc.fsGroup)) }}
+{{- fail "app.enableBanking.existingSecret requires app.podSecurityContext.fsGroup: the key file is owned by root, and only fsGroup gives the non-root app group read access to it" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -100,7 +104,9 @@ spec:
         - name: enablebanking
           secret:
             secretName: {{ . }}
-            defaultMode: 0400
+            # 0440, written in decimal so a YAML 1.2 reader does not take it for 440. Owner root,
+            # group fsGroup: the app (uid 1000) reads the key through the group.
+            defaultMode: 288
             items:
               - key: {{ $.Values.app.enableBanking.key }}
                 path: {{ $.Values.app.enableBanking.key }}
