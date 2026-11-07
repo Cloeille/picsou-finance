@@ -33,15 +33,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Behaviour changes: authenticated uploads follow Spring's 10 MB multipart limit instead of
   nginx's 1 MB body limit, while the anonymous endpoints (`/api/setup`, `/api/auth/`,
   `/oauth2/register`) keep a 1 MB cap (`AnonymousBodyLimitFilter`, HTTP 413). Form-encoded
-  PUT/PATCH/DELETE bodies are no longer parsed (the API takes JSON only). No proxy timeout cuts
-  slow requests and no proxy buffers slow clients any more, so put Picsou behind your own proxy
-  when it faces the internet. A stopped backend is a refused connection instead of an nginx 502.
+  PUT/PATCH/DELETE bodies are no longer parsed; no endpoint used them (multipart uploads are
+  unchanged). No proxy timeout cuts slow requests and no proxy buffers slow clients any more, so
+  put Picsou behind your own proxy when it faces the internet. A stopped backend is a refused
+  connection instead of an nginx 502.
   The unused `./secrets/enablebanking.pem` mount is gone: the app never read it, the wizard keeps
   the key in `/data/keys`. If you pointed `ENABLEBANKING_PRIVATE_KEY_PATH` at
-  `/run/secrets/enablebanking.pem` yourself, import the key in Admin → Integrations, or add the
-  mount back in an override file. Helm mounts `app.enableBanking.existingSecret` as `0440` and
-  refuses to render it without `app.podSecurityContext.fsGroup`, the group that lets uid 1000
-  read it.
+  `/run/secrets/enablebanking.pem` yourself, remove it from `docker/.env` and recreate the app
+  before you import the key in Admin → Integrations (the import writes to the configured path
+  while it is set; unset, the key is stored in `/data/keys`). Or keep managing the file yourself
+  and add the mount back in a Compose override file. Helm mounts
+  `app.enableBanking.existingSecret` as `0440` and refuses to render it without
+  `app.podSecurityContext.fsGroup`, the group that lets uid 1000 read it.
 
 ### Added
 

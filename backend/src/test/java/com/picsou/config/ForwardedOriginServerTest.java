@@ -149,7 +149,7 @@ class ForwardedOriginServerTest {
         /**
          * Spring's FormContentFilter runs before Spring Security and reads a form-encoded
          * PUT/PATCH/DELETE body whole, with no limit, on any path: an anonymous client could make
-         * the JVM buffer it before the 401. The API takes JSON only, so it is not registered.
+         * the JVM buffer it before the 401. No endpoint reads such a body, so it is not registered.
          */
         @Test
         void noFilterParsesAFormEncodedBodyBeforeAuthentication(@Autowired org.springframework.context.ApplicationContext context) {

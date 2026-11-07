@@ -45,8 +45,9 @@ spring:
       max-request-size: 10MB
 
   # FormContentFilter runs before Spring Security and reads a whole form-encoded PUT/PATCH/DELETE
-  # body into memory, with no limit, on every path AnonymousBodyLimitFilter does not cap. The API
-  # takes JSON only, so it is off.
+  # body into memory, with no limit, on every path AnonymousBodyLimitFilter does not cap. No
+  # endpoint reads a form-encoded PUT/PATCH/DELETE body (the integration toggle takes `enabled`
+  # from the query string), so it is off.
   mvc:
     formcontent:
       filter:

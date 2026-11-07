@@ -411,7 +411,10 @@ Single sign-on, the admin group and a step-by-step Zitadel setup are described i
 
 The setup wizard generates the key pair, or imports a PEM you already have, and stores the private
 key in the `picsou_data` volume (`/data/keys`). Upload the public key it shows to your Enable Banking
-dashboard. See [Bank sync](docs/features/bank-sync.md).
+dashboard. An imported key must be an unencrypted PKCS#8 RSA private key
+(`-----BEGIN PRIVATE KEY-----`). Convert a PKCS#1 one (`BEGIN RSA PRIVATE KEY`) with
+`openssl pkcs8 -topk8 -nocrypt -in key.pem -out key-pkcs8.pem`. See
+[Bank sync](docs/features/bank-sync.md).
 
 ### Kubernetes (Helm)
 
