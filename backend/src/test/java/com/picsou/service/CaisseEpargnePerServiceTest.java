@@ -307,13 +307,15 @@ class CaisseEpargnePerServiceTest {
     void prepare_explicitEmptyPortfolioClearsOldHoldingsButKeepsEuroPocketAsCash() {
         CaisseEpargnePerService.Prepared prepared = service.prepare(details("500", "500"), "EUR");
         Account account = Account.builder().id(8L).build();
+        AccountHolding old = AccountHolding.builder().account(account).ticker("OLD").quantity(BigDecimal.ONE).build();
+        when(holdingRepository.findByAccount_Id(8L)).thenReturn(List.of(old));
 
         service.apply(account, prepared, Instant.parse("2026-10-14T08:00:00Z"));
 
         assertThat(prepared.positions()).isEmpty();
         assertThat(account.getCurrentBalance()).isEqualByComparingTo("500");
         assertThat(account.getCashBalance()).isEqualByComparingTo("500");
-        verify(holdingRepository).deleteByAccountId(8L);
+        verify(holdingRepository).deleteAll(List.of(old));
         ArgumentCaptor<List<AccountHolding>> saved = ArgumentCaptor.forClass(List.class);
         verify(holdingRepository).saveAll(saved.capture());
         assertThat(saved.getValue()).isEmpty();
@@ -321,7 +323,7 @@ class CaisseEpargnePerServiceTest {
     }
 
     @Test
-    void apply_repeatedCompleteSnapshotDeletesAndRecreatesExactlyOncePerCall() {
+    void apply_repeatedCompleteSnapshotWritesExactlyOncePerCallAndNeverDeletesALineThatIsStillReported() {
         CaisseEpargnePerService.Prepared prepared = new CaisseEpargnePerService.Prepared(
             new BigDecimal("275"), new BigDecimal("75"), LocalDate.of(2026, 10, 13),
             List.of(new CaisseEpargnePerService.PreparedPosition(
@@ -335,10 +337,41 @@ class CaisseEpargnePerServiceTest {
         service.apply(account, prepared, syncedAt);
         service.apply(account, prepared, syncedAt);
 
-        verify(holdingRepository, times(2)).deleteByAccountId(8L);
+        verify(holdingRepository, never()).deleteByAccountId(any());
+        verify(holdingRepository, never()).deleteAll(any(Iterable.class));
         verify(holdingRepository, times(2)).saveAll(any());
-        verify(holdingRepository, times(4)).flush();
+        verify(holdingRepository, times(2)).flush();
         verifyNoInteractions(identityService);
+    }
+
+    @Test
+    void apply_updatesAKnownLineInPlaceKeepingTheMembersBuyInAndRemovesOnlyWhatIsNoLongerReported() {
+        CaisseEpargnePerService.Prepared prepared = new CaisseEpargnePerService.Prepared(
+            new BigDecimal("300"), new BigDecimal("0"), LocalDate.of(2026, 10, 13),
+            List.of(new CaisseEpargnePerService.PreparedPosition(
+                "IWDA.AS", "Core Fund", new BigDecimal("3"), new BigDecimal("100"),
+                new BigDecimal("300"), LocalDate.of(2026, 10, 12), "IE00B4L5Y983"
+            )), Map.of("IWDA.AS", "IE00B4L5Y983"), Set.of("IWDA.AS")
+        );
+        Account account = Account.builder().id(8L).build();
+        AccountHolding kept = AccountHolding.builder().account(account).ticker("IWDA.AS").name("Old name")
+            .quantity(new BigDecimal("2")).averageBuyIn(new BigDecimal("80"))
+            .providerValueEur(new BigDecimal("150")).providerPnlEur(new BigDecimal("5")).build();
+        AccountHolding gone = AccountHolding.builder().account(account).ticker("SOLD").quantity(BigDecimal.ONE).build();
+        when(holdingRepository.findByAccount_Id(8L)).thenReturn(List.of(kept, gone));
+
+        service.apply(account, prepared, Instant.parse("2026-10-14T08:00:00Z"));
+
+        assertThat(kept.getQuantity()).isEqualByComparingTo("3");
+        assertThat(kept.getName()).isEqualTo("Core Fund");
+        assertThat(kept.getProviderValueEur()).isEqualByComparingTo("300");
+        assertThat(kept.getProviderPnlEur()).isNull();
+        // The insurer reports no cost: the member's own buy-in is not touched.
+        assertThat(kept.getAverageBuyIn()).isEqualByComparingTo("80");
+        verify(holdingRepository).deleteAll(List.of(gone));
+        ArgumentCaptor<List<AccountHolding>> saved = ArgumentCaptor.forClass(List.class);
+        verify(holdingRepository).saveAll(saved.capture());
+        assertThat(saved.getValue()).containsExactly(kept);
     }
 
     @Test
@@ -359,8 +392,8 @@ class CaisseEpargnePerServiceTest {
 
         assertThat(account.getCurrentBalance()).isEqualByComparingTo("275");
         assertThat(account.getCashBalance()).isEqualByComparingTo("75");
-        verify(holdingRepository).deleteByAccountId(8L);
-        verify(holdingRepository, times(2)).flush();
+        verify(holdingRepository, never()).deleteByAccountId(any());
+        verify(holdingRepository).flush();
         ArgumentCaptor<List<AccountHolding>> saved = ArgumentCaptor.forClass(List.class);
         verify(holdingRepository).saveAll(saved.capture());
         assertThat(saved.getValue()).singleElement().satisfies(holding -> {

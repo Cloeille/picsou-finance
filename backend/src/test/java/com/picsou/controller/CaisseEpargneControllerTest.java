@@ -59,7 +59,7 @@ class CaisseEpargneControllerTest {
     private static CaisseEpargneSyncService.SessionStatusResponse statusOf(CaisseEpargneSyncStatus syncStatus) {
         return new CaisseEpargneSyncService.SessionStatusResponse(
             true, syncStatus, null, null, null,
-            List.of(new BpceSyncEngine.UnsupportedContract("9001", "7")));
+            List.of(new BpceSyncEngine.UnsupportedContract("9001", "7", "02")));
     }
 
     @Test
@@ -74,7 +74,8 @@ class CaisseEpargneControllerTest {
             .andExpect(jsonPath("$.syncStatus").value("QUEUED"))
             .andExpect(jsonPath("$.unsupportedCount").value(1))
             .andExpect(jsonPath("$.unsupported[0].externalId").value("9001"))
-            .andExpect(jsonPath("$.unsupported[0].familyCode").value("7"));
+            .andExpect(jsonPath("$.unsupported[0].familyCode").value("7"))
+            .andExpect(jsonPath("$.unsupported[0].subFamilyCode").value("02"));
 
         verify(service).queueSync(MEMBER_ID);
     }

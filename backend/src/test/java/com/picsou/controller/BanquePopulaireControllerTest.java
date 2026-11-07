@@ -59,7 +59,7 @@ class BanquePopulaireControllerTest {
     private static BanquePopulaireSyncService.SessionStatusResponse statusOf(BanquePopulaireSyncStatus syncStatus) {
         return new BanquePopulaireSyncService.SessionStatusResponse(
             true, syncStatus, null, null, null,
-            List.of(new BpceSyncEngine.UnsupportedContract("9001", "7")));
+            List.of(new BpceSyncEngine.UnsupportedContract("9001", "7", "02")));
     }
 
     @Test
