@@ -564,6 +564,10 @@ async def _operation_details(client: httpx.AsyncClient, access_token: str,
                 tasks = [group.create_task(detail(d)) for d in demands]
             return demands, [task.result() for task in tasks], since
     except* Exception as errors:
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
+            # The route's deadline fired as a read failed: let it end the request.
+            raise asyncio.CancelledError
         # Codes and error types only: a message may quote what Natixis sent.
         failure = " " + ",".join(sorted({
             f"code={e.code}" if isinstance(e, NatixisError) else f"error_type={type(e).__name__}"
