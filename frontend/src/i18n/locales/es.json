@@ -87,6 +87,13 @@
     "mfaTooManyAttempts": "Demasiados intentos, inténtalo de nuevo en unos minutos",
     "mfaSessionExpired": "La sesión de verificación ha caducado, inicia sesión de nuevo",
     "mfaGenericError": "No se pudo verificar el código. Inténtalo de nuevo.",
+    "sso": {
+      "button": "Iniciar sesión con {{provider}}",
+      "or": "o",
+      "redirecting": "Redirigiendo a tu proveedor de inicio de sesión...",
+      "completing": "Completando el inicio de sesión...",
+      "infoError": "No se pudieron cargar las opciones de inicio de sesión."
+    },
     "validation": {
       "usernameTooShort": "El nombre de usuario debe tener al menos 3 caracteres.",
       "usernameTooLong": "El nombre de usuario debe tener 50 caracteres como máximo.",
@@ -182,6 +189,7 @@
     "balance": "Saldo",
     "lastSync": "Última sincronización",
     "lastValuation": "Última valoración",
+    "viaProvider": "vía {{provider}}",
     "holdings": "Posiciones",
     "transactions": "Transacciones",
     "noTransactions": "No hay transacciones en esta cuenta.",
@@ -214,6 +222,9 @@
     "valueAndInvested": "Valor y capital invertido",
     "manual": "Manual",
     "accountName": "Nombre de la cuenta",
+    "beneficiary": "Destinatario",
+    "beneficiaryPlaceholder": "Jean, Marie…",
+    "peerLoanSetupHint": "El importe prestado y la cuenta de tesorería se indican en el paso siguiente, en la página del préstamo.",
     "accountType": "Tipo de cuenta",
     "provider": "Entidad",
     "bankPickerHint": "Elige tu banco de la lista para mostrar su logotipo.",
@@ -270,9 +281,12 @@
       "CHECKING": "Cuentas corrientes",
       "CRYPTO": "Cripto",
       "REAL_ESTATE": "Inmobiliario",
+      "RECEIVABLES": "Créditos",
       "DEBTS": "Deudas",
       "OTHER": "Otros"
     },
+    "showClosedLoans": "Mostrar préstamos cerrados",
+    "hideClosedLoans": "Ocultar préstamos cerrados",
     "fees": "Comisiones",
     "export": {
       "button": "Exportar datos",
@@ -447,8 +461,159 @@
     "assuranceVie": "Seguro de vida",
     "per": "PER (ahorro para la jubilación)",
     "preciousMetals": "Metales preciosos",
+    "brokerage": "Cuenta de corretaje",
     "scpi": "SCPI",
-    "creditCard": "Tarjeta de crédito"
+    "creditCard": "Tarjeta de crédito",
+    "peerLoan": "Préstamo entre particulares"
+  },
+  "peerLoan": {
+    "termsDescription": "El importe prestado, la fecha y, opcionalmente, un tipo de interés y una previsión.",
+    "borrowerHint": "El destinatario es el nombre de la cuenta. Una cuenta, un préstamo.",
+    "linkedAccountHint": "Obligatoria: la cuenta que recibe las devoluciones, para que el patrimonio sea correcto.",
+    "termsHint": {
+      "noCashLeg": "La salida ya está reflejada en el saldo de la cuenta de efectivo: no se creará ningún movimiento.",
+      "syncedAccount": "Cuenta sincronizada: Picsou no crea ningún movimiento bancario."
+    },
+    "setupHint": "Introduce el importe prestado y la cuenta de tesorería para empezar el seguimiento.",
+    "saved": "Condiciones guardadas.",
+    "repaymentSaved": "Devolución registrada.",
+    "repaymentDeleted": "Devolución eliminada.",
+    "closed": "Préstamo cerrado.",
+    "configure": "Configurar el préstamo",
+    "create": "Crear un préstamo",
+    "editTerms": "Editar condiciones",
+    "addRepayment": "Añadir una devolución",
+    "editRepayment": "Editar devolución",
+    "withCashLeg": "Crear el movimiento de efectivo",
+    "repaymentsTitle": "Devoluciones",
+    "empty": "Aún no hay devoluciones registradas.",
+    "repaymentHint": {
+      "single": "Los intereses devengados se aplican primero; el resto reduce el capital.",
+      "noCashLeg": "El capital baja sin ingreso bancario: útil para una compensación o un pago ya registrado en otro sitio."
+    },
+    "ledger": {
+      "interestPart": "de los cuales {{amount}} de intereses",
+      "noCashLeg": "Sin movimiento de efectivo"
+    },
+    "noPlan": "Sin previsión definida. Añade una duración o una cuota mensual para estimarla.",
+    "closedHint": "Este préstamo está cerrado. Elimina la condonación para reabrirlo.",
+    "cashflowHint": "Para que este préstamo no cuente como gasto, clasifica la transferencia bancaria correspondiente como «Transferencia interna».",
+    "fields": {
+      "beneficiary": "Destinatario",
+      "principal": "Importe prestado",
+      "lentAt": "Fecha del préstamo",
+      "expectedBack": "Devolución prevista",
+      "ratePct": "Tipo (%)",
+      "ratePeriod": "Periodo del tipo",
+      "rateAnnual": "Tipo anual",
+      "rateMonthly": "Tipo mensual",
+      "plannedMonths": "Duración prevista (meses)",
+      "plannedMonthly": "Cuota mensual prevista",
+      "linkedAccount": "Cuenta de tesorería vinculada",
+      "outflowAlreadyBooked": "La salida ya está en el saldo de la cuenta",
+      "selectLinkedAccount": "Seleccionar una cuenta",
+      "note": "Nota",
+      "paidOn": "Fecha",
+      "amount": "Importe",
+      "kind": "Naturaleza"
+    },
+    "ratePeriod": {
+      "ANNUAL": "Anual",
+      "MONTHLY": "Mensual"
+    },
+    "kinds": {
+      "PRINCIPAL": "Devolución",
+      "INTEREST": "Intereses",
+      "WRITE_OFF": "Condonación"
+    },
+    "summary": {
+      "open": "En curso",
+      "closed": "Cerrado",
+      "lent": "Prestado",
+      "remaining": "Pendiente",
+      "repaid": "Devuelto",
+      "interestCalculated": "Intereses calculados",
+      "interestDue": "Intereses pendientes",
+      "principalRepaid": "Capital devuelto",
+      "writtenOff": "Condonado"
+    },
+    "forecast": {
+      "title": "Previsión",
+      "planTitle": "Simulador",
+      "scheduled": "Previsto a hoy",
+      "actual": "Real",
+      "plannedInterest": "Intereses previstos",
+      "behind": "{{count}} cuota de retraso",
+      "behind_other": "{{count}} cuotas de retraso",
+      "ahead": "{{count}} cuota de adelanto",
+      "ahead_other": "{{count}} cuotas de adelanto",
+      "onTrack": "Al día",
+      "disclaimer": "Previsión orientativa, nunca contractual.",
+      "simulationResult": "{{months}} meses · {{monthlyPayment}}/mes · {{interest}} de intereses",
+      "accruedHint": "Intereses devengados:"
+    },
+    "overview": {
+      "title": "Préstamos entre particulares",
+      "subtitle": "Quién debe qué y cómo van las devoluciones.",
+      "totalOutstanding": "Total pendiente",
+      "openLoans": "Préstamos en curso",
+      "interestAccrued": "Intereses devengados",
+      "curveTitle": "Pendiente total en 12 meses",
+      "columns": {
+        "borrower": "Prestatario",
+        "remaining": "Pendiente",
+        "repaid": "Devuelto",
+        "status": "Estado",
+        "lastPayment": "Último pago",
+        "expectedBack": "Devolución prevista"
+      },
+      "status": {
+        "closed": "Cerrado",
+        "behind_one": "{{count}} cuota de retraso",
+        "behind_other": "{{count}} cuotas de retraso",
+        "onTime": "Al día",
+        "noPlan": "Sin plan"
+      }
+    },
+    "fromTransaction": {
+      "action": "Crear un préstamo entre particulares",
+      "title": "Crear un préstamo desde esta transacción",
+      "description": "El dinero ya salió: esta transacción se convierte en la parte de efectivo del préstamo, sin copiarla.",
+      "beneficiaryHint": "Este nombre pasa a ser el de la cuenta e identifica el préstamo.",
+      "beneficiaryRequired": "El destinatario es obligatorio.",
+      "confirm": "Crear el préstamo",
+      "created": "Préstamo creado.",
+      "assignAction": "Asignar a una devolución"
+    },
+    "assignRepayment": {
+      "title": "Asignar a una devolución",
+      "description": "La transacción se convierte en la parte de efectivo de la devolución, sin copiarla.",
+      "loan": "Préstamo",
+      "selectLoan": "Seleccionar un préstamo",
+      "loanRequired": "Selecciona un préstamo.",
+      "noLoans": "Ningún préstamo en curso.",
+      "confirm": "Asignar",
+      "created": "Devolución registrada."
+    },
+    "actions": {
+      "close": "Cerrar el préstamo",
+      "simulate": "Calcular"
+    },
+    "close": {
+      "title": "Cerrar el préstamo",
+      "description": "El saldo restante ({{amount}}) se condonará y se retirará del patrimonio hoy.",
+      "confirm": "Cerrar"
+    },
+    "validation": {
+      "principal": "El importe prestado debe ser mayor que cero.",
+      "rateNegative": "El tipo no puede ser negativo.",
+      "linkedAccount": "La cuenta de tesorería es obligatoria.",
+      "lentAt": "La fecha del préstamo es obligatoria.",
+      "plan": "Indica una duración o una cuota, pero no ambas.",
+      "simulation": "No se pudo calcular esta previsión.",
+      "amount": "El importe debe ser mayor que cero.",
+      "paidOn": "La fecha es obligatoria."
+    }
   },
   "scpi": {
     "add": {
@@ -743,6 +908,7 @@
       "degiro": "Sincronizar tu cuenta de valores DEGIRO",
       "ibkr": "Sincroniza tu cuenta de Interactive Brokers mediante Flex Query",
       "simplefin": "Importa cuentas bancarias con un token de SimpleFIN",
+      "wise": "Tus Jars de Wise, que la conexión bancaria no ve",
       "finary": "Importar desde Finary",
       "manual": "Crear una cuenta manualmente",
       "amundi": "PEE, PEG, PERCO, PER en Amundi",
@@ -752,7 +918,8 @@
       "property": "Casa, piso, terreno…",
       "revolut": "Phone + passcode, on-demand sync",
       "fortuneo": "Sincronizar tus cuentas Fortuneo",
-      "caisseEpargne": "Cuenta corriente, Livret A, LDDS, PER, préstamos y tarjetas en Caisse d'Epargne"
+      "caisseEpargne": "Cuenta corriente, Livret A, LDDS, PER, préstamos y tarjetas en Caisse d'Epargne",
+      "banquePopulaire": "Cuenta corriente, Livret A, Livret Jeune y LDDS en Banque Populaire"
     }
   },
   "sync": {
@@ -786,6 +953,11 @@
       "callbackError": "Error de sincronización",
       "initiateError": "Fallo al conectar",
       "psd2ScopeNote": "Enable Banking solo sincroniza cuentas corrientes (limitación PSD2). Para PEA, seguros de vida, ahorro: usa Trade Republic, Boursobank, Finary o añádelos manualmente.",
+      "wiseJarsMissing": "Tus Jars de Wise no llegan por esta conexión.",
+      "wiseJarsConnect": "Conectar los Jars",
+      "wiseJarsConnected": "Tus Jars de Wise se sincronizan con el conector Wise Jars.",
+      "wiseJarsFailed": "Falló la última sincronización de tus Jars de Wise.",
+      "wiseJarsOpen": "Abrir Wise Jars",
       "proBadge": "Pro",
       "proBadgeTitle": "Cuenta de empresa — este banco solo atiende a clientes profesionales"
     },
@@ -858,6 +1030,37 @@
       "errors": {
         "connectFailed": "No se pudo conectar con SimpleFIN. Revisa el token e inténtalo de nuevo.",
         "syncFailed": "Falló la sincronización de SimpleFIN. Inténtalo de nuevo o crea un token nuevo si se revocó el acceso.",
+        "disconnectFailed": "No se pudo eliminar la conexión. Inténtalo de nuevo."
+      }
+    },
+    "wise": {
+      "title": "Wise Jars",
+      "intro": "Este conector es solo para tus Jars de Wise: la conexión bancaria de Wise en la pestaña Bancos no los ve. Tu cuenta corriente de Wise y sus movimientos siguen en la pestaña Bancos.",
+      "setupHint": "En wise.com, crea un token de API personal de solo lectura y pégalo aquí.",
+      "createToken": "Crear un token",
+      "token": "Token de API de Wise",
+      "tokenPlaceholder": "Pega el token de Wise",
+      "connect": "Conectar",
+      "sync": "Sincronizar",
+      "syncing": "Sincronizando…",
+      "disconnect": "Desconectar",
+      "disconnectConfirm": "¿Eliminar el token de Wise guardado? Los Jars importados se conservan y dejan de actualizarse.",
+      "connected": "Conectado",
+      "statusError": "Falló la última sincronización",
+      "lastSync": "Última sincronización",
+      "neverSynced": "Nunca sincronizado",
+      "syncedToast": "Wise sincronizado: {{count}} Jar",
+      "syncedToast_other": "Wise sincronizado: {{count}} Jars",
+      "statusTokenRefused": "Token rechazado por Wise",
+      "replaceTokenHint": "Wise rechazó el token guardado. Crea uno nuevo en wise.com y pégalo aquí para reanudar la sincronización.",
+      "replaceToken": "Reemplazar el token",
+      "scopeNote": "Solo se siguen los saldos de los Jars: en Europa, Wise no comparte su historial con un token personal.",
+      "errors": {
+        "tokenRefused": "Wise rechazó este token. Puede que se haya revocado: crea uno nuevo de solo lectura en wise.com.",
+        "invalidToken": "Esto no es un token de API de Wise. Cópialo de nuevo desde wise.com.",
+        "rateLimited": "Wise está limitando las solicitudes. Inténtalo de nuevo en unos minutos.",
+        "connectFailed": "No se pudo conectar con Wise. Comprueba el token e inténtalo de nuevo.",
+        "syncFailed": "Falló la sincronización de Wise. Inténtalo de nuevo o crea un token nuevo si fue revocado.",
         "disconnectFailed": "No se pudo eliminar la conexión. Inténtalo de nuevo."
       }
     },
@@ -1142,6 +1345,59 @@
         "clear": "Borrar",
         "cancel": "Cancelar",
         "validate": "Validar",
+        "countdownLabel": "Tiempo restante:"
+      }
+    },
+    "banquePopulaire": {
+      "title": "Banque Populaire",
+      "customerId": "Identificador",
+      "region": "Tu Banque Populaire",
+      "regionPlaceholder": "Elige tu banco",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "sync": "Sincronizar",
+      "queued": "Sincronización en cola…",
+      "syncing": "Sincronizando…",
+      "syncSuccess": "Cuentas de Banque Populaire sincronizadas.",
+      "clearSession": "Desconectar",
+      "disconnectConfirm": "Esto borra la sesión guardada en Picsou. La sesión de Banque Populaire en sí no se cierra y puede seguir activa hasta que caduque.",
+      "disconnectConfirmAction": "Borrar la sesión guardada",
+      "noSession": "Sin sesión activa",
+      "sessionActive": "Sesión activa",
+      "scope": "Sincroniza bajo demanda tus cuentas corrientes, Livret A, Livret Jeune y LDDS de Banque Populaire. Solo se guarda la sesión, cifrada. Los contratos que Picsou no puede importar se listan pero nunca se crean.",
+      "notice": {
+        "neverStored": "Picsou nunca ve ni guarda tu contraseña. La pulsas tú mismo en el teclado del banco; solo se envían las posiciones de las teclas, una única vez.",
+        "noRetry": "Picsou nunca reintenta un inicio de sesión. Si falla, no se vuelve a enviar nada hasta que envíes el formulario tú mismo.",
+        "lockRisk": "Los intentos fallidos cuentan ante tu banco y pueden bloquear tu acceso a Banque Populaire. Comprueba tu identificador y las cifras pulsadas en el teclado antes de validar."
+      },
+      "securPassPrompt": "Aprueba el inicio de sesión en tu aplicación Sécur'Pass.",
+      "securPassHint": "Picsou no toca tu teléfono. Esta página continúa sola en cuanto apruebes.",
+      "countdownLabel": "Tiempo restante para aprobar:",
+      "unsupportedTitle": "Contratos no importados",
+      "unsupportedHint": "Picsou aún no admite estas familias de contratos (se muestra el código de familia).",
+      "errors": {
+        "rateLimited": "Demasiados intentos de inicio de sesión. Espera antes de volver a intentarlo.",
+        "rateLimitedRetryAfter": "Demasiados intentos de inicio de sesión. Inténtalo de nuevo en {{minutes}} min.",
+        "invalidCredentials": "El banco rechazó el identificador o la contraseña. Compruébalos antes de reintentar: los fallos repetidos pueden bloquear tu cuenta.",
+        "keypadChanged": "El teclado cambió, empieza de nuevo. No se envió nada.",
+        "appValidationTimeout": "El inicio de sesión no se aprobó a tiempo en Sécur'Pass. Empieza de nuevo si quieres reintentarlo.",
+        "authAttemptExpired": "El intento de inicio de sesión caducó. Empieza de nuevo si quieres reintentarlo.",
+        "sessionExpired": "La sesión de Banque Populaire caducó. Vuelve a conectar.",
+        "formatChanged": "El formato del sitio de Banque Populaire cambió. Se conservaron tus datos existentes.",
+        "invalidSessionState": "No se pudo leer la sesión guardada. Vuelve a conectar.",
+        "serverError": "No se pudo contactar con Banque Populaire. Inténtalo de nuevo más tarde.",
+        "keypadExpired": "El teclado caducó antes de validar. Empieza de nuevo si quieres reintentarlo.",
+        "invalidPositions": "No se aceptó la entrada del teclado. Empieza de nuevo e introduce de 6 a 12 teclas."
+      },
+      "keypad": {
+        "title": "Pulsa tu contraseña",
+        "description": "Pulsa en orden las teclas de tu contraseña en el teclado del banco. Los dígitos solo se muestran en las propias teclas.",
+        "key": "Tecla {{n}}",
+        "entered": "{{count}} teclas introducidas",
+        "clear": "Borrar",
+        "cancel": "Cancelar",
+        "validate": "Validar",
+        "sending": "Enviando…",
         "countdownLabel": "Tiempo restante:"
       }
     },
@@ -1489,6 +1745,8 @@
     "themeDark": "Oscuro",
     "themeSystem": "Sistema",
     "currentPassword": "Contraseña actual",
+    "newPassword": "Nueva contraseña",
+    "confirmPassword": "Confirmar contraseña",
     "appearanceDescription": "Personaliza la apariencia de la aplicación",
     "dateFormat": "Formato de fecha",
     "dateFormatLocale": "Localizado",
@@ -1596,6 +1854,32 @@
         "AGGRESSIVE": "Agresivo"
       },
       "saved": "Perfil guardado"
+    },
+    "signInMethods": {
+      "title": "Métodos de inicio de sesión",
+      "password": "Contraseña",
+      "passwordOn": "Puedes iniciar sesión con tu nombre de usuario y tu contraseña.",
+      "passwordOff": "Sin contraseña: inicias sesión con {{provider}}.",
+      "turnOff": "Desactivar el inicio de sesión con contraseña",
+      "turnOffHint": "Inicia sesión una vez con {{provider}} antes de desactivar el inicio de sesión con contraseña.",
+      "setPassword": "Establecer una contraseña",
+      "identityFallback": "Cuenta de {{provider}}",
+      "lastSignIn": "Último inicio de sesión",
+      "neverUsed": "Aún no se ha usado para iniciar sesión",
+      "unlink": "Desvincular",
+      "unlinkHint": "Establece una contraseña antes de desvincular tu último método de inicio de sesión.",
+      "link": "Vincular una cuenta de {{provider}}",
+      "adminGroupNote": "Tus derechos de administración siguen a tu grupo en {{provider}}.",
+      "linked": "Cuenta vinculada. Ya puedes iniciar sesión con ella.",
+      "removePasswordTitle": "¿Desactivar el inicio de sesión con contraseña?",
+      "removePasswordDesc": "Solo iniciarás sesión con {{provider}}. Se cerrará la sesión en tus otros dispositivos, y la autenticación en dos pasos se desactivará si está activada.",
+      "setPasswordDesc": "Podrás iniciar sesión con tu nombre de usuario y esta contraseña, además de con {{provider}}. Se cerrará la sesión en tus otros dispositivos.",
+      "passwordMismatch": "Las contraseñas no coinciden.",
+      "unlinkTitle": "¿Desvincular esta cuenta?",
+      "unlinkDesc": "Ya no podrás iniciar sesión con esta cuenta de {{provider}}.",
+      "linkTitle": "Vincular una cuenta de {{provider}}",
+      "linkDesc": "Confirma tu identidad y luego inicia sesión con la cuenta de {{provider}} que quieres vincular.",
+      "linkMfaNote": "Cuando inicias sesión con {{provider}}, Picsou no te pide el código de tu app de autenticación: el segundo factor queda entonces a cargo del proveedor de inicio de sesión. El inicio de sesión con contraseña sigue pidiendo el código, salvo en un dispositivo de confianza."
     }
   },
   "accessKeys": {
@@ -1857,6 +2141,12 @@
       "resetMfaConfirmTitle": "¿Restablecer la autenticación en dos pasos?",
       "resetMfaConfirmDesc": "Esto desactiva la 2FA de la cuenta del miembro, revoca sus códigos de recuperación y cierra su sesión en todos los dispositivos. Úsalo solo si ha perdido el acceso a su app de autenticación y no puede usar un código de recuperación.",
       "mfaOn": "2FA activada",
+      "signInPassword": "Contraseña",
+      "signInSso": "SSO",
+      "unlinkSso": "Desvincular SSO",
+      "unlinkSsoTitle": "¿Desvincular el SSO de {{name}}?",
+      "unlinkSsoDescription": "Este miembro ya no podrá iniciar sesión con SSO y se cerrarán sus sesiones en todos los dispositivos. Si no le queda contraseña, necesitará un enlace para restablecerla y volver a iniciar sesión.",
+      "unlinkSsoFailed": "No se pudo desvincular el SSO de {{name}}.",
       "delete": "Eliminar",
       "deleteConfirmTitle": "Eliminar miembro",
       "deleteConfirmDesc": "Esto eliminará al miembro y todos sus datos. Esta acción no se puede deshacer.",
@@ -2016,6 +2306,9 @@
       "submitError": "No se pudo crear la cuenta. Inténtalo de nuevo.",
       "showPassword": "Mostrar contraseña",
       "hidePassword": "Ocultar contraseña",
+      "ssoHint": "El administrador de Picsou inicia sesión con {{provider}}. Usa una cuenta del grupo de administradores.",
+      "ssoContinue": "Continuar con {{provider}}",
+      "ssoMisconfigured": "Para crear el administrador se requiere el inicio de sesión único, pero su configuración no es válida. Revisa los registros del servidor.",
       "strength": {
         "weak": "Débil",
         "fair": "Aceptable",
@@ -2574,6 +2867,26 @@
       "interest": "Intereses",
       "insurance": "Seguro",
       "totalPayment": "Cuota",
+      "peerLoan": "Préstamo entre particulares",
+      "borrower": "Prestatario",
+      "lentAt": "Prestado el",
+      "expectedBack": "Devolución prevista",
+      "ratePeriod": "Periodicidad del tipo",
+      "plannedMonthly": "Cuota prevista",
+      "plannedMonths": "Duración prevista (meses)",
+      "plannedInterest": "Intereses previstos",
+      "principal": "Capital prestado",
+      "principalRemaining": "Capital pendiente",
+      "interestAccrued": "Intereses devengados",
+      "interestReceived": "Intereses recibidos",
+      "writtenOff": "Condonado",
+      "closedAt": "Cerrado el",
+      "cashAccount": "Cuenta de efectivo",
+      "repaymentJournal": "Diario de devoluciones",
+      "paidOn": "Pagado el",
+      "amount": "Importe",
+      "kind": "Tipo",
+      "note": "Nota",
       "yes": "Sí",
       "no": "No"
     }
@@ -2911,5 +3224,60 @@
     "suggestionsBanner": "{{count}} savings account to configure",
     "suggestionsBanner_other": "{{count}} savings accounts to configure",
     "configureSavings": "Configure"
+  },
+  "activation": {
+    "title": "Activa tu cuenta",
+    "subtitle": "Elige una contraseña para terminar de configurar tu cuenta.",
+    "subtitleSso": "Actívala con {{provider}} o elige una contraseña para terminar de configurar tu cuenta.",
+    "noticeTitle": "Aviso sobre el acceso a los datos",
+    "noticeBody": "El administrador de esta instancia de Picsou tiene acceso técnico a todos los datos almacenados aquí, incluidos los datos de las cuentas bancarias y las credenciales de API. Al activar tu cuenta, lo aceptas.",
+    "acknowledge": "Entiendo y acepto que el administrador tiene acceso a todos los datos de esta instancia.",
+    "ssoButton": "Activar con {{provider}}",
+    "password": "Contraseña",
+    "passwordPlaceholder": "Mínimo 8 caracteres",
+    "confirmPassword": "Confirmar contraseña",
+    "confirmPlaceholder": "Repite tu contraseña",
+    "submit": "Activar cuenta",
+    "submitting": "Activando...",
+    "successTitle": "¡Cuenta activada!",
+    "successRedirect": "Redirigiendo al inicio de sesión...",
+    "errors": {
+      "acknowledgeRequired": "Debes aceptar el aviso sobre el acceso a los datos.",
+      "passwordTooShort": "La contraseña debe tener al menos 8 caracteres.",
+      "passwordMismatch": "Las contraseñas no coinciden.",
+      "invalidLink": "Enlace de activación no válido.",
+      "failed": "No se pudo activar la cuenta. Es posible que el enlace haya caducado."
+    }
+  },
+  "reauth": {
+    "confirm": "Confirmar",
+    "confirmWith": "Confirmar con {{provider}}",
+    "ssoHint": "{{provider}} te pedirá que vuelvas a iniciar sesión y luego te traerá de vuelta aquí.",
+    "expired": "Tu confirmación ha caducado. Vuelve a confirmar tu identidad."
+  },
+  "ssoErrors": {
+    "NOT_LINKED": "Esta cuenta no está vinculada a tu proveedor de inicio de sesión. Inicia sesión con tu contraseña y vincúlala desde Ajustes.",
+    "NOT_IN_ADMIN_GROUP": "Tu cuenta no pertenece al grupo necesario para administrar esta instancia.",
+    "IDENTITY_IN_USE": "Esta identidad ya está vinculada a otra cuenta.",
+    "REAUTH_REQUIRED": "Confirma tu identidad de nuevo para continuar.",
+    "REAUTH_TOO_OLD": "Tu última confirmación es demasiado antigua. Confirma tu identidad de nuevo.",
+    "REAUTH_WRONG_ACCOUNT": "Has confirmado una cuenta distinta de la que tienes abierta. Usa la misma cuenta.",
+    "ACCOUNT_INACTIVE": "Esta cuenta está inactiva. Contacta con tu administrador.",
+    "ADMIN_RECOVERY_ACTIVE": "Hay una recuperación de administrador en curso para esta cuenta. Termínala antes de iniciar sesión con SSO.",
+    "ACTIVATION_INVALID": "El inicio de sesión único no está disponible con este enlace. Si es un enlace para restablecer la contraseña, elige una nueva contraseña con el formulario. Si no, el enlace no es válido, ha caducado o ya se ha usado: pide uno nuevo a tu administrador.",
+    "SETUP_ALREADY_CLAIMED": "La configuración inicial ya ha sido reclamada por otro administrador.",
+    "IDP_UNAVAILABLE": "No se puede contactar con el proveedor de inicio de sesión. Inténtalo de nuevo en unos minutos.",
+    "IDP_ERROR": "El proveedor de inicio de sesión ha devuelto un error. Inténtalo de nuevo.",
+    "SESSION_EXPIRED": "Tu intento de inicio de sesión ha caducado. Vuelve a empezar.",
+    "RATE_LIMITED": "Demasiados intentos. Espera un momento e inténtalo de nuevo.",
+    "SSO_ADMIN_REQUIRED": "La primera configuración requiere un administrador de tu proveedor de inicio de sesión. Usa SSO para crear la cuenta de administrador.",
+    "IDENTITY_NOT_USED_YET": "Aún no has iniciado sesión con SSO. Hazlo una vez antes de desactivar el inicio de sesión con contraseña.",
+    "LAST_SIGN_IN_METHOD": "Es tu último método de inicio de sesión. Añade otro antes de eliminarlo.",
+    "PASSWORD_ALREADY_SET": "Esta cuenta ya tiene una contraseña establecida.",
+    "REAUTH_FAILED": "La reautenticación ha fallado. Comprueba tus credenciales e inténtalo de nuevo.",
+    "SSO_REVALIDATE": "Tu sesión debe revalidarse con tu proveedor de inicio de sesión.",
+    "SSO_DISABLED": "El inicio de sesión único no está activado en esta instancia.",
+    "SELF_UNLINK_FORBIDDEN": "Para desvincular tus propias identidades SSO, usa Métodos de inicio de sesión en Ajustes.",
+    "generic": "El inicio de sesión único ha fallado. Inténtalo de nuevo."
   }
 }

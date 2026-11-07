@@ -19,7 +19,7 @@ import java.util.Objects;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder
-public class SidecarSession extends AuditableEntity {
+public class SidecarSession extends AuditableEntity implements BpceSession {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -179,6 +179,17 @@ public class SidecarSession extends AuditableEntity {
         lastSyncError = SidecarErrorCode.INVALID_CREDENTIALS;
     }
 
+    @Override
+    public boolean isQueued() {
+        return syncStatus == SidecarSyncStatus.QUEUED;
+    }
+
+    @Override
+    public boolean isRunning() {
+        return syncStatus == SidecarSyncStatus.RUNNING;
+    }
+
+    @Override
     public boolean isSyncInFlight() {
         return syncStatus == SidecarSyncStatus.QUEUED || syncStatus == SidecarSyncStatus.RUNNING;
     }
@@ -197,6 +208,8 @@ public class SidecarSession extends AuditableEntity {
                 || error == SidecarErrorCode.INVALID_CREDENTIALS;
             case AMEX, AMUNDI, BOURSE_DIRECT, BOURSO, FORTUNEO, SOFIDY ->
                 error == SidecarErrorCode.SESSION_EXPIRED;
+            // ponytail: Banque Populaire still has its own table (V134); this row cannot exist.
+            case BANQUE_POPULAIRE -> throw new IllegalStateException("Banque Populaire sessions are not stored here");
         };
     }
 }

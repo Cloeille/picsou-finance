@@ -5,6 +5,11 @@ mint a short-lived Bearer token, without a browser, and reads the accounts and
 their transactions with it. The login itself runs in a real browser (see
 "Login by browser" below).
 
+The login, replay and import code is the shared `bpce` package
+(`services/base/bpce`, shipped by the base image), also used by
+`banque-populaire-auth`. This sidecar keeps its routes and its `Site`
+(`main.SITE`: hosts, personal-loan, home-loan and PER apps).
+
 ## Chain replayed (observed on the real bank, 2026-10-06/07)
 
 1. `POST {authorize}?<params>` with a fresh PKCE `code_challenge` (S256) and `nonce` -> `{action, parameters{SAMLRequest}}`
@@ -70,7 +75,7 @@ its own token from the same SSO session: the replay above with three authorize
 overrides (`client_id=30c229b8-…`, `scope=managePersonalLoanPrd readPersonalLoanPrd readUser`,
 `redirect_uri=https://www.caisse-epargne.fr/espace-gestion/pret-personnel/postMessage/index.html`)
 and no `claims`; every other captured parameter is kept, PKCE and nonce are
-fresh (`replay.LOAN_CHAIN`). It is cached apart from the main token and only
+fresh (`SITE.personal_loan`). It is cached apart from the main token and only
 minted when the synthesis holds a loan. A 401 on any data call drops both
 tokens and the whole read is replayed once.
 
@@ -108,7 +113,7 @@ A home loan is managed by another web app (`gestion-client/credit-immobilier`),
 served by the BPCE group hosts (observed live 2026-10-25). Its token comes from
 `www.as-ext-bad-me.bpce.fr`, through the same authorize -> AuthnRequest ->
 consume -> token chain, with that app's public client and redirect, an empty
-`scope` and no `claims` (`replay.HOME_LOAN_CHAIN`). These two BPCE hosts, and
+`scope` and no `claims` (`SITE.home_loan`). These two BPCE hosts, and
 only them, are added to the allow-list. The detail is
 `GET https://www.rs-ext-bad-me.bpce.fr/bapi/loan/v1/loans/<entityCode>-<contractId.id>`
 (`accounts_parser.parse_home_loan_detail`): ISO dates, the rate in percent in
@@ -179,7 +184,7 @@ the web front, 2026-10-15, Millevie PER on `www.espace-assurances-de-personnes.c
    makes `clientToken` answer 500). The answer's `contractId` echoes that insurer id and the
    requested establishment; both must agree, and the routing URL must point at the insurer
    host. That URL itself is never followed.
-1. A third OAuth token is minted from the same SSO session (`replay.PER_CHAIN`): the insurer
+1. A third OAuth token is minted from the same SSO session (`SITE.per`): the insurer
    app's public client and `postMessage` redirect, an empty `scope`, no `claims`. The bank
    grants `assuranceVieAuth_get_<id> readUser` for one hour. It is minted only when the
    synthesis holds a PER.
@@ -343,6 +348,7 @@ cd services/caisse-epargne-auth && APP_SIDECAR_API_KEY=test-key \
 Every test is a stdlib `unittest` case: no test-only dependency.
 
 The data calls use `httpx.MockTransport`; the login uses a fake Playwright
-(`fake_browser.py`): no browser, no network, no real credentials, no bank data.
+(`bpce/testing.py` in services/base, mounted read-only in CI since the image does
+not ship it): no browser, no network, no real credentials, no bank data.
 `test_dockerfile.py` fails if the Dockerfile `COPY` misses a module that
-`main.py` imports.
+`main.py` imports, or the base image a `bpce` module it needs.

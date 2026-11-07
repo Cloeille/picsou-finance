@@ -11,6 +11,7 @@ import { TradeRepublicTab } from './TradeRepublicTab'
 import { RevolutTab } from './RevolutTab'
 import { IbkrTab } from './IbkrTab'
 import { SimplefinTab } from './SimplefinTab'
+import { WiseTab } from './WiseTab'
 import { FinaryTab } from './FinaryTab'
 import { HomeBankTab } from './HomeBankTab'
 import { BourseDirectTab } from './BourseDirectTab'
@@ -24,6 +25,7 @@ import { CorumTab } from './CorumTab'
 import { SofidyTab } from './SofidyTab'
 import { BoursoTab } from './BoursoTab'
 import { CaisseEpargneTab } from './CaisseEpargneTab'
+import { BanquePopulaireTab } from './BanquePopulaireTab'
 import { FortuneoTab } from './FortuneoTab'
 import { ActualBudgetTab } from './ActualBudgetTab'
 
@@ -46,10 +48,12 @@ export function SyncPage() {
             <TabsTrigger value="revolut" className="flex-none">{t('sync.revolut.title')}</TabsTrigger>
             <TabsTrigger value="bourso" className="flex-none">{t('sync.bourso.title')}</TabsTrigger>
             <TabsTrigger value="caisse-epargne" className="flex-none">{t('sync.caisseEpargne.title')}</TabsTrigger>
+            <TabsTrigger value="banque-populaire" className="flex-none">{t('sync.banquePopulaire.title')}</TabsTrigger>
             <TabsTrigger value="bourse-direct" className="flex-none">{t('sync.bourseDirect.title')}</TabsTrigger>
             <TabsTrigger value="degiro" className="flex-none">{t('sync.degiro.title')}</TabsTrigger>
             <TabsTrigger value="ibkr" className="flex-none">{t('sync.ibkr.title')}</TabsTrigger>
             <TabsTrigger value="simplefin" className="flex-none">{t('sync.simplefin.title')}</TabsTrigger>
+            <TabsTrigger value="wise" className="flex-none">{t('sync.wise.title')}</TabsTrigger>
             <TabsTrigger value="amundi" className="flex-none">{t('sync.amundi.title')}</TabsTrigger>
             <TabsTrigger value="cmes" className="flex-none">{t('sync.cmes.title')}</TabsTrigger>
             <TabsTrigger value="cic" className="flex-none">{t('sync.cic.title')}</TabsTrigger>
@@ -64,7 +68,7 @@ export function SyncPage() {
           </TabsList>
         </ScrollStrip>
         <TabsContent value="banks" className="mt-6">
-          <BankSyncTab />
+          <BankSyncTab onOpenWiseJars={() => setTab('wise')} />
         </TabsContent>
         <TabsContent value="exchanges" className="mt-6">
           <CryptoExchangeTab />
@@ -84,6 +88,9 @@ export function SyncPage() {
         <TabsContent value="caisse-epargne" className="mt-6">
           <CaisseEpargneTab />
         </TabsContent>
+        <TabsContent value="banque-populaire" className="mt-6">
+          <BanquePopulaireTab />
+        </TabsContent>
         <TabsContent value="bourse-direct" className="mt-6">
           <BourseDirectTab />
         </TabsContent>
@@ -95,6 +102,9 @@ export function SyncPage() {
         </TabsContent>
         <TabsContent value="simplefin" className="mt-6">
           <SimplefinTab />
+        </TabsContent>
+        <TabsContent value="wise" className="mt-6">
+          <WiseTab />
         </TabsContent>
         <TabsContent value="amundi" className="mt-6">
           <AmundiTab />

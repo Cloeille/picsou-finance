@@ -222,6 +222,8 @@ app:
       url: ${BOURSO_AUTH_URL:http://bourso-auth:8001}
     caisse-epargne-auth:
       url: ${CAISSE_EPARGNE_AUTH_URL:http://caisse-epargne-auth:8001}
+    banque-populaire-auth:
+      url: ${BANQUE_POPULAIRE_AUTH_URL:http://banque-populaire-auth:8001}
     revolut-auth:
       url: ${REVOLUT_AUTH_URL:http://revolut-auth:8002}
     bourse-direct-auth:

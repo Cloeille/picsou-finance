@@ -135,6 +135,9 @@ RFC 4180: UTF-8 (no BOM), comma-separated, CRLF line endings, fields containing 
 | `goal_manual_contributions.csv`| `GoalManualContribution`               | id, **goalId**, date, amount                           |
 | `goal_month_overrides.csv`     | `GoalMonthOverride`                    | id, **goalId**, month, amount                          |
 | `debts.csv`                    | `Debt`                                 | id, lender, principal, interestRate, ...               |
+| `peer_counterparties.csv`      | `PeerCounterparty`                     | id, memberId, name, note                               |
+| `peer_loan_terms.csv`          | `PeerLoanTerms`                        | id, **accountId**, **counterpartyId**, principal, rate, plan |
+| `peer_loan_repayments.csv`     | `PeerLoanRepayment`                    | id, **accountId**, paidOn, amount, kind, cashLegOwned  |
 | `wallet_addresses.csv`         | `WalletAddress`                        | id, chain, address, label                              |
 | `linked_identities.csv`        | `UserIdentity` (own SSO identities)    | id, issuer, subject, email, display_name, created_at, last_login_at |
 | `shared_resources.csv`         | `SharedResource`                       | id, resourceType, resourceId, sharedWithMemberId       |
@@ -171,7 +174,7 @@ Backend:
 - `backend/src/main/java/com/picsou/export/DataExportService.java` — orchestrator: opens ZIP, drives all exporters
 - `backend/src/main/java/com/picsou/service/ReAuthService.java` — accepts a valid `reauth_proof` cookie (same user id and token version), else verifies password OR TOTP based on `user.mfaEnabled`; also backs `POST /api/auth/reauth` and the SSO sign-in-method changes
 - `backend/src/main/java/com/picsou/export/EntityExporter.java` — interface: `void writeJson(JsonGenerator g)` + `void writeCsv(Writer w)` + `String csvFileName()` + `String jsonKey()`
-- `backend/src/main/java/com/picsou/export/{Profile,Accounts,Holdings,Transactions,Goals,Debts,WalletAddresses,SharedResources,BankConnections,BalanceSnapshots}Exporter.java` — one per entity root (family members are folded into `ProfileExporter`)
+- `backend/src/main/java/com/picsou/export/{Profile,Accounts,Holdings,Transactions,Goals,Debts,WalletAddresses,SharedResources,BankConnections,BalanceSnapshots,PeerCounterparties,PeerLoanTerms,PeerLoanRepayments}Exporter.java` — one per entity root (family members are folded into `ProfileExporter`)
 - `backend/src/main/java/com/picsou/dto/ExportRequest.java` — record `(ReAuthDto reAuth, boolean includeBalanceSnapshots)`
 - `backend/src/main/java/com/picsou/dto/ReAuthDto.java` — record `(String password, String totpCode)` (XOR depending on user)
 - `backend/src/main/java/com/picsou/config/RateLimitConfig.java` — extend with the export bucket (5/h per userId)

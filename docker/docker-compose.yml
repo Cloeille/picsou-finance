@@ -130,7 +130,7 @@ services:
 
   sidecar-chromium:
     image: ghcr.io/cloeille/picsou-finance/sidecar-chromium:latest
-    profiles: ["amundi", "bourse-direct", "caisse-epargne", "corum", "fortuneo", "tr", "all-connectors"]
+    profiles: ["amundi", "banque-populaire", "bourse-direct", "caisse-epargne", "corum", "fortuneo", "tr", "all-connectors"]
     build:
       context: ../services/base
       target: chromium
@@ -193,6 +193,20 @@ services:
     profiles: ["caisse-epargne", "all-connectors"]
     build:
       context: ../services/caisse-epargne-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+
+  banque-populaire-auth:
+    image: ghcr.io/cloeille/picsou-finance/banque-populaire-auth:latest
+    profiles: ["banque-populaire", "all-connectors"]
+    build:
+      context: ../services/banque-populaire-auth
       dockerfile: Dockerfile
       args:
         SIDECAR_BASE: sidecar-chromium

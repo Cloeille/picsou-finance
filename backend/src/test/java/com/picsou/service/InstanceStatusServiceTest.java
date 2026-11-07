@@ -10,6 +10,7 @@ import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.AppSettingRepository;
 import com.picsou.repository.AppUserRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.RevolutSessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
@@ -407,6 +408,7 @@ class InstanceStatusServiceTest {
                 new SsoProperties(), mock(UserIdentityRepository.class), Clock.systemUTC()),
             SidecarProperties.of(Map.of()),
             mock(TradeRepublicSessionRepository.class), mock(SidecarSessionRepository.class),
+            mock(BanquePopulaireSessionRepository.class),
             mock(RevolutSessionRepository.class), mock(DegiroSessionRepository.class),
             "1.1.0");
 
@@ -429,6 +431,7 @@ class InstanceStatusServiceTest {
             Map.entry("degiro-auth", "http://degiro"),
             Map.entry("tr-auth", "http://tr"),
             Map.entry("caisse-epargne-auth", "http://caisse"),
+            Map.entry("banque-populaire-auth", "http://banque-populaire"),
             Map.entry("bourse-direct-auth", "http://bourse"),
             Map.entry("amundi-auth", "http://amundi"),
             Map.entry("fortuneo-auth", "http://fortuneo"),
@@ -437,6 +440,7 @@ class InstanceStatusServiceTest {
             Map.entry("revolut-auth", "http://revolut")));
         var tr = mock(TradeRepublicSessionRepository.class);
         var sidecarSessions = mock(SidecarSessionRepository.class);
+        var banquePopulaire = mock(BanquePopulaireSessionRepository.class);
         var revolut = mock(RevolutSessionRepository.class);
         var degiro = mock(DegiroSessionRepository.class);
         when(tr.count()).thenReturn(1L);
@@ -452,12 +456,13 @@ class InstanceStatusServiceTest {
         when(sidecarSessions.countByBank(SidecarBank.SOFIDY)).thenReturn(11L);
         when(sidecarSessions.countByBank(SidecarBank.CMES)).thenReturn(12L);
         when(sidecarSessions.countByBank(SidecarBank.CIC)).thenReturn(13L);
+        when(banquePopulaire.count()).thenReturn(14L);
 
         InstanceStatusService wired = new InstanceStatusService(
             disabledReleases(),
             setup,
             sidecars,
-            tr, sidecarSessions, revolut, degiro,
+            tr, sidecarSessions, banquePopulaire, revolut, degiro,
             "1.1.0");
 
         assertThat(wired.targets())
@@ -470,6 +475,7 @@ class InstanceStatusServiceTest {
                 tuple("degiro-auth", "sidecar-python"),
                 tuple("tr-auth", "sidecar-chromium"),
                 tuple("caisse-epargne-auth", "sidecar-chromium"),
+                tuple("banque-populaire-auth", "sidecar-chromium"),
                 tuple("bourse-direct-auth", "sidecar-chromium"),
                 tuple("amundi-auth", "sidecar-chromium"),
                 tuple("fortuneo-auth", "sidecar-chromium"),
@@ -489,6 +495,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "cic-auth").url().get()).isEqualTo("http://cic");
         assertThat(byName(wired, "degiro-auth").url().get()).isEqualTo("http://degiro");
         assertThat(byName(wired, "caisse-epargne-auth").url().get()).isEqualTo("http://caisse");
+        assertThat(byName(wired, "banque-populaire-auth").url().get()).isEqualTo("http://banque-populaire");
         assertThat(byName(wired, "revolut-auth").url().get()).isEqualTo("http://revolut");
         assertThat(byName(wired, "bourse-direct-auth").url().get()).isEqualTo("http://bourse");
         assertThat(byName(wired, "amundi-auth").url().get()).isEqualTo("http://amundi");
@@ -509,6 +516,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "sofidy-auth").sessions().getAsLong()).isEqualTo(11L);
         assertThat(byName(wired, "cmes-auth").sessions().getAsLong()).isEqualTo(12L);
         assertThat(byName(wired, "cic-auth").sessions().getAsLong()).isEqualTo(13L);
+        assertThat(byName(wired, "banque-populaire-auth").sessions().getAsLong()).isEqualTo(14L);
     }
 
     private static AppSetting setting(String value) {
