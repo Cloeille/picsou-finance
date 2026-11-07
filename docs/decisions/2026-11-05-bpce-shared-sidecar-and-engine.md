@@ -44,7 +44,7 @@ the login state machine.
    codes in `SidecarBank` (`CAISSE_EPARGNE`, `BANQUE_POPULAIRE`). Each bank keeps its
    own controller, session table, rate-limit buckets, executor and error-code CHECK. CE keeps `caisse_epargne_session`,
    the `ce_` prefix and its REST paths. BP gets `banque_populaire_session`
-   (`V129`), the `bp_` prefix and `/api/banque-populaire`.
+   (`V134`), the `bp_` prefix and `/api/banque-populaire`.
 3. **Frontend.** `BpceSessionPanel` holds the keypad pop-up, the Sécur'Pass
    wait and the recovery of a lost completion. `CaisseEpargnePanel` and
    `BanquePopulairePanel` wrap it with their own API, translation prefix and,
@@ -94,7 +94,7 @@ tests guard the refactor.
   `LIVRET_JEUNE` for both banks, and one labelled LEP as `LEP`. CE imported both as a
   Livret A before; such an account is re-typed on the next successful import of that account.
 - New: `services/base/bpce`, `services/banque-populaire-auth`, the `BanquePopulaire*`
-  backend classes, `V129__banque_populaire_session.sql`, `BpceSessionPanel`,
+  backend classes, `V134__banque_populaire_session.sql`, `BpceSessionPanel`,
   `BanquePopulairePanel`, Compose profile `banque-populaire`, GHCR image
   `banque-populaire-auth`.
 - Details: [docs/features/banque-populaire.md](../features/banque-populaire.md).

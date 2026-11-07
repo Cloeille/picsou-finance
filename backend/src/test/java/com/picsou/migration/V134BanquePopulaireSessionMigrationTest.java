@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V129 applies on top of the whole chain and creates the Banque Populaire session table in the
+ * V134 applies on top of the whole chain and creates the Banque Populaire session table in the
  * shape Caisse d'Epargne's reached after V109 + V110, with every error code in one CHECK, plus the
  * regional bank the session was opened at.
  *
@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @Testcontainers
 @EnabledIf("dockerAvailable")
-class V129BanquePopulaireSessionMigrationTest {
+class V134BanquePopulaireSessionMigrationTest {
 
     private static final String INSERT_SESSION =
         "INSERT INTO banque_populaire_session (member_id, session_state, region) VALUES (?, ?, 'RIVES_DE_PARIS')";
@@ -60,7 +60,7 @@ class V129BanquePopulaireSessionMigrationTest {
         if (!available && Boolean.parseBoolean(System.getenv("PICSOU_REQUIRE_DOCKER_TESTS"))) {
             throw new IllegalStateException(
                 "PICSOU_REQUIRE_DOCKER_TESTS is set but no Docker environment was found. "
-                    + "The V129 migration test cannot be skipped. Needs Docker Engine >= 25.0.");
+                    + "The V134 migration test cannot be skipped. Needs Docker Engine >= 25.0.");
         }
         return available;
     }
@@ -70,7 +70,7 @@ class V129BanquePopulaireSessionMigrationTest {
         Flyway.configure()
             .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
             .locations("classpath:db/migration")
-            .target("129")
+            .target("134")
             .load()
             .migrate();
     }
