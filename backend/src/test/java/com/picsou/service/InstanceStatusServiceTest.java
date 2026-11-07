@@ -1,26 +1,18 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.SidecarProperties;
 import com.picsou.config.SsoProperties;
 import com.picsou.dto.SidecarIssue;
 import com.picsou.dto.SidecarIssueCode;
 import com.picsou.model.AppSetting;
-import com.picsou.repository.AmexSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.AppSettingRepository;
 import com.picsou.repository.AppUserRepository;
 import com.picsou.repository.FamilyMemberRepository;
-import com.picsou.repository.AmundiSessionRepository;
-import com.picsou.repository.BoursoSessionRepository;
-import com.picsou.repository.BourseDirectSessionRepository;
 import com.picsou.repository.BanquePopulaireSessionRepository;
-import com.picsou.repository.CaisseEpargneSessionRepository;
-import com.picsou.repository.CicSessionRepository;
-import com.picsou.repository.CmesSessionRepository;
-import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
-import com.picsou.repository.FortuneoSessionRepository;
 import com.picsou.repository.RevolutSessionRepository;
-import com.picsou.repository.SofidySessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.UserIdentityRepository;
 import com.sun.net.httpserver.HttpServer;
@@ -415,14 +407,9 @@ class InstanceStatusServiceTest {
                 mock(FamilyMemberRepository.class), mock(PasswordEncoder.class),
                 new SsoProperties(), mock(UserIdentityRepository.class), Clock.systemUTC()),
             SidecarProperties.of(Map.of()),
-            mock(TradeRepublicSessionRepository.class), mock(BoursoSessionRepository.class),
-            mock(CaisseEpargneSessionRepository.class), mock(BanquePopulaireSessionRepository.class),
-            mock(RevolutSessionRepository.class),
-            mock(BourseDirectSessionRepository.class), mock(DegiroSessionRepository.class),
-            mock(AmundiSessionRepository.class), mock(AmexSessionRepository.class),
-            mock(FortuneoSessionRepository.class), mock(CorumSessionRepository.class),
-            mock(SofidySessionRepository.class), mock(CmesSessionRepository.class),
-            mock(CicSessionRepository.class),
+            mock(TradeRepublicSessionRepository.class), mock(SidecarSessionRepository.class),
+            mock(BanquePopulaireSessionRepository.class),
+            mock(RevolutSessionRepository.class), mock(DegiroSessionRepository.class),
             "1.1.0");
 
         assertThat(byName(wired, "tr-auth").url().get()).isEmpty();
@@ -452,39 +439,30 @@ class InstanceStatusServiceTest {
             Map.entry("amex-auth", "http://amex"),
             Map.entry("revolut-auth", "http://revolut")));
         var tr = mock(TradeRepublicSessionRepository.class);
-        var bourso = mock(BoursoSessionRepository.class);
-        var caisse = mock(CaisseEpargneSessionRepository.class);
+        var sidecarSessions = mock(SidecarSessionRepository.class);
         var banquePopulaire = mock(BanquePopulaireSessionRepository.class);
         var revolut = mock(RevolutSessionRepository.class);
-        var bourse = mock(BourseDirectSessionRepository.class);
         var degiro = mock(DegiroSessionRepository.class);
-        var amundi = mock(AmundiSessionRepository.class);
-        var amex = mock(AmexSessionRepository.class);
-        var fortuneo = mock(FortuneoSessionRepository.class);
-        var corum = mock(CorumSessionRepository.class);
-        var sofidy = mock(SofidySessionRepository.class);
-        var cmes = mock(CmesSessionRepository.class);
-        var cic = mock(CicSessionRepository.class);
         when(tr.count()).thenReturn(1L);
-        when(bourso.count()).thenReturn(2L);
-        when(caisse.count()).thenReturn(3L);
+        when(sidecarSessions.countByBank(SidecarBank.BOURSO)).thenReturn(2L);
+        when(sidecarSessions.countByBank(SidecarBank.CAISSE_EPARGNE)).thenReturn(3L);
         when(revolut.count()).thenReturn(4L);
-        when(bourse.count()).thenReturn(5L);
+        when(sidecarSessions.countByBank(SidecarBank.BOURSE_DIRECT)).thenReturn(5L);
         when(degiro.count()).thenReturn(6L);
-        when(amundi.count()).thenReturn(7L);
-        when(amex.count()).thenReturn(8L);
-        when(fortuneo.count()).thenReturn(9L);
-        when(corum.count()).thenReturn(10L);
-        when(sofidy.count()).thenReturn(11L);
-        when(cmes.count()).thenReturn(12L);
-        when(cic.count()).thenReturn(13L);
+        when(sidecarSessions.countByBank(SidecarBank.AMUNDI)).thenReturn(7L);
+        when(sidecarSessions.countByBank(SidecarBank.AMEX)).thenReturn(8L);
+        when(sidecarSessions.countByBank(SidecarBank.FORTUNEO)).thenReturn(9L);
+        when(sidecarSessions.countByBank(SidecarBank.CORUM)).thenReturn(10L);
+        when(sidecarSessions.countByBank(SidecarBank.SOFIDY)).thenReturn(11L);
+        when(sidecarSessions.countByBank(SidecarBank.CMES)).thenReturn(12L);
+        when(sidecarSessions.countByBank(SidecarBank.CIC)).thenReturn(13L);
         when(banquePopulaire.count()).thenReturn(14L);
 
         InstanceStatusService wired = new InstanceStatusService(
             disabledReleases(),
             setup,
             sidecars,
-            tr, bourso, caisse, banquePopulaire, revolut, bourse, degiro, amundi, amex, fortuneo, corum, sofidy, cmes, cic,
+            tr, sidecarSessions, banquePopulaire, revolut, degiro,
             "1.1.0");
 
         assertThat(wired.targets())

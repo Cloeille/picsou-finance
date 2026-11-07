@@ -1,12 +1,11 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.EnableBankingConfigProvider;
 import com.picsou.model.AppSetting;
 import com.picsou.repository.AppSettingRepository;
-import com.picsou.repository.BourseDirectSessionRepository;
-import com.picsou.repository.BoursoSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FinarySessionRepository;
-import com.picsou.repository.FortuneoSessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,9 +29,7 @@ class IntegrationsServiceTest {
     @Mock EnableBankingConfigProvider enableBankingConfig;
     @Mock TradeRepublicSessionRepository tradeRepublicSessions;
     @Mock FinarySessionRepository finarySessions;
-    @Mock BourseDirectSessionRepository bourseDirectSessions;
-    @Mock BoursoSessionRepository boursoSessions;
-    @Mock FortuneoSessionRepository fortuneoSessions;
+    @Mock SidecarSessionRepository sidecarSessions;
     @Mock UserContext userContext;
     @InjectMocks IntegrationsService integrationsService;
 
@@ -106,7 +103,7 @@ class IntegrationsServiceTest {
     @Test
     void isEffectivelyEnabled_bourseDirect_trueWhenAnActiveSessionExists() {
         when(settingRepository.findByKey("integration.boursedirect.enabled")).thenReturn(Optional.empty());
-        when(bourseDirectSessions.existsByActiveTrue()).thenReturn(true);
+        when(sidecarSessions.existsByBankAndActiveTrue(SidecarBank.BOURSE_DIRECT)).thenReturn(true);
 
         assertThat(integrationsService.isEffectivelyEnabled("boursedirect")).isTrue();
     }
@@ -114,7 +111,7 @@ class IntegrationsServiceTest {
     @Test
     void isEffectivelyEnabled_bourseDirect_falseWhenOnlyExpiredSessionsExist() {
         when(settingRepository.findByKey("integration.boursedirect.enabled")).thenReturn(Optional.empty());
-        when(bourseDirectSessions.existsByActiveTrue()).thenReturn(false);
+        when(sidecarSessions.existsByBankAndActiveTrue(SidecarBank.BOURSE_DIRECT)).thenReturn(false);
 
         assertThat(integrationsService.isEffectivelyEnabled("boursedirect")).isFalse();
     }
@@ -122,7 +119,7 @@ class IntegrationsServiceTest {
     @Test
     void isEffectivelyEnabled_boursoBank_trueWhenAnActiveSessionExists() {
         when(settingRepository.findByKey("integration.boursobank.enabled")).thenReturn(Optional.empty());
-        when(boursoSessions.existsByActiveTrue()).thenReturn(true);
+        when(sidecarSessions.existsByBankAndActiveTrue(SidecarBank.BOURSO)).thenReturn(true);
 
         assertThat(integrationsService.isEffectivelyEnabled("boursobank")).isTrue();
     }
@@ -130,7 +127,7 @@ class IntegrationsServiceTest {
     @Test
     void isEffectivelyEnabled_boursoBank_falseWhenOnlyExpiredSessionsExist() {
         when(settingRepository.findByKey("integration.boursobank.enabled")).thenReturn(Optional.empty());
-        when(boursoSessions.existsByActiveTrue()).thenReturn(false);
+        when(sidecarSessions.existsByBankAndActiveTrue(SidecarBank.BOURSO)).thenReturn(false);
 
         assertThat(integrationsService.isEffectivelyEnabled("boursobank")).isFalse();
     }
@@ -139,7 +136,7 @@ class IntegrationsServiceTest {
     void isEffectivelyEnabled_fortuneo_trueWhenAnActiveSessionExists() {
         when(settingRepository.findByKey("integration.fortuneo.enabled")).thenReturn(Optional.empty());
         when(userContext.currentMemberId()).thenReturn(7L);
-        when(fortuneoSessions.existsByMemberIdAndActiveTrue(7L)).thenReturn(true);
+        when(sidecarSessions.existsByBankAndMemberIdAndActiveTrue(SidecarBank.FORTUNEO, 7L)).thenReturn(true);
 
         assertThat(integrationsService.isEffectivelyEnabled("fortuneo")).isTrue();
     }
@@ -148,7 +145,7 @@ class IntegrationsServiceTest {
     void isEffectivelyEnabled_fortuneo_falseWhenOnlyExpiredSessionsExist() {
         when(settingRepository.findByKey("integration.fortuneo.enabled")).thenReturn(Optional.empty());
         when(userContext.currentMemberId()).thenReturn(7L);
-        when(fortuneoSessions.existsByMemberIdAndActiveTrue(7L)).thenReturn(false);
+        when(sidecarSessions.existsByBankAndMemberIdAndActiveTrue(SidecarBank.FORTUNEO, 7L)).thenReturn(false);
 
         assertThat(integrationsService.isEffectivelyEnabled("fortuneo")).isFalse();
     }
