@@ -52,7 +52,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   LEP-labelled one as a LEP; an account imported under the wrong type is re-typed on its next
   import and keeps its history.
   See [Banque Populaire sync](docs/features/banque-populaire.md).
-
+- **Caisse d'Epargne: PEL.** A Plan d'Epargne Logement is now imported with its balance and
+  transactions, like the Livret A.
+  Contracts Picsou still does not import are listed in the Sync tab as `family/sub` (e.g. `4/02`)
+  instead of the family alone, and the sidecar logs one line per such contract with its codes
+  and the length shape of its id (plus the id's letters and the bank's catalogue product name
+  when `CE_LOG_PRODUCT_DETAILS=1`), so the next product can be identified from a real sync.
+  No contract number, account name or balance is shown or logged.
+  **Upgrade:** update the `caisse-epargne-auth` sidecar and the app together (the sidecar image
+  is `:latest` in Compose); an older app refuses the whole sync, current account included, as
+  soon as you hold a PEL. If you created a PEL by hand, delete or archive it
+  first: the first sync creates its own and net worth would count both.
 - **Wise jars.** Wise's open-banking access only returns current balances, so money in
   jars was missing. A member can now paste a read-only Wise personal API token; Picsou
   imports every jar as a savings account and refreshes its balance by hand, from Sync All

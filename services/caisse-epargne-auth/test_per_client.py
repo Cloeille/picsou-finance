@@ -311,9 +311,16 @@ class InputTest(unittest.IsolatedAsyncioTestCase):
         for name, override in cases.items():
             with self.subTest(name):
                 insurer = FakeInsurer()
-                with self.assertRaises(per_client.InvalidPerRequest):
+                with self.assertRaises(per_client.InvalidPerRequest) as caught:
                     await fetch(insurer, **override)
                 self.assertEqual(insurer.requests, [])
+                # Only a bad contract id is "an unknown product": the diagnostic log
+                # keys on this subclass, so a bad token or entity code must not match.
+                self.assertEqual(
+                    isinstance(caught.exception, per_client.UnknownPerContract),
+                    name.startswith("contract"),
+                    name,
+                )
 
 
 class LifecycleTest(unittest.IsolatedAsyncioTestCase):
