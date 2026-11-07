@@ -1682,7 +1682,7 @@
       "securPassHint": "Picsou n'agit pas sur votre téléphone. Cette page continue seule dès que vous validez.",
       "countdownLabel": "Temps restant pour valider :",
       "unsupportedTitle": "Contrats non importés",
-      "unsupportedHint": "Picsou ne gère pas encore ces familles de contrats (code famille affiché).",
+      "unsupportedHint": "Picsou ne gère pas encore ces contrats (code famille/sous-famille affiché).",
       "errors": {
         "rateLimited": "Trop de tentatives de connexion. Patientez avant de réessayer.",
         "rateLimitedRetryAfter": "Trop de tentatives de connexion. Réessayez dans {{minutes}} min.",

@@ -1374,7 +1374,7 @@
       "securPassHint": "Picsou no toca tu teléfono. Esta página continúa sola en cuanto apruebes.",
       "countdownLabel": "Tiempo restante para aprobar:",
       "unsupportedTitle": "Contratos no importados",
-      "unsupportedHint": "Picsou aún no admite estas familias de contratos (se muestra el código de familia).",
+      "unsupportedHint": "Picsou aún no admite estos contratos (se muestra el código de familia/subfamilia).",
       "errors": {
         "rateLimited": "Demasiados intentos de inicio de sesión. Espera antes de volver a intentarlo.",
         "rateLimitedRetryAfter": "Demasiados intentos de inicio de sesión. Inténtalo de nuevo en {{minutes}} min.",
