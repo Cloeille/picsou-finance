@@ -25,8 +25,9 @@ import java.util.Map;
  *       position. It is cash, not a holding: it goes to the account's cash balance, as a PEA's
  *       cash does, so it neither appears as a stock nor skews the performance figures.</li>
  *   <li>Some cash is not listed at all: the account balance can exceed the positions' value by
- *       what the bridge left out. When every figure is in the account's currency the cash is the
- *       balance minus the positions, which also covers the sweep.</li>
+ *       what the bridge left out. The sweep lines are the cash known for sure; the rest is the
+ *       balance minus the positions, which needs one currency to compare them in, so the sync
+ *       works it out in EUR.</li>
  * </ul>
  *
  * <p>{@link Mapped#complete} is false when a line that holds something could not be carried over.
@@ -55,13 +56,13 @@ final class SimplefinHoldings {
     }
 
     /**
-     * Positions plus the account's cash as {@code (currency, amount)} sums. An empty result (no
-     * position and no cash) means nothing is held. {@code complete} is false when a line holding
+     * Positions plus the sweep lines as {@code (currency, amount)} sums. An empty result (no
+     * position and no sweep) means nothing is held. {@code complete} is false when a line holding
      * something was left out.
      */
-    record Mapped(List<Position> positions, Map<String, BigDecimal> cashByCurrency, boolean complete) {}
+    record Mapped(List<Position> positions, Map<String, BigDecimal> sweepByCurrency, boolean complete) {}
 
-    static Mapped map(List<SimplefinHolding> raw, String accountCurrency, BigDecimal accountBalance) {
+    static Mapped map(List<SimplefinHolding> raw, String accountCurrency) {
         Map<String, Position> byTicker = new LinkedHashMap<>();
         Map<String, BigDecimal> sweep = new LinkedHashMap<>();
         boolean complete = true;
@@ -111,22 +112,7 @@ final class SimplefinHoldings {
                 complete = false;
             }
         }
-        return new Mapped(List.copyOf(positions), cash(positions, sweeps, accountCurrency, accountBalance), complete);
-    }
-
-    /**
-     * The account's cash. With every position valued and every figure in the account's currency,
-     * it is what the balance holds beyond the positions (the sweep included, and anything the
-     * bridge left out of the list). Otherwise only the sweep lines are known cash.
-     */
-    private static Map<String, BigDecimal> cash(List<Position> positions, Map<String, BigDecimal> sweep,
-                                                String accountCurrency, BigDecimal accountBalance) {
-        if (positions.isEmpty() && sweep.isEmpty()) return Map.of();
-        boolean residual = sweep.keySet().stream().allMatch(accountCurrency::equals)
-            && positions.stream().allMatch(p -> p.marketValue() != null && accountCurrency.equals(p.currency()));
-        if (!residual) return Map.copyOf(sweep);
-        BigDecimal held = positions.stream().map(Position::marketValue).reduce(BigDecimal.ZERO, BigDecimal::add);
-        return Map.of(accountCurrency, accountBalance.subtract(held).max(BigDecimal.ZERO));
+        return new Mapped(List.copyOf(positions), Map.copyOf(sweeps), complete);
     }
 
     /** A positive share count and figures that fit the columns. */

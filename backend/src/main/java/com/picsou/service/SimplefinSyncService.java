@@ -201,7 +201,7 @@ public class SimplefinSyncService {
 
         String currency = data.currency().toUpperCase(Locale.ROOT);
         // Mapped once: a new account's type depends on it, and the write below reuses it.
-        SimplefinHoldings.Mapped mapped = SimplefinHoldings.map(data.holdings(), currency, data.balance());
+        SimplefinHoldings.Mapped mapped = SimplefinHoldings.map(data.holdings(), currency);
         LocalDate today = LocalDate.now();
 
         Account account;
@@ -279,9 +279,9 @@ public class SimplefinSyncService {
                 + "no symbol or a figure past the column); holdings and cash left as they were", account.getId());
             return;
         }
-        if (mapped.positions().isEmpty() && mapped.cashByCurrency().isEmpty()) return;
+        if (mapped.positions().isEmpty() && mapped.sweepByCurrency().isEmpty()) return;
 
-        EurPortfolio portfolio = inEur(account, mapped);
+        EurPortfolio portfolio = inEur(account, mapped, data.balance());
         if (portfolio == null) return;
 
         // The account is a managed entity inside this transaction, so this is written with it.
@@ -321,11 +321,24 @@ public class SimplefinSyncService {
      * The mapped portfolio converted to EUR, or null (logged) when any currency it needs has no
      * rate or a converted figure would not fit {@code numeric(20,8)}. {@code PriceService.toEur}
      * would hand back an unconverted amount, which the valuation would then read as EUR.
+     *
+     * <p>The cash is worked out here, in EUR, because the balance, the positions and the sweep
+     * can each be in another currency:
+     * <ul>
+     *   <li>every position has a market value: the balance minus the positions, never below zero.
+     *       It already contains the sweep, whatever its currency, and any cash the bridge left
+     *       out of the list;</li>
+     *   <li>a position has none: only the sweep. The remainder may be that position's own worth,
+     *       which the price feed values separately, so putting it into cash would count it twice.
+     *       Cash the bridge left out of the list is not counted then.</li>
+     * </ul>
      */
-    private EurPortfolio inEur(Account account, SimplefinHoldings.Mapped mapped) {
-        Map<String, BigDecimal> rates = new HashMap<>();
-        Set<String> currencies = new LinkedHashSet<>(mapped.cashByCurrency().keySet());
+    private EurPortfolio inEur(Account account, SimplefinHoldings.Mapped mapped, BigDecimal balance) {
+        boolean residual = mapped.positions().stream().allMatch(p -> p.marketValue() != null);
+        Set<String> currencies = new LinkedHashSet<>(mapped.sweepByCurrency().keySet());
         mapped.positions().forEach(p -> currencies.add(p.currency()));
+        if (residual) currencies.add(account.getCurrency());
+        Map<String, BigDecimal> rates = new HashMap<>();
         for (String currency : currencies) {
             BigDecimal rate = "EUR".equals(currency) ? BigDecimal.ONE : priceService.getFxRateEur(currency);
             if (rate == null) {
@@ -336,20 +349,29 @@ public class SimplefinSyncService {
             rates.put(currency, rate);
         }
 
-        BigDecimal cash = BigDecimal.ZERO;
-        for (var entry : mapped.cashByCurrency().entrySet()) {
-            cash = cash.add(eur(entry.getValue(), rates.get(entry.getKey())));
-        }
         List<EurLine> lines = new ArrayList<>();
-        boolean fits = SimplefinHoldings.fits(cash);
+        BigDecimal held = BigDecimal.ZERO;
+        boolean fits = true;
         for (SimplefinHoldings.Position p : mapped.positions()) {
             BigDecimal rate = rates.get(p.currency());
             BigDecimal value = p.marketValue() == null ? null : eur(p.marketValue(), rate);
             BigDecimal buyIn = p.averageBuyIn() == null ? null : eur(p.averageBuyIn(), rate);
             fits &= SimplefinHoldings.fits(value) && SimplefinHoldings.fits(buyIn);
+            if (value != null) held = held.add(value);
             lines.add(new EurLine(p, value, buyIn));
         }
-        if (!fits) {
+
+        BigDecimal cash = BigDecimal.ZERO;
+        if (residual) {
+            cash = eur(balance, rates.get(account.getCurrency())).subtract(held).max(BigDecimal.ZERO);
+        } else {
+            log.info("SimpleFIN: account {} has a position without a market value, so only the sweep counts "
+                + "as cash; any cash the bridge left out of the list is not counted", account.getId());
+            for (var entry : mapped.sweepByCurrency().entrySet()) {
+                cash = cash.add(eur(entry.getValue(), rates.get(entry.getKey())));
+            }
+        }
+        if (!fits || !SimplefinHoldings.fits(cash)) {
             log.warn("SimpleFIN: a converted figure of account {} does not fit the ledger; "
                 + "holdings and cash left as they were", account.getId());
             return null;

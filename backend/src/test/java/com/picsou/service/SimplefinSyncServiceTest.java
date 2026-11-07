@@ -462,6 +462,80 @@ class SimplefinSyncServiceTest {
     }
 
     @Test
+    void sync_cashBeyondThePositions_keepsTheSweepAndTheUnlistedCashWhenAPositionIsInAnotherCurrency() {
+        // 2000 USD = 1000 EUR. The CAD position is 700 EUR, so 300 EUR is cash: the 100 EUR sweep
+        // and 200 EUR the bridge did not list.
+        givenUsdToEurIsHalved();
+        lenient().when(priceService.getFxRateEur("CAD")).thenReturn(new BigDecimal("0.7"));
+        givenBridgeReturns(brokerageWorth("2000.00",
+            new SimplefinHolding("TD", null, "CAD", BigDecimal.TEN, new BigDecimal("1000"), null, null),
+            holding("FDRXX", "200.00", "200.00", "0.00", "0.00")));
+
+        service.sync(MEMBER_ID);
+
+        assertThat(savedHoldings()).singleElement()
+            .satisfies(h -> assertThat(h.getProviderValueEur()).isEqualByComparingTo("700"));
+        assertThat(savedAccounts().get(0).getCashBalance()).isEqualByComparingTo("300.00");
+    }
+
+    @Test
+    void sync_cashBeyondThePositions_keepsTheUnlistedCashWhenTheSweepIsInAnotherCurrency() {
+        // 1300 USD = 650 EUR. The USD position is 500 EUR, so 150 EUR is cash: the 200 CAD sweep
+        // (140 EUR) and 10 EUR the bridge did not list.
+        givenUsdToEurIsHalved();
+        lenient().when(priceService.getFxRateEur("CAD")).thenReturn(new BigDecimal("0.7"));
+        givenBridgeReturns(brokerageWorth("1300.00",
+            holding("GOOGL", "4.00", "1000.00", "0.00", "250.50"),
+            new SimplefinHolding("TDXX", null, "CAD", new BigDecimal("200"), new BigDecimal("200"), null, null)));
+
+        service.sync(MEMBER_ID);
+
+        assertThat(savedAccounts().get(0).getCashBalance()).isEqualByComparingTo("150.00");
+    }
+
+    @Test
+    void sync_cashBeyondThePositions_isNeverNegative() {
+        givenUsdToEurIsHalved();
+        givenBridgeReturns(brokerageWorth("900.00", holding("GOOGL", "4.00", "1000.00", "0.00", "250.50")));
+
+        service.sync(MEMBER_ID);
+
+        assertThat(savedAccounts().get(0).getCashBalance()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void sync_accountCurrencyWithoutARate_leavesEverythingWhenTheCashIsTheBalanceBeyondThePositions() {
+        lenient().when(priceService.getFxRateEur("CAD")).thenReturn(null);
+        Account existing = givenStoredAccount(AccountType.BROKERAGE, storedHolding("OLD", "1", "5"));
+        givenBridgeReturns(new SimplefinAccount("sfin_FID_hsa", "Broker", "Depot", "CAD", new BigDecimal("700"),
+            List.of(), null,
+            List.of(new SimplefinHolding("EXA", null, "EUR", new BigDecimal("5"), new BigDecimal("500"), null, null)),
+            true));
+
+        service.sync(MEMBER_ID);
+
+        verifyHoldingsUntouched();
+        assertThat(existing.getCashBalance()).isEqualByComparingTo("77");
+    }
+
+    @Test
+    void sync_aPositionWithoutAMarketValue_doesNotNeedTheAccountCurrencyRate() {
+        // Only the sweep counts as cash then, so the balance is never converted.
+        lenient().when(priceService.getFxRateEur("CAD")).thenReturn(null);
+        Account existing = givenStoredAccount(AccountType.BROKERAGE);
+        givenBridgeReturns(new SimplefinAccount("sfin_FID_hsa", "Broker", "Depot", "CAD", new BigDecimal("700"),
+            List.of(), null,
+            List.of(new SimplefinHolding("EXA", null, "EUR", new BigDecimal("5"), null, null, null),
+                new SimplefinHolding("EURXX", null, "EUR", new BigDecimal("50"), new BigDecimal("50"), null, null)),
+            true));
+
+        service.sync(MEMBER_ID);
+
+        assertThat(savedHoldings()).extracting(AccountHolding::getTicker).containsExactly("EXA");
+        assertThat(existing.getCashBalance()).isEqualByComparingTo("50");
+    }
+
+    @Test
     void sync_aPositionWithoutAMarketValue_leavesOnlyTheSweepAsCash() {
         givenUsdToEurIsHalved();
         givenBridgeReturns(brokerageWorth("5000.00",

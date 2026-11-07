@@ -64,7 +64,7 @@ characters.
 - `backend/src/main/java/com/picsou/adapter/SimplefinClient.java` — claim and accounts fetch, status handling, body caps
 - `backend/src/main/java/com/picsou/adapter/SimplefinUrls.java` — token decoding, host and port allowlist, Basic auth header
 - `backend/src/main/java/com/picsou/adapter/SimplefinJson.java` — account-set parsing, pending rows dropped, error text capped, holdings rows and their completeness
-- `backend/src/main/java/com/picsou/service/SimplefinHoldings.java` — positions, sweep cash and the completeness flag
+- `backend/src/main/java/com/picsou/service/SimplefinHoldings.java` — positions, sweep lines and the completeness flag
 - `backend/src/main/java/com/picsou/adapter/SimplefinTransport.java` — HTTP seam, faked in tests
 - `backend/src/main/java/com/picsou/service/SimplefinSyncService.java` — connect, sync, account upsert, status
 - `backend/src/main/java/com/picsou/service/SimplefinStatusWriter.java` — `ERROR` status in its own transaction
@@ -119,10 +119,10 @@ upsert Account + EUR snapshot + ledger rows
 | One generic `BROKERAGE` type | The French wrappers (PEA, PER...) carry French rules. US accounts (Roth IRA, HSA, 401(k), taxable) and every other country's brokers need a home without one enum value per wrapper; the bank's own account name keeps the wrapper visible. | One type per country or wrapper |
 | `cost_basis` of 0 means unknown | Fidelity sends `cost_basis` 0.00 on every line, stocks included. The buy-in is `cost_basis / shares` when positive, else `purchase_price`, else none. Zero as a cost would show an infinite gain. | Trusting the field |
 | A money-market sweep is cash | A symbol ending in `XX`, or a symbol-less line, priced at about one dollar (SPAXX, FDRXX) goes to the account's `cashBalance`, as a PEA's cash is, instead of appearing as a stock with a fabricated gain. | Importing it as a holding |
-| Cash the bridge leaves out of `holdings` | The balance can exceed the positions by cash that is not listed. When every position has a market value and every position and the sweep are in the account's currency, cash is `max(0, balance - positions)`, which already contains the sweep. Otherwise it is the sum of the sweep lines. | Cash from the sweep alone, which showed a balance of 1100 with positions of 1000 as 1000 |
+| Cash the bridge leaves out of `holdings` | The balance can exceed the positions by cash that is not listed. The sync works it out in EUR, at its own rates, so another currency in the balance, a position or the sweep cannot drop it. When every position has a market value, cash is `max(0, balance - positions)` in EUR, which already contains the sweep whatever its currency. When a position has none, cash is the sweep alone and the gap is logged: the remainder may be that position's own worth, which the price feed values separately. | Cash from the sweep alone, which showed a balance of 1100 with positions of 1000 as 1000; putting the remainder into cash when a position has no value (counted twice once the feed prices it); working the residual out per currency in the mapping, which dropped it as soon as one figure was in another currency |
 | An empty `holdings` list never wipes positions | The bridge answers `[]` for cash accounts and for a partial failure alike. A stale line is corrected by the next good sync; a wrongly erased portfolio is not. | Replacing on every sync |
 | A list read in part never replaces the stored one | The parser flags a list as incomplete when it drops a row (no share count, no symbol and no description) or the bridge sends more than 500. The mapping flags it when a line that holds something cannot be stored. Either way holdings, cash and type stay as they were, and the reason is logged. | Importing the readable rows and deleting the rest |
-| One rule for a missing EUR rate | If any currency the replacement needs (the cash or any position) has no EUR rate, or a converted figure does not fit `numeric(20,8)`, holdings and cash are left exactly as they were. A figure is never stored unconverted. | Converting what has a rate and skipping the rest |
+| One rule for a missing EUR rate | If any currency the replacement needs (a position, the sweep, or the account's own currency when cash is the balance beyond the positions) has no EUR rate, or a converted figure does not fit `numeric(20,8)`, holdings and cash are left exactly as they were. A figure is never stored unconverted. | Converting what has a rate and skipping the rest |
 | Buy-in, value and cash stored in EUR, price in its own currency | `account_holding.average_buy_in`, `provider_value_eur` and `cash_balance` are read as EUR by the valuation. `current_price` keeps `quote_currency`. `provider_value_eur` is the position's `market_value` converted at the sync's rate, dated that day in `provider_price_date`. | Writing USD into the EUR columns |
 | Positions that Yahoo cannot price use `provider_value_eur` | A 401(k) fund known only by CUSIP has no quote. `AccountService.valuation` already falls back per line to `provider_value_eur`, and it counts the cost basis of that line, so the account reads the bridge's figure instead of a false loss. SimpleFIN is **not** in `AccountService.PROVIDER_VALUED`: that path reads the account balance as EUR, which is wrong for a USD account. | Adding SimpleFIN to `PROVIDER_VALUED` |
 | Positions are updated in place by ticker | A buy-in the member entered by hand is kept when the bridge sends none (Fidelity sends `cost_basis` 0.00 on every line). Tickers no longer reported are deleted; new ones are inserted. | Delete-and-recreate on every sync, which erased the member's buy-ins |
@@ -145,6 +145,8 @@ Known limits:
 
 - The bridge's coverage of holdings varies by institution (only Chase and Fidelity were checked against live data).
 - A cash line that is neither an `XX` fund nor a symbol-less $1 line is treated as a stock.
+- A position with no market value: cash the bridge left out of the list is not counted, because the remainder cannot be split between that position and cash. Only the sweep is cash until the bridge sends a value.
+- With positions or a sweep in another currency, the cash beyond the positions uses Picsou's rates, not the bridge's, so it can differ from the bank's figure by the FX spread.
 - Short positions are not modelled: a portfolio that has one is not imported until it is closed.
 - Transactions on an investment account are history only, and BUY/SELL rows are never created from them, so positions are not counted twice.
 - Rows on an investment account are imported budget-neutral (they stay out of budgets and cashflow), on every import path. Rows imported while the account was still `CHECKING` keep their budget status after a retype: they are not backfilled.
@@ -201,14 +203,16 @@ Backend (`make test-backend`):
   500 rows makes the list incomplete, and a symbol or description is never cut inside a surrogate pair
 - `SimplefinHoldingsTest` — buy-in fallbacks, sweep detection, lots merged by market value, the
   incomplete cases (short, mixed currencies, no symbol, overflow of a read or derived figure),
-  zero-share rows staying complete, cash as the balance residual or as the sweep alone
+  zero-share rows staying complete, sweep lines summed per currency and never mixed with positions
 - `SimplefinSyncServiceTest` — connect (unknown member never claims, a failed claim or encryption
   keeps the stored access URL, reconnect replaces in place); sync (created as `CHECKING`, a
   member-set type kept, a card in credit kept positive, soft-delete skip, currencies with no minor unit skipped, the 89-day UTC
   clamp); positions (a new account with a position is `BROKERAGE`, a sweep-only one `CHECKING`, an
   existing account is never retyped, the value stored in EUR, one rule for a missing rate or an
-  overflowing converted figure, an incomplete list keeping the stored positions and cash, a
-  hand-entered buy-in surviving a sync, dropped tickers deleted before the others are written); `resyncReporting` (`SESSION_EXPIRED` gives `NEEDS_REAUTH`, other failures `FAILED`,
+  overflowing converted figure, an incomplete list keeping the stored positions and cash, cash
+  as the EUR balance beyond the positions (sweep included, kept across currencies, never negative,
+  nothing written when the account currency has no rate) or as the sweep alone when a position has
+  no market value, a hand-entered buy-in surviving a sync, dropped tickers deleted before the others are written); `resyncReporting` (`SESSION_EXPIRED` gives `NEEDS_REAUTH`, other failures `FAILED`,
   no credentials in logs); the reconnect and dedup round-trips
 - `SimplefinControllerTest` — each endpoint follows the principal, validation returns 400 or 422
   without echoing the token, connect and sync share the per-IP limit
