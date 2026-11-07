@@ -108,11 +108,31 @@ class AllowedOriginTest(unittest.TestCase):
         self.assertTrue(bank._is_allowed_url(bank.BASE + "/wsost/OstBrokerWeb/auth"))
         self.assertTrue(bank._is_allowed_url("https://voscomptesenligne.labanquepostale.fr:443/safe"))
 
+    def test_the_bank_cdn_is_allowed(self):
+        # Observed live: the bank serves keypad scripts and anti-fraud
+        # payloads from its own subdomains and CloudFront; blocking them
+        # breaks the login.
+        self.assertTrue(bank._is_allowed_url("https://transverse.labanquepostale.fr/x.js"))
+        self.assertTrue(bank._is_allowed_url("https://dqnjn206bwvk2.cloudfront.net/app.js"))
+        self.assertTrue(bank._is_allowed_url("https://d2ydsn9mah1r4u.cloudfront.net:443/x.css"))
+
     def test_anything_off_origin_is_refused(self):
         for target in EVIL_HOSTS:
             with self.subTest(target=target):
                 self.assertFalse(bank._is_allowed_url(target))
-        for target in ("", "/relative/path", "https://user@voscomptesenligne.labanquepostale.fr/"):
+        for target in (
+            "",
+            "/relative/path",
+            "https://user@voscomptesenligne.labanquepostale.fr/",
+            # Suffix lookalikes are not the bank or its CDN.
+            "https://labanquepostale.fr.evil.example/x.js",
+            "https://evillabanquepostale.fr/x.js",
+            "https://cloudfront.net.evil.example/x.js",
+            "https://evilcloudfront.net/x.js",
+            "https://user@dqnjn206bwvk2.cloudfront.net/x.js",
+            "https://dqnjn206bwvk2.cloudfront.net:8443/x.js",
+            "http://dqnjn206bwvk2.cloudfront.net/x.js",
+        ):
             with self.subTest(target=target):
                 self.assertFalse(bank._is_allowed_url(target))
 

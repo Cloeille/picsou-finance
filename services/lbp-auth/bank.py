@@ -99,7 +99,15 @@ class UnverifiedBankClient:
 
 
 def _is_allowed_url(url: Any) -> bool:
-    """True only for an absolute https URL on the bank origin, without credentials."""
+    """True for an absolute https URL on the bank's domains, without credentials.
+
+    The bank serves its scripts, stylesheets and anti-fraud payloads from its
+    own subdomains (observed live: ``transverse.labanquepostale.fr``) and from
+    CloudFront distributions (blocking them breaks the login keypad). The
+    suffix rules keep the SSRF posture: link-local, metadata and arbitrary
+    hosts are still refused, as are userinfo, backslashes, control characters
+    and non-443 ports.
+    """
     if not isinstance(url, str) or not url or "\\" in url:
         return False
     if any(ord(char) <= 0x20 or ord(char) == 0x7F for char in url):
@@ -112,7 +120,10 @@ def _is_allowed_url(url: Any) -> bool:
         return False
     return (
         parsed.scheme == "https"
-        and host == ALLOWED_HOST
+        and (
+            host == ALLOWED_HOST
+            or (host is not None and host.endswith((".labanquepostale.fr", ".cloudfront.net")))
+        )
         and port in (None, 443)
         and not parsed.username
         and not parsed.password
@@ -144,7 +155,7 @@ async def _check_request_origin(request: httpx.Request) -> None:
 
 
 def _route_guard() -> Any:
-    """First-hop guard only: let the bank origin (and data: URLs) through, abort the rest.
+    """First-hop guard only: let the bank domains and data: URLs through, abort the rest.
 
     Playwright routes see only the initial URL of a request: a bank-origin
     page answering 302 to an off-origin target is followed by Chromium without
@@ -157,6 +168,11 @@ def _route_guard() -> Any:
         if _is_allowed_url(url) or url.startswith("data:"):
             await route.continue_()
         else:
+            # Host only: never the URL, which may carry a session token.
+            log.info(
+                "La Banque Postale browser request blocked host=%s",
+                urlparse(url).hostname,
+            )
             await route.abort()
 
     return guard
@@ -170,7 +186,7 @@ async def _new_guarded_page(context: Any) -> Any:
     instance-metadata address) would be followed by Chromium with no further
     route callback. CDP request-stage interception sees each hop without
     replacing Chromium's TLS fingerprint with an API client's. Every hop must
-    be the bank origin (data: URLs never hit the network and stay allowed); an
+    be one of the bank domains (data: URLs never hit the network and stay allowed); an
     off-origin hop, or a chain longer than `MAX_REDIRECTS`, fails with
     `ERR_BLOCKED_BY_CLIENT` before anything is sent.
     """
@@ -185,6 +201,12 @@ async def _new_guarded_page(context: Any) -> Any:
         hops[request_id] = count
         url = event["request"]["url"]
         if count > MAX_REDIRECTS or not (_is_allowed_url(url) or url.startswith("data:")):
+            # Host only: never the URL, which may carry a session token.
+            log.info(
+                "La Banque Postale browser hop blocked host=%s reason=%s",
+                urlparse(url).hostname,
+                "redirect-loop" if count > MAX_REDIRECTS else "off-origin",
+            )
             await session.send(
                 "Fetch.failRequest", {"requestId": request_id, "errorReason": "BlockedByClient"}
             )
