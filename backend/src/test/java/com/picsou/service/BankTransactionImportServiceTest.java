@@ -319,4 +319,26 @@ class BankTransactionImportServiceTest {
         assertThat(importProvidedAs(AccountType.CHECKING)).singleElement()
             .satisfies(tx -> assertThat(tx.isBudgetNeutral()).isFalse());
     }
+
+    private List<Transaction> importForAs(AccountType type) {
+        Account bank = Account.builder().id(57L).externalAccountId("eb-account-57").currency("EUR").type(type).build();
+        when(bankConnector.fetchTransactions(eq("session"), eq("eb-account-57"), any()))
+            .thenReturn(List.of(data("eb-transaction-57", "Dividend payout")));
+        service.importFor(bank, "session");
+        ArgumentCaptor<List<Transaction>> saved = ArgumentCaptor.forClass(List.class);
+        verify(transactionRepository).saveAll(saved.capture());
+        return saved.getValue();
+    }
+
+    @Test
+    void importFor_onAnInvestmentAccount_keepsTheRowsOutOfTheBudget() {
+        assertThat(importForAs(AccountType.BROKERAGE)).singleElement()
+            .satisfies(tx -> assertThat(tx.isBudgetNeutral()).isTrue());
+    }
+
+    @Test
+    void importFor_onACashAccount_leavesTheRowsInTheBudget() {
+        assertThat(importForAs(AccountType.CHECKING)).singleElement()
+            .satisfies(tx -> assertThat(tx.isBudgetNeutral()).isFalse());
+    }
 }

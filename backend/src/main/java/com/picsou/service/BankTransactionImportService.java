@@ -156,14 +156,6 @@ public class BankTransactionImportService {
             return 0;
         }
 
-        if (account.getType() != null && account.getType().isInvestment()) {
-            // What a brokerage account reports is money moving inside it -- buys, reinvested
-            // dividends, the sweep fund's purchases and redemptions -- and the one contribution
-            // that is also the debit already counted on the paying account. Counted again here
-            // it would double the member's income and spending, so the rows stay on the
-            // account's own ledger and out of every budget and cashflow query.
-            toInsert.forEach(tx -> tx.setBudgetNeutral(true));
-        }
         transactionRepository.saveAll(toInsert);
         log.info("Imported {} new transactions for account {} ({} provided)",
             toInsert.size(), account.getId(), fetched.size());
@@ -398,6 +390,13 @@ public class BankTransactionImportService {
      * {@code txType} is deliberately left null, like every other synced row (Finary's
      * importer does the same): it drives manual-account holdings and the instrument
      * label in the UI, neither of which applies to a provider-owned cash entry.
+     *
+     * <p>Rows on an investment account are {@code budgetNeutral}, whichever connector delivered
+     * them. What such an account reports is money moving inside it -- buys, reinvested dividends,
+     * the sweep fund's purchases and redemptions -- and the one contribution that is also the
+     * debit already counted on the paying account. Counted again here it would double the member's
+     * income and spending, so the rows stay on the account's own ledger and out of every budget
+     * and cashflow query.
      */
     private Transaction toEntity(Account account, TransactionData data, String dedupKey) {
         return Transaction.builder()
@@ -409,6 +408,7 @@ public class BankTransactionImportService {
             .nativeCurrency(currencyOf(data, account))
             .externalTransactionId(dedupKey)
             .isManual(false)
+            .budgetNeutral(account.getType() != null && account.getType().isInvestment())
             .build();
     }
 
