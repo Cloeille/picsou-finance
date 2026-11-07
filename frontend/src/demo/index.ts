@@ -121,6 +121,11 @@ handlers.set(key('GET', '/auth/sessions'), () => [
   },
 ])
 handlers.set(key('DELETE', '/auth/sessions'), () => null)
+// SSO is never configured in the demo; the sign-in methods are password-only.
+handlers.set(key('GET', '/auth/sso'), () => ({ enabled: false, providerName: 'SSO' }))
+handlers.set(key('GET', '/auth/sign-in-methods'), () => ({
+  hasPassword: true, mfaEnabled: false, identities: [], ssoEnabled: false, providerName: 'SSO', adminGroupManaged: false,
+}))
 
 // Access keys — demo shows one active key (read-only)
 handlers.set(key('GET', '/access-keys'), () => [
@@ -162,8 +167,8 @@ for (const id of [1]) {
 // whole shell via `members.filter`. Return a small, realistic family: the demo
 // admin (not switchable) plus one managed member the admin can impersonate.
 handlers.set(key('GET', '/family/members'), () => [
-  { id: 1, displayName: 'Demo', avatarColor: '#6366f1', managed: false, hasLogin: true, activated: true, loginName: 'demo', mfaEnabled: false },
-  { id: 2, displayName: 'Léa', avatarColor: '#ec4899', managed: true, hasLogin: false, activated: false, loginName: null, mfaEnabled: false },
+  { id: 1, displayName: 'Demo', avatarColor: '#6366f1', managed: false, hasLogin: true, activated: true, loginName: 'demo', mfaEnabled: false, hasPassword: true, ssoLinked: false },
+  { id: 2, displayName: 'Léa', avatarColor: '#ec4899', managed: true, hasLogin: false, activated: false, loginName: null, mfaEnabled: false, hasPassword: false, ssoLinked: false },
 ])
 
 // Dashboard

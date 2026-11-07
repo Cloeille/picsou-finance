@@ -2,10 +2,18 @@ import axios from 'axios'
 
 export type SetupState = 'PENDING_ADMIN' | 'IN_PROGRESS' | 'COMPLETE'
 
+export interface SetupSsoInfo {
+  enabled: boolean
+  providerName: string
+  adminBootstrap: boolean
+}
+
 export interface SetupStatus {
   state: SetupState
   needsSetup: boolean
   integrations: Record<string, boolean>
+  // Optional: the wizard's separate client has no demo adapter.
+  sso?: SetupSsoInfo
 }
 
 export interface SetupAdminRequest {

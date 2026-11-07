@@ -87,6 +87,13 @@
     "mfaTooManyAttempts": "Trop de tentatives, réessayez dans quelques minutes",
     "mfaSessionExpired": "Session de vérification expirée, reconnectez-vous",
     "mfaGenericError": "Impossible de vérifier le code. Veuillez réessayer.",
+    "sso": {
+      "button": "Se connecter avec {{provider}}",
+      "or": "ou",
+      "redirecting": "Redirection vers votre fournisseur de connexion...",
+      "completing": "Finalisation de la connexion...",
+      "infoError": "Impossible de charger les options de connexion."
+    },
     "validation": {
       "usernameTooShort": "Le nom d'utilisateur doit contenir au moins 3 caractères.",
       "usernameTooLong": "Le nom d'utilisateur doit contenir 50 caractères maximum.",
@@ -1960,6 +1967,8 @@
     "themeDark": "Sombre",
     "themeSystem": "Système",
     "currentPassword": "Mot de passe actuel",
+    "newPassword": "Nouveau mot de passe",
+    "confirmPassword": "Confirmer le mot de passe",
     "appearanceDescription": "Personnaliser l'apparence de l'application",
     "dateFormat": "Format de date",
     "dateFormatLocale": "Localisé",
@@ -2067,6 +2076,32 @@
         "AGGRESSIVE": "Offensif"
       },
       "saved": "Profil enregistré"
+    },
+    "signInMethods": {
+      "title": "Méthodes de connexion",
+      "password": "Mot de passe",
+      "passwordOn": "Vous pouvez vous connecter avec votre nom d'utilisateur et votre mot de passe.",
+      "passwordOff": "Aucun mot de passe : vous vous connectez avec {{provider}}.",
+      "turnOff": "Désactiver la connexion par mot de passe",
+      "turnOffHint": "Connectez-vous une première fois avec {{provider}} avant de désactiver la connexion par mot de passe.",
+      "setPassword": "Définir un mot de passe",
+      "identityFallback": "Compte {{provider}}",
+      "lastSignIn": "Dernière connexion",
+      "neverUsed": "Pas encore utilisé pour vous connecter",
+      "unlink": "Dissocier",
+      "unlinkHint": "Définissez un mot de passe avant de dissocier votre dernière méthode de connexion.",
+      "link": "Associer un compte {{provider}}",
+      "adminGroupNote": "Vos droits d'administration suivent votre groupe dans {{provider}}.",
+      "linked": "Compte associé. Vous pouvez maintenant l'utiliser pour vous connecter.",
+      "removePasswordTitle": "Désactiver la connexion par mot de passe ?",
+      "removePasswordDesc": "Vous vous connecterez uniquement avec {{provider}}. Vos autres appareils seront déconnectés, et l'authentification à deux facteurs sera désactivée si elle est active.",
+      "setPasswordDesc": "Vous pourrez vous connecter avec votre nom d'utilisateur et ce mot de passe, en plus de {{provider}}. Vos autres appareils seront déconnectés.",
+      "passwordMismatch": "Les mots de passe ne correspondent pas.",
+      "unlinkTitle": "Dissocier ce compte ?",
+      "unlinkDesc": "Vous ne pourrez plus vous connecter avec ce compte {{provider}}.",
+      "linkTitle": "Associer un compte {{provider}}",
+      "linkDesc": "Confirmez votre identité, puis connectez-vous avec le compte {{provider}} à associer.",
+      "linkMfaNote": "Quand vous vous connectez avec {{provider}}, Picsou ne demande pas le code de votre application d'authentification : le second facteur relève alors du fournisseur de connexion. La connexion par mot de passe demande toujours le code, sauf sur un appareil de confiance."
     }
   },
   "accessKeys": {
@@ -2372,6 +2407,12 @@
       "resetMfaConfirmTitle": "Réinitialiser la 2FA ?",
       "resetMfaConfirmDesc": "Cela désactive la 2FA du compte du membre, révoque ses codes de secours et déconnecte ses appareils. À utiliser uniquement si l'authenticator est perdu et qu'aucun code de secours n'est disponible.",
       "mfaOn": "2FA active",
+      "signInPassword": "Mot de passe",
+      "signInSso": "SSO",
+      "unlinkSso": "Dissocier le SSO",
+      "unlinkSsoTitle": "Dissocier le SSO de {{name}} ?",
+      "unlinkSsoDescription": "Ce membre ne pourra plus se connecter avec le SSO et sera déconnecté de tous ses appareils. S'il n'a plus de mot de passe, il lui faudra un lien de réinitialisation du mot de passe pour se reconnecter.",
+      "unlinkSsoFailed": "La dissociation du SSO de {{name}} a échoué.",
       "delete": "Supprimer",
       "deleteConfirmTitle": "Supprimer le membre",
       "deleteConfirmDesc": "Cela supprimera le membre et toutes ses données. Action irréversible.",
@@ -2511,6 +2552,9 @@
       "submitError": "Impossible de créer le compte. Réessayez.",
       "showPassword": "Afficher le mot de passe",
       "hidePassword": "Masquer le mot de passe",
+      "ssoHint": "L'administrateur de Picsou se connecte avec {{provider}}. Utilisez un compte du groupe des administrateurs.",
+      "ssoContinue": "Continuer avec {{provider}}",
+      "ssoMisconfigured": "La création de l'administrateur nécessite la connexion unique, mais ses paramètres sont invalides. Consultez les journaux du serveur.",
       "strength": {
         "weak": "La sécurité du mot de passe est faible.",
         "fair": "La sécurité du mot de passe est correcte.",
@@ -3126,5 +3170,60 @@
       "yes": "Oui",
       "no": "Non"
     }
+  },
+  "activation": {
+    "title": "Activez votre compte",
+    "subtitle": "Choisissez un mot de passe pour terminer la configuration de votre compte.",
+    "subtitleSso": "Activez-le avec {{provider}}, ou choisissez un mot de passe pour terminer la configuration de votre compte.",
+    "noticeTitle": "Accès aux données",
+    "noticeBody": "L'administrateur de cette instance Picsou dispose d'un accès technique à toutes les données qui y sont stockées, y compris les coordonnées bancaires et les identifiants d'API. En activant votre compte, vous le reconnaissez.",
+    "acknowledge": "Je comprends et reconnais que l'administrateur a accès à toutes les données de cette instance.",
+    "ssoButton": "Activer avec {{provider}}",
+    "password": "Mot de passe",
+    "passwordPlaceholder": "8 caractères minimum",
+    "confirmPassword": "Confirmer le mot de passe",
+    "confirmPlaceholder": "Saisissez à nouveau votre mot de passe",
+    "submit": "Activer le compte",
+    "submitting": "Activation...",
+    "successTitle": "Compte activé !",
+    "successRedirect": "Redirection vers la connexion...",
+    "errors": {
+      "acknowledgeRequired": "Vous devez accepter l'avertissement sur l'accès aux données.",
+      "passwordTooShort": "Le mot de passe doit contenir au moins 8 caractères.",
+      "passwordMismatch": "Les mots de passe ne correspondent pas.",
+      "invalidLink": "Lien d'activation invalide.",
+      "failed": "L'activation a échoué. Le lien a peut-être expiré."
+    }
+  },
+  "reauth": {
+    "confirm": "Confirmer",
+    "confirmWith": "Confirmer avec {{provider}}",
+    "ssoHint": "{{provider}} vous demandera de vous reconnecter, puis vous ramènera ici.",
+    "expired": "Votre confirmation a expiré. Veuillez confirmer à nouveau votre identité."
+  },
+  "ssoErrors": {
+    "NOT_LINKED": "Ce compte n'est pas associé à votre fournisseur de connexion. Connectez-vous avec votre mot de passe, puis associez-le depuis les paramètres.",
+    "NOT_IN_ADMIN_GROUP": "Votre compte n'appartient pas au groupe requis pour administrer cette instance.",
+    "IDENTITY_IN_USE": "Cette identité est déjà associée à un autre compte.",
+    "REAUTH_REQUIRED": "Veuillez confirmer à nouveau votre identité pour continuer.",
+    "REAUTH_TOO_OLD": "Votre dernière confirmation est trop ancienne. Veuillez confirmer à nouveau votre identité.",
+    "REAUTH_WRONG_ACCOUNT": "Vous avez confirmé un autre compte que celui avec lequel vous êtes connecté. Veuillez utiliser le même compte.",
+    "ACCOUNT_INACTIVE": "Ce compte est inactif. Contactez votre administrateur.",
+    "ADMIN_RECOVERY_ACTIVE": "Une récupération administrateur est en cours pour ce compte. Terminez-la avant de vous connecter avec le SSO.",
+    "ACTIVATION_INVALID": "La connexion unique n'est pas disponible avec ce lien. S'il s'agit d'un lien de réinitialisation du mot de passe, choisissez plutôt un nouveau mot de passe avec le formulaire. Sinon, le lien est invalide, a expiré ou a déjà servi : demandez-en un nouveau à votre administrateur.",
+    "SETUP_ALREADY_CLAIMED": "La configuration initiale a déjà été prise en charge par un autre administrateur.",
+    "IDP_UNAVAILABLE": "Le fournisseur de connexion est injoignable. Veuillez réessayer dans quelques minutes.",
+    "IDP_ERROR": "Le fournisseur de connexion a renvoyé une erreur. Veuillez réessayer.",
+    "SESSION_EXPIRED": "Votre tentative de connexion a expiré. Veuillez recommencer.",
+    "RATE_LIMITED": "Trop de tentatives. Veuillez patienter un instant et réessayer.",
+    "SSO_ADMIN_REQUIRED": "La première configuration nécessite un administrateur issu de votre fournisseur de connexion. Utilisez le SSO pour créer le compte administrateur.",
+    "IDENTITY_NOT_USED_YET": "Vous ne vous êtes pas encore connecté avec le SSO. Connectez-vous une première fois avec le SSO avant de désactiver la connexion par mot de passe.",
+    "LAST_SIGN_IN_METHOD": "C'est votre dernière méthode de connexion. Ajoutez-en une autre avant de la retirer.",
+    "PASSWORD_ALREADY_SET": "Un mot de passe est déjà défini pour ce compte.",
+    "REAUTH_FAILED": "La nouvelle authentification a échoué. Vérifiez vos identifiants et réessayez.",
+    "SSO_REVALIDATE": "Votre session doit être revalidée auprès de votre fournisseur de connexion.",
+    "SSO_DISABLED": "La connexion unique n'est pas activée sur cette instance.",
+    "SELF_UNLINK_FORBIDDEN": "Pour dissocier vos propres identités SSO, utilisez Méthodes de connexion dans les Paramètres.",
+    "generic": "La connexion unique a échoué. Veuillez réessayer."
   }
 }
