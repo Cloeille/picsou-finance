@@ -250,8 +250,18 @@ class SimplefinSyncServiceTest {
     // ---- holdings ---------------------------------------------------------------------
 
     private static SimplefinAccount brokerage(SimplefinHolding... holdings) {
+        return brokerageWorth("5000.00", holdings);
+    }
+
+    private static SimplefinAccount brokerageWorth(String balance, SimplefinHolding... holdings) {
         return new SimplefinAccount("sfin_FID_hsa", "Fidelity Investments", "Health Savings Account", "USD",
-            new BigDecimal("5000.00"), List.of(), "fidelity.com", List.of(holdings), true);
+            new BigDecimal(balance), List.of(), "fidelity.com", List.of(holdings), true);
+    }
+
+    /** A response the parser could only read in part: the stored positions must survive it. */
+    private static SimplefinAccount partialBrokerage(SimplefinHolding... holdings) {
+        return new SimplefinAccount("sfin_FID_hsa", "Fidelity Investments", "Health Savings Account", "USD",
+            new BigDecimal("5000.00"), List.of(), "fidelity.com", List.of(holdings), false);
     }
 
     private static SimplefinHolding holding(String symbol, String shares, String marketValue,
@@ -264,10 +274,31 @@ class SimplefinSyncServiceTest {
         lenient().when(priceService.getFxRateEur("USD")).thenReturn(new BigDecimal("0.5"));
     }
 
+    /** An account the member already has, typed as given, holding what the test stored. */
+    private Account givenStoredAccount(AccountType type, AccountHolding... stored) {
+        Account existing = Account.builder().id(5L).type(type).provider("SimpleFIN")
+            .currency("USD").name("HSA").cashBalance(new BigDecimal("77.00000000")).build();
+        lenient().when(accountRepository.findByExternalAccountIdAndMemberId("sfin_FID_hsa", MEMBER_ID))
+            .thenReturn(Optional.of(existing));
+        lenient().when(holdingRepository.findByAccount_Id(5L)).thenReturn(List.of(stored));
+        return existing;
+    }
+
+    private static AccountHolding storedHolding(String ticker, String quantity, String buyIn) {
+        return AccountHolding.builder().ticker(ticker).quantity(new BigDecimal(quantity))
+            .averageBuyIn(buyIn == null ? null : new BigDecimal(buyIn)).build();
+    }
+
     private List<AccountHolding> savedHoldings() {
         ArgumentCaptor<AccountHolding> captor = ArgumentCaptor.forClass(AccountHolding.class);
         verify(holdingRepository, org.mockito.Mockito.atLeast(0)).save(captor.capture());
         return captor.getAllValues();
+    }
+
+    private void verifyHoldingsUntouched() {
+        verify(holdingRepository, never()).save(any());
+        verify(holdingRepository, never()).deleteAll(any());
+        verify(holdingRepository, never()).deleteByAccountId(any());
     }
 
     @Test
@@ -281,6 +312,17 @@ class SimplefinSyncServiceTest {
     }
 
     @Test
+    void sync_newAccountWhoseOnlyHoldingIsASweep_staysChecking() {
+        givenUsdToEurIsHalved();
+        givenBridgeReturns(brokerageWorth("2000.00", holding("FDRXX", "2000.00", "2000.00", "0.00", "0.00")));
+
+        service.sync(MEMBER_ID);
+
+        assertThat(savedAccounts().get(0).getType()).isEqualTo(AccountType.CHECKING);
+        verify(holdingRepository, never()).save(any());
+    }
+
+    @Test
     void sync_zeroCostBasis_fallsBackToThePurchasePriceConvertedToEur() {
         givenUsdToEurIsHalved();
         givenBridgeReturns(brokerage(holding("FXAIX", "10.500", "2100.00", "0.00", "180.40")));
@@ -291,32 +333,52 @@ class SimplefinSyncServiceTest {
             assertThat(h.getTicker()).isEqualTo("FXAIX");
             assertThat(h.getQuantity()).isEqualByComparingTo("10.500");
             assertThat(h.getAverageBuyIn()).isEqualByComparingTo("90.20");
+            assertThat(h.getCurrentPrice()).isEqualByComparingTo("200");
             assertThat(h.getQuoteCurrency()).isEqualTo("USD");
-            assertThat(h.getProviderValueEur()).isNull();
         });
     }
 
     @Test
-    void sync_noEurRate_leavesThePositionsAsTheyWereRatherThanReadingUsdAsEur() {
-        lenient().when(priceService.getFxRateEur("USD")).thenReturn(null);
-        givenBridgeReturns(brokerage(
-            holding("FDRXX", "2000.00", "2000.00", "0.00", "0.00"),
-            holding("GOOGL", "3.00", "900.00", "0.00", "250.50")));
+    void sync_storesTheLinesMarketValueConvertedToEurSoAnUnpricedFundIsNotLeftOut() {
+        givenUsdToEurIsHalved();
+        givenBridgeReturns(brokerage(holding("FXAIX", "10.500", "2100.00", "0.00", "180.40")));
+        LocalDate before = LocalDate.now();
 
         service.sync(MEMBER_ID);
 
-        verify(holdingRepository, never()).deleteByAccountId(any());
-        verify(holdingRepository, never()).save(any());
+        assertThat(savedHoldings()).singleElement().satisfies(h -> {
+            assertThat(h.getProviderValueEur()).isEqualByComparingTo("1050");
+            assertThat(h.getProviderPriceDate()).isBetween(before, LocalDate.now());
+        });
     }
 
     @Test
-    void sync_noEurRateForACostOnly_storesTheCostAsUnknown() {
-        lenient().when(priceService.getFxRateEur("USD")).thenReturn(null);
-        givenBridgeReturns(brokerage(holding("GOOGL", "3.00", "900.00", "0.00", "250.50")));
+    void sync_lineWithoutAMarketValue_hasNoProviderValue() {
+        givenUsdToEurIsHalved();
+        givenBridgeReturns(brokerage(
+            new SimplefinHolding("CUSIP1", null, "USD", new BigDecimal("4"), null, null, null)));
 
         service.sync(MEMBER_ID);
 
-        assertThat(savedHoldings()).singleElement().satisfies(h -> assertThat(h.getAverageBuyIn()).isNull());
+        assertThat(savedHoldings()).singleElement().satisfies(h -> {
+            assertThat(h.getProviderValueEur()).isNull();
+            assertThat(h.getProviderPriceDate()).isNull();
+            assertThat(h.getCurrentPrice()).isNull();
+        });
+    }
+
+    @Test
+    void sync_eurPosition_isStoredWithoutAnyRate() {
+        givenBridgeReturns(new SimplefinAccount("sfin_EU_1", "Broker", "Depot", "EUR", new BigDecimal("500"),
+            List.of(), null,
+            List.of(new SimplefinHolding("EXA", null, "EUR", new BigDecimal("5"), new BigDecimal("500"), null, null)),
+            true));
+
+        service.sync(MEMBER_ID);
+
+        assertThat(savedHoldings()).singleElement()
+            .satisfies(h -> assertThat(h.getProviderValueEur()).isEqualByComparingTo("500"));
+        verifyNoInteractions(priceService);
     }
 
     @Test
@@ -330,16 +392,83 @@ class SimplefinSyncServiceTest {
             .satisfies(h -> assertThat(h.getAverageBuyIn()).isNull());
     }
 
+    // ---- no EUR rate: one rule, everything stays ---------------------------------------
+
     @Test
-    void sync_moneyMarketSweep_becomesCashNotAHolding() {
-        givenUsdToEurIsHalved();
+    void sync_noEurRate_leavesHoldingsAndCashAsTheyWereRatherThanReadingUsdAsEur() {
+        lenient().when(priceService.getFxRateEur("USD")).thenReturn(null);
+        Account existing = givenStoredAccount(AccountType.BROKERAGE, storedHolding("OLD", "1", "5"));
         givenBridgeReturns(brokerage(
             holding("FDRXX", "2000.00", "2000.00", "0.00", "0.00"),
             holding("GOOGL", "3.00", "900.00", "0.00", "250.50")));
 
         service.sync(MEMBER_ID);
 
+        verifyHoldingsUntouched();
+        assertThat(existing.getCashBalance()).isEqualByComparingTo("77");
+    }
+
+    @Test
+    void sync_oneCurrencyWithoutARate_leavesEverythingEvenWhenTheOthersConvert() {
+        givenUsdToEurIsHalved();
+        lenient().when(priceService.getFxRateEur("CAD")).thenReturn(null);
+        Account existing = givenStoredAccount(AccountType.BROKERAGE, storedHolding("OLD", "1", "5"));
+        givenBridgeReturns(brokerage(
+            holding("GOOGL", "3.00", "900.00", "0.00", "250.50"),
+            new SimplefinHolding("TD", null, "CAD", BigDecimal.ONE, BigDecimal.TEN, null, null)));
+
+        service.sync(MEMBER_ID);
+
+        verifyHoldingsUntouched();
+        assertThat(existing.getCashBalance()).isEqualByComparingTo("77");
+    }
+
+    @Test
+    void sync_convertedFigureThatOverflowsTheColumn_leavesEverythingAsItWas() {
+        lenient().when(priceService.getFxRateEur("USD")).thenReturn(new BigDecimal("2"));
+        Account existing = givenStoredAccount(AccountType.BROKERAGE, storedHolding("OLD", "1", "5"));
+        givenBridgeReturns(brokerageWorth("900000000000", holding("BIG", "1", "900000000000", "0", "0")));
+
+        service.sync(MEMBER_ID);
+
+        verifyHoldingsUntouched();
+        assertThat(existing.getCashBalance()).isEqualByComparingTo("77");
+    }
+
+    // ---- cash ---------------------------------------------------------------------------
+
+    @Test
+    void sync_moneyMarketSweep_becomesCashNotAHolding() {
+        givenUsdToEurIsHalved();
+        givenBridgeReturns(brokerageWorth("2900.00",
+            holding("FDRXX", "2000.00", "2000.00", "0.00", "0.00"),
+            holding("GOOGL", "3.00", "900.00", "0.00", "250.50")));
+
+        service.sync(MEMBER_ID);
+
         assertThat(savedHoldings()).extracting(AccountHolding::getTicker).containsExactly("GOOGL");
+        assertThat(savedAccounts().get(0).getCashBalance()).isEqualByComparingTo("1000.00");
+    }
+
+    @Test
+    void sync_cashTheBridgeLeftOutOfTheList_isTheBalanceBeyondThePositions() {
+        givenUsdToEurIsHalved();
+        givenBridgeReturns(brokerageWorth("1100.00", holding("GOOGL", "4.00", "1000.00", "0.00", "250.50")));
+
+        service.sync(MEMBER_ID);
+
+        assertThat(savedAccounts().get(0).getCashBalance()).isEqualByComparingTo("50.00");
+    }
+
+    @Test
+    void sync_aPositionWithoutAMarketValue_leavesOnlyTheSweepAsCash() {
+        givenUsdToEurIsHalved();
+        givenBridgeReturns(brokerageWorth("5000.00",
+            holding("FDRXX", "2000.00", "2000.00", "0.00", "0.00"),
+            new SimplefinHolding("CUSIP1", null, "USD", new BigDecimal("4"), null, null, null)));
+
+        service.sync(MEMBER_ID);
+
         assertThat(savedAccounts().get(0).getCashBalance()).isEqualByComparingTo("1000.00");
     }
 
@@ -353,73 +482,168 @@ class SimplefinSyncServiceTest {
         assertThat(savedHoldings()).extracting(AccountHolding::getTicker).containsExactly("EXXX");
     }
 
+    // ---- what a sync never replaces ----------------------------------------------------
+
     @Test
     void sync_emptyHoldingsList_neverWipesExistingPositions() {
         givenBridgeReturns(brokerage());
-        Account existing = Account.builder().id(5L).type(AccountType.BROKERAGE).provider("SimpleFIN")
-            .currency("USD").name("HSA").build();
-        when(accountRepository.findByExternalAccountIdAndMemberId("sfin_FID_hsa", MEMBER_ID))
-            .thenReturn(Optional.of(existing));
+        Account existing = givenStoredAccount(AccountType.BROKERAGE, storedHolding("OLD", "1", "5"));
 
         service.sync(MEMBER_ID);
 
-        verify(holdingRepository, never()).deleteByAccountId(any());
+        verifyHoldingsUntouched();
+        assertThat(existing.getCashBalance()).isEqualByComparingTo("77");
     }
 
     @Test
-    void sync_linesTheMappingDrops_neverWipeExistingPositions() {
+    void sync_linesThatHoldNothing_neverWipeExistingPositions() {
         // Present in the payload, but with no shares: nothing usable survives the mapping.
         givenBridgeReturns(brokerage(holding("GOOGL", "0.00", "0.00", "0.00", "0.00")));
-        Account existing = Account.builder().id(5L).type(AccountType.BROKERAGE).provider("SimpleFIN")
-            .currency("USD").name("HSA").build();
-        when(accountRepository.findByExternalAccountIdAndMemberId("sfin_FID_hsa", MEMBER_ID))
-            .thenReturn(Optional.of(existing));
+        givenStoredAccount(AccountType.BROKERAGE, storedHolding("OLD", "1", "5"));
 
         service.sync(MEMBER_ID);
 
-        verify(holdingRepository, never()).deleteByAccountId(any());
+        verifyHoldingsUntouched();
     }
 
     @Test
-    void sync_accountSyncedBeforeBrokerageExisted_isUpgradedFromChecking() {
+    void sync_listTheParserCouldOnlyReadInPart_keepsTheStoredPositionAndCash() {
+        // One good row beside a row the parser dropped: replacing would delete the dropped one.
+        givenUsdToEurIsHalved();
+        Account existing = givenStoredAccount(AccountType.BROKERAGE,
+            storedHolding("GOOGL", "1", "100"), storedHolding("DROPPED", "9", "10"));
+        givenBridgeReturns(partialBrokerage(holding("GOOGL", "3.00", "900.00", "0.00", "250.50")));
+
+        service.sync(MEMBER_ID);
+
+        verifyHoldingsUntouched();
+        assertThat(existing.getCashBalance()).isEqualByComparingTo("77");
+    }
+
+    @Test
+    void sync_shortPosition_keepsTheStoredPositions() {
+        givenUsdToEurIsHalved();
+        givenStoredAccount(AccountType.BROKERAGE, storedHolding("GOOGL", "1", "100"));
+        givenBridgeReturns(brokerage(
+            holding("GOOGL", "3.00", "900.00", "0.00", "250.50"),
+            holding("TSLA", "-5.00", "-500.00", "0.00", "0.00")));
+
+        service.sync(MEMBER_ID);
+
+        verifyHoldingsUntouched();
+    }
+
+    @Test
+    void sync_sameTickerInTwoCurrencies_keepsTheStoredPositions() {
+        givenUsdToEurIsHalved();
+        lenient().when(priceService.getFxRateEur("CAD")).thenReturn(new BigDecimal("0.7"));
+        givenStoredAccount(AccountType.BROKERAGE, storedHolding("GOOGL", "1", "100"));
+        givenBridgeReturns(brokerage(
+            holding("GOOGL", "3.00", "900.00", "0.00", "250.50"),
+            new SimplefinHolding("GOOGL", null, "CAD", BigDecimal.ONE, BigDecimal.TEN, null, null)));
+
+        service.sync(MEMBER_ID);
+
+        verifyHoldingsUntouched();
+    }
+
+    @Test
+    void sync_derivedPriceThatOverflowsTheColumn_keepsTheStoredPositions() {
+        givenUsdToEurIsHalved();
+        givenStoredAccount(AccountType.BROKERAGE, storedHolding("GOOGL", "1", "100"));
+        givenBridgeReturns(brokerage(
+            holding("GOOGL", "3.00", "900.00", "0.00", "250.50"),
+            holding("TINY", "0.00000001", "20000", "0", "0")));
+
+        service.sync(MEMBER_ID);
+
+        verifyHoldingsUntouched();
+    }
+
+    // ---- updating in place --------------------------------------------------------------
+
+    @Test
+    void sync_buyInTheMemberEnteredByHand_survivesABridgeThatReportsNoCost() {
+        givenUsdToEurIsHalved();
+        AccountHolding byHand = storedHolding("FXAIX", "1", "42.5");
+        givenStoredAccount(AccountType.BROKERAGE, byHand);
+        givenBridgeReturns(brokerage(holding("FXAIX", "10.500", "2100.00", "0.00", "0.00")));
+
+        service.sync(MEMBER_ID);
+
+        assertThat(savedHoldings()).singleElement().isSameAs(byHand).satisfies(h -> {
+            assertThat(h.getAverageBuyIn()).isEqualByComparingTo("42.5");
+            assertThat(h.getQuantity()).isEqualByComparingTo("10.500");
+            assertThat(h.getProviderValueEur()).isEqualByComparingTo("1050");
+        });
+    }
+
+    @Test
+    void sync_buyInTheBridgeReports_replacesTheStoredOne() {
+        givenUsdToEurIsHalved();
+        givenStoredAccount(AccountType.BROKERAGE, storedHolding("FXAIX", "1", "42.5"));
+        givenBridgeReturns(brokerage(holding("FXAIX", "10.500", "2100.00", "0.00", "180.40")));
+
+        service.sync(MEMBER_ID);
+
+        assertThat(savedHoldings()).singleElement()
+            .satisfies(h -> assertThat(h.getAverageBuyIn()).isEqualByComparingTo("90.20"));
+    }
+
+    @Test
+    void sync_tickerNoLongerReported_isDeletedAndANewOneInserted() {
+        givenUsdToEurIsHalved();
+        AccountHolding gone = storedHolding("OLD", "1", "5");
+        AccountHolding kept = storedHolding("GOOGL", "1", "100");
+        givenStoredAccount(AccountType.BROKERAGE, gone, kept);
+        givenBridgeReturns(brokerage(
+            holding("GOOGL", "3.00", "900.00", "0.00", "0.00"),
+            holding("MSFT", "2.00", "800.00", "0.00", "0.00")));
+
+        service.sync(MEMBER_ID);
+
+        verify(holdingRepository).deleteAll(List.of(gone));
+        assertThat(savedHoldings()).extracting(AccountHolding::getTicker).containsExactlyInAnyOrder("GOOGL", "MSFT");
+        assertThat(savedHoldings()).filteredOn(h -> "MSFT".equals(h.getTicker()))
+            .singleElement().satisfies(h -> assertThat(h.getAccount().getId()).isEqualTo(5L));
+    }
+
+    @Test
+    void sync_deletesTheDroppedTickersBeforeItWritesTheReportedOnes() {
+        givenUsdToEurIsHalved();
+        givenStoredAccount(AccountType.BROKERAGE, storedHolding("OLD", "1", "5"));
+        givenBridgeReturns(brokerage(holding("GOOGL", "3.00", "900.00", "0.00", "0.00")));
+
+        service.sync(MEMBER_ID);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(holdingRepository);
+        order.verify(holdingRepository).deleteAll(any());
+        order.verify(holdingRepository).save(any(AccountHolding.class));
+    }
+
+    // ---- account typing -----------------------------------------------------------------
+
+    @Test
+    void sync_existingCheckingAccountReportingPositions_staysCheckingAndImportsNoPositions() {
         givenUsdToEurIsHalved();
         givenBridgeReturns(brokerage(holding("GOOGL", "3.00", "900.00", "0.00", "250.50")));
-        Account existing = Account.builder().id(5L).type(AccountType.CHECKING).provider("SimpleFIN")
-            .currency("USD").name("HSA").build();
-        when(accountRepository.findByExternalAccountIdAndMemberId("sfin_FID_hsa", MEMBER_ID))
-            .thenReturn(Optional.of(existing));
+        Account existing = givenStoredAccount(AccountType.CHECKING);
 
         service.sync(MEMBER_ID);
 
-        assertThat(existing.getType()).isEqualTo(AccountType.BROKERAGE);
-        assertThat(savedHoldings()).extracting(AccountHolding::getTicker).containsExactly("GOOGL");
-    }
-
-    @Test
-    void sync_accountTheMemberTypedAsSomethingElse_isNotUpgraded() {
-        givenBridgeReturns(brokerage(holding("GOOGL", "3.00", "900.00", "0.00", "250.50")));
-        Account existing = Account.builder().id(5L).type(AccountType.SAVINGS).provider("SimpleFIN")
-            .currency("USD").name("HSA").build();
-        when(accountRepository.findByExternalAccountIdAndMemberId("sfin_FID_hsa", MEMBER_ID))
-            .thenReturn(Optional.of(existing));
-
-        service.sync(MEMBER_ID);
-
-        assertThat(existing.getType()).isEqualTo(AccountType.SAVINGS);
+        assertThat(existing.getType()).isEqualTo(AccountType.CHECKING);
+        verifyHoldingsUntouched();
     }
 
     @Test
     void sync_accountRetypedToANonInvestmentType_keepsItsTypeAndImportsNoPositions() {
         givenBridgeReturns(brokerage(holding("GOOGL", "3.00", "900.00", "0.00", "250.50")));
-        Account existing = Account.builder().id(5L).type(AccountType.SAVINGS).provider("SimpleFIN")
-            .currency("USD").name("HSA").build();
-        when(accountRepository.findByExternalAccountIdAndMemberId("sfin_FID_hsa", MEMBER_ID))
-            .thenReturn(Optional.of(existing));
+        Account existing = givenStoredAccount(AccountType.SAVINGS);
 
         service.sync(MEMBER_ID);
 
         assertThat(existing.getType()).isEqualTo(AccountType.SAVINGS);
-        verify(holdingRepository, never()).save(any());
+        verifyHoldingsUntouched();
     }
 
     @Test

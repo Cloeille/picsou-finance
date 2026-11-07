@@ -27,15 +27,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URI;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Currency;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Claims a SimpleFIN setup token and maps the account set onto Picsou accounts
@@ -193,29 +199,30 @@ public class SimplefinSyncService {
             return Optional.empty();
         }
 
+        String currency = data.currency().toUpperCase(Locale.ROOT);
+        // Mapped once: a new account's type depends on it, and the write below reuses it.
+        SimplefinHoldings.Mapped mapped = SimplefinHoldings.map(data.holdings(), currency, data.balance());
+        LocalDate today = LocalDate.now();
+
         Account account;
         if (existing.isPresent()) {
             account = existing.get();
             account.setCurrentBalance(data.balance());
-            account.setCurrency(data.currency().toUpperCase(Locale.ROOT));
+            account.setCurrency(currency);
             account.setLastSyncedAt(Instant.now());
-            // Backfills accounts synced before the institution was recorded.
+            // Backfills accounts synced before the institution was recorded. The type is never
+            // touched: it is the member's, whatever the bridge reports.
             applyInstitution(account, data);
-            // Every account used to be created as CHECKING. A checking account never holds
-            // positions, so one that now reports some was a brokerage account all along. Any
-            // other type was chosen by the member (or is already BROKERAGE) and stays.
-            if (account.getType() == AccountType.CHECKING && !data.holdings().isEmpty()) {
-                account.setType(AccountType.BROKERAGE);
-            }
         } else {
             account = Account.builder()
                 .member(member)
                 .name(accountName(data.connectionName(), data.name()))
-                // A bridge account that reports positions is a brokerage account; the member can
-                // retype it afterwards, and a retyped account keeps its type on later syncs.
-                .type(data.holdings().isEmpty() ? AccountType.CHECKING : AccountType.BROKERAGE)
+                // A new account that holds a position is a brokerage account; a cash-management
+                // account whose only holding is a sweep fund stays a checking account. The member
+                // can retype it afterwards, and a retyped account keeps its type on later syncs.
+                .type(mapped.positions().isEmpty() ? AccountType.CHECKING : AccountType.BROKERAGE)
                 .provider(PROVIDER)
-                .currency(data.currency().toUpperCase(Locale.ROOT))
+                .currency(currency)
                 .currentBalance(data.balance())
                 .lastSyncedAt(Instant.now())
                 .externalAccountId(data.externalId())
@@ -226,72 +233,132 @@ public class SimplefinSyncService {
         }
         account = accountRepository.save(account);
         // Holdings first: the snapshot below derives the day's invested amount from them.
-        replaceHoldings(account, data);
-        accountService.upsertSnapshotFromNative(account, data.balance(), LocalDate.now());
+        replaceHoldings(account, data, mapped, today);
+        accountService.upsertSnapshotFromNative(account, data.balance(), today);
         transactionImportService.importProvided(account, toTransactions(data, account.getCurrency()));
         return Optional.of(accountService.toResponse(account));
     }
 
     /**
-     * Replaces the account's positions with the bridge's. An empty list never wipes: the bridge
-     * answers {@code []} for cash accounts and for a partial failure alike, and a wrong wipe
-     * would erase real positions, where a stale line is corrected on the next good sync.
+     * Brings the account's positions and cash in line with the bridge's, or leaves all of it as it
+     * was. Nothing is written unless the whole portfolio can be carried over:
+     * <ul>
+     *   <li>an empty list never wipes: the bridge answers {@code []} for cash accounts and for a
+     *       partial failure alike, and a wrong wipe would erase real positions where a stale line
+     *       is corrected on the next good sync;</li>
+     *   <li>a list the parser or the mapping could only read in part never replaces the stored
+     *       one, for the same reason;</li>
+     *   <li>a currency with no EUR rate, or a converted figure that does not fit its column,
+     *       leaves everything as it was too: one rule, never a half-converted portfolio.</li>
+     * </ul>
      *
-     * <p>Prices stay in the position's currency ({@code quoteCurrency}); the buy-in and the cash
-     * are stored in EUR, the unit the valuation reads them in.
+     * <p>Prices stay in the position's currency ({@code quoteCurrency}); the buy-in, the line's
+     * value and the cash are stored in EUR, the unit the valuation reads them in. The line's value
+     * is what {@link AccountService#valuation} falls back to for a position the price feed cannot
+     * resolve (a 401(k) fund known only by CUSIP), so the account is not shown short of it.
+     *
+     * <p>Positions are updated in place, by ticker: a buy-in the member entered by hand survives a
+     * sync where the bridge has none (Fidelity sends 0.00 for every line).
      */
-    private void replaceHoldings(Account account, SimplefinAccount data) {
-        if (data.holdings().isEmpty()) return;
+    private void replaceHoldings(Account account, SimplefinAccount data, SimplefinHoldings.Mapped mapped,
+                                 LocalDate today) {
         if (!account.getType().isInvestment()) {
-            log.info("SimpleFIN: account {} reports positions but is typed {}; positions not imported",
-                account.getId(), account.getType());
+            if (!data.holdings().isEmpty()) {
+                log.info("SimpleFIN: account {} reports positions but is typed {}; positions not imported",
+                    account.getId(), account.getType());
+            }
             return;
         }
-        SimplefinHoldings.Mapped mapped = SimplefinHoldings.map(data.holdings(), account.getCurrency());
-        // The guard is on what survived the mapping, not on what the bridge sent: rows the mapping
-        // drops (no shares, no symbol) must not turn a odd response into an erased portfolio.
+        if (!data.holdingsComplete()) {
+            log.warn("SimpleFIN: account {} sent a holdings list that was cut or had unreadable rows; "
+                + "holdings and cash left as they were", account.getId());
+            return;
+        }
+        if (!mapped.complete()) {
+            log.warn("SimpleFIN: account {} holds a position Picsou cannot store (short, mixed currencies, "
+                + "no symbol or a figure past the column); holdings and cash left as they were", account.getId());
+            return;
+        }
         if (mapped.positions().isEmpty() && mapped.cashByCurrency().isEmpty()) return;
 
-        BigDecimal cashEur = BigDecimal.ZERO;
-        for (var cash : mapped.cashByCurrency().entrySet()) {
-            BigDecimal converted = toEurOrNull(cash.getValue(), cash.getKey());
-            if (converted == null) {
-                // PriceService.toEur would hand back the unconverted amount, which would then be
-                // read as EUR. Keep last sync's figures; the next sync retries.
-                log.warn("SimpleFIN: no EUR rate for {}; positions of account {} left as they were",
-                    cash.getKey(), account.getId());
-                return;
-            }
-            cashEur = cashEur.add(converted);
-        }
-        holdingRepository.deleteByAccountId(account.getId());
-        holdingRepository.flush();
+        EurPortfolio portfolio = inEur(account, mapped);
+        if (portfolio == null) return;
 
         // The account is a managed entity inside this transaction, so this is written with it.
-        account.setCashBalance(cashEur.setScale(8, java.math.RoundingMode.HALF_UP));
+        account.setCashBalance(portfolio.cash());
+
+        // Updated in place and only the unreported tickers deleted: a ticker is never both, so the
+        // unique (account_id, ticker) key cannot clash whatever order Hibernate flushes in.
+        Map<String, AccountHolding> stored = new HashMap<>();
+        holdingRepository.findByAccount_Id(account.getId()).forEach(h -> stored.put(h.getTicker(), h));
+        Set<String> reported = portfolio.lines().stream()
+            .map(line -> line.position().ticker()).collect(Collectors.toSet());
+        holdingRepository.deleteAll(stored.values().stream().filter(h -> !reported.contains(h.getTicker())).toList());
 
         Instant now = account.getLastSyncedAt();
-        for (SimplefinHoldings.Position p : mapped.positions()) {
-            // No rate means an unknown cost, never an unconverted one read as EUR.
-            BigDecimal buyInEur = p.averageBuyIn() == null ? null : toEurOrNull(p.averageBuyIn(), p.currency());
-            holdingRepository.save(AccountHolding.builder()
-                .account(account)
-                .ticker(p.ticker())
-                .name(p.name())
-                .quantity(p.quantity())
-                .averageBuyIn(buyInEur)
-                .currentPrice(p.currentPrice())
-                .quoteCurrency(p.currency())
-                .lastSyncedAt(now)
-                .build());
+        for (EurLine line : portfolio.lines()) {
+            SimplefinHoldings.Position p = line.position();
+            AccountHolding holding = stored.getOrDefault(p.ticker(),
+                AccountHolding.builder().account(account).ticker(p.ticker()).build());
+            if (p.name() != null) holding.setName(p.name());
+            holding.setQuantity(p.quantity());
+            // The bridge's buy-in, or else whatever is stored (the member's own entry).
+            if (line.buyInEur() != null) holding.setAverageBuyIn(line.buyInEur());
+            holding.setCurrentPrice(p.currentPrice());
+            holding.setQuoteCurrency(p.currency());
+            holding.setProviderValueEur(line.valueEur());
+            holding.setProviderPriceDate(line.valueEur() == null ? null : today);
+            holding.setLastSyncedAt(now);
+            holdingRepository.save(holding);
         }
     }
 
-    /** {@code amount} in EUR, or null when the currency has no rate right now. */
-    private BigDecimal toEurOrNull(BigDecimal amount, String currency) {
-        if ("EUR".equalsIgnoreCase(currency)) return amount;
-        BigDecimal rate = priceService.getFxRateEur(currency);
-        return rate == null ? null : amount.multiply(rate);
+    private record EurLine(SimplefinHoldings.Position position, BigDecimal valueEur, BigDecimal buyInEur) {}
+
+    private record EurPortfolio(BigDecimal cash, List<EurLine> lines) {}
+
+    /**
+     * The mapped portfolio converted to EUR, or null (logged) when any currency it needs has no
+     * rate or a converted figure would not fit {@code numeric(20,8)}. {@code PriceService.toEur}
+     * would hand back an unconverted amount, which the valuation would then read as EUR.
+     */
+    private EurPortfolio inEur(Account account, SimplefinHoldings.Mapped mapped) {
+        Map<String, BigDecimal> rates = new HashMap<>();
+        Set<String> currencies = new LinkedHashSet<>(mapped.cashByCurrency().keySet());
+        mapped.positions().forEach(p -> currencies.add(p.currency()));
+        for (String currency : currencies) {
+            BigDecimal rate = "EUR".equals(currency) ? BigDecimal.ONE : priceService.getFxRateEur(currency);
+            if (rate == null) {
+                log.warn("SimpleFIN: no EUR rate for {}; holdings and cash of account {} left as they were",
+                    currency, account.getId());
+                return null;
+            }
+            rates.put(currency, rate);
+        }
+
+        BigDecimal cash = BigDecimal.ZERO;
+        for (var entry : mapped.cashByCurrency().entrySet()) {
+            cash = cash.add(eur(entry.getValue(), rates.get(entry.getKey())));
+        }
+        List<EurLine> lines = new ArrayList<>();
+        boolean fits = SimplefinHoldings.fits(cash);
+        for (SimplefinHoldings.Position p : mapped.positions()) {
+            BigDecimal rate = rates.get(p.currency());
+            BigDecimal value = p.marketValue() == null ? null : eur(p.marketValue(), rate);
+            BigDecimal buyIn = p.averageBuyIn() == null ? null : eur(p.averageBuyIn(), rate);
+            fits &= SimplefinHoldings.fits(value) && SimplefinHoldings.fits(buyIn);
+            lines.add(new EurLine(p, value, buyIn));
+        }
+        if (!fits) {
+            log.warn("SimpleFIN: a converted figure of account {} does not fit the ledger; "
+                + "holdings and cash left as they were", account.getId());
+            return null;
+        }
+        return new EurPortfolio(cash.setScale(8, RoundingMode.HALF_UP), lines);
+    }
+
+    private static BigDecimal eur(BigDecimal amount, BigDecimal rate) {
+        return amount.multiply(rate).setScale(8, RoundingMode.HALF_UP);
     }
 
     /**
