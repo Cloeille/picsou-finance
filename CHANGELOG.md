@@ -145,6 +145,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Caisse d'Epargne PER: a buy-in you entered by hand survives the next sync.** The sync used to
+  delete and recreate the PER's lines, so a cost entered on a line was lost each time. Lines are now
+  updated in place; only a fund the insurer stops reporting is removed.
 - **Crypto coins outside the built-in list get a price.** NEXO and CRO are now priced
   ([#419](https://github.com/Cloeille/picsou-finance/issues/419)). Beyond them, a coin held in a
   crypto account that Picsou does not know yet is looked up on CoinGecko and remembered once it is
