@@ -46,10 +46,12 @@ stack. The maintainer's own live run is still pending.
 4. **Cookies only, encrypted.** The backend stores the session state through
    `CryptoEncryption`; the password and the mobile approval are never stored.
    A rejected session becomes inactive and can only be renewed by the user.
-5. **On-demand sync only.** No scheduler, no startup sync, no auto-resync hook
-   initially: if the bank asks for a mobile approval on every login, a scheduled
-   sync cannot run unattended. A scheduled sync is reconsidered only after the
-   session lifetime has been measured.
+5. **No unattended re-login.** No startup sync, no auto-resync hook: if the bank
+   asks for a mobile approval on every login, an expired session cannot be
+   renewed without the user. The daily 08:00 resync includes `lbp` last in
+   `MemberSyncService.CANONICAL_ORDER`: a live session is queued normally, an
+   expired overnight one reports `NEEDS_REAUTH` (not `FAILED`), and the user
+   reconnects on the LBP tab.
 6. **The login layer is headless Chromium; the data layer is `httpx`.** Two live
    captures showed a normal HTML form, a per-load shuffled keypad that sends
    **positions** (never the digits) and a mobile-approval page polled every 3 s.
@@ -120,14 +122,16 @@ user; they are not a live feed.
   client, and the current account breaks with it — the sidecar is not limited
   to the savings products.
 - **Human presence at login** if the bank asks for a mobile approval every time.
-  The sync stays on demand.
+  No credentials are stored, so an expired session can only be renewed by the user.
 - **A short web session.** An immediate second sync reuses the stored cookies,
   but the bank logs the session out after a few minutes of inactivity: a sync
   after that window needs a new login + A2F. This is the Caisse d'Épargne model
-  (cookie-only connector, on demand, not in the daily scheduler), not the
+  (cookie-only connector), not the
   BoursoBank/CIC one, which stores encrypted credentials and re-logs in silently.
-  Keeping the session warm would mean scheduled requests, which no cookie-only
-  connector does.
+  The daily 08:00 resync includes LBP last: a live session syncs normally, an
+  expired overnight one reports `NEEDS_REAUTH` (not `FAILED`), and the morning UI
+  routes to the LBP tab. Keeping the session warm would mean scheduled requests,
+  which no cookie-only connector does.
 - **No PSD2 guarantee.** The bank may rate-limit, challenge or block automated
   access. Failures must be typed so they are diagnosable.
 - **A larger sidecar image.** The login needs Chromium, so `lbp-auth` builds on

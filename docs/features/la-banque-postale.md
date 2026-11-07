@@ -48,7 +48,7 @@ of a connection removes that connection too.
 
 - Life insurance and PER (separate insurer flows, like Caisse d'Epargne's).
 - PEA and securities accounts.
-- Automatic/scheduled sync.
+- Automatic re-login when the session expires (no credentials are stored).
 - Bank logout on disconnect.
 - IBAN-based matching with Enable Banking accounts.
 
@@ -158,8 +158,10 @@ transient failure leaves it usable.
 
 ### Sync semantics
 
-- `POST /api/lbp/sync` queues one sync (202). On demand only; rate-limited like
-  the other sync endpoints.
+- `POST /api/lbp/sync` queues one sync (202); rate-limited like the other sync
+  endpoints. The daily 08:00 resync (`MemberSyncService`, source `lbp`, last in
+  `CANONICAL_ORDER`) queues a live session normally; an expired overnight
+  session reports `NEEDS_REAUTH`, not `FAILED`.
 - The sync fetches outside any transaction, validates the whole snapshot, then
   writes every account and its transactions in **one** transaction. One
   doubtful account refuses the whole import: a partial list never overwrites a
@@ -224,7 +226,10 @@ Two real sessions were captured (trusted device and new device):
    minutes of inactivity (public guidance says ~5 min). A dead session requires
    a new login + A2F. This is the same model as Caisse d'Épargne: no keep-alive,
    the panel runs the first sync right after login, and a dead session asks for
-   a reconnect. La Banque Postale is not in the daily scheduler.
+   a reconnect. The daily 08:00 resync includes La Banque Postale last: a live
+   session syncs normally, an expired overnight one reports `NEEDS_REAUTH` (not
+   `FAILED`), and the Sync-all modal routes the row to `/sync?tab=lbp` for a
+   manual login + mobile approval.
 6. **Transaction history** — `init-releve_ccp` returns about 90 days;
    `telechargementMouvements.ea` is the export path; the `relevePdf` history
    holds monthly statements.
