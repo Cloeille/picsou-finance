@@ -247,9 +247,9 @@ costs and historical quantities unavailable.
 
 Only the synthesis and the current account are all-or-nothing: a failure there gives
 `UPSTREAM_UNAVAILABLE` or `UPSTREAM_FORMAT_CHANGED` and no partial list. Any other account
-(Livret A, LDDS, card, loan detail, PER detail; a PEL only when its synthesis entry
-is unreadable) that cannot be read is left out of
-`accounts` and listed in `unavailable` as `{externalId, kind, code}`. An expired session
+(Livret A, LDDS, card, loan detail, PER detail) that cannot be read is left out of
+`accounts` and listed in `unavailable` as `{externalId, kind, code}`. A PEL whose synthesis
+entry is unreadable is listed in `unsupported` instead. An expired session
 still fails the whole import, and so does the overall deadline.
 
 | HTTP | `detail` | Meaning |
