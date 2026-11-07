@@ -270,7 +270,9 @@ sessions/credentials as the documented side effect of deleting a connection's la
 - **Triggers only reuse existing connections.** When their session has expired,
   BoursoBank, Crédit Mutuel / CIC Épargne Salariale, CIC, and CORUM (only when the member ticked
   "remember my credentials") log in again with their stored credentials (`reauthenticateAndFetch`).
-  `corum` is part of `trigger_broker_sync`. No source completes a new second factor: one that asks for it reads
+  `corum` and `lbp` are part of `trigger_broker_sync`. La Banque Postale stores no
+  credentials, so an expired session reads as `NEEDS_REAUTH` and is renewed on
+  its Sync-page tab. No source completes a new second factor: one that asks for it reads
   as `NEEDS_REAUTH`.
 - **SimpleFIN is a bank source.** `MemberSyncService` runs it right after IBKR. Full sync includes
   it once, and `trigger_bank_sync` runs it with Enable Banking. A revoked access (HTTP 403) is
@@ -287,9 +289,10 @@ sessions/credentials as the documented side effect of deleting a connection's la
   failed exchange cannot roll back a successful neighbour. Transient connector errors do not ask
   the user to reconnect; `NEEDS_REAUTH` is reserved for authentication/session-expiry codes.
 - **Inactive browser sessions preserve their stored failure reason.** BoursoBank, Bourse Direct,
-  Amundi, Crédit Mutuel / CIC Épargne Salariale (`cmes`), CIC (`cic`), CORUM (`corum`), and Fortuneo report `NEEDS_REAUTH` for
-  `SESSION_EXPIRED` (also `INVALID_CREDENTIALS` for BoursoBank, `cmes`, `cic`, and `corum`, which clear a rejected
-  password), `FAILED` for another stored error, and `SKIPPED_NOT_CONNECTED` only when no error is
+  Amundi, Crédit Mutuel / CIC Épargne Salariale (`cmes`), CIC (`cic`), CORUM (`corum`), La Banque
+  Postale (`lbp`), and Fortuneo report `NEEDS_REAUTH` for
+  `SESSION_EXPIRED` (also `INVALID_CREDENTIALS` for BoursoBank, `cmes`, `cic`, `corum`, and `lbp`; the
+  credential-storing ones clear a rejected password), `FAILED` for another stored error, and `SKIPPED_NOT_CONNECTED` only when no error is
   recorded. Database failures and sync exceptions retain their throwable in server logs; raw
   database messages are never returned in their MCP summary.
 - **Exception details stay server-side across all trigger paths.** The shared exception classifier,

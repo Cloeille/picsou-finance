@@ -98,7 +98,7 @@ type SyncConnection = {
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
     | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin' | 'wise'
-    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'banque-populaire' | 'cmes' | 'cic'
+    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'banque-populaire' | 'lbp' | 'cmes' | 'cic'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -130,6 +130,7 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   sofidy: Building2,
   'caisse-epargne': Landmark,
   'banque-populaire': Landmark,
+  lbp: Landmark,
   cmes: PiggyBank,
   cic: PiggyBank,
 }
@@ -149,6 +150,7 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   sofidy: 'sofidy',
   'caisse-epargne': 'caisse-epargne',
   'banque-populaire': 'banque-populaire',
+  lbp: 'lbp',
   cmes: 'cmes',
   cic: 'cic',
   finary: 'finary',
@@ -219,6 +221,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: boursoStatus } = useProviderStatus("bourso")
   const { data: caisseEpargneStatus } = useProviderStatus("caisseEpargne")
   const { data: banquePopulaireStatus } = useProviderStatus("banquePopulaire")
+  const { data: lbpStatus } = useProviderStatus("lbp")
   const { data: revolutStatus } = useRevolutStatus()
   const { data: finaryStatus } = useFinaryConnectionStatus()
   const { data: amundiStatus } = useProviderStatus("amundi")
@@ -291,6 +294,15 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         !a.isManual && a.provider != null && BANQUE_POPULAIRE_PROVIDERS.has(a.provider),
       active: banquePopulaireStatus?.isActive ?? false, lastSyncedAt: banquePopulaireStatus?.lastSyncCompletedAt ?? null,
       failed: banquePopulaireStatus?.syncStatus === 'FAILED',
+      running: isJobRunning(banquePopulaireStatus?.syncStatus),
+    },
+    {
+      type: 'lbp' as const, name: 'La Banque Postale', provider: 'La Banque Postale',
+      active: lbpStatus?.isActive ?? false, lastSyncedAt: lbpStatus?.lastSyncCompletedAt ?? null,
+      hasSession: lbpStatus != null
+        && (lbpStatus.isActive || lbpStatus.syncStatus !== 'IDLE' || lbpStatus.savedIdentifier != null),
+      failed: lbpStatus?.syncStatus === 'FAILED',
+      running: isJobRunning(lbpStatus?.syncStatus),
     },
     {
       type: 'bourse-direct' as const, name: 'Bourse Direct', provider: 'Bourse Direct',
@@ -361,7 +373,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       running: isJobRunning(cicStatus?.syncStatus),
       canReconnect: cicStatus?.canReconnect === true,
     },
-  ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, banquePopulaireStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus, wiseStatus])
+  ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, banquePopulaireStatus, lbpStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus, wiseStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -373,6 +385,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncBoursoMutation   = useProviderSync("bourso")
   const syncCaisseEpargneMutation = useProviderSync("caisseEpargne")
   const syncBanquePopulaireMutation = useProviderSync("banquePopulaire")
+  const syncLbpMutation = useProviderSync("lbp")
   const syncAmundiMutation       = useProviderSync("amundi")
   const syncFortuneoMutation     = useProviderSync("fortuneo")
   const syncBourseDirectMutation = useProviderSync("bourseDirect")
@@ -570,6 +583,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'banque-populaire':
         syncBanquePopulaireMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'lbp':
+        syncLbpMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'amundi':
         syncAmundiMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
@@ -640,6 +656,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncBoursoMutation,
     syncCaisseEpargneMutation,
     syncBanquePopulaireMutation,
+    syncLbpMutation,
     syncAmundiMutation,
     syncFortuneoMutation,
     syncBourseDirectMutation,

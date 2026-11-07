@@ -19,6 +19,7 @@ import com.picsou.repository.CmesSessionRepository;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.FortuneoSessionRepository;
+import com.picsou.repository.LbpSessionRepository;
 import com.picsou.repository.RevolutSessionRepository;
 import com.picsou.repository.SofidySessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
@@ -423,6 +424,7 @@ class InstanceStatusServiceTest {
             mock(FortuneoSessionRepository.class), mock(CorumSessionRepository.class),
             mock(SofidySessionRepository.class), mock(CmesSessionRepository.class),
             mock(CicSessionRepository.class),
+            mock(LbpSessionRepository.class),
             "1.1.0");
 
         assertThat(byName(wired, "tr-auth").url().get()).isEmpty();
@@ -449,6 +451,7 @@ class InstanceStatusServiceTest {
             Map.entry("amundi-auth", "http://amundi"),
             Map.entry("fortuneo-auth", "http://fortuneo"),
             Map.entry("corum-auth", "http://corum"),
+            Map.entry("lbp-auth", "http://lbp"),
             Map.entry("amex-auth", "http://amex"),
             Map.entry("revolut-auth", "http://revolut")));
         var tr = mock(TradeRepublicSessionRepository.class);
@@ -465,6 +468,7 @@ class InstanceStatusServiceTest {
         var sofidy = mock(SofidySessionRepository.class);
         var cmes = mock(CmesSessionRepository.class);
         var cic = mock(CicSessionRepository.class);
+        var lbp = mock(LbpSessionRepository.class);
         when(tr.count()).thenReturn(1L);
         when(bourso.count()).thenReturn(2L);
         when(caisse.count()).thenReturn(3L);
@@ -478,13 +482,14 @@ class InstanceStatusServiceTest {
         when(sofidy.count()).thenReturn(11L);
         when(cmes.count()).thenReturn(12L);
         when(cic.count()).thenReturn(13L);
+        when(lbp.count()).thenReturn(15L);
         when(banquePopulaire.count()).thenReturn(14L);
 
         InstanceStatusService wired = new InstanceStatusService(
             disabledReleases(),
             setup,
             sidecars,
-            tr, bourso, caisse, banquePopulaire, revolut, bourse, degiro, amundi, amex, fortuneo, corum, sofidy, cmes, cic,
+            tr, bourso, caisse, banquePopulaire, revolut, bourse, degiro, amundi, amex, fortuneo, corum, sofidy, cmes, cic, lbp,
             "1.1.0");
 
         assertThat(wired.targets())
@@ -502,6 +507,7 @@ class InstanceStatusServiceTest {
                 tuple("amundi-auth", "sidecar-chromium"),
                 tuple("fortuneo-auth", "sidecar-chromium"),
                 tuple("corum-auth", "sidecar-chromium"),
+                tuple("lbp-auth", "sidecar-chromium"),
                 tuple("amex-auth", "sidecar-camoufox"),
                 tuple("revolut-auth", "sidecar-camoufox"));
 
@@ -523,6 +529,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "amundi-auth").url().get()).isEqualTo("http://amundi");
         assertThat(byName(wired, "fortuneo-auth").url().get()).isEqualTo("http://fortuneo");
         assertThat(byName(wired, "corum-auth").url().get()).isEqualTo("http://corum");
+        assertThat(byName(wired, "lbp-auth").url().get()).isEqualTo("http://lbp");
         assertThat(byName(wired, "amex-auth").url().get()).isEqualTo("http://amex");
 
         assertThat(byName(wired, "tr-auth").sessions().getAsLong()).isEqualTo(1L);
@@ -538,6 +545,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "sofidy-auth").sessions().getAsLong()).isEqualTo(11L);
         assertThat(byName(wired, "cmes-auth").sessions().getAsLong()).isEqualTo(12L);
         assertThat(byName(wired, "cic-auth").sessions().getAsLong()).isEqualTo(13L);
+        assertThat(byName(wired, "lbp-auth").sessions().getAsLong()).isEqualTo(15L);
         assertThat(byName(wired, "banque-populaire-auth").sessions().getAsLong()).isEqualTo(14L);
     }
 

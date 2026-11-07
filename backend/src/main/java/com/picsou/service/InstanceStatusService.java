@@ -18,6 +18,7 @@ import com.picsou.repository.CmesSessionRepository;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.FortuneoSessionRepository;
+import com.picsou.repository.LbpSessionRepository;
 import com.picsou.repository.RevolutSessionRepository;
 import com.picsou.repository.SofidySessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
@@ -88,13 +89,14 @@ public class InstanceStatusService {
         SofidySessionRepository sofidySessions,
         CmesSessionRepository cmesSessions,
         CicSessionRepository cicSessions,
+        LbpSessionRepository lbpSessions,
         @Value("${info.app.version:dev}") String currentVersion
     ) {
         this(releaseCheck, currentVersion, registry(
             setupService, sidecars,
             trSessions, boursoSessions, caisseEpargneSessions, banquePopulaireSessions, revolutSessions,
             bourseDirectSessions, degiroSessions, amundiSessions, amexSessions, fortuneoSessions, corumSessions,
-            sofidySessions, cmesSessions, cicSessions
+            sofidySessions, cmesSessions, cicSessions, lbpSessions
         ), defaultWebClient(PROBE_TIMEOUT), PROBE_TIMEOUT, OVERALL_DEADLINE);
     }
 
@@ -351,7 +353,8 @@ public class InstanceStatusService {
         CorumSessionRepository corumSessions,
         SofidySessionRepository sofidySessions,
         CmesSessionRepository cmesSessions,
-        CicSessionRepository cicSessions
+        CicSessionRepository cicSessions,
+        LbpSessionRepository lbpSessions
     ) {
         return List.of(
             new SidecarTarget("bourso-auth", BASE_PYTHON,
@@ -378,6 +381,8 @@ public class InstanceStatusService {
                 () -> sidecarUrl(sidecars, "fortuneo-auth"), fortuneoSessions::count),
             new SidecarTarget("corum-auth", BASE_CHROMIUM,
                 () -> sidecarUrl(sidecars, "corum-auth"), corumSessions::count),
+            new SidecarTarget("lbp-auth", BASE_CHROMIUM,
+                () -> sidecarUrl(sidecars, "lbp-auth"), lbpSessions::count),
             new SidecarTarget("amex-auth", BASE_CAMOUFOX,
                 () -> sidecarUrl(sidecars, "amex-auth"), amexSessions::count),
             new SidecarTarget("revolut-auth", BASE_CAMOUFOX,

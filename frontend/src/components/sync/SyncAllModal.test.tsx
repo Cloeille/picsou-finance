@@ -87,6 +87,8 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: cmesStatus })
       case '/cic/status':
         return Promise.resolve({ data: cicStatus })
+      case '/lbp/status':
+        return Promise.resolve({ data: lbpStatus })
       case '/sofidy/status':
         return Promise.resolve({ data: sofidyStatus })
       case '/accounts':
@@ -134,6 +136,7 @@ let corumStatus: Record<string, unknown>
 let sofidyStatus: Record<string, unknown>
 let cmesStatus: Record<string, unknown>
 let cicStatus: Record<string, unknown>
+let lbpStatus: Record<string, unknown>
 
 const AMUNDI_INACTIVE = {
   isActive: false, syncStatus: 'IDLE', lastSyncError: null,
@@ -193,6 +196,15 @@ const CIC_ACCOUNT = {
   provider: 'CIC',
 }
 
+/** An account created by the La Banque Postale sidecar (`LbpSyncService.PROVIDER`). */
+const LBP_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 8,
+  name: 'Livret A',
+  type: 'LIVRET_A',
+  provider: 'La Banque Postale',
+}
+
 /** A SCPI account linked to no provider fund; tests set `provider` and the fund codes. */
 const SCPI_ACCOUNT = {
   ...TR_ACCOUNT,
@@ -215,6 +227,7 @@ function resetFixtures() {
   sofidyStatus = AMUNDI_INACTIVE
   cmesStatus = AMUNDI_INACTIVE
   cicStatus = AMUNDI_INACTIVE
+  lbpStatus = { ...AMUNDI_INACTIVE, unsupported: [], unsupportedCount: 0, savedIdentifier: null }
   accountsFixture = [TR_ACCOUNT]
   revolutStatus = REVOLUT_NOT_REMEMBERED
   revolutProgress = REVOLUT_DONE
@@ -428,6 +441,50 @@ describe('SyncAllModal session providers', () => {
     const amundiRow = (await screen.findByText('Amundi')).closest('[data-slot="card"]') as HTMLElement
     expect(amundiRow).not.toBeNull()
     expect(within(amundiRow).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+  })
+
+  it('lists La Banque Postale when it holds accounts even if its session expired', async () => {
+    accountsFixture = [TR_ACCOUNT, LBP_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText('La Banque Postale')).closest('[data-slot="card"]') as HTMLElement
+    expect(row).not.toBeNull()
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+  })
+
+  it('lists La Banque Postale after a session existed even if every account is gone', async () => {
+    lbpStatus = {
+      ...AMUNDI_INACTIVE,
+      savedIdentifier: '1234567890',
+      unsupported: [],
+      unsupportedCount: 0,
+    }
+    renderModal()
+
+    const row = (await screen.findByText('La Banque Postale')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=lbp'))
+  })
+
+  it('syncs La Banque Postale through /lbp/sync when its session is live', async () => {
+    lbpStatus = {
+      ...AMUNDI_INACTIVE,
+      isActive: true,
+      syncStatus: 'SUCCESS',
+      lastSyncCompletedAt: '2026-11-06T12:00:00Z',
+      unsupported: [],
+      unsupportedCount: 0,
+      savedIdentifier: null,
+    }
+    accountsFixture = [TR_ACCOUNT, LBP_ACCOUNT]
+    apiPost.mockResolvedValue({ data: lbpStatus })
+    renderModal()
+
+    const row = (await screen.findByText('La Banque Postale')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/lbp/sync'))
   })
 
   it('syncs through the provider endpoint when the session is live', async () => {

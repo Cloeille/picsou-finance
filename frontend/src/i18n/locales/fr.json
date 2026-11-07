@@ -1195,7 +1195,8 @@
       "property": "Maison, appartement, terrain…",
       "fortuneo": "Synchroniser vos comptes Fortuneo",
       "caisseEpargne": "Compte courant, Livret A, LDDS, PER, prêts et cartes à la Caisse d'Epargne",
-      "banquePopulaire": "Compte courant, Livret A, Livret Jeune et LDDS à la Banque Populaire"
+      "banquePopulaire": "Compte courant, Livret A, Livret Jeune et LDDS à la Banque Populaire",
+      "lbp": "Compte courant, Livret A, LEP et livrets à La Banque Postale"
     }
   },
   "sync": {
@@ -1706,6 +1707,58 @@
         "cancel": "Annuler",
         "validate": "Valider",
         "sending": "Envoi…",
+        "countdownLabel": "Temps restant :"
+      }
+    },
+    "lbp": {
+      "title": "La Banque Postale",
+      "customerId": "Identifiant",
+      "rememberIdentifier": "Mémoriser l'identifiant",
+      "rememberIdentifierHint": "L'identifiant est conservé chiffré sur votre serveur. Le mot de passe n'est jamais enregistré.",
+      "connect": "Se connecter",
+      "connecting": "Connexion…",
+      "sync": "Synchroniser",
+      "queued": "Synchronisation en attente…",
+      "syncing": "Synchronisation…",
+      "syncSuccess": "Comptes La Banque Postale synchronisés.",
+      "clearSession": "Déconnecter",
+      "disconnectConfirm": "Cette action supprime la session conservée et l'identifiant mémorisé dans Picsou. La session La Banque Postale elle-même n'est pas fermée et peut rester active jusqu'à son expiration.",
+      "disconnectConfirmAction": "Supprimer la session conservée",
+      "noSession": "Aucune session active",
+      "sessionActive": "Session active",
+      "scope": "Synchronise à la demande votre compte courant et vos livrets (Livret A, LDDS, LEP, Compte sur livret) à La Banque Postale. Seule la session est conservée, chiffrée.",
+      "notice": {
+        "neverStored": "Picsou ne voit et ne conserve jamais votre mot de passe. Vous cliquez vos 6 chiffres vous-même sur le clavier mélangé de la banque ; seules les positions des touches sont envoyées, une seule fois.",
+        "noRetry": "Picsou ne réessaie jamais une connexion. En cas d'échec, rien n'est renvoyé tant que vous ne validez pas le formulaire vous-même.",
+        "lockRisk": "Les tentatives erronées comptent auprès de votre banque et peuvent bloquer votre accès La Banque Postale. Vérifiez votre identifiant et les 6 chiffres cliqués avant de valider."
+      },
+      "securPassPrompt": "Validez la connexion dans l'application La Banque Postale.",
+      "securPassHint": "Picsou n'agit pas sur votre téléphone. Cette page continue seule dès que vous validez.",
+      "countdownLabel": "Temps restant pour valider :",
+      "unsupportedTitle": "Produits non importés",
+      "unsupportedHint": "Picsou ne gère pas encore ces produits (code famille affiché).",
+      "errors": {
+        "rateLimited": "Trop de tentatives de connexion. Patientez avant de réessayer.",
+        "rateLimitedRetryAfter": "Trop de tentatives de connexion. Réessayez dans {{minutes}} min.",
+        "invalidCredentials": "La banque a refusé l'identifiant ou le mot de passe. Vérifiez-les avant de réessayer : des échecs répétés peuvent bloquer votre compte.",
+        "invalidIdentifier": "L'identifiant doit contenir entre 6 et 12 chiffres.",
+        "keypadChanged": "Le clavier a changé, recommencez. Rien n'a été envoyé.",
+        "appValidationTimeout": "La connexion n'a pas été validée dans l'application mobile à temps. Recommencez si vous voulez réessayer.",
+        "authAttemptExpired": "La tentative de connexion a expiré. Recommencez si vous voulez réessayer.",
+        "sessionExpired": "La session La Banque Postale a expiré. Reconnectez-vous.",
+        "formatChanged": "Le format du site La Banque Postale a changé. Vos données existantes ont été conservées.",
+        "invalidSessionState": "La session conservée est illisible. Reconnectez-vous.",
+        "serverError": "Impossible de joindre La Banque Postale. Réessayez plus tard.",
+        "keypadExpired": "Le clavier a expiré avant votre validation. Recommencez si vous voulez réessayer.",
+        "invalidPositions": "La saisie du clavier n'a pas été acceptée. Recommencez et saisissez 6 touches."
+      },
+      "keypad": {
+        "title": "Cliquez votre mot de passe",
+        "description": "Cliquez dans l'ordre les 6 chiffres de votre mot de passe. Les chiffres sont affichés sur les touches.",
+        "entered": "{{count}} touches saisies",
+        "clear": "Effacer",
+        "cancel": "Annuler",
+        "validate": "Valider",
         "countdownLabel": "Temps restant :"
       }
     },
@@ -2439,6 +2492,7 @@
       "corum": "Parts de SCPI et assurance-vie CORUM",
       "sofidy": "Parts de SCPI Sofidy",
       "traderepublic": "Trade Republic",
+      "lbp": "La Banque Postale",
       "finary": "Finary",
       "crypto": "Crypto"
     },
@@ -2668,6 +2722,10 @@
         "fortuneo": {
           "title": "Fortuneo",
           "description": "Synchronisez votre PEA, compte-titres et comptes courants avec une authentification 2FA."
+        },
+        "lbp": {
+          "title": "La Banque Postale",
+          "description": "Synchronisez votre compte courant et vos livrets (Livret A, LEP) avec le clavier et la validation mobile."
         }
       },
       "hint": {
@@ -2833,6 +2891,13 @@
       "tip": "Picsou conserve uniquement une session chiffrée. Le mot de passe et le code 2FA ne sont jamais enregistrés. Les comptes restent rattachés à leur PEA, compte-titres ou compte courant.",
       "cta": "Activer Fortuneo",
       "skip": "Ne pas activer Fortuneo"
+    },
+    "lbp": {
+      "title": "La Banque Postale est prête.",
+      "body": "Connectez votre compte après l'installation depuis Comptes → Ajouter un compte. Vous saisirez votre identifiant, puis vos 6 chiffres sur le clavier de la banque.",
+      "tip": "Picsou conserve uniquement une session chiffrée et, si vous le demandez, votre identifiant. Le mot de passe et les positions du clavier ne sont jamais enregistrés.",
+      "cta": "Activer La Banque Postale",
+      "skip": "Ne pas activer La Banque Postale"
     }
   },
   "pockets": {
