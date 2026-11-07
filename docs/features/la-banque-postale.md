@@ -142,6 +142,13 @@ the box clears the remembered identifier on the next successful login.
 - `iscdName` is a 52-character device fingerprint set by the bank's anti-fraud
   scripts. The login runs in headless Chromium so those scripts execute and set
   it; the keypad is clicked there, never in the backend.
+- Every request the sidecar sends — Chromium navigations and httpx hops,
+  including redirects — must be the bank origin, another
+  `*.labanquepostale.fr` host, or the bank's CDN (`*.cloudfront.net`).
+  The exact-origin-only version broke the live login (keypad scripts and
+  anti-fraud payloads come from CloudFront and `transverse.labanquepostale.fr`,
+  and the bank refused the credentials with them blocked). Blocked requests
+  are logged with the host only, never the URL.
 
 ### Storage
 
