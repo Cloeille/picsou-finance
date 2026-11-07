@@ -196,17 +196,26 @@ def parse_account_cards(source: str) -> list[dict]:
     ]
     accounts: list[dict] = []
     seen: set[str] = set()
+    saw_linkless_card = False
     for index, start in enumerate(starts):
         end = starts[index + 1] if index + 1 < len(starts) else source.find("</li>", start)
         block = source[start:end if end >= 0 else len(source)]
 
         link = re.search(r'href="([^"]*compte\.numero=[^"]*)"', block, re.I)
         if not link:
+            # A recognised card block without its statement link must fail
+            # closed: skipping it would read as a successful snapshot missing
+            # that account and let the backend close it at zero (N1-family).
+            # Flag it and fail after the loop so the explicit empty-state page
+            # (container + "no accounts" message, no card content) still reads
+            # as empty rather than as a broken card.
+            saw_linkless_card = True
             continue
         href = html_module.unescape(link.group(1))
         number = re.search(r"compte\.numero=([0-9a-fA-F-]{36})", href)
         type_recherche = re.search(r"typeRecherche=(\d+)", href)
         if not number or not type_recherche:
+            saw_linkless_card = True
             continue
         external_id = number.group(1)
         if external_id in seen:
@@ -258,11 +267,14 @@ def parse_account_cards(source: str) -> list[dict]:
             }
         )
     if accounts:
+        if saw_linkless_card:
+            raise FormatError()
         return accounts
     # Zero parsed cards: only an explicit empty state on a page that still
     # shows its account-list container reads as "no accounts". Anything else
-    # (maintenance text, error page, truncated page, stripped cards) fails
-    # closed so the backend never closes real accounts at zero.
+    # (maintenance text, error page, truncated page, stripped cards, a lone
+    # card whose statement link is missing) fails closed so the backend never
+    # closes real accounts at zero.
     if _SYNTHESIS_CONTAINER.search(source) and _EMPTY_SYNTHESIS.search(text(source)):
         return []
     raise FormatError()

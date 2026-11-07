@@ -130,6 +130,27 @@ class AccountCardsTest(unittest.TestCase):
         )
         self.assertEqual(parsers.parse_account_cards(page), [])
 
+    def test_a_recognised_card_without_its_statement_link_is_a_format_error(self):
+        # N1-family: silently skipping the card would read as a successful
+        # snapshot missing that account and let the backend close it at zero.
+        without_href = fixtures.SYNTHESE_CCP_HTML.replace(
+            "compte.numero=11111111-1111-1111-1111-111111111111", "compte.numero="
+        )
+        with self.assertRaises(parsers.FormatError):
+            parsers.parse_account_cards(without_href)
+
+    def test_a_recognised_card_with_a_bare_link_is_a_format_error(self):
+        page = (
+            '<div class="account-resume2020 account-resume--ccp">'
+            '<h3><a href="/voscomptes/canalXHTML/CCP/releves_ccp/frame-releve_ccp.ea">'
+            '<span class="pseudo-h3">Compte Bancaire&nbsp;</span>'
+            "<span>N&deg;&nbsp;00000000001</span></a></h3>"
+            '<p class="amount-euro"><span class="lib sr-only">Solde </span>'
+            " + 1 234,56&nbsp;&euro;</p></div>"
+        )
+        with self.assertRaises(parsers.FormatError):
+            parsers.parse_account_cards(page)
+
 
 class TransactionsTest(unittest.TestCase):
     def test_reads_dates_labels_and_the_raw_signed_amount(self):
