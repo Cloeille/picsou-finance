@@ -1311,6 +1311,24 @@ export type AmundiErrorCode =
   | 'INVALID_DATA'
   | 'INTERNAL_ERROR'
 
+export type NatixisSessionStatus = SidecarSessionStatusOf<NatixisErrorCode>
+
+export type NatixisErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'MFA_TYPE_UNSUPPORTED'
+  | 'INVALID_OTP'
+  | 'RATE_LIMITED'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'PORTFOLIO_INCOMPLETE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INVALID_DATA'
+  | 'INTERNAL_ERROR'
+
+/** Natixis always asks for a code, typed from an SMS, a voice call or an e-mail. */
+export type NatixisAuthInitResponse = SidecarAuthInitResponse<'SMS' | 'VOICE' | 'EMAIL'>
+
 export type CmesSessionStatus = SidecarSessionStatusOf<CmesErrorCode>
 
 export type CmesErrorCode =

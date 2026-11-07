@@ -59,6 +59,7 @@ class SyncStatusServiceTest {
     @Mock BourseDirectSyncService bourseDirectSyncService;
     @Mock AmundiSyncService amundiSyncService;
     @Mock CmesSyncService cmesSyncService;
+    @Mock NatixisSyncService natixisSyncService;
     @Mock CicSyncService cicSyncService;
     @Mock CorumSyncService corumSyncService;
     @Mock FortuneoSyncService fortuneoSyncService;
@@ -77,7 +78,7 @@ class SyncStatusServiceTest {
     void setUp() {
         service = new SyncStatusService(
             revolutSyncService, requisitionRepository, tradeRepublicSyncService, tradeRepublicSessionRepository,
-            boursoSyncService, bourseDirectSyncService, amundiSyncService, cmesSyncService, cicSyncService, corumSyncService,
+            boursoSyncService, bourseDirectSyncService, amundiSyncService, cmesSyncService, cicSyncService, corumSyncService, natixisSyncService,
             fortuneoSyncService,
             amexSyncService, ibkrConnectionRepository, simplefinConnectionRepository, wiseConnectionRepository,
             cryptoExchangeSyncService,
@@ -97,6 +98,7 @@ class SyncStatusServiceTest {
         when(cmesSyncService.getStatus(MID)).thenReturn(CmesSyncService.SessionStatusResponse.inactive());
         when(cicSyncService.getStatus(MID)).thenReturn(CicSyncService.SessionStatusResponse.inactive());
         when(corumSyncService.getStatus(MID)).thenReturn(CorumSyncService.SessionStatusResponse.inactive());
+        when(natixisSyncService.getStatus(MID)).thenReturn(NatixisSyncService.SessionStatusResponse.inactive());
         when(fortuneoSyncService.getStatus(MID)).thenReturn(
             new FortuneoSyncService.SessionStatusResponse(false, null, FortuneoSyncStatus.IDLE, null, null, null));
         when(amexSyncService.getStatus(MID)).thenReturn(

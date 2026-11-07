@@ -15,6 +15,7 @@ import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
 import com.picsou.repository.CicSessionRepository;
 import com.picsou.repository.CmesSessionRepository;
+import com.picsou.repository.NatixisSessionRepository;
 import com.picsou.repository.CorumSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.FortuneoSessionRepository;
@@ -88,13 +89,14 @@ public class InstanceStatusService {
         SofidySessionRepository sofidySessions,
         CmesSessionRepository cmesSessions,
         CicSessionRepository cicSessions,
+        NatixisSessionRepository natixisSessions,
         @Value("${info.app.version:dev}") String currentVersion
     ) {
         this(releaseCheck, currentVersion, registry(
             setupService, sidecars,
             trSessions, boursoSessions, caisseEpargneSessions, banquePopulaireSessions, revolutSessions,
             bourseDirectSessions, degiroSessions, amundiSessions, amexSessions, fortuneoSessions, corumSessions,
-            sofidySessions, cmesSessions, cicSessions
+            sofidySessions, cmesSessions, cicSessions, natixisSessions
         ), defaultWebClient(PROBE_TIMEOUT), PROBE_TIMEOUT, OVERALL_DEADLINE);
     }
 
@@ -351,7 +353,8 @@ public class InstanceStatusService {
         CorumSessionRepository corumSessions,
         SofidySessionRepository sofidySessions,
         CmesSessionRepository cmesSessions,
-        CicSessionRepository cicSessions
+        CicSessionRepository cicSessions,
+        NatixisSessionRepository natixisSessions
     ) {
         return List.of(
             new SidecarTarget("bourso-auth", BASE_PYTHON,
@@ -362,6 +365,8 @@ public class InstanceStatusService {
                 () -> sidecarUrl(sidecars, "cmes-auth"), cmesSessions::count),
             new SidecarTarget("cic-auth", BASE_PYTHON,
                 () -> sidecarUrl(sidecars, "cic-auth"), cicSessions::count),
+            new SidecarTarget("natixis-auth", BASE_PYTHON,
+                () -> sidecarUrl(sidecars, "natixis-auth"), natixisSessions::count),
             new SidecarTarget("degiro-auth", BASE_PYTHON,
                 () -> sidecarUrl(sidecars, "degiro-auth"), degiroSessions::count),
             new SidecarTarget("tr-auth", BASE_CHROMIUM,

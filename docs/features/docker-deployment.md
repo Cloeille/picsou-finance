@@ -4,7 +4,7 @@
 
 ## Context
 
-Picsou deploys as the app, PostgreSQL and up to thirteen opt-in authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
+Picsou deploys as the app, PostgreSQL and up to fifteen opt-in authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
 - **`picsou:latest`** — main app: frontend + backend in one Spring Boot process, no Python, no nginx. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
@@ -15,6 +15,7 @@ Picsou deploys as the app, PostgreSQL and up to thirteen opt-in authentication s
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
 - **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (`application.yml` defaults to `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
+- **`natixis-auth`** — browserless Natixis Interépargne login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/natixis-auth`. The backend reaches it at `NATIXIS_AUTH_URL` (`application.yml` defaults to `http://natixis-auth:8001`); see [`natixis-interepargne.md`](natixis-interepargne.md).
 - **`cic-auth`** — browserless CIC online-banking login/2FA and account sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cic-auth`. The backend reaches it at `CIC_AUTH_URL` (`application.yml` defaults to `http://cic-auth:8001`); see [`cic-banking.md`](cic-banking.md).
 - **`amex-auth`** — American Express login and account sidecar, built with Camoufox/Firefox, published as `ghcr.io/cloeille/picsou-finance/amex-auth`.
 - **`degiro-auth`** — browserless DEGIRO authentication and portfolio sidecar, published as `ghcr.io/cloeille/picsou-finance/degiro-auth`.
@@ -490,6 +491,7 @@ docker compose -f docker/docker-compose.yml up        # COMPOSE_PROFILES selects
   → corum-auth (uvicorn:8001, internal only)
   → sofidy-auth (uvicorn:8001, internal only)
   → cmes-auth (uvicorn:8001, internal only)
+  → natixis-auth (uvicorn:8001, internal only)
   → cic-auth (uvicorn:8001, internal only)
   → amex-auth (uvicorn:8001, internal only)
   → degiro-auth (uvicorn:8001, internal only)
@@ -562,6 +564,7 @@ docker save ghcr.io/cloeille/picsou-finance:latest \
   ghcr.io/cloeille/picsou-finance/sofidy-auth:latest \
   ghcr.io/cloeille/picsou-finance/cmes-auth:latest \
   ghcr.io/cloeille/picsou-finance/cic-auth:latest \
+  ghcr.io/cloeille/picsou-finance/natixis-auth:latest \
   ghcr.io/cloeille/picsou-finance/amex-auth:latest \
   ghcr.io/cloeille/picsou-finance/degiro-auth:latest \
   | gzip > picsou-release.tar.gz
@@ -605,6 +608,7 @@ docker pull ghcr.io/cloeille/picsou-finance/corum-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/sofidy-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/cmes-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/cic-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/natixis-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0
 ```

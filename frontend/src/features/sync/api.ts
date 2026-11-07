@@ -35,6 +35,8 @@ import type {
   AmundiAuthInitResponse,
   CmesSessionStatus,
   CmesAuthInitResponse,
+  NatixisSessionStatus,
+  NatixisAuthInitResponse,
   CicSessionStatus,
   CicAuthInitResponse,
   AmexSessionStatus,
@@ -321,7 +323,7 @@ export const degiroApi = {
 // --- Browser-sidecar providers sharing one HTTP contract ---
 
 /**
- * Bourse Direct, Amundi, CMES and CIC expose the same five endpoints under their
+ * Bourse Direct, Amundi, CMES, Natixis and CIC expose the same five endpoints under their
  * own prefix; a provider that deviates (BoursoBank, Amex, Sofidy...) keeps its
  * own object below. `code` is the SMS code, omitted for a mobile confirmation.
  */
@@ -356,6 +358,14 @@ export const amundiApi = sidecarApi<AmundiSessionStatus, AmundiAuthInitResponse>
 // --- Crédit Mutuel Épargne Salariale (CIC savers too) ---
 
 export const cmesApi = sidecarApi<CmesSessionStatus, CmesAuthInitResponse>('/cmes')
+
+// --- Natixis Interépargne (the login is an e-mail, sent as `email`; the code arrives by SMS, e-mail or voice call) ---
+
+export const natixisApi = {
+  ...sidecarApi<NatixisSessionStatus, NatixisAuthInitResponse>('/natixis'),
+  initiateAuth: (email: string, password: string) =>
+    api.post<NatixisAuthInitResponse>('/natixis/auth/initiate', { email, password }).then(r => r.data),
+}
 
 // --- CIC online banking (livrets the PSD2 connection does not expose) ---
 

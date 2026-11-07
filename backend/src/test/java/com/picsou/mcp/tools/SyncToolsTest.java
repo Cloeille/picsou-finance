@@ -83,7 +83,7 @@ class SyncToolsTest {
         tools.triggerBrokerSync();
 
         verify(memberSyncService).resyncForUser(MID, Set.of(
-            "trade-republic", "bourso", "bourse-direct", "amundi", "cmes", "corum", "fortuneo", "amex", "ibkr", "degiro"));
+            "trade-republic", "bourso", "bourse-direct", "amundi", "cmes", "corum", "natixis", "fortuneo", "amex", "ibkr", "degiro"));
     }
 
     @Test

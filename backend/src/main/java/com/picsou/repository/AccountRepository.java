@@ -2,7 +2,9 @@ package com.picsou.repository;
 
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -25,6 +27,12 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
     List<Account> findByIdInAndMemberId(List<Long> ids, Long memberId);
     Optional<Account> findByExternalAccountIdAndMemberId(String externalAccountId, Long memberId);
     List<Account> findAllByMemberIdAndProvider(Long memberId, String provider);
+
+    /** {@link #findAllByMemberIdAndProvider}, row-locked in id order so concurrent lockers queue rather than deadlock. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT a FROM Account a WHERE a.member.id = :memberId AND a.provider = :provider ORDER BY a.id")
+    List<Account> findAllByMemberIdAndProviderForUpdate(@Param("memberId") Long memberId,
+                                                        @Param("provider") String provider);
 
     /**
      * Account-level tickers of live accounts of one type, for the hourly price warm-up — see

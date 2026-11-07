@@ -359,6 +359,10 @@ sidecars:
     enabled: true
     urlEnv: CMES_AUTH_URL
     port: 8001
+  natixis-auth:
+    enabled: true
+    urlEnv: NATIXIS_AUTH_URL
+    port: 8001
   cic-auth:
     enabled: true
     urlEnv: CIC_AUTH_URL

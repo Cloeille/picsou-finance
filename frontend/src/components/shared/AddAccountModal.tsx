@@ -19,6 +19,7 @@ import { CaisseEpargnePanel } from '@/components/sync/CaisseEpargnePanel'
 import { BanquePopulairePanel } from '@/components/sync/BanquePopulairePanel'
 import { DegiroPanel } from '@/components/sync/DegiroPanel'
 import { AmundiPanel } from '@/components/sync/AmundiPanel'
+import { NatixisPanel } from '@/components/sync/NatixisPanel'
 import { FortuneoPanel } from '@/components/sync/FortuneoPanel'
 import { AmexPanel } from '@/components/sync/AmexPanel'
 import { CorumPanel } from '@/components/sync/CorumPanel'
@@ -59,7 +60,7 @@ interface AddAccountModalProps {
 
 type WizardStep =
   | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso' | 'caisseEpargne' | 'banquePopulaire'
-  | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'wise' | 'amundi' | 'fortuneo' | 'amex' | 'corum' | 'sofidy'
+  | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'wise' | 'amundi' | 'natixis' | 'fortuneo' | 'amex' | 'corum' | 'sofidy'
   | 'finary' | 'property' | 'manual'
 
 // ---------------------------------------------------------------------------
@@ -81,6 +82,7 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
   { key: 'simplefin', icon: Landmark, labelKey: 'sync.simplefin.title', descKey: 'addAccount.desc.simplefin' },
   { key: 'wise', icon: PiggyBank, labelKey: 'sync.wise.title', descKey: 'addAccount.desc.wise' },
   { key: 'amundi', icon: PiggyBank, labelKey: 'sync.amundi.title', descKey: 'addAccount.desc.amundi' },
+  { key: 'natixis', icon: PiggyBank, labelKey: 'sync.natixis.title', descKey: 'addAccount.desc.natixis' },
   { key: 'fortuneo', icon: PiggyBank, labelKey: 'sync.fortuneo.title', descKey: 'addAccount.desc.fortuneo' },
   { key: 'amex', icon: CreditCard, labelKey: 'sync.amex.title', descKey: 'addAccount.desc.amex' },
   { key: 'corum', icon: Building2, labelKey: 'sync.corum.title', descKey: 'addAccount.desc.corum' },
@@ -101,6 +103,7 @@ const PANEL_STEPS: Partial<Record<WizardStep, ComponentType<{ onConnected?: () =
   simplefin: SimplefinPanel,
   wise: WisePanel,
   amundi: AmundiPanel,
+  natixis: NatixisPanel,
   fortuneo: FortuneoPanel,
   amex: AmexPanel,
   corum: CorumPanel,

@@ -1252,6 +1252,38 @@ handlers.set(key('POST', '/cmes/auth/complete'), () => demoCmesStatus)
 handlers.set(key('POST', '/cmes/sync'), () => demoCmesStatus)
 handlers.set(key('DELETE', '/cmes/session'), () => null)
 
+// Natixis Interépargne — simulates the SMS-challenge login so Connect in demo
+// mode ends on an active session instead of an unexplained "No active session".
+const NATIXIS_DISCONNECTED = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+}
+let demoNatixisStatus: typeof NATIXIS_DISCONNECTED | Record<string, unknown> = NATIXIS_DISCONNECTED
+const activateDemoNatixis = () => {
+  const now = new Date().toISOString()
+  demoNatixisStatus = {
+    isActive: true,
+    syncStatus: 'SUCCESS',
+    lastSyncStartedAt: now,
+    lastSyncCompletedAt: now,
+    lastSyncError: null,
+  }
+  return demoNatixisStatus
+}
+handlers.set(key('GET', '/natixis/status'), () => demoNatixisStatus)
+handlers.set(key('POST', '/natixis/auth/initiate'), () => ({
+  processId: 'demo-natixis', mfaRequired: true, mfaType: 'SMS',
+}))
+handlers.set(key('POST', '/natixis/auth/complete'), activateDemoNatixis)
+handlers.set(key('POST', '/natixis/sync'), () => (demoNatixisStatus.isActive ? activateDemoNatixis() : demoNatixisStatus))
+handlers.set(key('DELETE', '/natixis/session'), () => {
+  demoNatixisStatus = NATIXIS_DISCONNECTED
+  return null
+})
+
 // BoursoBank — same convention. Its demo accounts already carry
 // `provider: 'BoursoBank'`, so without these the Sync-all modal would list a
 // connection whose status request falls through to `{}`.

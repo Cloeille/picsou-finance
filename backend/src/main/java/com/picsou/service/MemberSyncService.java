@@ -41,7 +41,9 @@ public class MemberSyncService {
         "cmes",
         "cic",
         // Same: re-logs in with credentials the member chose to store.
-        "corum"
+        "corum",
+        // Never logs in again by itself: an expired session waits for the saver.
+        "natixis"
     );
 
     private final RevolutSyncService revolutSyncService;
@@ -63,6 +65,7 @@ public class MemberSyncService {
     private final CmesSyncService cmesSyncService;
     private final CicSyncService cicSyncService;
     private final CorumSyncService corumSyncService;
+    private final NatixisSyncService natixisSyncService;
 
     public MemberSyncService(
             RevolutSyncService revolutSyncService,
@@ -83,7 +86,8 @@ public class MemberSyncService {
             ReceivedDividendClassifier dividendClassifier,
             CmesSyncService cmesSyncService,
             CicSyncService cicSyncService,
-            CorumSyncService corumSyncService) {
+            CorumSyncService corumSyncService,
+            NatixisSyncService natixisSyncService) {
         this.revolutSyncService = revolutSyncService;
         this.syncService = syncService;
         this.trSyncService = trSyncService;
@@ -103,6 +107,7 @@ public class MemberSyncService {
         this.cmesSyncService = cmesSyncService;
         this.cicSyncService = cicSyncService;
         this.corumSyncService = corumSyncService;
+        this.natixisSyncService = natixisSyncService;
     }
 
     public List<SourceSyncResult> resyncScheduled(Long memberId) {
@@ -169,6 +174,8 @@ public class MemberSyncService {
                     return cicSyncService.resyncReporting(memberId);
                 case "corum":
                     return corumSyncService.resyncReporting(memberId);
+                case "natixis":
+                    return natixisSyncService.resyncReporting(memberId);
                 case "fortuneo":
                     return fortuneoSyncService.resyncReporting(memberId);
                 case "amex":

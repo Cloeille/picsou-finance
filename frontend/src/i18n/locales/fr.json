@@ -1189,6 +1189,7 @@
       "finary": "Importer depuis Finary",
       "manual": "Créer un compte manuellement",
       "amundi": "PEE, PEG, PERCO, PER chez Amundi",
+      "natixis": "PEE, PERCO, PER chez Natixis Interépargne",
       "amex": "Carte de crédit American Express : solde et transactions",
       "corum": "SCPI et assurance-vie CORUM Life : parts, valorisation et opérations",
       "sofidy": "Parts de SCPI Sofidy, au prix de retrait",
@@ -1792,6 +1793,37 @@
         "formatChanged": "Le format du site Amundi a changé. Vos données existantes ont été conservées.",
         "invalidData": "Amundi a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
         "serverError": "Impossible de joindre Amundi. Veuillez réessayer."
+      }
+    },
+    "natixis": {
+      "title": "Natixis Interépargne",
+      "login": "E-mail",
+      "password": "Mot de passe",
+      "otpCode": "Code de vérification",
+      "otpPrompt": "Saisissez le code que Natixis Interépargne vous a envoyé par SMS, e-mail ou appel vocal.",
+      "connect": "Se connecter",
+      "connecting": "Connexion en cours…",
+      "validate": "Valider le code",
+      "validating": "Validation en cours…",
+      "sync": "Synchroniser",
+      "queued": "Synchronisation en attente…",
+      "syncing": "Synchronisation en cours…",
+      "syncSuccess": "Plans d'épargne synchronisés.",
+      "clearSession": "Déconnecter",
+      "noSession": "Aucune session active",
+      "sessionActive": "Session active",
+      "scope": "Synchronise vos plans d'épargne salariale Natixis Interépargne (PEE, PERCO, PER…) et les fonds qu'ils contiennent : parts, valeur de la part et plus-value. Après cette première connexion, les synchronisations se font seules jusqu'à ce que Natixis mette fin à la session ; il faudra alors vous reconnecter.",
+      "errors": {
+        "tooManyAttempts": "Natixis Interépargne a bloqué les nouvelles tentatives. Réessayez plus tard.",
+        "invalidCredentials": "Natixis Interépargne a refusé l'e-mail ou le mot de passe.",
+        "mfaTypeUnsupported": "Ce compte ne propose que la connexion par passkey, ou un second facteur que Picsou ne sait pas gérer. Picsou a besoin de la connexion par mot de passe et des codes par SMS, e-mail ou appel vocal : activez les deux dans les paramètres de sécurité de Natixis Interépargne.",
+        "authAttemptExpired": "La tentative d'authentification a expiré. Recommencez.",
+        "sessionExpired": "La session Natixis Interépargne a expiré. Reconnectez-vous pour reprendre la synchronisation.",
+        "portfolioIncomplete": "Natixis Interépargne a renvoyé des plans d'épargne incomplets. Vos données existantes ont été conservées.",
+        "formatChanged": "Le format du site Natixis Interépargne a changé. Vos données existantes ont été conservées.",
+        "invalidData": "Natixis Interépargne a renvoyé des données de plan invalides. Vos données existantes ont été conservées.",
+        "serverError": "Natixis Interépargne est momentanément indisponible. Veuillez réessayer.",
+        "invalidCode": "Code de vérification incorrect. Vérifiez-le et saisissez-le à nouveau."
       }
     },
     "cmes": {
