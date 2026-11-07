@@ -66,7 +66,7 @@ public class BanquePopulaireSession extends AuditableEntity implements BpceSessi
     @Column(name = "last_sync_error", length = 40)
     private SidecarErrorCode lastSyncError;
 
-    /** JSON array of {externalId, familyCode}: contracts seen but not imported. */
+    /** JSON array of {externalId, familyCode, subFamilyCode}: contracts seen but not imported. */
     @Column(name = "unsupported_contracts", columnDefinition = "TEXT")
     private String unsupportedContracts;
 

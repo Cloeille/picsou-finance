@@ -1374,7 +1374,7 @@
       "securPassHint": "Picsou greift nicht auf Ihr Telefon zu. Diese Seite geht von selbst weiter, sobald Sie bestätigen.",
       "countdownLabel": "Verbleibende Zeit zum Bestätigen:",
       "unsupportedTitle": "Nicht importierte Verträge",
-      "unsupportedHint": "Picsou unterstützt diese Vertragsfamilien noch nicht (Familiencode angezeigt).",
+      "unsupportedHint": "Picsou unterstützt diese Verträge noch nicht (Familien-/Unterfamiliencode angezeigt).",
       "errors": {
         "rateLimited": "Zu viele Anmeldeversuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
         "rateLimitedRetryAfter": "Zu viele Anmeldeversuche. Versuchen Sie es in {{minutes}} Min. erneut.",

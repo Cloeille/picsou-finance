@@ -1682,7 +1682,7 @@
       "securPassHint": "Picsou does not touch your phone. This page continues on its own once you approve.",
       "countdownLabel": "Time left to approve:",
       "unsupportedTitle": "Contracts not imported",
-      "unsupportedHint": "Picsou does not support these contract families yet (family code shown).",
+      "unsupportedHint": "Picsou does not support these contracts yet (family/sub-family code shown).",
       "errors": {
         "rateLimited": "Too many sign-in attempts. Please wait before trying again.",
         "rateLimitedRetryAfter": "Too many sign-in attempts. Try again in {{minutes}} min.",

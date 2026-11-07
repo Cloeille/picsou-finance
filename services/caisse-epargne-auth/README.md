@@ -86,6 +86,9 @@ By default it carries codes and lengths only; `CE_LOG_PRODUCT_DETAILS=1` adds le
   on the sidecar for one diagnostic run (Compose passes it through from the environment; in
   Helm set `sidecars.caisse-epargne-auth.env.CE_LOG_PRODUCT_DETAILS`, which the chart declares
   empty). `productLabel` never leaves the sidecar.
+  **Do not leave the flag on.** The capital letters of a free-text label can include a name or other
+  personal text (a probe with an adversarial label leaked one); enable it for one run, copy the
+  product codes, then unset it.
 
 A PER whose contract id the insurer reader does not know (`per_client.UnknownPerContract`, code
 `INVALID_PER_REQUEST`, refused before any insurer request; the PER token is minted first) logs

@@ -747,6 +747,16 @@ class CaisseEpargneSyncServiceTest {
     }
 
     @Test
+    void queueSync_refusesANonEuroPel() {
+        Fixture f = new Fixture();
+        CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.withCurrency(f.pel(), "USD"));
+
+        service.queueSync(7L);
+
+        assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
+    }
+
+    @Test
     void queueSync_refusesAnEmptyAccountList() {
         CaisseEpargneSession session = arrangeCommittableSync(
             new CaisseEpargnePort.AccountsSnapshot(List.of(), List.of()));
