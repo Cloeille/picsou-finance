@@ -33,6 +33,8 @@ jobs:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         if: github.event_name == 'pull_request' && github.event.pull_request.changed_files < 3000
+        # An API error must not skip the analysis: the next step then selects every language.
+        continue-on-error: true
         with:
           list-files: json
           filters: |
@@ -40,8 +42,9 @@ jobs:
       - name: Select the languages
         id: languages
         env:
-          ALL: ${{ steps.filter.outcome != 'success' }}
-          FILES: ${{ steps.filter.outputs.changed_files }}
+          # Over 1000 paths, every language runs: the list stays under the 128 KiB env limit.
+          ALL: ${{ steps.filter.outcome != 'success' || steps.filter.outputs.changed_count >= 1000 }}
+          FILES: ${{ steps.filter.outputs.changed_count < 1000 && steps.filter.outputs.changed_files || '[]' }}
         run: python3 .github/scripts/codeql_languages.py
 
   analyze:

@@ -502,6 +502,20 @@ class CiJobSelectionTest(unittest.TestCase):
                 )
                 self.assertEqual(concurrency["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}")
 
+    def test_codeql_selection_fails_open(self):
+        # Every way the file list can be missing or too big for an env var must analyse all languages.
+        jobs = _load(CODEQL_WORKFLOW)["jobs"]
+        steps = {step.get("id"): step for step in jobs["select"]["steps"]}
+        self.assertIs(steps["filter"]["continue-on-error"], True)
+        env = steps["languages"]["env"]
+        self.assertEqual(env["ALL"], "${{ steps.filter.outcome != 'success' || steps.filter.outputs.changed_count >= 1000 }}")
+        self.assertEqual(
+            env["FILES"],
+            "${{ steps.filter.outputs.changed_count < 1000 && steps.filter.outputs.changed_files || '[]' }}",
+        )
+        # An empty selection (docs only) skips the matrix instead of failing on an empty one.
+        self.assertEqual(jobs["analyze"]["if"], "needs.select.outputs.matrix != '[]'")
+
     def test_every_job_runs_only_when_the_selector_picks_it(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         outputs = jobs[SELECTOR]["outputs"]
