@@ -22,6 +22,8 @@ import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.PeerLoanRepaymentRepository;
+import com.picsou.repository.PeerLoanTermsRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
 import com.picsou.repository.SavingsInterestConfigRepository;
@@ -265,7 +267,8 @@ class CaisseEpargneSyncServiceTest {
             mock(RealEstateMetadataRepository.class), mock(PropertyValuationRepository.class), debtRepository,
             mock(SavingsInterestConfigRepository.class), prices, mock(LoanAmortizationService.class),
             mock(AccountAccessResolver.class), mock(BankLogoResolver.class), mock(CryptoLogoService.class),
-            mock(InstrumentLogoService.class), mock(ScpiPositionRepository.class), mock(ScpiFundService.class));
+            mock(InstrumentLogoService.class), mock(ScpiPositionRepository.class), mock(ScpiFundService.class),
+            mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class));
         when(perService.prepare(detail, "EUR")).thenReturn(prepared);
         CaisseEpargneSyncService sync = serviceWith(txTemplate, Runnable::run, actualAccountService);
         arrangeCommittableSync(withPer);

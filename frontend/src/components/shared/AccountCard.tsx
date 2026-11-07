@@ -5,6 +5,7 @@ import { TriangleAlert } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import type { Account, PropertyKind } from '@/types/api'
 import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { AccountTypeBadge } from '@/components/shared/AccountTypeBadge'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
@@ -24,6 +25,8 @@ import { useInstitutionLogoUrl } from '@/features/accounts/hooks'
 
 interface AccountCardProps {
   account: Account
+  /** A closed peer loan: still in the list under Receivables, but no longer active. */
+  closed?: boolean
   onClick?: () => void
 }
 
@@ -80,7 +83,7 @@ function PropertyAvatar({ kind, color }: { kind: PropertyKind; color: string }) 
   )
 }
 
-export function AccountCard({ account, onClick }: AccountCardProps) {
+export function AccountCard({ account, closed = false, onClick }: AccountCardProps) {
   const { t } = useTranslation()
   const money = useMoney()
   const institutionLogoUrl = useInstitutionLogoUrl()
@@ -129,7 +132,7 @@ export function AccountCard({ account, onClick }: AccountCardProps) {
 
   return (
     <Card
-      className="cursor-pointer transition-colors hover:bg-muted/20"
+      className={`cursor-pointer transition-colors hover:bg-muted/20 ${closed ? 'opacity-70' : ''}`}
       onClick={onClick}
     >
       <CardContent className="flex items-start gap-3 p-4">
@@ -148,6 +151,7 @@ export function AccountCard({ account, onClick }: AccountCardProps) {
           <div className="flex items-center gap-2">
             <span className="truncate font-medium">{account.name}</span>
             <AccountTypeBadge type={account.type} />
+            {closed && <Badge variant="secondary">{t('peerLoan.summary.closed')}</Badge>}
             {/* Present only below 100%, so the balance above is knowingly a shared figure. */}
             {account.sharePercent != null && (
               <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">

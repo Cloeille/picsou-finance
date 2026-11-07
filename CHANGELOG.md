@@ -112,6 +112,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
   browser session. See [Budget + OAuth2 tools in MCP](docs/features/mcp-budget-oauth2.md).
 
+- **Peer loans (receivables between individuals).** A new "peer loan" account type tracks
+  money lent to a person as an asset: nominal capital, dated repayments, simple interest,
+  an editable forecast and a dated write-off when the loan is closed. The rate can be
+  entered monthly or annually, and the detail draws the actual capital against the
+  forecast. One account is one loan, identified by its name. A manual cash account linked to it receives the matching
+  transfer automatically, so a repayment never reduces net worth; a synced account relies
+  on the bank row. A loan can also be created from an existing outgoing transaction, and
+  an incoming transaction can be assigned to a repayment. It counts in net worth but never
+  as an investment, and there is no risk score. See
+  [Peer loans](docs/features/peer-loans.md).
+
 ### Changed
 
 - **Smaller first load.** The demo mode and the English, German and Spanish translations no
@@ -171,6 +182,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Existing Windows checkouts must refresh the Docker entrypoint after upgrading.**
+  `.gitattributes` now forces LF on `*.sh`, but Git only rewrites files it checks out. On a
+  checkout created before this change, run `git checkout -- docker/entrypoint.sh` once;
+  otherwise the CRLF shebang still makes the container fail at exec with
+  `no such file or directory`.
 - **Diversification leaves out lines classified outside equity.** A holding whose wealth tier
   (your override, or the provider's) is not equity — for example a money-market ETF set to
   safety net — is no longer counted in the sector and geography breakdown, matching the

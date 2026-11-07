@@ -27,6 +27,8 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.DebtRepository;
+import com.picsou.repository.PeerLoanRepaymentRepository;
+import com.picsou.repository.PeerLoanTermsRepository;
 import com.picsou.repository.PriceSnapshotRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
@@ -231,6 +233,21 @@ class AccountServiceTest {
 
         assertThat(saved.getBalance()).isEqualByComparingTo("-800");
         assertThat(card.getCurrentBalance()).isEqualByComparingTo("-800");
+    }
+
+    @Test
+    void addManualSnapshot_rejectsAPeerLoanWhoseBalanceComesFromItsLedger() {
+        Account loan = Account.builder().id(1L).name("Jean").type(AccountType.PEER_LOAN)
+            .currency("EUR").isManual(true).currentBalance(new BigDecimal("500")).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(loan));
+
+        assertThatThrownBy(() -> accountService.addManualSnapshot(
+            1L, 7L, new SnapshotRequest(new BigDecimal("500"), LocalDate.now())))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("repayment ledger");
+
+        assertThat(loan.getCurrentBalance()).isEqualByComparingTo("500");
+        verify(accountRepository, never()).save(any());
     }
 
     @Test
@@ -1411,7 +1428,8 @@ class AccountServiceTest {
         AccountService service = new AccountService(accountRepository, snapshotRepository, holdingRepository,
             transactionRepository, realEstateMetadataRepository, propertyValuationRepository, debtRepository,
             savingsInterestConfigRepository, realPrices, loanAmortizationService, accessResolver,
-            bankLogoResolver, cryptoLogoService, instrumentLogoService, scpiPositionRepository, scpiFundService);
+            bankLogoResolver, cryptoLogoService, instrumentLogoService, scpiPositionRepository, scpiFundService,
+            mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class));
         // What a verified-EUR Finary crypto snapshot stores: 10 REG that Finary values at 10 EUR.
         Account account = Account.builder().id(9L).name("Finary wallet").type(AccountType.CRYPTO)
             .currency("EUR").currentBalance(BigDecimal.TEN).build();

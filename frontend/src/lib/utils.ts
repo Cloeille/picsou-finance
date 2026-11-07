@@ -93,7 +93,7 @@ export function formatCountryName(code: string, locale = getLocale()): string {
  * transaction dates and goal deadlines. Values that do carry a time are left to `Date` untouched:
  * there the offset is real information.
  */
-function toDate(dateStr: string): Date {
+export function toDate(dateStr: string): Date {
   return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? new Date(`${dateStr}T00:00:00`) : new Date(dateStr)
 }
 

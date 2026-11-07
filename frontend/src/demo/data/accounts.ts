@@ -1,6 +1,7 @@
 import type { Account } from '@/types/api'
 import { daysFromToday, hoursAgo, monthStartFromToday } from './dates'
 import { holdingsValue } from './holdings'
+import { demoPeerLoan, demoPeerLoans } from './peer-loans'
 
 export const mockAccounts: Account[] = [
   {
@@ -364,6 +365,43 @@ export const mockAccounts: Account[] = [
       fileFees: null,
     },
   },
+  {
+    // Money lent to a friend. The account name is the borrower, and the balance is the
+    // capital still owed -- derived from the terms and the dated ledger in peer-loans.ts.
+    id: 16,
+    name: 'Jean',
+    type: 'PEER_LOAN',
+    provider: null,
+    currency: 'EUR',
+    currentBalance: demoPeerLoan.principalRemaining,
+    currentBalanceEur: demoPeerLoan.principalRemaining,
+    lastSyncedAt: null,
+    isManual: true,
+    color: '#0d9488',
+    ticker: null,
+    logoUrl: null,
+    logoKey: null,
+    createdAt: `${monthStartFromToday(-10)}T08:00:00Z`,
+    hidden: false,
+  },
+  {
+    // A second receivable, behind schedule: the global overview needs a late case to show.
+    id: 17,
+    name: 'Sophie',
+    type: 'PEER_LOAN',
+    provider: null,
+    currency: 'EUR',
+    currentBalance: demoPeerLoans[1].principalRemaining,
+    currentBalanceEur: demoPeerLoans[1].principalRemaining,
+    lastSyncedAt: null,
+    isManual: true,
+    color: '#0d9488',
+    ticker: null,
+    logoUrl: null,
+    logoKey: null,
+    createdAt: `${monthStartFromToday(-8)}T08:00:00Z`,
+    hidden: false,
+  },
 ]
 
 /**
@@ -372,7 +410,7 @@ export const mockAccounts: Account[] = [
  */
 export const mockBanquePopulaireAccounts: Omit<Account, 'createdAt' | 'lastSyncedAt'>[] = [
   {
-    id: 16,
+    id: 18,
     name: 'Compte courant',
     type: 'CHECKING',
     provider: 'Banque Populaire Rives de Paris',
@@ -387,7 +425,7 @@ export const mockBanquePopulaireAccounts: Omit<Account, 'createdAt' | 'lastSynce
     hidden: false,
   },
   {
-    id: 17,
+    id: 19,
     name: 'Livret A',
     type: 'LIVRET_A',
     provider: 'Banque Populaire Rives de Paris',

@@ -28,8 +28,9 @@ class AccountTypeTest {
     }
 
     @Test
-    void otherStaysLastAndBrokerageAndPreciousMetalsPrecedeIt() {
+    void peerLoanPreciousMetalsAndBrokerageSitJustBeforeOther() {
         AccountType[] all = AccountType.values();
+        assertThat(all[all.length - 4]).isEqualTo(AccountType.PEER_LOAN);
         assertThat(all[all.length - 3]).isEqualTo(AccountType.PRECIOUS_METALS);
         assertThat(all[all.length - 2]).isEqualTo(AccountType.BROKERAGE);
         assertThat(all[all.length - 1]).isEqualTo(AccountType.OTHER);
@@ -74,11 +75,13 @@ class AccountTypeTest {
 
     @Test
     void investmentAndValuedAccountsAreNotLedgers() {
-        // Positions price an investment account; a valuation prices the other three. Summing
-        // their transactions would replace that value.
+        // Positions price an investment account; a valuation prices the other three. A peer
+        // loan derives its value from its own terms and repayment ledger. Summing their
+        // transactions would replace that value.
         assertThat(Arrays.stream(AccountType.values()).filter(t -> !t.isLedger()))
             .containsExactlyInAnyOrder(AccountType.PEA, AccountType.COMPTE_TITRES, AccountType.CRYPTO,
-                AccountType.ASSURANCE_VIE, AccountType.PER, AccountType.PRECIOUS_METALS, AccountType.EMPLOYEE_SAVINGS,
-                AccountType.REAL_ESTATE, AccountType.SCPI, AccountType.BROKERAGE);
+                AccountType.ASSURANCE_VIE, AccountType.PER, AccountType.PRECIOUS_METALS,
+                AccountType.EMPLOYEE_SAVINGS, AccountType.REAL_ESTATE, AccountType.SCPI,
+                AccountType.PEER_LOAN, AccountType.BROKERAGE);
     }
 }

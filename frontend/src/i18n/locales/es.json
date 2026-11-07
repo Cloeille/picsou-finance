@@ -222,6 +222,9 @@
     "valueAndInvested": "Valor y capital invertido",
     "manual": "Manual",
     "accountName": "Nombre de la cuenta",
+    "beneficiary": "Destinatario",
+    "beneficiaryPlaceholder": "Jean, Marie…",
+    "peerLoanSetupHint": "El importe prestado y la cuenta de tesorería se indican en el paso siguiente, en la página del préstamo.",
     "accountType": "Tipo de cuenta",
     "provider": "Entidad",
     "bankPickerHint": "Elige tu banco de la lista para mostrar su logotipo.",
@@ -278,9 +281,12 @@
       "CHECKING": "Cuentas corrientes",
       "CRYPTO": "Cripto",
       "REAL_ESTATE": "Inmobiliario",
+      "RECEIVABLES": "Créditos",
       "DEBTS": "Deudas",
       "OTHER": "Otros"
     },
+    "showClosedLoans": "Mostrar préstamos cerrados",
+    "hideClosedLoans": "Ocultar préstamos cerrados",
     "fees": "Comisiones",
     "export": {
       "button": "Exportar datos",
@@ -457,7 +463,157 @@
     "preciousMetals": "Metales preciosos",
     "brokerage": "Cuenta de corretaje",
     "scpi": "SCPI",
-    "creditCard": "Tarjeta de crédito"
+    "creditCard": "Tarjeta de crédito",
+    "peerLoan": "Préstamo entre particulares"
+  },
+  "peerLoan": {
+    "termsDescription": "El importe prestado, la fecha y, opcionalmente, un tipo de interés y una previsión.",
+    "borrowerHint": "El destinatario es el nombre de la cuenta. Una cuenta, un préstamo.",
+    "linkedAccountHint": "Obligatoria: la cuenta que recibe las devoluciones, para que el patrimonio sea correcto.",
+    "termsHint": {
+      "noCashLeg": "La salida ya está reflejada en el saldo de la cuenta de efectivo: no se creará ningún movimiento.",
+      "syncedAccount": "Cuenta sincronizada: Picsou no crea ningún movimiento bancario."
+    },
+    "setupHint": "Introduce el importe prestado y la cuenta de tesorería para empezar el seguimiento.",
+    "saved": "Condiciones guardadas.",
+    "repaymentSaved": "Devolución registrada.",
+    "repaymentDeleted": "Devolución eliminada.",
+    "closed": "Préstamo cerrado.",
+    "configure": "Configurar el préstamo",
+    "create": "Crear un préstamo",
+    "editTerms": "Editar condiciones",
+    "addRepayment": "Añadir una devolución",
+    "editRepayment": "Editar devolución",
+    "withCashLeg": "Crear el movimiento de efectivo",
+    "repaymentsTitle": "Devoluciones",
+    "empty": "Aún no hay devoluciones registradas.",
+    "repaymentHint": {
+      "single": "Los intereses devengados se aplican primero; el resto reduce el capital.",
+      "noCashLeg": "El capital baja sin ingreso bancario: útil para una compensación o un pago ya registrado en otro sitio."
+    },
+    "ledger": {
+      "interestPart": "de los cuales {{amount}} de intereses",
+      "noCashLeg": "Sin movimiento de efectivo"
+    },
+    "noPlan": "Sin previsión definida. Añade una duración o una cuota mensual para estimarla.",
+    "closedHint": "Este préstamo está cerrado. Elimina la condonación para reabrirlo.",
+    "cashflowHint": "Para que este préstamo no cuente como gasto, clasifica la transferencia bancaria correspondiente como «Transferencia interna».",
+    "fields": {
+      "beneficiary": "Destinatario",
+      "principal": "Importe prestado",
+      "lentAt": "Fecha del préstamo",
+      "expectedBack": "Devolución prevista",
+      "ratePct": "Tipo (%)",
+      "ratePeriod": "Periodo del tipo",
+      "rateAnnual": "Tipo anual",
+      "rateMonthly": "Tipo mensual",
+      "plannedMonths": "Duración prevista (meses)",
+      "plannedMonthly": "Cuota mensual prevista",
+      "linkedAccount": "Cuenta de tesorería vinculada",
+      "outflowAlreadyBooked": "La salida ya está en el saldo de la cuenta",
+      "selectLinkedAccount": "Seleccionar una cuenta",
+      "note": "Nota",
+      "paidOn": "Fecha",
+      "amount": "Importe",
+      "kind": "Naturaleza"
+    },
+    "ratePeriod": {
+      "ANNUAL": "Anual",
+      "MONTHLY": "Mensual"
+    },
+    "kinds": {
+      "PRINCIPAL": "Devolución",
+      "INTEREST": "Intereses",
+      "WRITE_OFF": "Condonación"
+    },
+    "summary": {
+      "open": "En curso",
+      "closed": "Cerrado",
+      "lent": "Prestado",
+      "remaining": "Pendiente",
+      "repaid": "Devuelto",
+      "interestCalculated": "Intereses calculados",
+      "interestDue": "Intereses pendientes",
+      "principalRepaid": "Capital devuelto",
+      "writtenOff": "Condonado"
+    },
+    "forecast": {
+      "title": "Previsión",
+      "planTitle": "Simulador",
+      "scheduled": "Previsto a hoy",
+      "actual": "Real",
+      "plannedInterest": "Intereses previstos",
+      "behind": "{{count}} cuota de retraso",
+      "behind_other": "{{count}} cuotas de retraso",
+      "ahead": "{{count}} cuota de adelanto",
+      "ahead_other": "{{count}} cuotas de adelanto",
+      "onTrack": "Al día",
+      "disclaimer": "Previsión orientativa, nunca contractual.",
+      "simulationResult": "{{months}} meses · {{monthlyPayment}}/mes · {{interest}} de intereses",
+      "accruedHint": "Intereses devengados:"
+    },
+    "overview": {
+      "title": "Préstamos entre particulares",
+      "subtitle": "Quién debe qué y cómo van las devoluciones.",
+      "totalOutstanding": "Total pendiente",
+      "openLoans": "Préstamos en curso",
+      "interestAccrued": "Intereses devengados",
+      "curveTitle": "Pendiente total en 12 meses",
+      "columns": {
+        "borrower": "Prestatario",
+        "remaining": "Pendiente",
+        "repaid": "Devuelto",
+        "status": "Estado",
+        "lastPayment": "Último pago",
+        "expectedBack": "Devolución prevista"
+      },
+      "status": {
+        "closed": "Cerrado",
+        "behind_one": "{{count}} cuota de retraso",
+        "behind_other": "{{count}} cuotas de retraso",
+        "onTime": "Al día",
+        "noPlan": "Sin plan"
+      }
+    },
+    "fromTransaction": {
+      "action": "Crear un préstamo entre particulares",
+      "title": "Crear un préstamo desde esta transacción",
+      "description": "El dinero ya salió: esta transacción se convierte en la parte de efectivo del préstamo, sin copiarla.",
+      "beneficiaryHint": "Este nombre pasa a ser el de la cuenta e identifica el préstamo.",
+      "beneficiaryRequired": "El destinatario es obligatorio.",
+      "confirm": "Crear el préstamo",
+      "created": "Préstamo creado.",
+      "assignAction": "Asignar a una devolución"
+    },
+    "assignRepayment": {
+      "title": "Asignar a una devolución",
+      "description": "La transacción se convierte en la parte de efectivo de la devolución, sin copiarla.",
+      "loan": "Préstamo",
+      "selectLoan": "Seleccionar un préstamo",
+      "loanRequired": "Selecciona un préstamo.",
+      "noLoans": "Ningún préstamo en curso.",
+      "confirm": "Asignar",
+      "created": "Devolución registrada."
+    },
+    "actions": {
+      "close": "Cerrar el préstamo",
+      "simulate": "Calcular"
+    },
+    "close": {
+      "title": "Cerrar el préstamo",
+      "description": "El saldo restante ({{amount}}) se condonará y se retirará del patrimonio hoy.",
+      "confirm": "Cerrar"
+    },
+    "validation": {
+      "principal": "El importe prestado debe ser mayor que cero.",
+      "rateNegative": "El tipo no puede ser negativo.",
+      "linkedAccount": "La cuenta de tesorería es obligatoria.",
+      "lentAt": "La fecha del préstamo es obligatoria.",
+      "plan": "Indica una duración o una cuota, pero no ambas.",
+      "simulation": "No se pudo calcular esta previsión.",
+      "amount": "El importe debe ser mayor que cero.",
+      "paidOn": "La fecha es obligatoria."
+    }
   },
   "scpi": {
     "add": {
@@ -2711,6 +2867,26 @@
       "interest": "Intereses",
       "insurance": "Seguro",
       "totalPayment": "Cuota",
+      "peerLoan": "Préstamo entre particulares",
+      "borrower": "Prestatario",
+      "lentAt": "Prestado el",
+      "expectedBack": "Devolución prevista",
+      "ratePeriod": "Periodicidad del tipo",
+      "plannedMonthly": "Cuota prevista",
+      "plannedMonths": "Duración prevista (meses)",
+      "plannedInterest": "Intereses previstos",
+      "principal": "Capital prestado",
+      "principalRemaining": "Capital pendiente",
+      "interestAccrued": "Intereses devengados",
+      "interestReceived": "Intereses recibidos",
+      "writtenOff": "Condonado",
+      "closedAt": "Cerrado el",
+      "cashAccount": "Cuenta de efectivo",
+      "repaymentJournal": "Diario de devoluciones",
+      "paidOn": "Pagado el",
+      "amount": "Importe",
+      "kind": "Tipo",
+      "note": "Nota",
       "yes": "Sí",
       "no": "No"
     }

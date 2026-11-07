@@ -46,8 +46,10 @@ public enum WealthTier {
             case CRYPTO                                                         -> CRYPTO;
             // A credit card is a liability, not wealth; it has no natural tier but the
             // switch must stay total, so it lands here next to OTHER rather than
-            // inflating any real asset class.
-            case CREDIT_CARD, OTHER, PRECIOUS_METALS                            -> ALTERNATIVE;
+            // inflating any real asset class. A peer loan is a receivable: it is an
+            // asset, but not an investment, and WealthPyramidService skips it for the
+            // same reason. The value here only keeps the switch total.
+            case CREDIT_CARD, PEER_LOAN, OTHER, PRECIOUS_METALS                -> ALTERNATIVE;
         };
     }
 }

@@ -233,6 +233,9 @@
     "priceAsOf": "Cours du {{date}} — le fournisseur de prix n'a pas répondu",
     "manual": "Manuel",
     "accountName": "Nom du compte",
+    "beneficiary": "Bénéficiaire",
+    "beneficiaryPlaceholder": "Jean, Marie…",
+    "peerLoanSetupHint": "Le montant prêté et le compte de trésorerie se renseignent à l'étape suivante, sur la page du prêt.",
     "accountType": "Type de compte",
     "provider": "Établissement",
     "bankPickerHint": "Choisissez votre banque dans la liste pour afficher son logo.",
@@ -298,9 +301,12 @@
       "CHECKING": "Comptes courants",
       "CRYPTO": "Crypto",
       "REAL_ESTATE": "Immobilier",
+      "RECEIVABLES": "Créances",
       "DEBTS": "Dettes",
       "OTHER": "Autre"
     },
+    "showClosedLoans": "Afficher les prêts clôturés",
+    "hideClosedLoans": "Masquer les prêts clôturés",
     "fees": "Frais",
     "export": {
       "button": "Exporter des données",
@@ -468,7 +474,157 @@
     "preciousMetals": "Métaux précieux",
     "brokerage": "Compte de courtage",
     "scpi": "SCPI",
-    "creditCard": "Carte de crédit"
+    "creditCard": "Carte de crédit",
+    "peerLoan": "Prêt entre particuliers"
+  },
+  "peerLoan": {
+    "termsDescription": "Le montant prêté, la date, et si besoin un taux et une prévision.",
+    "borrowerHint": "Le bénéficiaire est le nom du compte. Un compte = un prêt.",
+    "linkedAccountHint": "Obligatoire : le compte qui reçoit les remboursements, pour que le patrimoine reste juste.",
+    "termsHint": {
+      "noCashLeg": "La sortie d'argent est déjà reflétée dans le solde du compte de trésorerie : aucune écriture ne sera créée.",
+      "syncedAccount": "Compte synchronisé : Picsou n'écrit aucun mouvement bancaire."
+    },
+    "setupHint": "Renseignez le montant prêté et le compte de trésorerie pour commencer le suivi.",
+    "saved": "Conditions enregistrées.",
+    "repaymentSaved": "Remboursement enregistré.",
+    "repaymentDeleted": "Remboursement supprimé.",
+    "closed": "Prêt clôturé.",
+    "configure": "Configurer le prêt",
+    "create": "Créer un prêt",
+    "editTerms": "Modifier les conditions",
+    "addRepayment": "Ajouter un remboursement",
+    "editRepayment": "Modifier le remboursement",
+    "withCashLeg": "Créer le mouvement de trésorerie",
+    "repaymentsTitle": "Remboursements",
+    "empty": "Aucun remboursement enregistré.",
+    "repaymentHint": {
+      "single": "Les intérêts courus sont imputés en premier, le reste réduit le capital.",
+      "noCashLeg": "Le capital baisse sans dépôt bancaire : utile pour une compensation ou un paiement déjà enregistré ailleurs."
+    },
+    "ledger": {
+      "interestPart": "dont {{amount}} d'intérêts",
+      "noCashLeg": "Hors trésorerie"
+    },
+    "noPlan": "Aucune prévision définie. Ajoutez une durée ou une mensualité pour l'estimer.",
+    "closedHint": "Ce prêt est clôturé. Supprimez l'abandon pour le rouvrir.",
+    "cashflowHint": "Pour que ce prêt ne soit pas compté comme une dépense, classez le virement bancaire correspondant dans la catégorie « Virement interne ».",
+    "fields": {
+      "beneficiary": "Bénéficiaire",
+      "principal": "Montant prêté",
+      "lentAt": "Date du prêt",
+      "expectedBack": "Retour prévu",
+      "ratePct": "Taux (%)",
+      "ratePeriod": "Période du taux",
+      "rateAnnual": "Taux annuel",
+      "rateMonthly": "Taux mensuel",
+      "plannedMonths": "Durée prévue (mois)",
+      "plannedMonthly": "Mensualité prévue",
+      "linkedAccount": "Compte de trésorerie lié",
+      "outflowAlreadyBooked": "La sortie d'argent est déjà dans le solde du compte",
+      "selectLinkedAccount": "Sélectionner un compte",
+      "note": "Note",
+      "paidOn": "Date",
+      "amount": "Montant",
+      "kind": "Nature"
+    },
+    "ratePeriod": {
+      "ANNUAL": "Annuel",
+      "MONTHLY": "Mensuel"
+    },
+    "kinds": {
+      "PRINCIPAL": "Remboursement",
+      "INTEREST": "Intérêts",
+      "WRITE_OFF": "Abandon"
+    },
+    "summary": {
+      "open": "En cours",
+      "closed": "Clôturé",
+      "lent": "Prêté",
+      "remaining": "Reste dû",
+      "repaid": "Remboursé",
+      "interestCalculated": "Intérêts calculés",
+      "interestDue": "Intérêts dus",
+      "principalRepaid": "Capital remboursé",
+      "writtenOff": "Abandonné"
+    },
+    "forecast": {
+      "title": "Prévision",
+      "planTitle": "Simulateur",
+      "scheduled": "Prévu à ce jour",
+      "actual": "Réel",
+      "plannedInterest": "Intérêts prévus",
+      "behind": "{{count}} échéance de retard",
+      "behind_other": "{{count}} échéances de retard",
+      "ahead": "{{count}} échéance d'avance",
+      "ahead_other": "{{count}} échéances d'avance",
+      "onTrack": "Dans les temps",
+      "disclaimer": "Prévision indicative, jamais contractuelle.",
+      "simulationResult": "{{months}} mois · {{monthlyPayment}}/mois · {{interest}} d'intérêts",
+      "accruedHint": "Intérêts courus à ce jour :"
+    },
+    "overview": {
+      "title": "Prêts entre particuliers",
+      "subtitle": "Qui doit quoi, et où en sont les remboursements.",
+      "totalOutstanding": "Total restant dû",
+      "openLoans": "Prêts en cours",
+      "interestAccrued": "Intérêts courus",
+      "curveTitle": "Encours total sur 12 mois",
+      "columns": {
+        "borrower": "Emprunteur",
+        "remaining": "Restant dû",
+        "repaid": "Remboursé",
+        "status": "Statut",
+        "lastPayment": "Dernier paiement",
+        "expectedBack": "Retour prévu"
+      },
+      "status": {
+        "closed": "Clôturé",
+        "behind_one": "{{count}} échéance de retard",
+        "behind_other": "{{count}} échéances de retard",
+        "onTime": "À jour",
+        "noPlan": "Sans plan"
+      }
+    },
+    "fromTransaction": {
+      "action": "Créer un prêt entre particuliers",
+      "title": "Créer un prêt depuis cette transaction",
+      "description": "La sortie d'argent existe déjà : elle devient la jambe cash du prêt, sans être recréée.",
+      "beneficiaryHint": "Ce nom devient celui du compte, et identifie le prêt.",
+      "beneficiaryRequired": "Le bénéficiaire est requis.",
+      "confirm": "Créer le prêt",
+      "created": "Prêt créé.",
+      "assignAction": "Assigner à un remboursement"
+    },
+    "assignRepayment": {
+      "title": "Assigner à un remboursement",
+      "description": "La transaction devient la jambe cash du remboursement, sans être recréée.",
+      "loan": "Prêt",
+      "selectLoan": "Sélectionner un prêt",
+      "loanRequired": "Sélectionnez un prêt.",
+      "noLoans": "Aucun prêt en cours.",
+      "confirm": "Assigner",
+      "created": "Remboursement enregistré."
+    },
+    "actions": {
+      "close": "Clôturer le prêt",
+      "simulate": "Calculer"
+    },
+    "close": {
+      "title": "Clôturer le prêt",
+      "description": "Le solde restant ({{amount}}) sera abandonné et retiré du patrimoine aujourd'hui.",
+      "confirm": "Clôturer"
+    },
+    "validation": {
+      "principal": "Le montant prêté doit être supérieur à zéro.",
+      "rateNegative": "Le taux ne peut pas être négatif.",
+      "linkedAccount": "Le compte de trésorerie est requis.",
+      "lentAt": "La date du prêt est requise.",
+      "plan": "Renseignez une durée ou une mensualité, mais pas les deux.",
+      "simulation": "Impossible de calculer cette prévision.",
+      "amount": "Le montant doit être supérieur à zéro.",
+      "paidOn": "La date est requise."
+    }
   },
   "scpi": {
     "add": {
@@ -3045,6 +3201,26 @@
       "interest": "Intérêts",
       "insurance": "Assurance",
       "totalPayment": "Mensualité",
+      "peerLoan": "Prêt entre particuliers",
+      "borrower": "Emprunteur",
+      "lentAt": "Prêté le",
+      "expectedBack": "Retour prévu",
+      "ratePeriod": "Périodicité du taux",
+      "plannedMonthly": "Mensualité prévue",
+      "plannedMonths": "Durée prévue (mois)",
+      "plannedInterest": "Intérêts prévus",
+      "principal": "Capital prêté",
+      "principalRemaining": "Capital restant dû",
+      "interestAccrued": "Intérêts courus",
+      "interestReceived": "Intérêts reçus",
+      "writtenOff": "Abandonné",
+      "closedAt": "Clôturé le",
+      "cashAccount": "Compte de trésorerie",
+      "repaymentJournal": "Journal des remboursements",
+      "paidOn": "Payé le",
+      "amount": "Montant",
+      "kind": "Type",
+      "note": "Note",
       "yes": "Oui",
       "no": "Non"
     }

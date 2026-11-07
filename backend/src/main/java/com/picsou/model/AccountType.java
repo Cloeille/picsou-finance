@@ -29,6 +29,13 @@ public enum AccountType {
     PER,
     CREDIT_CARD,
     /**
+     * Money lent to a person — a receivable, not a debt. Opposite direction from
+     * {@link #LOAN}: its value is the nominal capital still owed, derived from the peer
+     * loan terms and its dated repayment ledger, and it stays positive everywhere. A
+     * future {@code PEER_DEBT} (money borrowed from a person) would be the symmetric type.
+     */
+    PEER_LOAN,
+    /**
      * Physical gold held as positions: bars priced per gram and coins priced per piece. The
      * tickers come from {@link PreciousMetal}, whose {@code :} keeps them away from Yahoo.
      */
@@ -72,13 +79,15 @@ public enum AccountType {
      * Whether this account's balance is the sum of its own transactions: a cash ledger.
      *
      * <p>An investment account derives its balance from its positions. A SCPI, a property and an
-     * employee-savings plan are valued instead (withdrawal price, estimate or statement), so a
-     * transaction recorded on one of them is history and must never replace that value with a
+     * employee-savings plan are valued instead (withdrawal price, estimate or statement), and a
+     * peer loan derives its balance from its principal and repayment ledger, so a transaction
+     * recorded on any of them is history and must never replace that value with a
      * sum. This is the one definition the manual-transaction recomputation and both ledger
      * importers share.
      */
     public boolean isLedger() {
-        return !isInvestment() && this != EMPLOYEE_SAVINGS && this != REAL_ESTATE && this != SCPI;
+        return !isInvestment() && this != EMPLOYEE_SAVINGS && this != REAL_ESTATE
+            && this != SCPI && this != PEER_LOAN;
     }
 
     /**

@@ -233,6 +233,9 @@
     "valueAndInvested": "Value and invested capital",
     "manual": "Manual",
     "accountName": "Account name",
+    "beneficiary": "Borrower",
+    "beneficiaryPlaceholder": "Jean, Marie…",
+    "peerLoanSetupHint": "The amount lent and the cash account are entered on the next step, on the loan page.",
     "accountType": "Account type",
     "provider": "Provider",
     "bankPickerHint": "Pick your bank from the list to show its logo.",
@@ -298,9 +301,12 @@
       "CHECKING": "Current accounts",
       "CRYPTO": "Crypto",
       "REAL_ESTATE": "Real estate",
+      "RECEIVABLES": "Receivables",
       "DEBTS": "Debts",
       "OTHER": "Other"
     },
+    "showClosedLoans": "Show closed loans",
+    "hideClosedLoans": "Hide closed loans",
     "fees": "Fees",
     "export": {
       "button": "Export data",
@@ -468,7 +474,157 @@
     "preciousMetals": "Precious metals",
     "brokerage": "Brokerage account",
     "scpi": "SCPI",
-    "creditCard": "Credit card"
+    "creditCard": "Credit card",
+    "peerLoan": "Peer loan"
+  },
+  "peerLoan": {
+    "termsDescription": "The amount lent, the date, and optionally a rate and a forecast.",
+    "borrowerHint": "The borrower is the account's own name. One account, one loan.",
+    "linkedAccountHint": "Required: the account that receives the repayments, so net worth stays correct.",
+    "termsHint": {
+      "noCashLeg": "The outflow is already reflected in the cash account balance: no entry will be created.",
+      "syncedAccount": "Synced account: Picsou writes no bank movement."
+    },
+    "setupHint": "Enter the amount lent and the cash account to start tracking.",
+    "saved": "Terms saved.",
+    "repaymentSaved": "Repayment recorded.",
+    "repaymentDeleted": "Repayment deleted.",
+    "closed": "Loan closed.",
+    "configure": "Set up the loan",
+    "create": "Create a loan",
+    "editTerms": "Edit terms",
+    "addRepayment": "Add a repayment",
+    "editRepayment": "Edit repayment",
+    "withCashLeg": "Create the cash movement",
+    "repaymentsTitle": "Repayments",
+    "empty": "No repayment recorded yet.",
+    "repaymentHint": {
+      "single": "Accrued interest is applied first; the rest reduces the capital.",
+      "noCashLeg": "The capital falls with no bank deposit: use it for a compensation or a payment already booked elsewhere."
+    },
+    "ledger": {
+      "interestPart": "of which {{amount}} interest",
+      "noCashLeg": "No cash movement"
+    },
+    "noPlan": "No forecast set. Add a duration or a monthly payment to estimate one.",
+    "closedHint": "This loan is closed. Delete its write-off to reopen it.",
+    "cashflowHint": "So this loan is not counted as spending, categorise the matching bank transfer as 'Internal transfer'.",
+    "fields": {
+      "beneficiary": "Borrower",
+      "principal": "Amount lent",
+      "lentAt": "Lending date",
+      "expectedBack": "Expected return",
+      "ratePct": "Rate (%)",
+      "ratePeriod": "Rate period",
+      "rateAnnual": "Annual rate",
+      "rateMonthly": "Monthly rate",
+      "plannedMonths": "Planned duration (months)",
+      "plannedMonthly": "Planned monthly payment",
+      "linkedAccount": "Linked cash account",
+      "outflowAlreadyBooked": "The outflow is already in the account balance",
+      "selectLinkedAccount": "Select an account",
+      "note": "Note",
+      "paidOn": "Date",
+      "amount": "Amount",
+      "kind": "Kind"
+    },
+    "ratePeriod": {
+      "ANNUAL": "Annual",
+      "MONTHLY": "Monthly"
+    },
+    "kinds": {
+      "PRINCIPAL": "Repayment",
+      "INTEREST": "Interest",
+      "WRITE_OFF": "Write-off"
+    },
+    "summary": {
+      "open": "Open",
+      "closed": "Closed",
+      "lent": "Lent",
+      "remaining": "Remaining",
+      "repaid": "Repaid",
+      "interestCalculated": "Interest calculated",
+      "interestDue": "Interest due",
+      "principalRepaid": "Capital repaid",
+      "writtenOff": "Written off"
+    },
+    "forecast": {
+      "title": "Forecast",
+      "planTitle": "Simulator",
+      "scheduled": "Scheduled today",
+      "actual": "Actual",
+      "plannedInterest": "Planned interest",
+      "behind": "{{count}} installment behind",
+      "behind_other": "{{count}} installments behind",
+      "ahead": "{{count}} installment ahead",
+      "ahead_other": "{{count}} installments ahead",
+      "onTrack": "On schedule",
+      "disclaimer": "Indicative forecast, never contractual.",
+      "simulationResult": "{{months}} months · {{monthlyPayment}}/month · {{interest}} of interest",
+      "accruedHint": "Interest accrued so far:"
+    },
+    "overview": {
+      "title": "Peer loans",
+      "subtitle": "Who owes what, and where the repayments stand.",
+      "totalOutstanding": "Total outstanding",
+      "openLoans": "Open loans",
+      "interestAccrued": "Interest accrued",
+      "curveTitle": "Outstanding over 12 months",
+      "columns": {
+        "borrower": "Borrower",
+        "remaining": "Remaining",
+        "repaid": "Repaid",
+        "status": "Status",
+        "lastPayment": "Last payment",
+        "expectedBack": "Expected back"
+      },
+      "status": {
+        "closed": "Closed",
+        "behind_one": "{{count}} instalment behind",
+        "behind_other": "{{count}} instalments behind",
+        "onTime": "On time",
+        "noPlan": "No plan"
+      }
+    },
+    "fromTransaction": {
+      "action": "Create a peer loan",
+      "title": "Create a loan from this transaction",
+      "description": "The money already left: this transaction becomes the loan's cash leg, without being copied.",
+      "beneficiaryHint": "This name becomes the account's name and identifies the loan.",
+      "beneficiaryRequired": "The borrower is required.",
+      "confirm": "Create the loan",
+      "created": "Loan created.",
+      "assignAction": "Assign to a repayment"
+    },
+    "assignRepayment": {
+      "title": "Assign to a repayment",
+      "description": "The transaction becomes the repayment's cash leg, without being copied.",
+      "loan": "Loan",
+      "selectLoan": "Select a loan",
+      "loanRequired": "Select a loan.",
+      "noLoans": "No open loan.",
+      "confirm": "Assign",
+      "created": "Repayment recorded."
+    },
+    "actions": {
+      "close": "Close the loan",
+      "simulate": "Calculate"
+    },
+    "close": {
+      "title": "Close the loan",
+      "description": "The remaining balance ({{amount}}) will be written off and removed from net worth today.",
+      "confirm": "Close"
+    },
+    "validation": {
+      "principal": "The amount lent must be greater than zero.",
+      "rateNegative": "The rate cannot be negative.",
+      "linkedAccount": "The cash account is required.",
+      "lentAt": "The lending date is required.",
+      "plan": "Provide a duration or a monthly payment, but not both.",
+      "simulation": "This forecast could not be computed.",
+      "amount": "The amount must be greater than zero.",
+      "paidOn": "The date is required."
+    }
   },
   "scpi": {
     "add": {
@@ -3045,6 +3201,26 @@
       "interest": "Interest",
       "insurance": "Insurance",
       "totalPayment": "Payment",
+      "peerLoan": "Peer loan",
+      "borrower": "Borrower",
+      "lentAt": "Lent on",
+      "expectedBack": "Expected back",
+      "ratePeriod": "Rate period",
+      "plannedMonthly": "Planned monthly",
+      "plannedMonths": "Planned months",
+      "plannedInterest": "Planned interest",
+      "principal": "Principal lent",
+      "principalRemaining": "Remaining capital",
+      "interestAccrued": "Interest accrued",
+      "interestReceived": "Interest received",
+      "writtenOff": "Written off",
+      "closedAt": "Closed on",
+      "cashAccount": "Cash account",
+      "repaymentJournal": "Repayment journal",
+      "paidOn": "Paid on",
+      "amount": "Amount",
+      "kind": "Kind",
+      "note": "Note",
       "yes": "Yes",
       "no": "No"
     }

@@ -34,6 +34,20 @@ vi.mock('@/features/budget/hooks', () => ({
 vi.mock('@/features/history/hooks', () => ({ useHistory: () => ({ data: undefined }) }))
 vi.mock('@/features/savings/hooks', () => ({ useSavingsSuggestions: () => ({ data: undefined }) }))
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }))
+// The account page offers peer-loan shortcuts and renders its detail on a PEER_LOAN
+// account. Stub the hooks so the partially mocked react-query above is never asked for
+// useQuery/useMutation.
+vi.mock('@/features/peer-loans/hooks', () => ({
+  usePeerLoan: () => ({ data: undefined, isLoading: false }),
+  useSavePeerLoanTerms: () => idle,
+  useAddPeerLoanRepayment: () => idle,
+  useUpdatePeerLoanRepayment: () => idle,
+  useDeletePeerLoanRepayment: () => idle,
+  useClosePeerLoan: () => idle,
+  useOpenPeerLoans: () => ({ data: [] }),
+  useCreatePeerLoanFromTransaction: () => idle,
+  useAssignPeerLoanRepayment: () => idle,
+}))
 
 vi.mock('@/components/shared/HoldingsTable', () => ({
   HoldingsTable: () => <div data-testid="holdings-table" />,

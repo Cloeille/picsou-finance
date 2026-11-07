@@ -1,4 +1,4 @@
-import { useState, type ComponentType } from 'react'
+import { useMemo, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -42,7 +42,7 @@ import {
   TrendingUp,
   PiggyBank,
 } from 'lucide-react'
-import type { AccountRequest, AccountType } from '@/types/api'
+import type { Account, AccountRequest, AccountType } from '@/types/api'
 
 // ---------------------------------------------------------------------------
 // Props & types
@@ -51,6 +51,10 @@ import type { AccountRequest, AccountType } from '@/types/api'
 interface AddAccountModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Skip the source picker and open the manual form with this type preselected. */
+  defaultType?: AccountType
+  /** Called with the created account, so the caller can land on its detail page. */
+  onCreated?: (account: Account) => void
 }
 
 type WizardStep =
@@ -107,14 +111,23 @@ const PANEL_STEPS: Partial<Record<WizardStep, ComponentType<{ onConnected?: () =
 // Main component
 // ---------------------------------------------------------------------------
 
-export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
+export function AddAccountModal({ open, onOpenChange, defaultType, onCreated }: AddAccountModalProps) {
   const { t } = useTranslation()
   const createAccount = useCreateAccount()
   const updateDebt = useUpdateDebtMetadata()
   const [step, setStep] = useState<WizardStep>('selector')
+  const manualDefaults = useMemo(
+    () => (defaultType ? { type: defaultType } : undefined),
+    [defaultType],
+  )
+
   const [showManualForm, setShowManualForm] = useState(false)
   const [showPropertyForm, setShowPropertyForm] = useState(false)
   const Panel = PANEL_STEPS[step]
+
+  // "Create a loan" from the Receivables tab skips the source picker: the manual form is
+  // the only route, and it is open as soon as the caller supplies the type.
+  const manualOpen = showManualForm || (open && Boolean(defaultType))
 
   function handleSourceClick(key: string) {
     if (key === 'manual') {
@@ -195,11 +208,13 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
     }
 
     setShowManualForm(false)
+    if (defaultType) onOpenChange(false)
+    onCreated?.(created)
   }
 
   return (
     <>
-      <Dialog open={open} onOpenChange={handleDialogChange}>
+      <Dialog open={open && !defaultType} onOpenChange={handleDialogChange}>
         {/* sm:max-w-xl, not just max-w-xl: DialogContent's own `sm:max-w-sm` is a different
             Tailwind variant, so tailwind-merge keeps it and an unprefixed max-w-xl silently has
             no effect above 640px — which is what squeezed this wizard into 24rem. */}
@@ -253,9 +268,13 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
       )}
 
       <AccountForm
-        open={showManualForm}
-        onOpenChange={setShowManualForm}
+        open={manualOpen}
+        onOpenChange={(next) => {
+          setShowManualForm(next)
+          if (!next && defaultType) onOpenChange(false)
+        }}
         onSubmit={handleManualSubmit}
+        defaultValues={manualDefaults}
         title={t('addAccount.manual')}
         loading={createAccount.isPending}
       />

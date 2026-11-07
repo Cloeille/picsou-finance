@@ -222,6 +222,9 @@
     "valueAndInvested": "Wert und investiertes Kapital",
     "manual": "Manuell",
     "accountName": "Kontoname",
+    "beneficiary": "Darlehensnehmer",
+    "beneficiaryPlaceholder": "Jean, Marie…",
+    "peerLoanSetupHint": "Der verliehene Betrag und das Girokonto werden im nächsten Schritt auf der Darlehensseite erfasst.",
     "accountType": "Kontotyp",
     "provider": "Anbieter",
     "bankPickerHint": "Wählen Sie Ihre Bank aus der Liste, um ihr Logo anzuzeigen.",
@@ -278,9 +281,12 @@
       "CHECKING": "Girokonten",
       "CRYPTO": "Krypto",
       "REAL_ESTATE": "Immobilien",
+      "RECEIVABLES": "Forderungen",
       "DEBTS": "Schulden",
       "OTHER": "Sonstiges"
     },
+    "showClosedLoans": "Geschlossene Darlehen anzeigen",
+    "hideClosedLoans": "Geschlossene Darlehen ausblenden",
     "fees": "Gebühren",
     "export": {
       "button": "Daten exportieren",
@@ -457,7 +463,157 @@
     "preciousMetals": "Edelmetalle",
     "brokerage": "Brokerage-Depot",
     "scpi": "SCPI",
-    "creditCard": "Kreditkarte"
+    "creditCard": "Kreditkarte",
+    "peerLoan": "Privatdarlehen"
+  },
+  "peerLoan": {
+    "termsDescription": "Der verliehene Betrag, das Datum und optional ein Zinssatz und eine Prognose.",
+    "borrowerHint": "Der Darlehensnehmer ist der Name des Kontos. Ein Konto, ein Darlehen.",
+    "linkedAccountHint": "Erforderlich: das Konto, das die Rückzahlungen erhält, damit das Vermögen korrekt bleibt.",
+    "termsHint": {
+      "noCashLeg": "Der Geldabfluss ist bereits im Saldo des Zahlungskontos enthalten: Es wird keine Buchung erstellt.",
+      "syncedAccount": "Synchronisiertes Konto: Picsou schreibt keine Zahlungsbewegung."
+    },
+    "setupHint": "Geben Sie den verliehenen Betrag und das Girokonto ein, um die Nachverfolgung zu starten.",
+    "saved": "Bedingungen gespeichert.",
+    "repaymentSaved": "Rückzahlung erfasst.",
+    "repaymentDeleted": "Rückzahlung gelöscht.",
+    "closed": "Darlehen geschlossen.",
+    "configure": "Darlehen einrichten",
+    "create": "Darlehen erstellen",
+    "editTerms": "Bedingungen bearbeiten",
+    "addRepayment": "Rückzahlung hinzufügen",
+    "editRepayment": "Rückzahlung bearbeiten",
+    "withCashLeg": "Zahlungsbewegung erstellen",
+    "repaymentsTitle": "Rückzahlungen",
+    "empty": "Noch keine Rückzahlung erfasst.",
+    "repaymentHint": {
+      "single": "Aufgelaufene Zinsen werden zuerst verrechnet, der Rest reduziert das Kapital.",
+      "noCashLeg": "Das Kapital sinkt ohne Bankeingang: für eine Verrechnung oder eine bereits erfasste Zahlung."
+    },
+    "ledger": {
+      "interestPart": "davon {{amount}} Zinsen",
+      "noCashLeg": "Ohne Zahlungsbewegung"
+    },
+    "noPlan": "Keine Prognose festgelegt. Fügen Sie eine Laufzeit oder eine Monatsrate hinzu.",
+    "closedHint": "Dieses Darlehen ist geschlossen. Löschen Sie den Forderungsverzicht, um es wieder zu öffnen.",
+    "cashflowHint": "Damit dieses Darlehen nicht als Ausgabe zählt, ordnen Sie die passende Banküberweisung der Kategorie „Interner Transfer“ zu.",
+    "fields": {
+      "beneficiary": "Darlehensnehmer",
+      "principal": "Verliehener Betrag",
+      "lentAt": "Datum des Darlehens",
+      "expectedBack": "Erwartete Rückzahlung",
+      "ratePct": "Zinssatz (%)",
+      "ratePeriod": "Zinszeitraum",
+      "rateAnnual": "Jahreszins",
+      "rateMonthly": "Monatszins",
+      "plannedMonths": "Geplante Laufzeit (Monate)",
+      "plannedMonthly": "Geplante Monatsrate",
+      "linkedAccount": "Verknüpftes Girokonto",
+      "outflowAlreadyBooked": "Der Geldabfluss ist bereits im Kontosaldo enthalten",
+      "selectLinkedAccount": "Konto auswählen",
+      "note": "Notiz",
+      "paidOn": "Datum",
+      "amount": "Betrag",
+      "kind": "Art"
+    },
+    "ratePeriod": {
+      "ANNUAL": "Jährlich",
+      "MONTHLY": "Monatlich"
+    },
+    "kinds": {
+      "PRINCIPAL": "Rückzahlung",
+      "INTEREST": "Zinsen",
+      "WRITE_OFF": "Forderungsverzicht"
+    },
+    "summary": {
+      "open": "Offen",
+      "closed": "Geschlossen",
+      "lent": "Verliehen",
+      "remaining": "Restschuld",
+      "repaid": "Zurückgezahlt",
+      "interestCalculated": "Berechnete Zinsen",
+      "interestDue": "Fällige Zinsen",
+      "principalRepaid": "Kapital zurückgezahlt",
+      "writtenOff": "Abgeschrieben"
+    },
+    "forecast": {
+      "title": "Prognose",
+      "planTitle": "Simulator",
+      "scheduled": "Geplant bis heute",
+      "actual": "Tatsächlich",
+      "plannedInterest": "Geplante Zinsen",
+      "behind": "{{count}} Rate im Rückstand",
+      "behind_other": "{{count}} Raten im Rückstand",
+      "ahead": "{{count}} Rate im Voraus",
+      "ahead_other": "{{count}} Raten im Voraus",
+      "onTrack": "Im Plan",
+      "disclaimer": "Unverbindliche Prognose.",
+      "simulationResult": "{{months}} Monate · {{monthlyPayment}}/Monat · {{interest}} Zinsen",
+      "accruedHint": "Bisher aufgelaufene Zinsen:"
+    },
+    "overview": {
+      "title": "Privatdarlehen",
+      "subtitle": "Wer was schuldet und wie es mit den Rückzahlungen steht.",
+      "totalOutstanding": "Offener Gesamtbetrag",
+      "openLoans": "Laufende Darlehen",
+      "interestAccrued": "Aufgelaufene Zinsen",
+      "curveTitle": "Offener Betrag über 12 Monate",
+      "columns": {
+        "borrower": "Kreditnehmer",
+        "remaining": "Offen",
+        "repaid": "Zurückgezahlt",
+        "status": "Status",
+        "lastPayment": "Letzte Zahlung",
+        "expectedBack": "Rückzahlung erwartet"
+      },
+      "status": {
+        "closed": "Geschlossen",
+        "behind_one": "{{count}} Rate im Rückstand",
+        "behind_other": "{{count}} Raten im Rückstand",
+        "onTime": "Aktuell",
+        "noPlan": "Kein Plan"
+      }
+    },
+    "fromTransaction": {
+      "action": "Privatdarlehen erstellen",
+      "title": "Darlehen aus dieser Buchung erstellen",
+      "description": "Das Geld ist bereits abgeflossen: Diese Buchung wird die Cash-Seite des Darlehens, ohne kopiert zu werden.",
+      "beneficiaryHint": "Dieser Name wird der Kontoname und identifiziert das Darlehen.",
+      "beneficiaryRequired": "Der Darlehensnehmer ist erforderlich.",
+      "confirm": "Darlehen erstellen",
+      "created": "Darlehen erstellt.",
+      "assignAction": "Einer Rückzahlung zuordnen"
+    },
+    "assignRepayment": {
+      "title": "Einer Rückzahlung zuordnen",
+      "description": "Die Buchung wird die Cash-Seite der Rückzahlung, ohne kopiert zu werden.",
+      "loan": "Darlehen",
+      "selectLoan": "Darlehen auswählen",
+      "loanRequired": "Wählen Sie ein Darlehen.",
+      "noLoans": "Kein offenes Darlehen.",
+      "confirm": "Zuordnen",
+      "created": "Rückzahlung erfasst."
+    },
+    "actions": {
+      "close": "Darlehen schließen",
+      "simulate": "Berechnen"
+    },
+    "close": {
+      "title": "Darlehen schließen",
+      "description": "Der Restbetrag ({{amount}}) wird abgeschrieben und heute aus dem Vermögen entfernt.",
+      "confirm": "Schließen"
+    },
+    "validation": {
+      "principal": "Der verliehene Betrag muss größer als null sein.",
+      "rateNegative": "Der Zinssatz darf nicht negativ sein.",
+      "linkedAccount": "Das Girokonto ist erforderlich.",
+      "lentAt": "Das Datum des Darlehens ist erforderlich.",
+      "plan": "Geben Sie eine Laufzeit oder eine Monatsrate an, nicht beides.",
+      "simulation": "Diese Prognose konnte nicht berechnet werden.",
+      "amount": "Der Betrag muss größer als null sein.",
+      "paidOn": "Das Datum ist erforderlich."
+    }
   },
   "scpi": {
     "add": {
@@ -2711,6 +2867,26 @@
       "interest": "Zinsen",
       "insurance": "Versicherung",
       "totalPayment": "Rate",
+      "peerLoan": "Privatdarlehen",
+      "borrower": "Kreditnehmer",
+      "lentAt": "Verliehen am",
+      "expectedBack": "Rückzahlung erwartet",
+      "ratePeriod": "Zinsperiode",
+      "plannedMonthly": "Geplante Monatsrate",
+      "plannedMonths": "Geplante Laufzeit (Monate)",
+      "plannedInterest": "Geplante Zinsen",
+      "principal": "Verliehenes Kapital",
+      "principalRemaining": "Restkapital",
+      "interestAccrued": "Aufgelaufene Zinsen",
+      "interestReceived": "Erhaltene Zinsen",
+      "writtenOff": "Abgeschrieben",
+      "closedAt": "Geschlossen am",
+      "cashAccount": "Zahlungskonto",
+      "repaymentJournal": "Rückzahlungsjournal",
+      "paidOn": "Bezahlt am",
+      "amount": "Betrag",
+      "kind": "Art",
+      "note": "Notiz",
       "yes": "Ja",
       "no": "Nein"
     }

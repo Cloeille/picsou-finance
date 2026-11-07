@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { useAccounts, useAccountTree, useAccountDeletionImpact, useUpdateAccount, useDeleteAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
 import { useHistory } from '@/features/history/hooks'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
+import { usePeerLoansOverview } from '@/features/peer-loans/hooks'
+import { PeerLoansOverviewCard } from '@/components/peer-loan/PeerLoansOverviewCard'
 import { AccountForm } from '@/components/shared/AccountForm'
 import { AddAccountModal } from '@/components/shared/AddAccountModal'
 import { AddPropertyModal } from '@/components/property/AddPropertyModal'
@@ -19,16 +21,16 @@ import { ScrollStrip } from '@/components/shared/ScrollStrip'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown, Download } from 'lucide-react'
+import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown, Download, Eye, EyeOff } from 'lucide-react'
 import { cn, formatPercent } from '@/lib/utils'
 import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
 import { accountInvestedAt, accountPnlAt, hasMeasurableGain } from '@/features/accounts/pnl'
 import { useAppStore } from '@/stores/app-store'
 import type { Account, AccountRequest, AccountType } from '@/types/api'
 
-type AssetFilter = 'ALL' | 'STOCKS' | 'METALS' | 'SAVINGS' | 'CHECKING' | 'CRYPTO' | 'REAL_ESTATE' | 'DEBTS' | 'OTHER'
+type AssetFilter = 'ALL' | 'STOCKS' | 'METALS' | 'SAVINGS' | 'CHECKING' | 'CRYPTO' | 'REAL_ESTATE' | 'RECEIVABLES' | 'DEBTS' | 'OTHER'
 
-const FILTER_KEYS: AssetFilter[] = ['ALL', 'STOCKS', 'METALS', 'SAVINGS', 'CHECKING', 'CRYPTO', 'REAL_ESTATE', 'DEBTS', 'OTHER']
+const FILTER_KEYS: AssetFilter[] = ['ALL', 'STOCKS', 'METALS', 'SAVINGS', 'CHECKING', 'CRYPTO', 'REAL_ESTATE', 'RECEIVABLES', 'DEBTS', 'OTHER']
 
 const ASSET_FILTER_MAP: Record<AssetFilter, AccountType[] | null> = {
   ALL: null,
@@ -38,6 +40,7 @@ const ASSET_FILTER_MAP: Record<AssetFilter, AccountType[] | null> = {
   CHECKING: ['CHECKING'],
   CRYPTO: ['CRYPTO'],
   REAL_ESTATE: ['REAL_ESTATE', 'SCPI'],
+  RECEIVABLES: ['PEER_LOAN'],
   DEBTS: LIABILITY_ACCOUNT_TYPES,
   OTHER: ['OTHER'],
 }
@@ -49,6 +52,7 @@ const TYPE_GROUP_META: Record<string, { key: string; labelKey: string; color: st
   CHECKING:    { key: 'CHECKING',    labelKey: 'accounts.filters.CHECKING',    color: '#0ea5e9' },
   CRYPTO:      { key: 'CRYPTO',      labelKey: 'accounts.filters.CRYPTO',      color: '#f97316' },
   REAL_ESTATE: { key: 'REAL_ESTATE', labelKey: 'accounts.filters.REAL_ESTATE', color: '#a855f7' },
+  RECEIVABLES: { key: 'RECEIVABLES', labelKey: 'accounts.filters.RECEIVABLES', color: '#0d9488' },
   DEBTS:       { key: 'DEBTS',       labelKey: 'accounts.filters.DEBTS',       color: '#ef4444' },
   OTHER:       { key: 'OTHER',       labelKey: 'accounts.filters.OTHER',       color: '#94a3b8' },
 }
@@ -73,6 +77,7 @@ const TYPE_TO_GROUP: Record<AccountType, string> = {
   CRYPTO: 'CRYPTO',
   REAL_ESTATE: 'REAL_ESTATE',
   SCPI: 'REAL_ESTATE',
+  PEER_LOAN: 'RECEIVABLES',
   LOAN: 'DEBTS',
   CREDIT_CARD: 'DEBTS',
 }
@@ -135,7 +140,7 @@ export function AccountsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
 
-  const { data: accounts, isLoading } = useAccounts()
+  const { data: accounts, isLoading: isAccountsLoading } = useAccounts()
   // The demo adapter has no handler for the export route, and an unhandled route resolves to
   // {} -- which here would download a corrupt workbook instead of failing visibly.
   const demoMode = useAppStore(state => state.demoMode)
@@ -146,6 +151,7 @@ export function AccountsPage() {
   const hasSavingsSuggestions = Array.isArray(savingsSuggestions) && savingsSuggestions.length > 0
 
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createType, setCreateType] = useState<AccountType | undefined>()
   const [showPropertyModal, setShowPropertyModal] = useState(false)
   const [showExportModal, setShowExportModal] = useState(false)
   const [showScpiModal, setShowScpiModal] = useState(false)
@@ -153,6 +159,32 @@ export function AccountsPage() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [filter, setFilter] = useState<AssetFilter>('ALL')
+  const [showClosed, setShowClosed] = useState(false)
+
+  // A closed peer loan is a 0 EUR receivable. It stays reachable under the Receivables
+  // filter, but it is not an "active" account on the default list.
+  const peerLoansOverview = usePeerLoansOverview()
+  // Closed loans are filtered out with the overview response, so wait for it before
+  // painting the list: otherwise a closed (0 EUR) loan flashes for a frame before vanishing.
+  const isLoading = isAccountsLoading || peerLoansOverview.isLoading
+  const closedPeerLoanIds = useMemo(
+    () => new Set((peerLoansOverview.data?.loans ?? [])
+      .filter((loan) => loan.closedAt)
+      .map((loan) => loan.accountId)),
+    [peerLoansOverview.data],
+  )
+  const visibleAccounts = useMemo(() => {
+    if (!accounts) return accounts
+    const hideClosed = closedPeerLoanIds.size > 0
+      && (filter === 'ALL' || (filter === 'RECEIVABLES' && !showClosed))
+    return hideClosed ? accounts.filter((account) => !closedPeerLoanIds.has(account.id)) : accounts
+  }, [accounts, filter, showClosed, closedPeerLoanIds])
+
+  // The Créances tab shows the member-wide overview in place of the generic summary. The
+  // closed toggle only filters the cards: the table keeps every loan so its history stays
+  // readable, and the chart always reflects the full ledger.
+  const showsReceivablesOverview = filter === 'RECEIVABLES'
+    && (peerLoansOverview.data?.loans.length ?? 0) > 0
 
   // ── Pocket grouping ──────────────────────────────────────────────────────────
   //
@@ -162,7 +194,7 @@ export function AccountsPage() {
   // fallback (parent wallet soft-deleted) that keeps such a pocket from vanishing.
 
   const { nonPocketAccounts, walletGroups: allWalletGroups, standaloneAccounts: allStandaloneAccounts } =
-    useAccountTree(accounts)
+    useAccountTree(visibleAccounts)
 
   // Deleting the last account on a connection removes that connection too, and a bank one
   // costs a full OAuth re-authorisation to get back -- so the dialog names it first.
@@ -330,11 +362,12 @@ export function AccountsPage() {
   // so the primary action goes straight to the guided flow instead of the generic picker.
   const addingProperty = filter === 'REAL_ESTATE'
 
-  function handleOpenCreate() {
-    if (addingProperty) {
+  function handleOpenCreate(type?: AccountType) {
+    if (!type && addingProperty) {
       setShowPropertyModal(true)
       return
     }
+    setCreateType(type)
     setShowCreateModal(true)
   }
 
@@ -450,14 +483,35 @@ export function AccountsPage() {
                 {t('accounts.export.button')}
               </Button>
             )}
-            <Button onClick={handleOpenCreate} size="sm">
+            <Button onClick={() => handleOpenCreate()} size="sm">
               <Plus className="size-4" />
               {addingProperty ? t('property.add.action') : t('accounts.addAccount')}
             </Button>
+            {filter === 'RECEIVABLES' && (
+              <Button
+                onClick={() => handleOpenCreate('PEER_LOAN')}
+                size="sm"
+                variant="outline"
+              >
+                <Plus className="size-4" />
+                {t('peerLoan.create')}
+              </Button>
+            )}
             {addingProperty && (
               <Button onClick={() => setShowScpiModal(true)} size="sm" variant="outline">
                 <Plus className="size-4" />
                 {t('scpi.add.action')}
+              </Button>
+            )}
+            {filter === 'RECEIVABLES' && closedPeerLoanIds.size > 0 && (
+              <Button
+                onClick={() => setShowClosed((value) => !value)}
+                size="sm"
+                variant={showClosed ? 'default' : 'outline'}
+                aria-pressed={showClosed}
+              >
+                {showClosed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                {t(showClosed ? 'accounts.hideClosedLoans' : 'accounts.showClosedLoans')}
               </Button>
             )}
           </div>
@@ -503,7 +557,12 @@ export function AccountsPage() {
             </div>
           </ScrollStrip>
 
+          {showsReceivablesOverview && peerLoansOverview.data && (
+            <PeerLoansOverviewCard data={peerLoansOverview.data} />
+          )}
+
           {/* Summary card */}
+          {filter !== 'RECEIVABLES' && (
           <Card>
             <CardContent>
               <CardTitle>{t('accounts.total')}</CardTitle>
@@ -526,6 +585,7 @@ export function AccountsPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
           {/* PnL chart */}
           {hasPnl && (
@@ -551,14 +611,14 @@ export function AccountsPage() {
             <Skeleton key={i} className="h-32 w-full rounded-xl" />
           ))}
         </div>
-      ) : filteredNonPockets.length === 0 ? (
+      ) : filteredNonPockets.length === 0 && !showsReceivablesOverview ? (
         <EmptyState
           className="min-h-[calc(100vh-14rem)]"
           icon={<Wallet className="size-12" />}
           title={t('accounts.noAccounts')}
           action={{
             label: addingProperty ? t('property.add.action') : t('accounts.addAccount'),
-            onClick: handleOpenCreate,
+            onClick: () => handleOpenCreate(),
           }}
         />
       ) : (
@@ -570,6 +630,7 @@ export function AccountsPage() {
               <div className="relative group">
                 <AccountCard
                   account={wallet}
+                  closed={closedPeerLoanIds.has(wallet.id)}
                   onClick={() => navigate(`/accounts/${wallet.id}`)}
                 />
                 <div className={CARD_ACTIONS_CLASS}>
@@ -640,6 +701,7 @@ export function AccountsPage() {
                 <div key={account.id} className="relative group">
                   <AccountCard
                     account={account}
+                    closed={closedPeerLoanIds.has(account.id)}
                     onClick={() => navigate(`/accounts/${account.id}`)}
                   />
                   <div className={CARD_ACTIONS_CLASS}>
@@ -692,6 +754,12 @@ export function AccountsPage() {
       <AddAccountModal
         open={showCreateModal}
         onOpenChange={setShowCreateModal}
+        defaultType={createType}
+        onCreated={(created) => {
+          if (created.type === 'PEER_LOAN') {
+            navigate(`/accounts/${created.id}`)
+          }
+        }}
       />
 
       <AccountForm

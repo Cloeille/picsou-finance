@@ -353,5 +353,20 @@ describe('AccountCard', () => {
       expect(line.className).toContain('text-red-600')
       expect(queryByText('accounts.syncStale')).not.toBeInTheDocument()
     })
+
+    it('marks a closed peer loan as closed', () => {
+      const account = {
+        ...baseAccount,
+        id: 16,
+        name: 'Camille',
+        type: 'PEER_LOAN' as const,
+        currentBalance: 0,
+        currentBalanceEur: 0,
+        isManual: true,
+      }
+      const { getByText } = render(<AccountCard account={account} closed />)
+
+      expect(getByText('peerLoan.summary.closed')).toBeInTheDocument()
+    })
   })
 })
