@@ -22,6 +22,8 @@ import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** The keypad the sidecar returned must be exactly ten distinct digits before it reaches the UI. */
@@ -63,6 +65,34 @@ class LbpSyncServiceAuthTest {
         assertThat(response.processId()).isEqualTo("proc-1");
         assertThat(response.keypad().keys()).containsExactly("5", "3", "9", "8", "6", "1", "0", "7", "2", "4");
         assertThat(response.expiresInSeconds()).isEqualTo(300);
+    }
+
+    @Test
+    void evictExpiredPendingLogins_dropsOnlyDeadAttempts() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-11-06T10:00:00Z"));
+        LbpSyncService timed = new LbpSyncService(adapter, sessionRepository, accountRepository,
+            transactionRepository, memberRepository, accountService, savingsAutoConfig,
+            encryption, txTemplate, executor, clock);
+        List<String> keys = List.of("5", "3", "9", "8", "6", "1", "0", "7", "2", "4");
+        when(adapter.initiateAuth("1234567890")).thenReturn(
+            new LbpAdapter.InitiateResult("proc-1", new LbpAdapter.Keypad(keys, 5), 300),
+            new LbpAdapter.InitiateResult("proc-2", new LbpAdapter.Keypad(keys, 5), 300));
+        timed.initiateAuth("1234567890", MEMBER);
+        clock.advanceSeconds(60);
+        timed.initiateAuth("1234567890", MEMBER);
+        clock.advanceSeconds(250);
+
+        timed.evictExpiredPendingLogins();
+
+        // proc-1 expired and was swept: gone, not merely stale.
+        assertThatThrownBy(() -> timed.submitKeypad("proc-1", List.of(0, 1, 2, 3, 4, 5), MEMBER))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo("AUTH_ATTEMPT_EXPIRED"));
+        // proc-2 is still live and usable.
+        timed.submitKeypad("proc-2", List.of(0, 1, 2, 3, 4, 5), MEMBER);
+        verify(adapter).submitKeypad("proc-2", List.of(0, 1, 2, 3, 4, 5));
+        verify(adapter, never()).submitKeypad(org.mockito.ArgumentMatchers.eq("proc-1"),
+            org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -152,5 +182,21 @@ class LbpSyncServiceAuthTest {
 
         // The owner can still submit their keypad afterwards.
         service.submitKeypad(response.processId(), List.of(0, 1, 2, 3, 4, 5), MEMBER);
+    }
+
+    private static final class MutableClock extends Clock {
+        private Instant now;
+
+        MutableClock(Instant now) {
+            this.now = now;
+        }
+
+        void advanceSeconds(long seconds) {
+            now = now.plusSeconds(seconds);
+        }
+
+        @Override public java.time.ZoneId getZone() { return ZoneOffset.UTC; }
+        @Override public Clock withZone(java.time.ZoneId zone) { return this; }
+        @Override public Instant instant() { return now; }
     }
 }

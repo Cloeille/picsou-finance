@@ -23,6 +23,7 @@ import com.picsou.repository.TransactionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -173,6 +174,19 @@ public class LbpSyncService {
                     rememberIdentifier ? customerId : null, rememberIdentifier, generation));
         }
         return new InitiateResponse(result.processId(), result.keypad(), result.expiresInSeconds());
+    }
+
+    /**
+     * Drops keypad logins nobody will ever complete. The initiate path sweeps too, but only
+     * when someone starts a new login; without this nothing would evict an abandoned attempt
+     * between two initiates. Deliberately lock-free: per-entry removal on the
+     * {@link ConcurrentHashMap} is already atomic, and the sweep must never block a login or
+     * a disconnect holding {@link #sessionWriteLock}.
+     */
+    @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
+    public void evictExpiredPendingLogins() {
+        Instant now = clock.instant();
+        pendingLogins.entrySet().removeIf(entry -> !entry.getValue().deadline().isAfter(now));
     }
 
     /**
@@ -558,9 +572,11 @@ public class LbpSyncService {
             FamilyMember member = memberRepository.findById(job.memberId())
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             Instant syncedAt = clock.instant();
+            List<Account> imported = accountRepository.findAllByMemberIdAndProvider(job.memberId(), PROVIDER);
             for (PreparedAccount data : prepared.accounts()) {
                 upsertAccount(data, member, job.memberId(), syncedAt);
             }
+            closeUnlistedAccounts(prepared.accounts(), imported, job.memberId(), syncedAt);
 
             session.recordUnsupportedProducts(serializeUnsupported(prepared.unsupported()));
             session.markSuccessful(syncedAt);
@@ -608,6 +624,43 @@ public class LbpSyncService {
         // asking the user to configure them by hand after every first sync.
         savingsAutoConfig.configureIfMissing(saved, data.type());
         upsertTransactions(saved, data.transactions());
+    }
+
+    /**
+     * An account a complete fetch no longer lists (a closed livret) would keep its last
+     * balance and still count in the net worth. Only a complete read reaches this point:
+     * {@link #prepare} refuses an empty or partial snapshot, so unlike the CIC connector
+     * there are no per-table categories to gate on and every stored {@code lbp_} account
+     * of this member is in scope. The account is closed at zero rather than soft
+     * deleted: a soft-deleted account reads as removed by the user and would never be
+     * imported again, while a bank-closed account can come back.
+     */
+    private void closeUnlistedAccounts(List<PreparedAccount> prepared, List<Account> imported,
+                                       Long memberId, Instant syncedAt) {
+        Set<String> listed = new HashSet<>();
+        for (PreparedAccount account : prepared) {
+            listed.add(account.externalId());
+        }
+        for (Account account : imported) {
+            String externalId = account.getExternalAccountId();
+            if (externalId == null || !externalId.startsWith(EXTERNAL_ID_PREFIX) || listed.contains(externalId)) {
+                continue;
+            }
+            if (account.getCurrentBalance() != null && account.getCurrentBalance().signum() == 0) {
+                continue;
+            }
+            log.info("La Banque Postale no longer lists an imported account, closing it at zero (member={}; account={})",
+                memberId, account.getId());
+            account.setCurrentBalance(BigDecimal.ZERO);
+            if (account.getType() == AccountType.CREDIT_CARD) {
+                // No outstanding left on a closed card: clear what the dashboard shows as due.
+                account.setPaymentDueAmount(BigDecimal.ZERO);
+                account.setPaymentDueDate(null);
+            }
+            account.setLastSyncedAt(syncedAt);
+            Account saved = accountRepository.save(account);
+            accountService.upsertSnapshot(saved, BigDecimal.ZERO, LocalDate.now(clock));
+        }
     }
 
     /** Upsert by (account, external id); rows are never deleted, manual rows are never touched. */

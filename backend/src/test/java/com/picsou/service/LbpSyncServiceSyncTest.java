@@ -342,6 +342,126 @@ class LbpSyncServiceSyncTest {
         verify(accountService, never()).upsertSnapshot(any(), any(), any());
     }
 
+    // -- closed accounts ------------------------------------------------------
+
+    @Test
+    void queueSync_closesAnAccountTheSnapshotNoLongerListsAtZero() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.current());
+        Account closedLivret = Account.builder()
+            .id(12L)
+            .externalAccountId("lbp_9001")
+            .provider("La Banque Postale")
+            .type(AccountType.LIVRET_A)
+            .currentBalance(new BigDecimal("800.00"))
+            .build();
+        Account listedCurrent = Account.builder()
+            .id(11L)
+            .externalAccountId("lbp_1001")
+            .provider("La Banque Postale")
+            .type(AccountType.CHECKING)
+            .currentBalance(new BigDecimal("1200.00"))
+            .build();
+        when(accountRepository.findAllByMemberIdAndProvider(MEMBER, "La Banque Postale"))
+            .thenReturn(List.of(closedLivret, listedCurrent));
+        when(accountRepository.findByExternalAccountIdAndMemberId("lbp_1001", MEMBER))
+            .thenReturn(Optional.of(listedCurrent));
+
+        LbpSyncService.SessionStatusResponse result = service.queueSync(MEMBER);
+
+        assertThat(result.syncStatus()).isEqualTo(LbpSyncStatus.SUCCESS);
+        assertThat(closedLivret.getCurrentBalance()).isEqualByComparingTo("0");
+        assertThat(closedLivret.getDeletedAt()).isNull();
+        assertThat(closedLivret.getLastSyncedAt()).isNotNull();
+        verify(accountService).upsertSnapshot(eq(closedLivret), eq(BigDecimal.ZERO), eq(TODAY));
+        // The still-listed account only goes through the regular upsert.
+        assertThat(listedCurrent.getCurrentBalance()).isEqualByComparingTo("1234.56");
+        verify(accountService, never()).upsertSnapshot(eq(listedCurrent), eq(BigDecimal.ZERO), any(LocalDate.class));
+    }
+
+    @Test
+    void queueSync_closesACardTheSnapshotNoLongerListsAndClearsWhatWasDue() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.current());
+        Account closedCard = Account.builder()
+            .id(12L)
+            .externalAccountId("lbp_2001")
+            .provider("La Banque Postale")
+            .type(AccountType.CREDIT_CARD)
+            .cardNature(CardNature.DEFERRED_DEBIT)
+            .currentBalance(new BigDecimal("-87.10"))
+            .paymentDueAmount(new BigDecimal("87.10"))
+            .paymentDueDate(LocalDate.of(2026, 11, 30))
+            .build();
+        when(accountRepository.findAllByMemberIdAndProvider(MEMBER, "La Banque Postale"))
+            .thenReturn(List.of(closedCard));
+
+        service.queueSync(MEMBER);
+
+        assertThat(closedCard.getCurrentBalance()).isEqualByComparingTo("0");
+        assertThat(closedCard.getPaymentDueAmount()).isEqualByComparingTo("0");
+        assertThat(closedCard.getPaymentDueDate()).isNull();
+        verify(accountService).upsertSnapshot(eq(closedCard), eq(BigDecimal.ZERO), eq(TODAY));
+    }
+
+    @Test
+    void queueSync_leavesAnAlreadyZeroUnlistedAccountAlone() {
+        arrangeCommittableSync(new Fixture().current());
+        Account alreadyClosed = Account.builder()
+            .id(12L)
+            .externalAccountId("lbp_9001")
+            .provider("La Banque Postale")
+            .type(AccountType.LIVRET_A)
+            .currentBalance(BigDecimal.ZERO)
+            .build();
+        when(accountRepository.findAllByMemberIdAndProvider(MEMBER, "La Banque Postale"))
+            .thenReturn(List.of(alreadyClosed));
+
+        service.queueSync(MEMBER);
+
+        verify(accountService, never()).upsertSnapshot(eq(alreadyClosed), any(), any());
+        // Only the listed account is saved.
+        verify(accountRepository, times(1)).save(any(Account.class));
+    }
+
+    @Test
+    void queueSync_ignoresStoredAccountsOutsideTheLbpScope() {
+        arrangeCommittableSync(new Fixture().current());
+        Account foreign = Account.builder()
+            .id(12L)
+            .externalAccountId("eb_123")
+            .provider("La Banque Postale")
+            .type(AccountType.CHECKING)
+            .currentBalance(new BigDecimal("50.00"))
+            .build();
+        Account withoutId = Account.builder()
+            .id(13L)
+            .provider("La Banque Postale")
+            .type(AccountType.CHECKING)
+            .currentBalance(new BigDecimal("60.00"))
+            .build();
+        when(accountRepository.findAllByMemberIdAndProvider(MEMBER, "La Banque Postale"))
+            .thenReturn(List.of(foreign, withoutId));
+
+        service.queueSync(MEMBER);
+
+        assertThat(foreign.getCurrentBalance()).isEqualByComparingTo("50.00");
+        assertThat(withoutId.getCurrentBalance()).isEqualByComparingTo("60.00");
+        verify(accountService, never()).upsertSnapshot(eq(foreign), any(), any());
+        verify(accountService, never()).upsertSnapshot(eq(withoutId), any(), any());
+    }
+
+    @Test
+    void queueSync_aFailedFetchClosesNoAccount() {
+        Fixture f = new Fixture();
+        LbpSession session = arrangeCommittableSync(f.current(), f.incomplete(f.livretA()));
+
+        service.queueSync(MEMBER);
+
+        assertThat(session.getSyncStatus()).isEqualTo(LbpSyncStatus.FAILED);
+        verify(accountRepository, never()).findAllByMemberIdAndProvider(any(), any());
+    }
+
     @Test
     void queueSync_neverStoresTheIbanNorALocalOnlyLink() {
         arrangeCommittableSync(new Fixture().current());
