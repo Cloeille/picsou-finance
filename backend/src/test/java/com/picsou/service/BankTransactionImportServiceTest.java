@@ -1,6 +1,7 @@
 package com.picsou.service;
 
 import com.picsou.model.Account;
+import com.picsou.model.AccountType;
 import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
 import com.picsou.model.Transaction;
@@ -296,5 +297,26 @@ class BankTransactionImportServiceTest {
             Arguments.of(List.of(withoutId, knownId, newId)),
             Arguments.of(List.of(knownId, withoutId, newId))
         );
+    }
+
+    private List<Transaction> importProvidedAs(AccountType type) {
+        Account provided = Account.builder().id(56L).externalAccountId("sfin_X_1").currency("USD").type(type).build();
+        service.importProvided(provided, List.of(
+            new TransactionData("t1", DATE, "YOU BOUGHT ALPHABET INC", new BigDecimal("-1140.18"), "USD", null)));
+        ArgumentCaptor<List<Transaction>> saved = ArgumentCaptor.forClass(List.class);
+        verify(transactionRepository).saveAll(saved.capture());
+        return saved.getValue();
+    }
+
+    @Test
+    void importProvided_onAnInvestmentAccount_keepsTheRowsOutOfTheBudget() {
+        assertThat(importProvidedAs(AccountType.BROKERAGE)).singleElement()
+            .satisfies(tx -> assertThat(tx.isBudgetNeutral()).isTrue());
+    }
+
+    @Test
+    void importProvided_onACashAccount_leavesTheRowsInTheBudget() {
+        assertThat(importProvidedAs(AccountType.CHECKING)).singleElement()
+            .satisfies(tx -> assertThat(tx.isBudgetNeutral()).isFalse());
     }
 }

@@ -193,6 +193,7 @@
     "balance": "Solde",
     "lastSync": "Dernière sync",
     "lastValuation": "Dernière estimation",
+    "viaProvider": "via {{provider}}",
     "syncStale": "Sync : {{time}}",
     "syncStaleTooltip": "Ce compte n'a pas été synchronisé récemment. Relancez la synchronisation ou reconnectez le fournisseur.",
     "holdings": "Positions",
@@ -458,6 +459,7 @@
     "assuranceVie": "Assurance vie",
     "per": "PER (épargne retraite)",
     "preciousMetals": "Métaux précieux",
+    "brokerage": "Compte de courtage",
     "scpi": "SCPI",
     "creditCard": "Carte de crédit"
   },

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.exception.SyncException;
 import com.picsou.port.SimplefinPort.SimplefinAccount;
 import com.picsou.port.SimplefinPort.SimplefinAccountSet;
+import com.picsou.port.SimplefinPort.SimplefinHolding;
 import com.picsou.port.SimplefinPort.SimplefinTransaction;
 
 import java.math.BigDecimal;
@@ -50,7 +51,7 @@ final class SimplefinJson {
         collectErrors(root.get("errlist"), errors);
         collectErrors(root.get("errors"), errors);
 
-        Map<String, String> connectionNames = new HashMap<>();
+        Map<String, Institution> connectionNames = new HashMap<>();
         JsonNode connections = root.get("connections");
         if (connections != null && connections.isArray()) {
             for (JsonNode connection : connections) {
@@ -58,7 +59,9 @@ final class SimplefinJson {
                 if (id == null) continue;
                 String name = text(connection, "org_name");
                 if (name == null) name = text(connection, "name");
-                connectionNames.put(id, name);
+                String domain = hostOf(text(connection, "org_url"));
+                if (domain == null) domain = hostOf(text(connection, "url"));
+                connectionNames.put(id, new Institution(name, domain));
             }
         }
 
@@ -89,7 +92,44 @@ final class SimplefinJson {
         }
     }
 
-    private static SimplefinAccount parseAccount(JsonNode node, Map<String, String> connectionNames) {
+    /** What a {@code connections[]} entry says about the bank behind an account. */
+    private record Institution(String name, String domain) {}
+
+    /**
+     * The bare host of a bank's website, or null. The value comes from the bridge and ends up in
+     * a request path to the logo service, so only a plain public DNS name survives: no scheme
+     * tricks, ports, userinfo, IP literals or single-label hosts.
+     */
+    static String hostOf(String raw) {
+        if (raw == null) return null;
+        String value = raw.trim().toLowerCase(java.util.Locale.ROOT);
+        if (value.isEmpty() || value.length() > 300) return null;
+        String host;
+        if (value.contains("://")) {
+            try {
+                java.net.URI uri = java.net.URI.create(value);
+                // Only the host is ever used, so the scheme and port say nothing that matters;
+                // credentials in the URL are a sign of something else and are refused.
+                if (!"https".equals(uri.getScheme()) && !"http".equals(uri.getScheme())) return null;
+                if (uri.getUserInfo() != null) return null;
+                host = uri.getHost();
+            } catch (IllegalArgumentException ex) {
+                return null;
+            }
+        } else {
+            // A bare host, possibly with a path ("fidelity.com/login").
+            host = value.split("[/?#]", 2)[0];
+        }
+        if (host == null) return null;
+        if (host.endsWith(".")) host = host.substring(0, host.length() - 1); // a fully qualified name
+        if (host.startsWith("www.")) host = host.substring(4);
+        return HOST.matcher(host).matches() ? host : null;
+    }
+
+    private static final java.util.regex.Pattern HOST = java.util.regex.Pattern.compile(
+        "(?=.{4,255}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{1,62}");
+
+    private static SimplefinAccount parseAccount(JsonNode node, Map<String, Institution> connectionNames) {
         String id = text(node, "id");
         if (id == null) return null;
         BigDecimal balance = decimal(text(node, "balance"));
@@ -104,14 +144,52 @@ final class SimplefinJson {
                 if (parsed != null) transactions.add(parsed);
             }
         }
+        Institution institution = connId == null ? null : connectionNames.get(connId);
         return new SimplefinAccount(
             externalAccountId(connId, id),
-            connId == null ? null : connectionNames.get(connId),
+            institution == null ? null : institution.name(),
             name == null ? "Account" : name,
             text(node, "currency"),
             balance,
-            List.copyOf(transactions)
+            List.copyOf(transactions),
+            institution == null ? null : institution.domain(),
+            parseHoldings(node.get("holdings"))
         );
+    }
+
+    private static final int MAX_HOLDINGS = 500;
+    private static final int MAX_SYMBOL = 100;
+    private static final int MAX_DESCRIPTION = 255;
+
+    /**
+     * Rows without a symbol or a numeric share count are dropped: they cannot be keyed or
+     * valued. Figures arrive as strings ("10.500") but a bridge may send numbers, so both parse.
+     */
+    private static List<SimplefinHolding> parseHoldings(JsonNode node) {
+        if (node == null || !node.isArray()) return List.of();
+        List<SimplefinHolding> holdings = new ArrayList<>();
+        for (JsonNode h : node) {
+            if (holdings.size() >= MAX_HOLDINGS) break;
+            String symbol = clip(text(h, "symbol"), MAX_SYMBOL);
+            String description = clip(text(h, "description"), MAX_DESCRIPTION);
+            BigDecimal shares = decimal(text(h, "shares"));
+            if (shares == null || (symbol == null && description == null)) continue;
+            holdings.add(new SimplefinHolding(
+                symbol,
+                description,
+                text(h, "currency"),
+                shares,
+                decimal(text(h, "market_value")),
+                decimal(text(h, "cost_basis")),
+                decimal(text(h, "purchase_price"))
+            ));
+        }
+        return List.copyOf(holdings);
+    }
+
+    private static String clip(String value, int max) {
+        if (value == null || value.length() <= max) return value;
+        return value.substring(0, max);
     }
 
     private static SimplefinTransaction parseTransaction(JsonNode node) {

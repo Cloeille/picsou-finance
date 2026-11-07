@@ -13,6 +13,8 @@ vi.mock('@/features/accounts/hooks', async (importActual) => ({
   // the real one stays and only the query hooks are replaced.
   ...(await importActual<typeof import('@/features/accounts/hooks')>()),
   useAccounts: () => useAccounts(),
+  // Reads the budget settings query, which has no client in this test and nothing to say here.
+  useInstitutionLogoUrl: () => () => null,
   useAccountDeletionImpact: () => ({ data: undefined }),
   useUpdateAccount: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteAccount: () => ({ mutate: vi.fn(), isPending: false }),

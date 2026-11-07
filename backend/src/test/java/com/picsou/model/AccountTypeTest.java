@@ -28,10 +28,18 @@ class AccountTypeTest {
     }
 
     @Test
-    void preciousMetalsSitsJustBeforeOther() {
+    void otherStaysLastAndBrokerageAndPreciousMetalsPrecedeIt() {
         AccountType[] all = AccountType.values();
-        assertThat(all[all.length - 2]).isEqualTo(AccountType.PRECIOUS_METALS);
+        assertThat(all[all.length - 3]).isEqualTo(AccountType.PRECIOUS_METALS);
+        assertThat(all[all.length - 2]).isEqualTo(AccountType.BROKERAGE);
         assertThat(all[all.length - 1]).isEqualTo(AccountType.OTHER);
+    }
+
+    @Test
+    void brokerageHoldsPositionsButIsNotAnAssumedLockedWrapper() {
+        assertThat(AccountType.BROKERAGE.isInvestment()).isTrue();
+        assertThat(AccountType.BROKERAGE.isLockedWrapper()).isFalse();
+        assertThat(AccountType.BROKERAGE.isLiability()).isFalse();
     }
 
     @Test
@@ -71,6 +79,6 @@ class AccountTypeTest {
         assertThat(Arrays.stream(AccountType.values()).filter(t -> !t.isLedger()))
             .containsExactlyInAnyOrder(AccountType.PEA, AccountType.COMPTE_TITRES, AccountType.CRYPTO,
                 AccountType.ASSURANCE_VIE, AccountType.PER, AccountType.PRECIOUS_METALS, AccountType.EMPLOYEE_SAVINGS,
-                AccountType.REAL_ESTATE, AccountType.SCPI);
+                AccountType.REAL_ESTATE, AccountType.SCPI, AccountType.BROKERAGE);
     }
 }

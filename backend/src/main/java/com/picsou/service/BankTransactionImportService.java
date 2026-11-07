@@ -156,6 +156,14 @@ public class BankTransactionImportService {
             return 0;
         }
 
+        if (account.getType() != null && account.getType().isInvestment()) {
+            // What a brokerage account reports is money moving inside it -- buys, reinvested
+            // dividends, the sweep fund's purchases and redemptions -- and the one contribution
+            // that is also the debit already counted on the paying account. Counted again here
+            // it would double the member's income and spending, so the rows stay on the
+            // account's own ledger and out of every budget and cashflow query.
+            toInsert.forEach(tx -> tx.setBudgetNeutral(true));
+        }
         transactionRepository.saveAll(toInsert);
         log.info("Imported {} new transactions for account {} ({} provided)",
             toInsert.size(), account.getId(), fetched.size());

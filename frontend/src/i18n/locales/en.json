@@ -193,6 +193,7 @@
     "balance": "Balance",
     "lastSync": "Last sync",
     "lastValuation": "Last valuation",
+    "viaProvider": "via {{provider}}",
     "syncStale": "Synced {{time}}",
     "syncStaleTooltip": "This account has not synced recently. Run a sync or reconnect the provider.",
     "holdings": "Holdings",
@@ -458,6 +459,7 @@
     "assuranceVie": "Life insurance",
     "per": "PER (retirement savings)",
     "preciousMetals": "Precious metals",
+    "brokerage": "Brokerage account",
     "scpi": "SCPI",
     "creditCard": "Credit card"
   },

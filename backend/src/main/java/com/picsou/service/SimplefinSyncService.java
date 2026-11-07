@@ -6,6 +6,7 @@ import com.picsou.dto.SimplefinConnectionStatusResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
+import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.SimplefinConnection;
@@ -14,6 +15,7 @@ import com.picsou.port.SimplefinPort;
 import com.picsou.port.SimplefinPort.SimplefinAccount;
 import com.picsou.port.SimplefinPort.SimplefinAccountSet;
 import com.picsou.port.SimplefinPort.SimplefinTransaction;
+import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.SimplefinConnectionRepository;
@@ -24,6 +26,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -55,6 +58,8 @@ public class SimplefinSyncService {
     private final SimplefinPort simplefinPort;
     private final SimplefinConnectionRepository connectionRepository;
     private final AccountRepository accountRepository;
+    private final AccountHoldingRepository holdingRepository;
+    private final PriceService priceService;
     private final FamilyMemberRepository familyMemberRepository;
     private final AccountService accountService;
     private final BankTransactionImportService transactionImportService;
@@ -194,11 +199,21 @@ public class SimplefinSyncService {
             account.setCurrentBalance(data.balance());
             account.setCurrency(data.currency().toUpperCase(Locale.ROOT));
             account.setLastSyncedAt(Instant.now());
+            // Backfills accounts synced before the institution was recorded.
+            applyInstitution(account, data);
+            // Every account used to be created as CHECKING. A checking account never holds
+            // positions, so one that now reports some was a brokerage account all along. Any
+            // other type was chosen by the member (or is already BROKERAGE) and stays.
+            if (account.getType() == AccountType.CHECKING && !data.holdings().isEmpty()) {
+                account.setType(AccountType.BROKERAGE);
+            }
         } else {
             account = Account.builder()
                 .member(member)
                 .name(accountName(data.connectionName(), data.name()))
-                .type(AccountType.CHECKING)
+                // A bridge account that reports positions is a brokerage account; the member can
+                // retype it afterwards, and a retyped account keeps its type on later syncs.
+                .type(data.holdings().isEmpty() ? AccountType.CHECKING : AccountType.BROKERAGE)
                 .provider(PROVIDER)
                 .currency(data.currency().toUpperCase(Locale.ROOT))
                 .currentBalance(data.balance())
@@ -207,11 +222,91 @@ public class SimplefinSyncService {
                 .isManual(false)
                 .color(COLOR)
                 .build();
+            applyInstitution(account, data);
         }
         account = accountRepository.save(account);
+        // Holdings first: the snapshot below derives the day's invested amount from them.
+        replaceHoldings(account, data);
         accountService.upsertSnapshotFromNative(account, data.balance(), LocalDate.now());
         transactionImportService.importProvided(account, toTransactions(data, account.getCurrency()));
         return Optional.of(accountService.toResponse(account));
+    }
+
+    /**
+     * Replaces the account's positions with the bridge's. An empty list never wipes: the bridge
+     * answers {@code []} for cash accounts and for a partial failure alike, and a wrong wipe
+     * would erase real positions, where a stale line is corrected on the next good sync.
+     *
+     * <p>Prices stay in the position's currency ({@code quoteCurrency}); the buy-in and the cash
+     * are stored in EUR, the unit the valuation reads them in.
+     */
+    private void replaceHoldings(Account account, SimplefinAccount data) {
+        if (data.holdings().isEmpty()) return;
+        if (!account.getType().isInvestment()) {
+            log.info("SimpleFIN: account {} reports positions but is typed {}; positions not imported",
+                account.getId(), account.getType());
+            return;
+        }
+        SimplefinHoldings.Mapped mapped = SimplefinHoldings.map(data.holdings(), account.getCurrency());
+        // The guard is on what survived the mapping, not on what the bridge sent: rows the mapping
+        // drops (no shares, no symbol) must not turn a odd response into an erased portfolio.
+        if (mapped.positions().isEmpty() && mapped.cashByCurrency().isEmpty()) return;
+
+        BigDecimal cashEur = BigDecimal.ZERO;
+        for (var cash : mapped.cashByCurrency().entrySet()) {
+            BigDecimal converted = toEurOrNull(cash.getValue(), cash.getKey());
+            if (converted == null) {
+                // PriceService.toEur would hand back the unconverted amount, which would then be
+                // read as EUR. Keep last sync's figures; the next sync retries.
+                log.warn("SimpleFIN: no EUR rate for {}; positions of account {} left as they were",
+                    cash.getKey(), account.getId());
+                return;
+            }
+            cashEur = cashEur.add(converted);
+        }
+        holdingRepository.deleteByAccountId(account.getId());
+        holdingRepository.flush();
+
+        // The account is a managed entity inside this transaction, so this is written with it.
+        account.setCashBalance(cashEur.setScale(8, java.math.RoundingMode.HALF_UP));
+
+        Instant now = account.getLastSyncedAt();
+        for (SimplefinHoldings.Position p : mapped.positions()) {
+            // No rate means an unknown cost, never an unconverted one read as EUR.
+            BigDecimal buyInEur = p.averageBuyIn() == null ? null : toEurOrNull(p.averageBuyIn(), p.currency());
+            holdingRepository.save(AccountHolding.builder()
+                .account(account)
+                .ticker(p.ticker())
+                .name(p.name())
+                .quantity(p.quantity())
+                .averageBuyIn(buyInEur)
+                .currentPrice(p.currentPrice())
+                .quoteCurrency(p.currency())
+                .lastSyncedAt(now)
+                .build());
+        }
+    }
+
+    /** {@code amount} in EUR, or null when the currency has no rate right now. */
+    private BigDecimal toEurOrNull(BigDecimal amount, String currency) {
+        if ("EUR".equalsIgnoreCase(currency)) return amount;
+        BigDecimal rate = priceService.getFxRateEur(currency);
+        return rate == null ? null : amount.multiply(rate);
+    }
+
+    /**
+     * Records which bank the bridge says an account belongs to. A value the bridge stops sending
+     * is kept rather than cleared: a missing field is more likely a partial response than a bank
+     * that stopped existing.
+     */
+    private static void applyInstitution(Account account, SimplefinAccount data) {
+        String name = data.connectionName() == null ? "" : data.connectionName().trim();
+        if (!name.isEmpty()) {
+            account.setInstitutionName(BankTransactionImportService.clip(name, MAX_NAME_LEN));
+        }
+        if (data.institutionDomain() != null) {
+            account.setInstitutionDomain(data.institutionDomain());
+        }
     }
 
     private static List<TransactionData> toTransactions(SimplefinAccount data, String currency) {
