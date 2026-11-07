@@ -10,10 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **SimpleFIN accounts show their bank and their positions.** A Chase and a Fidelity account now read "Fidelity Investments · via SimpleFIN"
-  instead of "SimpleFIN", and show the bank's logo when logos are enabled in the budget settings. An account for which the bridge
-  reports holdings is created as the new **Brokerage account** type (any broker, any country or tax wrapper: Roth IRA, HSA,
-  401(k), taxable) and lists its individual positions. A buy-in the bridge reports as 0.00 is treated as unknown, and money-market
-  sweep funds count as cash. Accounts already synced get their bank on the next sync, and a SimpleFIN checking account that turns out to hold positions becomes a Brokerage account.
+  instead of "SimpleFIN", and show the bank's logo when logos are enabled in the budget settings. A new account for which the
+  bridge reports positions is created as the new **Brokerage account** type (any broker, any country or tax wrapper: Roth IRA, HSA,
+  401(k), taxable) and lists its individual positions, each valued at the bridge's figure when the price feed cannot find it. A buy-in
+  the bridge reports as 0.00 is treated as unknown (one you entered yourself is kept), and money-market sweep funds count as cash.
+  A portfolio the bridge returns in part is left as it was rather than replaced. Accounts already synced get their bank on the next
+  sync; one typed Checking keeps that type, so change it to Brokerage once to import its positions.
 
 ### Changed
 

@@ -18,8 +18,10 @@ wrappers with French rules.
   under any wrapper. It is an investment type, a wealth-pyramid equity tier and not a locked wrapper.
 - Keep `provider = "SimpleFIN"` (Sync All and deletion find the connection through it) and add
   `account.institution_name` and `account.institution_domain`, filled from `connections[]`.
-- Create an account as `BROKERAGE` when the bridge reports positions for it. This is structural, not
-  one of the heuristics the earlier ADR rejected: a cash account answers an empty list.
+- Create a **new** account as `BROKERAGE` when the bridge reports at least one non-cash position for
+  it. This is structural, not one of the heuristics the earlier ADR rejected: a cash account answers
+  an empty list. A cash-management account whose only holding is a sweep fund stays `CHECKING`.
+  An existing account is never retyped by a sync.
 - Serve the bank logo through an opt-in proxy that reuses the merchant-logo gates.
 
 ## Consequences
@@ -29,6 +31,12 @@ wrappers with French rules.
   `TYPE_TO_GROUP`).
 - A member who wants a wrapper-specific type in future can retype the account; nothing here blocks a
   second, more specific type.
+- A member whose SimpleFIN account was synced before this, and so is typed `CHECKING`, retypes it
+  to Brokerage once to have its positions imported. Silently retyping it would have overridden a
+  type the member may have chosen. Transactions imported before the retype keep their budget status
+  (investment-account rows are budget-neutral from then on); they are not backfilled.
+- Positions are imported only when the whole portfolio can be carried over and converted to EUR;
+  otherwise the stored positions, cash and type are left alone (see `docs/features/simplefin-sync.md`).
 - `AccountResponse` gains an `institution` component. The domain is never exposed to the browser.
 
 ## Alternatives considered

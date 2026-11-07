@@ -203,7 +203,7 @@ Seven asset categories defined in `AccountsPage.tsx`:
 
 | Filter key | Account types | Chart color |
 |-----------|--------------|-------------|
-| STOCKS | PEA, COMPTE_TITRES, EMPLOYEE_SAVINGS, ASSURANCE_VIE, PER | `#6366f1` |
+| STOCKS | PEA, COMPTE_TITRES, BROKERAGE, EMPLOYEE_SAVINGS, ASSURANCE_VIE, PER | `#6366f1` |
 | METALS | PRECIOUS_METALS | `#eab308` |
 | SAVINGS | LEP, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL, SAVINGS | `#22c55e` |
 | CHECKING | CHECKING | `#0ea5e9` |

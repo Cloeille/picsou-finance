@@ -1,6 +1,6 @@
 # Feature: SimpleFIN sync
 
-> Last updated: 2026-10-07
+> Last updated: 2026-11-07
 
 ## Context
 
@@ -24,10 +24,11 @@ and external id `sfin_{connId}_{accountId}`. The institution's `org_name` is pre
 account name (`Chase — Checking`). The connection `name` often includes the member and is only
 used when `org_name` is absent.
 
-A new account is created as `CHECKING`, like Enable Banking's. The member sets savings, credit
-card, or any other type in the account form; a resync only updates the balance, currency, and
-sync time, so that choice is kept. The reported balance is stored as sent and snapshotted in EUR
-through the existing FX path.
+A new account is created as `CHECKING`, like Enable Banking's, unless the bridge reports at least
+one non-cash position for it: then it is created as `BROKERAGE` (see "Institutions and
+positions"). The member sets savings, credit card, or any other type in the account form; a
+resync never changes the type, so that choice is kept. The reported balance is stored as sent and
+snapshotted in EUR through the existing FX path.
 
 Posted transactions from the same response go through `BankTransactionImportService.importProvided`,
 which dedups on the provider id and cuts a description longer than 255 characters to fit the
@@ -113,24 +114,48 @@ upsert Account + EUR snapshot + ledger rows
 | Only `beta-bridge.simplefin.org`, port 443 | It is the only SimpleFIN server members use. A fixed host and port make the outbound destination a constant, so no address filtering or DNS pinning is needed | Resolving the host and refusing private ranges, which still had to defeat DNS rebinding; a configurable allowlist with nothing else to put in it |
 | A 403 is `SESSION_EXPIRED` | Revoked access needs a new setup token, the same signal Fortuneo and Amex already give for an expired login | Reporting it as a plain `FAILED`, which hides that only the member can fix it |
 | Bridge error text single-line and capped | It is remote text shown in a 422 body and written to logs; a newline could forge a log line | Passing it through as sent |
-| An account that reports positions is created as `BROKERAGE` | The protocol has no account type, but `holdings` is structural, not a guess: a cash account answers `[]`. A `CHECKING` account never holds positions, so one synced before this existed that now reports some is upgraded to `BROKERAGE` on its next sync. Any other type was the member's choice and stays; later syncs keep it. | Name, brand or balance-sign detection (see the next row) |
+| A new account that reports a non-cash position is created as `BROKERAGE` | The protocol has no account type, but `holdings` is structural, not a guess: a cash account answers `[]`. A cash-management account whose only line is a sweep fund has no position, so it stays `CHECKING`. The type is set at creation only: an existing account keeps whatever type it has, because a sync that retyped it would override the member's choice (and `CHECKING` is a choice too: it is what every account was before this existed). | Name, brand or balance-sign detection (see the last row); upgrading a `CHECKING` account when positions appear |
 | One generic `BROKERAGE` type | The French wrappers (PEA, PER...) carry French rules. US accounts (Roth IRA, HSA, 401(k), taxable) and every other country's brokers need a home without one enum value per wrapper; the bank's own account name keeps the wrapper visible. | One type per country or wrapper |
 | `cost_basis` of 0 means unknown | Fidelity sends `cost_basis` 0.00 on every line, stocks included. The buy-in is `cost_basis / shares` when positive, else `purchase_price`, else none. Zero as a cost would show an infinite gain. | Trusting the field |
-| A money-market sweep is cash | A symbol ending in `XX` priced at about one dollar (SPAXX, FDRXX) is added to the account's `cashBalance`, as a PEA's cash is, instead of appearing as a stock with a fabricated gain. | Importing it as a holding |
+| A money-market sweep is cash | A symbol ending in `XX`, or a symbol-less line, priced at about one dollar (SPAXX, FDRXX) goes to the account's `cashBalance`, as a PEA's cash is, instead of appearing as a stock with a fabricated gain. | Importing it as a holding |
+| Cash the bridge leaves out of `holdings` | The balance can exceed the positions by cash that is not listed. When every position has a market value and every position and the sweep are in the account's currency, cash is `max(0, balance - positions)`, which already contains the sweep. Otherwise it is the sum of the sweep lines. | Cash from the sweep alone, which showed a balance of 1100 with positions of 1000 as 1000 |
 | An empty `holdings` list never wipes positions | The bridge answers `[]` for cash accounts and for a partial failure alike. A stale line is corrected by the next good sync; a wrongly erased portfolio is not. | Replacing on every sync |
-| Buy-in and cash stored in EUR, price in its own currency | `account_holding.average_buy_in` and `cash_balance` are read as EUR by the valuation. `current_price` keeps `quote_currency`. `provider_value_eur` stays null for non-EUR rows so Yahoo prices the ticker. | Writing USD into the EUR columns |
-| Accounts created as `CHECKING`, typed by the member | The protocol has no account type. Every guess has a known failure: card names like "Sapphire Reserve" contain no keyword, brand lists turned Discover checking and Amex savings into cards in Sure, `available-balance` arrives as `0.00` on checking accounts and with either sign on cards, and a negative balance also means an overdraft or a mortgage. Enable Banking creates every account as `CHECKING` too | Name, brand, or balance-sign detection |
+| A list read in part never replaces the stored one | The parser flags a list as incomplete when it drops a row (no share count, no symbol and no description) or the bridge sends more than 500. The mapping flags it when a line that holds something cannot be stored. Either way holdings, cash and type stay as they were, and the reason is logged. | Importing the readable rows and deleting the rest |
+| One rule for a missing EUR rate | If any currency the replacement needs (the cash or any position) has no EUR rate, or a converted figure does not fit `numeric(20,8)`, holdings and cash are left exactly as they were. A figure is never stored unconverted. | Converting what has a rate and skipping the rest |
+| Buy-in, value and cash stored in EUR, price in its own currency | `account_holding.average_buy_in`, `provider_value_eur` and `cash_balance` are read as EUR by the valuation. `current_price` keeps `quote_currency`. `provider_value_eur` is the position's `market_value` converted at the sync's rate, dated that day in `provider_price_date`. | Writing USD into the EUR columns |
+| Positions that Yahoo cannot price use `provider_value_eur` | A 401(k) fund known only by CUSIP has no quote. `AccountService.valuation` already falls back per line to `provider_value_eur`, and it counts the cost basis of that line, so the account reads the bridge's figure instead of a false loss. SimpleFIN is **not** in `AccountService.PROVIDER_VALUED`: that path reads the account balance as EUR, which is wrong for a USD account. | Adding SimpleFIN to `PROVIDER_VALUED` |
+| Positions are updated in place by ticker | A buy-in the member entered by hand is kept when the bridge sends none (Fidelity sends `cost_basis` 0.00 on every line). Tickers no longer reported are deleted; new ones are inserted. | Delete-and-recreate on every sync, which erased the member's buy-ins |
+| Lots of one ticker are merged by market value | Quantities add; the buy-in is weighted by quantity when both lots know it; the market value is the sum when both are known, and `current_price` is that value divided by the quantity. | Keeping the first lot's price |
+| Accounts without a position created as `CHECKING`, typed by the member | The protocol has no account type. Every guess has a known failure: card names like "Sapphire Reserve" contain no keyword, brand lists turned Discover checking and Amex savings into cards in Sure, `available-balance` arrives as `0.00` on checking accounts and with either sign on cards, and a negative balance also means an overdraft or a mortgage. Enable Banking creates every account as `CHECKING` too | Name, brand, or balance-sign detection |
 
 ## Institutions and positions
 
 The bridge's `connections[]` names the bank behind each account (`org_id` such as `mx.chase`, `org_name`, `org_url`). The sync stores `org_name` and the host of `org_url` on the account, on creation and again on every sync, so accounts synced before this existed are backfilled. A field the bridge stops sending is kept, not cleared.
 
-`holdings[]` (`symbol, description, shares, market_value, cost_basis, purchase_price, currency`, figures as strings) is parsed into positions by `SimplefinHoldings`, then replaced on the account before the day's snapshot is taken, so the snapshot's invested amount derives from them. Positions are written only when the account's type is an investment type, and only when something usable survives the mapping (a payload of zero-share rows changes nothing).
+`holdings[]` (`symbol, description, shares, market_value, cost_basis, purchase_price, currency`, figures as strings) is parsed by `SimplefinJson` and mapped to positions by `SimplefinHoldings`, once per account and per sync. The mapping decides the type of a *new* account (`BROKERAGE` when it has a non-cash position) and, for an account whose type `isInvestment()`, the positions are then written before the day's snapshot is taken, so the snapshot's invested amount derives from them.
 
-Known limits: a member cannot keep a SimpleFIN account that reports positions typed `CHECKING` (retype it to any other type to opt out of the upgrade); when no EUR rate is available, the positions of that account are left as they were until the next sync, rather than storing USD as EUR; a holding Yahoo cannot price is left out of the live value, so a brokerage account holding such funds shows less than the bridge's balance (the provider-valued path in `AccountService` reads the balance as EUR, so it is not enabled for USD accounts); the bridge's coverage of holdings varies by institution (only Chase and Fidelity were checked against live data); a cash line that is neither an `XX` fund nor a symbol-less $1 line is treated as a stock; a holding Yahoo cannot price (a 401(k) fund by CUSIP, say) is left out of the live value like any unpriced holding; transactions on an investment account are history only, and BUY/SELL rows are never created from them, so positions are not counted twice.
+A sync writes the positions only when all of these hold; otherwise holdings, cash and type stay as they were and the reason is logged:
+
+- the list is not empty, and something usable survives the mapping (a payload of zero-share rows changes nothing);
+- the list is complete: no row dropped by the parser, at most 500 rows, and no line the mapping cannot store. A zero-share row is "nothing held" and does not count against it. A short position (negative shares), lots of one ticker in two currencies, a non-cash line with no symbol, a currency that is not ISO 4217, and any figure (read or derived: price, buy-in, merged quantity, converted EUR value, cash) that does not fit `numeric(20,8)` do;
+- every currency involved has a EUR rate.
+
+Known limits:
+
+- The bridge's coverage of holdings varies by institution (only Chase and Fidelity were checked against live data).
+- A cash line that is neither an `XX` fund nor a symbol-less $1 line is treated as a stock.
+- Short positions are not modelled: a portfolio that has one is not imported until it is closed.
+- Transactions on an investment account are history only, and BUY/SELL rows are never created from them, so positions are not counted twice.
+- Rows on an investment account are imported budget-neutral (they stay out of budgets and cashflow), on every import path. Rows imported while the account was still `CHECKING` keep their budget status after a retype: they are not backfilled.
+- A bridge that answers an empty list for an account that had positions leaves them in place, so a portfolio the member closed stays until they delete it by hand.
+- A line Yahoo cannot price is valued at the bridge's `market_value` as of the last sync, converted at that day's rate, until the next sync. A line the bridge sent without a `market_value` that Yahoo cannot price either is valued at nothing; while other lines have no buy-in, the invested amount is the whole account balance, so such an account can read below its cost.
 
 ## Gotchas / Pitfalls
 
+- A SimpleFIN account synced before positions were imported is typed `CHECKING`, and a sync never
+  retypes an existing account. A member who holds positions there retypes it to Brokerage once in
+  the account form; the next sync then imports the positions. Until then its positions are not
+  imported and its balance is shown as the bridge reports it.
 - The setup token is single-use. A failed claim does not store anything. A successful claim
   followed by a failed sync does: retry Sync, do not paste the same token.
 - A credit card arrives as `CHECKING` with the negative balance Bridge sends. Changing its type to
@@ -171,17 +196,27 @@ Backend (`make test-backend`):
   `BoundedUtf8BodyTest`, since `BoundedUtf8Body` is shared with the Wise connector
 - `SimplefinJsonTest` — currency, balance, id, transaction and posted-date parsing; pending rows
   dropped; external ids hashed past 255 characters; Bridge error text collapsed to one line and
-  cut at 300 characters without splitting a surrogate pair
+  cut at 300 characters without splitting a surrogate pair; holdings: a dropped row or more than
+  500 rows makes the list incomplete, and a symbol or description is never cut inside a surrogate pair
+- `SimplefinHoldingsTest` — buy-in fallbacks, sweep detection, lots merged by market value, the
+  incomplete cases (short, mixed currencies, no symbol, overflow of a read or derived figure),
+  zero-share rows staying complete, cash as the balance residual or as the sweep alone
 - `SimplefinSyncServiceTest` — connect (unknown member never claims, a failed claim or encryption
   keeps the stored access URL, reconnect replaces in place); sync (created as `CHECKING`, a
   member-set type kept, a card in credit kept positive, soft-delete skip, currencies with no minor unit skipped, the 89-day UTC
-  clamp); `resyncReporting` (`SESSION_EXPIRED` gives `NEEDS_REAUTH`, other failures `FAILED`,
+  clamp); positions (a new account with a position is `BROKERAGE`, a sweep-only one `CHECKING`, an
+  existing account is never retyped, the value stored in EUR, one rule for a missing rate or an
+  overflowing converted figure, an incomplete list keeping the stored positions and cash, a
+  hand-entered buy-in surviving a sync, dropped tickers deleted before the others are written); `resyncReporting` (`SESSION_EXPIRED` gives `NEEDS_REAUTH`, other failures `FAILED`,
   no credentials in logs); the reconnect and dedup round-trips
 - `SimplefinControllerTest` — each endpoint follows the principal, validation returns 400 or 422
   without echoing the token, connect and sync share the per-IP limit
 - `SimplefinStatusWriterTest` — the `ERROR` status survives the caller's rollback (H2 slice)
 - `SimplefinConnectionTest` — JSON serialization never includes the access URL
-- `BankTransactionImportServiceTest` — clipping on a character boundary, long ids hashed with
+- `AccountServiceTest` — a SimpleFIN position the price feed cannot resolve is valued at its
+  stored EUR figure, with the cost baseline covering the same lines (no false loss)
+- `BankTransactionImportServiceTest` — rows on an investment account budget-neutral on both
+  import paths; clipping on a character boundary, long ids hashed with
   `fp:`, oversized amounts skipped, repeated ids stored once, the fingerprint rounding to 8
   decimals
 - `SourceSyncResultTest`, `SyncStatusServiceTest`, `SyncToolsTest` — the `simplefin` reauth
@@ -191,6 +226,7 @@ Backend (`make test-backend`):
 - `AccountConnectionServiceTest` — the connection is removed only with its last account
 
 Frontend (`make test-frontend`, `make test-e2e`):
+- `AccountDetailPage.duplicateSections.test.tsx` — upcoming dividends mount once on a brokerage account
 - `SimplefinPanel.test.tsx` — token form, connect failures, connected controls, sync, disconnect
   through the confirm dialog
 - `SimplefinTab.test.tsx` — smoke test
