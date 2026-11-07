@@ -28,11 +28,19 @@ class AccountTypeTest {
     }
 
     @Test
-    void peerLoanAndPreciousMetalsSitJustBeforeOther() {
+    void peerLoanPreciousMetalsAndBrokerageSitJustBeforeOther() {
         AccountType[] all = AccountType.values();
-        assertThat(all[all.length - 3]).isEqualTo(AccountType.PEER_LOAN);
-        assertThat(all[all.length - 2]).isEqualTo(AccountType.PRECIOUS_METALS);
+        assertThat(all[all.length - 4]).isEqualTo(AccountType.PEER_LOAN);
+        assertThat(all[all.length - 3]).isEqualTo(AccountType.PRECIOUS_METALS);
+        assertThat(all[all.length - 2]).isEqualTo(AccountType.BROKERAGE);
         assertThat(all[all.length - 1]).isEqualTo(AccountType.OTHER);
+    }
+
+    @Test
+    void brokerageHoldsPositionsButIsNotAnAssumedLockedWrapper() {
+        assertThat(AccountType.BROKERAGE.isInvestment()).isTrue();
+        assertThat(AccountType.BROKERAGE.isLockedWrapper()).isFalse();
+        assertThat(AccountType.BROKERAGE.isLiability()).isFalse();
     }
 
     @Test
@@ -74,6 +82,6 @@ class AccountTypeTest {
             .containsExactlyInAnyOrder(AccountType.PEA, AccountType.COMPTE_TITRES, AccountType.CRYPTO,
                 AccountType.ASSURANCE_VIE, AccountType.PER, AccountType.PRECIOUS_METALS,
                 AccountType.EMPLOYEE_SAVINGS, AccountType.REAL_ESTATE, AccountType.SCPI,
-                AccountType.PEER_LOAN);
+                AccountType.PEER_LOAN, AccountType.BROKERAGE);
     }
 }

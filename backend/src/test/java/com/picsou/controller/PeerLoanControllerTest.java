@@ -111,6 +111,21 @@ class PeerLoanControllerTest {
     }
 
     @Test
+    void saveTermsRejectsATinyExponentRateFast() throws Exception {
+        // Same guard as simulate: saveTerms rounds the rate inside a transaction, so a tiny
+        // exponent must be refused by validation before the service is called.
+        long start = System.currentTimeMillis();
+        mvc.perform(put("/api/accounts/16/peer-loan")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"principal\":1000,\"lentAt\":\"2026-01-01\",\"linkedAccountId\":3,"
+                    + "\"annualRate\":1E-100000000}"))
+            .andExpect(status().isUnprocessableEntity());
+        assertThat(System.currentTimeMillis() - start).isLessThan(5000);
+
+        verifyNoInteractions(peerLoanService);
+    }
+
+    @Test
     void simulateRejectsATinyExponentRateFast() throws Exception {
         // A tiny exponent would pin a thread in setScale if it reached the calculator:
         // validation must reject it before the service is ever called.

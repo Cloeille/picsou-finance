@@ -376,11 +376,11 @@ export function AccountDetailPage() {
       {/* Contract figures the insurer reports (a synced assurance-vie). */}
       {account?.type === 'ASSURANCE_VIE' && account.contract && <LifeContractSection account={account} />}
 
-      {/* Upcoming dividends for a libre securities account or a PEA only. Other wrappers
-          (assurance vie, PER, employee savings) and a checking account stay off this view.
-          Keyed on the account id: this route reuses the page across :id, and the carousel
-          scroll must not carry from one compte to the next. */}
-      {account && (account.type === 'COMPTE_TITRES' || account.type === 'PEA') && (
+      {/* Upcoming dividends for a libre securities account, a brokerage account or a PEA only.
+          Other wrappers (assurance vie, PER, employee savings) and a checking account stay off
+          this view. Keyed on the account id: this route reuses the page across :id, and the
+          carousel scroll must not carry from one compte to the next. */}
+      {account && (account.type === 'COMPTE_TITRES' || account.type === 'BROKERAGE' || account.type === 'PEA') && (
         <AccountDividendsSection
           key={`dividends-${account.id}`}
           accountId={account.id}

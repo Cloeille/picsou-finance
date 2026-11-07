@@ -193,6 +193,7 @@
     "balance": "Solde",
     "lastSync": "Dernière sync",
     "lastValuation": "Dernière estimation",
+    "viaProvider": "via {{provider}}",
     "syncStale": "Sync : {{time}}",
     "syncStaleTooltip": "Ce compte n'a pas été synchronisé récemment. Relancez la synchronisation ou reconnectez le fournisseur.",
     "holdings": "Positions",
@@ -464,6 +465,7 @@
     "assuranceVie": "Assurance vie",
     "per": "PER (épargne retraite)",
     "preciousMetals": "Métaux précieux",
+    "brokerage": "Compte de courtage",
     "scpi": "SCPI",
     "creditCard": "Carte de crédit",
     "peerLoan": "Prêt entre particuliers"
@@ -1176,6 +1178,7 @@
       "degiro": "Synchroniser votre compte-titres DEGIRO",
       "ibkr": "Synchronisez votre compte Interactive Brokers via Flex Query",
       "simplefin": "Importez vos comptes bancaires avec un jeton SimpleFIN",
+      "wise": "Vos Jars Wise, que la connexion bancaire ne voit pas",
       "finary": "Importer depuis Finary",
       "manual": "Créer un compte manuellement",
       "amundi": "PEE, PEG, PERCO, PER chez Amundi",
@@ -1218,6 +1221,11 @@
       "callbackError": "Erreur de synchronisation",
       "initiateError": "Échec de la connexion",
       "psd2ScopeNote": "Enable Banking ne synchronise que vos comptes courants (limitation PSD2). Pour vos PEA, AV, Livret A : utilisez Trade Republic, Boursobank, Finary, ou ajoutez-les manuellement.",
+      "wiseJarsMissing": "Vos Jars Wise ne passent pas par cette connexion.",
+      "wiseJarsConnect": "Connecter les Jars",
+      "wiseJarsConnected": "Vos Jars Wise sont synchronisés par le connecteur Wise Jars.",
+      "wiseJarsFailed": "La dernière synchro de vos Jars Wise a échoué.",
+      "wiseJarsOpen": "Ouvrir Wise Jars",
       "proBadge": "Pro",
       "proBadgeTitle": "Compte professionnel — cette banque ne s'adresse qu'aux pros"
     },
@@ -1322,6 +1330,37 @@
       "errors": {
         "connectFailed": "Connexion à SimpleFIN impossible. Vérifiez le jeton et réessayez.",
         "syncFailed": "Échec de la synchronisation SimpleFIN. Réessayez, ou créez un nouveau jeton si l'accès a été révoqué.",
+        "disconnectFailed": "Impossible de supprimer la connexion. Réessayez."
+      }
+    },
+    "wise": {
+      "title": "Wise Jars",
+      "intro": "Ce connecteur sert uniquement à vos Jars Wise : la connexion bancaire Wise de l'onglet Banques ne les voit pas. Votre compte courant Wise et ses transactions restent sur l'onglet Banques.",
+      "setupHint": "Sur le site wise.com, créez un jeton API personnel en lecture seule, puis collez-le ici.",
+      "createToken": "Créer un jeton",
+      "token": "Jeton API Wise",
+      "tokenPlaceholder": "Collez le jeton Wise",
+      "connect": "Connecter",
+      "sync": "Synchroniser",
+      "syncing": "Synchronisation…",
+      "disconnect": "Déconnecter",
+      "disconnectConfirm": "Supprimer le jeton Wise enregistré ? Les Jars importés restent, et ne se mettent plus à jour.",
+      "connected": "Connecté",
+      "statusError": "Échec de la dernière synchro",
+      "lastSync": "Dernière sync",
+      "neverSynced": "Jamais synchronisé",
+      "syncedToast": "Wise synchronisé : {{count}} Jar",
+      "syncedToast_other": "Wise synchronisé : {{count}} Jars",
+      "statusTokenRefused": "Jeton refusé par Wise",
+      "replaceTokenHint": "Wise a refusé le jeton enregistré. Créez-en un nouveau sur wise.com et collez-le ici pour reprendre la synchro.",
+      "replaceToken": "Remplacer le jeton",
+      "scopeNote": "Seuls les soldes des Jars sont suivis : en Europe, Wise ne partage pas leur historique avec un jeton personnel.",
+      "errors": {
+        "tokenRefused": "Wise a refusé ce jeton. Il a peut-être été révoqué : créez-en un nouveau en lecture seule sur wise.com.",
+        "invalidToken": "Ce n'est pas un jeton API Wise. Copiez-le à nouveau depuis wise.com.",
+        "rateLimited": "Wise limite les requêtes pour le moment. Réessayez dans quelques minutes.",
+        "connectFailed": "Connexion à Wise impossible. Vérifiez le jeton et réessayez.",
+        "syncFailed": "Échec de la synchronisation Wise. Réessayez, ou créez un nouveau jeton s'il a été révoqué.",
         "disconnectFailed": "Impossible de supprimer la connexion. Réessayez."
       }
     },

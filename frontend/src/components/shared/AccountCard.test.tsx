@@ -12,7 +12,14 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
+// The institution logo is opt-in through the budget settings, a query this suite has no client for.
+let logoFetchEnabled = true
+vi.mock('@/features/budget/hooks', () => ({
+  useBudgetSettings: () => ({ data: { logoFetchEnabled } }),
+}))
+
 beforeEach(() => {
+  logoFetchEnabled = true
   vi.stubGlobal('Image', StubImage)
 })
 
@@ -85,6 +92,51 @@ describe('AccountCard', () => {
     await waitFor(() => {
       const img = container.querySelector('img') as HTMLImageElement
       expect(img).toHaveAttribute('src', 'https://logos.example/bnp.png')
+    })
+  })
+
+  describe('an account an aggregator delivered', () => {
+    const simplefin: Account = {
+      ...baseAccount,
+      id: 42,
+      name: 'Fidelity Investments — Health Savings Account',
+      provider: 'SimpleFIN',
+      institution: { name: 'Fidelity Investments', hasLogo: true },
+    }
+
+    it('names the bank and says the bridge delivered it', () => {
+      const { getByText } = render(<AccountCard account={simplefin} />)
+
+      expect(getByText('Fidelity Investments · accounts.viaProvider')).toBeInTheDocument()
+    })
+
+    it('asks for the bank logo through the account when logos are enabled', async () => {
+      const { container } = render(<AccountCard account={simplefin} />)
+
+      await waitFor(() => {
+        const img = container.querySelector('img') as HTMLImageElement
+        expect(img).toHaveAttribute('src', '/api/accounts/42/institution-logo')
+      })
+    })
+
+    it('requests no logo while logos are disabled, falling back to the colour', () => {
+      logoFetchEnabled = false
+      const { container } = render(<AccountCard account={simplefin} />)
+
+      expect(container.querySelector('img')).toBeNull()
+    })
+
+    it('requests no logo when the server has no domain for the bank', () => {
+      const account = { ...simplefin, institution: { name: 'Fidelity Investments', hasLogo: false } }
+      const { container } = render(<AccountCard account={account} />)
+
+      expect(container.querySelector('img')).toBeNull()
+    })
+
+    it('keeps the bare provider as the subtitle for an account with no institution', () => {
+      const { getByText } = render(<AccountCard account={{ ...simplefin, institution: null }} />)
+
+      expect(getByText('SimpleFIN')).toBeInTheDocument()
     })
   })
 

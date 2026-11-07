@@ -40,6 +40,7 @@ class MemberSyncServiceTest {
     @Mock private AmexSyncService amexSyncService;
     @Mock private IbkrSyncService ibkrSyncService;
     @Mock private SimplefinSyncService simplefinSyncService;
+    @Mock private WiseSyncService wiseSyncService;
     @Mock private CryptoExchangeSyncService cryptoExchangeSyncService;
     @Mock private WalletSyncService walletSyncService;
     @Mock private FinaryApiSyncService finaryApiSyncService;
@@ -53,7 +54,7 @@ class MemberSyncServiceTest {
         memberSyncService = new MemberSyncService(
             revolutSyncService, syncService, trSyncService, boursoSyncService,
             bourseDirectSyncService, amundiSyncService, fortuneoSyncService, amexSyncService,
-            ibkrSyncService, simplefinSyncService, cryptoExchangeSyncService, walletSyncService,
+            ibkrSyncService, simplefinSyncService, wiseSyncService, cryptoExchangeSyncService, walletSyncService,
             finaryApiSyncService, degiroSyncService, new ReceivedDividendClassifier(dividendReceiptService), cmesSyncService, cicSyncService,
             corumSyncService
         );
@@ -61,6 +62,8 @@ class MemberSyncServiceTest {
             new SourceSyncResult("cmes", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
         lenient().when(cicSyncService.resyncReporting(anyLong())).thenReturn(
             new SourceSyncResult("cic", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
+        lenient().when(wiseSyncService.resyncReporting(anyLong())).thenReturn(
+            new SourceSyncResult("wise", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No connection"));
         lenient().when(corumSyncService.resyncReporting(anyLong())).thenReturn(
             new SourceSyncResult("corum", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
     }
@@ -85,12 +88,12 @@ class MemberSyncServiceTest {
 
         List<SourceSyncResult> results = memberSyncService.resyncScheduled(memberId);
 
-        assertEquals(18, results.size());
-        assertEquals("cmes", results.get(15).source());
+        assertEquals(19, results.size());
+        assertEquals("cmes", results.get(16).source());
         verify(cmesSyncService).resyncReporting(memberId);
-        assertEquals("cic", results.get(16).source());
+        assertEquals("cic", results.get(17).source());
         // The daily 08:00 run includes CORUM, which logs in again with remembered credentials.
-        assertEquals("corum", results.get(17).source());
+        assertEquals("corum", results.get(18).source());
         verify(corumSyncService).resyncReporting(memberId);
         assertEquals("revolut", results.get(0).source());
         assertEquals("enable-banking", results.get(1).source());
@@ -98,12 +101,14 @@ class MemberSyncServiceTest {
         assertEquals("amex", results.get(8).source());
         assertEquals("ibkr", results.get(9).source());
         assertEquals("simplefin", results.get(10).source());
-        assertEquals("degiro", results.get(14).source());
-        assertEquals(SourceSyncResult.Status.SKIPPED, results.get(14).status());
+        assertEquals("wise", results.get(11).source());
+        assertEquals("degiro", results.get(15).source());
+        assertEquals(SourceSyncResult.Status.SKIPPED, results.get(15).status());
 
         InOrder inOrder = inOrder(revolutSyncService, syncService, trSyncService, boursoSyncService,
             bourseDirectSyncService, amundiSyncService, fortuneoSyncService, amexSyncService, ibkrSyncService,
-            simplefinSyncService, cryptoExchangeSyncService, walletSyncService, finaryApiSyncService, degiroSyncService);
+            simplefinSyncService, wiseSyncService, cryptoExchangeSyncService, walletSyncService, finaryApiSyncService,
+            degiroSyncService);
         inOrder.verify(revolutSyncService).resyncReporting(memberId);
         inOrder.verify(syncService).resyncAllReporting(memberId);
         inOrder.verify(syncService).retryFailedReporting(memberId);
@@ -111,6 +116,7 @@ class MemberSyncServiceTest {
         inOrder.verify(amexSyncService).resyncReporting(memberId);
         inOrder.verify(ibkrSyncService).resyncReporting(memberId);
         inOrder.verify(simplefinSyncService).resyncReporting(memberId);
+        inOrder.verify(wiseSyncService).resyncReporting(memberId);
         inOrder.verify(cryptoExchangeSyncService).resyncAllReporting(memberId);
         verify(degiroSyncService, never()).userSyncReporting(anyLong());
         verify(degiroSyncService, never()).sync(anyLong());

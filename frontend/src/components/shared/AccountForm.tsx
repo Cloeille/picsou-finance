@@ -32,7 +32,7 @@ const accountSchema = z.object({
   type: z.enum([
     'LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL',
     'PEA', 'COMPTE_TITRES', 'CRYPTO', 'CHECKING', 'SAVINGS',
-    'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS', 'REAL_ESTATE', 'SCPI', 'LOAN', 'CREDIT_CARD',
+    'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS', 'BROKERAGE', 'REAL_ESTATE', 'SCPI', 'LOAN', 'CREDIT_CARD',
     'PEER_LOAN', 'EMPLOYEE_SAVINGS', 'OTHER',
   ]),
   provider: z.string().max(100).optional(),

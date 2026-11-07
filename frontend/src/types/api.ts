@@ -9,7 +9,7 @@ export type AccountType =
   | 'LEP' | 'LIVRET_A' | 'LDDS' | 'LIVRET_JEUNE' | 'PEL' | 'CEL'
   | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
   | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'PEER_LOAN' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'PER'
-  | 'PRECIOUS_METALS' | 'OTHER'
+  | 'PRECIOUS_METALS' | 'BROKERAGE' | 'OTHER'
 
 export type PropertyKind = 'HOUSE' | 'APARTMENT' | 'BUILDING' | 'LAND' | 'PARKING' | 'COMMERCIAL'
 
@@ -388,6 +388,11 @@ export interface Account {
   rewardPoints?: number
   /** Cards only: immediate debit, deferred debit or credit. Absent when the bank does not say. */
   cardNature?: CardNature | null
+  /**
+   * The bank behind an account an aggregator (SimpleFIN) delivered. Absent when `provider`
+   * already is the bank. `hasLogo` says only that a logo can be requested, never the domain.
+   */
+  institution?: { name: string; hasLogo: boolean } | null
   /** Display-only visibility flag; hidden account still syncs normally. */
   hidden: boolean
   /** Set only when the member owns less than all of it — the co-ownership badge signal. */
@@ -1055,6 +1060,14 @@ export interface IbkrConnectionStatus {
 }
 
 export interface SimplefinConnectionStatus {
+  connected: boolean
+  connectionId: number | null
+  status: string | null
+  lastSyncedAt: string | null
+  maskedToken: string | null
+}
+
+export interface WiseConnectionStatus {
   connected: boolean
   connectionId: number | null
   status: string | null

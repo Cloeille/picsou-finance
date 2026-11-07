@@ -914,6 +914,9 @@ public class AccountService {
         if (reportedShare != null || isOwner != null) {
             response = response.withViewer(reportedShare, isOwner);
         }
+        if (Boolean.FALSE.equals(isOwner)) {
+            response = response.withoutInstitutionLogo();
+        }
 
         if (account.getType() == AccountType.REAL_ESTATE) {
             Optional<RealEstateMetadataResponse> meta = realEstateMetadataRepository.findByAccountId(account.getId())

@@ -15,6 +15,7 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
   { value: 'ASSURANCE_VIE', labelKey: 'accountTypes.assuranceVie' },
   { value: 'PER', labelKey: 'accountTypes.per' },
   { value: 'PRECIOUS_METALS', labelKey: 'accountTypes.preciousMetals' },
+  { value: 'BROKERAGE', labelKey: 'accountTypes.brokerage' },
   { value: 'REAL_ESTATE', labelKey: 'accountTypes.realEstate' },
   { value: 'SCPI', labelKey: 'accountTypes.scpi' },
   { value: 'EMPLOYEE_SAVINGS', labelKey: 'accountTypes.employeeSavings' },
@@ -30,7 +31,7 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
  * A ledger import cannot target them, and a manual transaction never rewrites their balance.
  */
 export const NON_LEDGER_ACCOUNT_TYPES: AccountType[] = [
-  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS', 'EMPLOYEE_SAVINGS',
+  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS', 'BROKERAGE', 'EMPLOYEE_SAVINGS',
   'REAL_ESTATE', 'SCPI', 'PEER_LOAN',
 ]
 
@@ -53,7 +54,7 @@ export const CASH_ACCOUNT_TYPES: AccountType[] = [
  * three chances to forget one.
  */
 export const HOLDING_ACCOUNT_TYPES: AccountType[] = [
-  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'EMPLOYEE_SAVINGS', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS',
+  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'EMPLOYEE_SAVINGS', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS', 'BROKERAGE',
 ]
 
 /** Mirrors the backend's `AccountType.isLiability()`: debts, never part of the user's assets. */

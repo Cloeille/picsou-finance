@@ -18,9 +18,12 @@ import java.util.Optional;
  * ({@code https://icons.duckduckgo.com/ip3/{domain}.ico}) — no API key, and the more
  * privacy-aligned choice for a self-hosted finance app (ADR 2026-06-09).
  *
- * <p>The {@code logoDomain} always originates from the bundled, seeded
- * {@link com.picsou.model.MerchantBrand} table — never from user input — so there is no
- * SSRF surface here. The fetch is best-effort: a 5s timeout, a 1&nbsp;MB body cap, and a
+ * <p>The {@code logoDomain} comes from one of two places: the bundled, seeded
+ * {@link com.picsou.model.MerchantBrand} table, or a SimpleFIN bridge's {@code org_url}, which
+ * {@code SimplefinJson.hostOf} reduces to a bare public host (no scheme, port, userinfo or IP
+ * literal) before it is stored. Either way the request only ever goes to the fixed
+ * {@code icons.duckduckgo.com} host, with the domain as a path segment, so there is no SSRF
+ * surface here. The fetch is best-effort: a 5s timeout, a 1&nbsp;MB body cap, and a
  * catch-all that maps every failure to {@link Optional#empty()} so a flaky upstream can
  * never break a page or block the request thread for long.
  */

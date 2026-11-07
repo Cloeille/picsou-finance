@@ -24,6 +24,7 @@ import { CorumPanel } from '@/components/sync/CorumPanel'
 import { SofidyPanel } from '@/components/sync/SofidyPanel'
 import { IbkrPanel } from '@/components/sync/IbkrPanel'
 import { SimplefinPanel } from '@/components/sync/SimplefinPanel'
+import { WisePanel } from '@/components/sync/WisePanel'
 import { useCreateAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
 import {
   Landmark,
@@ -57,7 +58,7 @@ interface AddAccountModalProps {
 
 type WizardStep =
   | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso' | 'caisseEpargne'
-  | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'amundi' | 'fortuneo' | 'amex' | 'corum' | 'sofidy'
+  | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'wise' | 'amundi' | 'fortuneo' | 'amex' | 'corum' | 'sofidy'
   | 'finary' | 'property' | 'manual'
 
 // ---------------------------------------------------------------------------
@@ -76,6 +77,7 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
   { key: 'degiro', icon: TrendingUp, labelKey: 'sync.degiro.title', descKey: 'addAccount.desc.degiro' },
   { key: 'ibkr', icon: BriefcaseBusiness, labelKey: 'sync.ibkr.title', descKey: 'addAccount.desc.ibkr' },
   { key: 'simplefin', icon: Landmark, labelKey: 'sync.simplefin.title', descKey: 'addAccount.desc.simplefin' },
+  { key: 'wise', icon: PiggyBank, labelKey: 'sync.wise.title', descKey: 'addAccount.desc.wise' },
   { key: 'amundi', icon: PiggyBank, labelKey: 'sync.amundi.title', descKey: 'addAccount.desc.amundi' },
   { key: 'fortuneo', icon: PiggyBank, labelKey: 'sync.fortuneo.title', descKey: 'addAccount.desc.fortuneo' },
   { key: 'amex', icon: CreditCard, labelKey: 'sync.amex.title', descKey: 'addAccount.desc.amex' },
@@ -94,6 +96,7 @@ const PANEL_STEPS: Partial<Record<WizardStep, ComponentType<{ onConnected?: () =
   degiro: DegiroPanel,
   ibkr: IbkrPanel,
   simplefin: SimplefinPanel,
+  wise: WisePanel,
   amundi: AmundiPanel,
   fortuneo: FortuneoPanel,
   amex: AmexPanel,
