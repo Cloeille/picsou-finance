@@ -31,6 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Wise jars.** Wise's open-banking access only returns current balances, so money in
+  jars was missing. A member can now paste a read-only Wise personal API token; Picsou
+  imports every jar as a savings account and refreshes its balance by hand, from Sync All
+  and on the daily job. Current balances and their transactions keep coming from Enable
+  Banking. Jars carry no transactions: Wise refuses statements to personal tokens in the
+  EEA and the UK. Migration V131. See [ADR](docs/decisions/2026-11-03-wise-jars-beside-enable-banking.md)
+  and [feature note](docs/features/wise-jars.md).
 - **Sign in with your identity provider (SSO).** Set `SSO_ISSUER_URI` and `SSO_CLIENT_ID` to add
   a "Sign in with <provider>" button that works with any OpenID Connect provider (Zitadel,
   Authentik, Keycloak, Authelia, Pocket ID...). It sits alongside passwords: without these

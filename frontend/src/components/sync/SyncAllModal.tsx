@@ -60,6 +60,8 @@ import {
   useSyncIbkr,
   useSimplefinStatus,
   useSyncSimplefin,
+  useWiseStatus,
+  useSyncWise,
 } from '@/features/sync/hooks'
 import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
@@ -76,7 +78,7 @@ type SyncConnection = {
   running?: boolean
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
-    | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin'
+    | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin' | 'wise'
     | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'cmes' | 'cic'
   name: string
   status: string
@@ -103,6 +105,7 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   degiro: LineChart,
   ibkr: LineChart,
   simplefin: Landmark,
+  wise: PiggyBank,
   amex: CreditCard,
   corum: Building2,
   sofidy: Building2,
@@ -120,6 +123,7 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   degiro: 'degiro',
   ibkr: 'ibkr',
   simplefin: 'simplefin',
+  wise: 'wise',
   amex: 'amex',
   corum: 'corum',
   sofidy: 'sofidy',
@@ -201,6 +205,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: degiroStatus } = useDegiroSessionStatus()
   const { data: ibkrStatus } = useIbkrStatus()
   const { data: simplefinStatus } = useSimplefinStatus()
+  const { data: wiseStatus } = useWiseStatus()
   const { data: amexStatus } = useProviderStatus("amex")
   const { data: corumStatus } = useProviderStatus("corum")
   const { data: sofidyStatus } = useProviderStatus("sofidy")
@@ -280,6 +285,13 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       failed: simplefinStatus?.status === 'ERROR',
     },
     {
+      type: 'wise' as const, name: 'Wise Jars', provider: 'Wise Jars',
+      active: wiseStatus?.connected ?? false, lastSyncedAt: wiseStatus?.lastSyncedAt ?? null,
+      failed: wiseStatus?.status === 'ERROR' || wiseStatus?.status === 'REAUTH_REQUIRED',
+      // A refused token only clears with a new one, pasted on the Wise Jars tab.
+      reauth: wiseStatus?.status === 'REAUTH_REQUIRED',
+    },
+    {
       type: 'amex' as const, name: 'American Express', provider: 'American Express',
       active: amexStatus?.isActive ?? false, lastSyncedAt: amexStatus?.lastSyncCompletedAt ?? null,
       failed: amexStatus?.syncStatus === 'FAILED',
@@ -316,7 +328,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       running: isJobRunning(cicStatus?.syncStatus),
       canReconnect: cicStatus?.canReconnect === true,
     },
-  ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
+  ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus, wiseStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -333,6 +345,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncDegiroMutation       = useSyncDegiro()
   const syncIbkrMutation         = useSyncIbkr()
   const syncSimplefinMutation    = useSyncSimplefin()
+  const syncWiseMutation         = useSyncWise()
   const startRevolutMutation     = useStartRevolutSync()
   const confirmRevolutMutation   = useConfirmRevolutSync()
   const syncAmexMutation         = useProviderSync("amex")
@@ -538,6 +551,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'simplefin':
         syncSimplefinMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'wise':
+        syncWiseMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'amex':
         syncAmexMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
@@ -592,6 +608,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncDegiroMutation,
     syncIbkrMutation,
     syncSimplefinMutation,
+    syncWiseMutation,
     startRevolutMutation,
     syncAmexMutation,
     syncCorumMutation,

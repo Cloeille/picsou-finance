@@ -15,6 +15,7 @@ import {
   degiroApi,
   ibkrApi,
   simplefinApi,
+  wiseApi,
 } from './api'
 import { ACCOUNT_VIEWS, syncKeys } from './keys'
 import { sidecarProviders } from './providers'
@@ -441,6 +442,42 @@ export function useDisconnectSimplefin() {
   return useInvalidatingMutation({
     mutationFn: simplefinApi.disconnect,
     invalidates: [syncKeys.simplefin(), ['accounts']],
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Wise
+// ---------------------------------------------------------------------------
+
+export function useWiseStatus() {
+  return useQuery({
+    queryKey: syncKeys.wise(),
+    queryFn: wiseApi.getStatus,
+    staleTime: QUERY_STALE_TIMES.sync,
+  })
+}
+
+export function useConnectWise() {
+  return useInvalidatingMutation({
+    mutationFn: (token: string) => wiseApi.connect(token),
+    invalidates: [syncKeys.wise(), ...ACCOUNT_VIEWS],
+    awaitRefresh: true,
+  })
+}
+
+export function useSyncWise() {
+  return useInvalidatingMutation({
+    mutationFn: wiseApi.sync,
+    // A failed sync stores ERROR on the connection, so the status must refresh either way.
+    when: 'settled',
+    invalidates: [syncKeys.wise(), ...ACCOUNT_VIEWS],
+  })
+}
+
+export function useDisconnectWise() {
+  return useInvalidatingMutation({
+    mutationFn: wiseApi.disconnect,
+    invalidates: [syncKeys.wise(), ['accounts']],
   })
 }
 

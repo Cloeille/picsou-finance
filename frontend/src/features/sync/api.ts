@@ -42,6 +42,7 @@ import type {
   SofidyAuthInitResponse,
   IbkrConnectionStatus,
   SimplefinConnectionStatus,
+  WiseConnectionStatus,
 } from '@/types/api'
 
 // --- Bank Sync (Enable Banking) ---
@@ -512,6 +513,16 @@ export const simplefinApi = {
   sync: () => api.post<Account[]>('/simplefin/sync').then(r => r.data),
 
   disconnect: () => api.delete('/simplefin/connection').then(r => r.data),
+}
+
+export const wiseApi = {
+  getStatus: () => api.get<WiseConnectionStatus>('/wise/status').then(r => r.data),
+
+  connect: (token: string) => api.post<Account[]>('/wise/connect', { token }).then(r => r.data),
+
+  sync: () => api.post<Account[]>('/wise/sync').then(r => r.data),
+
+  disconnect: () => api.delete('/wise/connection').then(r => r.data),
 }
 
 // --- Finary ---

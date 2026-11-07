@@ -23,6 +23,7 @@ test.describe('Sync page tabs', () => {
       'DEGIRO',
       'Interactive Brokers',
       'SimpleFIN',
+      'Wise Jars',
       'Amundi',
       'Crédit Mutuel / CIC Épargne Salariale',
       'CIC (livrets)',

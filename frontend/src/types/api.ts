@@ -893,6 +893,14 @@ export interface SimplefinConnectionStatus {
   maskedToken: string | null
 }
 
+export interface WiseConnectionStatus {
+  connected: boolean
+  connectionId: number | null
+  status: string | null
+  lastSyncedAt: string | null
+  maskedToken: string | null
+}
+
 /**
  * Session status every browser-sidecar provider answers with: a failed sync
  * carries one of the provider's error codes, any other state carries none.
