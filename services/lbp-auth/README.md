@@ -122,12 +122,14 @@ must be diagnosed from the sidecar's typed error, never by replaying it.
   They cross to the backend in transit and are never logged or persisted there:
   only the encrypted cookie session is kept.
 - No login step is retried: a wrong password can lock the bank account.
-- Every Chromium and httpx request — including each redirect hop — must be
-  the bank origin, another `*.labanquepostale.fr` host, or the bank's CDN
-  (`*.cloudfront.net`); anything else fails closed before it is sent. The
+- Every Chromium and httpx request — including each redirect hop — must be a
+  bank-owned document destination (bank origin or `*.labanquepostale.fr`) or,
+  for non-Document subresources only, one of the two pinned CloudFront hosts
+  observed live; anything else fails closed before it is sent. The
   exact-origin-only version broke the live login (keypad scripts and
   anti-fraud payloads come from CloudFront and `transverse.labanquepostale.fr`,
-  and the bank refused the credentials with them blocked). Blocked requests
+  and the bank refused the credentials with them blocked); the
+  `*.cloudfront.net` interim proved too broad and was replaced by pinning. Blocked requests
   log the host only, never the URL.
 - `/accounts` retries a transient `502 UPSTREAM_UNAVAILABLE` once, with the same
   cookie jar: it is an idempotent read, not a login step. The retry logs the

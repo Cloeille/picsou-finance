@@ -142,13 +142,20 @@ the box clears the remembered identifier on the next successful login.
 - `iscdName` is a 52-character device fingerprint set by the bank's anti-fraud
   scripts. The login runs in headless Chromium so those scripts execute and set
   it; the keypad is clicked there, never in the backend.
-- Every request the sidecar sends — Chromium navigations and httpx hops,
-  including redirects — must be the bank origin, another
-  `*.labanquepostale.fr` host, or the bank's CDN (`*.cloudfront.net`).
-  The exact-origin-only version broke the live login (keypad scripts and
-  anti-fraud payloads come from CloudFront and `transverse.labanquepostale.fr`,
-  and the bank refused the credentials with them blocked). Blocked requests
-  are logged with the host only, never the URL.
+- Request allow-list, split in two. Document destinations (httpx hops,
+  top-level navigations, redirects, websockets, every Chromium Document hop)
+  must be the bank origin or another `*.labanquepostale.fr` host — never a
+  CDN, since anyone can register one. The two live-observed CloudFront
+  distributions are pinned by exact hostname and allowed only as
+  non-Document subresources (scripts, images). Everything else fails
+  closed: link-local, metadata and arbitrary hosts, userinfo, backslashes,
+  control characters, non-443 ports and malformed labels. The exact-origin
+  version (added for the security review) broke the live login — the keypad
+  scripts and anti-fraud payloads come from CloudFront and from
+  `transverse.labanquepostale.fr`, and blocking them made the bank refuse the
+  credentials. The `*.cloudfront.net` interim step proved too broad (anyone
+  can create a distribution) and was replaced by pinning. Blocked requests
+  log the host only, never the URL.
 
 ### Storage
 

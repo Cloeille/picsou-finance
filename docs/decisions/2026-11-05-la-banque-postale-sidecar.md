@@ -134,16 +134,18 @@ user; they are not a live feed.
   which no cookie-only connector does.
 - **No PSD2 guarantee.** The bank may rate-limit, challenge or block automated
   access. Failures must be typed so they are diagnosable.
-- **Request allow-list with bank-domain exceptions.** Every Chromium request
-  and every httpx hop must be the bank origin, another
-  `*.labanquepostale.fr` host, or the bank's CDN (`*.cloudfront.net`):
-  link-local, metadata and arbitrary hosts are refused, as are userinfo,
-  backslashes and non-443 ports. The strict exact-origin version (added for
-  the security review) broke the live login — the keypad scripts and
+- **Request allow-list, split in two.** Document destinations (httpx, top-level
+  navigations, redirects, websockets, Chromium Document hops) must be the bank
+  origin or another `*.labanquepostale.fr` host — never a CDN, since anyone
+  can register one. The two live-observed CloudFront distributions are pinned
+  by exact hostname and allowed only as non-Document subresources. Everything
+  else fails closed. The strict exact-origin version (added for
+  the security review) broke the live login - the keypad scripts and
   anti-fraud payloads come from CloudFront distributions and from
   `transverse.labanquepostale.fr`, and blocking them made the bank refuse the
-  credentials. The suffix rules above are the smallest set that logs in live;
-  blocked requests log the host only, never the URL.
+  credentials. The `*.cloudfront.net` interim step proved too broad (anyone
+  can create a distribution) and was replaced by pinning; blocked requests
+  log the host only, never the URL.
 - **A larger sidecar image.** The login needs Chromium, so `lbp-auth` builds on
   the `chromium` base rather than the browserless `python` one.
 - **One extra click in the login flow.** After the keypad, the bank shows a
