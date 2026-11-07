@@ -75,13 +75,14 @@ class FakePage:
 
 
 class FakeBrowserRequest:
-    def __init__(self, url):
+    def __init__(self, url, resource_type="document"):
         self.url = url
+        self.resource_type = resource_type
 
 
 class FakeRoute:
-    def __init__(self, url):
-        self.request = FakeBrowserRequest(url)
+    def __init__(self, url, resource_type="document"):
+        self.request = FakeBrowserRequest(url, resource_type)
         self.action = None
 
     async def continue_(self):
@@ -105,35 +106,79 @@ class FakeSocket:
 
 class AllowedOriginTest(unittest.TestCase):
     def test_the_bank_origin_is_allowed(self):
+        self.assertTrue(bank._is_bank_document_url(bank.BASE + "/wsost/OstBrokerWeb/auth"))
+        self.assertTrue(
+            bank._is_bank_document_url("https://voscomptesenligne.labanquepostale.fr:443/safe")
+        )
         self.assertTrue(bank._is_allowed_url(bank.BASE + "/wsost/OstBrokerWeb/auth"))
-        self.assertTrue(bank._is_allowed_url("https://voscomptesenligne.labanquepostale.fr:443/safe"))
 
-    def test_the_bank_cdn_is_allowed(self):
+    def test_bank_subdomains_are_documents_but_cloudfront_is_not(self):
         # Observed live: the bank serves keypad scripts and anti-fraud
-        # payloads from its own subdomains and CloudFront; blocking them
-        # breaks the login.
+        # payloads from its own subdomains and two pinned CloudFront
+        # distributions; blocking the subdomains breaks the login, but a
+        # distribution must never be a Document (anyone can register one).
+        self.assertTrue(
+            bank._is_bank_document_url("https://transverse.labanquepostale.fr/x.js")
+        )
         self.assertTrue(bank._is_allowed_url("https://transverse.labanquepostale.fr/x.js"))
-        self.assertTrue(bank._is_allowed_url("https://dqnjn206bwvk2.cloudfront.net/app.js"))
-        self.assertTrue(bank._is_allowed_url("https://d2ydsn9mah1r4u.cloudfront.net:443/x.css"))
+        for host in sorted(bank.PINNED_CDN_HOSTS):
+            with self.subTest(host=host):
+                self.assertFalse(bank._is_bank_document_url(f"https://{host}/app.js"))
+                self.assertTrue(bank._is_allowed_url(f"https://{host}/app.js"))
+        self.assertTrue(
+            bank._is_allowed_url("https://d2ydsn9mah1r4u.cloudfront.net:443/x.css")
+        )
+        self.assertFalse(
+            bank._is_bank_document_url("https://d2ydsn9mah1r4u.cloudfront.net:443/x.css")
+        )
+
+    def test_an_attacker_cloudfront_distribution_is_refused_everywhere(self):
+        target = "https://attacker.cloudfront.net/steal?x=1"
+        self.assertFalse(bank._is_bank_document_url(target))
+        self.assertFalse(bank._is_allowed_url(target))
+        with self.assertRaises(HTTPException):
+            bank._require_allowed_url(target)
+
+    def test_hostname_labels_are_hardened(self):
+        # Apex-as-label, empty labels and a trailing dot are refused even on
+        # the pinned suffix; uppercase stays allowed via casefold.
+        for target in (
+            "https://.cloudfront.net/",
+            "https://a..cloudfront.net/x.js",
+            "https://dqnjn206bwvk2.cloudfront.net./x.js",
+            "https://transverse.labanquepostale.fr./x.js",
+        ):
+            with self.subTest(target=target):
+                self.assertFalse(bank._is_bank_document_url(target))
+                self.assertFalse(bank._is_allowed_url(target))
+        self.assertTrue(
+            bank._is_allowed_url("https://DQNJN206BWVK2.CLOUDFRONT.NET/app.js")
+        )
+        self.assertTrue(
+            bank._is_bank_document_url("https://TRANSVERSE.LABANQUEPOSTALE.FR/x.js")
+        )
 
     def test_anything_off_origin_is_refused(self):
         for target in EVIL_HOSTS:
             with self.subTest(target=target):
+                self.assertFalse(bank._is_bank_document_url(target))
                 self.assertFalse(bank._is_allowed_url(target))
         for target in (
             "",
             "/relative/path",
             "https://user@voscomptesenligne.labanquepostale.fr/",
-            # Suffix lookalikes are not the bank or its CDN.
+            # Suffix lookalikes are neither the bank nor a pinned CDN host.
             "https://labanquepostale.fr.evil.example/x.js",
             "https://evillabanquepostale.fr/x.js",
             "https://cloudfront.net.evil.example/x.js",
             "https://evilcloudfront.net/x.js",
+            "https://attacker.cloudfront.net/steal",
             "https://user@dqnjn206bwvk2.cloudfront.net/x.js",
             "https://dqnjn206bwvk2.cloudfront.net:8443/x.js",
             "http://dqnjn206bwvk2.cloudfront.net/x.js",
         ):
             with self.subTest(target=target):
+                self.assertFalse(bank._is_bank_document_url(target))
                 self.assertFalse(bank._is_allowed_url(target))
 
     def test_require_resolves_relative_links_and_refuses_off_origin(self):
@@ -180,6 +225,22 @@ class NavigationGuardTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 502)
         self.assertEqual(page.gotos, [])
 
+    async def test_goto_refuses_an_attacker_cloudfront_url(self):
+        page = FakePage()
+        with self.assertRaises(HTTPException) as raised:
+            await bank.BrowserBankClient._goto(page, "https://attacker.cloudfront.net/steal")
+        self.assertEqual(raised.exception.status_code, 502)
+        self.assertEqual(page.gotos, [])
+
+    async def test_a_cloudfront_retour_is_never_opened(self):
+        page = FakePage()
+        with self.assertRaises(HTTPException) as raised:
+            await bank.BrowserBankClient._follow_continue(
+                page, notice_url("https://attacker.cloudfront.net/steal")
+            )
+        self.assertEqual(raised.exception.status_code, 502)
+        self.assertEqual(page.gotos, [])
+
 
 class EvilPollBank(test_bank.FakeBank):
     """The challenge page carries a metadata-address polling host."""
@@ -201,6 +262,17 @@ class EvilRedirectBank(test_bank.FakeBank):
     def __call__(self, request: httpx.Request) -> httpx.Response:
         if request.url.path in (bank.RELEVE_CCP, bank.RELEVE_CNE, bank.FRAME_CNE):
             return httpx.Response(302, headers={"location": EVIL_METADATA})
+        return super().__call__(request)
+
+
+class EvilCloudfrontBank(test_bank.FakeBank):
+    """Every statement read bounces to an attacker CloudFront distribution."""
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path in (bank.RELEVE_CCP, bank.RELEVE_CNE, bank.FRAME_CNE):
+            return httpx.Response(
+                302, headers={"location": "https://attacker.cloudfront.net/steal"}
+            )
         return super().__call__(request)
 
 
@@ -232,11 +304,13 @@ def recording_client(fake) -> tuple[bank.HttpxBankClient, list[str]]:
 
 
 def assert_nothing_off_origin(sent: list[str]) -> None:
+    # Two-rule model: httpx replays the cookie jar on server-rendered pages,
+    # so every request it sends must be a bank-owned Document URL — never a
+    # CDN host, never metadata, never anything off-origin.
     for url in sent:
-        parsed = httpx.URL(url)
-        assert parsed.scheme == "https", url
-        assert parsed.host == bank.ALLOWED_HOST, url
+        assert bank._is_bank_document_url(url), url
         assert "169.254" not in url, url
+        assert "cloudfront" not in url, url
 
 
 class PollGuardTest(unittest.IsolatedAsyncioTestCase):
@@ -266,6 +340,16 @@ class RedirectGuardTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.detail, "UPSTREAM_UNAVAILABLE")
         assert_nothing_off_origin(sent)
 
+    async def test_a_cloudfront_redirect_hop_is_never_followed(self):
+        client, sent = recording_client(EvilCloudfrontBank())
+        state = await self.login(client)
+        with self.assertRaises(HTTPException) as raised:
+            await client.accounts(state)
+        self.assertEqual(raised.exception.status_code, 502)
+        self.assertEqual(raised.exception.detail, "UPSTREAM_UNAVAILABLE")
+        assert_nothing_off_origin(sent)
+        self.assertTrue(all("cloudfront" not in url for url in sent))
+
     async def test_a_login_redirect_off_origin_fails_closed_without_a_fetch(self):
         client, sent = recording_client(EvilAuthBank())
         initiated = await client.initiate(CUSTOMER)
@@ -274,6 +358,12 @@ class RedirectGuardTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 502)
         self.assertEqual(raised.exception.detail, "UPSTREAM_FORMAT_CHANGED")
         assert_nothing_off_origin(sent)
+
+    async def test_httpx_hook_refuses_attacker_cloudfront(self):
+        request = httpx.Request("GET", "https://attacker.cloudfront.net/steal")
+        with self.assertRaises(HTTPException) as raised:
+            await bank._check_request_origin(request)
+        self.assertEqual(raised.exception.status_code, 502)
 
     async def test_a_redirect_loop_is_bounded(self):
         client, sent = recording_client(LoopBank())
@@ -294,6 +384,9 @@ class RouteGuardTest(unittest.IsolatedAsyncioTestCase):
         allowed = FakeRoute(bank.BASE + "/voscomptes/canalXHTML/identif.ea?origin=particuliers")
         await guard(allowed)
         self.assertEqual(allowed.action, "continue")
+        subdomain = FakeRoute("https://transverse.labanquepostale.fr/x.js")
+        await guard(subdomain)
+        self.assertEqual(subdomain.action, "continue")
         for target in EVIL_HOSTS:
             with self.subTest(target=target):
                 route = FakeRoute(target)
@@ -307,11 +400,61 @@ class RouteGuardTest(unittest.IsolatedAsyncioTestCase):
         socket = FakeSocket("wss://voscomptesenligne.labanquepostale.fr/socket")
         await ws_guard(socket)
         self.assertEqual(socket.action, "connect")
-        for target in ("wss://attacker.example/socket", "ws://voscomptesenligne.labanquepostale.fr/socket"):
+        for target in (
+            "wss://attacker.example/socket",
+            "ws://voscomptesenligne.labanquepostale.fr/socket",
+            "wss://attacker.cloudfront.net/socket",
+            "wss://dqnjn206bwvk2.cloudfront.net/socket",
+        ):
             with self.subTest(target=target):
                 refused = FakeSocket(target)
                 await ws_guard(refused)
                 self.assertEqual(refused.action, "close")
+
+    async def test_pinned_cdn_is_subresource_only(self):
+        guard = bank._route_guard()
+        for host in sorted(bank.PINNED_CDN_HOSTS):
+            with self.subTest(host=host):
+                for resource_type in ("script", "image", "stylesheet", "xhr", "fetch"):
+                    route = FakeRoute(f"https://{host}/app.js", resource_type=resource_type)
+                    await guard(route)
+                    self.assertEqual(route.action, "continue")
+                document = FakeRoute(f"https://{host}/app.js", resource_type="document")
+                await guard(document)
+                self.assertEqual(document.action, "abort")
+        attacker_script = FakeRoute(
+            "https://attacker.cloudfront.net/steal.js", resource_type="script"
+        )
+        await guard(attacker_script)
+        self.assertEqual(attacker_script.action, "abort")
+        attacker_document = FakeRoute(
+            "https://attacker.cloudfront.net/steal", resource_type="document"
+        )
+        await guard(attacker_document)
+        self.assertEqual(attacker_document.action, "abort")
+
+    async def test_cdp_resource_type_branches_document_from_subresource(self):
+        # Exercise the same branching the CDP Fetch guard uses
+        # (`event["resourceType"]`): Document hops use the bank-only rule,
+        # subresources additionally allow the pinned CDN hosts.
+        cases = [
+            ("https://transverse.labanquepostale.fr/x.js", "Document", True),
+            ("https://transverse.labanquepostale.fr/x.js", "Script", True),
+            (f"https://{sorted(bank.PINNED_CDN_HOSTS)[0]}/app.js", "Script", True),
+            (f"https://{sorted(bank.PINNED_CDN_HOSTS)[0]}/app.js", "Image", True),
+            (f"https://{sorted(bank.PINNED_CDN_HOSTS)[1]}/x.css", "Stylesheet", True),
+            (f"https://{sorted(bank.PINNED_CDN_HOSTS)[0]}/app.js", "Document", False),
+            ("https://attacker.cloudfront.net/steal.js", "Script", False),
+            ("https://attacker.cloudfront.net/steal", "Document", False),
+        ]
+        for url, resource_type, expected in cases:
+            with self.subTest(url=url, resource_type=resource_type):
+                allowed = (
+                    bank._is_bank_document_url(url)
+                    if resource_type == "Document"
+                    else bank._is_allowed_url(url)
+                )
+                self.assertEqual(allowed, expected)
 
 
 class BrowserCapacityTest(unittest.IsolatedAsyncioTestCase):
@@ -424,15 +567,25 @@ class BrowserRedirectHopTest(unittest.IsolatedAsyncioTestCase):
         # The guard pins the production host; treat the local TLS fixture as
         # the bank origin so the first hop is allowed and only the redirected
         # metadata hop is under test. Anything else still goes through the
-        # real allow-list.
+        # real allow-list (both the document and the asset rule).
+        real_is_bank_document = bank._is_bank_document_url
         real_is_allowed = bank._is_allowed_url
         origin = self.origin
+
+        def fake_is_bank_document(url):
+            if isinstance(url, str) and url.startswith(origin + "/"):
+                return True
+            return real_is_bank_document(url)
 
         def fake_is_allowed(url):
             if isinstance(url, str) and url.startswith(origin + "/"):
                 return True
             return real_is_allowed(url)
 
+        self.document_patch = patch.object(
+            bank, "_is_bank_document_url", fake_is_bank_document
+        )
+        self.document_patch.start()
         self.allow_patch = patch.object(bank, "_is_allowed_url", fake_is_allowed)
         self.allow_patch.start()
         self.playwright = await async_playwright().start()
@@ -448,6 +601,7 @@ class BrowserRedirectHopTest(unittest.IsolatedAsyncioTestCase):
         await self.browser.close()
         await self.playwright.stop()
         self.allow_patch.stop()
+        self.document_patch.stop()
 
     async def test_a_bank_origin_redirect_to_metadata_sends_nothing(self):
         with self.assertRaises(PlaywrightError) as raised:

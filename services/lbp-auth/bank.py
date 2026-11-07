@@ -13,6 +13,7 @@ enough to replay them with `httpx`.
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from typing import Any, Protocol
@@ -28,11 +29,24 @@ import parsers
 log = logging.getLogger("lbp-auth")
 
 BASE = "https://voscomptesenligne.labanquepostale.fr"
-# The only host this sidecar ever talks to. Every navigation and every httpx
-# request, including each redirect hop, is checked against it: a fixed https
-# origin also excludes loopback and private-IP targets such as the
-# instance-metadata address.
+# Two-rule allow-list. Document URLs (navigations, httpx, websockets and every
+# Chromium Document request, including each redirect hop) stay on bank-owned
+# domains only: anyone can register a CloudFront distribution, so a bank-side
+# redirect to an attacker distribution must never carry the identifier or load
+# forged statements. Pinned CDN hosts below are live-observed script/style
+# origins and are allowed ONLY as non-Document subresources (Script, Image,
+# …), never as a Document. The fixed https origin also excludes loopback and
+# private-IP targets such as the instance-metadata address.
 ALLOWED_HOST = "voscomptesenligne.labanquepostale.fr"
+# The only CloudFront distributions the bank was observed loading subresources
+# from. Exact hosts (case-insensitive): no suffix rule, so an attacker
+# distribution is never allow-listed. Never used for Document navigations.
+PINNED_CDN_HOSTS = {"dqnjn206bwvk2.cloudfront.net", "d2ydsn9mah1r4u.cloudfront.net"}
+# Every hostname label must be `[a-z0-9-]+` (casefolded): this rejects the
+# apex-as-label (`https://.cloudfront.net/`), empty labels
+# (`a..cloudfront.net`), a trailing dot, and any lookalike with an illegal
+# character, while plain uppercase stays allowed.
+_HOST_LABEL = re.compile(r"[a-z0-9-]+")
 # The bank's login chain is two hops at most; a longer one is a loop or a
 # hijack, never a login.
 MAX_REDIRECTS = 5
@@ -98,15 +112,26 @@ class UnverifiedBankClient:
         raise BankFlowUnverified()
 
 
-def _is_allowed_url(url: Any) -> bool:
-    """True for an absolute https URL on the bank's domains, without credentials.
+def _hostname_labels_valid(host: str | None) -> bool:
+    """Every dot-separated label is `[a-z0-9-]+` (case-insensitive)."""
+    if not host:
+        return False
+    try:
+        labels = host.casefold().split(".")
+    except Exception:
+        return False
+    return all(_HOST_LABEL.fullmatch(label) for label in labels)
 
-    The bank serves its scripts, stylesheets and anti-fraud payloads from its
-    own subdomains (observed live: ``transverse.labanquepostale.fr``) and from
-    CloudFront distributions (blocking them breaks the login keypad). The
-    suffix rules keep the SSRF posture: link-local, metadata and arbitrary
-    hosts are still refused, as are userinfo, backslashes, control characters
-    and non-443 ports.
+
+def _is_bank_document_url(url: Any) -> bool:
+    """True for an absolute https URL on a bank-owned domain, without credentials.
+
+    `ALLOWED_HOST` or any `*.labanquepostale.fr` subdomain (bank-owned, not
+    attacker-registerable). CloudFront is never a document: anyone can
+    register a distribution, so a bank-side redirect to one must not leak the
+    identifier or import forged statements. The suffix rule keeps the SSRF
+    posture: link-local, metadata and arbitrary hosts are still refused, as
+    are userinfo, backslashes, control characters and non-443 ports.
     """
     if not isinstance(url, str) or not url or "\\" in url:
         return False
@@ -118,12 +143,46 @@ def _is_allowed_url(url: Any) -> bool:
         port = parsed.port
     except ValueError:
         return False
+    if not _hostname_labels_valid(host):
+        return False
+    assert host is not None
+    lowered = host.casefold()
     return (
         parsed.scheme == "https"
-        and (
-            host == ALLOWED_HOST
-            or (host is not None and host.endswith((".labanquepostale.fr", ".cloudfront.net")))
-        )
+        and (lowered == ALLOWED_HOST or lowered.endswith(".labanquepostale.fr"))
+        and port in (None, 443)
+        and not parsed.username
+        and not parsed.password
+    )
+
+
+def _is_allowed_url(url: Any) -> bool:
+    """True for a loadable subresource: a document URL or a pinned CDN host.
+
+    Asset rule for Chromium non-Document requests only (Script, XHR, Image,
+    …): the two live-observed CloudFront distributions. An attacker
+    distribution (`attacker.cloudfront.net`) is refused here too. Document
+    navigations, httpx and websockets must use `_is_bank_document_url`
+    instead and never call this.
+    """
+    if _is_bank_document_url(url):
+        return True
+    if not isinstance(url, str) or not url or "\\" in url:
+        return False
+    if any(ord(char) <= 0x20 or ord(char) == 0x7F for char in url):
+        return False
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return False
+    if not _hostname_labels_valid(host):
+        return False
+    assert host is not None
+    return (
+        parsed.scheme == "https"
+        and host.casefold() in PINNED_CDN_HOSTS
         and port in (None, 443)
         and not parsed.username
         and not parsed.password
@@ -134,12 +193,12 @@ def _require_allowed_url(url: str) -> str:
     """Resolve ``url`` against the bank origin and refuse anything off-origin.
 
     Relative bank links stay on the origin; an absolute URL elsewhere — a
-    ``url_retour`` or a redirect pointing at the metadata address or an
-    attacker host — fails closed. Never log the rejected URL: it may carry
-    credentials.
+    ``url_retour`` or a redirect pointing at the metadata address, an
+    attacker host or an attacker CloudFront distribution — fails closed.
+    Never log the rejected URL: it may carry credentials.
     """
     target = urljoin(BASE + "/", url)
-    if not _is_allowed_url(target):
+    if not _is_bank_document_url(target):
         raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
     return target
 
@@ -147,25 +206,33 @@ def _require_allowed_url(url: str) -> str:
 async def _check_request_origin(request: httpx.Request) -> None:
     """Runs before every send, including each automatic redirect hop.
 
-    Never log the rejected URL: it may carry a password, a session cookie or
-    the keypad positions.
+    Document rule only: httpx replays the cookie jar on server-rendered pages,
+    so even a pinned CDN host is refused here. Never log the rejected URL: it
+    may carry a password, a session cookie or the keypad positions.
     """
-    if not _is_allowed_url(str(request.url)):
+    if not _is_bank_document_url(str(request.url)):
         raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
 
 
 def _route_guard() -> Any:
-    """First-hop guard only: let the bank domains and data: URLs through, abort the rest.
+    """First-hop guard: document requests stay bank-only, subresources add pinned CDN.
 
     Playwright routes see only the initial URL of a request: a bank-origin
     page answering 302 to an off-origin target is followed by Chromium without
     another route callback. The CDP Fetch guard in `_new_guarded_page` sees
-    every redirect hop and blocks those, so both stay registered.
+    every redirect hop and blocks those, so both stay registered. `data:` URLs
+    never hit the network and stay allowed.
     """
 
     async def guard(route: Any) -> None:
         url = route.request.url
-        if _is_allowed_url(url) or url.startswith("data:"):
+        resource_type = getattr(route.request, "resource_type", "document")
+        allowed = (
+            _is_bank_document_url(url)
+            if resource_type == "document"
+            else _is_allowed_url(url)
+        )
+        if allowed or url.startswith("data:"):
             await route.continue_()
         else:
             # Host only: never the URL, which may carry a session token.
@@ -185,9 +252,12 @@ async def _new_guarded_page(context: Any) -> Any:
     bank-origin page answering 302 to an off-origin target (e.g. the
     instance-metadata address) would be followed by Chromium with no further
     route callback. CDP request-stage interception sees each hop without
-    replacing Chromium's TLS fingerprint with an API client's. Every hop must
-    be one of the bank domains (data: URLs never hit the network and stay allowed); an
-    off-origin hop, or a chain longer than `MAX_REDIRECTS`, fails with
+    replacing Chromium's TLS fingerprint with an API client's. Document hops
+    must be bank-owned (`_is_bank_document_url`); only non-Document
+    subresources (`resourceType` Script/XHR/Image/…) may additionally load
+    from the pinned CDN hosts (`_is_allowed_url`). Every hop must pass
+    (data: URLs never hit the network and stay allowed); an off-origin hop,
+    or a chain longer than `MAX_REDIRECTS`, fails with
     `ERR_BLOCKED_BY_CLIENT` before anything is sent.
     """
     page = await context.new_page()
@@ -200,7 +270,13 @@ async def _new_guarded_page(context: Any) -> Any:
         count = hops.pop(previous, 0) + 1 if previous else 0
         hops[request_id] = count
         url = event["request"]["url"]
-        if count > MAX_REDIRECTS or not (_is_allowed_url(url) or url.startswith("data:")):
+        resource_type = event.get("resourceType", "Document")
+        allowed = (
+            _is_bank_document_url(url)
+            if resource_type == "Document"
+            else _is_allowed_url(url)
+        )
+        if count > MAX_REDIRECTS or not (allowed or url.startswith("data:")):
             # Host only: never the URL, which may carry a session token.
             log.info(
                 "La Banque Postale browser hop blocked host=%s reason=%s",
@@ -224,10 +300,10 @@ def _ws_as_https(url: str) -> str:
 
 
 def _websocket_guard() -> Any:
-    """Connect a WebSocket to the real server only if its host is allow-listed."""
+    """Connect a WebSocket to the real server only if its host is bank-owned."""
 
     async def guard(ws: Any) -> None:
-        if _is_allowed_url(_ws_as_https(ws.url)):
+        if _is_bank_document_url(_ws_as_https(ws.url)):
             ws.connect_to_server()
         else:
             await ws.close()
@@ -553,9 +629,10 @@ class HttpxBankClient:
             follow_redirects=False,
             max_redirects=MAX_REDIRECTS,
             transport=self._transport,
-            # The hook recomputes the check from the final URL before every
-            # send, including each automatic redirect hop: a bank-supplied
-            # Location leaving the origin is refused before anything is sent.
+            # The hook recomputes the document check from the final URL before
+            # every send, including each automatic redirect hop: a bank-supplied
+            # Location leaving the bank-owned origin (including to an attacker
+            # CloudFront distribution) is refused before anything is sent.
             event_hooks={"request": [_check_request_origin]},
             headers={
                 "User-Agent": USER_AGENT,
