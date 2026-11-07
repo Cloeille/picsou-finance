@@ -139,6 +139,18 @@ class AccountCardsTest(unittest.TestCase):
         with self.assertRaises(parsers.FormatError):
             parsers.parse_account_cards(without_href)
 
+    def test_a_healthy_card_beside_a_linkless_card_is_a_format_error(self):
+        # The real regression: one healthy card plus one linkless card. Old
+        # code returned the healthy card with snapshotComplete: true and the
+        # backend closed the linkless account at zero.
+        card = fixtures.SYNTHESE_CCP_HTML.split('<div class="account-resume2020')[1]
+        linkless = '<div class="account-resume2020' + card.replace(
+            "compte.numero=11111111-1111-1111-1111-111111111111", "compte.numero="
+        )
+        page = fixtures.SYNTHESE_CCP_HTML.replace("</ul>", "<li>" + linkless + "</li></ul>")
+        with self.assertRaises(parsers.FormatError):
+            parsers.parse_account_cards(page)
+
     def test_a_recognised_card_with_a_bare_link_is_a_format_error(self):
         page = (
             '<div class="account-resume2020 account-resume--ccp">'
