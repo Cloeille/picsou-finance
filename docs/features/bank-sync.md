@@ -28,6 +28,9 @@ balances (`importProvided`); see [simplefin-sync.md](./simplefin-sync.md). For b
 clips description and category to their column widths, skips an amount that does not fit
 `numeric(20,8)`, and hashes an external id longer than 255 characters into an `fp:` key. The
 fingerprint rounds the amount to 8 decimals before hashing, so it matches the stored value.
+Rows on an investment-typed account (PEA, compte-titres, brokerage...) are stored budget-neutral for
+both providers, so they stay out of budgets and cashflow; rows stored before an account was retyped
+keep their status.
 
 **Enable Banking** (`EnableBankingBankConnector`): Uses the PSD2 Bank Account Data API. Auth is JWT-based (RS256 signed with an RSA private key). Sessions are created via OAuth redirect. After the user authorizes, Enable Banking populates the `session.accounts` list **asynchronously** — some ASPSPs take seconds, others hours (Boursorama). The adapter polls `GET /sessions/{id}` up to 8 times with 2-second delays (≤ 16 s total, configurable via `app.enablebanking.session-poll-attempts` / `session-poll-delay-ms`). If the session still has no accounts, it returns an empty list rather than throwing — the requisition is marked **FAILED** (preserving the session id) so the scheduler can retry the next day without going back through OAuth.
 

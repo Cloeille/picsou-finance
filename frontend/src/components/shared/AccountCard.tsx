@@ -20,6 +20,7 @@ import {
 import { SYNC_FRESHNESS_BOUNDS_MS, VALUATION_FRESHNESS_BOUNDS_MS } from '@/lib/constants'
 import { logoKeyUrl, providerLogoUrl } from '@/lib/provider-logos'
 import { PROPERTY_KIND_ICONS } from '@/lib/property-icons'
+import { useInstitutionLogoUrl } from '@/features/accounts/hooks'
 
 interface AccountCardProps {
   account: Account
@@ -39,12 +40,14 @@ const WARNING_LEVELS: ReadonlySet<FreshnessLevel> = new Set<FreshnessLevel>(['st
  * asset bundled for that provider, else the account's color.
  */
 function AccountAvatar(
-  { logoKey, logoUrl, provider, color }:
-    { logoKey: string | null; logoUrl: string | null; provider: string | null; color: string },
+  { logoKey, logoUrl, provider, institutionLogoSrc, color }:
+    { logoKey: string | null; logoUrl: string | null; provider: string | null; institutionLogoSrc: string | null; color: string },
 ) {
   // The account's own key first: it is the only one a user picked by hand, so it outranks
   // both the connector's logo and the provider map.
-  const src = logoKeyUrl(logoKey) ?? logoUrl ?? providerLogoUrl(provider)
+  // The aggregator's own logo (none is bundled for SimpleFIN) never beats a brand asset, so
+  // the bank behind the bridge is the last thing tried before the colour.
+  const src = logoKeyUrl(logoKey) ?? logoUrl ?? providerLogoUrl(provider) ?? institutionLogoSrc
   return (
     <Avatar className="mt-1 size-10 shrink-0 bg-white">
       {src && <AvatarImage src={src} alt="" className="object-contain p-1" />}
@@ -80,6 +83,7 @@ function PropertyAvatar({ kind, color }: { kind: PropertyKind; color: string }) 
 export function AccountCard({ account, onClick }: AccountCardProps) {
   const { t } = useTranslation()
   const money = useMoney()
+  const institutionLogoUrl = useInstitutionLogoUrl()
   const isLoan = account.type === 'LOAN'
   const property = account.type === 'REAL_ESTATE' ? account.realEstate : undefined
   const propertyKind = property?.propertyKind ?? null
@@ -94,7 +98,10 @@ export function AccountCard({ account, onClick }: AccountCardProps) {
     ? [propertyKind && t(`property.kind.${propertyKind}`), property.city]
         .filter(Boolean)
         .join(' · ')
-    : account.provider
+    : account.institution
+      // A bridge is not a bank: say which bank this is, and that the bridge delivered it.
+      ? `${account.institution.name} · ${t('accounts.viaProvider', { provider: account.provider })}`
+      : account.provider
 
   // Lazy initializer keeps the impure Date.now() out of render; the slow tick
   // lets a long-lived tab cross a threshold without a remount (the whole point
@@ -133,6 +140,7 @@ export function AccountCard({ account, onClick }: AccountCardProps) {
             logoKey={account.logoKey}
             logoUrl={account.logoUrl}
             provider={account.provider}
+            institutionLogoSrc={institutionLogoUrl(account)}
             color={account.color}
           />
         )}
