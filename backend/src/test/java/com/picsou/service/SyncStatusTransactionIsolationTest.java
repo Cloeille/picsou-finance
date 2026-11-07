@@ -126,6 +126,7 @@ class SyncStatusTransactionIsolationTest {
                 mock(CmesSyncService.class),
                 mock(CicSyncService.class),
                 mock(CorumSyncService.class),
+                mock(LbpSyncService.class),
                 mock(FortuneoSyncService.class),
                 mock(AmexSyncService.class),
                 mock(IbkrConnectionRepository.class),

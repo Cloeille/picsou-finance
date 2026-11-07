@@ -253,10 +253,22 @@ layer is `httpx` cookie replay.
   savings config (rate, NET basis, legal ceiling) when the account has none.
 - `controller/LbpController.java` — `/api/lbp/auth/{initiate,keypad,complete}`,
   `/sync`, `/status`, `/session`, with strict bodies and per-IP buckets.
+- Shared-service wiring, like CIC: deleting the last `lbp_*` account clears the
+  session (and the optionally remembered identifier) through
+  `AccountConnectionService`; `SyncStatusService` reports the `lbp` line
+  (`SESSION_EXPIRED` and `INVALID_CREDENTIALS` read as `NEEDS_REAUTH`);
+  `SourceSyncResult` classifies the same two codes as `NEEDS_REAUTH`;
+  `MemberSyncService` runs `lbp` last in the sync order, queuing a live session
+  and reporting an expired one without retrying; the MCP broker trigger covers
+  it; the admin instance check probes `lbp-auth` (`sidecar-chromium` base) when
+  its session table has a row.
 - Tests: `LbpSessionTest`, `LbpAdapterTest`, `LbpControllerTest`,
   `LbpSyncServiceAuthTest`, `LbpSyncServiceStoreSessionTest`,
-  `SavingsAutoConfigServiceTest`, the shared `SidecarContractTest` rig,
-  `SidecarBankCodesTest`, and the `V129` / `V130` migration tests.
+  `SavingsAutoConfigServiceTest`, `AccountConnectionServiceTest`,
+  `SyncStatusServiceTest`, `MemberSyncServiceTest`, `SourceSyncResultTest`,
+  `SyncToolsTest` and `InstanceStatusServiceTest` cover the wiring above, plus
+  the shared `SidecarContractTest` rig, `SidecarBankCodesTest`, and the `V129` /
+  `V130` migration tests.
 
 **Sidecar**
 
@@ -322,7 +334,9 @@ three accounts. The session row was `SUCCESS` and active afterwards.
 - Card, loan, life-insurance and PER parsing.
 - History beyond roughly 90 days: the export and the monthly PDFs are not
   parsed.
-- Scheduled sync and automatic re-authentication.
+- Scheduled automatic re-authentication: no credentials are stored, so an expired
+  session can only be renewed by the user on the LBP tab. The scheduled and MCP
+  syncs report it as `NEEDS_REAUTH` instead.
 - Enable Banking adoption/deduplication by IBAN.
 - A multi-replica backend: pending logins and authentication generations are
   process-local, and the `lbp-auth` sidecar keeps the pending Chromium context in
@@ -333,10 +347,6 @@ three accounts. The session row was `SUCCESS` and active afterwards.
   or redeploy of either service mid-sync drops the pending state and fails the
   active sync, so the user starts again. See
   [docker-deployment](docker-deployment.md#gotchas--pitfalls).
-- `AccountConnectionService` / `SyncStatusService` / MCP `SyncTools`
-  integration: deleting the last LBP account does not clear its session, and
-  the connector is not in the status/broker feeds. The connector is on demand and
-  not in the daily scheduler.
 
 ## Links
 
