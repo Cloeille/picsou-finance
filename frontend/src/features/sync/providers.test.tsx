@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const apis = vi.hoisted(() => ({
   amexApi: { getStatus: vi.fn(), initiateAuth: vi.fn(), completeAuth: vi.fn(), sync: vi.fn(), clearSession: vi.fn() },
   caisseEpargneApi: { getStatus: vi.fn(), completeAuth: vi.fn(), sync: vi.fn(), clearSession: vi.fn() },
+  banquePopulaireApi: { getStatus: vi.fn(), completeAuth: vi.fn(), sync: vi.fn(), clearSession: vi.fn() },
   corumApi: { getStatus: vi.fn(), authenticate: vi.fn(), sync: vi.fn(), clearSession: vi.fn() },
   cicApi: { getStatus: vi.fn(), reconnect: vi.fn() },
   amundiApi: { getStatus: vi.fn(), clearSession: vi.fn() },
@@ -115,6 +116,25 @@ describe("sidecar provider quirks", () => {
 
     apis.caisseEpargneApi.completeAuth.mockResolvedValue({ connected: true })
     await act(() => result.current.mutateAsync({ processId: "p" }))
+    expect(client.getQueryData(syncKeys.caisseEpargne())).toBeUndefined()
+  })
+
+  it("Banque Populaire completion never retries and does not write the cache", async () => {
+    apis.banquePopulaireApi.completeAuth.mockRejectedValue(new Error("lost"))
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: 3 } } })
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    const { result } = renderHook(() => useProviderComplete("banquePopulaire"), { wrapper })
+
+    await act(() => result.current.mutateAsync({ processId: "p" }).catch(() => undefined))
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect(apis.banquePopulaireApi.completeAuth).toHaveBeenCalledTimes(1)
+
+    apis.banquePopulaireApi.completeAuth.mockResolvedValue({ connected: true })
+    await act(() => result.current.mutateAsync({ processId: "p" }))
+    expect(client.getQueryData(syncKeys.banquePopulaire())).toBeUndefined()
     expect(client.getQueryData(syncKeys.caisseEpargne())).toBeUndefined()
   })
 

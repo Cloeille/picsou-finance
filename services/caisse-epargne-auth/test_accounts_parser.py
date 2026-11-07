@@ -12,7 +12,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from accounts_parser import (
+from bpce.accounts_parser import (
     ParseError,
     _parse_synthesis,
     build_import,

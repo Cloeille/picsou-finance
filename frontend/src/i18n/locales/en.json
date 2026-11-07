@@ -87,6 +87,13 @@
     "mfaTooManyAttempts": "Too many attempts, try again in a few minutes",
     "mfaSessionExpired": "Verification session expired, sign in again",
     "mfaGenericError": "We couldn't verify the code. Please try again.",
+    "sso": {
+      "button": "Sign in with {{provider}}",
+      "or": "or",
+      "redirecting": "Redirecting to your sign-in provider...",
+      "completing": "Completing sign-in...",
+      "infoError": "Couldn't load the sign-in options."
+    },
     "validation": {
       "usernameTooShort": "The username must contain at least 3 characters.",
       "usernameTooLong": "The username must contain 50 characters or fewer.",
@@ -193,6 +200,7 @@
     "balance": "Balance",
     "lastSync": "Last sync",
     "lastValuation": "Last valuation",
+    "viaProvider": "via {{provider}}",
     "syncStale": "Synced {{time}}",
     "syncStaleTooltip": "This account has not synced recently. Run a sync or reconnect the provider.",
     "holdings": "Holdings",
@@ -225,6 +233,9 @@
     "valueAndInvested": "Value and invested capital",
     "manual": "Manual",
     "accountName": "Account name",
+    "beneficiary": "Borrower",
+    "beneficiaryPlaceholder": "Jean, Marie…",
+    "peerLoanSetupHint": "The amount lent and the cash account are entered on the next step, on the loan page.",
     "accountType": "Account type",
     "provider": "Provider",
     "bankPickerHint": "Pick your bank from the list to show its logo.",
@@ -290,9 +301,12 @@
       "CHECKING": "Current accounts",
       "CRYPTO": "Crypto",
       "REAL_ESTATE": "Real estate",
+      "RECEIVABLES": "Receivables",
       "DEBTS": "Debts",
       "OTHER": "Other"
     },
+    "showClosedLoans": "Show closed loans",
+    "hideClosedLoans": "Hide closed loans",
     "fees": "Fees",
     "export": {
       "button": "Export data",
@@ -449,7 +463,7 @@
     "pel": "PEL",
     "cel": "CEL",
     "pea": "PEA",
-    "compteTitres": "Brokerage",
+    "compteTitres": "Securities account",
     "crypto": "Crypto",
     "realEstate": "Real estate",
     "loan": "Loan",
@@ -458,8 +472,159 @@
     "assuranceVie": "Life insurance",
     "per": "PER (retirement savings)",
     "preciousMetals": "Precious metals",
+    "brokerage": "Brokerage account",
     "scpi": "SCPI",
-    "creditCard": "Credit card"
+    "creditCard": "Credit card",
+    "peerLoan": "Peer loan"
+  },
+  "peerLoan": {
+    "termsDescription": "The amount lent, the date, and optionally a rate and a forecast.",
+    "borrowerHint": "The borrower is the account's own name. One account, one loan.",
+    "linkedAccountHint": "Required: the account that receives the repayments, so net worth stays correct.",
+    "termsHint": {
+      "noCashLeg": "The outflow is already reflected in the cash account balance: no entry will be created.",
+      "syncedAccount": "Synced account: Picsou writes no bank movement."
+    },
+    "setupHint": "Enter the amount lent and the cash account to start tracking.",
+    "saved": "Terms saved.",
+    "repaymentSaved": "Repayment recorded.",
+    "repaymentDeleted": "Repayment deleted.",
+    "closed": "Loan closed.",
+    "configure": "Set up the loan",
+    "create": "Create a loan",
+    "editTerms": "Edit terms",
+    "addRepayment": "Add a repayment",
+    "editRepayment": "Edit repayment",
+    "withCashLeg": "Create the cash movement",
+    "repaymentsTitle": "Repayments",
+    "empty": "No repayment recorded yet.",
+    "repaymentHint": {
+      "single": "Accrued interest is applied first; the rest reduces the capital.",
+      "noCashLeg": "The capital falls with no bank deposit: use it for a compensation or a payment already booked elsewhere."
+    },
+    "ledger": {
+      "interestPart": "of which {{amount}} interest",
+      "noCashLeg": "No cash movement"
+    },
+    "noPlan": "No forecast set. Add a duration or a monthly payment to estimate one.",
+    "closedHint": "This loan is closed. Delete its write-off to reopen it.",
+    "cashflowHint": "So this loan is not counted as spending, categorise the matching bank transfer as 'Internal transfer'.",
+    "fields": {
+      "beneficiary": "Borrower",
+      "principal": "Amount lent",
+      "lentAt": "Lending date",
+      "expectedBack": "Expected return",
+      "ratePct": "Rate (%)",
+      "ratePeriod": "Rate period",
+      "rateAnnual": "Annual rate",
+      "rateMonthly": "Monthly rate",
+      "plannedMonths": "Planned duration (months)",
+      "plannedMonthly": "Planned monthly payment",
+      "linkedAccount": "Linked cash account",
+      "outflowAlreadyBooked": "The outflow is already in the account balance",
+      "selectLinkedAccount": "Select an account",
+      "note": "Note",
+      "paidOn": "Date",
+      "amount": "Amount",
+      "kind": "Kind"
+    },
+    "ratePeriod": {
+      "ANNUAL": "Annual",
+      "MONTHLY": "Monthly"
+    },
+    "kinds": {
+      "PRINCIPAL": "Repayment",
+      "INTEREST": "Interest",
+      "WRITE_OFF": "Write-off"
+    },
+    "summary": {
+      "open": "Open",
+      "closed": "Closed",
+      "lent": "Lent",
+      "remaining": "Remaining",
+      "repaid": "Repaid",
+      "interestCalculated": "Interest calculated",
+      "interestDue": "Interest due",
+      "principalRepaid": "Capital repaid",
+      "writtenOff": "Written off"
+    },
+    "forecast": {
+      "title": "Forecast",
+      "planTitle": "Simulator",
+      "scheduled": "Scheduled today",
+      "actual": "Actual",
+      "plannedInterest": "Planned interest",
+      "behind": "{{count}} installment behind",
+      "behind_other": "{{count}} installments behind",
+      "ahead": "{{count}} installment ahead",
+      "ahead_other": "{{count}} installments ahead",
+      "onTrack": "On schedule",
+      "disclaimer": "Indicative forecast, never contractual.",
+      "simulationResult": "{{months}} months · {{monthlyPayment}}/month · {{interest}} of interest",
+      "accruedHint": "Interest accrued so far:"
+    },
+    "overview": {
+      "title": "Peer loans",
+      "subtitle": "Who owes what, and where the repayments stand.",
+      "totalOutstanding": "Total outstanding",
+      "openLoans": "Open loans",
+      "interestAccrued": "Interest accrued",
+      "curveTitle": "Outstanding over 12 months",
+      "columns": {
+        "borrower": "Borrower",
+        "remaining": "Remaining",
+        "repaid": "Repaid",
+        "status": "Status",
+        "lastPayment": "Last payment",
+        "expectedBack": "Expected back"
+      },
+      "status": {
+        "closed": "Closed",
+        "behind_one": "{{count}} instalment behind",
+        "behind_other": "{{count}} instalments behind",
+        "onTime": "On time",
+        "noPlan": "No plan"
+      }
+    },
+    "fromTransaction": {
+      "action": "Create a peer loan",
+      "title": "Create a loan from this transaction",
+      "description": "The money already left: this transaction becomes the loan's cash leg, without being copied.",
+      "beneficiaryHint": "This name becomes the account's name and identifies the loan.",
+      "beneficiaryRequired": "The borrower is required.",
+      "confirm": "Create the loan",
+      "created": "Loan created.",
+      "assignAction": "Assign to a repayment"
+    },
+    "assignRepayment": {
+      "title": "Assign to a repayment",
+      "description": "The transaction becomes the repayment's cash leg, without being copied.",
+      "loan": "Loan",
+      "selectLoan": "Select a loan",
+      "loanRequired": "Select a loan.",
+      "noLoans": "No open loan.",
+      "confirm": "Assign",
+      "created": "Repayment recorded."
+    },
+    "actions": {
+      "close": "Close the loan",
+      "simulate": "Calculate"
+    },
+    "close": {
+      "title": "Close the loan",
+      "description": "The remaining balance ({{amount}}) will be written off and removed from net worth today.",
+      "confirm": "Close"
+    },
+    "validation": {
+      "principal": "The amount lent must be greater than zero.",
+      "rateNegative": "The rate cannot be negative.",
+      "linkedAccount": "The cash account is required.",
+      "lentAt": "The lending date is required.",
+      "plan": "Provide a duration or a monthly payment, but not both.",
+      "simulation": "This forecast could not be computed.",
+      "amount": "The amount must be greater than zero.",
+      "paidOn": "The date is required."
+    }
   },
   "scpi": {
     "add": {
@@ -1020,6 +1185,7 @@
       "degiro": "Sync your DEGIRO securities account",
       "ibkr": "Sync your Interactive Brokers account via Flex Query",
       "simplefin": "Import bank accounts with a SimpleFIN setup token",
+      "wise": "Your Wise Jars, which the bank connection cannot see",
       "finary": "Import from Finary",
       "manual": "Create an account manually",
       "amundi": "PEE, PEG, PERCO, PER held at Amundi",
@@ -1029,6 +1195,7 @@
       "property": "House, apartment, land…",
       "fortuneo": "Sync your Fortuneo accounts",
       "caisseEpargne": "Current account, Livret A, LDDS, PER, loans and cards at Caisse d'Epargne",
+      "banquePopulaire": "Current account, Livret A, Livret Jeune and LDDS at Banque Populaire",
       "lbp": "Current account, Livret A and LEP at La Banque Postale"
     }
   },
@@ -1063,6 +1230,11 @@
       "callbackError": "Sync error",
       "initiateError": "Connection failed",
       "psd2ScopeNote": "Enable Banking only syncs current accounts (PSD2 limitation). For PEA, life insurance, savings: use Trade Republic, Boursobank, Finary, or add them manually.",
+      "wiseJarsMissing": "Your Wise Jars do not come through this connection.",
+      "wiseJarsConnect": "Connect the Jars",
+      "wiseJarsConnected": "Your Wise Jars sync through the Wise Jars connector.",
+      "wiseJarsFailed": "The last sync of your Wise Jars failed.",
+      "wiseJarsOpen": "Open Wise Jars",
       "proBadge": "Pro",
       "proBadgeTitle": "Business account — this bank only serves professional customers"
     },
@@ -1168,6 +1340,37 @@
         "connectFailed": "Could not connect to SimpleFIN. Check the setup token and try again.",
         "syncFailed": "SimpleFIN sync failed. Try again, or create a new setup token if access was revoked.",
         "disconnectFailed": "Could not remove the connection. Please try again."
+      }
+    },
+    "wise": {
+      "title": "Wise Jars",
+      "intro": "This connector is only for your Wise Jars: the Wise bank connection on the Banks tab cannot see them. Your Wise current account and its transactions stay on the Banks tab.",
+      "setupHint": "On wise.com, create a read-only personal API token, then paste it here.",
+      "createToken": "Create a token",
+      "token": "Wise API token",
+      "tokenPlaceholder": "Paste the Wise token",
+      "connect": "Connect",
+      "sync": "Sync",
+      "syncing": "Syncing…",
+      "disconnect": "Disconnect",
+      "disconnectConfirm": "Remove the stored Wise token? Imported Jars stay, and stop updating.",
+      "connected": "Connected",
+      "statusError": "Last sync failed",
+      "lastSync": "Last sync",
+      "neverSynced": "Never synced",
+      "syncedToast": "Wise synced: {{count}} Jar",
+      "syncedToast_other": "Wise synced: {{count}} Jars",
+      "statusTokenRefused": "Token refused by Wise",
+      "replaceTokenHint": "Wise refused the stored token. Create a new one on wise.com and paste it here to resume syncing.",
+      "replaceToken": "Replace the token",
+      "scopeNote": "Only Jar balances are tracked: in Europe, Wise does not share their history with a personal token.",
+      "errors": {
+        "tokenRefused": "Wise refused this token. It may have been revoked: create a new read-only one on wise.com.",
+        "invalidToken": "This is not a Wise API token. Copy it again from wise.com.",
+        "rateLimited": "Wise is limiting requests right now. Try again in a few minutes.",
+        "connectFailed": "Could not connect to Wise. Check the token and try again.",
+        "syncFailed": "Wise sync failed. Try again, or create a new token if it was revoked.",
+        "disconnectFailed": "Could not remove the connection. Try again."
       }
     },
     "exchanges": {
@@ -1451,6 +1654,59 @@
         "clear": "Clear",
         "cancel": "Cancel",
         "validate": "Validate",
+        "countdownLabel": "Time left:"
+      }
+    },
+    "banquePopulaire": {
+      "title": "Banque Populaire",
+      "customerId": "Identifier",
+      "region": "Your Banque Populaire",
+      "regionPlaceholder": "Choose your bank",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "Banque Populaire accounts synced.",
+      "clearSession": "Disconnect",
+      "disconnectConfirm": "This deletes the session stored in Picsou. The Banque Populaire session itself is not ended and may stay active until it expires.",
+      "disconnectConfirmAction": "Delete the stored session",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs your Banque Populaire current accounts, Livret A, Livret Jeune and LDDS on demand. Only the session is kept, encrypted. Contracts Picsou cannot import are listed but never created.",
+      "notice": {
+        "neverStored": "Picsou never sees or stores your password. You click it on the bank's keypad yourself; only the positions of the keys are sent, once.",
+        "noRetry": "Picsou never retries a sign-in. If it fails, nothing is sent again until you submit the form yourself.",
+        "lockRisk": "Wrong attempts count against your bank access and can lock your Banque Populaire account. Check your identifier and the digits you click on the keypad before validating."
+      },
+      "securPassPrompt": "Approve the sign-in in your Sécur'Pass app.",
+      "securPassHint": "Picsou does not touch your phone. This page continues on its own once you approve.",
+      "countdownLabel": "Time left to approve:",
+      "unsupportedTitle": "Contracts not imported",
+      "unsupportedHint": "Picsou does not support these contract families yet (family code shown).",
+      "errors": {
+        "rateLimited": "Too many sign-in attempts. Please wait before trying again.",
+        "rateLimitedRetryAfter": "Too many sign-in attempts. Try again in {{minutes}} min.",
+        "invalidCredentials": "The bank refused the identifier or password. Check them before trying again: repeated failures can lock your account.",
+        "keypadChanged": "The keypad changed, please start again. Nothing was sent.",
+        "appValidationTimeout": "The sign-in was not approved in Sécur'Pass in time. Start over if you want to try again.",
+        "authAttemptExpired": "The sign-in attempt expired. Start over if you want to try again.",
+        "sessionExpired": "The Banque Populaire session expired. Please reconnect.",
+        "formatChanged": "The Banque Populaire website format changed. Your existing data was kept.",
+        "invalidSessionState": "The stored session could not be read. Please reconnect.",
+        "serverError": "Could not reach Banque Populaire. Please try again later.",
+        "keypadExpired": "The keypad expired before you validated. Start over if you want to try again.",
+        "invalidPositions": "The keypad entry was not accepted. Start over and enter 6 to 12 keys."
+      },
+      "keypad": {
+        "title": "Click your password",
+        "description": "Click the keys of your password on the bank's keypad, in order. The digits are only shown on the keys themselves.",
+        "key": "Key {{n}}",
+        "entered": "{{count}} keys entered",
+        "clear": "Clear",
+        "cancel": "Cancel",
+        "validate": "Validate",
+        "sending": "Sending…",
         "countdownLabel": "Time left:"
       }
     },
@@ -1818,6 +2074,8 @@
     "themeDark": "Dark",
     "themeSystem": "System",
     "currentPassword": "Current password",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm password",
     "appearanceDescription": "Customize the application appearance",
     "dateFormat": "Date format",
     "dateFormatLocale": "Localized",
@@ -1925,6 +2183,32 @@
         "AGGRESSIVE": "Aggressive"
       },
       "saved": "Profile saved"
+    },
+    "signInMethods": {
+      "title": "Sign-in methods",
+      "password": "Password",
+      "passwordOn": "You can sign in with your username and password.",
+      "passwordOff": "No password: you sign in with {{provider}}.",
+      "turnOff": "Turn off password login",
+      "turnOffHint": "Sign in once with {{provider}} before turning off password login.",
+      "setPassword": "Set a password",
+      "identityFallback": "{{provider}} account",
+      "lastSignIn": "Last sign-in",
+      "neverUsed": "Not used to sign in yet",
+      "unlink": "Unlink",
+      "unlinkHint": "Set a password before unlinking your last sign-in method.",
+      "link": "Link {{provider}} account",
+      "adminGroupNote": "Admin rights follow your group in {{provider}}.",
+      "linked": "Account linked. You can now sign in with it.",
+      "removePasswordTitle": "Turn off password login?",
+      "removePasswordDesc": "You will sign in with {{provider}} only. Your other devices will be signed out, and two-factor authentication will be turned off if it is on.",
+      "setPasswordDesc": "You will be able to sign in with your username and this password as well as with {{provider}}. Your other devices will be signed out.",
+      "passwordMismatch": "The passwords do not match.",
+      "unlinkTitle": "Unlink this account?",
+      "unlinkDesc": "You will no longer be able to sign in with this {{provider}} account.",
+      "linkTitle": "Link a {{provider}} account",
+      "linkDesc": "Confirm your identity, then sign in with the {{provider}} account to link.",
+      "linkMfaNote": "When you sign in with {{provider}}, Picsou doesn't ask for your authenticator code: a second factor is then the sign-in provider's job. Password sign-ins still ask for the code, except on a trusted device."
     }
   },
   "accessKeys": {
@@ -2231,6 +2515,12 @@
       "resetMfaConfirmTitle": "Reset two-factor auth?",
       "resetMfaConfirmDesc": "This disables 2FA on the member's account, revokes their recovery codes, and signs them out everywhere. Use only when they have lost access to their authenticator and cannot use a recovery code.",
       "mfaOn": "2FA on",
+      "signInPassword": "Password",
+      "signInSso": "SSO",
+      "unlinkSso": "Unlink SSO",
+      "unlinkSsoTitle": "Unlink SSO for {{name}}?",
+      "unlinkSsoDescription": "This member will no longer sign in with SSO and will be signed out everywhere. If no password remains, they will need a password reset link to sign in again.",
+      "unlinkSsoFailed": "Unlinking SSO for {{name}} failed.",
       "delete": "Delete",
       "deleteConfirmTitle": "Delete member",
       "deleteConfirmDesc": "This will delete the member and all their data. This action cannot be undone.",
@@ -2370,6 +2660,9 @@
       "submitError": "We couldn't create the account. Please try again.",
       "showPassword": "Show password",
       "hidePassword": "Hide password",
+      "ssoHint": "Picsou's administrator signs in with {{provider}}. Use an account from the administrators group.",
+      "ssoContinue": "Continue with {{provider}}",
+      "ssoMisconfigured": "Creating the administrator requires single sign-on, but its settings are invalid. Check the server logs.",
       "strength": {
         "weak": "Password security is weak.",
         "fair": "Password security is fair.",
@@ -2973,8 +3266,83 @@
       "interest": "Interest",
       "insurance": "Insurance",
       "totalPayment": "Payment",
+      "peerLoan": "Peer loan",
+      "borrower": "Borrower",
+      "lentAt": "Lent on",
+      "expectedBack": "Expected back",
+      "ratePeriod": "Rate period",
+      "plannedMonthly": "Planned monthly",
+      "plannedMonths": "Planned months",
+      "plannedInterest": "Planned interest",
+      "principal": "Principal lent",
+      "principalRemaining": "Remaining capital",
+      "interestAccrued": "Interest accrued",
+      "interestReceived": "Interest received",
+      "writtenOff": "Written off",
+      "closedAt": "Closed on",
+      "cashAccount": "Cash account",
+      "repaymentJournal": "Repayment journal",
+      "paidOn": "Paid on",
+      "amount": "Amount",
+      "kind": "Kind",
+      "note": "Note",
       "yes": "Yes",
       "no": "No"
     }
+  },
+  "activation": {
+    "title": "Activate your account",
+    "subtitle": "Choose a password to complete your account setup.",
+    "subtitleSso": "Activate it with {{provider}}, or choose a password to complete your account setup.",
+    "noticeTitle": "Data access notice",
+    "noticeBody": "The administrator of this Picsou instance has technical access to all data stored here, including bank account details and API credentials. By activating your account, you acknowledge this.",
+    "acknowledge": "I understand and acknowledge that the admin has access to all data on this instance.",
+    "ssoButton": "Activate with {{provider}}",
+    "password": "Password",
+    "passwordPlaceholder": "Min. 8 characters",
+    "confirmPassword": "Confirm password",
+    "confirmPlaceholder": "Repeat your password",
+    "submit": "Activate account",
+    "submitting": "Activating...",
+    "successTitle": "Account activated!",
+    "successRedirect": "Redirecting to login...",
+    "errors": {
+      "acknowledgeRequired": "You must acknowledge the data access warning.",
+      "passwordTooShort": "Password must be at least 8 characters.",
+      "passwordMismatch": "Passwords do not match.",
+      "invalidLink": "Invalid activation link.",
+      "failed": "Activation failed. The link may have expired."
+    }
+  },
+  "reauth": {
+    "confirm": "Confirm",
+    "confirmWith": "Confirm with {{provider}}",
+    "ssoHint": "{{provider}} will ask you to sign in again, then bring you back here.",
+    "expired": "Your confirmation has expired. Please confirm your identity again."
+  },
+  "ssoErrors": {
+    "NOT_LINKED": "This account is not linked to your sign-in provider. Sign in with your password, then link it from Settings.",
+    "NOT_IN_ADMIN_GROUP": "Your account is not in the group required to administer this instance.",
+    "IDENTITY_IN_USE": "This identity is already linked to another account.",
+    "REAUTH_REQUIRED": "Please confirm your identity again to continue.",
+    "REAUTH_TOO_OLD": "Your last confirmation is too old. Please confirm your identity again.",
+    "REAUTH_WRONG_ACCOUNT": "You confirmed a different account than the one you are signed in with. Please use the same account.",
+    "ACCOUNT_INACTIVE": "This account is inactive. Contact your administrator.",
+    "ADMIN_RECOVERY_ACTIVE": "An administrator recovery is in progress for this account. Finish it before signing in with SSO.",
+    "ACTIVATION_INVALID": "Single sign-on isn't available with this link. If it's a password reset link, set a new password with the form instead. Otherwise the link is invalid, has expired or was already used: ask your administrator for a new one.",
+    "SETUP_ALREADY_CLAIMED": "The initial setup has already been claimed by another administrator.",
+    "IDP_UNAVAILABLE": "The sign-in provider is unreachable. Please try again in a few minutes.",
+    "IDP_ERROR": "The sign-in provider returned an error. Please try again.",
+    "SESSION_EXPIRED": "Your sign-in attempt expired. Please start again.",
+    "RATE_LIMITED": "Too many attempts. Please wait a moment and try again.",
+    "SSO_ADMIN_REQUIRED": "First-time setup requires an administrator from your sign-in provider. Use SSO to create the administrator account.",
+    "IDENTITY_NOT_USED_YET": "You have not signed in with SSO yet. Sign in once with it before turning off password sign-in.",
+    "LAST_SIGN_IN_METHOD": "This is your last sign-in method. Add another one before removing it.",
+    "PASSWORD_ALREADY_SET": "A password is already set for this account.",
+    "REAUTH_FAILED": "Re-authentication failed. Check your credentials and try again.",
+    "SSO_REVALIDATE": "Your session needs to be re-validated with your sign-in provider.",
+    "SSO_DISABLED": "Single sign-on is not enabled on this instance.",
+    "SELF_UNLINK_FORBIDDEN": "To unlink your own SSO identities, use Sign-in methods in Settings.",
+    "generic": "Single sign-on failed. Please try again."
   }
 }

@@ -115,6 +115,7 @@ test-sidecar:
 	docker run --rm --ipc=host --entrypoint python --env PYTHONDONTWRITEBYTECODE=1 --env APP_SIDECAR_API_KEY=test-key --env CORUM_BROWSER_TESTS=1 \
 	  --volume "$(CURDIR)/services/base/picsou_sidecar/contract.py:/opt/sidecar-base/lib/picsou_sidecar/contract.py:ro" \
 	  --volume "$(CURDIR)/services/base/euro_information/testing.py:/opt/sidecar-base/lib/euro_information/testing.py:ro" \
+	  --volume "$(CURDIR)/services/base/bpce/testing.py:/opt/sidecar-base/lib/bpce/testing.py:ro" \
 	  --volume "$(CURDIR)/services:/src/services:ro" --workdir /src/services/$(SIDECAR) $(IMAGE) -m unittest discover -v
 
 # --- build and release -------------------------------------------------------

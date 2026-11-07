@@ -51,6 +51,8 @@ function member(overrides: Partial<FamilyMemberItem>): FamilyMemberItem {
     activated: false,
     loginName: null,
     mfaEnabled: false,
+    hasPassword: true,
+    ssoLinked: false,
     ...overrides,
   }
 }

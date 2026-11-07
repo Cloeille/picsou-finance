@@ -18,6 +18,13 @@ interface TransactionsListProps {
   logoUrlFor?: (brandId: number | null | undefined) => string | null
   categories?: Category[]
   onCategorize?: (txId: number, categoryId: number) => void
+  /** Turns an outgoing transaction into a peer loan. Absent where the action has no route. */
+  onCreatePeerLoan?: (tx: Transaction) => void
+  /** Whether this row can start a loan; defaults to "any outgoing movement". */
+  canCreatePeerLoan?: (tx: Transaction) => boolean
+  onAssignRepayment?: (tx: Transaction) => void
+  /** Whether this row can repay a loan; defaults to "any incoming movement". */
+  canAssignRepayment?: (tx: Transaction) => boolean
   /** Buttons rendered in the card header (add, import). The card stays visible when empty if set. */
   actions?: ReactNode
   /** The provider of the one account the list shows; left out on lists spanning accounts. */
@@ -36,6 +43,10 @@ export function TransactionsList({
   logoUrlFor,
   categories,
   onCategorize,
+  onCreatePeerLoan,
+  canCreatePeerLoan,
+  onAssignRepayment,
+  canAssignRepayment,
   actions,
   accountProvider,
 }: TransactionsListProps) {
@@ -118,6 +129,10 @@ export function TransactionsList({
         logoUrlFor={logoUrlFor}
         categories={categories}
         onCategorize={onCategorize}
+        onCreatePeerLoan={onCreatePeerLoan}
+        canCreatePeerLoan={canCreatePeerLoan}
+        onAssignRepayment={onAssignRepayment}
+        canAssignRepayment={canAssignRepayment}
         onEdit={onEdit}
         onDelete={onDelete}
         accountProvider={accountProvider}

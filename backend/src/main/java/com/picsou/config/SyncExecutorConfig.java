@@ -39,6 +39,12 @@ public class SyncExecutorConfig {
         return singleWorker("amundi-sync-");
     }
 
+    /** One worker: syncs are on demand and must never overlap on the bank's session. */
+    @Bean(name = "banquePopulaireSyncExecutor")
+    public Executor banquePopulaireSyncExecutor() {
+        return singleWorker("banque-populaire-sync-");
+    }
+
     @Bean(name = "bourseDirectSyncExecutor")
     public Executor bourseDirectSyncExecutor() {
         return singleWorker("bourse-direct-sync-");

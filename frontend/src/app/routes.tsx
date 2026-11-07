@@ -8,6 +8,8 @@ import '@/pages/setup/setup.css'
 import {
   LoginPage,
   MfaChallengePage,
+  SsoCallbackPage,
+  SsoCompletePage,
   DashboardPage,
   AccountsPage,
   AccountDetailPage,
@@ -74,6 +76,26 @@ export const router = createBrowserRouter([
           <MfaChallengePage />
         </SuspensePage>
       </PublicOnly>
+    ),
+  },
+  {
+    // The IdP's redirect target (registered redirect_uri). Outside every guard, like /consent:
+    // the page only re-posts the IdP result to the backend SSO chain, signed in or not.
+    path: '/login/sso/callback',
+    element: (
+      <SuspensePage fallback={<RouteSpinner />}>
+        <SsoCallbackPage />
+      </SuspensePage>
+    ),
+  },
+  {
+    // Where the backend lands a successful SSO sign-in. Outside the guards: PublicOnly would
+    // redirect a tab that is still flagged as signed in before the page could reset its state.
+    path: '/login/sso-complete',
+    element: (
+      <SuspensePage fallback={<RouteSpinner />}>
+        <SsoCompletePage />
+      </SuspensePage>
     ),
   },
   {

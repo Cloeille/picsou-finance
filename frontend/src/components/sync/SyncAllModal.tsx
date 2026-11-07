@@ -60,6 +60,8 @@ import {
   useSyncIbkr,
   useSimplefinStatus,
   useSyncSimplefin,
+  useWiseStatus,
+  useSyncWise,
 } from '@/features/sync/hooks'
 import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
@@ -71,13 +73,32 @@ import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 
 const REVOLUT_CONNECTION_ID = 'revolut'
 
+/**
+ * The provider labels the Banque Populaire sync stamps: the official name of the regional bank the
+ * session was opened at (`BanquePopulaireRegion.institutionName()` on the backend), one per region.
+ */
+const BANQUE_POPULAIRE_PROVIDERS: ReadonlySet<string> = new Set([
+  'Banque Populaire Alsace Lorraine Champagne',
+  'Banque Populaire Aquitaine Centre Atlantique',
+  'Banque Populaire Auvergne Rhône Alpes',
+  'Banque Populaire Bourgogne Franche-Comté',
+  'BRED Banque Populaire',
+  'Banque Populaire Grand Ouest',
+  'Banque Populaire Méditerranée',
+  'Banque Populaire du Nord',
+  'Banque Populaire Occitane',
+  'Banque Populaire Rives de Paris',
+  'Banque Populaire du Sud',
+  'Banque Populaire Val de France',
+])
+
 type SyncConnection = {
   /** The connector's server-side job is queued or running. */
   running?: boolean
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
-    | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin'
-    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'lbp' | 'cmes' | 'cic'
+    | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin' | 'wise'
+    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'banque-populaire' | 'lbp' | 'cmes' | 'cic'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -103,10 +124,12 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   degiro: LineChart,
   ibkr: LineChart,
   simplefin: Landmark,
+  wise: PiggyBank,
   amex: CreditCard,
   corum: Building2,
   sofidy: Building2,
   'caisse-epargne': Landmark,
+  'banque-populaire': Landmark,
   lbp: Landmark,
   cmes: PiggyBank,
   cic: PiggyBank,
@@ -121,10 +144,12 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   degiro: 'degiro',
   ibkr: 'ibkr',
   simplefin: 'simplefin',
+  wise: 'wise',
   amex: 'amex',
   corum: 'corum',
   sofidy: 'sofidy',
   'caisse-epargne': 'caisse-epargne',
+  'banque-populaire': 'banque-populaire',
   lbp: 'lbp',
   cmes: 'cmes',
   cic: 'cic',
@@ -195,6 +220,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: trStatus } = useTrSessionStatus()
   const { data: boursoStatus } = useProviderStatus("bourso")
   const { data: caisseEpargneStatus } = useProviderStatus("caisseEpargne")
+  const { data: banquePopulaireStatus } = useProviderStatus("banquePopulaire")
   const { data: lbpStatus } = useProviderStatus("lbp")
   const { data: revolutStatus } = useRevolutStatus()
   const { data: finaryStatus } = useFinaryConnectionStatus()
@@ -204,6 +230,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: degiroStatus } = useDegiroSessionStatus()
   const { data: ibkrStatus } = useIbkrStatus()
   const { data: simplefinStatus } = useSimplefinStatus()
+  const { data: wiseStatus } = useWiseStatus()
   const { data: amexStatus } = useProviderStatus("amex")
   const { data: corumStatus } = useProviderStatus("corum")
   const { data: sofidyStatus } = useProviderStatus("sofidy")
@@ -231,6 +258,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
    * already followed. `provider` is the exact string the connector stamps on the accounts it
    * creates (see each service's PROVIDER constant). CORUM and Sofidy also match an account
    * through its SCPI fund code: a manual SCPI they adopted keeps the provider the user typed.
+   * Banque Populaire stamps its regional bank's name, so it matches any of those labels.
    */
   const sessionProviders = useMemo(() => [
     {
@@ -256,6 +284,17 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       active: caisseEpargneStatus?.isActive ?? false, lastSyncedAt: caisseEpargneStatus?.lastSyncCompletedAt ?? null,
       failed: caisseEpargneStatus?.syncStatus === 'FAILED',
       running: isJobRunning(caisseEpargneStatus?.syncStatus),
+    },
+    {
+      // No exact `provider`: every Banque Populaire label goes through `ownsAccount`, so a
+      // manual account carrying one (picked from the bank catalog or typed) never shows a
+      // session row: this connector never synced it.
+      type: 'banque-populaire' as const, name: 'Banque Populaire', provider: undefined,
+      ownsAccount: (a: Account) =>
+        !a.isManual && a.provider != null && BANQUE_POPULAIRE_PROVIDERS.has(a.provider),
+      active: banquePopulaireStatus?.isActive ?? false, lastSyncedAt: banquePopulaireStatus?.lastSyncCompletedAt ?? null,
+      failed: banquePopulaireStatus?.syncStatus === 'FAILED',
+      running: isJobRunning(banquePopulaireStatus?.syncStatus),
     },
     {
       type: 'lbp' as const, name: 'La Banque Postale', provider: 'La Banque Postale',
@@ -289,6 +328,13 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       type: 'simplefin' as const, name: 'SimpleFIN', provider: 'SimpleFIN',
       active: simplefinStatus?.connected ?? false, lastSyncedAt: simplefinStatus?.lastSyncedAt ?? null,
       failed: simplefinStatus?.status === 'ERROR',
+    },
+    {
+      type: 'wise' as const, name: 'Wise Jars', provider: 'Wise Jars',
+      active: wiseStatus?.connected ?? false, lastSyncedAt: wiseStatus?.lastSyncedAt ?? null,
+      failed: wiseStatus?.status === 'ERROR' || wiseStatus?.status === 'REAUTH_REQUIRED',
+      // A refused token only clears with a new one, pasted on the Wise Jars tab.
+      reauth: wiseStatus?.status === 'REAUTH_REQUIRED',
     },
     {
       type: 'amex' as const, name: 'American Express', provider: 'American Express',
@@ -327,7 +373,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       running: isJobRunning(cicStatus?.syncStatus),
       canReconnect: cicStatus?.canReconnect === true,
     },
-  ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, lbpStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus])
+  ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, banquePopulaireStatus, lbpStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus, wiseStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -338,6 +384,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const completeTrMutation   = useCompleteTrAuth()
   const syncBoursoMutation   = useProviderSync("bourso")
   const syncCaisseEpargneMutation = useProviderSync("caisseEpargne")
+  const syncBanquePopulaireMutation = useProviderSync("banquePopulaire")
   const syncLbpMutation = useProviderSync("lbp")
   const syncAmundiMutation       = useProviderSync("amundi")
   const syncFortuneoMutation     = useProviderSync("fortuneo")
@@ -345,6 +392,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const syncDegiroMutation       = useSyncDegiro()
   const syncIbkrMutation         = useSyncIbkr()
   const syncSimplefinMutation    = useSyncSimplefin()
+  const syncWiseMutation         = useSyncWise()
   const startRevolutMutation     = useStartRevolutSync()
   const confirmRevolutMutation   = useConfirmRevolutSync()
   const syncAmexMutation         = useProviderSync("amex")
@@ -532,6 +580,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'caisse-epargne':
         syncCaisseEpargneMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'banque-populaire':
+        syncBanquePopulaireMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'lbp':
         syncLbpMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
@@ -552,6 +603,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
         break
       case 'simplefin':
         syncSimplefinMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
+      case 'wise':
+        syncWiseMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
       case 'amex':
         syncAmexMutation.mutate(undefined, rowCallbacks(formatGeneric))
@@ -601,6 +655,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncTrMutation,
     syncBoursoMutation,
     syncCaisseEpargneMutation,
+    syncBanquePopulaireMutation,
     syncLbpMutation,
     syncAmundiMutation,
     syncFortuneoMutation,
@@ -608,6 +663,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncDegiroMutation,
     syncIbkrMutation,
     syncSimplefinMutation,
+    syncWiseMutation,
     startRevolutMutation,
     syncAmexMutation,
     syncCorumMutation,

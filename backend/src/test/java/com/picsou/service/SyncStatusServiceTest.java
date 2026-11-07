@@ -7,6 +7,7 @@ import com.picsou.model.FinarySession;
 import com.picsou.model.IbkrConnection;
 import com.picsou.model.Requisition;
 import com.picsou.model.SimplefinConnection;
+import com.picsou.model.WiseConnection;
 import com.picsou.model.RequisitionStatus;
 import com.picsou.model.WalletAddress;
 import com.picsou.model.Chain;
@@ -16,6 +17,7 @@ import com.picsou.repository.FinarySessionRepository;
 import com.picsou.repository.IbkrConnectionRepository;
 import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.SimplefinConnectionRepository;
+import com.picsou.repository.WiseConnectionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.WalletAddressRepository;
 import com.picsou.model.BoursoSyncStatus;
@@ -63,6 +65,7 @@ class SyncStatusServiceTest {
     @Mock AmexSyncService amexSyncService;
     @Mock IbkrConnectionRepository ibkrConnectionRepository;
     @Mock SimplefinConnectionRepository simplefinConnectionRepository;
+    @Mock WiseConnectionRepository wiseConnectionRepository;
     @Mock CryptoExchangeSyncService cryptoExchangeSyncService;
     @Mock WalletAddressRepository walletAddressRepository;
     @Mock FinarySessionRepository finarySessionRepository;
@@ -76,7 +79,8 @@ class SyncStatusServiceTest {
             revolutSyncService, requisitionRepository, tradeRepublicSyncService, tradeRepublicSessionRepository,
             boursoSyncService, bourseDirectSyncService, amundiSyncService, cmesSyncService, cicSyncService, corumSyncService,
             fortuneoSyncService,
-            amexSyncService, ibkrConnectionRepository, simplefinConnectionRepository, cryptoExchangeSyncService,
+            amexSyncService, ibkrConnectionRepository, simplefinConnectionRepository, wiseConnectionRepository,
+            cryptoExchangeSyncService,
             walletAddressRepository,
             finarySessionRepository, degiroSessionRepository);
         when(revolutSyncService.getStatus(MID)).thenReturn(new RevolutSyncService.StatusResponse(false, false, null));
@@ -99,6 +103,7 @@ class SyncStatusServiceTest {
             new AmexSyncService.SessionStatusResponse(false, AmexSyncStatus.IDLE, null, null, null));
         when(ibkrConnectionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
         when(simplefinConnectionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
+        when(wiseConnectionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
         when(cryptoExchangeSyncService.getStatus(MID)).thenReturn(List.of());
         when(walletAddressRepository.findAllByMemberId(MID)).thenReturn(List.of());
         when(finarySessionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
@@ -281,6 +286,38 @@ class SyncStatusServiceTest {
     @Test
     void simplefin_noRow_isNotConnected() {
         assertThat(service.describe(MID)).contains("simplefin: NOT_CONNECTED lastSync=none reauth=false");
+    }
+
+    @Test
+    void wise_connectedRow_isConnectedWithoutShowingTheToken() {
+        when(wiseConnectionRepository.findByMemberId(MID)).thenReturn(Optional.of(
+            WiseConnection.builder().apiToken("secret-ciphertext").status("CONNECTED").lastSyncedAt(SYNCED_AT).build()));
+
+        String text = service.describe(MID);
+
+        assertThat(text).contains("wise: CONNECTED lastSync=2026-10-04T06:00:00Z reauth=false");
+        assertThat(text).doesNotContain("secret-ciphertext");
+    }
+
+    @Test
+    void wise_errorRow_isFailed() {
+        when(wiseConnectionRepository.findByMemberId(MID)).thenReturn(Optional.of(
+            WiseConnection.builder().status("ERROR").lastSyncedAt(SYNCED_AT).build()));
+
+        assertThat(service.describe(MID)).contains("wise: FAILED lastSync=2026-10-04T06:00:00Z reauth=false");
+    }
+
+    @Test
+    void wise_refusedToken_needsReauth() {
+        when(wiseConnectionRepository.findByMemberId(MID)).thenReturn(Optional.of(
+            WiseConnection.builder().status("REAUTH_REQUIRED").lastSyncedAt(SYNCED_AT).build()));
+
+        assertThat(service.describe(MID)).contains("wise: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true");
+    }
+
+    @Test
+    void wise_noRow_isNotConnected() {
+        assertThat(service.describe(MID)).contains("wise: NOT_CONNECTED lastSync=none reauth=false");
     }
 
     @ParameterizedTest

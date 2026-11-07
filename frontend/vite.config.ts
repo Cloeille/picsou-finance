@@ -89,10 +89,21 @@ export default defineConfig(({ command }) => {
         '/api': {
           target: process.env.VITE_API_TARGET || 'http://localhost:8080',
           changeOrigin: true,
+          // Dev only: the IdP post-logout URL names the Vite origin, as /oauth2 does below.
+          xfwd: true,
         },
         '/actuator': {
           target: process.env.VITE_API_TARGET || 'http://localhost:8080',
           changeOrigin: true,
+        },
+        // SSO chain endpoints (start/callback POSTs + the authorization-server
+        // authorize/consent flow). xfwd lets Tomcat build the dev redirect_uri on
+        // the Vite origin: ForwardedOriginCustomizer applies the forwarded origin
+        // from any peer, and the client address only comes from PICSOU_PROXY_IP.
+        '/oauth2': {
+          target: process.env.VITE_API_TARGET || 'http://localhost:8080',
+          changeOrigin: true,
+          xfwd: true,
         },
       },
       // Embedded MCP server (HTTP+SSE): GET /mcp stream + POST /mcp/message.

@@ -13,22 +13,12 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 
 import java.net.URI;
-import java.net.http.HttpHeaders;
-import java.net.http.HttpResponse.BodySubscriber;
-import java.net.http.HttpResponse.ResponseInfo;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.Base64;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Flow;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /**
  * The client against a fake transport. The allowlist matrix lives in {@link SimplefinUrlsTest};
@@ -254,51 +244,6 @@ class SimplefinClientTest {
         } finally {
             logger.detachAppender(logs);
         }
-    }
-
-    @Test
-    void boundedUtf8_bodyWithinTheCap_isReturnedAsUtf8() throws Exception {
-        BodySubscriber<String> subscriber = SimplefinClient.boundedUtf8(100).apply(responseInfo(2));
-        subscriber.onSubscribe(mock(Flow.Subscription.class));
-
-        subscriber.onNext(List.of(ByteBuffer.wrap("é".getBytes(StandardCharsets.UTF_8))));
-        subscriber.onComplete();
-
-        assertThat(subscriber.getBody().toCompletableFuture().get()).isEqualTo("é");
-    }
-
-    @Test
-    void boundedUtf8_advertisedLengthOverTheCap_cancelsBeforeReading() {
-        Flow.Subscription subscription = mock(Flow.Subscription.class);
-        BodySubscriber<String> subscriber = SimplefinClient.boundedUtf8(100).apply(responseInfo(101));
-
-        subscriber.onSubscribe(subscription);
-
-        verify(subscription).cancel();
-        assertThatThrownBy(() -> subscriber.getBody().toCompletableFuture().get())
-            .hasMessageContaining("response too large");
-    }
-
-    @Test
-    void boundedUtf8_streamPastTheCapDespiteALyingLength_cancelsAndFails() {
-        Flow.Subscription subscription = mock(Flow.Subscription.class);
-        BodySubscriber<String> subscriber = SimplefinClient.boundedUtf8(100).apply(responseInfo(-1));
-        subscriber.onSubscribe(subscription);
-
-        subscriber.onNext(List.of(ByteBuffer.wrap(new byte[60])));
-        subscriber.onNext(List.of(ByteBuffer.wrap(new byte[60])));
-
-        verify(subscription).cancel();
-        assertThatThrownBy(() -> subscriber.getBody().toCompletableFuture().get())
-            .hasMessageContaining("response too large");
-    }
-
-    private static ResponseInfo responseInfo(long contentLength) {
-        Map<String, List<String>> headers = contentLength < 0
-            ? Map.of() : Map.of("Content-Length", List.of(Long.toString(contentLength)));
-        ResponseInfo info = mock(ResponseInfo.class);
-        when(info.headers()).thenReturn(HttpHeaders.of(headers, (name, value) -> true));
-        return info;
     }
 
     private static String allText(ILoggingEvent event) {

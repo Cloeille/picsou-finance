@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useBudgetSettings } from '@/features/budget/hooks'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { accountsApi, realEstateApi } from './api'
@@ -357,6 +358,20 @@ export function useAccount(id: number) {
 // ['accounts', id, 'holdings'] with useHoldingsWithLivePrices while running a
 // different queryFn — a cache-collision trap.)
 
+/**
+ * Builds the opt-in logo URL of the bank behind an aggregator account, or `null` when the member
+ * has not enabled logos (the same switch as merchant logos) or the account has no logo to ask for.
+ * Returning `null` up front spares a 404 per card; the URL is same-origin, so the auth cookie rides along.
+ */
+export function useInstitutionLogoUrl(): (account: Pick<Account, 'id' | 'institution'>) => string | null {
+  const { data: settings } = useBudgetSettings()
+  const enabled = settings?.logoFetchEnabled ?? false
+  return useCallback(
+    (account) => (enabled && account.institution?.hasLogo ? `/api/accounts/${account.id}/institution-logo` : null),
+    [enabled],
+  )
+}
+
 /** The gold products a PRECIOUS_METALS account can hold; fetched only when the form needs them. */
 export function usePreciousMetals(enabled: boolean) {
   return useQuery({
@@ -468,7 +483,15 @@ export function useCreateAccount() {
 export function useUpdateAccount() {
   return useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: number; data: AccountRequest }) => accountsApi.update(id, data),
-    invalidates: (_data, variables) => [['accounts'], ['dashboard'], ['accounts', variables.id]],
+    invalidates: (_data, variables) => [
+      ['accounts'],
+      ['dashboard'],
+      ['accounts', variables.id],
+      // Both payloads carry the account name, so a rename must refresh them too.
+      ['peer-loan', variables.id],
+      ['peer-loans', 'open'],
+      ['peer-loans', 'overview'],
+    ],
   })
 }
 
@@ -489,7 +512,13 @@ export function useAccountDeletionImpact(accountId: number | null) {
 export function useDeleteAccount() {
   return useInvalidatingMutation({
     mutationFn: (id: number) => accountsApi.delete(id),
-    invalidates: [['accounts'], ['dashboard'], ['goals']],
+    invalidates: [
+      ['accounts'],
+      ['dashboard'],
+      ['goals'],
+      ['peer-loans', 'open'],
+      ['peer-loans', 'overview'],
+    ],
   })
 }
 

@@ -8,6 +8,7 @@ import java.net.URI;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.exception.SyncException;
+import com.picsou.port.BanquePopulaireRegion;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.support.WebClientStubs;
 import org.junit.jupiter.api.DisplayName;
@@ -116,6 +117,12 @@ class SidecarContractTest {
             return new Calls(() -> a.fetchAccounts(STATE), () -> a.initiateAuth("1234567890"),
                 () -> a.completeAuth("process"));
         }, null, INVALID_CREDENTIALS, SESSION_EXPIRED);
+        rig(SidecarBank.BANQUE_POPULAIRE, (c, t) -> {
+            var a = new BanquePopulaireAdapter(c, JSON, t, t, t, t, t);
+            return new Calls(() -> a.fetchAccounts(STATE),
+                () -> a.initiateAuth("A1234567", BanquePopulaireRegion.RIVES_DE_PARIS),
+                () -> a.completeAuth("process"));
+        }, null, INVALID_CREDENTIALS, SESSION_EXPIRED);
         rig(SidecarBank.CIC, (c, t) -> {
             var a = new CicAdapter(c, JSON, t, t, t);
             return new Calls(() -> a.fetchAccounts(STATE), () -> a.initiateAuth("login", "password", null),
@@ -184,6 +191,11 @@ class SidecarContractTest {
         coded(SidecarBank.LBP, Call.INITIATE, HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS),
         coded(SidecarBank.LBP, Call.COMPLETE, HttpStatus.REQUEST_TIMEOUT, APP_VALIDATION_TIMEOUT),
         coded(SidecarBank.LBP, Call.COMPLETE, HttpStatus.GONE, AUTH_ATTEMPT_EXPIRED),
+        coded(SidecarBank.BANQUE_POPULAIRE, Call.FETCH, HttpStatus.UNAUTHORIZED, SESSION_EXPIRED),
+        coded(SidecarBank.BANQUE_POPULAIRE, Call.FETCH, HttpStatus.BAD_GATEWAY, UPSTREAM_UNAVAILABLE),
+        coded(SidecarBank.BANQUE_POPULAIRE, Call.FETCH, HttpStatus.BAD_GATEWAY, UPSTREAM_FORMAT_CHANGED),
+        coded(SidecarBank.BANQUE_POPULAIRE, Call.FETCH, HttpStatus.BAD_REQUEST, INVALID_SESSION_STATE),
+        coded(SidecarBank.BANQUE_POPULAIRE, Call.FETCH, HttpStatus.INTERNAL_SERVER_ERROR, INTERNAL_ERROR),
         coded(SidecarBank.CIC, Call.FETCH, HttpStatus.UNAUTHORIZED, SESSION_EXPIRED),
         coded(SidecarBank.CIC, Call.FETCH, HttpStatus.BAD_GATEWAY, UPSTREAM_FORMAT_CHANGED),
         coded(SidecarBank.CIC, Call.COMPLETE, HttpStatus.BAD_REQUEST, INVALID_OTP),

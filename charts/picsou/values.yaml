@@ -315,6 +315,10 @@ sidecars:
     enabled: true
     urlEnv: BOURSO_AUTH_URL
     port: 8001
+  banque-populaire-auth:
+    enabled: true
+    urlEnv: BANQUE_POPULAIRE_AUTH_URL
+    port: 8001
   caisse-epargne-auth:
     enabled: true
     urlEnv: CAISSE_EPARGNE_AUTH_URL

@@ -1,7 +1,7 @@
 """Caisse d'Epargne sidecar: session-replay transport.
 
 Scope: log in through a real browser (`POST /initiate` + `POST /complete`, see
-login.py), prove that a captured SSO session can still mint a Bearer token
+bpce/login.py in services/base), prove that a captured SSO session can still mint a Bearer token
 (`POST /token-check`) and read the accounts with it (`POST /accounts`). Logout
 is NOT implemented.
 
@@ -31,22 +31,83 @@ Login (`/initiate`, `/complete`): 400 INVALID_REQUEST, 401 INVALID_CREDENTIALS,
 import asyncio
 
 import httpx
+from bpce import fetcher, login, per_client, replay
+from bpce.site import ChainProfile, HomeLoanApp, PerApp, Site
 from fastapi import HTTPException, Request
 from picsou_sidecar import configure_logging, create_app
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
-
-import fetcher
-import login
-import per_client
-import replay
 
 # httpx logs every request URL at INFO and the authorize URL carries the
 # authorize parameters in its query string.
 log = configure_logging("caisse-epargne-auth", quiet=("httpx", "httpcore"))
 
+# Hosts and apps observed on the real bank. The login and data paths are the shared
+# BPCE ones (services/base/bpce); only these differ from Banque Populaire.
+SITE = Site(
+    domain="caisse-epargne.fr",
+    login_url="https://www.icgauth.caisse-epargne.fr/se-connecter/sso?service=dei",
+    client_host="www.caisse-epargne.fr",
+    authorize_url="https://www.as-ext-bad-ce.caisse-epargne.fr/api/oauth/v2/authorize",
+    token_url="https://www.as-ext-bad-ce.caisse-epargne.fr/api/oauth/v2/token",
+    data_base_url="https://www.rs-ext-bad-ce.caisse-epargne.fr",
+    # The home-loan app is served by the BPCE group hosts (observed live
+    # 2026-10-25): these two exactly, never a wildcard on bpce.fr.
+    extra_hosts=frozenset({"www.as-ext-bad-me.bpce.fr", "www.rs-ext-bad-me.bpce.fr"}),
+    # The personal-loan pages of the web front mint their own token (observed live
+    # 2026-10-13): another public client, scope and redirect, and no `claims`; every
+    # other authorize parameter is the one the main chain sends.
+    personal_loan=ChainProfile(
+        name="personal-loan",
+        overrides=(
+            ("client_id", "30c229b8-047f-49a0-aad4-198008c1cdd7"),
+            ("scope", "managePersonalLoanPrd readPersonalLoanPrd readUser"),
+            ("redirect_uri", "https://www.caisse-epargne.fr/espace-gestion/pret-personnel/postMessage/index.html"),
+        ),
+        drop=("claims",),
+    ),
+    # The home-loan app (gestion-client/credit-immobilier) mints its own token on the
+    # BPCE authorization server (observed live 2026-10-25): public client and
+    # redirect of that app, an empty `scope` (the bank grants `readLoan ...`), no
+    # `claims`. Every other authorize parameter is the one the main chain sends.
+    home_loan=HomeLoanApp(
+        chain=ChainProfile(
+            name="home-loan",
+            overrides=(
+                ("client_id", "873a10ce-67a7-4917-ab31-e5a482617303"),
+                ("scope", ""),
+                ("redirect_uri", "https://www.caisse-epargne.fr/gestion-client/credit-immobilier/postMessage/index.html"),
+            ),
+            drop=("claims",),
+        ),
+        authorize_url="https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/authorize",
+        token_url="https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/token",
+        base_url="https://www.rs-ext-bad-me.bpce.fr",
+    ),
+    # The PER insurer app (espace-assurances-de-personnes) mints its own token too
+    # (observed live 2026-10-15): public client and redirect from its `conf/conf.json`,
+    # an empty `scope` (the bank grants `assuranceVieAuth_get_<id> readUser`), no
+    # `claims`. Every other authorize parameter is the one the main chain sends.
+    per=PerApp(
+        chain=ChainProfile(
+            name="per",
+            overrides=(
+                ("client_id", "4f601b77-a48e-4473-8ddd-eae246505206"),
+                ("scope", ""),
+                ("redirect_uri", "https://www.espace-assurances-de-personnes.caisse-epargne.fr/postMessage/index.html"),
+            ),
+            drop=("claims",),
+        ),
+        gateway_host="www.rs-ext-bad-ce.caisse-epargne.fr",
+        insurer_host="www.espace-assurances-de-personnes.caisse-epargne.fr",
+    ),
+)
+LOAN_CHAIN = SITE.personal_loan
+HOME_LOAN_CHAIN = SITE.home_loan.chain
+PER_CHAIN = SITE.per.chain
+
 # Test seam: tests inject an httpx.MockTransport here. None means real network.
 _TRANSPORT: httpx.AsyncBaseTransport | None = None
-_token_cache = replay.TokenCache()
+_token_cache = replay.TokenCache(SITE)
 
 # Overall budget of POST /accounts (token replay + every data call). Kept below the
 # backend's 120 s read timeout so the sidecar answers before the caller gives up.
@@ -120,7 +181,7 @@ async def initiate(req: InitiateRequest) -> dict:
     # One attempt: no retry here or anywhere. Only the identifier goes in; the pad
     # images come back for the user to click himself.
     try:
-        return await login.initiate(req.customerId)
+        return await login.initiate(SITE, req.customerId)
     except login.LoginError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.code) from None
     except Exception:
@@ -175,7 +236,7 @@ async def _fetch_once(session_state: str) -> dict:
 
     async def loan_token() -> str:
         # Second OAuth chain, minted only when the synthesis holds a loan.
-        result = await _token_cache.get(session_state, transport=_TRANSPORT, chain=replay.LOAN_CHAIN)
+        result = await _token_cache.get(session_state, transport=_TRANSPORT, chain=LOAN_CHAIN)
         return result.access_token
 
     async def home_loan_token() -> str:
@@ -183,9 +244,9 @@ async def _fetch_once(session_state: str) -> dict:
         result = await _token_cache.get(
             session_state,
             transport=_TRANSPORT,
-            authorize_url=replay.HOME_LOAN_AUTHORIZE_URL,
-            token_url=replay.HOME_LOAN_TOKEN_URL,
-            chain=replay.HOME_LOAN_CHAIN,
+            authorize_url=SITE.home_loan.authorize_url,
+            token_url=SITE.home_loan.token_url,
+            chain=HOME_LOAN_CHAIN,
         )
         return result.access_token
 
@@ -195,8 +256,9 @@ async def _fetch_once(session_state: str) -> dict:
         # PER-specific: one fresh PER token is tried, then only this PER is left out.
         for attempt in (1, 2):
             try:
-                per_token = await _token_cache.get(session_state, transport=_TRANSPORT, chain=replay.PER_CHAIN)
+                per_token = await _token_cache.get(session_state, transport=_TRANSPORT, chain=PER_CHAIN)
                 return await per_client.fetch_per_detail(
+                    SITE,
                     per_token.access_token,
                     contract_id,
                     entity_code=entity_code,
@@ -204,12 +266,13 @@ async def _fetch_once(session_state: str) -> dict:
                     transport=_TRANSPORT,
                 )
             except replay.SessionExpired:
-                _token_cache.evict(session_state, chain=replay.PER_CHAIN)
+                _token_cache.evict(session_state, chain=PER_CHAIN)
                 if attempt == 2:
                     raise replay.UpstreamError("PER token refused twice") from None
         raise AssertionError("unreachable")
 
     return await fetcher.fetch_import(
+        SITE,
         token.access_token,
         transport=_TRANSPORT,
         loan_token=loan_token,
@@ -225,9 +288,9 @@ async def _fetch_accounts(session_state: str) -> dict:
         # A cached token can be revoked before its expiry: drop both and replay once more.
         # A second rejection (or a failed replay) means the session itself is dead.
         _token_cache.evict(session_state)
-        _token_cache.evict(session_state, chain=replay.LOAN_CHAIN)
-        _token_cache.evict(session_state, chain=replay.HOME_LOAN_CHAIN)
-        _token_cache.evict(session_state, chain=replay.PER_CHAIN)
+        _token_cache.evict(session_state, chain=LOAN_CHAIN)
+        _token_cache.evict(session_state, chain=HOME_LOAN_CHAIN)
+        _token_cache.evict(session_state, chain=PER_CHAIN)
         return await _fetch_once(session_state)
 
 

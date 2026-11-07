@@ -33,6 +33,7 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 | Crédit Mutuel Épargne Salariale login and password (JSON), stored at every login | `CmesSession` | `cmes_session.encrypted_credentials` | V117 (2026-10-31) |
 | CIC login and password (JSON), stored at every login | `CicSession` | `cic_session.encrypted_credentials` | V121 (2026-10-31) |
 | CORUM login and password (JSON), opt-in ("Remember my credentials"), NULL otherwise | `CorumSession` | `corum_session.encrypted_credentials` | V127 (2026-11-05) |
+| Wise personal API token | `WiseConnection` | `api_token` | V131 (2026-11-03) |
 
 ### What is NOT encrypted (and why)
 

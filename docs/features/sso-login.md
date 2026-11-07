@@ -316,8 +316,8 @@ Frontend (`frontend/src/`):
 - **Back from the IdP restores the page from the bfcache.** Every "redirecting" state (login
   button, `ReauthPanel`, link dialog) resets on a persisted `pageshow`.
 - **Dev proxy.** Vite proxies `/oauth2` and `/api` with `xfwd: true`, so the dev `redirect_uri`
-  and the post-logout URI name `:5173`. Tomcat honors those headers only from loopback peers; with
-  a backend on another machine they name the backend host.
+  and the post-logout URI name `:5173`. Tomcat applies those forwarded origin headers from any
+  peer (`ForwardedOriginCustomizer`), so this holds with a backend on another machine too.
 
 ## Tests
 
