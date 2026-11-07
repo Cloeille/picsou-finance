@@ -16,6 +16,8 @@ import java.time.LocalDate;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -451,7 +453,7 @@ class SimplefinJsonTest {
     }
 
     @Test
-    void holdings_rowsThatCannotBeValued_areDropped() {
+    void holdings_rowsThatCannotBeValued_areDroppedAndMarkTheListIncomplete() {
         SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":["
             + "{\"symbol\":\"NOSHARES\"},"
             + "{\"symbol\":\"BAD\",\"shares\":\"abc\"},"
@@ -459,5 +461,62 @@ class SimplefinJsonTest {
             + "{\"symbol\":\"OK\",\"shares\":\"1\"}]}");
 
         assertThat(account.holdings()).extracting(h -> h.symbol()).containsExactly("OK");
+        assertThat(account.holdingsComplete()).isFalse();
+    }
+
+    @Test
+    void holdings_everyRowReadable_isComplete() {
+        SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":["
+            + "{\"symbol\":\"A\",\"shares\":\"1\"},{\"description\":\"No ticker\",\"shares\":\"2\"}]}");
+
+        assertThat(account.holdings()).hasSize(2);
+        assertThat(account.holdingsComplete()).isTrue();
+        assertThat(only("{" + ACCOUNT + "}").holdingsComplete()).isTrue();
+    }
+
+    @Test
+    void holdings_pastTheRowCap_keepTheFirstRowsButAreIncomplete() {
+        String rows = IntStream.rangeClosed(1, 501)
+            .mapToObj(i -> "{\"symbol\":\"S" + i + "\",\"shares\":\"1\"}")
+            .collect(Collectors.joining(","));
+
+        SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":[" + rows + "]}");
+
+        assertThat(account.holdings()).hasSize(500);
+        assertThat(account.holdingsComplete()).isFalse();
+    }
+
+    @Test
+    void holdings_exactlyTheRowCap_isStillComplete() {
+        String rows = IntStream.rangeClosed(1, 500)
+            .mapToObj(i -> "{\"symbol\":\"S" + i + "\",\"shares\":\"1\"}")
+            .collect(Collectors.joining(","));
+
+        SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":[" + rows + "]}");
+
+        assertThat(account.holdings()).hasSize(500);
+        assertThat(account.holdingsComplete()).isTrue();
+    }
+
+    @Test
+    void holdings_symbolWithAnEmojiStraddlingTheLimit_isCutBeforeTheEmoji() {
+        String symbol = "A".repeat(99) + EMOJI;
+
+        SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":[{\"symbol\":\"" + symbol
+            + "\",\"shares\":\"1\"}]}");
+
+        assertThat(account.holdings()).singleElement()
+            .satisfies(h -> assertThat(h.symbol()).isEqualTo("A".repeat(99)));
+    }
+
+    @Test
+    void holdings_descriptionWithAnEmojiEndingOnTheLimit_isKept() {
+        String description = "D".repeat(253) + EMOJI;
+
+        SimplefinAccount account = only("{" + ACCOUNT + ",\"holdings\":[{\"symbol\":\"A\",\"description\":\""
+            + description + "\",\"shares\":\"1\"}]}");
+
+        assertThat(account.holdings()).singleElement()
+            .satisfies(h -> assertThat(h.description()).isEqualTo(description));
     }
 }

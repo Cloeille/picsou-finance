@@ -84,10 +84,7 @@ final class SimplefinJson {
             if (message == null || message.isNull()) continue;
             String text = message.asText().replaceAll("[\\p{Cc}\\p{Zl}\\p{Zp}\\s]+", " ").trim();
             if (text.isEmpty()) continue;
-            if (text.length() > MAX_ERROR_CHARS) {
-                int end = Character.isHighSurrogate(text.charAt(MAX_ERROR_CHARS - 1)) ? MAX_ERROR_CHARS - 1 : MAX_ERROR_CHARS;
-                text = text.substring(0, end) + "…";
-            }
+            if (text.length() > MAX_ERROR_CHARS) text = clip(text, MAX_ERROR_CHARS) + "…";
             errors.add(text);
         }
     }
@@ -145,6 +142,7 @@ final class SimplefinJson {
             }
         }
         Institution institution = connId == null ? null : connectionNames.get(connId);
+        Holdings holdings = parseHoldings(node.get("holdings"));
         return new SimplefinAccount(
             externalAccountId(connId, id),
             institution == null ? null : institution.name(),
@@ -153,7 +151,8 @@ final class SimplefinJson {
             balance,
             List.copyOf(transactions),
             institution == null ? null : institution.domain(),
-            parseHoldings(node.get("holdings"))
+            holdings.rows(),
+            holdings.complete()
         );
     }
 
@@ -161,19 +160,30 @@ final class SimplefinJson {
     private static final int MAX_SYMBOL = 100;
     private static final int MAX_DESCRIPTION = 255;
 
+    /** The readable rows, and whether they are the whole list the bridge sent. */
+    private record Holdings(List<SimplefinHolding> rows, boolean complete) {}
+
     /**
-     * Rows without a symbol or a numeric share count are dropped: they cannot be keyed or
-     * valued. Figures arrive as strings ("10.500") but a bridge may send numbers, so both parse.
+     * Rows without a symbol or description, or without a numeric share count, are dropped: they
+     * cannot be keyed or valued. A dropped row, or a list past {@link #MAX_HOLDINGS}, makes the
+     * result incomplete, because replacing the stored portfolio with part of it would silently
+     * delete the rest. Figures arrive as strings ("10.500") but a bridge may send numbers, so both
+     * parse.
      */
-    private static List<SimplefinHolding> parseHoldings(JsonNode node) {
-        if (node == null || !node.isArray()) return List.of();
+    private static Holdings parseHoldings(JsonNode node) {
+        if (node == null || !node.isArray()) return new Holdings(List.of(), true);
         List<SimplefinHolding> holdings = new ArrayList<>();
+        boolean complete = node.size() <= MAX_HOLDINGS;
+        int read = 0;
         for (JsonNode h : node) {
-            if (holdings.size() >= MAX_HOLDINGS) break;
+            if (read++ >= MAX_HOLDINGS) break;
             String symbol = clip(text(h, "symbol"), MAX_SYMBOL);
             String description = clip(text(h, "description"), MAX_DESCRIPTION);
             BigDecimal shares = decimal(text(h, "shares"));
-            if (shares == null || (symbol == null && description == null)) continue;
+            if (shares == null || (symbol == null && description == null)) {
+                complete = false;
+                continue;
+            }
             holdings.add(new SimplefinHolding(
                 symbol,
                 description,
@@ -184,12 +194,14 @@ final class SimplefinJson {
                 decimal(text(h, "purchase_price"))
             ));
         }
-        return List.copyOf(holdings);
+        return new Holdings(List.copyOf(holdings), complete);
     }
 
+    /** Stops on a character boundary, as {@code BankTransactionImportService.clip} does. */
     private static String clip(String value, int max) {
         if (value == null || value.length() <= max) return value;
-        return value.substring(0, max);
+        int end = Character.isHighSurrogate(value.charAt(max - 1)) ? max - 1 : max;
+        return value.substring(0, end);
     }
 
     private static SimplefinTransaction parseTransaction(JsonNode node) {

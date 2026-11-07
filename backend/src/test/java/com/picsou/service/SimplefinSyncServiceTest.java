@@ -251,7 +251,7 @@ class SimplefinSyncServiceTest {
 
     private static SimplefinAccount brokerage(SimplefinHolding... holdings) {
         return new SimplefinAccount("sfin_FID_hsa", "Fidelity Investments", "Health Savings Account", "USD",
-            new BigDecimal("5000.00"), List.of(), "fidelity.com", List.of(holdings));
+            new BigDecimal("5000.00"), List.of(), "fidelity.com", List.of(holdings), true);
     }
 
     private static SimplefinHolding holding(String symbol, String shares, String marketValue,
