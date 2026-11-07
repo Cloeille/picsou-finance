@@ -89,6 +89,7 @@
 | 2026-11-04 | [SSO login through an external OIDC provider, alongside passwords](./decisions/2026-11-04-sso-login-alongside-passwords.md) | Active |
 | 2026-11-05 | [CORUM Life contracts sync as one assurance-vie account each](./decisions/2026-11-05-corum-life-sync.md) | Active |
 | 2026-11-05 | [Banque Populaire shares the Caisse d'Epargne code through a BPCE package and sync engine](./decisions/2026-11-05-bpce-shared-sidecar-and-engine.md) | Active |
+| 2026-11-07 | [Contract kinds seen in few live runs are enabled per bank and demoted, not fatal](./decisions/2026-11-07-provisional-kinds-per-bank.md) | Active |
 
 ## Feature notes
 
