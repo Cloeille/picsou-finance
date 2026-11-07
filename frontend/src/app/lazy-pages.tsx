@@ -12,6 +12,12 @@ export const LoginPage = lazy(() =>
 export const MfaChallengePage = lazy(() =>
   import('@/pages/login/MfaChallengePage').then((m) => ({ default: m.MfaChallengePage }))
 )
+export const SsoCallbackPage = lazy(() =>
+  import('@/pages/login/SsoCallbackPage').then((m) => ({ default: m.SsoCallbackPage }))
+)
+export const SsoCompletePage = lazy(() =>
+  import('@/pages/login/SsoCompletePage').then((m) => ({ default: m.SsoCompletePage }))
+)
 export const DashboardPage = lazy(() =>
   import('@/pages/dashboard/DashboardPage').then((m) => ({
     default: m.DashboardPage,

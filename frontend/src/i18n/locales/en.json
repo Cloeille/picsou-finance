@@ -87,6 +87,13 @@
     "mfaTooManyAttempts": "Too many attempts, try again in a few minutes",
     "mfaSessionExpired": "Verification session expired, sign in again",
     "mfaGenericError": "We couldn't verify the code. Please try again.",
+    "sso": {
+      "button": "Sign in with {{provider}}",
+      "or": "or",
+      "redirecting": "Redirecting to your sign-in provider...",
+      "completing": "Completing sign-in...",
+      "infoError": "Couldn't load the sign-in options."
+    },
     "validation": {
       "usernameTooShort": "The username must contain at least 3 characters.",
       "usernameTooLong": "The username must contain 50 characters or fewer.",
@@ -1804,6 +1811,8 @@
     "themeDark": "Dark",
     "themeSystem": "System",
     "currentPassword": "Current password",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm password",
     "appearanceDescription": "Customize the application appearance",
     "dateFormat": "Date format",
     "dateFormatLocale": "Localized",
@@ -1911,6 +1920,32 @@
         "AGGRESSIVE": "Aggressive"
       },
       "saved": "Profile saved"
+    },
+    "signInMethods": {
+      "title": "Sign-in methods",
+      "password": "Password",
+      "passwordOn": "You can sign in with your username and password.",
+      "passwordOff": "No password: you sign in with {{provider}}.",
+      "turnOff": "Turn off password login",
+      "turnOffHint": "Sign in once with {{provider}} before turning off password login.",
+      "setPassword": "Set a password",
+      "identityFallback": "{{provider}} account",
+      "lastSignIn": "Last sign-in",
+      "neverUsed": "Not used to sign in yet",
+      "unlink": "Unlink",
+      "unlinkHint": "Set a password before unlinking your last sign-in method.",
+      "link": "Link {{provider}} account",
+      "adminGroupNote": "Admin rights follow your group in {{provider}}.",
+      "linked": "Account linked. You can now sign in with it.",
+      "removePasswordTitle": "Turn off password login?",
+      "removePasswordDesc": "You will sign in with {{provider}} only. Your other devices will be signed out, and two-factor authentication will be turned off if it is on.",
+      "setPasswordDesc": "You will be able to sign in with your username and this password as well as with {{provider}}. Your other devices will be signed out.",
+      "passwordMismatch": "The passwords do not match.",
+      "unlinkTitle": "Unlink this account?",
+      "unlinkDesc": "You will no longer be able to sign in with this {{provider}} account.",
+      "linkTitle": "Link a {{provider}} account",
+      "linkDesc": "Confirm your identity, then sign in with the {{provider}} account to link.",
+      "linkMfaNote": "When you sign in with {{provider}}, Picsou doesn't ask for your authenticator code: a second factor is then the sign-in provider's job. Password sign-ins still ask for the code, except on a trusted device."
     }
   },
   "accessKeys": {
@@ -2216,6 +2251,12 @@
       "resetMfaConfirmTitle": "Reset two-factor auth?",
       "resetMfaConfirmDesc": "This disables 2FA on the member's account, revokes their recovery codes, and signs them out everywhere. Use only when they have lost access to their authenticator and cannot use a recovery code.",
       "mfaOn": "2FA on",
+      "signInPassword": "Password",
+      "signInSso": "SSO",
+      "unlinkSso": "Unlink SSO",
+      "unlinkSsoTitle": "Unlink SSO for {{name}}?",
+      "unlinkSsoDescription": "This member will no longer sign in with SSO and will be signed out everywhere. If no password remains, they will need a password reset link to sign in again.",
+      "unlinkSsoFailed": "Unlinking SSO for {{name}} failed.",
       "delete": "Delete",
       "deleteConfirmTitle": "Delete member",
       "deleteConfirmDesc": "This will delete the member and all their data. This action cannot be undone.",
@@ -2355,6 +2396,9 @@
       "submitError": "We couldn't create the account. Please try again.",
       "showPassword": "Show password",
       "hidePassword": "Hide password",
+      "ssoHint": "Picsou's administrator signs in with {{provider}}. Use an account from the administrators group.",
+      "ssoContinue": "Continue with {{provider}}",
+      "ssoMisconfigured": "Creating the administrator requires single sign-on, but its settings are invalid. Check the server logs.",
       "strength": {
         "weak": "Password security is weak.",
         "fair": "Password security is fair.",
@@ -2950,5 +2994,60 @@
       "yes": "Yes",
       "no": "No"
     }
+  },
+  "activation": {
+    "title": "Activate your account",
+    "subtitle": "Choose a password to complete your account setup.",
+    "subtitleSso": "Activate it with {{provider}}, or choose a password to complete your account setup.",
+    "noticeTitle": "Data access notice",
+    "noticeBody": "The administrator of this Picsou instance has technical access to all data stored here, including bank account details and API credentials. By activating your account, you acknowledge this.",
+    "acknowledge": "I understand and acknowledge that the admin has access to all data on this instance.",
+    "ssoButton": "Activate with {{provider}}",
+    "password": "Password",
+    "passwordPlaceholder": "Min. 8 characters",
+    "confirmPassword": "Confirm password",
+    "confirmPlaceholder": "Repeat your password",
+    "submit": "Activate account",
+    "submitting": "Activating...",
+    "successTitle": "Account activated!",
+    "successRedirect": "Redirecting to login...",
+    "errors": {
+      "acknowledgeRequired": "You must acknowledge the data access warning.",
+      "passwordTooShort": "Password must be at least 8 characters.",
+      "passwordMismatch": "Passwords do not match.",
+      "invalidLink": "Invalid activation link.",
+      "failed": "Activation failed. The link may have expired."
+    }
+  },
+  "reauth": {
+    "confirm": "Confirm",
+    "confirmWith": "Confirm with {{provider}}",
+    "ssoHint": "{{provider}} will ask you to sign in again, then bring you back here.",
+    "expired": "Your confirmation has expired. Please confirm your identity again."
+  },
+  "ssoErrors": {
+    "NOT_LINKED": "This account is not linked to your sign-in provider. Sign in with your password, then link it from Settings.",
+    "NOT_IN_ADMIN_GROUP": "Your account is not in the group required to administer this instance.",
+    "IDENTITY_IN_USE": "This identity is already linked to another account.",
+    "REAUTH_REQUIRED": "Please confirm your identity again to continue.",
+    "REAUTH_TOO_OLD": "Your last confirmation is too old. Please confirm your identity again.",
+    "REAUTH_WRONG_ACCOUNT": "You confirmed a different account than the one you are signed in with. Please use the same account.",
+    "ACCOUNT_INACTIVE": "This account is inactive. Contact your administrator.",
+    "ADMIN_RECOVERY_ACTIVE": "An administrator recovery is in progress for this account. Finish it before signing in with SSO.",
+    "ACTIVATION_INVALID": "Single sign-on isn't available with this link. If it's a password reset link, set a new password with the form instead. Otherwise the link is invalid, has expired or was already used: ask your administrator for a new one.",
+    "SETUP_ALREADY_CLAIMED": "The initial setup has already been claimed by another administrator.",
+    "IDP_UNAVAILABLE": "The sign-in provider is unreachable. Please try again in a few minutes.",
+    "IDP_ERROR": "The sign-in provider returned an error. Please try again.",
+    "SESSION_EXPIRED": "Your sign-in attempt expired. Please start again.",
+    "RATE_LIMITED": "Too many attempts. Please wait a moment and try again.",
+    "SSO_ADMIN_REQUIRED": "First-time setup requires an administrator from your sign-in provider. Use SSO to create the administrator account.",
+    "IDENTITY_NOT_USED_YET": "You have not signed in with SSO yet. Sign in once with it before turning off password sign-in.",
+    "LAST_SIGN_IN_METHOD": "This is your last sign-in method. Add another one before removing it.",
+    "PASSWORD_ALREADY_SET": "A password is already set for this account.",
+    "REAUTH_FAILED": "Re-authentication failed. Check your credentials and try again.",
+    "SSO_REVALIDATE": "Your session needs to be re-validated with your sign-in provider.",
+    "SSO_DISABLED": "Single sign-on is not enabled on this instance.",
+    "SELF_UNLINK_FORBIDDEN": "To unlink your own SSO identities, use Sign-in methods in Settings.",
+    "generic": "Single sign-on failed. Please try again."
   }
 }

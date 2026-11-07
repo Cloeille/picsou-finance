@@ -85,6 +85,8 @@ export const QUERY_STALE_TIMES = {
   // Allocation moves at the pace of the portfolio behind it, and the score is read, not
   // watched -- the dashboard's cadence is the right one here too.
   analysis: 5 * 60 * 1000,
+  // Whether SSO is configured only changes with a backend restart.
+  ssoInfo: 10 * 60 * 1000,
   // The precious-metals catalogue is a fixed list shipped with the backend: it only changes
   // with a release, so a session-long cache never serves a stale answer.
   preciousMetals: 60 * 60 * 1000,

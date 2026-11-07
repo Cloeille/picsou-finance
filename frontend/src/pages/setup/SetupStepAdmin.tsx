@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Eye, EyeOff } from 'lucide-react'
@@ -8,11 +8,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
-import { formatApiError } from '@/lib/errors'
+import { formatSsoApiError, ssoErrorMessage } from '@/features/sso/errors'
 import { setupAdminSchema, type SetupAdminFormValues } from '@/features/setup/schemas'
-import { useSubmitAdmin } from '@/features/setup/hooks'
+import { useSetupStatus, useSubmitAdmin } from '@/features/setup/hooks'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'
 import { stashSetupCredentials } from '@/stores/setup-credentials'
+import { SetupAdminSso } from './SetupAdminSso'
 
 /**
  * Palette of 6 avatar colors pulled from Tailwind's semantic tokens.
@@ -46,7 +47,37 @@ const STRENGTH_COPY: Record<0 | 1 | 2 | 3 | 4, { key: string; tone: string }> = 
   4: { key: 'setup.admin.strength.strong', tone: 'bg-emerald-500' },
 }
 
+/** With an SSO admin group configured, the server refuses the password form: only SSO is offered. */
 export function SetupStepAdmin() {
+  const { t } = useTranslation()
+  const [searchParams] = useSearchParams()
+  const { data: status } = useSetupStatus()
+  const sso = status?.sso
+  const ssoError = searchParams.get('ssoError')
+
+  return (
+    <div className="space-y-8">
+      <div className="text-center space-y-2">
+        <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">
+          {t('setup.admin.title')}
+        </h1>
+        <p className="mx-auto max-w-md text-sm text-muted-foreground">
+          {t('setup.admin.subtitle')}
+        </p>
+      </div>
+
+      {ssoError && (
+        <p role="alert" className="mx-auto max-w-md rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {ssoErrorMessage(t, ssoError)}
+        </p>
+      )}
+
+      {sso?.adminBootstrap ? <SetupAdminSso sso={sso} /> : <AdminPasswordForm />}
+    </div>
+  )
+}
+
+function AdminPasswordForm() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const setAdminDisplayName = useSetupFlowStore((s) => s.setAdminDisplayName)
@@ -82,155 +113,152 @@ export function SetupStepAdmin() {
   const usernameErrorKey = formState.errors.username?.message
   const passwordErrorKey = formState.errors.password?.message
 
-  const onSubmit = handleSubmit(async (values) => {
+  // `mutate`, not `mutateAsync`: a refusal shows through `submitAdmin.error`, and handleSubmit would
+  // rethrow a rejected promise as an unhandled rejection.
+  const onSubmit = handleSubmit((values) => {
     const displayName = values.displayName?.trim() || values.username
-    await submitAdmin.mutateAsync({
-      username: values.username,
-      password: values.password,
-      displayName,
-      avatarColor: values.avatarColor,
-    })
-    setAdminDisplayName(displayName)
-    stashSetupCredentials(values.username, values.password)
-    navigate('/setup/security')
+    submitAdmin.mutate(
+      {
+        username: values.username,
+        password: values.password,
+        displayName,
+        avatarColor: values.avatarColor,
+      },
+      {
+        onSuccess: () => {
+          setAdminDisplayName(displayName)
+          stashSetupCredentials(values.username, values.password)
+          navigate('/setup/security')
+        },
+      },
+    )
   })
 
   return (
-    <div className="space-y-8">
-      <div className="text-center space-y-2">
-        <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">
-          {t('setup.admin.title')}
-        </h1>
-        <p className="mx-auto max-w-md text-sm text-muted-foreground">
-          {t('setup.admin.subtitle')}
+    <form onSubmit={onSubmit} className="mx-auto w-full max-w-2xl space-y-5" noValidate>
+      <div className="space-y-2">
+        <Label htmlFor="setup-username" className="text-sm font-semibold">
+          {t('setup.admin.username')}
+        </Label>
+        <Input
+          id="setup-username"
+          autoComplete="username"
+          autoFocus
+          aria-invalid={showUsernameError}
+          {...register('username')}
+        />
+        <p className="text-xs text-muted-foreground">
+          {showUsernameError
+            ? t(usernameErrorKey ?? 'setup.admin.usernameHint')
+            : t('setup.admin.usernameHint')}
         </p>
       </div>
 
-      <form onSubmit={onSubmit} className="mx-auto w-full max-w-2xl space-y-5" noValidate>
-        <div className="space-y-2">
-          <Label htmlFor="setup-username" className="text-sm font-semibold">
-            {t('setup.admin.username')}
-          </Label>
+      <div className="space-y-2">
+        <Label htmlFor="setup-password" className="text-sm font-semibold">
+          {t('setup.admin.password')}
+        </Label>
+        <div className="relative">
           <Input
-            id="setup-username"
-            autoComplete="username"
-            autoFocus
-            aria-invalid={showUsernameError}
-            {...register('username')}
+            id="setup-password"
+            type={showPassword ? 'text' : 'password'}
+            autoComplete="new-password"
+            aria-invalid={showPasswordError}
+            className="pr-14"
+            {...register('password')}
           />
-          <p className="text-xs text-muted-foreground">
-            {showUsernameError
-              ? t(usernameErrorKey ?? 'setup.admin.usernameHint')
-              : t('setup.admin.usernameHint')}
-          </p>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="setup-password" className="text-sm font-semibold">
-            {t('setup.admin.password')}
-          </Label>
-          <div className="relative">
-            <Input
-              id="setup-password"
-              type={showPassword ? 'text' : 'password'}
-              autoComplete="new-password"
-              aria-invalid={showPasswordError}
-              className="pr-14"
-              {...register('password')}
-            />
-            <button
-              type="button"
-              aria-label={showPassword ? t('setup.admin.hidePassword') : t('setup.admin.showPassword')}
-              aria-pressed={showPassword}
-              onClick={() => setShowPassword((value) => !value)}
-              className={cn(
-                'absolute right-2 top-1/2 inline-flex h-10 w-10 -translate-y-1/2',
-                'items-center justify-center rounded-full text-muted-foreground',
-                'transition-colors hover:bg-muted hover:text-foreground'
-              )}
-            >
-              {showPassword ? (
-                <EyeOff className="size-4" aria-hidden="true" />
-              ) : (
-                <Eye className="size-4" aria-hidden="true" />
-              )}
-            </button>
-          </div>
-          {passwordHasInput ? (
-            <div className="flex gap-1" aria-hidden="true">
-              {[0, 1, 2, 3].map((i) => (
-                <span
-                  key={i}
-                  className={cn(
-                    'h-1 flex-1 rounded-full bg-muted transition-colors',
-                    score > i && strength.tone
-                  )}
-                />
-              ))}
-            </div>
-          ) : null}
-          <p className="text-xs text-muted-foreground">
-            {passwordHasInput
-              ? showPasswordError
-                ? t(passwordErrorKey ?? 'setup.admin.passwordHint')
-                : t(strength.key)
-              : t('setup.admin.passwordHint')}
-          </p>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="setup-display-name" className="text-sm font-semibold">
-            {t('setup.admin.displayName')}
-          </Label>
-          <Input
-            id="setup-display-name"
-            autoComplete="name"
-            {...register('displayName')}
-          />
-          <p className="text-xs text-muted-foreground">
-            {t('setup.admin.displayNameHint')}
-          </p>
-        </div>
-
-        <fieldset className="space-y-2">
-          <legend className="text-sm font-semibold">{t('setup.admin.avatarColor')}</legend>
-          <div className="flex flex-wrap gap-3">
-            {AVATAR_SWATCHES.map((hex) => {
-              const active = avatarColor === hex
-              return (
-                <button
-                  key={hex}
-                  type="button"
-                  onClick={() => setValue('avatarColor', hex, { shouldValidate: true })}
-                  aria-label={hex}
-                  aria-pressed={active}
-                  className={cn(
-                    'size-10 rounded-full border-2 transition-[border-color,box-shadow]',
-                    active ? 'border-background ring-2 ring-foreground' : 'border-transparent'
-                  )}
-                  style={{ backgroundColor: hex }}
-                />
-              )
-            })}
-          </div>
-        </fieldset>
-
-        {submitAdmin.error && (
-          <p role="alert" className="text-sm text-destructive">
-            {formatApiError(submitAdmin.error, t, 'setup.admin.submitError')}
-          </p>
-        )}
-
-        <div className="pt-2">
-          <Button
-            type="submit"
-            disabled={submitAdmin.isPending || !formState.isValid}
-            className="w-full rounded-full"
+          <button
+            type="button"
+            aria-label={showPassword ? t('setup.admin.hidePassword') : t('setup.admin.showPassword')}
+            aria-pressed={showPassword}
+            onClick={() => setShowPassword((value) => !value)}
+            className={cn(
+              'absolute right-2 top-1/2 inline-flex h-10 w-10 -translate-y-1/2',
+              'items-center justify-center rounded-full text-muted-foreground',
+              'transition-colors hover:bg-muted hover:text-foreground'
+            )}
           >
-            {submitAdmin.isPending ? t('setup.admin.creating') : t('setup.admin.cta')}
-          </Button>
+            {showPassword ? (
+              <EyeOff className="size-4" aria-hidden="true" />
+            ) : (
+              <Eye className="size-4" aria-hidden="true" />
+            )}
+          </button>
         </div>
-      </form>
-    </div>
+        {passwordHasInput ? (
+          <div className="flex gap-1" aria-hidden="true">
+            {[0, 1, 2, 3].map((i) => (
+              <span
+                key={i}
+                className={cn(
+                  'h-1 flex-1 rounded-full bg-muted transition-colors',
+                  score > i && strength.tone
+                )}
+              />
+            ))}
+          </div>
+        ) : null}
+        <p className="text-xs text-muted-foreground">
+          {passwordHasInput
+            ? showPasswordError
+              ? t(passwordErrorKey ?? 'setup.admin.passwordHint')
+              : t(strength.key)
+            : t('setup.admin.passwordHint')}
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="setup-display-name" className="text-sm font-semibold">
+          {t('setup.admin.displayName')}
+        </Label>
+        <Input
+          id="setup-display-name"
+          autoComplete="name"
+          {...register('displayName')}
+        />
+        <p className="text-xs text-muted-foreground">
+          {t('setup.admin.displayNameHint')}
+        </p>
+      </div>
+
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-semibold">{t('setup.admin.avatarColor')}</legend>
+        <div className="flex flex-wrap gap-3">
+          {AVATAR_SWATCHES.map((hex) => {
+            const active = avatarColor === hex
+            return (
+              <button
+                key={hex}
+                type="button"
+                onClick={() => setValue('avatarColor', hex, { shouldValidate: true })}
+                aria-label={hex}
+                aria-pressed={active}
+                className={cn(
+                  'size-10 rounded-full border-2 transition-[border-color,box-shadow]',
+                  active ? 'border-background ring-2 ring-foreground' : 'border-transparent'
+                )}
+                style={{ backgroundColor: hex }}
+              />
+            )
+          })}
+        </div>
+      </fieldset>
+
+      {submitAdmin.error && (
+        <p role="alert" className="text-sm text-destructive">
+          {formatSsoApiError(submitAdmin.error, t, 'setup.admin.submitError')}
+        </p>
+      )}
+
+      <div className="pt-2">
+        <Button
+          type="submit"
+          disabled={submitAdmin.isPending || !formState.isValid}
+          className="w-full rounded-full"
+        >
+          {submitAdmin.isPending ? t('setup.admin.creating') : t('setup.admin.cta')}
+        </Button>
+      </div>
+    </form>
   )
 }
