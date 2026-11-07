@@ -68,9 +68,9 @@ PENDING_TTL_SECONDS = 600
 MAX_CODE_ATTEMPTS = 5
 MAX_PENDING = 16
 REQUEST_TIMEOUT_SECONDS = 15.0
-# Each route gives up before the backend's 45 s adapter timeout, so a slow
-# Natixis never leaves a code sent or tokens minted that the backend no longer
-# waits for.
+# Each route gives up before the backend's 45 s adapter timeout, so the backend
+# gets an answer rather than a timeout. A route that gives up late in a login may
+# still leave a code sent or tokens minted: the saver then needs a new code.
 ROUTE_DEADLINE_SECONDS = 40.0
 # Fund details only add the AMF code to a line: they get a slice of the route's
 # deadline, read a few at a time, and whatever is not back by then goes without.
@@ -87,6 +87,16 @@ SESSION_STATE_VERSION = 1
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+)
+
+# Every API path the sidecar reads, whole. The saver's token goes to nothing else,
+# whatever a session state or an upstream answer holds.
+_API_PATH = re.compile(
+    r"/auth/v3/users/me"
+    r"|/saving/v1/employees/[0-9A-Za-z-]{1,40}/(?:savings|products)"
+    r"|/transaction/v1/employees/[0-9A-Za-z-]{1,40}/transactions"
+    r"|/transaction/v1/employees/[0-9A-Za-z-]{1,40}/(?:investmentDemands|paymentDemands)/[0-9A-Za-z_-]{1,120}"
+    r"|/fund/v1/funds/[0-9]{1,18}"
 )
 
 _FORM_ACTION_RE = re.compile(r'<form[^>]*\baction="([^"]+)"', re.I)
@@ -452,6 +462,9 @@ async def _token(client: httpx.AsyncClient, grant: dict[str, str], refused: str 
 
 
 async def _api_get(client: httpx.AsyncClient, access_token: str, path: str, params: dict | None = None) -> Any:
+    if not _API_PATH.fullmatch(path):
+        # Nothing reaches the network: the path came out of a shape Picsou did not expect.
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", "API path outside the allowed shapes")
     response = await client.get(f"{API}{path}", params=params,
                                 headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"})
     _upstream(response, "API")
@@ -558,26 +571,36 @@ async def _operation_details(client: httpx.AsyncClient, access_token: str,
                 async with gate:
                     return await _api_get(client, access_token, demand["path"])
 
-            # A TaskGroup cancels the other reads as soon as one fails, so none keeps
-            # running against the client once this read is given up.
-            async with asyncio.TaskGroup() as group:
-                tasks = [group.create_task(detail(d)) for d in demands]
-            return demands, [task.result() for task in tasks], since
-    except* Exception as errors:
+            details = await _all_or_none(detail(d) for d in demands)
+            return demands, details, since
+    except Exception as exc:  # noqa: BLE001 -- the history is optional, see above
+        errors = exc.exceptions if isinstance(exc, ExceptionGroup) else [exc]
         # Codes and error types only: a message may quote what Natixis sent.
         failure = " " + ",".join(sorted({
             f"code={e.code}" if isinstance(e, NatixisError) else f"error_type={type(e).__name__}"
-            for e in _leaves(errors)
+            for e in errors
         }))
     log.warning("Natixis operations not read%s", failure)
     return None
 
 
-def _leaves(group: BaseExceptionGroup) -> list[BaseException]:
-    leaves = []
-    for exc in group.exceptions:
-        leaves.extend(_leaves(exc) if isinstance(exc, BaseExceptionGroup) else [exc])
-    return leaves
+async def _all_or_none(reads) -> list:
+    """Every read's result in order, or an ExceptionGroup of the failures. The first
+    failure cancels the other reads, so none keeps running against the client. Not a
+    TaskGroup: on Python 3.12 a failed child leaves the request task cancelling, and
+    the route deadline that fires afterwards then escapes as a bare CancelledError."""
+    tasks = [asyncio.ensure_future(r) for r in reads]
+    if not tasks:
+        return []
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+    finally:
+        for task in tasks:
+            task.cancel()
+    failures = [t.exception() for t in done if not t.cancelled() and t.exception() is not None]
+    if failures:
+        raise ExceptionGroup("operation details", failures)
+    return [task.result() for task in tasks]
 
 
 async def _fund_codes(client: httpx.AsyncClient, access_token: str, ids: list[int]) -> dict[int, str | None]:

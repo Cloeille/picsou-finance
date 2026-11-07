@@ -84,10 +84,13 @@ the route answers, so a bad one can never fail `/positions`.
 **Detail links.** The URL of each operation detail is rebuilt from the saver's id,
 the operation type (`investmentDemands` or `paymentDemands`) and the link's last
 segment, which must be plain characters (`[0-9A-Za-z_-]`). A link to another host,
-another saver or another collection, or one with `..`, an encoded character, a query
-or a fragment, is a format change: the history is dropped and the saver's token is
-never sent there. The details are read in an `asyncio.TaskGroup`, so one failure
-cancels the other reads at once.
+another saver or another collection, or one with `..`, an encoded character, a query,
+a fragment, whitespace or a control character, is a format change: the history is
+dropped and the saver's token is never sent there. As a last guard, `_api_get` only
+calls a path that matches one of the shapes the sidecar reads, whole (`_API_PATH`).
+The first failed detail cancels the other reads at once. They are read with
+`asyncio.wait`, not a `TaskGroup`: on Python 3.12 a failed `TaskGroup` child leaves
+the request task cancelling, and the route deadline would then escape as a raw 500.
 
 **Sales of units older than the window.** A PEE or PERCO release often sells units
 bought more than five years ago, so their `BUY` is outside the history. The `SELL`
@@ -198,8 +201,9 @@ spending. The rows stay visible on the account page and in exports.
 ## Tests
 
 - `services/natixis-auth/test_main.py`: the whole login and positions flow against
-  a fake Natixis; every error code; a log test proving that no credential, code,
-  token, CSRF or SAML value is ever logged.
+  a fake Natixis; every error code, the route deadline after a failed detail
+  included; the API-path guard, which sends nothing outside `_API_PATH`; a log test
+  proving that no credential, code, token, CSRF or SAML value is ever logged.
 - `services/natixis-auth/test_parsers.py`: mapping and reconciliation on the
   synthetic fixtures.
 - `services/natixis-auth/test_sidecar_auth.py`: the shared sidecar-key contract.

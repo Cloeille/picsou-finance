@@ -499,6 +499,45 @@ class ErrorCodeTest(SidecarTestCase):
         self.fake.savings = ["not", "an", "object"]
         self.assertDetail(self.post("/positions", {"sessionState": session}), 502, "UPSTREAM_FORMAT_CHANGED")
 
+    def test_the_route_deadline_after_a_failed_detail_still_answers_upstream_unavailable(self):
+        # A failed detail must leave the request task as it found it: the route
+        # deadline that fires afterwards still turns into the 502 contract error.
+        session = self.login().json()["sessionState"]
+        self.fake.detail_status = 503
+        original = main._api_get
+
+        async def slow_funds(client, token, path, params=None):
+            if path.startswith("/fund/"):
+                await asyncio.sleep(1)
+            return await original(client, token, path, params)
+
+        with mock.patch.object(main, "POSITIONS_DEADLINE_SECONDS", 0.3), \
+                mock.patch.object(main, "_api_get", slow_funds):
+            self.assertDetail(self.post("/positions", {"sessionState": session}), 502, "UPSTREAM_UNAVAILABLE")
+
+    def test_no_api_call_leaves_the_allowed_paths(self):
+        # The last guard before the network, whatever built the path.
+        employee = USERS_ME["id"]
+        for path in (f"/saving/v1/employees/{employee}/../../auth/v3/users/me",
+                     f"/saving/v1/employees/{employee}/savings/x",
+                     f"/transaction/v1/employees/{employee}/investmentDemands/a%2F..",
+                     f"/transaction/v1/employees/{employee}/investmentDemands/x\n",
+                     "/fund/v1/funds/1?x=1",
+                     "//evil.example/x",
+                     "@evil.example/x",
+                     "/auth/v3/users/me/"):
+            with self.subTest(path=path):
+                self.fake.requests.clear()
+
+                async def call():
+                    async with main._new_client() as client:
+                        await main._api_get(client, ACCESS_TOKEN, path)
+
+                with self.assertRaises(main.NatixisError) as caught:
+                    asyncio.run(call())
+                self.assertEqual(caught.exception.code, "UPSTREAM_FORMAT_CHANGED")
+                self.assertEqual(self.fake.requests, [])
+
     def test_slow_login_gives_up_before_the_backend(self):
         async def slow(*_):
             await asyncio.sleep(1)

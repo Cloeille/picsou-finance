@@ -29,6 +29,7 @@ DETAIL_COLLECTION = {INVESTMENT: "investmentDemands", PAYMENT: "paymentDemands"}
 # A demand key is one path segment of plain characters: no dot, slash, percent sign,
 # query or fragment can reach the URL Picsou calls with the saver's token.
 _DEMAND_KEY = re.compile(r"[0-9A-Za-z_-]{1,120}")
+_LINK_CHARS = re.compile(r"[\x21-\x7e]{1,512}")
 EMPLOYER_TOP_UP = "Abondement employeur"
 PAYMENT_LABELS = {
     "EARLY_RELEASE": "Déblocage anticipé",
@@ -65,6 +66,10 @@ def finished_demands(transactions: dict, employee_id: str) -> list[dict]:
 
 
 def _detail_path(href: str, prefix: str) -> str:
+    # urlsplit silently drops tabs and newlines, so a link holding any whitespace,
+    # control or non-ASCII character is refused before it is parsed.
+    if _LINK_CHARS.fullmatch(href) is None:
+        raise SavingsFormatError(FORMAT_CHANGED, "Operation detail outside the saver's space")
     link = urlsplit(href)
     if (link.scheme, link.netloc) not in (("", ""), ("https", API_HOST)) or link.query or link.fragment \
             or "?" in href or "#" in href or not link.path.startswith(prefix):

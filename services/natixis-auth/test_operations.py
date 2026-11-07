@@ -59,6 +59,10 @@ class DemandsTest(unittest.TestCase):
             f"https://nie.api.natixis.com:8443{base}/investmentDemands/x",
             f"https://evil.example{base}/investmentDemands/x",
             f"//evil.example{base}/investmentDemands/x",
+            f"{base}/investmentDemands/x\n",  # urlsplit would drop the newline
+            f"{base}/investmentDemands/x\ty",
+            f"{base}/investmentDemands/x y",
+            f"{base}/investmentDemands/x\u00e9",
         ):
             with self.subTest(href=href):
                 transactions = copy.deepcopy(TRANSACTIONS)
