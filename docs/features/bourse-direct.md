@@ -32,7 +32,7 @@ replaces the last valid portfolio.
    and explicitly avoids trusting the device.
 4. The sidecar returns Playwright's complete storage state. The Java backend
    encrypts it through `CryptoEncryption` before writing
-   `bourse_direct_session`.
+   `sidecar_session` (`bank = 'BOURSE_DIRECT'`).
 
 The login, password and one-time code are never stored or logged. Pending
 browser contexts are closed after completion, failure, expiry, sidecar shutdown

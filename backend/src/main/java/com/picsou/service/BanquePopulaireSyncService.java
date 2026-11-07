@@ -2,16 +2,16 @@ package com.picsou.service;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.picsou.config.CryptoEncryption;
-import com.picsou.model.BanquePopulaireSession;
-import com.picsou.model.BanquePopulaireSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BanquePopulairePort;
 import com.picsou.port.BanquePopulaireRegion;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.CategoryService;
@@ -33,7 +33,7 @@ import java.util.concurrent.Executor;
  * Imports Banque Populaire current accounts and savings books, with their transactions.
  * Banque Populaire runs on the BPCE platform, so the import is the shared {@link BpceSyncEngine}'s
  * (loans and PER included, should the sidecar ever report them); this service binds it to the
- * Banque Populaire port, session table and labels, and owns the transaction boundaries. The sync
+ * Banque Populaire port, its rows of {@code sidecar_session} and labels, and owns the transaction boundaries. The sync
  * is <b>on demand only</b>, like Caisse d'Epargne's: no scheduler, startup or member sync. No
  * credentials are ever stored. The regional bank chosen at login is stored on the session: each
  * sync stamps its official name on the accounts as their provider, with that bank's logo from the
@@ -50,13 +50,13 @@ public class BanquePopulaireSyncService {
     static final String LOGO_COUNTRY = "FR";
 
     private final BanquePopulairePort port;
-    private final BanquePopulaireSessionRepository sessionRepository;
-    private final BpceSyncEngine<BanquePopulaireSession, SessionStatusResponse> engine;
+    private final SidecarSessionRepository sessionRepository;
+    private final BpceSyncEngine<SidecarSession, SessionStatusResponse> engine;
 
     @org.springframework.beans.factory.annotation.Autowired
     public BanquePopulaireSyncService(
         BanquePopulairePort port,
-        BanquePopulaireSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
@@ -77,7 +77,7 @@ public class BanquePopulaireSyncService {
 
     BanquePopulaireSyncService(
         BanquePopulairePort port,
-        BanquePopulaireSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
@@ -135,9 +135,9 @@ public class BanquePopulaireSyncService {
         return engine.storeSession(plainState, memberId, sessionAt(region));
     }
 
-    private static BpceSyncEngine.SessionFactory<BanquePopulaireSession> sessionAt(BanquePopulaireRegion region) {
+    private static BpceSyncEngine.SessionFactory<SidecarSession> sessionAt(BanquePopulaireRegion region) {
         return (member, encryptedState, validatedAt) ->
-            BanquePopulaireSession.create(member, encryptedState, validatedAt, region);
+            SidecarSession.createBanquePopulaire(member, encryptedState, validatedAt, region);
     }
 
     /**
@@ -162,8 +162,9 @@ public class BanquePopulaireSyncService {
     @Transactional
     public void recoverInterruptedSyncs() {
         int recovered = sessionRepository.markInterruptedSyncsFailed(
-            List.of(BanquePopulaireSyncStatus.QUEUED, BanquePopulaireSyncStatus.RUNNING),
-            BanquePopulaireSyncStatus.FAILED,
+            SidecarBank.BANQUE_POPULAIRE,
+            List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING),
+            SidecarSyncStatus.FAILED,
             Instant.now(),
             SidecarErrorCode.INTERNAL_ERROR
         );
@@ -186,7 +187,7 @@ public class BanquePopulaireSyncService {
     }
 
     private static SessionStatusResponse toStatus(
-        BanquePopulaireSession session, List<BpceSyncEngine.UnsupportedContract> unsupported
+        SidecarSession session, List<BpceSyncEngine.UnsupportedContract> unsupported
     ) {
         return new SessionStatusResponse(
             session.isActive(),
@@ -198,37 +199,37 @@ public class BanquePopulaireSyncService {
         );
     }
 
-    /** The Banque Populaire session table, as the engine uses it. */
-    private record Sessions(BanquePopulaireSessionRepository repository)
-        implements BpceSyncEngine.SessionStore<BanquePopulaireSession> {
+    /** The Banque Populaire rows of the shared sidecar session table, as the engine uses them. */
+    private record Sessions(SidecarSessionRepository repository)
+        implements BpceSyncEngine.SessionStore<SidecarSession> {
 
         @Override
-        public Optional<BanquePopulaireSession> findByMemberId(Long memberId) {
-            return repository.findByMemberId(memberId);
+        public Optional<SidecarSession> findByMemberId(Long memberId) {
+            return repository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, memberId);
         }
 
         @Override
-        public Optional<BanquePopulaireSession> findByMemberIdForUpdate(Long memberId) {
-            return repository.findByMemberIdForUpdate(memberId);
+        public Optional<SidecarSession> findByMemberIdForUpdate(Long memberId) {
+            return repository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, memberId);
         }
 
         @Override
-        public Optional<BanquePopulaireSession> findByIdAndMemberIdForUpdate(Long id, Long memberId) {
+        public Optional<SidecarSession> findByIdAndMemberIdForUpdate(Long id, Long memberId) {
             return repository.findByIdAndMemberIdForUpdate(id, memberId);
         }
 
         @Override
-        public void save(BanquePopulaireSession session) {
+        public void save(SidecarSession session) {
             repository.save(session);
         }
 
         @Override
-        public void saveAndFlush(BanquePopulaireSession session) {
+        public void saveAndFlush(SidecarSession session) {
             repository.saveAndFlush(session);
         }
 
         @Override
-        public void delete(BanquePopulaireSession session) {
+        public void delete(SidecarSession session) {
             repository.delete(session);
         }
 
@@ -240,18 +241,18 @@ public class BanquePopulaireSyncService {
 
     public record SessionStatusResponse(
         boolean isActive,
-        BanquePopulaireSyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError,
         List<BpceSyncEngine.UnsupportedContract> unsupported
-    ) {
+    ) implements SidecarSessionView {
         public SessionStatusResponse {
             unsupported = unsupported == null ? List.of() : List.copyOf(unsupported);
         }
 
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, BanquePopulaireSyncStatus.IDLE, null, null, null, List.of());
+            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null, List.of());
         }
 
         @JsonProperty("unsupportedCount")

@@ -1,5 +1,6 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
@@ -7,8 +8,8 @@ import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
 import com.picsou.model.CardNature;
-import com.picsou.model.CaisseEpargneSession;
-import com.picsou.model.CaisseEpargneSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.Category;
 import com.picsou.model.CategoryKind;
 import com.picsou.model.Debt;
@@ -19,7 +20,7 @@ import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
-import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.PeerLoanRepaymentRepository;
@@ -77,7 +78,7 @@ class CaisseEpargneSyncServiceTest {
     private static final LocalDate TODAY = LocalDate.of(2026, 10, 7);
 
     @Mock CaisseEpargnePort port;
-    @Mock CaisseEpargneSessionRepository sessionRepository;
+    @Mock SidecarSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock TransactionRepository transactionRepository;
     @Mock FamilyMemberRepository memberRepository;
@@ -109,7 +110,7 @@ class CaisseEpargneSyncServiceTest {
 
         CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository, times(3)).save(accountCaptor.capture());
         List<Account> saved = accountCaptor.getAllValues();
         assertThat(saved).extracting(Account::getType).containsExactly(
@@ -148,7 +149,7 @@ class CaisseEpargneSyncServiceTest {
 
         CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository).save(accountCaptor.capture());
         Account saved = accountCaptor.getValue();
         assertThat(saved.getType()).isEqualTo(AccountType.LEP);
@@ -165,7 +166,7 @@ class CaisseEpargneSyncServiceTest {
 
         CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository).save(accountCaptor.capture());
         Account saved = accountCaptor.getValue();
         assertThat(saved.getType()).isEqualTo(AccountType.LIVRET_JEUNE);
@@ -186,7 +187,7 @@ class CaisseEpargneSyncServiceTest {
 
         CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository, times(3)).save(accountCaptor.capture());
         List<Account> saved = accountCaptor.getAllValues();
         assertThat(saved).extracting(Account::getType).containsExactly(
@@ -299,14 +300,14 @@ class CaisseEpargneSyncServiceTest {
         when(perService.prepare(any(), eq("EUR"))).thenReturn(first, second);
         CaisseEpargnePort.AccountData firstPer = f.perWithDetails("contract:P0001", "4200.00", valuationDate);
         CaisseEpargnePort.AccountData secondPer = f.perWithDetails("contract:P0002", "5100.00", valuationDate);
-        CaisseEpargneSession session = arrangeCommittableSync(firstPer, secondPer);
+        SidecarSession session = arrangeCommittableSync(firstPer, secondPer);
         org.mockito.Mockito.doThrow(new IllegalStateException("post-commit proxy failure"))
             .when(perService).backfill(first);
 
         CaisseEpargneSyncService.SessionStatusResponse result = transactional.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(txManager, times(3)).commit(any());
         verify(txManager, never()).rollback(any());
         verify(perService).backfill(first);
@@ -367,7 +368,7 @@ class CaisseEpargneSyncServiceTest {
     @Test
     void queueSync_refusesTheWholeSnapshotWhenALoanHasAPositiveBalance() {
         Fixture f = new Fixture();
-        CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.withBalance(f.loan(), "9000.00"));
+        SidecarSession session = arrangeCommittableSync(f.current(), f.withBalance(f.loan(), "9000.00"));
 
         service.queueSync(7L);
 
@@ -377,7 +378,7 @@ class CaisseEpargneSyncServiceTest {
     @Test
     void queueSync_refusesTheWholeSnapshotWhenAPerHasANegativeBalance() {
         Fixture f = new Fixture();
-        CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.withBalance(f.per(), "-1.00"));
+        SidecarSession session = arrangeCommittableSync(f.current(), f.withBalance(f.per(), "-1.00"));
 
         service.queueSync(7L);
 
@@ -475,7 +476,7 @@ class CaisseEpargneSyncServiceTest {
     @Test
     void queueSync_refusesTheWholeSnapshotWhenACardHasAnUnknownNature() {
         Fixture f = new Fixture();
-        CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.withNature(f.card(), "PREPAID"));
+        SidecarSession session = arrangeCommittableSync(f.current(), f.withNature(f.card(), "PREPAID"));
 
         service.queueSync(7L);
 
@@ -578,7 +579,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void queueSync_refusesTheWholeSnapshotWhenOneAccountHasAnUnknownKind() {
-        CaisseEpargneSession session = arrangeCommittableSync(
+        SidecarSession session = arrangeCommittableSync(
             new Fixture().current(), new Fixture().withKind(new Fixture().livret(), "PEL"));
 
         service.queueSync(7L);
@@ -589,7 +590,7 @@ class CaisseEpargneSyncServiceTest {
     @Test
     void queueSync_refusesASnapshotTheSidecarFlaggedAsIncomplete() {
         Fixture f = new Fixture();
-        CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.incomplete(f.livret()));
+        SidecarSession session = arrangeCommittableSync(f.current(), f.incomplete(f.livret()));
 
         service.queueSync(7L);
 
@@ -599,7 +600,7 @@ class CaisseEpargneSyncServiceTest {
     @Test
     void queueSync_refusesACardWithAPositiveOutstanding() {
         Fixture f = new Fixture();
-        CaisseEpargneSession session = arrangeCommittableSync(
+        SidecarSession session = arrangeCommittableSync(
             f.current(), f.withBalance(f.card(), "12.00"));
 
         service.queueSync(7L);
@@ -610,7 +611,7 @@ class CaisseEpargneSyncServiceTest {
     @Test
     void queueSync_refusesANonEuroAccount() {
         Fixture f = new Fixture();
-        CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.withCurrency(f.livret(), "USD"));
+        SidecarSession session = arrangeCommittableSync(f.current(), f.withCurrency(f.livret(), "USD"));
 
         service.queueSync(7L);
 
@@ -619,7 +620,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void queueSync_refusesAnEmptyAccountList() {
-        CaisseEpargneSession session = arrangeCommittableSync(
+        SidecarSession session = arrangeCommittableSync(
             new CaisseEpargnePort.AccountsSnapshot(List.of(), List.of()));
 
         service.queueSync(7L);
@@ -629,7 +630,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void queueSync_refusesDuplicateAccounts() {
-        CaisseEpargneSession session = arrangeCommittableSync(new Fixture().current(), new Fixture().current());
+        SidecarSession session = arrangeCommittableSync(new Fixture().current(), new Fixture().current());
 
         service.queueSync(7L);
 
@@ -639,7 +640,7 @@ class CaisseEpargneSyncServiceTest {
     @Test
     void queueSync_refusesATransactionWithAnIdTooLongForTheColumn() {
         Fixture f = new Fixture();
-        CaisseEpargneSession session = arrangeCommittableSync(f.with(f.current(), List.of(
+        SidecarSession session = arrangeCommittableSync(f.with(f.current(), List.of(
             f.tx("x".repeat(120), "2026-10-01", "-1.00", "LONG"))));
 
         service.queueSync(7L);
@@ -658,7 +659,7 @@ class CaisseEpargneSyncServiceTest {
         when(txManager.getTransaction(any())).thenReturn(transactionStatus);
         CaisseEpargneSyncService transactional = serviceWith(new TransactionTemplate(txManager), Runnable::run);
         Fixture f = new Fixture();
-        CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.card());
+        SidecarSession session = arrangeCommittableSync(f.current(), f.card());
         when(transactionRepository.saveAllAndFlush(any()))
             .thenReturn(List.of())
             .thenThrow(new IllegalStateException("db down"));
@@ -667,63 +668,32 @@ class CaisseEpargneSyncServiceTest {
 
         // exactly one transaction (the data write) rolled back; every other one committed
         verify(txManager, times(1)).rollback(any());
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR);
         assertThat(session.getLastSyncCompletedAt()).isNotNull();
     }
 
     @Test
     void queueSync_doesNotResurrectAnAccountTheUserDeleted() {
-        CaisseEpargneSession session = arrangeCommittableSync(new Fixture().current());
+        SidecarSession session = arrangeCommittableSync(new Fixture().current());
         when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId("ce_1001", 7L)).thenReturn(true);
 
         CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository, never()).save(any());
         verify(transactionRepository, never()).saveAllAndFlush(any());
     }
 
     // -- session lifecycle ----------------------------------------------------
 
-    @Test
-    void queueSync_refusesToRunWithoutASession() {
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.queueSync(7L))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name()));
-    }
 
-    @Test
-    void queueSync_refusesToRunWithAnInactiveSession() {
-        CaisseEpargneSession session = activeSession(owner());
-        session.markQueued();
-        session.markFailed(SidecarErrorCode.SESSION_EXPIRED, Instant.now());
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
-
-        assertThatThrownBy(() -> service.queueSync(7L))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED.name()));
-        verify(port, never()).fetchAccounts(any());
-    }
-
-    @Test
-    void queueSync_doesNotStackASecondJobOnAnInFlightSession() {
-        CaisseEpargneSession session = activeSession(owner());
-        session.markQueued();
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
-
-        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
-
-        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.QUEUED);
-        verify(port, never()).fetchAccounts(any());
-    }
 
     @Test
     void anExpiredSessionIsDeactivatedSoTheUserIsToldToReconnect() {
-        CaisseEpargneSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
             new SyncException("gone", null, SidecarErrorCode.SESSION_EXPIRED.name()));
@@ -731,31 +701,15 @@ class CaisseEpargneSyncServiceTest {
         service.queueSync(7L);
 
         assertThat(session.isActive()).isFalse();
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         verify(accountRepository, never()).save(any());
     }
 
-    @Test
-    void queueSync_turnsAnUnreadableEncryptedSessionIntoInvalidSessionStateAndDeactivatesIt() {
-        CaisseEpargneSession session = activeSession(owner());
-        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
-        when(encryption.decrypt("encrypted")).thenThrow(new IllegalStateException("bad key"));
-
-        assertThatThrownBy(() -> service.queueSync(7L))
-            .isInstanceOfSatisfying(SyncException.class, error ->
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_SESSION_STATE.name()));
-
-        assertThat(session.isActive()).isFalse();
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.FAILED);
-        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_SESSION_STATE);
-        verify(port, never()).fetchAccounts(any());
-    }
 
     @Test
     void aTransientFailureKeepsTheSessionUsable() {
-        CaisseEpargneSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
             new SyncException("down", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
@@ -768,7 +722,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void anUnexpectedExceptionIsRecordedAsAnInternalErrorWithoutLeakingItsMessage() {
-        CaisseEpargneSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(new IllegalStateException("cookie=secret"));
 
@@ -780,9 +734,9 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void queueSync_discardsAResultWhoseSessionDisappearedMidFlight() {
-        CaisseEpargneSession session = activeSession(owner());
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        SidecarSession session = activeSession(owner());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
         when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L))
             .thenReturn(Optional.of(session))   // markRunning
@@ -798,21 +752,21 @@ class CaisseEpargneSyncServiceTest {
     @Test
     void storeSession_encryptsTheStateReplacesTheOldRowAndDoesNotSyncByItself() {
         FamilyMember member = owner();
-        CaisseEpargneSession old = activeSession(member);
+        SidecarSession old = activeSession(member);
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(old));
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(old));
         when(encryption.encrypt("cookies")).thenReturn("encrypted-cookies");
-        when(sessionRepository.saveAndFlush(any(CaisseEpargneSession.class)))
+        when(sessionRepository.saveAndFlush(any(SidecarSession.class)))
             .thenAnswer(invocation -> invocation.getArgument(0));
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.empty());
 
         service.storeSession("cookies", 7L);
 
         verify(sessionRepository).delete(old);
-        ArgumentCaptor<CaisseEpargneSession> stored = ArgumentCaptor.forClass(CaisseEpargneSession.class);
+        ArgumentCaptor<SidecarSession> stored = ArgumentCaptor.forClass(SidecarSession.class);
         verify(sessionRepository).saveAndFlush(stored.capture());
         assertThat(stored.getValue().getSessionState()).isEqualTo("encrypted-cookies");
-        assertThat(stored.getValue().getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.IDLE);
+        assertThat(stored.getValue().getSyncStatus()).isEqualTo(SidecarSyncStatus.IDLE);
         // on demand only: connecting stores the session and nothing else
         verify(port, never()).fetchAccounts(any());
         verify(port, never()).checkSession(any());
@@ -828,8 +782,8 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void clearSessionReportsTheSessionItDeleted() {
-        CaisseEpargneSession session = activeSession(owner());
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        SidecarSession session = activeSession(owner());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
 
         assertThat(service.clearSession(7L)).isTrue();
         verify(sessionRepository).delete(session);
@@ -839,7 +793,7 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void clearSessionReportsNothingToDeleteWhenThereIsNoSession() {
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.empty());
 
         assertThat(service.clearSession(7L)).isFalse();
         verify(sessionRepository, never()).delete(any());
@@ -847,26 +801,16 @@ class CaisseEpargneSyncServiceTest {
 
     @Test
     void getStatusIsInactiveWithoutASession() {
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.empty());
 
         CaisseEpargneSyncService.SessionStatusResponse status = service.getStatus(7L);
 
         assertThat(status.isActive()).isFalse();
-        assertThat(status.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.IDLE);
+        assertThat(status.syncStatus()).isEqualTo(SidecarSyncStatus.IDLE);
         assertThat(status.unsupportedCount()).isZero();
         assertThat(status.unsupported()).isEmpty();
     }
 
-    @Test
-    void recoverInterruptedSyncs_failsJobsARestartLeftInFlight() {
-        service.recoverInterruptedSyncs();
-
-        verify(sessionRepository).markInterruptedSyncsFailed(
-            eq(List.of(CaisseEpargneSyncStatus.QUEUED, CaisseEpargneSyncStatus.RUNNING)),
-            eq(CaisseEpargneSyncStatus.FAILED),
-            any(),
-            eq(SidecarErrorCode.INTERNAL_ERROR));
-    }
 
     @Test
     void theServiceExposesNoSchedulerOrAutoResyncHook() {
@@ -1350,11 +1294,11 @@ class CaisseEpargneSyncServiceTest {
         CaisseEpargnePort.LoanDetails noFirstDue = new CaisseEpargnePort.LoanDetails(full.borrowedAmount(),
             full.interestRate(), full.monthlyPayment(), full.insuranceMonthly(), full.signatureDate(),
             null, full.lastDueDate(), full.durationMonths(), null);
-        CaisseEpargneSession session = arrangeCommittableSync(f.withLoan(f.loan(), noFirstDue));
+        SidecarSession session = arrangeCommittableSync(f.withLoan(f.loan(), noFirstDue));
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository).save(any(Account.class));
         verify(debtRepository, never()).save(any());
     }
@@ -1368,11 +1312,11 @@ class CaisseEpargneSyncServiceTest {
         CaisseEpargnePort.LoanDetails oversized = new CaisseEpargnePort.LoanDetails(new BigDecimal("1000000000000"),
             full.interestRate(), full.monthlyPayment(), full.insuranceMonthly(), full.signatureDate(),
             full.firstDueDate(), full.lastDueDate(), full.durationMonths(), null);
-        CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.withLoan(f.loan(), oversized));
+        SidecarSession session = arrangeCommittableSync(f.current(), f.withLoan(f.loan(), oversized));
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository, times(2)).save(any(Account.class));
         verify(debtRepository, never()).save(any());
     }
@@ -1590,13 +1534,13 @@ class CaisseEpargneSyncServiceTest {
     void queueSync_leavesInstallmentsAloneWhenTheMemberArchivedTheCreditCategory() {
         Fixture f = new Fixture();
         when(categoryService.findOrCreateDefault(7L, "credit")).thenReturn(Optional.empty());
-        CaisseEpargneSession session = arrangeCommittableSync(
+        SidecarSession session = arrangeCommittableSync(
             f.currentWith(f.tx("i1", "2026-02-05", "-230.00", "PRELEVEMENT")), linkedLoan(f));
         when(debtRepository.findByAccountId(anyLong())).thenReturn(Optional.empty());
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         assertCategories(java.util.Map.of());
     }
 
@@ -1631,21 +1575,21 @@ class CaisseEpargneSyncServiceTest {
 
     // -- helpers ------------------------------------------------------------
 
-    private void assertFailedWithNothingWritten(CaisseEpargneSession session, SidecarErrorCode code) {
-        assertThat(session.getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.FAILED);
+    private void assertFailedWithNothingWritten(SidecarSession session, SidecarErrorCode code) {
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(code);
         verify(accountRepository, never()).save(any());
         verify(transactionRepository, never()).saveAllAndFlush(any());
         verify(accountService, never()).upsertSnapshot(any(), any(), any());
     }
 
-    private CaisseEpargneSession arrangeCommittableSync(CaisseEpargnePort.AccountData... accounts) {
+    private SidecarSession arrangeCommittableSync(CaisseEpargnePort.AccountData... accounts) {
         return arrangeCommittableSync(new CaisseEpargnePort.AccountsSnapshot(List.of(accounts), List.of()));
     }
 
-    private CaisseEpargneSession arrangeCommittableSync(CaisseEpargnePort.AccountsSnapshot snapshot) {
+    private SidecarSession arrangeCommittableSync(CaisseEpargnePort.AccountsSnapshot snapshot) {
         FamilyMember member = owner();
-        CaisseEpargneSession session = activeSession(member);
+        SidecarSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(snapshot);
         lenient().when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
@@ -1686,21 +1630,21 @@ class CaisseEpargneSyncServiceTest {
             perService, Clock.fixed(TODAY.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC));
     }
 
-    private void arrangeQueuedSession(CaisseEpargneSession session) {
-        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+    private void arrangeQueuedSession(SidecarSession session) {
+        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L))
             .thenReturn(Optional.of(session));
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
     }
 
-    private CaisseEpargneSession activeSession(FamilyMember member) {
-        return CaisseEpargneSession.builder()
+    private SidecarSession activeSession(FamilyMember member) {
+        return SidecarSession.builder().bank(SidecarBank.CAISSE_EPARGNE)
             .id(3L)
             .member(member)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(CaisseEpargneSyncStatus.IDLE)
+            .syncStatus(SidecarSyncStatus.IDLE)
             .build();
     }
 
