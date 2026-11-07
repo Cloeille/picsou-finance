@@ -6,7 +6,11 @@ import com.picsou.dto.RealEstateSummaryResponse;
 import com.picsou.dto.WealthPyramidResponse;
 import com.picsou.model.*;
 import com.picsou.repository.AccountHoldingRepository;
+import com.picsou.repository.DebtRepository;
 import com.picsou.repository.HoldingClassificationRepository;
+import com.picsou.repository.PropertyValuationRepository;
+import com.picsou.repository.RealEstateMetadataRepository;
+import com.picsou.repository.ScpiPositionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,6 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,7 +56,7 @@ class WealthPyramidServiceTest {
         lenient().when(classificationRepository.findByMemberId(MEMBER)).thenReturn(List.of());
         lenient().when(allocationTargetService.profileFor(MEMBER))
             .thenReturn(MemberAllocationProfile.builder().build());
-        lenient().when(realEstateSummaryService.summarize(MEMBER)).thenReturn(noProperty());
+        lenient().when(realEstateSummaryService.summarizeVisible(MEMBER)).thenReturn(noProperty());
         // The service asks only whether an account holds anything; the lines themselves come back
         // through AccountService.getHoldings.
         lenient().when(holdingRepository.existsForReadableAccount(anyLong(), anyLong()))
@@ -319,7 +324,7 @@ class WealthPyramidServiceTest {
     @Test
     void propertyEntersNetOfTheMortgageFinancingIt() {
         cash(AccountType.REAL_ESTATE, "300000");
-        when(realEstateSummaryService.summarize(MEMBER)).thenReturn(new RealEstateSummaryResponse(
+        when(realEstateSummaryService.summarizeVisible(MEMBER)).thenReturn(new RealEstateSummaryResponse(
             new BigDecimal("300000"), new BigDecimal("120000"), new BigDecimal("180000"),
             BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("40"),
             BigDecimal.ZERO, List.of(),
@@ -335,7 +340,7 @@ class WealthPyramidServiceTest {
     void scpiEntersNetOfItsOwnLoanWithoutChangingThePhysicalLtv() {
         cash(AccountType.SCPI, "50000");
         cash(AccountType.LOAN, "-10000");
-        when(realEstateSummaryService.summarize(MEMBER)).thenReturn(new RealEstateSummaryResponse(
+        when(realEstateSummaryService.summarizeVisible(MEMBER)).thenReturn(new RealEstateSummaryResponse(
             BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
             BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, null,
             BigDecimal.ZERO, List.of(),
@@ -354,7 +359,7 @@ class WealthPyramidServiceTest {
         cash(AccountType.SCPI, "50000");
         cash(AccountType.LOAN, "-120000");
         cash(AccountType.LOAN, "-10000");
-        when(realEstateSummaryService.summarize(MEMBER)).thenReturn(new RealEstateSummaryResponse(
+        when(realEstateSummaryService.summarizeVisible(MEMBER)).thenReturn(new RealEstateSummaryResponse(
             new BigDecimal("300000"), new BigDecimal("120000"), new BigDecimal("180000"),
             BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("40"),
             BigDecimal.ZERO, List.of(),
@@ -516,7 +521,7 @@ class WealthPyramidServiceTest {
         accounts.clear();
         shares.clear();
         cash(AccountType.REAL_ESTATE, "100000");
-        when(realEstateSummaryService.summarize(MEMBER)).thenReturn(new RealEstateSummaryResponse(
+        when(realEstateSummaryService.summarizeVisible(MEMBER)).thenReturn(new RealEstateSummaryResponse(
             new BigDecimal("100000"), BigDecimal.ZERO, new BigDecimal("100000"),
             BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal(ltv),
             BigDecimal.ZERO, List.of(),
@@ -626,5 +631,64 @@ class WealthPyramidServiceTest {
 
         assertThat(response.alerts()).extracting(WealthPyramidResponse.Alert::code)
             .doesNotContain("CUSHION_OVERFUNDED");
+    }
+
+    // --- Same accounts as the dashboard ---
+
+    @Test
+    void aPocketIsNotCountedAgainOnTopOfItsWallet() {
+        // A Revolut pocket's balance is already inside its parent wallet's; the dashboard skips it
+        // for that reason, and the pyramid has to agree with the dashboard about the same money.
+        Account wallet = cash(AccountType.CHECKING, "1500");
+        Account pocket = cash(AccountType.SAVINGS, "500");
+        pocket.setParentAccountId(wallet.getId());
+
+        WealthPyramidResponse response = service.pyramid(MEMBER);
+
+        assertThat(response.totalAssetsEur()).isEqualByComparingTo("1500");
+        assertThat(response.safetyNet().valueEur()).isEqualByComparingTo("0");
+        assertThat(response.safetyNet().dailyCashEur()).isEqualByComparingTo("1500");
+    }
+
+    @Test
+    void aHiddenAccountStaysOutOfThePyramid() {
+        cash(AccountType.LIVRET_A, "5000");
+        Account hidden = cash(AccountType.PEA, "20000");
+        hidden.setHidden(true);
+
+        WealthPyramidResponse response = service.pyramid(MEMBER);
+
+        assertThat(response.totalAssetsEur()).isEqualByComparingTo("5000");
+        assertThat(hasTier(response, WealthTier.EQUITY)
+            && tier(response, WealthTier.EQUITY).valueEur().signum() != 0).isFalse();
+    }
+
+    @Test
+    void aHiddenHouseAndItsHiddenMortgageAddNothingToThePyramid() {
+        // The property side has to follow the account side: dropping a hidden house from the
+        // assets while still subtracting its mortgage would push the tier below zero and the
+        // total below the dashboard's. Run through the real summary, not a stubbed one.
+        cash(AccountType.LIVRET_A, "5000");
+        Account house = cash(AccountType.REAL_ESTATE, "300000");
+        house.setHidden(true);
+        Account loan = cash(AccountType.LOAN, "120000");
+        loan.setHidden(true);
+
+        DebtRepository debts = mock(DebtRepository.class);
+        lenient().when(debts.findByLinkedAccountId(house.getId())).thenReturn(List.of(
+            Debt.builder().account(loan).linkedAccount(house).lenderName("BNP").build()));
+        lenient().when(accountService.liveBalanceEur(house)).thenReturn(new BigDecimal("300000"));
+        RealEstateSummaryService summary = new RealEstateSummaryService(accessResolver,
+            mock(RealEstateMetadataRepository.class), mock(PropertyValuationRepository.class), debts,
+            mock(LoanAmortizationService.class), accountService, mock(ScpiPositionRepository.class));
+        WealthPyramidService withRealSummary = new WealthPyramidService(accessResolver, accountService,
+            holdingRepository, classificationRepository, allocationTargetService, summary, coinGecko);
+
+        WealthPyramidResponse response = withRealSummary.pyramid(MEMBER);
+
+        assertThat(response.totalAssetsEur()).isEqualByComparingTo("5000");
+        assertThat(hasTier(response, WealthTier.REAL_ESTATE)
+            && tier(response, WealthTier.REAL_ESTATE).valueEur().signum() < 0).isFalse();
+        assertThat(response.score().loanToValue()).isNull();
     }
 }
