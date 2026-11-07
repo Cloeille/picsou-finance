@@ -32,7 +32,6 @@ services:
       # wizard's crypto key. Mounted named volume so they persist across
       # container replacement and are shared with the db when it needs them.
       - picsou_data:/data
-      - ./secrets/enablebanking.pem:/run/secrets/enablebanking.pem:ro
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-picsou}?sslmode=prefer
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-picsou}

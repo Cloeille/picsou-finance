@@ -409,13 +409,12 @@ Single sign-on, the admin group and a step-by-step Zitadel setup are described i
 
 ### 5. Enable Banking key setup (optional)
 
-```bash
-mkdir -p docker/secrets
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out docker/secrets/enablebanking.pem
-openssl rsa -pubout -in docker/secrets/enablebanking.pem -out enablebanking_public.pem
-```
-
-Upload `enablebanking_public.pem` to your Enable Banking dashboard.
+The setup wizard generates the key pair, or imports a PEM you already have, and stores the private
+key in the `picsou_data` volume (`/data/keys`). Upload the public key it shows to your Enable Banking
+dashboard. An imported key must be an unencrypted PKCS#8 RSA private key
+(`-----BEGIN PRIVATE KEY-----`). Convert a PKCS#1 one (`BEGIN RSA PRIVATE KEY`) with
+`openssl pkcs8 -topk8 -nocrypt -in key.pem -out key-pkcs8.pem`. See
+[Bank sync](docs/features/bank-sync.md).
 
 ### Kubernetes (Helm)
 

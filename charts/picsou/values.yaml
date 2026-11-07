@@ -104,7 +104,8 @@ app:
   envFrom: []
 
   # Mount an RSA private key for Enable Banking from a Secret instead of
-  # generating it in the wizard (which stores it under /data/keys).
+  # generating it in the wizard (which stores it under /data/keys). The file is
+  # 0440, owned by root and by podSecurityContext.fsGroup, which must stay set.
   enableBanking:
     existingSecret: ""
     key: enablebanking.pem

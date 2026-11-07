@@ -125,6 +125,36 @@ class ForwardedOriginServerTest {
 
             assertThat(buckets).containsKey("127.0.0.1").doesNotContainKey("203.0.113.9");
         }
+
+        /**
+         * The cap nginx used to apply, now on the running server: declared and chunked bodies. Both
+         * go to the setup wizard, the one anonymous route open before setup; SetupFilter answers the
+         * login 503 then, without reading its body.
+         */
+        @Test
+        void anAnonymousBodyOverOneMebibyte_is413() throws Exception {
+            byte[] body = new byte[2 * AnonymousBodyLimitFilter.MAX_BODY_BYTES];
+            HttpRequest.Builder declared = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/setup/admin"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body));
+            HttpRequest.Builder chunked = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/setup/admin"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofInputStream(() -> new java.io.ByteArrayInputStream(body)));
+            HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
+
+            assertThat(client.send(declared.build(), HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(413);
+            assertThat(client.send(chunked.build(), HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(413);
+        }
+
+        /**
+         * Spring's FormContentFilter runs before Spring Security and reads a form-encoded
+         * PUT/PATCH/DELETE body whole, with no limit, on any path: an anonymous client could make
+         * the JVM buffer it before the 401. No endpoint reads such a body, so it is not registered.
+         */
+        @Test
+        void noFilterParsesAFormEncodedBodyBeforeAuthentication(@Autowired org.springframework.context.ApplicationContext context) {
+            assertThat(context.getBeansOfType(org.springframework.web.filter.FormContentFilter.class)).isEmpty();
+        }
     }
 
     /** The running server's RemoteIpValve, wired from PICSOU_PROXY_IP, resolves the client address. */
