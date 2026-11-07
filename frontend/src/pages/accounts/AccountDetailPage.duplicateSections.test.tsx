@@ -34,6 +34,20 @@ vi.mock('@/features/budget/hooks', () => ({
 vi.mock('@/features/history/hooks', () => ({ useHistory: () => ({ data: undefined }) }))
 vi.mock('@/features/savings/hooks', () => ({ useSavingsSuggestions: () => ({ data: undefined }) }))
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }))
+// The account page offers peer-loan shortcuts and renders its detail on a PEER_LOAN
+// account. Stub the hooks so the partially mocked react-query above is never asked for
+// useQuery/useMutation.
+vi.mock('@/features/peer-loans/hooks', () => ({
+  usePeerLoan: () => ({ data: undefined, isLoading: false }),
+  useSavePeerLoanTerms: () => idle,
+  useAddPeerLoanRepayment: () => idle,
+  useUpdatePeerLoanRepayment: () => idle,
+  useDeletePeerLoanRepayment: () => idle,
+  useClosePeerLoan: () => idle,
+  useOpenPeerLoans: () => ({ data: [] }),
+  useCreatePeerLoanFromTransaction: () => idle,
+  useAssignPeerLoanRepayment: () => idle,
+}))
 
 vi.mock('@/components/shared/HoldingsTable', () => ({
   HoldingsTable: () => <div data-testid="holdings-table" />,
@@ -136,9 +150,13 @@ describe('AccountDetailPage holdings (#231)', () => {
     expect(screen.queryByTestId('account-dividends')).not.toBeInTheDocument()
   })
 
-  it('mounts upcoming dividends once on a securities account and a PEA, not on a wrapper', () => {
+  it('mounts upcoming dividends once on a securities account, a brokerage account and a PEA, not on a wrapper', () => {
     account.mockReturnValue(investmentAccount({ type: 'COMPTE_TITRES' }))
     const { rerender } = render(<AccountDetailPage />)
+    expect(screen.getAllByTestId('account-dividends')).toHaveLength(1)
+
+    account.mockReturnValue(investmentAccount({ type: 'BROKERAGE' }))
+    rerender(<AccountDetailPage />)
     expect(screen.getAllByTestId('account-dividends')).toHaveLength(1)
 
     account.mockReturnValue(investmentAccount({ type: 'PEA' }))

@@ -19,7 +19,7 @@ On-chain wallets fit neither source. `WalletSyncService` writes the native ticke
 There are three logo sources, in priority order:
 
 1. **A bundled asset the account points at** (`Account.logoKey`). Only **on-chain wallets** carry one — the API lets a client swap that key, never attach one to an account that has none, so a crypto *exchange* account can't be given a wallet mark either. It wins over everything else because it is the only source a user chose by hand.
-2. **A provider-supplied URL on the account** (`Account.logoUrl`), from the institution catalog. Two paths write it, both server-side and both through `BankLogoResolver`: a **connected** account inherits it from the requisition it was created under, and a **manual** account gets it from the bank named in its form (see [The bank a manual account names](#the-bank-a-manual-account-names)). Only **Enable Banking** supplies that catalog — it's the sole active `BankConnectorPort` implementation that returns logos (see [bank-sync.md](./bank-sync.md)). Powens (disabled, experimental) hardcodes `logoUrl = null`.
+2. **A provider-supplied URL on the account** (`Account.logoUrl`), from the institution catalog. Three paths write it, all server-side and all through `BankLogoResolver`: a **connected** account inherits it from the requisition it was created under, a **manual** account gets it from the bank named in its form (see [The bank a manual account names](#the-bank-a-manual-account-names)), and a **Banque Populaire** sidecar account gets it from its regional bank's name (see [Banque Populaire accounts](#banque-populaire-accounts)). Only **Enable Banking** supplies that catalog — it's the sole active `BankConnectorPort` implementation that returns logos (see [bank-sync.md](./bank-sync.md)). Powens (disabled, experimental) hardcodes `logoUrl = null`.
 3. **A bundled brand asset**, matched on `Account.provider` when neither of the above applies. Currently `MERIA`, Amundi, BoursoBank, Trade Republic, CORUM (its SCPI and CORUM Life accounts alike) and Natixis Interépargne.
 
 Properties take none of the three: they have no `provider` to key on, no connector to ask, and no logo key of their own, so `AccountCard` marks them with the glyph for their `propertyKind` instead — see [accounts-overview.md](./accounts-overview.md#account-card-anatomy). The kind is picked in the property form, so that mark follows a user choice too, but it is chosen as a property attribute rather than from a logo picker.
@@ -72,6 +72,18 @@ A failed or unconfigured catalog is swallowed (`BankLogoResolver.logoUrlOrNull`)
 saves normally and keeps its color circle. Enable Banking is not a prerequisite for entering an
 account by hand, and never becomes one.
 
+### Banque Populaire accounts
+
+The Banque Populaire sidecar connector has no catalog of its own, but it knows which regional bank
+the session was opened at. Each sync stamps that bank's official name on `account.provider`
+(e.g. `Banque Populaire Rives de Paris`) and asks `BankLogoResolver.logoUrlOrNull("FR", null, name)`
+for its logo: the name tier of the matching, the same name an Enable Banking connection to that
+bank carries. The rule is `SyncService.upsertAccount()`'s: set on a new account, filled on an existing
+one only while it is `null`, never overwritten. The lookup runs once per sync, outside any
+transaction; an unconfigured Enable Banking, an outage or a miss leaves the logo `null` and never
+fails the sync. Caisse d'Epargne accounts get no logo this way. See
+[banque-populaire.md](./banque-populaire.md#branding).
+
 ### Bundled provider logos
 
 `PROVIDER_LOGOS` (`frontend/src/lib/provider-logos.ts`) maps a `provider` string to an asset path, and `providerLogoUrl()` resolves it case-insensitively. For an account with no `logoKey` of its own, `AccountAvatar` falls back to `logoUrl ?? providerLogoUrl(provider)`, so a real connector logo always wins over a bundled one and nothing changes for accounts that already had one. The full order, key included, is in [Rendering](#rendering) below.
@@ -101,7 +113,8 @@ Nothing is written to the database and no backend change was needed: an existing
 
 - `backend/src/main/java/com/picsou/model/Account.java` — `logoUrl` column
 - `backend/src/main/java/com/picsou/model/Requisition.java` — `logoUrl` + `logoBackfillAttemptedAt` columns
-- `backend/src/main/java/com/picsou/service/BankLogoResolver.java` — the catalog search and its three matching tiers, shared by the connected and manual paths
+- `backend/src/main/java/com/picsou/service/BankLogoResolver.java` — the catalog search and its three matching tiers, shared by the connected, manual and Banque Populaire paths
+- `backend/src/main/java/com/picsou/service/BanquePopulaireSyncService.java` — `brandingFor()`: the regional bank's name and its logo lookup
 - `backend/src/main/java/com/picsou/service/SyncService.java` — `ensureLogoUrl()` backfill, `upsertAccount()` copy logic
 - `backend/src/main/java/com/picsou/service/AccountService.java` — `refreshBankLogo()` / `bankLogoUrl()`: when a manual account re-resolves its bank's logo
 - `backend/src/main/java/com/picsou/dto/AccountRequest.java` — `institutionId`, consumed once and never stored

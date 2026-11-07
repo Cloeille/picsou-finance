@@ -22,6 +22,8 @@ import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.PeerLoanRepaymentRepository;
+import com.picsou.repository.PeerLoanTermsRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
 import com.picsou.repository.SavingsInterestConfigRepository;
@@ -116,9 +118,64 @@ class CaisseEpargneSyncServiceTest {
             .containsExactly("ce_1001", "ce_1002", "ce_2001");
         assertThat(saved).allSatisfy(account -> {
             assertThat(account.getProvider()).isEqualTo("Caisse d'Epargne");
+            assertThat(account.getLogoUrl()).isNull();
             assertThat(account.getCurrency()).isEqualTo("EUR");
             assertThat(account.isManual()).isFalse();
             assertThat(account.getLastSyncedAt()).isNotNull();
+        });
+    }
+
+    @Test
+    void queueSync_keepsTheCaisseEpargneLabelAndLeavesAStoredLogoAlone() {
+        Fixture f = new Fixture();
+        Account stored = Account.builder().id(40L).externalAccountId("ce_1001")
+            .provider("Caisse d'Epargne").logoUrl("https://logos.example/ce.png").build();
+        arrangeCommittableSync(f.current());
+        when(accountRepository.findByExternalAccountIdAndMemberId("ce_1001", 7L)).thenReturn(Optional.of(stored));
+
+        service.queueSync(7L);
+
+        assertThat(stored.getProvider()).isEqualTo("Caisse d'Epargne");
+        assertThat(stored.getLogoUrl()).isEqualTo("https://logos.example/ce.png");
+    }
+
+    @Test
+    void queueSync_mapsALepToItsOwnType() {
+        Fixture f = new Fixture();
+        CaisseEpargnePort.AccountData lep = f.with(f.withName(f.withKind(f.livret(), "LEP"), " "),
+            List.of(f.tx("l1", "2026-10-01", "25.00", "VIREMENT RECU")));
+        arrangeCommittableSync(lep);
+
+        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        verify(accountRepository).save(accountCaptor.capture());
+        Account saved = accountCaptor.getValue();
+        assertThat(saved.getType()).isEqualTo(AccountType.LEP);
+        assertThat(saved.getName()).isEqualTo("LEP");
+        assertThat(saved.getColor()).isEqualTo("#f59e0b");
+    }
+
+    @Test
+    void queueSync_mapsALivretJeuneToItsOwnTypeWithItsTransactions() {
+        Fixture f = new Fixture();
+        CaisseEpargnePort.AccountData jeune = f.with(f.withName(f.withKind(f.livret(), "LIVRET_JEUNE"), " "),
+            List.of(f.tx("j1", "2026-10-01", "25.00", "VIREMENT RECU")));
+        arrangeCommittableSync(jeune);
+
+        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        verify(accountRepository).save(accountCaptor.capture());
+        Account saved = accountCaptor.getValue();
+        assertThat(saved.getType()).isEqualTo(AccountType.LIVRET_JEUNE);
+        assertThat(saved.getName()).isEqualTo("Livret Jeune");
+        assertThat(saved.getExternalAccountId()).isEqualTo("ce_1002");
+        assertThat(saved.getColor()).isEqualTo("#f59e0b");
+        verify(transactionRepository).saveAllAndFlush(transactionsCaptor.capture());
+        assertThat(transactionsCaptor.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.getExternalId()).isEqualTo("ce_j1");
+            assertThat(row.getAmount()).isEqualByComparingTo("25.00");
         });
     }
 
@@ -210,7 +267,8 @@ class CaisseEpargneSyncServiceTest {
             mock(RealEstateMetadataRepository.class), mock(PropertyValuationRepository.class), debtRepository,
             mock(SavingsInterestConfigRepository.class), prices, mock(LoanAmortizationService.class),
             mock(AccountAccessResolver.class), mock(BankLogoResolver.class), mock(CryptoLogoService.class),
-            mock(InstrumentLogoService.class), mock(ScpiPositionRepository.class), mock(ScpiFundService.class));
+            mock(InstrumentLogoService.class), mock(ScpiPositionRepository.class), mock(ScpiFundService.class),
+            mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class));
         when(perService.prepare(detail, "EUR")).thenReturn(prepared);
         CaisseEpargneSyncService sync = serviceWith(txTemplate, Runnable::run, actualAccountService);
         arrangeCommittableSync(withPer);
@@ -303,7 +361,7 @@ class CaisseEpargneSyncServiceTest {
         Account loan = accountCaptor.getValue();
         assertThat(loan.getCurrentBalance()).isEqualByComparingTo("9000.00");
         assertThat(loan.getType().isLiability()).isTrue();
-        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("9000.00")), eq(LocalDate.now()));
+        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("9000.00")), eq(TODAY));
     }
 
     @Test
@@ -345,8 +403,8 @@ class CaisseEpargneSyncServiceTest {
 
         service.queueSync(7L);
 
-        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("1234.56")), eq(LocalDate.now()));
-        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("-87.10")), eq(LocalDate.now()));
+        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("1234.56")), eq(TODAY));
+        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("-87.10")), eq(TODAY));
     }
 
     @Test
@@ -509,9 +567,9 @@ class CaisseEpargneSyncServiceTest {
 
         verify(accountRepository, times(1)).save(any(Account.class));
         assertThat(result.unsupportedCount()).isEqualTo(2);
-        assertThat(result.unsupported()).extracting(CaisseEpargneSyncService.UnsupportedContract::externalId)
+        assertThat(result.unsupported()).extracting(BpceSyncEngine.UnsupportedContract::externalId)
             .containsExactly("9001", "9002");
-        assertThat(result.unsupported()).extracting(CaisseEpargneSyncService.UnsupportedContract::familyCode)
+        assertThat(result.unsupported()).extracting(BpceSyncEngine.UnsupportedContract::familyCode)
             .containsExactly("7", "17");
         assertThat(service.getStatus(7L).unsupportedCount()).isEqualTo(2);
     }

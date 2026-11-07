@@ -14,6 +14,8 @@ ALTER TABLE account ADD external_account_id VARCHAR(100);
 ALTER TABLE account ADD iban VARCHAR(34);
 ALTER TABLE account ADD last_synced_at TIMESTAMP;
 ALTER TABLE account ADD logo_key VARCHAR(32);
+ALTER TABLE account ADD institution_name VARCHAR(100);
+ALTER TABLE account ADD institution_domain VARCHAR(255);
 ALTER TABLE account ADD logo_url VARCHAR(255);
 ALTER TABLE account ADD name VARCHAR(100);
 ALTER TABLE account ADD opened_at DATE;

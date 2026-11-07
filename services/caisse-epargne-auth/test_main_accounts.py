@@ -18,7 +18,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 import main
-import replay
+from bpce import replay
 from test_fetcher import DATA_HOST, FIXTURES, LOAN_ID, FakeCE, default_pages
 from test_replay import (
     ALL_SECRETS,
@@ -67,7 +67,7 @@ class TokenCheckTest(unittest.TestCase):
         self.key_patch = patch.dict(os.environ, {"APP_SIDECAR_API_KEY": TEST_KEY})
         self.key_patch.start()
         self.addCleanup(self.key_patch.stop)
-        self.cache_patch = patch.object(main, "_token_cache", replay.TokenCache())
+        self.cache_patch = patch.object(main, "_token_cache", replay.TokenCache(main.SITE))
         self.cache_patch.start()
         self.addCleanup(self.cache_patch.stop)
 
@@ -207,7 +207,7 @@ class AccountsEndpointTest(unittest.TestCase):
         self.key_patch = patch.dict(os.environ, {"APP_SIDECAR_API_KEY": TEST_KEY})
         self.key_patch.start()
         self.addCleanup(self.key_patch.stop)
-        self.cache_patch = patch.object(main, "_token_cache", replay.TokenCache())
+        self.cache_patch = patch.object(main, "_token_cache", replay.TokenCache(main.SITE))
         self.cache_patch.start()
         self.addCleanup(self.cache_patch.stop)
 
@@ -376,7 +376,7 @@ class AccountsEndpointTest(unittest.TestCase):
         client_ids = [
             r.url.params.get("client_id") for r in ce.bank.requests if r.url.path.endswith("/authorize")
         ]
-        self.assertEqual(client_ids, [make_params()["client_id"], replay.LOAN_CLIENT_ID])
+        self.assertEqual(client_ids, [make_params()["client_id"], dict(main.LOAN_CHAIN.overrides)["client_id"]])
         self.assertEqual(len(ce.loan_requests()), 1)
 
     def test_both_tokens_are_served_from_the_cache_on_the_next_call(self):
@@ -420,7 +420,7 @@ class AccountsEndpointTest(unittest.TestCase):
 
     def test_upstream_failures_are_upstream_unavailable(self):
         for ce in (FakeCE(synthesis_http=503), FakeCE(tx_http=500), FakeCE(token_http=500, token_body=b"")):
-            with self.subTest(ce=ce), patch.object(main, "_token_cache", replay.TokenCache()):
+            with self.subTest(ce=ce), patch.object(main, "_token_cache", replay.TokenCache(main.SITE)):
                 response = self.accounts(ce)
                 self.assertEqual(response.status_code, 502)
                 self.assertEqual(response.json(), {"detail": "UPSTREAM_UNAVAILABLE"})

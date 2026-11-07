@@ -4,13 +4,14 @@
 
 ## Context
 
-Picsou deploys as the app, PostgreSQL and up to fourteen opt-in authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
+Picsou deploys as the app, PostgreSQL and up to fifteen opt-in authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
 - **`picsou:latest`** — main app: frontend + backend in one Spring Boot process, no Python, no nginx. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
 - **`amundi-auth`** — Amundi login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/amundi-auth`.
 - **`bourso-auth`** — BoursoBank login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourso-auth`.
-- **`caisse-epargne-auth`** — browserless Caisse d'Epargne read sidecar (session replay, no in-app login yet), published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
+- **`caisse-epargne-auth`** — Caisse d'Epargne browser-assisted login (keypad + Sécur'Pass) and session-replay read sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth`.
+- **`banque-populaire-auth`** — Banque Populaire sidecar on the same shared BPCE code (region + keypad + Sécur'Pass login, session-replay reads), published to GHCR as `ghcr.io/cloeille/picsou-finance/banque-populaire-auth`.
 - **`fortuneo-auth`** — Fortuneo login/2FA, positions and transaction-history sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/fortuneo-auth`.
 - **`revolut-auth`**, **`corum-auth`**, **`sofidy-auth`** — provider sidecars published under the same GHCR repository prefix.
 - **`cmes-auth`** — browserless Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar, on the shared `sidecar-python` base, published as `ghcr.io/cloeille/picsou-finance/cmes-auth`. The backend reaches it at `CMES_AUTH_URL` (`application.yml` defaults to `http://cmes-auth:8001`); see [`cmes-epargne-salariale.md`](cmes-epargne-salariale.md).
@@ -219,7 +220,7 @@ connector.
 
 ### Sidecar shared secret — `APP_SIDECAR_API_KEY`
 
-The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank, Caisse d'Epargne,
+The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank, Caisse d'Epargne, Banque Populaire,
 Bourse Direct, Amundi, Fortuneo, DEGIRO, AMEX, CORUM, Sofidy, Crédit Mutuel / CIC
 Épargne Salariale, CIC online banking) share one secret.
 Generate it with `openssl rand -base64 32`. `docker/docker-compose.yml` forwards it
@@ -485,6 +486,7 @@ docker compose -f docker/docker-compose.yml up        # COMPOSE_PROFILES selects
   → amundi-auth (uvicorn:8001, internal only)
   → bourso-auth (uvicorn:8001, internal only)
   → caisse-epargne-auth (uvicorn:8001, internal only)
+  → banque-populaire-auth (uvicorn:8001, internal only)
   → fortuneo-auth (uvicorn:8001, internal only)
   → corum-auth (uvicorn:8001, internal only)
   → sofidy-auth (uvicorn:8001, internal only)
@@ -556,11 +558,13 @@ docker save ghcr.io/cloeille/picsou-finance:latest \
   ghcr.io/cloeille/picsou-finance/amundi-auth:latest \
   ghcr.io/cloeille/picsou-finance/bourso-auth:latest \
   ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:latest \
+  ghcr.io/cloeille/picsou-finance/banque-populaire-auth:latest \
   ghcr.io/cloeille/picsou-finance/fortuneo-auth:latest \
   ghcr.io/cloeille/picsou-finance/corum-auth:latest \
   ghcr.io/cloeille/picsou-finance/sofidy-auth:latest \
   ghcr.io/cloeille/picsou-finance/cmes-auth:latest \
   ghcr.io/cloeille/picsou-finance/cic-auth:latest \
+  ghcr.io/cloeille/picsou-finance/natixis-auth:latest \
   ghcr.io/cloeille/picsou-finance/amex-auth:latest \
   ghcr.io/cloeille/picsou-finance/degiro-auth:latest \
   | gzip > picsou-release.tar.gz
@@ -598,11 +602,13 @@ docker pull ghcr.io/cloeille/picsou-finance/bourse-direct-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/amundi-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/bourso-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/banque-populaire-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/fortuneo-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/corum-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/sofidy-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/cmes-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/cic-auth:1.1.0
+docker pull ghcr.io/cloeille/picsou-finance/natixis-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/amex-auth:1.1.0
 docker pull ghcr.io/cloeille/picsou-finance/degiro-auth:1.1.0
 ```

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **SimpleFIN accounts show their bank and their positions.** A Chase and a Fidelity account now read "Fidelity Investments · via SimpleFIN"
+  instead of "SimpleFIN", and show the bank's logo when logos are enabled in the budget settings. A new account for which the
+  bridge reports positions is created as the new **Brokerage account** type (any broker, any country or tax wrapper: Roth IRA, HSA,
+  401(k), taxable) and lists its individual positions, each valued at the bridge's figure when the price feed cannot find it. A buy-in
+  the bridge reports as 0.00 is treated as unknown (one you entered yourself is kept), and money-market sweep funds count as cash.
+  A portfolio the bridge returns in part is left as it was rather than replaced. Accounts already synced get their bank on the next
+  sync; one typed Checking keeps that type, so change it to Brokerage once to import its positions.
+
 ### Changed
 
 - **The app image is one non-root Java process.** nginx, supervisord and the shell entrypoint are
@@ -31,13 +41,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Banque Populaire sync.** A new Sync tab connects a Banque Populaire account: pick your
+  regional bank, type your identifier, click your digits on the bank's keypad and approve in
+  Sécur'Pass. Imports the current account, Livret A, Livret Jeune and LDDS with their
+  transactions, on demand. It shares the Caisse d'Epargne code through the BPCE platform; cards,
+  loans, PER and revolving credit are not imported. The accounts carry your regional bank's name
+  (for example "Banque Populaire Rives de Paris") and, when Enable Banking is configured, its logo.
+  Enable the `banque-populaire` Compose profile. The shared code also fixes Caisse d'Epargne: a
+  Livret Jeune (same BPCE product code as the Livret A) is now imported as a Livret Jeune, and a
+  LEP-labelled one as a LEP; an account imported under the wrong type is re-typed on its next
+  import and keeps its history.
+  See [Banque Populaire sync](docs/features/banque-populaire.md).
+
+- **Wise jars.** Wise's open-banking access only returns current balances, so money in
+  jars was missing. A member can now paste a read-only Wise personal API token; Picsou
+  imports every jar as a savings account and refreshes its balance by hand, from Sync All
+  and on the daily job. Current balances and their transactions keep coming from Enable
+  Banking. Jars carry no transactions: Wise refuses statements to personal tokens in the
+  EEA and the UK. Migration V131. See [ADR](docs/decisions/2026-11-03-wise-jars-beside-enable-banking.md)
+  and [feature note](docs/features/wise-jars.md).
+
 - **Natixis Interépargne (employee savings) sync.** A new Natixis Interépargne tab connects a
   saver space once, with the code Natixis sends by SMS, voice call or e-mail; later syncs, manual
   or in the daily 08:00 job, run unattended on the refresh token Natixis issues, until Natixis
   refuses it and asks to reconnect. Each plan (PEE, PER) becomes an account holding its fund
   lines at the units and unit values Natixis reports, so the balance matches the saver space.
   The operations history comes in as BUY and SELL transactions on the plan, kept off the
-  budget, cash flow and categorization. The provider gets its logo. Migration V129. See
+  budget, cash flow and categorization. The provider gets its logo. Migration V142. See
   [Natixis Interépargne](docs/features/natixis-interepargne.md).
 
 - **Sign in with your identity provider (SSO).** Set `SSO_ISSUER_URI` and `SSO_CLIENT_ID` to add
@@ -91,6 +121,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `get_ai_categorization_status` reports its progress as counters only, under a new
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
   browser session. See [Budget + OAuth2 tools in MCP](docs/features/mcp-budget-oauth2.md).
+
+- **Peer loans (receivables between individuals).** A new "peer loan" account type tracks
+  money lent to a person as an asset: nominal capital, dated repayments, simple interest,
+  an editable forecast and a dated write-off when the loan is closed. The rate can be
+  entered monthly or annually, and the detail draws the actual capital against the
+  forecast. One account is one loan, identified by its name. A manual cash account linked to it receives the matching
+  transfer automatically, so a repayment never reduces net worth; a synced account relies
+  on the bank row. A loan can also be created from an existing outgoing transaction, and
+  an incoming transaction can be assigned to a repayment. It counts in net worth but never
+  as an investment, and there is no risk score. See
+  [Peer loans](docs/features/peer-loans.md).
 
 ### Changed
 
@@ -151,6 +192,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Existing Windows checkouts must refresh the Docker entrypoint after upgrading.**
+  `.gitattributes` now forces LF on `*.sh`, but Git only rewrites files it checks out. On a
+  checkout created before this change, run `git checkout -- docker/entrypoint.sh` once;
+  otherwise the CRLF shebang still makes the container fail at exec with
+  `no such file or directory`.
 - **Diversification leaves out lines classified outside equity.** A holding whose wealth tier
   (your override, or the provider's) is not equity — for example a money-market ETF set to
   safety net — is no longer counted in the sector and geography breakdown, matching the

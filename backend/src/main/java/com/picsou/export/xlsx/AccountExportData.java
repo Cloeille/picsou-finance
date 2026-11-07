@@ -20,11 +20,13 @@ import java.util.List;
  * @param financing  the loans financing this account — a property's mortgage. Looked up across
  *                   every loan the member has, not only the exported ones: a property financed
  *                   by a loan the reader did not tick would otherwise report no debt at all
+ * @param peerLoan   the terms and repayment journal of a PEER_LOAN account, null for anything else
  */
 record AccountExportData(
     AccountResponse account,
     List<HoldingResponse> holdings,
     List<PropertyValuation> valuations,
     LoanAmortizationService.LoanScheduleResponse schedule,
-    List<DebtExportData> financing
+    List<DebtExportData> financing,
+    PeerLoanExportData peerLoan
 ) {}
