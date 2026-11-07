@@ -41,6 +41,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Banque Populaire sync.** A new Sync tab connects a Banque Populaire account: pick your
+  regional bank, type your identifier, click your digits on the bank's keypad and approve in
+  Sécur'Pass. Imports the current account, Livret A, Livret Jeune and LDDS with their
+  transactions, on demand. It shares the Caisse d'Epargne code through the BPCE platform; cards,
+  loans, PER and revolving credit are not imported. The accounts carry your regional bank's name
+  (for example "Banque Populaire Rives de Paris") and, when Enable Banking is configured, its logo.
+  Enable the `banque-populaire` Compose profile. The shared code also fixes Caisse d'Epargne: a
+  Livret Jeune (same BPCE product code as the Livret A) is now imported as a Livret Jeune, and a
+  LEP-labelled one as a LEP; an account imported under the wrong type is re-typed on its next
+  import and keeps its history.
+  See [Banque Populaire sync](docs/features/banque-populaire.md).
+
 - **Wise jars.** Wise's open-banking access only returns current balances, so money in
   jars was missing. A member can now paste a read-only Wise personal API token; Picsou
   imports every jar as a savings account and refreshes its balance by hand, from Sync All

@@ -11,20 +11,22 @@ Observed live on 2026-10-15 in the bank's own web front, for a Millevie PER:
      routing call itself is kept because the insurer may rely on its server-side context.
      The routing URL is never followed.
   1. The insurer app mints its own OAuth token with the SSO session (see
-     `replay.PER_CHAIN`): granted scope `assuranceVieAuth_get_<id> readUser`,
+     `Site.per.chain`): granted scope `assuranceVieAuth_get_<id> readUser`,
      `expires_in` 3600.
-  2. GET https://www.rs-ext-bad-ce.caisse-epargne.fr/natixis/assurance/
+  2. GET https://<gateway>/natixis/assurance/
          assuranceVieAuth/v1/clientToken/{producerContratId}
      headers: Authorization: Bearer <token>, iw4-user-token: <token>,
               iw4-app-code: IW4, iw4-company-code: <cdetab>,
               iw4-product-code: <first 3 chars of producerContratId>
      -> 200, the insurer JWT in the `iw4-jwt-token` RESPONSE header.
-  3. GET https://www.espace-assurances-de-personnes.caisse-epargne.fr/etna-web/
+  3. GET https://<insurer>/etna-web/
          rest/v2/contratVie/load/{product}/{company}/{number}
      same headers plus `iw4-jwt-token: <JWT>` -> 200 JSON with
      `donneesContrat` and `detailContratVie`.
 
-No cookie is sent
+The gateway and insurer hosts are the site's (`Site.per`; observed on Caisse
+d'Epargne only: `www.rs-ext-bad-ce.caisse-epargne.fr` and
+`www.espace-assurances-de-personnes.caisse-epargne.fr`). No cookie is sent
 to either host, no redirect is followed, and nothing read from the insurer
 (tokens, JWT, amounts) is logged: failures log a stage name and an HTTP status.
 """
@@ -39,15 +41,14 @@ from typing import Any
 
 import httpx
 
-import replay
+from . import replay
+from .site import Site
 
 
-log = logging.getLogger("caisse-epargne-auth")
+log = logging.getLogger("bpce")
 
-GATEWAY_HOST = "www.rs-ext-bad-ce.caisse-epargne.fr"
-CLIENT_TOKEN_BASE = f"https://{GATEWAY_HOST}/natixis/assurance/assuranceVieAuth/v1/clientToken"
-INSURER_HOST = "www.espace-assurances-de-personnes.caisse-epargne.fr"
-DETAIL_BASE = f"https://{INSURER_HOST}/etna-web/rest/v2/contratVie/load"
+CLIENT_TOKEN_PATH = "/natixis/assurance/assuranceVieAuth/v1/clientToken"
+DETAIL_PATH = "/etna-web/rest/v2/contratVie/load"
 
 APP_CODE = "IW4"
 JWT_HEADER = "iw4-jwt-token"
@@ -55,7 +56,7 @@ JWT_HEADER = "iw4-jwt-token"
 _ENTITY_CODE_RE = re.compile(r"[0-9]{5}\Z")
 _CONTRACT_ID_RE = re.compile(r"[0-9]{5} {1,16}PERIC(?P<number>[0-9]{1,64})\Z")
 _PRODUCER_ID_RE = re.compile(r"(?P<product>PER)(?P<company>IC)(?P<number>[0-9]{1,32})\Z")
-ROUTING_BASE = f"https://{GATEWAY_HOST}/bapi/contract/v1/contracts"
+ROUTING_PATH = "/bapi/contract/v1/contracts"
 _ROUTING_BODY = {
     "characteristics": {
         "contractActionType": {"code": "", "label": ""},
@@ -122,7 +123,7 @@ def _validate_token(access_token: Any) -> str:
     return access_token
 
 
-def _guard_url(url: str, expected_host: str) -> str:
+def _guard_url(site: Site, url: str, expected_host: str) -> str:
     """Belt and braces: the exact https host, default port, no credentials."""
     try:
         parsed = urllib.parse.urlsplit(url)
@@ -136,7 +137,7 @@ def _guard_url(url: str, expected_host: str) -> str:
         or parsed.password is not None
         or port not in (None, 443)
         or parsed.fragment
-        or not replay.is_allowed_url(url)
+        or not replay.is_allowed_url(site, url)
     ):
         raise replay.HostNotAllowed("Refused a PER URL outside the exact HTTPS host")
     return url
@@ -198,7 +199,7 @@ def _check_status(status: int, *, stage: str) -> None:
     raise replay.UpstreamError("PER insurer request failed")
 
 
-def _producer_id(body: bytes, *, entity_code: str) -> str:
+def _producer_id(body: bytes, *, entity_code: str, insurer_host: str) -> str:
     """The insurer contract id from a prepareRouting answer, bound to this contract."""
     root = _json_object(body)
     # Three shapes: the characteristics object itself (logged live), or wrapped in
@@ -217,7 +218,7 @@ def _producer_id(body: bytes, *, entity_code: str) -> str:
         log.warning("PER detail refused: stage=routing reason=incomplete")
         raise replay.UpstreamError("PER routing response is incomplete")
     # The routing target is never followed; it must still be the insurer we call.
-    if (urllib.parse.urlsplit(href).hostname or "").lower() != INSURER_HOST:
+    if (urllib.parse.urlsplit(href).hostname or "").lower() != insurer_host:
         log.warning("PER detail refused: stage=routing reason=other-host")
         raise replay.HostNotAllowed("Refused a PER URL outside the exact HTTPS host")
     producer_id = query.get("producerContratId")
@@ -254,6 +255,7 @@ def build_headers(access_token: str, entity_code: str, producer_id: str) -> dict
 
 
 async def fetch_per_detail(
+    site: Site,
     access_token: str,
     contract_id: str,
     *,
@@ -264,18 +266,23 @@ async def fetch_per_detail(
     """Return the raw `contratVie/load` JSON object of one PER contract.
 
     `routing_token` is the MAIN bearer, sent only to prepareRouting. `access_token`
-    is the PER-chain token (`replay.PER_CHAIN`), sent only to clientToken and the
+    is the PER-chain token (`Site.per.chain`), sent only to clientToken and the
     detail. Raises `InvalidPerRequest` for a malformed request (nothing is sent),
     `SessionExpired` on a 401 with the PER token, `HostNotAllowed` if a URL leaves
     its exact host, and `UpstreamError` for any other failure (a routing 401 too:
     the main token has just read the synthesis, so it is PER-specific).
     """
+    if site.per is None:
+        raise InvalidPerRequest("This site has no PER app")
+    gateway_host, insurer_host = site.per.gateway_host, site.per.insurer_host
     _validate_token(access_token)
     _validate_token(routing_token)
     entity_code = _validate_entity_code(entity_code)
     _contract_number(contract_id)
     route_segment = urllib.parse.quote(f"{entity_code}-{contract_id}", safe="")
-    routing_url = _guard_url(f"{ROUTING_BASE}/{route_segment}/prepareRouting", GATEWAY_HOST)
+    routing_url = _guard_url(
+        site, f"https://{gateway_host}{ROUTING_PATH}/{route_segment}/prepareRouting", gateway_host
+    )
 
     client = replay.new_client(transport)
     try:
@@ -290,12 +297,14 @@ async def fetch_per_detail(
         if not 200 <= status < 300:
             log.warning("PER detail refused: stage=routing status=%d", status)
             raise replay.UpstreamError("PER routing request failed")
-        producer_id = _producer_id(body, entity_code=entity_code)
+        producer_id = _producer_id(body, entity_code=entity_code, insurer_host=insurer_host)
         match = _PRODUCER_ID_RE.fullmatch(producer_id)
-        token_url = _guard_url(f"{CLIENT_TOKEN_BASE}/{producer_id}", GATEWAY_HOST)
+        token_url = _guard_url(site, f"https://{gateway_host}{CLIENT_TOKEN_PATH}/{producer_id}", gateway_host)
         detail_url = _guard_url(
-            f"{DETAIL_BASE}/{match.group('product')}/{match.group('company')}/{match.group('number')}",
-            INSURER_HOST,
+            site,
+            f"https://{insurer_host}{DETAIL_PATH}/"
+            f"{match.group('product')}/{match.group('company')}/{match.group('number')}",
+            insurer_host,
         )
         headers = build_headers(access_token, entity_code, producer_id)
 

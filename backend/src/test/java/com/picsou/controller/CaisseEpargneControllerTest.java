@@ -4,6 +4,7 @@ import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
 import com.picsou.model.CaisseEpargneSyncStatus;
 import com.picsou.port.SidecarErrorCode;
+import com.picsou.service.BpceSyncEngine;
 import com.picsou.service.CaisseEpargneSyncService;
 import com.picsou.service.UserContext;
 import io.github.bucket4j.Bucket;
@@ -58,7 +59,7 @@ class CaisseEpargneControllerTest {
     private static CaisseEpargneSyncService.SessionStatusResponse statusOf(CaisseEpargneSyncStatus syncStatus) {
         return new CaisseEpargneSyncService.SessionStatusResponse(
             true, syncStatus, null, null, null,
-            List.of(new CaisseEpargneSyncService.UnsupportedContract("9001", "7")));
+            List.of(new BpceSyncEngine.UnsupportedContract("9001", "7")));
     }
 
     @Test

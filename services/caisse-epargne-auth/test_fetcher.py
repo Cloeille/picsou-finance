@@ -17,8 +17,9 @@ from unittest.mock import patch
 
 import httpx
 
-import fetcher
-import replay
+from bpce import fetcher
+from bpce import replay
+import main
 from test_replay import SECRET_TOKEN, FakeBank
 
 FIXTURES = json.loads(Path(__file__).with_name("fixtures_synthetic.json").read_text(encoding="utf-8"))
@@ -129,7 +130,7 @@ class FakeCE:
 
 
 async def run_fetch(ce: FakeCE, **kwargs) -> dict:
-    return await fetcher.fetch_import(
+    return await fetcher.fetch_import(main.SITE,
         SECRET_TOKEN, transport=ce.transport(), today=TODAY, **kwargs
     )
 
@@ -493,7 +494,7 @@ class HistoryWindowTest(unittest.IsolatedAsyncioTestCase):
     async def test_one_row_out_of_order_turns_the_early_stop_off(self):
         ce = FakeCE(tx_override=_dated_history(rows_per_day=3, swap_at=75))
 
-        with self.assertLogs("caisse-epargne-auth", "WARNING") as logs:
+        with self.assertLogs("bpce", "WARNING") as logs:
             with self.assertRaises(fetcher.UpstreamFormatChanged):
                 await run_fetch(ce)
 
@@ -502,7 +503,7 @@ class HistoryWindowTest(unittest.IsolatedAsyncioTestCase):
     async def test_a_history_denser_than_the_page_cap_still_fails_with_page_cap(self):
         ce = FakeCE(tx_override=_dated_history(rows_per_day=50))  # one page a day
 
-        with self.assertLogs("caisse-epargne-auth", "WARNING") as logs:
+        with self.assertLogs("bpce", "WARNING") as logs:
             with self.assertRaises(fetcher.UpstreamFormatChanged):
                 await run_fetch(ce)
 
@@ -537,7 +538,7 @@ class ErrorMappingTest(unittest.IsolatedAsyncioTestCase):
             raise httpx.ConnectError("secret-host-detail " + SECRET_TOKEN)
 
         with self.assertRaises(fetcher.UpstreamUnavailable) as ctx:
-            await fetcher.fetch_import(SECRET_TOKEN, transport=httpx.MockTransport(boom), today=TODAY)
+            await fetcher.fetch_import(main.SITE, SECRET_TOKEN, transport=httpx.MockTransport(boom), today=TODAY)
         self.assertNotIn(SECRET_TOKEN, str(ctx.exception))
         self.assertNotIn("secret-host-detail", str(ctx.exception))
 
@@ -571,7 +572,7 @@ class ErrorMappingTest(unittest.IsolatedAsyncioTestCase):
         cases.append(("UPSTREAM_FORMAT_CHANGED stage=serialisation cause=format", FakeCE(), None))
         for index, (expected, ce, cap) in enumerate(cases):
             serialise = serialise_fails_on_current if "serialisation" in expected else real_serialise
-            with self.subTest(index, expected=expected), self.assertLogs("caisse-epargne-auth", "WARNING") as logs:
+            with self.subTest(index, expected=expected), self.assertLogs("bpce", "WARNING") as logs:
                 with patch.object(replay, "MAX_RESPONSE_BYTES", cap or replay.MAX_RESPONSE_BYTES), \
                         patch.object(fetcher, "_serialise_account", serialise):
                     with self.assertRaises(fetcher.FetchError):
@@ -651,15 +652,15 @@ class ErrorMappingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ce.data_requests, [])
 
     async def test_the_data_host_passes_the_existing_allow_list(self):
-        self.assertTrue(replay.is_allowed_url(fetcher.DATA_BASE_URL + SYNTHESIS_PATH))
-        self.assertEqual(fetcher.DATA_BASE_URL, f"https://{DATA_HOST}")
+        self.assertTrue(replay.is_allowed_url(main.SITE, main.SITE.data_base_url + SYNTHESIS_PATH))
+        self.assertEqual(main.SITE.data_base_url, f"https://{DATA_HOST}")
 
     async def test_redirects_are_never_followed(self):
         def redirect(request: httpx.Request) -> httpx.Response:
             return httpx.Response(302, headers={"Location": "https://evil.example.com/x"})
 
         with self.assertRaises(fetcher.UpstreamUnavailable):
-            await fetcher.fetch_import(SECRET_TOKEN, transport=httpx.MockTransport(redirect), today=TODAY)
+            await fetcher.fetch_import(main.SITE, SECRET_TOKEN, transport=httpx.MockTransport(redirect), today=TODAY)
 
 
 class UnsupportedPassThroughTest(unittest.IsolatedAsyncioTestCase):

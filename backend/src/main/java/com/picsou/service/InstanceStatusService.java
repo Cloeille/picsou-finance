@@ -11,6 +11,7 @@ import com.picsou.repository.AmexSessionRepository;
 import com.picsou.repository.AmundiSessionRepository;
 import com.picsou.repository.BoursoSessionRepository;
 import com.picsou.repository.BourseDirectSessionRepository;
+import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
 import com.picsou.repository.CicSessionRepository;
 import com.picsou.repository.CmesSessionRepository;
@@ -76,6 +77,7 @@ public class InstanceStatusService {
         TradeRepublicSessionRepository trSessions,
         BoursoSessionRepository boursoSessions,
         CaisseEpargneSessionRepository caisseEpargneSessions,
+        BanquePopulaireSessionRepository banquePopulaireSessions,
         RevolutSessionRepository revolutSessions,
         BourseDirectSessionRepository bourseDirectSessions,
         DegiroSessionRepository degiroSessions,
@@ -90,9 +92,9 @@ public class InstanceStatusService {
     ) {
         this(releaseCheck, currentVersion, registry(
             setupService, sidecars,
-            trSessions, boursoSessions, caisseEpargneSessions, revolutSessions, bourseDirectSessions,
-            degiroSessions, amundiSessions, amexSessions, fortuneoSessions, corumSessions, sofidySessions,
-            cmesSessions, cicSessions
+            trSessions, boursoSessions, caisseEpargneSessions, banquePopulaireSessions, revolutSessions,
+            bourseDirectSessions, degiroSessions, amundiSessions, amexSessions, fortuneoSessions, corumSessions,
+            sofidySessions, cmesSessions, cicSessions
         ), defaultWebClient(PROBE_TIMEOUT), PROBE_TIMEOUT, OVERALL_DEADLINE);
     }
 
@@ -339,6 +341,7 @@ public class InstanceStatusService {
         TradeRepublicSessionRepository trSessions,
         BoursoSessionRepository boursoSessions,
         CaisseEpargneSessionRepository caisseEpargneSessions,
+        BanquePopulaireSessionRepository banquePopulaireSessions,
         RevolutSessionRepository revolutSessions,
         BourseDirectSessionRepository bourseDirectSessions,
         DegiroSessionRepository degiroSessions,
@@ -365,6 +368,8 @@ public class InstanceStatusService {
                 () -> sidecarUrl(sidecars, "tr-auth"), trSessions::count),
             new SidecarTarget("caisse-epargne-auth", BASE_CHROMIUM,
                 () -> sidecarUrl(sidecars, "caisse-epargne-auth"), caisseEpargneSessions::count),
+            new SidecarTarget("banque-populaire-auth", BASE_CHROMIUM,
+                () -> sidecarUrl(sidecars, "banque-populaire-auth"), banquePopulaireSessions::count),
             new SidecarTarget("bourse-direct-auth", BASE_CHROMIUM,
                 () -> sidecarUrl(sidecars, "bourse-direct-auth"), bourseDirectSessions::count),
             new SidecarTarget("amundi-auth", BASE_CHROMIUM,

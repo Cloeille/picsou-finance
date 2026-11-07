@@ -50,6 +50,20 @@ public enum SidecarBank {
         say(UPSTREAM_UNAVAILABLE, "Amundi is temporarily unavailable"),
         say(INTERNAL_ERROR, "Amundi is temporarily unavailable"))),
 
+    /** Same BPCE platform and sidecar contract as {@link #CAISSE_EPARGNE}, so the same codes. */
+    BANQUE_POPULAIRE("Banque Populaire", "banque-populaire-auth", Map.ofEntries(
+        say(SESSION_EXPIRED, "The Banque Populaire session expired"),
+        say(INVALID_SESSION_STATE, "The stored Banque Populaire session is unusable"),
+        say(INVALID_CREDENTIALS, "Banque Populaire refused the identifier or password"),
+        say(KEYPAD_EXPIRED, "The Banque Populaire keypad expired. Start again."),
+        say(INVALID_POSITIONS, "The keypad choice is not valid. Start again."),
+        say(KEYPAD_CHANGED, "Banque Populaire changed its login page. Nothing was sent."),
+        say(APP_VALIDATION_TIMEOUT, "The sign-in was not approved in Sécur'Pass in time"),
+        say(AUTH_ATTEMPT_EXPIRED, "This Banque Populaire sign-in attempt expired. Start again."),
+        say(UPSTREAM_FORMAT_CHANGED, "The Banque Populaire data format changed"),
+        say(UPSTREAM_UNAVAILABLE, "Banque Populaire is temporarily unavailable"),
+        say(INTERNAL_ERROR, "Banque Populaire is temporarily unavailable"))),
+
     BOURSE_DIRECT("Bourse Direct", "bourse-direct-auth", Map.ofEntries(
         say(INVALID_CREDENTIALS, "Bourse Direct rejected the credentials"),
         say(INVALID_OTP, "Bourse Direct rejected the verification code"),

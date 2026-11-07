@@ -27,7 +27,7 @@ The modal and the `/sync` tabs render the same components, so a fix lands on bot
 
 | Shared piece | Used by the modal in | Used by the Sync page in |
 |---|---|---|
-| `components/sync/*Panel.tsx` (IBKR, SimpleFIN, Wise, Bourso, Caisse d'Epargne, Bourse Direct, DEGIRO, Amundi, Fortuneo, Amex, CORUM, Sofidy) | `PANEL_STEPS` | the matching `*Tab` |
+| `components/sync/*Panel.tsx` (IBKR, SimpleFIN, Wise, Bourso, Caisse d'Epargne, Banque Populaire, Bourse Direct, DEGIRO, Amundi, Fortuneo, Amex, CORUM, Sofidy) | `PANEL_STEPS` | the matching `*Tab` |
 | `components/sync/InstitutionSearch.tsx` | `BankWizard` (`layout="modal"`) | `BankSyncTab` (`layout="page"`) |
 | `components/sync/CryptoExchangeForm.tsx` | `ExchangeWizard` | `CryptoExchangeTab` |
 | `components/sync/CryptoWalletForm.tsx` | `WalletWizard` | `CryptoWalletTab` |
@@ -181,4 +181,4 @@ assurance-vie and carries an opening date.
 
 ### Sync all modal parity
 
-`SyncAllModal` lists the same sidecar connectors as the selector, including Amex, CORUM, Sofidy and Caisse d'Epargne. A session-based row is shown when its session is live or the member still has accounts whose `provider` matches. Caisse d'Epargne matches the `provider` its sync service stamps (`Caisse d'Epargne`). CORUM and Sofidy match the `provider` the SCPI reconciler stamps on the accounts it creates (`CORUM`, `Sofidy`), and also any SCPI account carrying their fund code (`scpi.corumFundCode` / `scpi.sofidyFundCode`), because an adopted manual SCPI keeps the provider the user typed. An expired session therefore stays listed; an inactive one routes to its Sync-page tab (`amex`/`corum`/`sofidy`/`caisse-epargne`) for re-authentication, and the batch *Sync all* skips it. Caisse d'Epargne stores no credentials, only session cookies, so its keypad and Sécur'Pass login can run only on that tab.
+`SyncAllModal` lists the same sidecar connectors as the selector, including Amex, CORUM, Sofidy, Caisse d'Epargne and Banque Populaire. A session-based row is shown when its session is live or the member still has accounts whose `provider` matches. Caisse d'Epargne matches the `provider` its sync service stamps (`Caisse d'Epargne`). CORUM and Sofidy match the `provider` the SCPI reconciler stamps on the accounts it creates (`CORUM`, `Sofidy`), and also any SCPI account carrying their fund code (`scpi.corumFundCode` / `scpi.sofidyFundCode`), because an adopted manual SCPI keeps the provider the user typed. An expired session therefore stays listed; an inactive one routes to its Sync-page tab (`amex`/`corum`/`sofidy`/`caisse-epargne`) for re-authentication, and the batch *Sync all* skips it. Caisse d'Epargne stores no credentials, only session cookies, so its keypad and Sécur'Pass login can run only on that tab.
