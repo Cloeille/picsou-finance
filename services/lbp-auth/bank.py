@@ -16,7 +16,7 @@ import logging
 import time
 import uuid
 from typing import Any, Protocol
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse, urlsplit
 
 import httpx
 from fastapi import HTTPException
@@ -28,6 +28,14 @@ import parsers
 log = logging.getLogger("lbp-auth")
 
 BASE = "https://voscomptesenligne.labanquepostale.fr"
+# The only host this sidecar ever talks to. Every navigation and every httpx
+# request, including each redirect hop, is checked against it: a fixed https
+# origin also excludes loopback and private-IP targets such as the
+# instance-metadata address.
+ALLOWED_HOST = "voscomptesenligne.labanquepostale.fr"
+# The bank's login chain is two hops at most; a longer one is a loop or a
+# hijack, never a login.
+MAX_REDIRECTS = 5
 # The web client must enter through `identif.ea`: it sets the WAF/SSO cookies
 # and redirects to the login form. Hitting `loginform` on a fresh client answers
 # 403 and redirects to `transverse…/message.html`.
@@ -88,6 +96,81 @@ class UnverifiedBankClient:
 
     async def accounts(self, session_state: str) -> dict[str, Any]:
         raise BankFlowUnverified()
+
+
+def _is_allowed_url(url: Any) -> bool:
+    """True only for an absolute https URL on the bank origin, without credentials."""
+    if not isinstance(url, str) or not url or "\\" in url:
+        return False
+    if any(ord(char) <= 0x20 or ord(char) == 0x7F for char in url):
+        return False
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https"
+        and host == ALLOWED_HOST
+        and port in (None, 443)
+        and not parsed.username
+        and not parsed.password
+    )
+
+
+def _require_allowed_url(url: str) -> str:
+    """Resolve ``url`` against the bank origin and refuse anything off-origin.
+
+    Relative bank links stay on the origin; an absolute URL elsewhere — a
+    ``url_retour`` or a redirect pointing at the metadata address or an
+    attacker host — fails closed. Never log the rejected URL: it may carry
+    credentials.
+    """
+    target = urljoin(BASE + "/", url)
+    if not _is_allowed_url(target):
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+    return target
+
+
+async def _check_request_origin(request: httpx.Request) -> None:
+    """Runs before every send, including each automatic redirect hop.
+
+    Never log the rejected URL: it may carry a password, a session cookie or
+    the keypad positions.
+    """
+    if not _is_allowed_url(str(request.url)):
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
+
+
+def _route_guard() -> Any:
+    """Abort every Chromium request outside the bank origin (and data: URLs)."""
+
+    async def guard(route: Any) -> None:
+        url = route.request.url
+        if _is_allowed_url(url) or url.startswith("data:"):
+            await route.continue_()
+        else:
+            await route.abort()
+
+    return guard
+
+
+def _ws_as_https(url: str) -> str:
+    """``wss://host/...`` -> ``https://host/...`` so the allow-list applies; else unchanged."""
+    return "https://" + url[len("wss://") :] if url.startswith("wss://") else url
+
+
+def _websocket_guard() -> Any:
+    """Connect a WebSocket to the real server only if its host is allow-listed."""
+
+    async def guard(ws: Any) -> None:
+        if _is_allowed_url(_ws_as_https(ws.url)):
+            ws.connect_to_server()
+        else:
+            await ws.close()
+
+    return guard
 
 
 class HttpxBankClient:
@@ -296,6 +379,12 @@ class HttpxBankClient:
                     raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
                 await asyncio.sleep(POLL_INTERVAL_SECONDS)
             raise HTTPException(status_code=408, detail="APP_VALIDATION_TIMEOUT")
+        except HTTPException:
+            raise
+        except httpx.HTTPError:
+            # A transport failure or a capped redirect chain: the attempt is
+            # over, and it is an upstream outage, not an internal error.
+            raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from None
         finally:
             await self._dispose(state)
 
@@ -400,7 +489,12 @@ class HttpxBankClient:
             base_url=BASE,
             timeout=httpx.Timeout(REQUEST_TIMEOUT_SECONDS),
             follow_redirects=False,
+            max_redirects=MAX_REDIRECTS,
             transport=self._transport,
+            # The hook recomputes the check from the final URL before every
+            # send, including each automatic redirect hop: a bank-supplied
+            # Location leaving the origin is refused before anything is sent.
+            event_hooks={"request": [_check_request_origin]},
             headers={
                 "User-Agent": USER_AGENT,
                 "Accept-Language": "fr-FR,fr;q=0.9",
@@ -482,26 +576,34 @@ class BrowserBankClient(HttpxBankClient):
     """
 
     async def initiate(self, customer_id: str) -> dict[str, Any]:
-        pw = None
-        browser = None
-        context = None
+        # Reserve the pending slot before opening Chromium: a full store
+        # rejects here, without ever leaking a browser process. The slot holds
+        # a placeholder until the page is ready; every later failure disposes
+        # it through the store, closing whatever was opened so far.
+        process_id = str(uuid.uuid4())
+        state: dict[str, Any] = {"created_at": time.time()}
+        await self.pending.put_or_raise(process_id, state, "TOO_MANY_PENDING")
         try:
             pw = await async_playwright().start()
+            state["playwright"] = pw
             browser = await pw.chromium.launch(
                 headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"]
             )
+            state["browser"] = browser
             context = await browser.new_context(
                 user_agent=USER_AGENT,
                 locale="fr-FR",
                 timezone_id="Europe/Paris",
                 viewport={"width": 1280, "height": 900},
+                service_workers="block",
             )
+            state["context"] = context
+            # No service worker (it could answer requests behind the route guard).
+            await context.route("**/*", _route_guard())
+            await context.route_web_socket("**/*", _websocket_guard())
             page = await context.new_page()
-            await page.goto(
-                BASE + IDENTIF + "?origin=particuliers",
-                wait_until="domcontentloaded",
-                timeout=45_000,
-            )
+            state["page"] = page
+            await self._goto(page, BASE + IDENTIF + "?origin=particuliers")
             await page.wait_for_selector("#identifiant", timeout=45_000)
             await page.fill("#identifiant", customer_id)
             # `continuer()` reveals the password panel after checking the identifier.
@@ -516,32 +618,24 @@ class BrowserBankClient(HttpxBankClient):
             if len(keys) != 10 or sorted(keys) != list("0123456789"):
                 raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
 
-            process_id = str(uuid.uuid4())
-            state = {
-                "playwright": pw,
-                "browser": browser,
-                "context": context,
-                "page": page,
-                "customer_id": customer_id,
-                "keys": keys,
-                "created_at": time.time(),
-            }
-            try:
-                await self.pending.put_or_raise(process_id, state, "TOO_MANY_PENDING")
-            except Exception:
-                await self._close_browser(pw, browser, context)
-                raise
+            state.update(
+                {
+                    "customer_id": customer_id,
+                    "keys": keys,
+                    "created_at": time.time(),
+                }
+            )
             return {
                 "processId": process_id,
                 "keypad": {"keys": keys, "columns": 5},
                 "expiresInSeconds": PENDING_TTL_SECONDS,
             }
         except HTTPException:
-            await self._close_browser(pw, browser, context)
+            await self.pending.close(process_id)
             raise
         except Exception as exc:
             log.warning("La Banque Postale browser initiate failed error_type=%s", type(exc).__name__)
-            await self._close_browser(pw, browser, context)
+            await self.pending.close(process_id)
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from None
 
     async def keypad(self, process_id: str, positions: list[int]) -> None:
@@ -714,11 +808,22 @@ class BrowserBankClient(HttpxBankClient):
         return page.url
 
     @staticmethod
+    async def _goto(page: Any, url: str) -> None:
+        """Navigate only within the bank origin; anything else fails closed."""
+        await page.goto(
+            _require_allowed_url(url),
+            wait_until="domcontentloaded",
+            timeout=45_000,
+        )
+
+    @staticmethod
     async def _follow_continue(page: Any, url: str) -> None:
         """Click the strong-authentication notice's Continuer button.
 
         The notice page renders its button from JavaScript, so wait for it.
         Falling back to ``url_retour`` covers a page whose script did not run.
+        The fallback is resolved against the bank origin and refused when it
+        leaves it: the value comes from the bank page, never from the caller.
         """
         try:
             await page.wait_for_selector("#back-link", timeout=20_000)
@@ -730,7 +835,11 @@ class BrowserBankClient(HttpxBankClient):
         if not retour:
             BrowserBankClient._log_failure_page("no-continue")
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
-        await page.goto(retour, wait_until="domcontentloaded", timeout=45_000)
+        await page.goto(
+            _require_allowed_url(retour),
+            wait_until="domcontentloaded",
+            timeout=45_000,
+        )
 
     @staticmethod
     async def _wait_for_challenge(page: Any, timeout: float, previous: str | None = None) -> str:
