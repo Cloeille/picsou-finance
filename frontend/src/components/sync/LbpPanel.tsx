@@ -50,7 +50,7 @@ type AuthState =
   | "AWAITING_APP"
   | "ERROR"
 
-/** The bank's password is 6 digits; the sidecar accepts 6 to 12, this UI sends 6. */
+/** The bank's password is exactly 6 digits; the sidecar requires exactly 6, this UI sends 6. */
 const MIN_POSITIONS = 6
 const MAX_POSITIONS = 6
 const MIN_IDENTIFIER = 6
