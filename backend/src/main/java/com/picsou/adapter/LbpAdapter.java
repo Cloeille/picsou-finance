@@ -195,12 +195,12 @@ public class LbpAdapter {
                 }
             }
             if (isDecodingFailure(ex)) {
-                // A malformed (or empty) sidecar response: the payload moved under us.
+                // An undecodable (or empty) sidecar response reads as the bank
+                // being unavailable — the shared sidecar contract pins this code.
                 // Never hand the raw exception to the logger — Jackson can quote
                 // cookie tokens in its parse error text — so the cause stays null.
                 log.warn("{}: sidecar returned an undecodable response", message);
-                throw authSidecar.coded(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
-                    SidecarBank.LBP.message(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED), null);
+                throw authSidecar.coded(SidecarErrorCode.UPSTREAM_UNAVAILABLE, message, null);
             }
             throw authSidecar.mapError(message, ex, authenticationFailure);
         }

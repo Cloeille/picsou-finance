@@ -152,14 +152,16 @@ class LbpAdapterTest {
     }
 
     @Test
-    void anUndecodableSidecarResponseIsAFormatChangeWithoutTheRawError() {
-        // A truncated body cannot be trusted and Jackson may quote cookie tokens in
-        // its parse text, so the cause stays null and nothing raw reaches the logger.
+    void anUndecodableSidecarResponseIsUnavailableWithoutTheRawError() {
+        // An empty or truncated body cannot be trusted and Jackson may quote
+        // cookie tokens in its parse text, so the shared contract reads it as
+        // the bank being unavailable with a null cause: nothing raw reaches
+        // the logger.
         LbpAdapter adapter = returning(HttpStatus.OK, "not-json{{{");
 
         assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
             .isInstanceOfSatisfying(SyncException.class, error -> {
-                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED.name());
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());
                 assertThat(error.getCause()).isNull();
             });
     }
