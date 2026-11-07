@@ -65,6 +65,7 @@ import static org.mockito.Mockito.withSettings;
 import static org.mockito.quality.Strictness.LENIENT;
 
 @ExtendWith(MockitoExtension.class)
+@SuppressWarnings("unchecked")
 class SimplefinSyncServiceTest {
 
     private static final Long MEMBER_ID = 7L;
@@ -609,16 +610,22 @@ class SimplefinSyncServiceTest {
     }
 
     @Test
-    void sync_deletesTheDroppedTickersBeforeItWritesTheReportedOnes() {
+    void sync_neverDeletesATickerItAlsoWrites_soTheUniqueKeyCannotClashWhateverTheFlushOrder() {
+        // Hibernate runs inserts before deletes at flush. That is only safe because a ticker is
+        // either updated in place or deleted, never both.
         givenUsdToEurIsHalved();
-        givenStoredAccount(AccountType.BROKERAGE, storedHolding("OLD", "1", "5"));
-        givenBridgeReturns(brokerage(holding("GOOGL", "3.00", "900.00", "0.00", "0.00")));
+        AccountHolding gone = storedHolding("OLD", "1", "5");
+        givenStoredAccount(AccountType.BROKERAGE, gone, storedHolding("GOOGL", "1", "100"));
+        givenBridgeReturns(brokerage(
+            holding("GOOGL", "3.00", "900.00", "0.00", "0.00"),
+            holding("MSFT", "2.00", "800.00", "0.00", "0.00")));
 
         service.sync(MEMBER_ID);
 
-        org.mockito.InOrder order = org.mockito.Mockito.inOrder(holdingRepository);
-        order.verify(holdingRepository).deleteAll(any());
-        order.verify(holdingRepository).save(any(AccountHolding.class));
+        ArgumentCaptor<Iterable<AccountHolding>> deleted = ArgumentCaptor.forClass(Iterable.class);
+        verify(holdingRepository).deleteAll(deleted.capture());
+        assertThat(deleted.getValue()).extracting(AccountHolding::getTicker)
+            .doesNotContainAnyElementsOf(savedHoldings().stream().map(AccountHolding::getTicker).toList());
     }
 
     // ---- account typing -----------------------------------------------------------------

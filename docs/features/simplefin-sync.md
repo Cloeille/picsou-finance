@@ -63,7 +63,8 @@ characters.
 - `backend/src/main/java/com/picsou/port/SimplefinPort.java` — claim and fetch contract, account-set records, the 4096-character token limit
 - `backend/src/main/java/com/picsou/adapter/SimplefinClient.java` — claim and accounts fetch, status handling, body caps
 - `backend/src/main/java/com/picsou/adapter/SimplefinUrls.java` — token decoding, host and port allowlist, Basic auth header
-- `backend/src/main/java/com/picsou/adapter/SimplefinJson.java` — account-set parsing, pending rows dropped, error text capped
+- `backend/src/main/java/com/picsou/adapter/SimplefinJson.java` — account-set parsing, pending rows dropped, error text capped, holdings rows and their completeness
+- `backend/src/main/java/com/picsou/service/SimplefinHoldings.java` — positions, sweep cash and the completeness flag
 - `backend/src/main/java/com/picsou/adapter/SimplefinTransport.java` — HTTP seam, faked in tests
 - `backend/src/main/java/com/picsou/service/SimplefinSyncService.java` — connect, sync, account upsert, status
 - `backend/src/main/java/com/picsou/service/SimplefinStatusWriter.java` — `ERROR` status in its own transaction
