@@ -49,6 +49,24 @@ describe('SetupStepLbp', () => {
     expect(useSetupFlowStore.getState().completedIntegrations).toContain('lbp')
   })
 
+  it('stays on the step and exposes a retryable error when acknowledgement fails', async () => {
+    mocks.mutateAsync.mockRejectedValueOnce({
+      response: { status: 503, data: { detail: 'Unavailable' } },
+    })
+    const view = render(<SetupStepLbp />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'setup.lbp.cta' }))
+
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledWith('lbp'))
+    expect(mocks.navigate).not.toHaveBeenCalled()
+
+    mocks.ack.isError = true
+    mocks.ack.error = { response: { status: 503 } }
+    view.rerender(<SetupStepLbp />)
+    expect(screen.getByRole('alert').textContent).toBe('common.errors.serverError')
+    expect(screen.getByRole('button', { name: 'setup.lbp.cta' })).toBeEnabled()
+  })
+
   it('disables both actions while the acknowledgement is pending', () => {
     mocks.ack.isPending = true
 

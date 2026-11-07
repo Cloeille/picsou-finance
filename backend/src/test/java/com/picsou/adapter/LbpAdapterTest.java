@@ -152,6 +152,27 @@ class LbpAdapterTest {
     }
 
     @Test
+    void anUndecodableSidecarResponseIsAFormatChangeWithoutTheRawError() {
+        // A truncated body cannot be trusted and Jackson may quote cookie tokens in
+        // its parse text, so the cause stays null and nothing raw reaches the logger.
+        LbpAdapter adapter = returning(HttpStatus.OK, "not-json{{{");
+
+        assertThatThrownBy(() -> adapter.initiateAuth(CUSTOMER_ID))
+            .isInstanceOfSatisfying(SyncException.class, error -> {
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED.name());
+                assertThat(error.getCause()).isNull();
+            });
+    }
+
+    @Test
+    void theProductionClientDisablesTheSingleShotReplay() {
+        // everyLoginCallIsNeverRetried uses a mock exchange function, which never
+        // touches the Netty layer where the one-shot replay lives. This pins the
+        // production client config itself: removing disableRetry(true) fails here.
+        assertThat(LbpAdapter.httpClient().configuration().isRetryDisabled()).isTrue();
+    }
+
+    @Test
     void theAuthCallsHaveTheirOwnTimeouts() {
         // the sidecar's Chromium launch + login form can take ~105 s at the tail
         assertThat(LbpAdapter.INITIATE_TIMEOUT).isEqualTo(Duration.ofSeconds(120));

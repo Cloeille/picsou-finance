@@ -326,10 +326,12 @@ three accounts. The session row was `SUCCESS` and active afterwards.
 - Enable Banking adoption/deduplication by IBAN.
 - A multi-replica backend: pending logins and authentication generations are
   process-local, and the `lbp-auth` sidecar keeps the pending Chromium context in
-  memory too. While a login is in progress, run one backend and one `lbp-auth`
-  replica (or route all `/api/lbp/*` requests for the same member to the same
-  backend), including disconnect requests from other devices. A sidecar restart
-  or rollout also discards the active login. See
+  memory too. For the duration of an active sync (login through the account
+  reads), route all `/api/lbp/*` requests for the same member to the same
+  backend replica — and to the same `lbp-auth` replica — or run one replica of
+  each; this includes disconnect requests from other devices. A restart, rollout
+  or redeploy of either service mid-sync drops the pending state and fails the
+  active sync, so the user starts again. See
   [docker-deployment](docker-deployment.md#gotchas--pitfalls).
 - `AccountConnectionService` / `SyncStatusService` / MCP `SyncTools`
   integration: deleting the last LBP account does not clear its session, and
