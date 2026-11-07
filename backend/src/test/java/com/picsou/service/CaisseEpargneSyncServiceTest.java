@@ -351,8 +351,12 @@ class CaisseEpargneSyncServiceTest {
         assertThat(saved.getName()).isEqualTo("Assurance vie");
         assertThat(saved.getColor()).isEqualTo("#8b5cf6");
         assertThat(saved.getCashBalance()).isEqualByComparingTo("1000.00");
-        verify(perService).prepare(detail, "EUR");
-        verify(perService).backfill(prepared);
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(perService, accountService);
+        order.verify(perService).prepare(detail, "EUR");
+        order.verify(perService).apply(eq(saved), eq(prepared), any());
+        order.verify(accountService).upsertSnapshot(
+            eq(saved), eq(new BigDecimal("4200.00")), eq(new BigDecimal("4200.00")), eq(valuationDate));
+        order.verify(perService).backfill(prepared);
     }
 
     @Test

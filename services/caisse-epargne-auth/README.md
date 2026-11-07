@@ -179,7 +179,7 @@ Response 200 (money as decimal strings, never floats; a card's `balance` is its
 outstanding, the sum of operations with a future `dueDate`, so <= 0):
 
 ```json
-{"accounts": [{"externalId": "1001", "kind": "CURRENT_ACCOUNT|LIVRET_A|LDDS|PEL|LEP|PER|LOAN|CARD", "name": "str|null",
+{"accounts": [{"externalId": "1001", "kind": "CURRENT_ACCOUNT|LIVRET_A|LDDS|PEL|LEP|PER|ASSURANCE_VIE|LOAN|CARD", "name": "str|null",
   "balance": "1234.56", "currency": "EUR", "iban": "str|null", "ibanAmbiguous": false,
   "authorizedOverdraft": "str|null", "ceiling": "str|null", "remainingDepositCapacity": "str|null",
   "fillingRatio": "str|null", "cardNature": "CREDIT|DEFERRED_DEBIT|IMMEDIATE_DEBIT|null",

@@ -970,8 +970,9 @@ public class AccountService {
         // pair. A subsequent provider sync will repopulate both fields.
         // Except a CORUM Life line's value: no feed quotes its unit, so clearing it would
         // leave the line unvalued until the next sync. Only the P&L goes, which is what
-        // lets the edited buy-in become the line's cost basis.
-        if (!isSyncedCorumLife(account)) {
+        // lets the edited buy-in become the line's cost basis. Same for a Caisse d'Epargne
+        // PER or assurance vie: the insurer's value is the line's fallback when no quote resolves.
+        if (!isSyncedCorumLife(account) && !CaisseEpargneSyncService.isInsurerContract(account)) {
             h.setProviderValueEur(null);
         }
         h.setProviderPnlEur(null);

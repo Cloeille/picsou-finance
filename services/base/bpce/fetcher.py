@@ -598,6 +598,25 @@ async def fetch_import(
         pensions, per_unavailable = await _fetch_per_details(accounts, per_detail)
         unavailable.update(loan_unavailable)
         unavailable.update(per_unavailable)
+        for account in accounts:
+            # An assurance vie seen in few live runs whose insurer detail no longer parses is
+            # also listed as unsupported, the one list the Sync tab shows (`unavailable` is not
+            # shown). A PER keeps its established handling, and a network or session failure
+            # is not a format change.
+            if (
+                account["kind"] == "ASSURANCE_VIE"
+                and per_unavailable.get(account["externalId"]) == per_parser.INVALID_PER_DETAIL
+            ):
+                unsupported.append(
+                    {
+                        "externalId": account["externalId"],
+                        "hasPfmId": False,
+                        "familyCode": "4",
+                        "subFamilyCode": "05",
+                        "productLabel": None,
+                        "rejected": "insurer detail",
+                    }
+                )
 
         stage = "serialisation"
         result_accounts: list = []

@@ -1134,6 +1134,40 @@ class AssuranceVieImportTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(LOAN_ID, {a["externalId"] for a in result["accounts"]})
 
+    async def test_an_assurance_vie_whose_detail_no_longer_parses_is_also_listed_as_unsupported(self):
+        async def detail(_contract_id, _entity_code):
+            payload = PerHoldingsImportTest.payload()
+            payload["detailContratVie"]["valorisation"]["montant"] = 987654
+            return payload
+
+        result = await run_fetch(self.av_ce(), per_detail=detail)
+
+        self.assertIn(
+            {"externalId": self.AV_ID, "familyCode": "4", "subFamilyCode": "05"}, result["unsupported"]
+        )
+        self.assertEqual([u["externalId"] for u in result["unavailable"]], [self.AV_ID])
+        self.assertNotIn(self.AV_ID, {a["externalId"] for a in result["accounts"]})
+
+    async def test_a_per_whose_detail_no_longer_parses_is_not_added_to_unsupported(self):
+        async def detail(_contract_id, _entity_code):
+            payload = PerHoldingsImportTest.payload()
+            payload["detailContratVie"]["valorisation"]["montant"] = 987654
+            return payload
+
+        result = await run_fetch(products_ce(), per_detail=detail)
+
+        self.assertNotIn(PER_ID, {u["externalId"] for u in result["unsupported"]})
+        self.assertEqual([u["kind"] for u in result["unavailable"]], ["PER"])
+
+    async def test_an_assurance_vie_refused_for_a_network_failure_is_not_listed_as_unsupported(self):
+        async def detail(_contract_id, _entity_code):
+            raise httpx.ConnectError("boom")
+
+        result = await run_fetch(self.av_ce(), per_detail=detail)
+
+        self.assertNotIn(self.AV_ID, {u["externalId"] for u in result["unsupported"]})
+        self.assertEqual([u["externalId"] for u in result["unavailable"]], [self.AV_ID])
+
     async def test_an_unreadable_detail_logs_the_field_path_and_no_value(self):
         stream = io.StringIO()
         handler = logging.StreamHandler(stream)
