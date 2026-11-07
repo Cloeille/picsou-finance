@@ -10,7 +10,6 @@ import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.AppSettingRepository;
 import com.picsou.repository.AppUserRepository;
 import com.picsou.repository.FamilyMemberRepository;
-import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.LbpSessionRepository;
 import com.picsou.repository.RevolutSessionRepository;
@@ -409,7 +408,6 @@ class InstanceStatusServiceTest {
                 new SsoProperties(), mock(UserIdentityRepository.class), Clock.systemUTC()),
             SidecarProperties.of(Map.of()),
             mock(TradeRepublicSessionRepository.class), mock(SidecarSessionRepository.class),
-            mock(BanquePopulaireSessionRepository.class),
             mock(RevolutSessionRepository.class), mock(DegiroSessionRepository.class),
             mock(LbpSessionRepository.class),
             "1.1.0");
@@ -444,7 +442,6 @@ class InstanceStatusServiceTest {
             Map.entry("revolut-auth", "http://revolut")));
         var tr = mock(TradeRepublicSessionRepository.class);
         var sidecarSessions = mock(SidecarSessionRepository.class);
-        var banquePopulaire = mock(BanquePopulaireSessionRepository.class);
         var revolut = mock(RevolutSessionRepository.class);
         var degiro = mock(DegiroSessionRepository.class);
         var lbp = mock(LbpSessionRepository.class);
@@ -461,7 +458,7 @@ class InstanceStatusServiceTest {
         when(sidecarSessions.countByBank(SidecarBank.SOFIDY)).thenReturn(11L);
         when(sidecarSessions.countByBank(SidecarBank.CMES)).thenReturn(12L);
         when(sidecarSessions.countByBank(SidecarBank.CIC)).thenReturn(13L);
-        when(banquePopulaire.count()).thenReturn(14L);
+        when(sidecarSessions.countByBank(SidecarBank.BANQUE_POPULAIRE)).thenReturn(14L);
         when(sidecarSessions.countByBank(SidecarBank.NATIXIS)).thenReturn(15L);
         when(lbp.count()).thenReturn(15L);
 
@@ -469,7 +466,7 @@ class InstanceStatusServiceTest {
             disabledReleases(),
             setup,
             sidecars,
-            tr, sidecarSessions, banquePopulaire, revolut, degiro, lbp,
+            tr, sidecarSessions, revolut, degiro, lbp,
             "1.1.0");
 
         assertThat(wired.targets())
