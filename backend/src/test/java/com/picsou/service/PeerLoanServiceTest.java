@@ -721,6 +721,46 @@ class PeerLoanServiceTest {
     }
 
     @Test
+    void addRepaymentFromTransactionLeavesAnExplicitInterestRowUncategorised() {
+        Account account = loanAccount("Jean");
+        Account cash = cashAccount(false);
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("10000")).lentAt(LocalDate.parse("2026-01-01"))
+            .annualRate(new BigDecimal("0.05")).linkedAccount(cash)
+            .build();
+        // ~59 days at 5 % on 10 000 accrue about 80 EUR: 50 of interest is covered.
+        Transaction transaction = Transaction.builder()
+            .id(60L).account(cash).date(LocalDate.parse("2026-03-01"))
+            .description("Intérêts reçus").amount(new BigDecimal("50")).build();
+        List<PeerLoanRepayment> ledger = new ArrayList<>();
+
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(transactionRepository.findById(60L)).thenReturn(Optional.of(transaction));
+        when(repaymentRepository.findByCashTransactionId(60L)).thenReturn(Optional.empty());
+        when(termsRepository.findByLendingTransactionId(60L)).thenReturn(Optional.empty());
+        when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
+            PeerLoanRepayment saved = invocation.getArgument(0);
+            saved.setId(11L);
+            ledger.add(saved);
+            return saved;
+        });
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenAnswer(invocation -> List.copyOf(ledger));
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PeerLoanDetailResponse response = service.addRepaymentFromTransaction(
+            ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentFromTransactionRequest(60L, PeerLoanRepaymentKind.INTEREST));
+
+        // Same rule as the manual leg: interest is real income, counted by sign.
+        assertThat(transaction.getCategoryRef()).isNull();
+        assertThat(transaction.isCategoryManual()).isTrue();
+        assertThat(response.interestReceived()).isEqualByComparingTo("50.00");
+        assertThat(response.principalRemaining()).isEqualByComparingTo("10000.00");
+    }
+
+    @Test
     void deletingALinkedRepaymentDoesNotDeleteItsTransaction() {
         Account account = loanAccount("Jean");
         PeerLoanTerms terms = PeerLoanTerms.builder()

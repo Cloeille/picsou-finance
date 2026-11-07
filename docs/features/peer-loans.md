@@ -142,7 +142,7 @@ ledger.
 |---|---|---|---|
 | Money lent (cash out) | — | `TRANSFER` | none |
 | Payment (cash in) | `PRINCIPAL` | `TRANSFER` | none; the interest part is in the ledger, not the budget |
-| Explicit interest-only entry (API) | `INTEREST` | uncategorised | counts as income by sign |
+| Explicit interest-only entry | `INTEREST` | uncategorised | counts as income by sign, however it was recorded |
 | Write-off | `WRITE_OFF` | none | net worth only |
 
 `CategoryKind.TRANSFER` is already excluded from cashflow. An **uncategorised** `DEPOSIT`
@@ -165,6 +165,8 @@ one rule:
 
 An interest repayment is a `DEPOSIT` left uncategorised: a positive amount counts as
 income in the cashflow, which is correct — interest is real income, not a transfer.
+That holds however the row was recorded: a transaction assigned as `INTEREST` keeps
+the same treatment as a typed one, so both entry paths report the same income.
 
 An incoming transaction can be **assigned** to an open loan instead of typing a
 repayment. It is linked (`cash_transaction_id`, `cash_leg_owned = false`) and never

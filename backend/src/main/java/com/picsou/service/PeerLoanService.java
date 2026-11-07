@@ -517,10 +517,15 @@ public class PeerLoanService {
             .cashLegOwned(false)
             .build());
 
-        // The whole received movement is one transfer, whatever its label: the interest
-        // part is tracked in the loan ledger, not booked as budget income (one row, one
-        // category). Leaving INTEREST uncategorised would count it as income twice.
-        transaction.setCategoryRef(transferCategory(memberId));
+        // An explicit interest payment is real income: like the manual leg, the row
+        // stays uncategorised so the cashflow counts it by sign. Any other kind is one
+        // transfer, whatever its interest part: the split lives in the loan ledger, not
+        // as budget income (one row, one category).
+        if (kind == PeerLoanRepaymentKind.INTEREST) {
+            transaction.setCategoryRef(null);
+        } else {
+            transaction.setCategoryRef(transferCategory(memberId));
+        }
         transaction.setCategoryManual(true);
         transactionRepository.save(transaction);
 
