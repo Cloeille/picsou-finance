@@ -586,7 +586,7 @@ async def _operation_details(client: httpx.AsyncClient, access_token: str,
 
 async def _all_or_none(reads) -> list:
     """Every read's result in order, or an ExceptionGroup of the failures. The first
-    failure cancels the other reads, so none keeps running against the client. Not a
+    failure cancels the other reads, so none is left running once the history is given up. Not a
     TaskGroup: on Python 3.12 a failed child leaves the request task cancelling, and
     the route deadline that fires afterwards then escapes as a bare CancelledError."""
     tasks = [asyncio.ensure_future(r) for r in reads]
