@@ -1,7 +1,6 @@
 package com.picsou.service;
 
 import com.picsou.dto.FinaryAutoSyncResponse;
-import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
 import com.picsou.finary.FinaryApiSyncService;
 import com.picsou.port.SidecarErrorCode;
@@ -256,8 +255,6 @@ public class MemberSyncService {
             }
             lbpSyncService.queueSync(memberId);
             return new SourceSyncResult("lbp", Status.QUEUED, "");
-        } catch (ResourceNotFoundException ex) {
-            return new SourceSyncResult("lbp", Status.SKIPPED_NOT_CONNECTED, "Member not found");
         } catch (DataAccessException ex) {
             log.error("Database error during scheduled La Banque Postale sync (member={})", memberId, ex);
             return new SourceSyncResult("lbp", Status.FAILED, "Database error");
