@@ -20,19 +20,51 @@ from savings_parser import SavingsFormatError
 
 class DemandsTest(unittest.TestCase):
     def test_finished_demands_with_their_detail_link(self):
-        demands = finished_demands(TRANSACTIONS)
+        demands = finished_demands(TRANSACTIONS, EMPLOYEE_ID)
         self.assertEqual([d["type"] for d in demands], ["INVESTMENT_DEMANDS", "PAYMENT_DEMANDS", "INVESTMENT_DEMANDS"])
-        self.assertTrue(all(d["href"].startswith(f"/transaction/v1/employees/{EMPLOYEE_ID}/") for d in demands))
+        self.assertTrue(all(d["path"].startswith(f"/transaction/v1/employees/{EMPLOYEE_ID}/") for d in demands))
 
     def test_unfinished_and_unknown_demands_are_skipped(self):
         transactions = copy.deepcopy(TRANSACTIONS)
         transactions["items"][0]["finished"] = False
         transactions["items"][1]["type"] = "ARBITRATION_DEMANDS"
-        self.assertEqual(len(finished_demands(transactions)), 1)
+        self.assertEqual(len(finished_demands(transactions, EMPLOYEE_ID)), 1)
 
     def test_listing_without_items_is_format_changed(self):
         with self.assertRaises(SavingsFormatError):
-            finished_demands({})
+            finished_demands({}, EMPLOYEE_ID)
+
+    def test_detail_path_is_rebuilt_from_an_absolute_api_link(self):
+        transactions = copy.deepcopy(TRANSACTIONS)
+        link = transactions["items"][0]["_links"]["self"]
+        link["href"] = "https://nie.api.natixis.com" + link["href"]
+        self.assertEqual(finished_demands(transactions, EMPLOYEE_ID)[0]["path"],
+                         f"/transaction/v1/employees/{EMPLOYEE_ID}/investmentDemands/2024-03-15-INT--10000001-")
+
+    def test_detail_links_outside_the_saver_space_are_format_changed(self):
+        base = f"/transaction/v1/employees/{EMPLOYEE_ID}"
+        for href in (
+            f"{base}/investmentDemands/../../../../auth/v3/users/me",
+            f"{base}/investmentDemands/..",
+            f"{base}/investmentDemands/%2e%2e",
+            f"{base}/investmentDemands/a%2Fb",
+            f"{base}/investmentDemands//x",
+            f"{base}/investmentDemands/x?y=1",
+            f"{base}/investmentDemands/x#y",
+            f"{base}/investmentDemands/",
+            f"{base}/paymentDemands/2024-03-15-INT--10000001-",  # not this type's collection
+            "/transaction/v1/employees/99999-1/investmentDemands/x",  # another saver
+            f"http://nie.api.natixis.com{base}/investmentDemands/x",
+            f"https://user@nie.api.natixis.com{base}/investmentDemands/x",
+            f"https://nie.api.natixis.com:8443{base}/investmentDemands/x",
+            f"https://evil.example{base}/investmentDemands/x",
+            f"//evil.example{base}/investmentDemands/x",
+        ):
+            with self.subTest(href=href):
+                transactions = copy.deepcopy(TRANSACTIONS)
+                transactions["items"][0]["_links"]["self"]["href"] = href
+                with self.assertRaises(SavingsFormatError):
+                    finished_demands(transactions, EMPLOYEE_ID)
 
 
 class InvestmentTest(unittest.TestCase):
@@ -97,7 +129,7 @@ class ParseOperationsTest(unittest.TestCase):
         self.assertIn(1007, operation_fund_ids([PAYMENT_DEMAND]))
 
     def test_ids_are_unique_and_bounded(self):
-        demands = finished_demands(TRANSACTIONS)
+        demands = finished_demands(TRANSACTIONS, EMPLOYEE_ID)
         details = [{**(INVESTMENT_DEMAND if d["type"] == "INVESTMENT_DEMANDS" else PAYMENT_DEMAND), "id": d["id"]}
                    for d in demands]
         operations = parse_operations(demands, details, EMPLOYEE_ID, {})
@@ -105,7 +137,7 @@ class ParseOperationsTest(unittest.TestCase):
         self.assertTrue(all(len(op["externalId"]) <= 100 for op in operations))
 
     def test_same_detail_twice_is_rejected(self):
-        demands = finished_demands(TRANSACTIONS)[:1] * 2
+        demands = finished_demands(TRANSACTIONS, EMPLOYEE_ID)[:1] * 2
         with self.assertRaises(SavingsFormatError):
             parse_operations(demands, [INVESTMENT_DEMAND, INVESTMENT_DEMAND], EMPLOYEE_ID, {})
 

@@ -74,7 +74,26 @@ the plans:
 - older rows and manual rows are kept.
 
 When `operationsComplete` is false (the history could not be read in full), the
-existing rows are left as they are. Operations are history only. They never change
+existing rows are left as they are. The history is optional data, like the fund
+details: a read that fails (a 401 included), overruns its budget, or that the
+response contract refuses (a malformed date, a label over 200 characters) is
+dropped whole, logged by error type only, and the plans still sync. The
+operations are validated against that contract inside `collect_plans`, before
+the route answers, so a bad one can never fail `/positions`.
+
+**Detail links.** The URL of each operation detail is rebuilt from the saver's id,
+the operation type (`investmentDemands` or `paymentDemands`) and the link's last
+segment, which must be plain characters (`[0-9A-Za-z_-]`). A link to another host,
+another saver or another collection, or one with `..`, an encoded character, a query
+or a fragment, is a format change: the history is dropped and the saver's token is
+never sent there. The details are read in an `asyncio.TaskGroup`, so one failure
+cancels the other reads at once.
+
+**Sales of units older than the window.** A PEE or PERCO release often sells units
+bought more than five years ago, so their `BUY` is outside the history. The `SELL`
+is still imported, as it is in the saver space. The realized-gains section then has
+no cost basis for those units and counts the whole proceeds as gain; the ticker's
+over-sell warning is the only signal. The plan balance and holdings are unaffected. Operations are history only. They never change
 balances, holdings or snapshots, and they feed the realized-gains section of the
 account.
 
@@ -130,7 +149,8 @@ spending. The rows stay visible on the account page and in exports.
 - **A mistyped code keeps the login attempt open:** the saver retries with the same
   `processId` until the 10-minute TTL runs out.
 - **A missing fund detail** only leaves the line's `fundCode` empty and never blocks
-  a sync, whatever the reason, a 401 included. Elsewhere, only a 401 on the API or a
+  a sync, whatever the reason, a 401 included. The operations history is treated the
+  same way. Elsewhere, only a 401 on the API or a
   refused refresh grant means `SESSION_EXPIRED`. A 403 is `UPSTREAM_FORMAT_CHANGED`,
   so a missing scope never forces the saver to type a new code. A refused
   authorization code during login is `AUTH_ATTEMPT_EXPIRED`.
@@ -140,11 +160,16 @@ spending. The rows stay visible on the account page and in exports.
   this happens.
 - **Timeouts.** The login routes (`/initiate`, `/complete`) give up after 40 s,
   under the backend's 45 s adapter timeout, so a slow Natixis never leaves a code sent
-  or tokens minted that the backend has stopped waiting for. `/positions` gives up
+  that the backend has stopped waiting for. `/positions` gives up
   after 100 s, under its 120 s adapter timeout; inside it, fund details get 10 s and
   the operations history 30 s, and only those parts are dropped when they overrun.
   Each Natixis call is capped at 15 s. A deadline that expires answers
   `UPSTREAM_UNAVAILABLE`.
+- **A login can mint tokens it then loses.** `/complete` exchanges the authorization
+  code for tokens, then reads the saver's id (`users/me`). If that read fails or times
+  out, `/complete` returns an error without the tokens, and the saver has to start the
+  login over (a new code). Natixis cannot be asked to revoke them; they expire on
+  their own.
 - **At most 5 wrong codes per login attempt**: the fifth drops the attempt
   (`AUTH_ATTEMPT_EXPIRED`), well before Natixis would lock the account.
 - **Accounts without a password login** (passkey only), or without an SMS, e-mail or
@@ -158,9 +183,11 @@ spending. The rows stay visible on the account page and in exports.
 - **Lock order:** the sync commit locks the member's Natixis accounts (by id), then the
   session row. That is the order an account deletion already takes, so the two cannot
   deadlock.
-- **Interrupted jobs:** at boot, and then every 5 minutes, a QUEUED or RUNNING job not
-  updated for 10 minutes is failed as retryable. A job another backend is running right
-  now is left alone. If the move to RUNNING itself fails, the job fails as retryable
+- **Interrupted jobs:** at boot, every QUEUED or RUNNING job last updated before this
+  backend started is failed as retryable at once. The jobs live in a process-local
+  executor, and Helm and Compose run a single backend, so such a job has no worker
+  left. Then, every 5 minutes, a job not updated for 10 minutes is failed the same way,
+  for a worker that died without a restart. If the move to RUNNING itself fails, the job fails as retryable
   (`UPSTREAM_UNAVAILABLE`) instead of staying queued.
 - **Disconnecting during the second factor** cancels the login on the sidecar (`/cancel`,
   best effort, 10 s). When this happens through an account deletion, the call runs inside
@@ -175,7 +202,9 @@ spending. The rows stay visible on the account page and in exports.
 - `services/natixis-auth/test_parsers.py`: mapping and reconciliation on the
   synthetic fixtures.
 - `services/natixis-auth/test_sidecar_auth.py`: the shared sidecar-key contract.
-- `NatixisSyncServiceTest` and `NatixisControllerTest`; the NATIXIS rows of
+- `services/natixis-auth/test_operations.py`: the operations mapping and the
+  detail-link guard (traversal, encoded characters, another host or saver).
+- `NatixisSyncServiceTest`, `NatixisSyncRecoveryTest` and `NatixisControllerTest`; the NATIXIS rows of
   `SidecarContractTest` and `SidecarBankCodesTest`.
 - `frontend/src/demo/natixis.test.ts` and `NatixisPanel.test.tsx`.
 

@@ -69,6 +69,8 @@ class FakeNatixis:
         self.exchanged_verifier = None
         self.service_provider_url = "https://nie-auth.api.natixis.com/api/oauth/authorize"
         self.savings = copy.deepcopy(SAVINGS)
+        self.transactions = copy.deepcopy(TRANSACTIONS)
+        self.investment_demand = copy.deepcopy(INVESTMENT_DEMAND)
         self.returned_refresh_token = REFRESH_TOKEN
         self.oauth_state = None
         self.requests = []
@@ -159,10 +161,10 @@ class FakeNatixis:
             if self.operations_status != 200:
                 return httpx.Response(self.operations_status, json={})
             if path.endswith("/transactions"):
-                return httpx.Response(200, json=TRANSACTIONS)
+                return httpx.Response(200, json=self.transactions)
             demand_id = path.rsplit("/", 1)[1]
             if "/investmentDemands/" in path:
-                return httpx.Response(200, json={**INVESTMENT_DEMAND, "id": demand_id})
+                return httpx.Response(200, json={**self.investment_demand, "id": demand_id})
             if "/paymentDemands/" in path:
                 return httpx.Response(200, json={**PAYMENT_DEMAND, "id": demand_id})
         if path.startswith("/fund/v1/funds/"):
@@ -262,6 +264,46 @@ class HappyPathTest(SidecarTestCase):
         self.assertIsNone(body["operationsFrom"])
         self.assertEqual(body["operations"], [])
         self.assertEqual(len(body["plans"]), 2)
+
+    def assert_plans_without_history(self, response):
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertFalse(body["operationsComplete"])
+        self.assertIsNone(body["operationsFrom"])
+        self.assertEqual(body["operations"], [])
+        self.assertEqual(len(body["plans"]), 2)
+
+    def test_history_the_contract_refuses_keeps_the_plans(self):
+        # The parser takes these, the response contract does not: the history is
+        # dropped, never the plans.
+        for field, value in (("investmentDate", "2025-07-23T10:00:00Z"), ("fundLabel", "F" * 201)):
+            with self.subTest(field=field):
+                self.fake.investment_demand = copy.deepcopy(INVESTMENT_DEMAND)
+                self.fake.investment_demand["investments"][0][field] = value
+                session = self.login().json()["sessionState"]
+                self.assert_plans_without_history(self.post("/positions", {"sessionState": session}))
+
+    def test_history_refused_with_401_keeps_the_session_and_the_plans(self):
+        # Optional data, like the fund details: a 401 there does not end the session.
+        session = self.login().json()["sessionState"]
+        self.fake.operations_status = 401
+        self.assert_plans_without_history(self.post("/positions", {"sessionState": session}))
+
+    def test_a_detail_link_never_steers_the_token_elsewhere(self):
+        base = f"/transaction/v1/employees/{USERS_ME['id']}"
+        for href in (f"{base}/investmentDemands/../../../../auth/v3/users/me",
+                     f"{base}/investmentDemands/%2e%2e/%2e%2e/x",
+                     f"https://evil.example{base}/investmentDemands/2024-03-15-INT--10000001-"):
+            with self.subTest(href=href):
+                self.fake.transactions = copy.deepcopy(TRANSACTIONS)
+                self.fake.transactions["items"][0]["_links"]["self"]["href"] = href
+                session = self.login().json()["sessionState"]
+                self.fake.requests.clear()
+                self.assert_plans_without_history(self.post("/positions", {"sessionState": session}))
+                self.assertNotIn(("GET", "nie.api.natixis.com", "/auth/v3/users/me"), self.fake.requests)
+                self.assertFalse(any(host != "nie.api.natixis.com" and host != "nie-auth.api.natixis.com"
+                                     for _, host, _ in self.fake.requests))
+                self.assertFalse(any("/investmentDemands/" in path for _, _, path in self.fake.requests))
 
     def test_login_exchanges_the_pkce_verifier(self):
         self.assertEqual(self.login().status_code, 200)

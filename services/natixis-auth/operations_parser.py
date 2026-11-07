@@ -14,13 +14,21 @@ balances and holdings.
 """
 
 import hashlib
+import re
 from decimal import Decimal
+from urllib.parse import quote, urlsplit
 
 from savings_parser import FORMAT_CHANGED, SavingsFormatError, _amount, _decimal, _text
 
 INVESTMENT = "INVESTMENT_DEMANDS"
 PAYMENT = "PAYMENT_DEMANDS"
 SUPPORTED = (INVESTMENT, PAYMENT)
+API_HOST = "nie.api.natixis.com"
+# The detail resource of each supported type, under the saver's transaction space.
+DETAIL_COLLECTION = {INVESTMENT: "investmentDemands", PAYMENT: "paymentDemands"}
+# A demand key is one path segment of plain characters: no dot, slash, percent sign,
+# query or fragment can reach the URL Picsou calls with the saver's token.
+_DEMAND_KEY = re.compile(r"[0-9A-Za-z_-]{1,120}")
 EMPLOYER_TOP_UP = "Abondement employeur"
 PAYMENT_LABELS = {
     "EARLY_RELEASE": "Déblocage anticipé",
@@ -29,11 +37,18 @@ PAYMENT_LABELS = {
 DEFAULT_PAYMENT_LABEL = "Remboursement"
 
 
-def finished_demands(transactions: dict) -> list[dict]:
-    """The finished operations Picsou reads, as {type, id, path}; the rest is skipped."""
+def finished_demands(transactions: dict, employee_id: str) -> list[dict]:
+    """The finished operations Picsou reads, as {type, id, path}; the rest is skipped.
+
+    The detail path is rebuilt from the saver's id, the operation type and the key the
+    link ends with, never taken from the link as sent: an upstream answer must not
+    choose which URL the saver's token is sent to. A link of any other shape -- another
+    host, another saver, a traversal, an encoded character, a query -- is a format change.
+    """
     items = transactions.get("items") if isinstance(transactions, dict) else None
     if not isinstance(items, list):
         raise SavingsFormatError(FORMAT_CHANGED, "Transactions have no item list")
+    base = f"/transaction/v1/employees/{quote(employee_id, safe='')}"
     demands = []
     for item in items:
         if not isinstance(item, dict):
@@ -42,10 +57,22 @@ def finished_demands(transactions: dict) -> list[dict]:
             continue
         href = ((item.get("_links") or {}).get("self") or {}).get("href")
         demand_id = _text(item.get("id"), "Transaction id")
-        if not isinstance(href, str) or "/employees/" not in href:
+        if not isinstance(href, str):
             raise SavingsFormatError(FORMAT_CHANGED, "A transaction has no detail link")
-        demands.append({"type": item["type"], "id": demand_id, "href": href})
+        path = _detail_path(href, f"{base}/{DETAIL_COLLECTION[item['type']]}/")
+        demands.append({"type": item["type"], "id": demand_id, "path": path})
     return demands
+
+
+def _detail_path(href: str, prefix: str) -> str:
+    link = urlsplit(href)
+    if (link.scheme, link.netloc) not in (("", ""), ("https", API_HOST)) or link.query or link.fragment \
+            or "?" in href or "#" in href or not link.path.startswith(prefix):
+        raise SavingsFormatError(FORMAT_CHANGED, "Operation detail outside the saver's space")
+    key = link.path[len(prefix):]
+    if not _DEMAND_KEY.fullmatch(key):
+        raise SavingsFormatError(FORMAT_CHANGED, "Operation detail outside the saver's space")
+    return prefix + key
 
 
 def external_id(employee_id: str, *parts: str) -> str:

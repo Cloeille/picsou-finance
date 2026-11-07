@@ -521,11 +521,16 @@ async def collect_plans(client: httpx.AsyncClient, access_token: str, employee_i
     operations = None
     operations_from = None
     if history is not None:
+        # Validated here, not in the route: a history Picsou cannot take is dropped
+        # whole and the plans still sync, never the other way round.
         try:
-            operations = parse_operations(history[0], history[1], employee_id, codes)
+            operations = [OperationPayload.model_validate(o)
+                          for o in parse_operations(history[0], history[1], employee_id, codes)]
             operations_from = history[2]
         except SavingsFormatError as exc:
             log.warning("Natixis operations not imported code=%s: %s", exc.code, exc)
+        except ValidationError as exc:
+            log.warning("Natixis operations not imported error_type=ValidationError errors=%d", exc.error_count())
     return {"plans": plans, "operations": operations,
             "operationsFrom": operations_from if operations is not None else None}
 
@@ -533,31 +538,33 @@ async def collect_plans(client: httpx.AsyncClient, access_token: str, employee_i
 async def _operation_details(client: httpx.AsyncClient, access_token: str,
                              employee_id: str) -> tuple[list[dict], list[dict], str] | None:
     """The finished operations and their details, or None when the history cannot be
-    read in full -- a partial history must never pass for the whole one."""
+    read in full -- a partial history must never pass for the whole one. The history
+    is optional, like the fund details: no failure here, a 401 included, ever fails
+    the plans or ends a session the savings read just proved alive."""
     today = time.strftime("%Y-%m-%d")
     since = time.strftime("%Y-%m-%d", time.localtime(time.time() - OPERATIONS_HISTORY_YEARS * 365 * 86400 + 86400))
+    failure = ""
     try:
         async with asyncio.timeout(OPERATIONS_BUDGET_SECONDS):
             listing = await _api_get(client, access_token, f"/transaction/v1/employees/{_employee_path(employee_id)}/transactions",
                                      {"fromDate": since, "toDate": today, "status": ""})
-            demands = finished_demands(listing)
+            demands = finished_demands(listing, employee_id)
             gate = asyncio.Semaphore(FUND_DETAIL_CONCURRENCY)
 
             async def detail(demand: dict) -> dict:
-                path = demand["href"].split("nie.api.natixis.com", 1)[-1]
-                if not path.startswith(f"/transaction/v1/employees/{_employee_path(employee_id)}/"):
-                    raise SavingsFormatError("UPSTREAM_FORMAT_CHANGED", "Operation detail outside the saver's space")
                 async with gate:
-                    return await _api_get(client, access_token, path)
+                    return await _api_get(client, access_token, demand["path"])
 
-            details = await asyncio.gather(*(detail(d) for d in demands))
-            return demands, list(details), since
-    except NatixisError as exc:
-        if exc.code == "SESSION_EXPIRED":
-            raise
-        log.warning("Natixis operations not read code=%s", exc.code)
-    except (TimeoutError, httpx.HTTPError, SavingsFormatError, AttributeError, KeyError, TypeError, ValueError) as exc:
-        log.warning("Natixis operations not read error_type=%s", type(exc).__name__)
+            # A TaskGroup cancels the other reads as soon as one fails, so none keeps
+            # running against the client once this read is given up.
+            async with asyncio.TaskGroup() as group:
+                tasks = [group.create_task(detail(d)) for d in demands]
+            return demands, [task.result() for task in tasks], since
+    except* NatixisError as errors:
+        failure += " code=" + ",".join(sorted({e.code for e in errors.exceptions}))
+    except* (TimeoutError, httpx.HTTPError, SavingsFormatError, AttributeError, KeyError, TypeError, ValueError) as errors:
+        failure += " error_type=" + ",".join(sorted({type(e).__name__ for e in errors.exceptions}))
+    log.warning("Natixis operations not read%s", failure)
     return None
 
 
@@ -680,5 +687,5 @@ async def positions(req: PositionsRequest) -> dict:
                 "plans": [PlanPayload.model_validate(p) for p in read["plans"]],
                 "operationsComplete": operations is not None,
                 "operationsFrom": read["operationsFrom"],
-                "operations": [OperationPayload.model_validate(o) for o in operations or []],
+                "operations": operations or [],
             }
