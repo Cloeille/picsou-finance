@@ -49,13 +49,85 @@ def text(fragment: str) -> str:
     return _SPACES.sub(" ", html_module.unescape(_TAG.sub(" ", fragment))).strip()
 
 
-def _amount(fragment: str, code: str = "UPSTREAM_FORMAT_CHANGED") -> Decimal:
+# ISO codes the sidecar recognizes in an amount cell. Anything else — a missing
+# marker or an unknown token — fails closed in `_money` and never defaults to EUR.
+_KNOWN_CURRENCIES = frozenset(
+    {
+        "EUR",
+        "USD",
+        "CHF",
+        "GBP",
+        "JPY",
+        "CAD",
+        "AUD",
+        "NZD",
+        "CNY",
+        "SEK",
+        "NOK",
+        "DKK",
+        "PLN",
+        "CZK",
+        "HUF",
+        "RON",
+        "ISK",
+        "TRY",
+        "MAD",
+        "DZD",
+        "TND",
+        "XOF",
+        "XAF",
+        "AED",
+        "SAR",
+    }
+)
+_SYMBOL_CURRENCIES = {"€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY"}
+
+_CURRENCY_CODE = re.compile(r"\b([A-Za-z]{3})\b")
+
+
+def _money(fragment: str, code: str = "UPSTREAM_FORMAT_CHANGED") -> tuple[Decimal, str]:
+    """`(value, ISO currency)` of a French-formatted amount cell.
+
+    The bank renders amounts like `+ 1 234,56 €` — narrow no-break spaces as
+    thousand separators, comma decimals, the currency as a symbol or ISO code.
+    Only EUR parses: a missing, unknown or foreign currency raises `FormatError`
+    so it can never be silently stamped EUR.
+    """
+    raw = text(fragment)
+    norm = (
+        raw.replace("\u2212", "-")
+        .replace("\u00a0", " ")
+        .replace("\u202f", " ")
+    )
+    found: set[str] = set()
+    for symbol, iso in _SYMBOL_CURRENCIES.items():
+        if symbol in norm:
+            found.add(iso)
+    for match in _CURRENCY_CODE.finditer(norm):
+        iso = match.group(1).upper()
+        if iso in _KNOWN_CURRENCIES:
+            found.add(iso)
+    if found != {"EUR"}:
+        raise FormatError(code)
+    work = norm
+    for symbol in _SYMBOL_CURRENCIES:
+        work = work.replace(symbol, " ")
+    work = _CURRENCY_CODE.sub(" ", work)
+    work = work.replace(",", ".")
+    work = re.sub(r"[^0-9.\-+]", "", work).replace("+", "")
+    try:
+        return Decimal(work), "EUR"
+    except (InvalidOperation, ValueError) as exc:
+        raise FormatError(code) from exc
+
+
+def _decimal(fragment: str, code: str = "UPSTREAM_FORMAT_CHANGED") -> Decimal:
+    """A machine-formatted decimal with no currency marker (the sr-only brut cell)."""
     raw = text(fragment)
     raw = (
         raw.replace("\u2212", "-")
         .replace("\u00a0", " ")
         .replace("\u202f", " ")
-        .replace("€", "")
         .replace(",", ".")
     )
     raw = re.sub(r"[^0-9.\-+]", "", raw).replace("+", "")
@@ -166,13 +238,15 @@ def parse_account_cards(source: str) -> list[dict]:
         if stable_id in seen:
             continue
         seen.add(stable_id)
+        balance, currency = _money(balance.group(1))
         accounts.append(
             {
                 "externalId": stable_id,
                 "statementId": external_id,
                 "kind": kind,
                 "name": label or None,
-                "balance": _amount(balance.group(1)),
+                "balance": balance,
+                "currency": currency,
                 "typeRecherche": type_recherche.group(1),
             }
         )
@@ -206,14 +280,21 @@ def parse_transactions(source: str) -> list[dict]:
         date_part = re.search(r'class="sorted-value"[^>]*>([^<]+)<', row, re.I)
         label_part = re.search(r'class="col label col-libelle"[^>]*>(.*?)</td>', row, re.S | re.I)
         amount_part = re.search(r'class="col label col-montant-brut[^"]*"[^>]*>(.*?)</td>', row, re.S | re.I)
-        if not date_part or not label_part or not amount_part:
+        visible_part = re.search(
+            r'<td[^>]*class="[^"]*\bcol-montant\b(?!-)[^"]*"[^>]*>(.*?)</td>', row, re.S | re.I
+        )
+        if not date_part or not label_part or not amount_part or not visible_part:
             raise FormatError()
         try:
             when = datetime.strptime(date_part.group(1).strip(), "%d/%m/%Y").date()
         except ValueError as exc:
             raise FormatError() from exc
         label = text(label_part.group(1)) or "La Banque Postale operation"
-        amount = _amount(amount_part.group(1))
+        # The value comes from the machine-formatted brut cell; the currency must
+        # come from the visible cell, which is the only one that carries it.
+        # A missing or non-EUR currency fails closed in `_money`.
+        amount = _decimal(amount_part.group(1))
+        _, currency = _money(visible_part.group(1))
         # The rows carry no bank id. A deterministic hash over the visible fields
         # plus an occurrence counter among identical rows keeps re-syncs idempotent
         # when a new operation is prepended: the page index is not part of the key,
@@ -230,7 +311,7 @@ def parse_transactions(source: str) -> list[dict]:
                 "date": when.isoformat(),
                 "dueDate": None,
                 "amount": str(amount),
-                "currency": "EUR",
+                "currency": currency,
                 "label": label,
                 "typeCode": None,
             }

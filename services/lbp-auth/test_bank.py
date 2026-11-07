@@ -146,6 +146,9 @@ class BankTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(snapshot["accounts"][0]["transactions"]), 2)
         self.assertTrue(all(a["snapshotComplete"] for a in snapshot["accounts"]))
         self.assertTrue(all(a["currency"] == "EUR" for a in snapshot["accounts"]))
+        self.assertTrue(
+            all(t["currency"] == "EUR" for a in snapshot["accounts"] for t in a["transactions"])
+        )
         self.assertEqual(len({a["externalId"] for a in snapshot["accounts"]}), 3)
         self.assertTrue(all(len(a["externalId"]) == 40 for a in snapshot["accounts"]))
 

@@ -50,6 +50,7 @@ class AccountCardsTest(unittest.TestCase):
         self.assertEqual(account["kind"], "CURRENT_ACCOUNT")
         self.assertEqual(account["typeRecherche"], "5")
         self.assertEqual(account["balance"], Decimal("1234.56"))
+        self.assertEqual(account["currency"], "EUR")
 
     def test_reads_both_regulated_savings_books(self):
         accounts = parsers.parse_account_cards(fixtures.SYNTHESE_EP_HTML)
@@ -105,6 +106,7 @@ class TransactionsTest(unittest.TestCase):
         self.assertEqual(len(transactions), 2)
         self.assertEqual(transactions[0]["date"], "2026-10-02")
         self.assertEqual(transactions[0]["amount"], "-350.0")
+        self.assertEqual(transactions[0]["currency"], "EUR")
         self.assertIn("VIREMENT POUR M TEST", transactions[0]["label"])
         self.assertEqual(transactions[1]["amount"], "205.0")
         self.assertEqual(transactions[1]["currency"], "EUR")
@@ -123,6 +125,8 @@ class TransactionsTest(unittest.TestCase):
             '<td class="col label col-date" data-label="Date">'
             '<span class="sorted-value">03/10/2026</span></td>'
             '<td class="col label col-libelle" data-label="Libellé">NOUVELLE OPERATION</td>'
+            '<td class="col montant cell-right col-montant" data-label="Montant">'
+            '<span>- 10,00&nbsp;&euro;</span></td>'
             '<td class="col label col-montant-brut sr-only" aria-hidden="true"> -10.0 </td>'
             "</tr>"
         )
@@ -151,6 +155,8 @@ class TransactionsTest(unittest.TestCase):
             '<td class="col label col-date" data-label="Date">'
             '<span class="sorted-value">05/10/2026</span></td>'
             '<td class="col label col-libelle" data-label="Libellé">FRAIS</td>'
+            '<td class="col montant cell-right col-montant" data-label="Montant">'
+            '<span>- 2,00&nbsp;&euro;</span></td>'
             '<td class="col label col-montant-brut sr-only" aria-hidden="true"> -2.0 </td>'
             "</tr>"
         )
@@ -170,6 +176,61 @@ class TransactionsTest(unittest.TestCase):
         second_ids = {t["externalId"] for t in parsers.parse_transactions(with_another)}
         self.assertTrue(set(ids).issubset(second_ids))
         self.assertEqual(len(second_ids - set(ids)), 1)
+
+
+class MoneyTest(unittest.TestCase):
+    def test_eur_variants_parse_with_value_and_currency(self):
+        cases = {
+            "+ 1 234,56&nbsp;&euro;": (Decimal("1234.56"), "EUR"),
+            "+ 1\u202f234,56\u00a0\u20ac": (Decimal("1234.56"), "EUR"),
+            "-12,50 EUR": (Decimal("-12.50"), "EUR"),
+            "-12,50 eur": (Decimal("-12.50"), "EUR"),
+            "+45,00&nbsp;EUR": (Decimal("45.00"), "EUR"),
+        }
+        for fragment, expected in cases.items():
+            with self.subTest(fragment=fragment):
+                self.assertEqual(parsers._money(fragment), expected)
+
+    def test_non_eur_amounts_are_rejected(self):
+        for fragment in (
+            "-12,50\u202fUSD",
+            "-12,50 USD",
+            "+45,00 $",
+            "12,50 \u00a3",
+            "12,50 CHF",
+            "12,50",
+            "12,50 XYZ",
+        ):
+            with self.subTest(fragment=fragment):
+                with self.assertRaises(parsers.FormatError):
+                    parsers._money(fragment)
+
+    def test_a_non_eur_balance_is_a_format_error(self):
+        changed = fixtures.SYNTHESE_CCP_HTML.replace("+ 1 234,56&nbsp;&euro;", "-12,50&nbsp;USD")
+        with self.assertRaises(parsers.FormatError):
+            parsers.parse_account_cards(changed)
+
+    def test_a_balance_without_a_currency_is_a_format_error(self):
+        changed = fixtures.SYNTHESE_CCP_HTML.replace("+ 1 234,56&nbsp;&euro;", "1 234,56")
+        with self.assertRaises(parsers.FormatError):
+            parsers.parse_account_cards(changed)
+
+    def test_a_non_eur_transaction_is_a_format_error(self):
+        changed = fixtures.STATEMENT_HTML.replace(
+            "&minus; 350,00&nbsp;&euro;", "-350,00&nbsp;USD", 1
+        )
+        with self.assertRaises(parsers.FormatError):
+            parsers.parse_transactions(changed)
+
+    def test_a_transaction_without_a_visible_amount_is_a_format_error(self):
+        changed = fixtures.STATEMENT_HTML.replace(
+            '<td class="col montant cell-right col-montant" data-label="Montant">'
+            "<span>&minus; 350,00&nbsp;&euro;</span></td>",
+            "",
+            1,
+        )
+        with self.assertRaises(parsers.FormatError):
+            parsers.parse_transactions(changed)
 
 
 if __name__ == "__main__":

@@ -457,7 +457,7 @@ class HttpxBankClient:
             "kind": account["kind"],
             "name": account["name"] or account["kind"],
             "balance": str(account["balance"]),
-            "currency": "EUR",
+            "currency": account["currency"],
             "iban": None,
             "authorizedOverdraft": None,
             "ceiling": None,
