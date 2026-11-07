@@ -50,7 +50,7 @@ import {
 import { mockUpcomingDividends } from './data/dividends'
 import type { CashflowPeriod, CategorizeRequest } from '@/types/api'
 import { demoLoanSchedule } from './data/loans'
-import { demoPeerLoans, demoPeerLoansOpen } from './data/peer-loans'
+import { demoPeerLoans } from './data/peer-loans'
 
 function randomDelay(): number {
   return 200 + Math.random() * 400
@@ -414,6 +414,9 @@ function demoTransactionById(transactionId: number) {
   return Object.values(mockTransactions).flat().find((transaction) => transaction.id === transactionId)
 }
 
+handlers.set(key('GET', '/accounts/:id'), (_config, { id }) =>
+  _demoAccounts.find((account) => account.id === Number(id)) ?? {})
+
 handlers.set(key('GET', '/accounts/:id/peer-loan'), (_config, { id }) =>
   demoPeerLoanDetail(Number(id)))
 
@@ -474,10 +477,33 @@ handlers.set(key('PUT', '/accounts/:id/peer-loan/repayments/:repaymentId'), (con
   const target = Number(repaymentId)
   const data: PeerLoanRepaymentRequest = JSON.parse(config.data || '{}')
   const current = demoPeerLoanDetail(accountId)
-  const updated = current.repayments.map((repayment) => repayment.id === target
-    ? { ...repayment, paidOn: data.paidOn, amount: data.amount, kind: data.kind ?? repayment.kind, note: data.note ?? null }
-    : repayment)
-  _peerLoanDetails.set(accountId, { ...current, repayments: updated })
+  const updated = current.repayments.map((repayment) => {
+    if (repayment.id !== target) return repayment
+    // The split follows the amount: the accrued interest part is unchanged, the rest
+    // is capital — the same rule the POST handler applies to a new row.
+    const interest = repayment.interestPart ?? 0
+    return {
+      ...repayment,
+      paidOn: data.paidOn,
+      amount: data.amount,
+      kind: data.kind ?? repayment.kind,
+      note: data.note ?? null,
+      interestPart: interest,
+      capitalPart: Math.max(0, data.amount - interest),
+    }
+  })
+  // An edited amount moves the capital: recompute the derived figures from the rows,
+  // like the POST handler does, or the detail contradicts its own journal.
+  const principalRepaid = round2(updated.reduce((sum, row) => sum + (row.capitalPart ?? row.amount), 0))
+  const totalRepaid = round2(updated.reduce((sum, row) => sum + row.amount, 0))
+  _peerLoanDetails.set(accountId, {
+    ...current,
+    principalRemaining: round2(Math.max(0, current.principal - principalRepaid)),
+    principalRepaid,
+    totalRepaid,
+    repaidPct: current.principal > 0 ? round2(principalRepaid * 100 / current.principal) : 0,
+    repayments: updated,
+  })
   return updated.find((repayment) => repayment.id === target)
 })
 
@@ -566,9 +592,13 @@ handlers.set(key('POST', '/accounts/:id/peer-loan/repayments/from-transaction'),
   _peerLoanDetails.set(accountId, detail)
   return detail
 })
-handlers.set(key('GET', '/peer-loans/open'), () => demoPeerLoansOpen)
+// The open list and the overview read the same mutable store as the detail: a demo
+// Save, repayment or close must move the totals, the picker and the cards together.
+handlers.set(key('GET', '/peer-loans/open'), () => [..._peerLoanDetails.values()]
+  .filter((loan) => !loan.closedAt)
+  .map((loan) => ({ accountId: loan.accountId, name: loan.accountName, remaining: loan.principalRemaining })))
 handlers.set(key('GET', '/peer-loans/overview'), () => {
-  const loans = demoPeerLoans.map((loan) => ({
+  const loans = [..._peerLoanDetails.values()].map((loan) => ({
     accountId: loan.accountId,
     name: loan.accountName,
     principal: loan.principal,

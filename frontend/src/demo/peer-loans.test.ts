@@ -95,4 +95,55 @@ describe('demo peer loan', () => {
     expect(latest.invested).toBe(0)
     expect(latest.pnl).toBe(0)
   })
+
+  // The tests below mutate the demo store, so they run last: the overview, the open
+  // list and the detail must move together after a write, like the real API.
+  it('reflects a demo repayment in the open list and the overview', async () => {
+    async function post<T>(url: string, data: unknown): Promise<T> {
+      const response = await adapter({ method: 'POST', url, data: JSON.stringify(data), headers: new AxiosHeaders() })
+      return response.data as T
+    }
+    const before = await get<PeerLoansOverview>('/peer-loans/overview')
+    const jeanBefore = before.loans.find((loan) => loan.name === 'Jean')!.principalRemaining
+
+    await post('/accounts/16/peer-loan/repayments', { paidOn: '2026-06-10', amount: 100, withCashLeg: false })
+
+    const after = await get<PeerLoansOverview>('/peer-loans/overview')
+    const jeanAfter = after.loans.find((loan) => loan.name === 'Jean')!.principalRemaining
+    expect(jeanAfter).toBeCloseTo(jeanBefore - 100, 2)
+    expect(after.totalOutstanding).toBeCloseTo(before.totalOutstanding - 100, 2)
+    const open = await get<PeerLoanOpen[]>('/peer-loans/open')
+    expect(open.find((loan) => loan.accountId === 16)?.remaining).toBeCloseTo(jeanAfter, 2)
+  })
+
+  it('recomputes the demo detail when a repayment is edited', async () => {
+    async function put<T>(url: string, data: unknown): Promise<T> {
+      const response = await adapter({ method: 'PUT', url, data: JSON.stringify(data), headers: new AxiosHeaders() })
+      return response.data as T
+    }
+    const before = await get<PeerLoanDetail>('/accounts/16/peer-loan')
+    const row = before.repayments.at(-1)!
+    await put(`/accounts/16/peer-loan/repayments/${row.id}`, { paidOn: row.paidOn, amount: row.amount + 50 })
+
+    const after = await get<PeerLoanDetail>('/accounts/16/peer-loan')
+    expect(after.principalRemaining).toBeCloseTo(before.principalRemaining - 50, 2)
+    expect(after.principalRepaid).toBeCloseTo(after.principal - after.principalRemaining, 2)
+  })
+
+  it('creates a demo loan from a transaction whose account resolves', async () => {
+    async function post<T>(url: string, data: unknown): Promise<T> {
+      const response = await adapter({ method: 'POST', url, data: JSON.stringify(data), headers: new AxiosHeaders() })
+      return response.data as T
+    }
+    // Transaction 10 is an outgoing payment, the only kind a loan can be built from.
+    const created = await post<PeerLoanDetail>('/peer-loans/from-transaction', { transactionId: 10 })
+
+    expect(created.configured).toBe(true)
+    expect(created.principal).toBeCloseTo(850, 2)
+    const account = await get<Account>(`/accounts/${created.accountId}`)
+    expect(account.name).toBe(created.accountName)
+    const detail = await get<PeerLoanDetail>(`/accounts/${created.accountId}/peer-loan`)
+    expect(detail.configured).toBe(true)
+    expect(detail.principalRemaining).toBeCloseTo(850, 2)
+  })
 })
