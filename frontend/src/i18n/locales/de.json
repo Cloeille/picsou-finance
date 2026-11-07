@@ -604,6 +604,11 @@
       "description": "Der Restbetrag ({{amount}}) wird abgeschrieben und heute aus dem Vermögen entfernt.",
       "confirm": "Schließen"
     },
+    "deleteRepayment": {
+      "title": "Rückzahlung löschen",
+      "description": "Die Rückzahlung über {{amount}} wird samt Buchung gelöscht. Der Darlehenssaldo wird neu berechnet.",
+      "confirm": "Löschen"
+    },
     "validation": {
       "principal": "Der verliehene Betrag muss größer als null sein.",
       "rateNegative": "Der Zinssatz darf nicht negativ sein.",

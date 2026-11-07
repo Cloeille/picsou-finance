@@ -615,6 +615,11 @@
       "description": "The remaining balance ({{amount}}) will be written off and removed from net worth today.",
       "confirm": "Close"
     },
+    "deleteRepayment": {
+      "title": "Delete the repayment",
+      "description": "The repayment of {{amount}} will be deleted together with its cash movement. The loan balance will be recomputed.",
+      "confirm": "Delete"
+    },
     "validation": {
       "principal": "The amount lent must be greater than zero.",
       "rateNegative": "The rate cannot be negative.",

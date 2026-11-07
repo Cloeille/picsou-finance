@@ -62,6 +62,7 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
   const [termsOpen, setTermsOpen] = useState(false)
   const [repaymentOpen, setRepaymentOpen] = useState(false)
   const [editingRepayment, setEditingRepayment] = useState<PeerLoanRepayment | null>(null)
+  const [deletingRepayment, setDeletingRepayment] = useState<PeerLoanRepayment | null>(null)
   const [closeOpen, setCloseOpen] = useState(false)
 
   if (isLoading) {
@@ -108,10 +109,12 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
     }
   }
 
-  async function handleDeleteRepayment(repayment: PeerLoanRepayment) {
+  async function handleDeleteRepayment() {
+    if (!deletingRepayment) return
     try {
-      await deleteRepayment.mutateAsync(repayment.id)
+      await deleteRepayment.mutateAsync(deletingRepayment.id)
       toast.success(t('peerLoan.repaymentDeleted'))
+      setDeletingRepayment(null)
     } catch (err) {
       failure(err)
     }
@@ -328,7 +331,7 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                   )}
                   {/* Deletion stays available after closure: a loan auto-closed by its final
                       repayment has no write-off, and the member must still be able to fix it. */}
-                  <Button size="sm" variant="ghost" onClick={() => handleDeleteRepayment(repayment)}>
+                  <Button size="sm" variant="ghost" onClick={() => setDeletingRepayment(repayment)}>
                     {t('common.delete')}
                   </Button>
                 </div>
@@ -358,6 +361,18 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
         accruedInterest={data.interestAccrued}
         onSubmit={handleRepayment}
         loading={addRepayment.isPending || updateRepayment.isPending}
+      />
+
+      <ConfirmDialog
+        open={deletingRepayment != null}
+        onOpenChange={(open) => { if (!open) setDeletingRepayment(null) }}
+        title={t('peerLoan.deleteRepayment.title')}
+        description={t('peerLoan.deleteRepayment.description', {
+          amount: money.amount(deletingRepayment?.amount ?? 0),
+        })}
+        confirmLabel={t('peerLoan.deleteRepayment.confirm')}
+        onConfirm={handleDeleteRepayment}
+        loading={deleteRepayment.isPending}
       />
 
       <ConfirmDialog

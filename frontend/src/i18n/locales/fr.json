@@ -615,6 +615,11 @@
       "description": "Le solde restant ({{amount}}) sera abandonné et retiré du patrimoine aujourd'hui.",
       "confirm": "Clôturer"
     },
+    "deleteRepayment": {
+      "title": "Supprimer le remboursement",
+      "description": "Le remboursement de {{amount}} sera supprimé avec son écriture de trésorerie. Le solde du prêt sera recalculé.",
+      "confirm": "Supprimer"
+    },
     "validation": {
       "principal": "Le montant prêté doit être supérieur à zéro.",
       "rateNegative": "Le taux ne peut pas être négatif.",
