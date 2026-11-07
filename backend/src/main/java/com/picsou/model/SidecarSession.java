@@ -82,8 +82,12 @@ public class SidecarSession extends AuditableEntity implements BpceSession {
         String encryptedSessionState,
         Instant validatedAt
     ) {
+        Objects.requireNonNull(bank, "bank");
+        if (!bank.storedInSidecarSession()) {
+            throw new IllegalArgumentException(bank + " sessions are not stored in sidecar_session");
+        }
         return SidecarSession.builder()
-            .bank(Objects.requireNonNull(bank, "bank"))
+            .bank(bank)
             .member(Objects.requireNonNull(member, "member"))
             .sessionState(Objects.requireNonNull(encryptedSessionState, "encryptedSessionState"))
             .lastValidatedAt(Objects.requireNonNull(validatedAt, "validatedAt"))
@@ -201,15 +205,14 @@ public class SidecarSession extends AuditableEntity implements BpceSession {
     private boolean endsSession(SidecarErrorCode error) {
         return switch (bank) {
             // No password is kept: unreadable cookies cannot be renewed either.
-            case CAISSE_EPARGNE -> error == SidecarErrorCode.SESSION_EXPIRED
+            // Banque Populaire: create() refuses it here; same rule as banque_populaire_session.
+            case CAISSE_EPARGNE, BANQUE_POPULAIRE -> error == SidecarErrorCode.SESSION_EXPIRED
                 || error == SidecarErrorCode.INVALID_SESSION_STATE;
             // The stored password was rejected: replaying it would lock the access.
             case CIC, CMES, CORUM -> error == SidecarErrorCode.SESSION_EXPIRED
                 || error == SidecarErrorCode.INVALID_CREDENTIALS;
             case AMEX, AMUNDI, BOURSE_DIRECT, BOURSO, FORTUNEO, SOFIDY ->
                 error == SidecarErrorCode.SESSION_EXPIRED;
-            // ponytail: Banque Populaire still has its own table (V134); this row cannot exist.
-            case BANQUE_POPULAIRE -> throw new IllegalStateException("Banque Populaire sessions are not stored here");
         };
     }
 }

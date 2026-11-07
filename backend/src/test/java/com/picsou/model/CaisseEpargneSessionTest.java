@@ -17,6 +17,14 @@ class CaisseEpargneSessionTest {
         return SidecarSession.create(SidecarBank.CAISSE_EPARGNE, TestEntities.owner(), "encrypted", NOW);
     }
 
+    /** Banque Populaire keeps banque_populaire_session (V134): no sidecar_session row is ever built for it. */
+    @Test
+    void aBanquePopulaireSessionIsNotBuiltHere() {
+        assertThatThrownBy(() -> SidecarSession.create(SidecarBank.BANQUE_POPULAIRE, TestEntities.owner(), "encrypted", NOW))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("BANQUE_POPULAIRE");
+    }
+
     @Test
     void aNewSessionIsActiveAndIdle() {
         SidecarSession session = session();
