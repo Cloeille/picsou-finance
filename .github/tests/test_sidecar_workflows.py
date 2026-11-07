@@ -746,6 +746,28 @@ def _dockerfile_stages(path):
     return stages
 
 
+class JobTimeoutTest(unittest.TestCase):
+    """A hung step otherwise holds a runner for GitHub's 6-hour default."""
+
+    # Minutes a job may be given: about twice its slowest observed run. Per job overrides the file's cap.
+    FILE_CAP = {"ci.yml": 20, "codeql.yml": 60, "docker.yml": 30}
+    JOB_CAP = {("ci.yml", "e2e"): 30}  # bimodal: most runs take 2 min, the slow tail 9-15 min
+
+    def test_every_job_has_a_bounded_timeout(self):
+        workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))
+        self.assertEqual({w.name for w in workflows} - set(self.FILE_CAP) - {"pr-size.yml"}, set(), "give the new workflow a cap")
+        for workflow in workflows:
+            for name, job in _load(workflow)["jobs"].items():
+                if "uses" in job:
+                    continue  # actionlint rejects timeout-minutes on a job that calls a reusable workflow
+                with self.subTest(workflow=workflow.name, job=name):
+                    timeout = job.get("timeout-minutes")
+                    self.assertIs(type(timeout), int)  # not a bool, a string or an expression
+                    self.assertGreater(timeout, 0)
+                    cap = self.JOB_CAP.get((workflow.name, name), self.FILE_CAP.get(workflow.name, 20))
+                    self.assertLessEqual(timeout, cap)
+
+
 class AppImageBuildTest(unittest.TestCase):
     def test_only_the_runtime_stage_is_built_per_target_platform(self):
         *build, runtime = _dockerfile_stages(APP_DOCKERFILE)
