@@ -162,6 +162,8 @@ class LbpControllerTest {
     void keypadRefusesAForgedOrMalformedChoice() throws Exception {
         for (String body : List.of(
             "{\"processId\":\"proc-1\",\"positions\":[7,3,0]}",
+            "{\"processId\":\"proc-1\",\"positions\":[7,3,0,9,4,1,2]}",
+            "{\"processId\":\"proc-1\",\"positions\":[7,3,0,9,4,1,2,5,6,8,0,1]}",
             "{\"processId\":\"proc-1\",\"positions\":[7,3,0,9,4,10]}",
             "{\"processId\":\"proc-1\",\"positions\":[\"7\",3,0,9,4,1]}",
             "{\"processId\":\"proc-1\",\"positions\":[7,3,0,9,4,1],\"password\":\"x\"}")) {

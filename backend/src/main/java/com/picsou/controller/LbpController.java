@@ -47,8 +47,11 @@ public class LbpController {
      * typo from spending a sign-in attempt without assuming every account uses the same width.
      */
     static final Pattern CUSTOMER_ID = Pattern.compile("\\d{6,12}");
-    static final int POSITIONS_MIN = 6;
-    static final int POSITIONS_MAX = 12;
+    /**
+     * The bank's password is always 6 digits, clicked on a 10-key pad. The sidecar
+     * enforces the same width: anything else is a malformed request, never a login attempt.
+     */
+    static final int POSITIONS_COUNT = 6;
     static final int PAD_SIZE = 10;
     static final int PROCESS_ID_MAX = 100;
 
@@ -196,9 +199,9 @@ public class LbpController {
         return value.booleanValue();
     }
 
-    /** 6 to 12 positions, each an index on a ten-key pad, in the user's click order. */
+    /** Exactly 6 positions, each an index on a ten-key pad, in the user's click order. */
     static List<Integer> positions(JsonNode node) {
-        if (node == null || !node.isArray() || node.size() < POSITIONS_MIN || node.size() > POSITIONS_MAX) {
+        if (node == null || !node.isArray() || node.size() != POSITIONS_COUNT) {
             throw invalidBody();
         }
         List<Integer> positions = new ArrayList<>(node.size());
