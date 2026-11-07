@@ -9,6 +9,7 @@ two synthesis pages and a statement page -- and fail with a typed
 import hashlib
 import html as html_module
 import re
+import unicodedata
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
@@ -49,40 +50,13 @@ def text(fragment: str) -> str:
     return _SPACES.sub(" ", html_module.unescape(_TAG.sub(" ", fragment))).strip()
 
 
-# ISO codes the sidecar recognizes in an amount cell. Anything else — a missing
-# marker or an unknown token — fails closed in `_money` and never defaults to EUR.
-_KNOWN_CURRENCIES = frozenset(
-    {
-        "EUR",
-        "USD",
-        "CHF",
-        "GBP",
-        "JPY",
-        "CAD",
-        "AUD",
-        "NZD",
-        "CNY",
-        "SEK",
-        "NOK",
-        "DKK",
-        "PLN",
-        "CZK",
-        "HUF",
-        "RON",
-        "ISK",
-        "TRY",
-        "MAD",
-        "DZD",
-        "TND",
-        "XOF",
-        "XAF",
-        "AED",
-        "SAR",
-    }
-)
-_SYMBOL_CURRENCIES = {"€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY"}
-
-_CURRENCY_CODE = re.compile(r"\b([A-Za-z]{3})\b")
+# The euro is the only currency this sidecar accepts. `_money` allow-lists it:
+# the cell must carry an explicit `€` or whole-word `EUR` marker, and after
+# those markers are stripped nothing letter-like or currency-like may remain.
+# Anything else — a missing marker, an unknown token such as `KRW`/`ILS`/`XPF`
+# next to a euro sign, or a foreign symbol — fails closed and never defaults
+# to EUR.
+_EUR_WORD = re.compile(r"\bEUR\b", re.IGNORECASE)
 
 
 def _money(fragment: str, code: str = "UPSTREAM_FORMAT_CHANGED") -> tuple[Decimal, str]:
@@ -90,8 +64,8 @@ def _money(fragment: str, code: str = "UPSTREAM_FORMAT_CHANGED") -> tuple[Decima
 
     The bank renders amounts like `+ 1 234,56 €` — narrow no-break spaces as
     thousand separators, comma decimals, the currency as a symbol or ISO code.
-    Only EUR parses: a missing, unknown or foreign currency raises `FormatError`
-    so it can never be silently stamped EUR.
+    Only EUR parses: a missing, unknown or foreign currency marker raises
+    `FormatError` so it can never be silently stamped EUR.
     """
     raw = text(fragment)
     norm = (
@@ -99,20 +73,18 @@ def _money(fragment: str, code: str = "UPSTREAM_FORMAT_CHANGED") -> tuple[Decima
         .replace("\u00a0", " ")
         .replace("\u202f", " ")
     )
-    found: set[str] = set()
-    for symbol, iso in _SYMBOL_CURRENCIES.items():
-        if symbol in norm:
-            found.add(iso)
-    for match in _CURRENCY_CODE.finditer(norm):
-        iso = match.group(1).upper()
-        if iso in _KNOWN_CURRENCIES:
-            found.add(iso)
-    if found != {"EUR"}:
+    # A bare number never defaults to EUR: the cell must name the euro.
+    if "€" not in norm and not _EUR_WORD.search(norm):
         raise FormatError(code)
-    work = norm
-    for symbol in _SYMBOL_CURRENCIES:
-        work = work.replace(symbol, " ")
-    work = _CURRENCY_CODE.sub(" ", work)
+    work = norm.replace("€", " ")
+    work = _EUR_WORD.sub(" ", work)
+    # Fail closed on anything left over that looks like a currency: any
+    # remaining letter (an ISO code `_EUR_WORD` did not cover, e.g. `KRW`,
+    # `ILS`, `XPF` next to a euro sign) or any remaining currency symbol
+    # (Unicode `Sc`, e.g. `$`, `£`, `¥`) means the cell is not EUR-only.
+    for char in work:
+        if char.isalpha() or unicodedata.category(char) == "Sc":
+            raise FormatError(code)
     work = work.replace(",", ".")
     work = re.sub(r"[^0-9.\-+]", "", work).replace("+", "")
     try:
@@ -188,8 +160,34 @@ def parse_polling(source: str) -> tuple[str | None, str | None]:
 # ─── account cards ───────────────────────────────────────────────────────────
 
 
+# The only observed account-list marker on a synthesis page: every card renders
+# as `<div class="account-resume2020 ...">`. A page with zero such markers
+# carries no account list at all (maintenance, error or partial page).
+_SYNTHESIS_CONTAINER = re.compile(r"account-resume2020", re.I)
+
+# No explicit "no accounts" empty state was observed on the real synthesis
+# pages (unlike the statement pages, which say so — see `_EMPTY_OPERATIONS`).
+# This pattern is therefore provisional: it only lets a page through as empty
+# when the page both keeps its account-list container AND explicitly says
+# there is nothing. In practice zero-card pages fail closed until such a
+# marker is ever observed on the bank's pages.
+_EMPTY_SYNTHESIS = re.compile(
+    r"aucun(?:e|es)?\s+compte|pas de\s+compte|no accounts?",
+    re.I,
+)
+
+
 def parse_account_cards(source: str) -> list[dict]:
-    """Accounts shown on a synthesis page, with balance and statement coordinates."""
+    """Accounts shown on a synthesis page, with balance and statement coordinates.
+
+    Fails closed on a cardless page -- a 200 maintenance/error/partial page must
+    never read as an empty account list. ``[]`` is returned only when the page
+    both keeps a recognised account-list container and explicitly says there
+    are no accounts (mirroring how :func:`parse_transactions` treats a missing
+    ``#mouvementsTable`` via ``_EMPTY_OPERATIONS``). No such empty-state marker
+    was observed on the real synthesis pages, so in practice a zero-card page
+    always raises ``FormatError`` (``UPSTREAM_FORMAT_CHANGED`` sidecar-side).
+    """
     starts = [
         m.start()
         for m in re.finditer(
@@ -238,7 +236,16 @@ def parse_account_cards(source: str) -> list[dict]:
         if stable_id in seen:
             continue
         seen.add(stable_id)
-        balance, currency = _money(balance.group(1))
+        # The cell prefixes the amount with a screen-reader label
+        # (`<span class="lib sr-only">Solde </span>`); `_money` refuses any
+        # leftover letters, so it only ever sees the amount itself.
+        amount_html = re.sub(
+            r'<span[^>]*\bsr-only\b[^>]*>.*?</span>',
+            " ",
+            balance.group(1),
+            flags=re.S | re.I,
+        )
+        balance, currency = _money(amount_html)
         accounts.append(
             {
                 "externalId": stable_id,
@@ -250,7 +257,15 @@ def parse_account_cards(source: str) -> list[dict]:
                 "typeRecherche": type_recherche.group(1),
             }
         )
-    return accounts
+    if accounts:
+        return accounts
+    # Zero parsed cards: only an explicit empty state on a page that still
+    # shows its account-list container reads as "no accounts". Anything else
+    # (maintenance text, error page, truncated page, stripped cards) fails
+    # closed so the backend never closes real accounts at zero.
+    if _SYNTHESIS_CONTAINER.search(source) and _EMPTY_SYNTHESIS.search(text(source)):
+        return []
+    raise FormatError()
 
 
 # ─── operations table ────────────────────────────────────────────────────────

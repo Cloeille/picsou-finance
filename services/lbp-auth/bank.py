@@ -144,7 +144,13 @@ async def _check_request_origin(request: httpx.Request) -> None:
 
 
 def _route_guard() -> Any:
-    """Abort every Chromium request outside the bank origin (and data: URLs)."""
+    """First-hop guard only: let the bank origin (and data: URLs) through, abort the rest.
+
+    Playwright routes see only the initial URL of a request: a bank-origin
+    page answering 302 to an off-origin target is followed by Chromium without
+    another route callback. The CDP Fetch guard in `_new_guarded_page` sees
+    every redirect hop and blocks those, so both stay registered.
+    """
 
     async def guard(route: Any) -> None:
         url = route.request.url
@@ -154,6 +160,40 @@ def _route_guard() -> Any:
             await route.abort()
 
     return guard
+
+
+async def _new_guarded_page(context: Any) -> Any:
+    """A page whose every Chromium request hop is allow-listed before it is sent.
+
+    Playwright routes only see the first hop of a redirected request, so a
+    bank-origin page answering 302 to an off-origin target (e.g. the
+    instance-metadata address) would be followed by Chromium with no further
+    route callback. CDP request-stage interception sees each hop without
+    replacing Chromium's TLS fingerprint with an API client's. Every hop must
+    be the bank origin (data: URLs never hit the network and stay allowed); an
+    off-origin hop, or a chain longer than `MAX_REDIRECTS`, fails with
+    `ERR_BLOCKED_BY_CLIENT` before anything is sent.
+    """
+    page = await context.new_page()
+    session = await context.new_cdp_session(page)
+    hops: dict[str, int] = {}
+
+    async def guard(event: dict[str, Any]) -> None:
+        request_id = event["requestId"]
+        previous = event.get("redirectedRequestId")
+        count = hops.pop(previous, 0) + 1 if previous else 0
+        hops[request_id] = count
+        url = event["request"]["url"]
+        if count > MAX_REDIRECTS or not (_is_allowed_url(url) or url.startswith("data:")):
+            await session.send(
+                "Fetch.failRequest", {"requestId": request_id, "errorReason": "BlockedByClient"}
+            )
+        else:
+            await session.send("Fetch.continueRequest", {"requestId": request_id})
+
+    session.on("Fetch.requestPaused", guard)
+    await session.send("Fetch.enable", {"patterns": [{"urlPattern": "*", "requestStage": "Request"}]})
+    return page
 
 
 def _ws_as_https(url: str) -> str:
@@ -601,7 +641,7 @@ class BrowserBankClient(HttpxBankClient):
             # No service worker (it could answer requests behind the route guard).
             await context.route("**/*", _route_guard())
             await context.route_web_socket("**/*", _websocket_guard())
-            page = await context.new_page()
+            page = await _new_guarded_page(context)
             state["page"] = page
             await self._goto(page, BASE + IDENTIF + "?origin=particuliers")
             await page.wait_for_selector("#identifiant", timeout=45_000)

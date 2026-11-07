@@ -98,6 +98,38 @@ class AccountCardsTest(unittest.TestCase):
         self.assertEqual(len(accounts), 1)
         self.assertEqual(accounts[0]["kind"], "CURRENT_ACCOUNT")
 
+    def test_a_ccp_maintenance_page_without_cards_is_a_format_error(self):
+        maintenance = "<html><body><p>Service momentanement indisponible</p></body></html>"
+        with self.assertRaises(parsers.FormatError) as raised:
+            parsers.parse_account_cards(maintenance)
+        self.assertEqual(raised.exception.code, "UPSTREAM_FORMAT_CHANGED")
+
+    def test_an_ep_maintenance_page_without_cards_is_a_format_error(self):
+        maintenance = "<html><body><p>Service momentanement indisponible</p></body></html>"
+        with self.assertRaises(parsers.FormatError):
+            parsers.parse_account_cards(maintenance)
+
+    def test_a_cardless_page_with_a_container_but_no_empty_message_is_a_format_error(self):
+        # The list marker survived but no card parsed (stripped links): without
+        # an explicit empty-state message this is a partial page, not "no accounts".
+        page = (
+            '<div class="account-resume2020 account-resume--ccp">'
+            "<p>partial page without a card link</p></div>"
+        )
+        with self.assertRaises(parsers.FormatError):
+            parsers.parse_account_cards(page)
+
+    def test_a_container_with_an_explicit_empty_message_parses_as_empty(self):
+        # Provisional: no such empty state was observed on the real synthesis
+        # pages, so in practice zero-card pages fail closed. When the page both
+        # keeps its account-list container and explicitly says there is nothing,
+        # it reads as an empty list (mirrors `_EMPTY_OPERATIONS` for statements).
+        page = (
+            '<div class="account-resume2020 account-resume--ccp">'
+            "<p>Aucun compte</p></div>"
+        )
+        self.assertEqual(parsers.parse_account_cards(page), [])
+
 
 class TransactionsTest(unittest.TestCase):
     def test_reads_dates_labels_and_the_raw_signed_amount(self):
@@ -186,6 +218,8 @@ class MoneyTest(unittest.TestCase):
             "-12,50 EUR": (Decimal("-12.50"), "EUR"),
             "-12,50 eur": (Decimal("-12.50"), "EUR"),
             "+45,00&nbsp;EUR": (Decimal("45.00"), "EUR"),
+            "1 000,00&nbsp;&euro;": (Decimal("1000.00"), "EUR"),
+            "&euro;12,50": (Decimal("12.50"), "EUR"),
         }
         for fragment, expected in cases.items():
             with self.subTest(fragment=fragment):
@@ -200,6 +234,21 @@ class MoneyTest(unittest.TestCase):
             "12,50 CHF",
             "12,50",
             "12,50 XYZ",
+        ):
+            with self.subTest(fragment=fragment):
+                with self.assertRaises(parsers.FormatError):
+                    parsers._money(fragment)
+
+    def test_a_euro_sign_next_to_another_currency_is_rejected(self):
+        # The old blacklist only knew a fixed ISO list, so an unknown code
+        # next to a euro sign read as EUR. After stripping `€`/`EUR` any
+        # remaining letter or currency symbol fails closed.
+        for fragment in (
+            "12,50 \u20ac KRW",
+            "12,50 \u20ac ILS",
+            "1 000 000 \u20ac XPF",
+            "12,50 EUR USD",
+            "12,50 \u20ac $",
         ):
             with self.subTest(fragment=fragment):
                 with self.assertRaises(parsers.FormatError):

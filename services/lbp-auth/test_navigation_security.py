@@ -6,12 +6,20 @@ navigation, every poll and every redirect hop. A full pending store rejects a
 new login before any browser is opened. Synthetic fixtures only.
 """
 
+import os
+import ssl
+import subprocess
+import tempfile
+import threading
 import time
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import quote
 
 import httpx
 from fastapi import HTTPException
+from playwright.async_api import Error as PlaywrightError, async_playwright
 from unittest.mock import patch
 
 import bank
@@ -297,6 +305,134 @@ class BrowserCapacityTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 503)
         self.assertEqual(raised.exception.detail, "TOO_MANY_PENDING")
         factory.assert_not_called()
+
+
+@unittest.skipUnless(os.environ.get("LBP_BROWSER_TESTS") == "1", "requires pinned Chromium")
+class BrowserRedirectHopTest(unittest.IsolatedAsyncioTestCase):
+    """A bank-origin 302 to the metadata address sends nothing.
+
+    Real Chromium + local HTTPS server, same harness as corum-auth's
+    `BrowserOriginSecurityTest`. `context.route` only sees the first hop, so
+    without the CDP Fetch guard in `bank._new_guarded_page` Chromium follows
+    the redirect and the sink records a hit. With the guard the redirected hop
+    fails with ERR_BLOCKED_BY_CLIENT and the sink records zero hits.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.scratch = tempfile.TemporaryDirectory()
+        cert, key = (str(Path(cls.scratch.name) / name) for name in ("cert.pem", "key.pem"))
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                        "-days", "1", "-subj", "/CN=localhost", "-keyout", key, "-out", cert],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cls.meta_hits: list = []
+
+        class MetaSink(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass
+
+            def _answer(self):
+                cls.meta_hits.append((self.command, self.path))
+                body = b"metadata"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                self._answer()
+
+            def do_POST(self):
+                self._answer()
+
+        cls.meta = ThreadingHTTPServer(("127.0.0.1", 0), MetaSink)
+        cls.meta_thread = threading.Thread(target=cls.meta.serve_forever, daemon=True)
+        cls.meta_thread.start()
+        cls.meta_base = "http://127.0.0.1:" + str(cls.meta.server_port)
+
+        cls.bank_hits: list = []
+
+        class BankFixture(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass
+
+            def _answer(self):
+                cls.bank_hits.append((self.command, self.path))
+                if self.path == "/redirect":
+                    self.send_response(302)
+                    self.send_header("Location", cls.meta_base + "/latest/meta-data/")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                else:
+                    body = b"<html><body>fixture</body></html>"
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+
+            def do_GET(self):
+                self._answer()
+
+            def do_POST(self):
+                self._answer()
+
+        cls.bank = ThreadingHTTPServer(("127.0.0.1", 0), BankFixture)
+        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls.load_cert_chain(cert, key)
+        cls.bank.socket = tls.wrap_socket(cls.bank.socket, server_side=True)
+        cls.origin = "https://127.0.0.1:" + str(cls.bank.server_port)
+        cls.bank_thread = threading.Thread(target=cls.bank.serve_forever, daemon=True)
+        cls.bank_thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.bank.shutdown()
+        cls.bank.server_close()
+        cls.bank_thread.join()
+        cls.meta.shutdown()
+        cls.meta.server_close()
+        cls.meta_thread.join()
+        cls.scratch.cleanup()
+
+    async def asyncSetUp(self):
+        self.bank_hits.clear()
+        self.meta_hits.clear()
+        # The guard pins the production host; treat the local TLS fixture as
+        # the bank origin so the first hop is allowed and only the redirected
+        # metadata hop is under test. Anything else still goes through the
+        # real allow-list.
+        real_is_allowed = bank._is_allowed_url
+        origin = self.origin
+
+        def fake_is_allowed(url):
+            if isinstance(url, str) and url.startswith(origin + "/"):
+                return True
+            return real_is_allowed(url)
+
+        self.allow_patch = patch.object(bank, "_is_allowed_url", fake_is_allowed)
+        self.allow_patch.start()
+        self.playwright = await async_playwright().start()
+        self.browser = await self.playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+        self.context = await self.browser.new_context(ignore_https_errors=True)
+        await self.context.route("**/*", bank._route_guard())
+        await self.context.route_web_socket("**/*", bank._websocket_guard())
+        self.page = await bank._new_guarded_page(self.context)
+        self.page.set_default_timeout(5000)
+
+    async def asyncTearDown(self):
+        await self.context.close()
+        await self.browser.close()
+        await self.playwright.stop()
+        self.allow_patch.stop()
+
+    async def test_a_bank_origin_redirect_to_metadata_sends_nothing(self):
+        with self.assertRaises(PlaywrightError) as raised:
+            await self.page.goto(self.origin + "/redirect")
+        self.assertIn("BLOCKED_BY_CLIENT", str(raised.exception))
+        self.assertIn(("GET", "/redirect"), self.bank_hits)
+        self.assertEqual(self.meta_hits, [])
 
 
 if __name__ == "__main__":

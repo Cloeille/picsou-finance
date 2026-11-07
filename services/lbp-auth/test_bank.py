@@ -23,6 +23,8 @@ class FakeBank:
         self.expired = False
         self.auth_body = ""
         self.statement_html = fixtures.STATEMENT_HTML
+        self.synthese_ccp_html = fixtures.SYNTHESE_CCP_HTML
+        self.synthese_ep_html = fixtures.SYNTHESE_EP_HTML
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -82,10 +84,10 @@ class FakeBank:
         if path == bank.SYNTHESE_CCP:
             if self.expired:
                 return httpx.Response(302, headers={"location": "/wsost/OstBrokerWeb/loginform"})
-            return httpx.Response(200, text=fixtures.SYNTHESE_CCP_HTML)
+            return httpx.Response(200, text=self.synthese_ccp_html)
 
         if path == bank.SYNTHESE_EP:
-            return httpx.Response(200, text=fixtures.SYNTHESE_EP_HTML)
+            return httpx.Response(200, text=self.synthese_ep_html)
 
         if path in (bank.RELEVE_CCP, bank.RELEVE_CNE, bank.FRAME_CNE):
             return httpx.Response(200, text=self.statement_html)
@@ -169,6 +171,28 @@ class BankTest(unittest.IsolatedAsyncioTestCase):
         snapshot = await self.client.accounts(state)
 
         self.assertTrue(all(a["transactions"] == [] for a in snapshot["accounts"]))
+
+    async def test_a_cardless_ep_page_never_reads_as_a_partial_snapshot(self):
+        self.fake.synthese_ep_html = (
+            "<html><body><p>Service momentanement indisponible</p></body></html>"
+        )
+        state = await self.login()
+
+        with self.assertRaises(HTTPException) as raised:
+            await self.client.accounts(state)
+        self.assertEqual(raised.exception.status_code, 502)
+        self.assertEqual(raised.exception.detail, "UPSTREAM_FORMAT_CHANGED")
+
+    async def test_a_cardless_ccp_page_never_reads_as_a_partial_snapshot(self):
+        self.fake.synthese_ccp_html = (
+            "<html><body><p>Service momentanement indisponible</p></body></html>"
+        )
+        state = await self.login()
+
+        with self.assertRaises(HTTPException) as raised:
+            await self.client.accounts(state)
+        self.assertEqual(raised.exception.status_code, 502)
+        self.assertEqual(raised.exception.detail, "UPSTREAM_FORMAT_CHANGED")
 
 
 if __name__ == "__main__":
