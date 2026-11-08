@@ -27,7 +27,7 @@ before claiming a successful PER import.
 
 ### Storage (decision D5: cookies only)
 
-Its session is a `sidecar_session` row with `bank = 'CAISSE_EPARGNE'` (table `caisse_epargne_session` from `V109` until `V129`). The database refuses `encrypted_credentials` on it. The password and the Secur'Pass are never stored. The session state is encrypted with `CryptoEncryption`. A session the bank rejects (`SESSION_EXPIRED`) or Picsou cannot read (`INVALID_SESSION_STATE`) becomes inactive and the user must reconnect: it cannot be renewed silently. `last_sync_error` is a CHECK listing exactly `SidecarBank.CAISSE_EPARGNE.codes()`. `unsupported_contracts` holds the last list of contracts the bank reported but Picsou does not import.
+Its session is a `sidecar_session` row with `bank = 'CAISSE_EPARGNE'` (table `caisse_epargne_session` from `V109` until `V142`). The database refuses `encrypted_credentials` on it. The password and the Secur'Pass are never stored. The session state is encrypted with `CryptoEncryption`. A session the bank rejects (`SESSION_EXPIRED`) or Picsou cannot read (`INVALID_SESSION_STATE`) becomes inactive and the user must reconnect: it cannot be renewed silently. `last_sync_error` is a CHECK listing exactly `SidecarBank.CAISSE_EPARGNE.codes()`. `unsupported_contracts` holds the last list of contracts the bank reported but Picsou does not import.
 
 ### Supported products
 

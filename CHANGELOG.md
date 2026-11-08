@@ -144,7 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in English are listed for translators in `docs/features/i18n-untranslated.md`.
 - **One session table for ten bank connectors.** Amex, Amundi, Bourse Direct, BoursoBank,
   Caisse d'Epargne, CIC, CMES, CORUM, Fortuneo and Sofidy now share one `sidecar_session`
-  table and one sync cycle. Migration V129 copies every stored session, so nobody has to
+  table and one sync cycle. Migration V142 copies every stored session, so nobody has to
   reconnect; a CORUM or Sofidy row with an inconsistent failure state is repaired on the way.
   It drops the old tables and cannot be undone, so plan an offline upgrade: stop the app (an
   old app writing a session after the copy loses it), then use the

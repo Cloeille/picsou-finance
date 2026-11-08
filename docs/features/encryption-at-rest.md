@@ -29,10 +29,10 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 | Trade Republic refresh token | `TradeRepublicSession` | `refresh_token` | V15 (2026-04-08), `TEXT` since V86 |
 | DEGIRO session blob | `DegiroSession` | `session_blob` | V71 (2026-08-10), `TEXT` since V86 |
 | SimpleFIN access URL | `SimplefinConnection` | `access_url` | V113 (2026-10-06) |
-| BoursoBank login and password (JSON), stored at every login | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'BOURSO'`) | V103, moved by V129 |
-| Crédit Mutuel Épargne Salariale login and password (JSON), stored at every login | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'CMES'`) | V117, moved by V129 |
-| CIC login and password (JSON), stored at every login | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'CIC'`) | V121, moved by V129 |
-| CORUM login and password (JSON), opt-in ("Remember my credentials"), NULL otherwise | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'CORUM'`) | V127, moved by V129 |
+| BoursoBank login and password (JSON), stored at every login | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'BOURSO'`) | V103, moved by V142 |
+| Crédit Mutuel Épargne Salariale login and password (JSON), stored at every login | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'CMES'`) | V117, moved by V142 |
+| CIC login and password (JSON), stored at every login | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'CIC'`) | V121, moved by V142 |
+| CORUM login and password (JSON), opt-in ("Remember my credentials"), NULL otherwise | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'CORUM'`) | V127, moved by V142 |
 | Wise personal API token | `WiseConnection` | `api_token` | V131 (2026-11-03) |
 
 ### What is NOT encrypted (and why)

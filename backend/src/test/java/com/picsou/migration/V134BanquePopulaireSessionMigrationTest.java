@@ -165,14 +165,13 @@ class V134BanquePopulaireSessionMigrationTest {
     }
 
     @Test
-    void leavesTheCaisseEpargneSessionsUntouched() throws SQLException {
+    void leavesTheCaisseEpargneTableUntouched() throws SQLException {
         long member = newMember("both-banks");
         exec(INSERT_SESSION, member, "bp");
-        // Caisse d'Epargne lives in sidecar_session since V129.
-        exec("INSERT INTO sidecar_session (bank, member_id, session_state) VALUES ('CAISSE_EPARGNE', ?, ?)", member, "ce");
+        exec("INSERT INTO caisse_epargne_session (member_id, session_state) VALUES (?, ?)", member, "ce");
         try (Connection c = connection();
              PreparedStatement st = c.prepareStatement(
-                 "SELECT COUNT(*) FROM sidecar_session WHERE bank = 'CAISSE_EPARGNE' AND member_id = ?")) {
+                 "SELECT COUNT(*) FROM caisse_epargne_session WHERE member_id = ?")) {
             st.setLong(1, member);
             try (ResultSet rs = st.executeQuery()) {
                 rs.next();

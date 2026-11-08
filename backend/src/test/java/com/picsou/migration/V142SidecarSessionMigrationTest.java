@@ -22,20 +22,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Proves a database at V128 keeps every sidecar session through V129: same member, cookies,
- * stored login, unsupported contracts, CORUM Life ambiguous count, sync state and timestamps,
- * so nobody has to reconnect.
+ * Proves a database at V141 (the whole chain before V142, Banque Populaire's V134 included) keeps
+ * every sidecar session through V142: same member, cookies, stored login, unsupported contracts,
+ * CORUM Life ambiguous count, sync state and timestamps, so nobody has to reconnect. Banque
+ * Populaire keeps its own table and is not touched.
  */
 @RequiresPostgres
-class V129SidecarSessionMigrationTest {
+class V142SidecarSessionMigrationTest {
 
     private static final String[] TABLES = {
         "amex", "amundi", "bourse_direct", "bourso", "caisse_epargne",
         "cic", "cmes", "corum", "fortuneo", "sofidy"
     };
 
-    /** The banks V129 moved: Banque Populaire (V134) keeps its own table. */
-    private static final List<SidecarBank> V129_BANKS = java.util.Arrays.stream(SidecarBank.values())
+    /** The banks V142 moved: Banque Populaire (V134) keeps its own table. */
+    private static final List<SidecarBank> V142_BANKS = java.util.Arrays.stream(SidecarBank.values())
         .filter(SidecarBank::storedInSidecarSession).toList();
 
     private static final String ROW = """
@@ -57,10 +58,13 @@ class V129SidecarSessionMigrationTest {
     static long erin;
     static long frank;
     static long gina;
+    static java.util.Map<String, String> before;
+    static java.util.Map<String, String> after;
+    private static final int BULK = 300;
 
     @BeforeAll
-    static void seedV128AndMigrate() throws SQLException {
-        PostgresContainers.migrateToOutOfOrder(POSTGRES, "128");
+    static void seedV141AndMigrate() throws SQLException {
+        PostgresContainers.migrateTo(POSTGRES, "141");
         try (Connection c = PostgresContainers.connection(POSTGRES)) {
             alice = newMember(c, "alice");
             bob = newMember(c, "bob");
@@ -90,6 +94,16 @@ class V129SidecarSessionMigrationTest {
                 execute(c, "INSERT INTO " + table + "_session (member_id, session_state, sync_status) "
                     + "VALUES (" + dave + ", 'dave', 'FAILED')");
             }
+            execute(c, "INSERT INTO banque_populaire_session (member_id, session_state, region) "
+                + "VALUES (" + alice + ", 'bp-state', 'RIVES_DE_PARIS')");
+            // A bulk of members, each with a distinct session on every bank.
+            execute(c, "INSERT INTO family_member (display_name) SELECT 'bulk-' || g FROM generate_series(1, " + BULK + ") g");
+            for (String table : TABLES) {
+                execute(c, "INSERT INTO " + table + "_session (member_id, session_state, sync_status, last_validated_at) "
+                    + "SELECT id, '" + table + "-' || id || '-' || md5(id::text), "
+                    + "CASE WHEN id % 3 = 0 THEN 'SUCCESS' ELSE 'IDLE' END, NOW() - (id || ' minutes')::interval "
+                    + "FROM family_member WHERE display_name LIKE 'bulk-%'");
+            }
             erin = newMember(c, "erin");
             frank = newMember(c, "frank");
             gina = newMember(c, "gina");
@@ -103,12 +117,64 @@ class V129SidecarSessionMigrationTest {
                     + "VALUES (" + gina + ", 'gina', 'IDLE')");
             }
         }
-        PostgresContainers.migrateToOutOfOrder(POSTGRES, "129");
+        before = fingerprints();
+        PostgresContainers.migrateTo(POSTGRES, "142");
+        // Taken right here: later tests insert their own rows into sidecar_session.
+        after = fingerprintsAfter();
+    }
+
+    /** Per bank: row count and a digest of the columns all ten tables share, ordered by member (credentials are checked row by row). */
+    private static java.util.Map<String, String> fingerprints() throws SQLException {
+        java.util.Map<String, String> result = new java.util.TreeMap<>();
+        try (Connection c = PostgresContainers.connection(POSTGRES)) {
+            for (String table : TABLES) {
+                try (ResultSet rs = c.createStatement().executeQuery(
+                    "SELECT count(*), md5(string_agg(concat_ws('|', member_id, session_state, "
+                        + "last_validated_at, is_active, sync_status, "
+                        + "last_sync_started_at, last_sync_completed_at, created_at, updated_at), ';' ORDER BY member_id)) "
+                        + "FROM " + table + "_session WHERE member_id NOT IN (" + carol + ", " + dave + ")")) {
+                    rs.next();
+                    result.put(table, rs.getLong(1) + " " + rs.getString(2));
+                }
+            }
+        }
+        return result;
+    }
+
+    private static java.util.Map<String, String> fingerprintsAfter() throws SQLException {
+        java.util.Map<String, String> result = new java.util.TreeMap<>();
+        try (Connection c = PostgresContainers.connection(POSTGRES)) {
+            for (String table : TABLES) {
+                try (ResultSet rs = c.createStatement().executeQuery(
+                    "SELECT count(*), md5(string_agg(concat_ws('|', member_id, session_state, "
+                        + "last_validated_at, is_active, sync_status, "
+                        + "last_sync_started_at, last_sync_completed_at, created_at, updated_at), ';' ORDER BY member_id)) "
+                        + "FROM sidecar_session WHERE bank = '" + table.toUpperCase(Locale.ROOT)
+                        + "' AND member_id NOT IN (" + carol + ", " + dave + ")")) {
+                    rs.next();
+                    result.put(table, rs.getLong(1) + " " + rs.getString(2));
+                }
+            }
+        }
+        return result;
+    }
+
+    /** Hundreds of members on every bank: no row lost, duplicated or altered by the copy. */
+    @Test
+    void aBulkOfSessionsKeepsItsCountAndEveryColumnDigest() throws SQLException {
+        assertThat(before.values()).allSatisfy(v -> assertThat(Long.parseLong(v.split(" ")[0])).isGreaterThan(BULK));
+        assertThat(after).isEqualTo(before);
+    }
+
+    @Test
+    void banquePopulaireKeepsItsTableAndItsRow() throws SQLException {
+        assertThat(count("SELECT count(*) FROM banque_populaire_session WHERE session_state = 'bp-state'")).isOne();
+        assertThat(count("SELECT count(*) FROM sidecar_session WHERE bank = 'BANQUE_POPULAIRE'")).isZero();
     }
 
     @Test
     void everyRowOfEveryBankIsCopiedByteForByte() throws SQLException {
-        for (SidecarBank bank : V129_BANKS) {
+        for (SidecarBank bank : V142_BANKS) {
             String table = bank.name().toLowerCase(Locale.ROOT);
             List<Object> row = row(bank, alice);
             assertThat(row).as(bank.name()).containsExactly(
@@ -136,7 +202,7 @@ class V129SidecarSessionMigrationTest {
 
     @Test
     void everyStatusIsCopied() throws SQLException {
-        for (SidecarBank bank : V129_BANKS) {
+        for (SidecarBank bank : V142_BANKS) {
             assertStatusCopied(bank, erin, "QUEUED", STARTED);
             assertStatusCopied(bank, frank, "RUNNING", STARTED);
             assertStatusCopied(bank, gina, "IDLE", null);
@@ -204,7 +270,7 @@ class V129SidecarSessionMigrationTest {
     void onlyTheBanksThatKeepALoginCanStoreOne() throws SQLException {
         try (Connection c = PostgresContainers.connection(POSTGRES)) {
             long member = newMember(c, "login");
-            for (SidecarBank bank : V129_BANKS) {
+            for (SidecarBank bank : V142_BANKS) {
                 String insert = "INSERT INTO sidecar_session (bank, member_id, session_state, encrypted_credentials) "
                     + "VALUES ('" + bank.name() + "', " + member + ", 's', 'login')";
                 switch (bank) {
