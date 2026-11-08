@@ -106,6 +106,11 @@ Edge cases:
   a silent partial write hides money just as badly.) A linked transaction is exempt:
   its row already exists in the cash account, so linking creates no money and the
   ledger simply clamps.
+- a friendly round-up is recorded in two steps: if 348 € are owed and 350 € come back,
+  record 348 € as the repayment (the loan closes itself), then the 2 € surplus as a
+  separate manual deposit categorised as a gift or income. The error message names the
+  maximum so nobody has to compute it; splitting keeps the loan ledger and the gift
+  in their own rows instead of inventing a mixed movement.
 - an explicit `INTEREST` repayment cannot exceed the interest accrued at its own date:
   with nothing accrued the row would be capital wearing the wrong label. (Open to
   debate: zero-rate loans never accrue, so this forces the honest `PRINCIPAL` label;
