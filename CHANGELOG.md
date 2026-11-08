@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **SimpleFIN accounts show their bank and their positions.** A Chase and a Fidelity account now read "Fidelity Investments · via SimpleFIN"
+  instead of "SimpleFIN", and show the bank's logo when logos are enabled in the budget settings. A new account for which the
+  bridge reports positions is created as the new **Brokerage account** type (any broker, any country or tax wrapper: Roth IRA, HSA,
+  401(k), taxable) and lists its individual positions, each valued at the bridge's figure when the price feed cannot find it. A buy-in
+  the bridge reports as 0.00 is treated as unknown (one you entered yourself is kept), and money-market sweep funds count as cash.
+  A portfolio the bridge returns in part is left as it was rather than replaced. Accounts already synced get their bank on the next
+  sync; one typed Checking keeps that type, so change it to Brokerage once to import its positions.
+
 ### Changed
 
 - **The app image is one non-root Java process.** nginx, supervisord and the shell entrypoint are
@@ -31,6 +41,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Banque Populaire sync.** A new Sync tab connects a Banque Populaire account: pick your
+  regional bank, type your identifier, click your digits on the bank's keypad and approve in
+  Sécur'Pass. Imports the current account, Livret A, Livret Jeune and LDDS with their
+  transactions, on demand. It shares the Caisse d'Epargne code through the BPCE platform; cards,
+  loans, PER and revolving credit are not imported. The accounts carry your regional bank's name
+  (for example "Banque Populaire Rives de Paris") and, when Enable Banking is configured, its logo.
+  Enable the `banque-populaire` Compose profile. The shared code also fixes Caisse d'Epargne: a
+  Livret Jeune (same BPCE product code as the Livret A) is now imported as a Livret Jeune, and a
+  LEP-labelled one as a LEP; an account imported under the wrong type is re-typed on its next
+  import and keeps its history.
+  See [Banque Populaire sync](docs/features/banque-populaire.md).
+- **Caisse d'Epargne: PEL and LEP.** A Plan d'Epargne Logement and a Livret d'Epargne
+  Populaire are now imported with their balance and transactions, like the Livret A.
+  Contracts Picsou still does not import are listed in the Sync tab as `family/sub` (e.g. `4/02`)
+  instead of the family alone, and the sidecar logs one line per such contract with its codes
+  and the length shape of its id (plus the id's letters and the bank's catalogue product name
+  when `CE_LOG_PRODUCT_DETAILS=1`), so the next product can be identified from a real sync.
+  No contract number, account name or balance is shown or logged.
+  **Upgrade:** update the `caisse-epargne-auth` sidecar and the app together (the sidecar image
+  is `:latest` in Compose); an older app refuses the whole sync, current account included, as
+  soon as you hold a PEL (a LEP alone is already known to it). If you created a PEL or LEP by hand, delete or archive it
+  first: the first sync creates its own and net worth would count both.
 - **Wise jars.** Wise's open-banking access only returns current balances, so money in
   jars was missing. A member can now paste a read-only Wise personal API token; Picsou
   imports every jar as a savings account and refreshes its balance by hand, from Sync All
@@ -90,6 +122,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `budget:ai-write` scope. A scheduler can now run categorization on a local model without a
   browser session. See [Budget + OAuth2 tools in MCP](docs/features/mcp-budget-oauth2.md).
 
+- **Peer loans (receivables between individuals).** A new "peer loan" account type tracks
+  money lent to a person as an asset: nominal capital, dated repayments, simple interest,
+  an editable forecast and a dated write-off when the loan is closed. The rate can be
+  entered monthly or annually, and the detail draws the actual capital against the
+  forecast. One account is one loan, identified by its name. A manual cash account linked to it receives the matching
+  transfer automatically, so a repayment never reduces net worth; a synced account relies
+  on the bank row. A loan can also be created from an existing outgoing transaction, and
+  an incoming transaction can be assigned to a repayment. It counts in net worth but never
+  as an investment, and there is no risk score. See
+  [Peer loans](docs/features/peer-loans.md).
+
 ### Changed
 
 - **Smaller first load.** The demo mode and the English, German and Spanish translations no
@@ -104,9 +147,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Caisse d'Epargne remembers your identifier.** A reconnect after the bank session
   expired no longer asks for the identifier again: the one from the last successful login is
-  stored encrypted, like BoursoBank's (migration `V129`). The password and the Sécur'Pass
+  stored encrypted, like BoursoBank's (migration `V142`). The password and the Sécur'Pass
   approval are still never stored, and "Disconnect" forgets everything. See
   [Caisse d'Epargne](docs/features/caisse-epargne.md#remembered-identifier).
+- **Caisse d'Epargne PER: a buy-in you entered by hand survives the next sync.** The sync used to
+  delete and recreate the PER's lines, so a cost entered on a line was lost each time. Lines are now
+  updated in place; only a fund the insurer stops reporting is removed.
 - **Crypto coins outside the built-in list get a price.** NEXO and CRO are now priced
   ([#419](https://github.com/Cloeille/picsou-finance/issues/419)). Beyond them, a coin held in a
   crypto account that Picsou does not know yet is looked up on CoinGecko and remembered once it is
@@ -154,6 +200,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Existing Windows checkouts must refresh the Docker entrypoint after upgrading.**
+  `.gitattributes` now forces LF on `*.sh`, but Git only rewrites files it checks out. On a
+  checkout created before this change, run `git checkout -- docker/entrypoint.sh` once;
+  otherwise the CRLF shebang still makes the container fail at exec with
+  `no such file or directory`.
 - **Diversification leaves out lines classified outside equity.** A holding whose wealth tier
   (your override, or the provider's) is not equity — for example a money-market ETF set to
   safety net — is no longer counted in the sector and geography breakdown, matching the

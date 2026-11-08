@@ -15,11 +15,13 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
   { value: 'ASSURANCE_VIE', labelKey: 'accountTypes.assuranceVie' },
   { value: 'PER', labelKey: 'accountTypes.per' },
   { value: 'PRECIOUS_METALS', labelKey: 'accountTypes.preciousMetals' },
+  { value: 'BROKERAGE', labelKey: 'accountTypes.brokerage' },
   { value: 'REAL_ESTATE', labelKey: 'accountTypes.realEstate' },
   { value: 'SCPI', labelKey: 'accountTypes.scpi' },
   { value: 'EMPLOYEE_SAVINGS', labelKey: 'accountTypes.employeeSavings' },
   { value: 'LOAN', labelKey: 'accountTypes.loan' },
   { value: 'CREDIT_CARD', labelKey: 'accountTypes.creditCard' },
+  { value: 'PEER_LOAN', labelKey: 'accountTypes.peerLoan' },
   { value: 'OTHER', labelKey: 'accountTypes.other' },
 ]
 
@@ -29,7 +31,17 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
  * A ledger import cannot target them, and a manual transaction never rewrites their balance.
  */
 export const NON_LEDGER_ACCOUNT_TYPES: AccountType[] = [
-  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS', 'EMPLOYEE_SAVINGS', 'REAL_ESTATE', 'SCPI',
+  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS', 'BROKERAGE', 'EMPLOYEE_SAVINGS',
+  'REAL_ESTATE', 'SCPI', 'PEER_LOAN',
+]
+
+/**
+ * Spendable cash accounts, the only ones a peer loan can draw from or repay into.
+ * Mirrors the backend's `CASH_TYPES`; a property or a brokerage account never funds a
+ * private loan.
+ */
+export const CASH_ACCOUNT_TYPES: AccountType[] = [
+  'CHECKING', 'SAVINGS', 'LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL',
 ]
 
 /**
@@ -42,7 +54,7 @@ export const NON_LEDGER_ACCOUNT_TYPES: AccountType[] = [
  * three chances to forget one.
  */
 export const HOLDING_ACCOUNT_TYPES: AccountType[] = [
-  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'EMPLOYEE_SAVINGS', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS',
+  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'EMPLOYEE_SAVINGS', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS', 'BROKERAGE',
 ]
 
 /** Mirrors the backend's `AccountType.isLiability()`: debts, never part of the user's assets. */
@@ -84,6 +96,8 @@ export const QUERY_STALE_TIMES = {
   // Allocation moves at the pace of the portfolio behind it, and the score is read, not
   // watched -- the dashboard's cadence is the right one here too.
   analysis: 5 * 60 * 1000,
+  // Whether SSO is configured only changes with a backend restart.
+  ssoInfo: 10 * 60 * 1000,
   // The precious-metals catalogue is a fixed list shipped with the backend: it only changes
   // with a release, so a session-long cache never serves a stale answer.
   preciousMetals: 60 * 60 * 1000,

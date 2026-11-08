@@ -73,13 +73,32 @@ import { TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 
 const REVOLUT_CONNECTION_ID = 'revolut'
 
+/**
+ * The provider labels the Banque Populaire sync stamps: the official name of the regional bank the
+ * session was opened at (`BanquePopulaireRegion.institutionName()` on the backend), one per region.
+ */
+const BANQUE_POPULAIRE_PROVIDERS: ReadonlySet<string> = new Set([
+  'Banque Populaire Alsace Lorraine Champagne',
+  'Banque Populaire Aquitaine Centre Atlantique',
+  'Banque Populaire Auvergne Rhône Alpes',
+  'Banque Populaire Bourgogne Franche-Comté',
+  'BRED Banque Populaire',
+  'Banque Populaire Grand Ouest',
+  'Banque Populaire Méditerranée',
+  'Banque Populaire du Nord',
+  'Banque Populaire Occitane',
+  'Banque Populaire Rives de Paris',
+  'Banque Populaire du Sud',
+  'Banque Populaire Val de France',
+])
+
 type SyncConnection = {
   /** The connector's server-side job is queued or running. */
   running?: boolean
   id: string
   providerType: 'bank' | 'exchange' | 'wallet' | 'tr' | 'finary' | 'bourso' | 'revolut'
     | 'amundi' | 'fortuneo' | 'bourse-direct' | 'degiro' | 'ibkr' | 'simplefin' | 'wise'
-    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'cmes' | 'cic'
+    | 'amex' | 'corum' | 'sofidy' | 'caisse-epargne' | 'banque-populaire' | 'cmes' | 'cic'
   name: string
   status: string
   lastSyncedAt: string | null
@@ -110,6 +129,7 @@ const ProviderIcon: Record<SyncConnection['providerType'], React.ComponentType<{
   corum: Building2,
   sofidy: Building2,
   'caisse-epargne': Landmark,
+  'banque-populaire': Landmark,
   cmes: PiggyBank,
   cic: PiggyBank,
 }
@@ -128,6 +148,7 @@ const REAUTH_TAB: Partial<Record<SyncConnection['providerType'], string>> = {
   corum: 'corum',
   sofidy: 'sofidy',
   'caisse-epargne': 'caisse-epargne',
+  'banque-populaire': 'banque-populaire',
   cmes: 'cmes',
   cic: 'cic',
   finary: 'finary',
@@ -197,6 +218,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { data: trStatus } = useTrSessionStatus()
   const { data: boursoStatus } = useProviderStatus("bourso")
   const { data: caisseEpargneStatus } = useProviderStatus("caisseEpargne")
+  const { data: banquePopulaireStatus } = useProviderStatus("banquePopulaire")
   const { data: revolutStatus } = useRevolutStatus()
   const { data: finaryStatus } = useFinaryConnectionStatus()
   const { data: amundiStatus } = useProviderStatus("amundi")
@@ -233,6 +255,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
    * already followed. `provider` is the exact string the connector stamps on the accounts it
    * creates (see each service's PROVIDER constant). CORUM and Sofidy also match an account
    * through its SCPI fund code: a manual SCPI they adopted keeps the provider the user typed.
+   * Banque Populaire stamps its regional bank's name, so it matches any of those labels.
    */
   const sessionProviders = useMemo(() => [
     {
@@ -258,6 +281,16 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       active: caisseEpargneStatus?.isActive ?? false, lastSyncedAt: caisseEpargneStatus?.lastSyncCompletedAt ?? null,
       failed: caisseEpargneStatus?.syncStatus === 'FAILED',
       running: isJobRunning(caisseEpargneStatus?.syncStatus),
+    },
+    {
+      // No exact `provider`: every Banque Populaire label goes through `ownsAccount`, so a
+      // manual account carrying one (picked from the bank catalog or typed) never shows a
+      // session row: this connector never synced it.
+      type: 'banque-populaire' as const, name: 'Banque Populaire', provider: undefined,
+      ownsAccount: (a: Account) =>
+        !a.isManual && a.provider != null && BANQUE_POPULAIRE_PROVIDERS.has(a.provider),
+      active: banquePopulaireStatus?.isActive ?? false, lastSyncedAt: banquePopulaireStatus?.lastSyncCompletedAt ?? null,
+      failed: banquePopulaireStatus?.syncStatus === 'FAILED',
     },
     {
       type: 'bourse-direct' as const, name: 'Bourse Direct', provider: 'Bourse Direct',
@@ -328,7 +361,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       running: isJobRunning(cicStatus?.syncStatus),
       canReconnect: cicStatus?.canReconnect === true,
     },
-  ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus, wiseStatus])
+  ], [cicStatus, cmesStatus, amexStatus, corumStatus, sofidyStatus, amundiStatus, fortuneoStatus, boursoStatus, caisseEpargneStatus, banquePopulaireStatus, bourseDirectStatus, degiroStatus, ibkrStatus, simplefinStatus, wiseStatus])
 
   const retryBankMutation     = useRetryBankSync()
   const reconnectBankMutation = useReconnectBankSync()
@@ -339,6 +372,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const completeTrMutation   = useCompleteTrAuth()
   const syncBoursoMutation   = useProviderSync("bourso")
   const syncCaisseEpargneMutation = useProviderSync("caisseEpargne")
+  const syncBanquePopulaireMutation = useProviderSync("banquePopulaire")
   const syncAmundiMutation       = useProviderSync("amundi")
   const syncFortuneoMutation     = useProviderSync("fortuneo")
   const syncBourseDirectMutation = useProviderSync("bourseDirect")
@@ -533,6 +567,9 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       case 'caisse-epargne':
         syncCaisseEpargneMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
+      case 'banque-populaire':
+        syncBanquePopulaireMutation.mutate(undefined, rowCallbacks(formatGeneric))
+        break
       case 'amundi':
         syncAmundiMutation.mutate(undefined, rowCallbacks(formatGeneric))
         break
@@ -602,6 +639,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncTrMutation,
     syncBoursoMutation,
     syncCaisseEpargneMutation,
+    syncBanquePopulaireMutation,
     syncAmundiMutation,
     syncFortuneoMutation,
     syncBourseDirectMutation,

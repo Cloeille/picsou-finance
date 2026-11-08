@@ -76,6 +76,7 @@ const DASHBOARD_DATA: DashboardData = {
   totalLiabilities: 0,
   netWorthHistory: [],
   distribution: [],
+  assets: [],
   liabilities: [],
   goalSummaries: [],
 }

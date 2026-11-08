@@ -11,7 +11,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from accounts_parser import ParseError, parse_loan_detail
+from bpce.accounts_parser import ParseError, parse_loan_detail
 
 FIXTURES = json.loads(Path(__file__).with_name("fixtures_synthetic.json").read_text(encoding="utf-8"))
 

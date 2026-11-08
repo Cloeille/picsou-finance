@@ -2,7 +2,8 @@ import { api } from '@/lib/api-client'
 import { filenameFromDisposition } from '@/lib/download'
 
 export interface ExportRequest {
-  reAuth: {
+  /** Omitted when a `reauth_proof` cookie (minted by `/auth/reauth` or an SSO round trip) authorizes the export. */
+  reAuth?: {
     password?: string | null
     totpCode?: string | null
   }
