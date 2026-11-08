@@ -74,8 +74,11 @@ public class PeerLoanService {
 
     private static final int MAX_ACCOUNT_NAME = 100;
 
-    /** No real loan predates this; it also caps the curve a backdated plan can draw. */
-    private static final LocalDate MIN_LENDING_DATE = LocalDate.of(1900, 1, 1);
+    /**
+     * No real loan or payment predates this. A date is the origin of the history repair and of
+     * the curve, so an ancient one would draw tens of thousands of points.
+     */
+    private static final LocalDate MIN_DATE = LocalDate.of(1900, 1, 1);
 
     /** The account types a peer loan can draw from and repay into. */
     private static final java.util.Set<AccountType> CASH_TYPES = java.util.Set.of(
@@ -292,7 +295,7 @@ public class PeerLoanService {
         if (lendingDate != null && lendingDate.isAfter(LocalDate.now())) {
             throw new IllegalArgumentException("The transaction date cannot be in the future");
         }
-        if (lendingDate != null && lendingDate.isBefore(MIN_LENDING_DATE)) {
+        if (lendingDate != null && lendingDate.isBefore(MIN_DATE)) {
             throw new IllegalArgumentException("The transaction date is too far in the past");
         }
 
@@ -340,7 +343,7 @@ public class PeerLoanService {
         if (request.lentAt().isAfter(LocalDate.now())) {
             throw new IllegalArgumentException("The lending date cannot be in the future");
         }
-        if (request.lentAt().isBefore(MIN_LENDING_DATE)) {
+        if (request.lentAt().isBefore(MIN_DATE)) {
             throw new IllegalArgumentException("The lending date is too far in the past");
         }
         if (request.expectedBack() != null && request.expectedBack().isBefore(request.lentAt())) {
@@ -805,10 +808,19 @@ public class PeerLoanService {
         return PeerLoanCalculator.compute(terms, upToDate, date).principalRemaining();
     }
 
-    /** The ledger holds completed payments; a forecast belongs in {@code planned_*}. */
+    /**
+     * The ledger holds completed payments; a forecast belongs in {@code planned_*}. The date
+     * also seeds the snapshot repair, so it follows the lending date's lower bound.
+     */
     private static void requireCompletedRepaymentDate(LocalDate paidOn) {
-        if (paidOn != null && paidOn.isAfter(LocalDate.now())) {
+        if (paidOn == null) {
+            return;
+        }
+        if (paidOn.isAfter(LocalDate.now())) {
             throw new IllegalArgumentException("A repayment date cannot be in the future");
+        }
+        if (paidOn.isBefore(MIN_DATE)) {
+            throw new IllegalArgumentException("A repayment date is too far in the past");
         }
     }
 

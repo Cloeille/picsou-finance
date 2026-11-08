@@ -678,6 +678,62 @@ class PeerLoanServiceTest {
     }
 
     @Test
+    void addRepaymentRejectsADateBeforeTheLowerBound() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+
+        assertThatThrownBy(() -> service.addRepayment(ACCOUNT_ID, MEMBER_ID,
+            new PeerLoanRepaymentRequest(LocalDate.parse("1800-01-01"), new BigDecimal("50"),
+                PeerLoanRepaymentKind.PRINCIPAL, null, false)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("too far in the past");
+
+        verify(repaymentRepository, never()).save(any(PeerLoanRepayment.class));
+    }
+
+    @Test
+    void updateRepaymentRejectsADateBeforeTheLowerBound() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
+        PeerLoanRepayment february = ledgerRow(account, 11L, "2026-02-01", "100");
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.findByIdAndAccountId(11L, ACCOUNT_ID)).thenReturn(Optional.of(february));
+
+        assertThatThrownBy(() -> service.updateRepayment(ACCOUNT_ID, 11L, MEMBER_ID,
+            new PeerLoanRepaymentRequest(LocalDate.parse("1800-01-01"), new BigDecimal("100"),
+                PeerLoanRepaymentKind.PRINCIPAL, null, false)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("too far in the past");
+
+        assertThat(february.getPaidOn()).isEqualTo(LocalDate.parse("2026-02-01"));
+    }
+
+    @Test
+    void addRepaymentFromTransactionRejectsADateBeforeTheLowerBound() {
+        Account account = loanAccount("Jean");
+        Account cash = cashAccount(false);
+        PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
+        Transaction ancient = Transaction.builder()
+            .id(60L).account(cash).date(LocalDate.parse("1800-01-01"))
+            .description("Virement reçu").amount(new BigDecimal("100")).build();
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(transactionRepository.findById(60L)).thenReturn(Optional.of(ancient));
+        when(repaymentRepository.findByCashTransactionId(60L)).thenReturn(Optional.empty());
+        when(termsRepository.findByLendingTransactionId(60L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.addRepaymentFromTransaction(
+            ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentFromTransactionRequest(60L, null)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("too far in the past");
+
+        verify(repaymentRepository, never()).save(any(PeerLoanRepayment.class));
+    }
+
+    @Test
     void aBackdatedRepaymentRecomputesEveryLaterSnapshot() {
         Account account = loanAccount("Jean");
         PeerLoanTerms terms = PeerLoanTerms.builder()
