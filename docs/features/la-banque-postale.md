@@ -98,6 +98,12 @@ bank-specific.
 is truncated (and counted), while a malformed entry refuses the sync as a format
 change.
 
+No real empty state has ever been observed: a synthesis page with an account-list
+container but zero cards only parses as `[]` together with an explicit
+"Aucun compte"-style message; without one it fails closed, so a customer holding
+only a current account may see the sync refused until such a marker is captured
+live.
+
 ### Login (built from two live captures)
 
 The client must enter through `identif.ea?origin=particuliers`: that page sets
