@@ -2,6 +2,8 @@ package com.picsou.repository;
 
 import com.picsou.model.PeerLoanTerms;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
@@ -14,8 +16,14 @@ public interface PeerLoanTermsRepository extends JpaRepository<PeerLoanTerms, Lo
     /** Guards against linking the same provider transaction to two loans. */
     Optional<PeerLoanTerms> findByLendingTransactionId(Long lendingTransactionId);
 
-    /** Batch version for annotating transaction lists with their loan link. */
-    List<PeerLoanTerms> findByLendingTransactionIdIn(Collection<Long> lendingTransactionIds);
+    /**
+     * Batch version for annotating transaction lists with their loan link. The fetch join
+     * loads the account in the same statement: without it, resolving the borrower name
+     * would issue one select per loan, and a soft-deleted loan account would fail the
+     * read with EntityNotFoundException instead of being skipped.
+     */
+    @Query("select t from PeerLoanTerms t join fetch t.account where t.lendingTransactionId in :ids")
+    List<PeerLoanTerms> findByLendingTransactionIdIn(@Param("ids") Collection<Long> lendingTransactionIds);
 
     /** The GDPR export needs every loan of one member, not one account at a time. */
     List<PeerLoanTerms> findAllByAccountMemberIdOrderByLentAtAscIdAsc(Long memberId);

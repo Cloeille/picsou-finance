@@ -2,6 +2,8 @@ package com.picsou.repository;
 
 import com.picsou.model.PeerLoanRepayment;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
@@ -17,7 +19,8 @@ public interface PeerLoanRepaymentRepository extends JpaRepository<PeerLoanRepay
     Optional<PeerLoanRepayment> findByCashTransactionId(Long cashTransactionId);
 
     /** Batch version for annotating transaction lists with their loan link. */
-    List<PeerLoanRepayment> findByCashTransactionIdIn(Collection<Long> cashTransactionIds);
+    @Query("select r from PeerLoanRepayment r join fetch r.account where r.cashTransactionId in :ids")
+    List<PeerLoanRepayment> findByCashTransactionIdIn(@Param("ids") Collection<Long> cashTransactionIds);
 
     List<PeerLoanRepayment> findAllByAccountIdIn(Collection<Long> accountIds);
 
