@@ -48,6 +48,13 @@ class SchedulerServiceTest {
     @Mock MemberSyncService memberSyncService;
     @InjectMocks SchedulerService scheduler;
 
+    private static Account insurerAccount(long id, AccountType type, boolean manual, FamilyMember member) {
+        return Account.builder()
+            .id(id).name("Insurer contract").type(type)
+            .provider(CaisseEpargneSyncService.PROVIDER).isManual(manual).currency("EUR")
+            .currentBalance(new BigDecimal("1200")).member(member).build();
+    }
+
     private static Account perAccount(long id, String provider, FamilyMember member) {
         return Account.builder()
             .id(id).name("Retirement plan").type(AccountType.PER)
@@ -103,6 +110,32 @@ class SchedulerServiceTest {
         scheduler.refreshPrices();
 
         verify(instrumentLogoService, never()).requestResolution();
+    }
+
+    @Test
+    void dailySnapshots_refreshesAPricedCaisseEpargneAssuranceVieSnapshotButNotAHandMadeOne() {
+        LocalDate today = LocalDate.now();
+        FamilyMember member = FamilyMember.builder().id(7L).displayName("member").build();
+        Account synced = insurerAccount(1L, AccountType.ASSURANCE_VIE, false, member);
+        Account handMade = insurerAccount(2L, AccountType.ASSURANCE_VIE, true, member);
+        BalanceSnapshot syncedSnapshot = snapshot(synced, today, "900");
+        BalanceSnapshot handMadeSnapshot = snapshot(handMade, today, "700");
+
+        when(familyMemberRepository.findAllByOrderByCreatedAtAsc()).thenReturn(List.of(member));
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(7L)).thenReturn(List.of(synced, handMade));
+        when(snapshotRepository.findByAccountIdAndDate(1L, today)).thenReturn(Optional.of(syncedSnapshot));
+        when(snapshotRepository.findByAccountIdAndDate(2L, today)).thenReturn(Optional.of(handMadeSnapshot));
+        lenient().when(accountService.valuation(synced)).thenReturn(new AccountService.Valuation(
+            new BigDecimal("1200"), new BigDecimal("1100"), true, true, false));
+
+        scheduler.dailySnapshots();
+
+        assertThat(syncedSnapshot.getBalance()).isEqualByComparingTo("1200");
+        assertThat(syncedSnapshot.getInvestedAmount()).isEqualByComparingTo("1100");
+        assertThat(handMadeSnapshot.getBalance()).isEqualByComparingTo("700");
+        verify(snapshotRepository).save(syncedSnapshot);
+        verify(snapshotRepository, never()).save(handMadeSnapshot);
+        verify(accountService, never()).valuation(handMade);
     }
 
     @Test

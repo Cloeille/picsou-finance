@@ -1134,6 +1134,24 @@ class AssuranceVieImportTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(LOAN_ID, {a["externalId"] for a in result["accounts"]})
 
+    async def test_a_4_05_contract_with_an_unknown_product_code_is_listed_as_unsupported(self):
+        ce = products_ce()
+        for item in ce.synth["items"]:
+            ident = item["identification"]
+            if ident.get("contractId", {}).get("id") == "00000     FAKE00000014":
+                ident["contractId"]["id"] = "00000     OTHER00000014"
+
+        async def detail(contract_id, entity_code):
+            raise per_client.UnknownPerContract("unknown")
+
+        result = await run_fetch(ce, per_detail=detail)
+
+        self.assertIn(
+            {"externalId": "contract:00000     OTHER00000014", "familyCode": "4", "subFamilyCode": "05"},
+            result["unsupported"],
+        )
+        self.assertEqual([u["code"] for u in result["unavailable"]], ["INVALID_PER_REQUEST"])
+
     async def test_an_assurance_vie_whose_detail_no_longer_parses_is_also_listed_as_unsupported(self):
         async def detail(_contract_id, _entity_code):
             payload = PerHoldingsImportTest.payload()

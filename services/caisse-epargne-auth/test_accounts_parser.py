@@ -682,6 +682,21 @@ class ProductFamiliesTest(unittest.TestCase):
                 self.assertIn("PER", kinds)
                 self.assertNotIn("ASSURANCE_VIE", kinds)
 
+    def test_a_4_05_contract_without_identification_is_listed_by_position_and_never_fails_the_sync(self):
+        for broken in (None, "x", [], 5):
+            with self.subTest(identification=broken):
+                s = products()
+                family(s, "4", "05")["identification"] = broken
+                accounts, unsupported = _parse_synthesis(s)
+                self.assertNotIn("PER", {a["kind"] for a in accounts})
+                self.assertIn("05", [u["subFamilyCode"] for u in unsupported])
+
+    def test_a_4_05_contract_without_identification_still_fails_where_assurance_vie_is_not_enabled(self):
+        s = products()
+        family(s, "4", "05")["identification"] = None
+        with self.assertRaises(ParseError):
+            _parse_synthesis(s, provisional_kinds=frozenset({"PEL", "LEP"}))
+
     def test_a_negative_assurance_vie_is_not_imported_and_is_reported(self):
         s = products()
         item = family(s, "4", "05")

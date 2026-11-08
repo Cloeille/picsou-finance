@@ -315,7 +315,12 @@ def _contract_account(
     # The kind decides which id to read: PER, loan and insurance contracts have
     # a null `contractPfmId`, and must not fail the sync of the others.
     kind = _contract_kind(identity, where, skipped_families)
-    if kind in provisional_kinds and not isinstance(item.get("identification"), dict):
+    unreadable = not isinstance(item.get("identification"), dict)
+    # A `4/05` contract holds a PER or an assurance vie and the product code that tells them
+    # apart lives in `identification`: without it the kind is not known, so on a site that has
+    # the assurance vie as a provisional kind it is treated as one.
+    undecided = kind == "PER" and "ASSURANCE_VIE" in provisional_kinds
+    if (kind in provisional_kinds or undecided) and unreadable:
         # A kind seen in one live run whose `identification` is missing or odd is listed as
         # unsupported (keyed by position) rather than failing the whole synthesis.
         identification = {}
@@ -330,7 +335,7 @@ def _contract_account(
         try:
             return _supported_contract(kind, identification, identity, where), None
         except ParseError as exc:
-            if kind not in provisional_kinds:
+            if kind not in provisional_kinds and not (undecided and unreadable):
                 raise
             rejected = _reason(exc)
             # Reported below as unsupported, so it never blocks the other accounts. Its
