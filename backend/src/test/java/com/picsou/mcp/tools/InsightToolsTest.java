@@ -68,6 +68,40 @@ class InsightToolsTest {
     }
 
     @Test
+    void getNetWorthHistory_defaultLeavesOutPocketsTheirWalletAlreadyCarries() {
+        // Wallet 1 carries pocket 2's balance; pocket 3's wallet (99) is not in the list.
+        AccountResponse wallet = mock(AccountResponse.class);
+        AccountResponse pocket = mock(AccountResponse.class);
+        AccountResponse orphanPocket = mock(AccountResponse.class);
+        when(wallet.id()).thenReturn(1L);
+        when(pocket.id()).thenReturn(2L);
+        when(pocket.parentAccountId()).thenReturn(1L);
+        when(orphanPocket.id()).thenReturn(3L);
+        when(orphanPocket.parentAccountId()).thenReturn(99L);
+        when(userContext.currentMemberId()).thenReturn(MID);
+        when(accountService.findAll(MID)).thenReturn(List.of(wallet, pocket, orphanPocket));
+
+        tools.getNetWorthHistory(null, null);
+
+        verify(historyService).buildHistory(List.of(1L, 3L), 12, MID);
+    }
+
+    @Test
+    void getProfitAndLoss_defaultLeavesOutPocketsTheirWalletAlreadyCarries() {
+        AccountResponse wallet = mock(AccountResponse.class);
+        AccountResponse pocket = mock(AccountResponse.class);
+        when(wallet.id()).thenReturn(1L);
+        when(pocket.id()).thenReturn(2L);
+        when(pocket.parentAccountId()).thenReturn(1L);
+        when(userContext.currentMemberId()).thenReturn(MID);
+        when(accountService.findAll(MID)).thenReturn(List.of(wallet, pocket));
+
+        tools.getProfitAndLoss(null, null);
+
+        verify(historyService).buildPnl(List.of(1L), MID, null);
+    }
+
+    @Test
     void getNetWorthHistory_passesExplicitAccountIdsAndMonths() {
         DashboardResponse.NetWorthPoint p = mock(DashboardResponse.NetWorthPoint.class);
         when(userContext.currentMemberId()).thenReturn(MID);

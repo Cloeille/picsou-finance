@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Family dashboard and MCP history counted Revolut pockets twice.** A Revolut wallet's balance
+  is the sum of its pockets, which is why the dashboard leaves pockets out of net worth. The
+  family dashboard's shared net worth added each pocket on top of its wallet, and the MCP
+  `get_net_worth_history` and `get_profit_and_loss` tools did the same when called without
+  account ids. A pocket now counts only when its wallet is not in the same list.
 - **Savings interest projection counted early-year movements twice.** When the first balance
   snapshot of the year came after some of that year's deposits or withdrawals (a livret connected
   mid-year, or a snapshot rebuilt from the ledger), those movements were already in the opening
