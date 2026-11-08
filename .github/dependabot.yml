@@ -38,6 +38,13 @@ updates:
     directory: /services/base
     schedule:
       interval: weekly
+    # Camoufox 0.5.x requires Playwright <1.63 (this target pins 1.64.1) and
+    # changes the installer that pin_camoufox.py subclasses. It is one
+    # hand-written migration (Playwright pin, pin_camoufox.py, smoke_camoufox.py
+    # in amex-auth and revolut-auth), not a version bump (see #383 and #490).
+    ignore:
+      - dependency-name: camoufox
+        versions: [">=0.5"]
   # Includes the digest-pinned Python base and all application/sidecar images.
   - package-ecosystem: docker
     directories:
