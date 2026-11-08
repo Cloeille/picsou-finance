@@ -596,6 +596,7 @@
       "confirm": "Zuordnen",
       "created": "Rückzahlung erfasst."
     },
+    "linkedTransaction": "Verknüpft mit dem Darlehen von {{name}}",
     "actions": {
       "close": "Darlehen schließen",
       "simulate": "Berechnen"

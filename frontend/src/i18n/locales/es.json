@@ -596,6 +596,7 @@
       "confirm": "Asignar",
       "created": "Devolución registrada."
     },
+    "linkedTransaction": "Vinculado al préstamo de {{name}}",
     "actions": {
       "close": "Cerrar el préstamo",
       "simulate": "Calcular"

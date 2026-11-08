@@ -607,6 +607,7 @@
       "confirm": "Assigner",
       "created": "Remboursement enregistré."
     },
+    "linkedTransaction": "Lié au prêt de {{name}}",
     "actions": {
       "close": "Clôturer le prêt",
       "simulate": "Calculer"

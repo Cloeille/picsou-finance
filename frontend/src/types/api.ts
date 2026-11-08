@@ -1507,6 +1507,12 @@ export interface FinaryAutoSyncResponse {
   newAccountCount: number
 }
 
+export interface PeerLoanLink {
+  kind: 'LENDING' | 'REPAYMENT'
+  accountId: number
+  accountName: string
+}
+
 export interface Transaction {
   id: number
   date: string
@@ -1534,6 +1540,8 @@ export interface Transaction {
   fees: number | null
   /** True for CORUM Life contract operations: shown on the account, excluded from the budget. */
   budgetNeutral: boolean
+  /** The peer loan this row belongs to, if any: hides the link actions, links to the loan. */
+  peerLoanLink?: PeerLoanLink | null
 }
 
 export interface TransactionRequest {

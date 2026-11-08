@@ -607,6 +607,7 @@
       "confirm": "Assign",
       "created": "Repayment recorded."
     },
+    "linkedTransaction": "Linked to {{name}}'s loan",
     "actions": {
       "close": "Close the loan",
       "simulate": "Calculate"

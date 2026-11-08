@@ -180,6 +180,8 @@ repayment. It is linked (`cash_transaction_id`, `cash_leg_owned = false`) and ne
 copied, so a synced account never receives a second row. Deleting that repayment only
 unlinks the transaction; the member's or provider's row stays. Editing a linked
 repayment is refused for the same reason: delete it and assign the transaction again.
+A linked row carries its loan (`peerLoanLink`) in the API: the transaction sheet hides
+the link actions, which could only fail, and points at the loan instead.
 
 The principal and the linked account cannot change once `lending_transaction_id` exists:
 the cash movement is a fact. Deleting and recreating the loan is the honest path.

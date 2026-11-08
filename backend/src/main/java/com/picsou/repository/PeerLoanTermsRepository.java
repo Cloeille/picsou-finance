@@ -3,6 +3,7 @@ package com.picsou.repository;
 import com.picsou.model.PeerLoanTerms;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -12,6 +13,9 @@ public interface PeerLoanTermsRepository extends JpaRepository<PeerLoanTerms, Lo
 
     /** Guards against linking the same provider transaction to two loans. */
     Optional<PeerLoanTerms> findByLendingTransactionId(Long lendingTransactionId);
+
+    /** Batch version for annotating transaction lists with their loan link. */
+    List<PeerLoanTerms> findByLendingTransactionIdIn(Collection<Long> lendingTransactionIds);
 
     /** The GDPR export needs every loan of one member, not one account at a time. */
     List<PeerLoanTerms> findAllByAccountMemberIdOrderByLentAtAscIdAsc(Long memberId);

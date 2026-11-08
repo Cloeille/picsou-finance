@@ -16,6 +16,9 @@ public interface PeerLoanRepaymentRepository extends JpaRepository<PeerLoanRepay
     /** Guards against assigning the same incoming transaction to two repayments. */
     Optional<PeerLoanRepayment> findByCashTransactionId(Long cashTransactionId);
 
+    /** Batch version for annotating transaction lists with their loan link. */
+    List<PeerLoanRepayment> findByCashTransactionIdIn(Collection<Long> cashTransactionIds);
+
     List<PeerLoanRepayment> findAllByAccountIdIn(Collection<Long> accountIds);
 
     /** The GDPR export needs the whole journal of one member in date order. */
