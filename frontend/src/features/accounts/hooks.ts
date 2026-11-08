@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { accountsApi, realEstateApi } from './api'
 import type { AccountRequest, Account, DebtRequest, HoldingResponse, OwnershipRequest, RealEstateMetadataRequest, ScpiPositionRequest, ScpiProvider, TransactionImportRequest, TransactionRequest } from '@/types/api'
-import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES, QUERY_STALE_TIMES } from '@/lib/constants'
+import { CASH_ACCOUNT_TYPES, HOLDING_ACCOUNT_TYPES, QUERY_STALE_TIMES } from '@/lib/constants'
 
 export interface HoldingWithAccount extends HoldingResponse {
   accountName: string
@@ -249,9 +249,13 @@ export function usePortfolio() {
         }
       })
 
-      // Cash accounts — aggregate into a single "Euros" line (debts are not cash)
-      const cashAccounts = accounts.filter(
-        a => !HOLDING_ACCOUNT_TYPES.includes(a.type) && !LIABILITY_ACCOUNT_TYPES.includes(a.type),
+      // Cash accounts — aggregate into a single "Euros" line. Only bank and savings types:
+      // debts, property and SCPI are not cash. A pocket whose wallet is in the same cash list
+      // is left out, because the wallet's balance already carries it.
+      const cashTyped = accounts.filter(a => CASH_ACCOUNT_TYPES.includes(a.type))
+      const cashIds = new Set(cashTyped.map(a => a.id))
+      const cashAccounts = cashTyped.filter(
+        a => a.parentAccountId == null || !cashIds.has(a.parentAccountId),
       )
       if (cashAccounts.length > 0) {
         enriched.push({
