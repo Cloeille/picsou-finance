@@ -156,6 +156,14 @@ the box clears the remembered identifier on the next successful login.
   credentials. The `*.cloudfront.net` interim step proved too broad (anyone
   can create a distribution) and was replaced by pinning. Blocked requests
   log the host only, never the URL.
+- Observed host inventory (one full live login + sync, all Documents on bank
+  domains, no off-bank XHR): `voscomptesenligne.labanquepostale.fr`
+  (documents, scripts, XHR, httpx replays), `transverse.labanquepostale.fr`
+  (the `message.html` notice page, fonts, images, scripts),
+  `www.labanquepostale.fr` and `www.services.labanquepostale.fr` (scripts),
+  `dqnjn206bwvk2` / `d2ydsn9mah1r4u.cloudfront.net` (anti-fraud `fruprem.js` /
+  `loreo.js` scripts only). Nothing else is needed; anything else fails
+  closed.
 
 ### Storage
 
