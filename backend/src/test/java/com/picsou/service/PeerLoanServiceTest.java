@@ -829,7 +829,7 @@ class PeerLoanServiceTest {
         when(termsRepository.save(any(PeerLoanTerms.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.close(ACCOUNT_ID, MEMBER_ID, LocalDate.parse("2026-01-15"));
+        PeerLoanDetailResponse response = service.close(ACCOUNT_ID, MEMBER_ID, LocalDate.parse("2026-01-15"));
 
         // The February and March rows belong to a future the write-off must not erase:
         // the residual is the full 1 000, not 1 000 − 300 − 200.
@@ -837,6 +837,8 @@ class PeerLoanServiceTest {
         verify(repaymentRepository).save(writeOff.capture());
         assertThat(writeOff.getValue().getKind()).isEqualTo(PeerLoanRepaymentKind.WRITE_OFF);
         assertThat(writeOff.getValue().getAmount()).isEqualByComparingTo("1000");
+        assertThat(response.writtenOff()).isEqualByComparingTo("1000.00");
+        assertThat(response.principalRepaid()).isEqualByComparingTo("0.00");
     }
 
     @Test
