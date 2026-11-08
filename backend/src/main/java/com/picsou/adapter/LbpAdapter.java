@@ -50,6 +50,7 @@ public class LbpAdapter {
     private final SidecarClient sidecar;
     /** Same mapping, except a 410 means the pending login is gone, not that a stored session died. */
     private final SidecarClient authSidecar;
+    /** Kept for a future wired token-check (the sidecar's /token-check exists); nothing calls it yet. */
     private final Duration checkTimeout;
     private final Duration accountsTimeout;
     private final Duration initiateTimeout;

@@ -67,7 +67,7 @@ public class LbpSession extends AuditableEntity {
     @Column(name = "last_sync_error", length = 40)
     private SidecarErrorCode lastSyncError;
 
-    /** JSON array of {externalId, familyCode}: products seen but not imported. */
+    /** Reserved for future provisional kinds: JSON array of {externalId, familyCode}, always [] today. */
     @Column(name = "unsupported_products", columnDefinition = "TEXT")
     private String unsupportedProducts;
 

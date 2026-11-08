@@ -66,9 +66,11 @@ beside it, so one source owns every account of the bank. See
     }],
     "snapshotComplete": true
   }],
-  "unsupported": [{"externalId": "string", "familyCode": "string"}]
+  "unsupported": []
 }
 ```
+Reserved for future provisional kinds; La Banque Postale currently always
+emits `[]` (an unlisted product refuses the sync instead of being listed).
 
 Money is a decimal string, never a float. `snapshotComplete` is `true` only when
 the whole account was read: the backend refuses the entire import otherwise.

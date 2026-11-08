@@ -178,8 +178,8 @@ Table `lbp_session`, modelled on `caisse_epargne_session`: one row per member,
 `session_state` encrypted with `CryptoEncryption`, `encrypted_identifier` (the
 optional remembered 10-digit identifier, also encrypted), `last_validated_at`,
 `is_active`, `sync_status`, `last_sync_started_at`, `last_sync_completed_at`,
-`last_sync_error` (CHECK on the error codes), `unsupported_products`.
-Deliberately no password or keypad-position column.
+`last_sync_error` (CHECK on the error codes), `unsupported_products` (reserved,
+always empty today). Deliberately no password or keypad-position column.
 
 A session the bank rejects (`SESSION_EXPIRED`) or that cannot be decrypted
 (`INVALID_SESSION_STATE`) becomes inactive and must be renewed by the user. A
@@ -338,14 +338,14 @@ layer is `httpx` cookie replay.
 - `components/sync/SyncAllModal.tsx` lists the connector (live session or LBP
   accounts present), syncs it in place when the session is live, and routes an
   expired one to `/sync?tab=lbp`.
-- Tests: `LbpTab.test.tsx` (11 cases, including the remembered identifier).
+- Tests: `LbpTab.test.tsx` (16 cases, including the remembered identifier).
 
 **Verification** — the LBP backend tests pass, plus the shared
 `SidecarContractTest` (235 cases across every bank), `SidecarBankCodesTest`
 (25 cases, including the `lbp_session` CHECK) and the `V129` / `V130` migration
 tests on real PostgreSQL. The 75 sidecar tests pass in the published image;
 the browser login is live-only. The frontend typechecks, lints and builds, and
-the 11 `LbpTab` tests pass.
+the 16 `LbpTab` tests pass.
 The previous date-dependent `DividendControllerAuthorizationTest` failure was
 fixed upstream (relative ex-dates).
 
