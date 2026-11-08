@@ -180,12 +180,14 @@ class AccountsTest(unittest.TestCase):
         self.assertEqual(csl["name"], "SYNTHETIC Compte Sur Livret")
         self.assertEqual(csl["balance"], "250.0")
         self.assertIsNone(csl["iban"])
+        self.assertFalse(csl["ibanAmbiguous"])
         self.assertEqual([t["externalId"] for t in csl["transactions"]], ["tx-1005"])
         pel = body["accounts"][5]
         self.assertEqual(pel["name"], "SYNTHETIC Plan Epargne Logement")
         self.assertEqual(pel["balance"], "15000.0")
         self.assertEqual(pel["ceiling"], "61200.0")
         self.assertIsNone(pel["iban"])
+        self.assertFalse(pel["ibanAmbiguous"])
         self.assertEqual([t["externalId"] for t in pel["transactions"]], ["tx-1006"])
         # The current account's card is not imported for this bank, and not listed either:
         # it is not a contract.

@@ -78,8 +78,8 @@ Imported: the current account, `3/01` Livret A, `3/01` Livret Jeune
 all with their PFM transactions. A `3/01` label that names a LEP (`LEP`,
 `EPARGNE POPULAIRE`) is imported as `LEP`.
 
-Cards are not imported (`Site.cards=False`): the `augmentedCards` list of a
-contract is checked for shape, then ignored. No card account, no card operation
+Cards are not imported (`Site.cards=False`): for non-provisional contracts, the `augmentedCards` list of a
+contract is checked for shape, then ignored (for provisional savings accounts, card validation is skipped). No card account, no card operation
 read, nothing listed in `unsupported` (a card is not a contract).
 
 Listed in `unsupported` (id, family and sub-family code only), never read, never fatal:

@@ -464,7 +464,7 @@ def _parse_synthesis(
             unsupported.append(skipped)
             continue  # its cards are skipped with it
         add(contract, where)
-        if contract["kind"] in provisional_kinds:
+        if contract["kind"] in provisional_kinds or contract["kind"] == "LEP":
             continue  # no card is read from a provisional savings book or plan
 
         if "augmentedCards" not in item["identity"]:
