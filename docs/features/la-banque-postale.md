@@ -88,15 +88,16 @@ bank-specific.
 | `balance` | Signed; a card's is its outstanding (≤ 0), a loan's is the bank's signed capital |
 | `currency` | `EUR` only |
 | `iban` | Never persisted by the backend |
-| `ceiling`, `remainingDepositCapacity`, `fillingRatio` | Carried when the bank exposes them |
-| `cardNature`, `parentExternalId`, `nextDueDate` | Cards only |
+| `ceiling`, `remainingDepositCapacity`, `fillingRatio` | Reserved: the sidecar never sends them today, the backend ignores them |
+| `cardNature`, `parentExternalId`, `nextDueDate` | Cards only (`parentExternalId` reserved: never sent, never persisted) |
 | `transactions` | `{externalId, date, dueDate, amount, currency, label, typeCode}` |
 | `snapshotComplete` | The sidecar read the whole account, not a partial page |
 
-`unsupported` lists products the bank reported but the sidecar does not import
-(`{externalId, familyCode}`). They never become accounts; a list longer than 100
-is truncated (and counted), while a malformed entry refuses the sync as a format
-change.
+`unsupported` is part of the snapshot contract but La Banque Postale currently
+always emits `[]`: any product the bank shows but the sidecar does not import
+refuses the whole sync as a format change instead of being listed — nothing is
+partially imported. (When provisional kinds are introduced for LBP, they will
+be listed here like the BPCE parser does.)
 
 No real empty state has ever been observed: a synthesis page with an account-list
 container but zero cards only parses as `[]` together with an explicit
@@ -337,14 +338,14 @@ layer is `httpx` cookie replay.
 - `components/sync/SyncAllModal.tsx` lists the connector (live session or LBP
   accounts present), syncs it in place when the session is live, and routes an
   expired one to `/sync?tab=lbp`.
-- Tests: `LbpTab.test.tsx` (7 cases, including the remembered identifier).
+- Tests: `LbpTab.test.tsx` (11 cases, including the remembered identifier).
 
 **Verification** — the LBP backend tests pass, plus the shared
-`SidecarContractTest` (214 cases across every bank), `SidecarBankCodesTest`
-(23 cases, including the `lbp_session` CHECK) and the `V129` / `V130` migration
-tests on real PostgreSQL. The 29 sidecar tests pass in the published image;
+`SidecarContractTest` (235 cases across every bank), `SidecarBankCodesTest`
+(25 cases, including the `lbp_session` CHECK) and the `V129` / `V130` migration
+tests on real PostgreSQL. The 75 sidecar tests pass in the published image;
 the browser login is live-only. The frontend typechecks, lints and builds, and
-the 5 `LbpTab` tests pass.
+the 11 `LbpTab` tests pass.
 The previous date-dependent `DividendControllerAuthorizationTest` failure was
 fixed upstream (relative ex-dates).
 

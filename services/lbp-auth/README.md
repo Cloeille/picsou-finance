@@ -72,8 +72,9 @@ beside it, so one source owns every account of the bank. See
 
 Money is a decimal string, never a float. `snapshotComplete` is `true` only when
 the whole account was read: the backend refuses the entire import otherwise.
-A product the bank shows but this sidecar does not import goes in `unsupported`
-and never becomes an account.
+A product the bank shows but this sidecar does not import refuses the whole
+sync as a format change instead of being listed: `unsupported` stays `[]`
+(no partial import, unlike the BPCE parser's provisional kinds).
 
 `externalId` is a SHA-1 of the bank's **displayed account number**, not the
 `compte.numero` UUID from the statement links: that UUID changes at every login
