@@ -414,6 +414,133 @@ class PeerLoanServiceTest {
         verify(repaymentRepository, never()).save(any(PeerLoanRepayment.class));
     }
 
+    private static PeerLoanRepayment ledgerRow(Account account, Long id, String paidOn, String amount) {
+        return PeerLoanRepayment.builder()
+            .id(id).account(account).paidOn(LocalDate.parse(paidOn))
+            .amount(new BigDecimal(amount)).kind(PeerLoanRepaymentKind.PRINCIPAL).build();
+    }
+
+    @Test
+    void addRepaymentRejectsABackdatedPaymentThatLetsALaterOneOverpay() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = terms(account, new BigDecimal("1000"), null);
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenReturn(List.of(ledgerRow(account, 21L, "2026-03-01", "500")));
+
+        // 500 in March leaves 500 owed. Nothing precedes February, so 700 looks acceptable on
+        // its own date; but it would absorb 700 and leave March's 500 only 300 to clear: 200
+        // of cash the ledger drops.
+        assertThatThrownBy(() -> service.addRepayment(ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentRequest(
+            LocalDate.parse("2026-02-01"), new BigDecimal("700"), PeerLoanRepaymentKind.PRINCIPAL, null)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("cannot exceed 500.00 EUR");
+
+        verify(repaymentRepository, never()).save(any(PeerLoanRepayment.class));
+        verify(manualTransactionService, never()).addTransaction(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void updateRepaymentRejectsMovingARowBeforeALaterOneThatWouldThenOverpay() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = terms(account, new BigDecimal("1000"), null);
+        PeerLoanRepayment march = ledgerRow(account, 21L, "2026-03-01", "500");
+        PeerLoanRepayment april = ledgerRow(account, 22L, "2026-04-01", "300");
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.findByIdAndAccountId(22L, ACCOUNT_ID)).thenReturn(Optional.of(april));
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenReturn(List.of(march, april));
+
+        // Without the April row 500 is still owed after March; moving it to 700 in February
+        // would absorb 700 and leave March 300 to clear.
+        assertThatThrownBy(() -> service.updateRepayment(ACCOUNT_ID, 22L, MEMBER_ID,
+            new PeerLoanRepaymentRequest(LocalDate.parse("2026-02-01"), new BigDecimal("700"),
+                PeerLoanRepaymentKind.PRINCIPAL, null, false)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("cannot exceed 500.00 EUR");
+
+        assertThat(april.getAmount()).isEqualByComparingTo("300");
+        assertThat(april.getPaidOn()).isEqualTo(LocalDate.parse("2026-04-01"));
+    }
+
+    @Test
+    void addRepaymentRejectsAnEarlierPaymentThatShiftsInterestOntoALaterPayoff() {
+        Account account = loanAccount("Jean");
+        // 0.365 a year is exactly 0.001 a day: 1000 owes 100 of interest after 100 days.
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("1000")).lentAt(LocalDate.parse("2026-01-01"))
+            .annualRate(new BigDecimal("0.365")).build();
+        // 1100 on 2026-04-11 clears the loan exactly (1000 capital + 100 interest).
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenReturn(List.of(ledgerRow(account, 21L, "2026-04-11", "1100")));
+
+        // 500 on 2026-02-10 is fine for its own date (40 interest + 460 capital), but it leaves
+        // 540 outstanding: the payoff then owes 572.40, and 527.60 of its cash has nowhere to go.
+        assertThatThrownBy(() -> service.addRepayment(ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentRequest(
+            LocalDate.parse("2026-02-10"), new BigDecimal("500"), PeerLoanRepaymentKind.PRINCIPAL, null, false)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("cannot exceed");
+
+        verify(repaymentRepository, never()).save(any(PeerLoanRepayment.class));
+    }
+
+    @Test
+    void addRepaymentAcceptsTheExactPayoffInOrder() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = terms(account, new BigDecimal("1000"), null);
+        List<PeerLoanRepayment> ledger = new ArrayList<>(List.of(ledgerRow(account, 21L, "2026-02-01", "500")));
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
+            PeerLoanRepayment saved = invocation.getArgument(0);
+            saved.setId(22L);
+            ledger.add(saved);
+            return saved;
+        });
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenAnswer(invocation -> List.copyOf(ledger));
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.addRepayment(ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentRequest(
+            LocalDate.parse("2026-03-01"), new BigDecimal("500"), PeerLoanRepaymentKind.PRINCIPAL, null, false));
+
+        assertThat(ledger).hasSize(2);
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void addRepaymentAcceptsTheExactPayoffOfAnInterestBearingLoan() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("1000")).lentAt(LocalDate.parse("2026-01-01"))
+            .annualRate(new BigDecimal("0.365")).build();
+        List<PeerLoanRepayment> ledger = new ArrayList<>();
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
+            PeerLoanRepayment saved = invocation.getArgument(0);
+            saved.setId(22L);
+            ledger.add(saved);
+            return saved;
+        });
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenAnswer(invocation -> List.copyOf(ledger));
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // 100 days at 0.1 %: 1000 capital plus 100 interest is exactly what is owed.
+        service.addRepayment(ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentRequest(
+            LocalDate.parse("2026-04-11"), new BigDecimal("1100"), PeerLoanRepaymentKind.PRINCIPAL, null, false));
+
+        assertThat(ledger).hasSize(1);
+        assertThat(account.getCurrentBalance()).isEqualByComparingTo("0");
+    }
+
     @Test
     void addRepaymentFromTransactionLinksAnOverpayingTransactionAndClampsTheLedger() {
         Account account = loanAccount("Jean");

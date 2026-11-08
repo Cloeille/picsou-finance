@@ -886,10 +886,17 @@ public class PeerLoanService {
     }
 
     /**
-     * A repayment is interest first, then capital: it can never absorb more than the
-     * accrued interest plus the remaining capital at its own date. The excess would
-     * otherwise be written in full to the cash account while the ledger drops it,
-     * inflating net worth out of nothing.
+     * Accepting the repayment must not create cash the ledger cannot absorb. A payment is
+     * interest first, then capital, so the loan takes at most what is owed; the excess would
+     * be written in full to the cash account while the ledger drops it, inflating net worth.
+     *
+     * <p>The check covers the whole ledger, not only the rows dated before the candidate: a
+     * backdated payment pushes the later rows over the cap (and, on an interest-bearing
+     * loan, changes how much interest each of them pays). So the ledger is replayed without
+     * and with the candidate, and the candidate is refused when it leaves more cash
+     * unabsorbed than there already was. Comparing against the existing figure keeps a
+     * linked overpaying transaction (documented as clamped, never refused) from blocking
+     * every later edit.
      */
     private void validateRepaymentAmount(
         PeerLoanTerms terms, BigDecimal amount, LocalDate paidOn, Long excludedRepaymentId
@@ -897,26 +904,66 @@ public class PeerLoanService {
         if (amount == null || paidOn == null) {
             return;
         }
-        PeerLoanCalculator.Computed computed = PeerLoanCalculator.compute(
-            terms, ledgerUpTo(terms, paidOn, excludedRepaymentId), paidOn);
-        BigDecimal maxAcceptable =
-            computed.interestAccrued().add(computed.principalRemaining());
-        if (amount.compareTo(maxAcceptable) > 0) {
+        List<PeerLoanRepayment> others = ledgerExcluding(terms, excludedRepaymentId);
+        // The candidate takes the place the saved row will have among same-day rows: an
+        // edited row keeps its id, a new one gets the next, so it sorts last.
+        PeerLoanRepayment candidate = PeerLoanRepayment.builder()
+            .id(excludedRepaymentId != null ? excludedRepaymentId : Long.MAX_VALUE)
+            .paidOn(paidOn)
+            .amount(amount)
+            .build();
+        List<PeerLoanRepayment> withCandidate = new ArrayList<>(others);
+        withCandidate.add(candidate);
+
+        if (unabsorbed(terms, withCandidate, paidOn).compareTo(unabsorbed(terms, others, paidOn)) > 0) {
+            BigDecimal interestAtPaidOn = PeerLoanCalculator
+                .compute(terms, upTo(others, paidOn), paidOn)
+                .interestAccrued();
+            BigDecimal remainingAfterOthers = PeerLoanCalculator
+                .compute(terms, others, paidOn)
+                .principalRemaining();
             throw new IllegalArgumentException(
                 "A repayment cannot exceed "
-                    + maxAcceptable.setScale(2, RoundingMode.HALF_UP)
+                    + interestAtPaidOn.add(remainingAfterOthers).setScale(2, RoundingMode.HALF_UP)
                     + " EUR (accrued interest plus remaining capital)");
         }
+    }
+
+    /**
+     * Cash the ledger recorded as paid but could not apply to interest or capital. Totals,
+     * not per-row ids: the splits of the replayed ledger are summed whichever row they belong to.
+     */
+    private static BigDecimal unabsorbed(
+        PeerLoanTerms terms, List<PeerLoanRepayment> rows, LocalDate asOf
+    ) {
+        BigDecimal paid = rows.stream()
+            .filter(row -> row.getKind() != PeerLoanRepaymentKind.WRITE_OFF)
+            .map(PeerLoanRepayment::getAmount)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal absorbed = PeerLoanCalculator.compute(terms, rows, asOf).splits().stream()
+            .map(split -> split.interest().add(split.capital()))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return paid.subtract(absorbed);
     }
 
     /** The ledger as it stood on {@code paidOn}, without the row being edited. */
     private List<PeerLoanRepayment> ledgerUpTo(
         PeerLoanTerms terms, LocalDate paidOn, Long excludedRepaymentId
     ) {
+        return upTo(ledgerExcluding(terms, excludedRepaymentId), paidOn);
+    }
+
+    /** The whole ledger, without the row being edited. */
+    private List<PeerLoanRepayment> ledgerExcluding(PeerLoanTerms terms, Long excludedRepaymentId) {
         return repaymentRepository
             .findByAccountIdOrderByPaidOnAscIdAsc(terms.getAccount().getId()).stream()
             .filter(r -> excludedRepaymentId == null || !excludedRepaymentId.equals(r.getId()))
-            .filter(r -> r.getPaidOn() == null || !r.getPaidOn().isAfter(paidOn))
+            .toList();
+    }
+
+    private static List<PeerLoanRepayment> upTo(List<PeerLoanRepayment> rows, LocalDate date) {
+        return rows.stream()
+            .filter(r -> r.getPaidOn() == null || !r.getPaidOn().isAfter(date))
             .toList();
     }
 
