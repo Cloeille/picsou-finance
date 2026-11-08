@@ -1,5 +1,6 @@
 """Keep dependency-update coverage aligned with the repository manifests."""
 
+from fnmatch import fnmatch
 from pathlib import Path
 import re
 import unittest
@@ -38,6 +39,21 @@ class DependabotCoverageTest(unittest.TestCase):
             with self.subTest(ecosystem=ecosystem):
                 self.assertTrue(directories)
                 self.assertLessEqual(directories, covered.get(ecosystem, set()))
+
+    def test_codeql_action_steps_share_one_version_and_one_update(self):
+        # CodeQL's analyze refuses a database that init built with another version.
+        refs = set()
+        for workflow in (ROOT / ".github/workflows").glob("*.y*ml"):
+            refs.update(re.findall(r"uses:\s*github/codeql-action/[\w-]+@(\S+)", workflow.read_text()))
+        self.assertEqual(len(refs), 1, refs)
+
+        config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+        actions = next(u for u in config["updates"] if u["package-ecosystem"] == "github-actions")
+        steps = ("github/codeql-action/init", "github/codeql-action/analyze")
+        self.assertTrue(any(
+            all(any(fnmatch(step, pattern) for pattern in group.get("patterns", [])) for step in steps)
+            for group in actions.get("groups", {}).values()
+        ))
 
 
 if __name__ == "__main__":
