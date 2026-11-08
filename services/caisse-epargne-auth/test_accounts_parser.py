@@ -398,8 +398,8 @@ class ProductFamiliesTest(unittest.TestCase):
         self.assertEqual(kinds["1003"], "LDDS")
 
     def test_pel_and_lep_sub_families_are_pfm_savings_keyed_by_their_pfm_id(self):
-        # Observed live 2026-11-06: PEL `3/04`, with with a `contractPfmId`.
-        for sub, kind in [("04", "PEL")]:
+        # Observed live 2026-11-06: PEL `3/04` and LEP `3/27`, both with a `contractPfmId`.
+        for sub, kind in [("04", "PEL"), ("27", "LEP")]:
             with self.subTest(kind=kind):
                 s = products()
                 family(s, "3", "28")["identity"]["subProductFamilyPFM"]["code"] = sub
@@ -415,7 +415,7 @@ class ProductFamiliesTest(unittest.TestCase):
     def test_pel_or_lep_without_a_pfm_id_is_unsupported_and_blocks_nothing(self):
         # Only one live run showed them with a `contractPfmId`: another shape must not
         # fail the current account, the livrets, the cards or the loans.
-        for sub in ("04",):
+        for sub in ("04", "27"):
             with self.subTest(sub=sub):
                 s = products()
                 item = family(s, "3", "28")
@@ -452,7 +452,7 @@ class ProductFamiliesTest(unittest.TestCase):
             ("pfm string", pfm_string), ("pfm bool", pfm_bool), ("no balance", no_balance),
             ("negative", negative), ("string balance", string_balance),
         ]:
-            for sub in ("04",):
+            for sub in ("04", "27"):
                 with self.subTest(name=name, sub=sub):
                     s = products()
                     item = family(s, "3", "28")
@@ -467,7 +467,7 @@ class ProductFamiliesTest(unittest.TestCase):
 
         # A PEL has no card: a missing `augmentedCards` key does not matter, and a card listed
         # on one is not read.
-        for sub, kind in (("04", "PEL"),):
+        for sub, kind in (("04", "PEL"), ("27", "LEP")):
             with self.subTest(cards=sub):
                 s = products()
                 item = family(s, "3", "28")
@@ -476,7 +476,7 @@ class ProductFamiliesTest(unittest.TestCase):
                 self.assertEqual(by_id(parse_synthesis(s))["1003"]["kind"], kind)
 
     def test_the_long_observed_savings_kinds_still_fail_loudly_on_an_odd_pfm_id(self):
-        # The leniency above is for the PEL only: a Livret A or LDDS shape change must
+        # The leniency above is for PEL and LEP only: a Livret A or LDDS shape change must
         # still refuse the snapshot, so a format change is never swallowed for them.
         for sub in ("01", "28"):
             with self.subTest(sub=sub):
@@ -591,8 +591,8 @@ class ProductFamiliesTest(unittest.TestCase):
         self.assertEqual([(u["externalId"], u["hasPfmId"]) for u in unsupported], [("contract:0000000017", True)])
 
     def test_the_iban_of_a_pel_or_lep_is_never_read(self):
-        # Only a current account can debit a loan: a PEL IBAN must not join that match.
-        for sub in ("04",):
+        # Only a current account can debit a loan: a PEL or LEP IBAN must not join that match.
+        for sub in ("04", "27"):
             with self.subTest(sub=sub):
                 s = products()
                 family(s, "3", "28")["identity"]["subProductFamilyPFM"]["code"] = sub
