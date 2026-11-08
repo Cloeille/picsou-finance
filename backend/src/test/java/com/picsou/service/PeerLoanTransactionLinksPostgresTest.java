@@ -1,6 +1,7 @@
 package com.picsou.service;
 
 import com.picsou.dto.TransactionResponse.PeerLoanLink;
+import com.picsou.dto.TransactionResponse.PeerLoanLinkKind;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
@@ -86,8 +87,8 @@ class PeerLoanTransactionLinksPostgresTest {
             .build());
 
         Map<Long, PeerLoanLink> before = links.linksFor(List.of(lending.getId(), cashIn.getId(), 70L));
-        assertThat(before.get(lending.getId())).isEqualTo(new PeerLoanLink("LENDING", loan.getId(), "Jean"));
-        assertThat(before.get(cashIn.getId())).isEqualTo(new PeerLoanLink("REPAYMENT", loan.getId(), "Jean"));
+        assertThat(before.get(lending.getId())).isEqualTo(new PeerLoanLink(PeerLoanLinkKind.LENDING, loan.getId(), "Jean"));
+        assertThat(before.get(cashIn.getId())).isEqualTo(new PeerLoanLink(PeerLoanLinkKind.REPAYMENT, loan.getId(), "Jean"));
         assertThat(before).doesNotContainKey(70L);
 
         // Deleting a loan is a soft-delete: the ledger rows and the cash movements stay.

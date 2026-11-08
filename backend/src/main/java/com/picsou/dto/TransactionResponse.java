@@ -42,7 +42,13 @@ public record TransactionResponse(
     PeerLoanLink peerLoanLink
 ) {
     /** A transaction's role in a peer loan, if it has one. */
-    public record PeerLoanLink(String kind, Long accountId, String accountName) {}
+    public record PeerLoanLink(PeerLoanLinkKind kind, Long accountId, String accountName) {}
+
+    /** Serialized as its name, so the API shape is unchanged ("LENDING" | "REPAYMENT"). */
+    public enum PeerLoanLinkKind {
+        LENDING,
+        REPAYMENT
+    }
 
     /** Maps a transaction to its API shape, flattening the category and account to ids and names. */
     public static TransactionResponse from(Transaction t) {

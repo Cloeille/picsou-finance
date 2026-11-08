@@ -2,6 +2,7 @@ package com.picsou.service;
 
 import com.picsou.dto.TransactionResponse;
 import com.picsou.dto.TransactionResponse.PeerLoanLink;
+import com.picsou.dto.TransactionResponse.PeerLoanLinkKind;
 import com.picsou.model.Transaction;
 import com.picsou.repository.PeerLoanRepaymentRepository;
 import com.picsou.repository.PeerLoanTermsRepository;
@@ -52,13 +53,13 @@ public class PeerLoanTransactionLinks {
         for (var terms : termsRepository.findByLendingTransactionIdIn(ids)) {
             if (terms.getLendingTransactionId() != null && terms.getAccount() != null) {
                 links.putIfAbsent(terms.getLendingTransactionId(), new PeerLoanLink(
-                    "LENDING", terms.getAccount().getId(), terms.getAccount().getName()));
+                    PeerLoanLinkKind.LENDING, terms.getAccount().getId(), terms.getAccount().getName()));
             }
         }
         for (var repayment : repaymentRepository.findByCashTransactionIdIn(ids)) {
             if (repayment.getCashTransactionId() != null && repayment.getAccount() != null) {
                 links.putIfAbsent(repayment.getCashTransactionId(), new PeerLoanLink(
-                    "REPAYMENT", repayment.getAccount().getId(), repayment.getAccount().getName()));
+                    PeerLoanLinkKind.REPAYMENT, repayment.getAccount().getId(), repayment.getAccount().getName()));
             }
         }
         return links;

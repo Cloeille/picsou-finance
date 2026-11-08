@@ -2,6 +2,7 @@ package com.picsou.service;
 
 import com.picsou.dto.TransactionResponse;
 import com.picsou.dto.TransactionResponse.PeerLoanLink;
+import com.picsou.dto.TransactionResponse.PeerLoanLinkKind;
 import com.picsou.model.Account;
 import com.picsou.model.PeerLoanRepayment;
 import com.picsou.model.PeerLoanTerms;
@@ -44,8 +45,8 @@ class PeerLoanTransactionLinksTest {
 
         Map<Long, PeerLoanLink> out = links.linksFor(List.of(50L, 60L, 70L));
 
-        assertThat(out.get(50L)).isEqualTo(new PeerLoanLink("LENDING", 20L, "Jean"));
-        assertThat(out.get(60L)).isEqualTo(new PeerLoanLink("REPAYMENT", 20L, "Jean"));
+        assertThat(out.get(50L)).isEqualTo(new PeerLoanLink(PeerLoanLinkKind.LENDING, 20L, "Jean"));
+        assertThat(out.get(60L)).isEqualTo(new PeerLoanLink(PeerLoanLinkKind.REPAYMENT, 20L, "Jean"));
         assertThat(out).doesNotContainKey(70L);
     }
 
@@ -63,7 +64,7 @@ class PeerLoanTransactionLinksTest {
         List<TransactionResponse> out = links.annotate(List.of(plain, leg));
 
         assertThat(out.get(0).peerLoanLink()).isNull();
-        assertThat(out.get(1).peerLoanLink()).isEqualTo(new PeerLoanLink("REPAYMENT", 20L, "Jean"));
+        assertThat(out.get(1).peerLoanLink()).isEqualTo(new PeerLoanLink(PeerLoanLinkKind.REPAYMENT, 20L, "Jean"));
     }
 
     @Test
