@@ -1050,9 +1050,10 @@ describe('CaisseEpargneTab', () => {
       lastSyncCompletedAt: '2026-10-07T08:00:00Z',
       unsupported: [
         { externalId: 'SECRET-CONTRACT-ID-1', familyCode: '0123' },
-        { externalId: 'SECRET-CONTRACT-ID-2', familyCode: '0456' },
+        { externalId: 'SECRET-CONTRACT-ID-2', familyCode: '0456', subFamilyCode: null },
+        { externalId: 'SECRET-CONTRACT-ID-3', familyCode: '4', subFamilyCode: '02' },
       ],
-      unsupportedCount: 2,
+      unsupportedCount: 3,
     }
 
     it('hides the login form and syncs on demand with POST /sync', async () => {
@@ -1066,12 +1067,13 @@ describe('CaisseEpargneTab', () => {
       expect(screen.queryByLabelText('sync.caisseEpargne.customerId')).not.toBeInTheDocument()
     })
 
-    it('lists unsupported contracts by family code only', async () => {
+    it('lists unsupported contracts by family and sub-family code only', async () => {
       apiGet.mockResolvedValue({ data: CONNECTED })
       renderTab()
 
       expect(await screen.findByText('0123')).toBeInTheDocument()
       expect(screen.getByText('0456')).toBeInTheDocument()
+      expect(screen.getByText('4/02')).toBeInTheDocument()
       expect(screen.queryByText(/SECRET-CONTRACT-ID/)).not.toBeInTheDocument()
     })
 

@@ -22,6 +22,7 @@ transactions query, and the `meta.nextPageToken` / `pageToken` pagination
 import copy
 import json
 import logging
+import os
 import urllib.parse
 from datetime import date, timedelta
 from decimal import Decimal
@@ -29,7 +30,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 import httpx
 
-from . import accounts_parser, per_parser, replay
+from . import accounts_parser, per_client, per_parser, replay
 from .site import Site
 
 log = logging.getLogger("bpce")
@@ -264,6 +265,44 @@ def _serialise_loan(loan: Optional[dict]) -> Optional[dict]:
     }
 
 
+def _mask(value: Any, *, cap: int, letters: bool) -> str:
+    """One masking rule for every diagnostic log field.
+
+    Every digit, lowercase letter, accent and symbol becomes `9`, and the value is cut
+    at `cap` characters first. With `letters`, ASCII capitals are kept (a product code
+    such as `PERIC`, a catalogue name such as `LIVRET A`); without, they are masked
+    too and only the blanks and the length show. No number ever shows.
+    """
+    if not isinstance(value, str):
+        return "None"
+    keep = (lambda c: "A" <= c <= "Z" or c == " ") if letters else (lambda c: c == " ")
+    kept = "".join(c if keep(c) else "9" for c in value[:cap])
+    return kept.strip() or "None"
+
+
+def _log_details() -> bool:
+    """`CE_LOG_PRODUCT_DETAILS=1` adds the letters of the contract id and the bank's
+    catalogue name to the diagnostic log of a contract Picsou does not import.
+
+    Off by default: both are free text on a product not seen yet, so a normal run
+    never writes them (it logs the codes, whether a pfm id was sent and the length
+    shape of the id).
+    """
+    return os.environ.get("CE_LOG_PRODUCT_DETAILS") == "1"
+
+
+def _id_shape(external_id: str) -> str:
+    """The contract id, masked, without its `contract:` prefix."""
+    return _mask(
+        external_id.removeprefix(accounts_parser.CONTRACT_ID_PREFIX), cap=32, letters=_log_details()
+    )
+
+
+def _product_label(label: Optional[str]) -> str:
+    """The bank's catalogue `productLabel`, masked and cut at 40 characters."""
+    return _mask(label, cap=40, letters=True)
+
+
 def _serialise_per(per: dict) -> dict:
     return {
         "balance": _dec(per["balance"]),
@@ -364,6 +403,11 @@ async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvide
         except (replay.SessionExpired, replay.InvalidSessionState):
             raise
         except replay.ReplayError as exc:
+            if isinstance(exc, per_client.UnknownPerContract):
+                # Refused before any request: the contract id is not one the insurer
+                # reader knows. Its masked shape tells a new product (an assurance vie
+                # filed under the PER code) apart, without any number.
+                log.info("PER request refused: idShape=%s", _id_shape(ext))
             unavailable[ext] = exc.code
             continue
         except httpx.HTTPError:
@@ -498,6 +542,7 @@ async def fetch_import(
                 copy.deepcopy(synthesis),
                 skipped_families=site.unsupported_families,
                 import_cards=site.cards,
+                provisional_kinds=site.provisional_kinds,
             )
         except accounts_parser.ParseError:
             raise UpstreamFormatChanged("Synthesis does not match the observed format") from None
@@ -517,16 +562,23 @@ async def fetch_import(
                 else:
                     # PER and loan: no PFM transactions, so no call and no IBAN.
                     pages = []
-                transactions[external_id] = accounts_parser.build_account(account, pages, today=today)
-            except FetchError as exc:
+                transactions[external_id] = accounts_parser.build_account(
+                    account, pages, today=today, provisional_kinds=site.provisional_kinds
+                )
+            except (FetchError, accounts_parser.ParseError) as exc:
                 if kind == _CURRENT_KIND:
-                    raise
-                unavailable[external_id] = exc.code
-            except accounts_parser.ParseError as exc:
-                if kind == _CURRENT_KIND:
+                    if isinstance(exc, FetchError):
+                        raise
                     # Code only: the parser's messages name fields, but stay on the safe side.
                     log.warning("accounts import rejected: %s", exc.code)
                     raise UpstreamFormatChanged("Payload does not match the observed format") from None
+                if kind in site.provisional_kinds:
+                    # Seen in one live run only: imported from its synthesis entry (balance and
+                    # name) with no transactions, rather than dropped into `unavailable`, which
+                    # the backend ignores and which would leave it missing with no trace.
+                    log.warning("account imported without transactions: kind=%s code=%s", kind, exc.code)
+                    transactions[external_id] = []
+                    continue
                 unavailable[external_id] = exc.code
 
         loans, loan_unavailable = await _fetch_loan_details(
@@ -562,9 +614,36 @@ async def fetch_import(
         ]
         for item in unavailable_list:
             log.warning("account unavailable: kind=%s code=%s", item["kind"], item["code"])
+        for item in unsupported:
+            # Codes and a digit-masked id shape only: enough to tell a new product
+            # family apart (its letters, e.g. `PERIC`), never a contract number.
+            # The codes are already normalised by the parser (short and plain, or `?`).
+            fields = "family=%s sub=%s pfmId=%s idShape=%s"
+            args = [
+                item["familyCode"],
+                item["subFamilyCode"],
+                "present" if item["hasPfmId"] else "absent",
+                _id_shape(item["externalId"]),
+            ]
+            if _log_details():
+                fields += " product=%s"
+                args.append(_product_label(item["productLabel"]))
+            if item.get("rejected"):
+                # Field path only (e.g. `items[3].balance: missing`): a provisional kind
+                # demoted for a field it could not read, not a product never supported.
+                fields += " rejected=%s"
+                args.append(item["rejected"])
+            log.info("unsupported contract: " + fields, *args)
         return {
             "accounts": result_accounts,
-            "unsupported": [{"externalId": u["externalId"], "familyCode": u["familyCode"]} for u in unsupported],
+            "unsupported": [
+                {
+                    "externalId": u["externalId"],
+                    "familyCode": u["familyCode"],
+                    "subFamilyCode": u["subFamilyCode"],
+                }
+                for u in unsupported
+            ],
             "unavailable": unavailable_list,
         }
     except FetchError as exc:

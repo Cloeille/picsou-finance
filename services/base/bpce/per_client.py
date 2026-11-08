@@ -80,6 +80,10 @@ class InvalidPerRequest(replay.ReplayError):
     code = "INVALID_PER_REQUEST"
 
 
+class UnknownPerContract(InvalidPerRequest):
+    """The contract id is not one of the insurer products this reader knows."""
+
+
 class _DuplicateKey(ValueError):
     pass
 
@@ -99,10 +103,10 @@ def _reject_json_constant(_: str) -> None:
 
 def _contract_number(contract_id: Any) -> str:
     if not isinstance(contract_id, str) or len(contract_id) > 128:
-        raise InvalidPerRequest("Invalid PER contract identifier")
+        raise UnknownPerContract("Invalid PER contract identifier")
     match = _CONTRACT_ID_RE.fullmatch(contract_id)
     if match is None:
-        raise InvalidPerRequest("Invalid PER contract identifier")
+        raise UnknownPerContract("Invalid PER contract identifier")
     return match.group("number")
 
 

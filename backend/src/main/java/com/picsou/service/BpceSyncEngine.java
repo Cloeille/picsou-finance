@@ -1,5 +1,6 @@
 package com.picsou.service;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,7 +49,7 @@ import java.util.function.Supplier;
 /**
  * The sync engine shared by the BPCE banks (Caisse d'Epargne, Banque Populaire): their sidecars
  * speak one contract ({@link BpcePort}), so the login bookkeeping, the job state machine and the
- * import of current accounts, savings books, cards, loans and PER live here once. Each bank keeps
+ * import of current accounts, savings books (PEL included), cards, loans and PER live here once. Each bank keeps
  * its own service, session table, port and error code, and hands the engine a {@link BpceBank}
  * descriptor, access to its sessions, and the {@link Branding} its imported accounts carry.
  *
@@ -85,6 +86,10 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
     /** Same width the other identified-transaction connectors use for the external id. */
     private static final int MAX_EXTERNAL_ID_LENGTH = 100;
     private static final int MAX_UNSUPPORTED = 100;
+    private static final int MAX_UNSUPPORTED_ID = 128;
+    /** A family or sub-family code as the sidecar sends it: short and plain, as it checks too. */
+    private static final java.util.regex.Pattern UNSUPPORTED_CODE =
+        java.util.regex.Pattern.compile("[A-Za-z0-9_-]{1,8}");
     /** The bank's pad is 10 images laid out in 5 columns; anything else is a changed page. */
     private static final int KEYPAD_KEY_COUNT = 10;
     private static final int KEYPAD_COLUMNS = 5;
@@ -594,7 +599,12 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
                 || unsupported.size() >= MAX_UNSUPPORTED) {
                 throw invalid("an invalid unsupported contract list");
             }
-            unsupported.add(new UnsupportedContract(item.externalId().trim(), item.familyCode().trim()));
+            // Stored and shown as they are, so bounded here whatever the sidecar sends: an
+            // out-of-shape code becomes "?", never a long or odd string in the status.
+            unsupported.add(new UnsupportedContract(
+                limit(item.externalId(), MAX_UNSUPPORTED_ID, "?"),
+                unsupportedCode(item.familyCode()),
+                unsupportedCode(item.subFamilyCode())));
         }
         return new PreparedSnapshot(List.copyOf(accounts), List.copyOf(unsupported));
     }
@@ -1125,7 +1135,16 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
             return List.of();
         }
         try {
-            return List.copyOf(JSON.readValue(json, UNSUPPORTED_TYPE));
+            List<UnsupportedContract> stored = JSON.readValue(json, UNSUPPORTED_TYPE);
+            // A stored `null`, or a null entry, is as unreadable as malformed JSON: never an NPE.
+            // Lists stored by an earlier version were not bounded: apply the write-side bounds on read.
+            return stored == null ? List.of() : stored.stream()
+                .filter(item -> item != null && item.externalId() != null && item.familyCode() != null)
+                .map(item -> new UnsupportedContract(
+                    limit(item.externalId(), MAX_UNSUPPORTED_ID, "?"),
+                    unsupportedCode(item.familyCode()),
+                    unsupportedCode(item.subFamilyCode())))
+                .toList();
         } catch (JsonProcessingException ex) {
             log.warn("Stored {} unsupported-contract list is unreadable", bank.provider());
             return List.of();
@@ -1154,6 +1173,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
             case "LIVRET_JEUNE" -> AccountType.LIVRET_JEUNE;
             case "LEP" -> AccountType.LEP;
             case "LDDS" -> AccountType.LDDS;
+            case "PEL" -> AccountType.PEL;
             case "PER" -> AccountType.PER;
             case "LOAN" -> AccountType.LOAN;
             case "CARD" -> AccountType.CREDIT_CARD;
@@ -1169,6 +1189,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
             case LIVRET_JEUNE -> "Livret Jeune";
             case LEP -> "LEP";
             case LDDS -> "LDDS";
+            case PEL -> "PEL";
             case PER -> "PER";
             case LOAN -> bank.loanName();
             default -> bank.accountName();
@@ -1178,7 +1199,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
     private static String colorFor(AccountType type) {
         return switch (type) {
             // Same colour for every regulated savings book, as the Bourso connector does.
-            case LIVRET_A, LIVRET_JEUNE, LEP, LDDS -> "#f59e0b";
+            case LIVRET_A, LIVRET_JEUNE, LEP, LDDS, PEL -> "#f59e0b";
             case PER -> "#8b5cf6";
             case LOAN -> "#64748b";
             case CREDIT_CARD -> "#2563eb";
@@ -1212,6 +1233,15 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         return error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED, bank.provider() + " returned " + what, null);
     }
 
+    /** Null when no code was sent, the code when it is short and plain, else `?`. */
+    private static String unsupportedCode(String raw) {
+        String cleaned = clean(raw);
+        if (cleaned == null) {
+            return null;
+        }
+        return UNSUPPORTED_CODE.matcher(cleaned).matches() ? cleaned : "?";
+    }
+
     private static String clean(String value) {
         if (value == null || value.isBlank()) {
             return null;
@@ -1234,8 +1264,12 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
     /** The pending login to show: the bank's keypad, clicked by the user, and its lifetime. */
     public record InitiateResponse(String processId, BpcePort.Keypad keypad, int expiresInSeconds) {}
 
-    /** A contract the sidecar saw but Picsou does not import: counted in the status, never created. */
-    public record UnsupportedContract(String externalId, String familyCode) {}
+    /**
+     * A contract the sidecar saw but Picsou does not import: counted in the status, never created.
+     * {@code subFamilyCode} is null when the bank sends none, and on lists stored before it was recorded.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record UnsupportedContract(String externalId, String familyCode, String subFamilyCode) {}
 
     /**
      * A login in flight. Only one of the two deadlines is set: the keypad's while the user clicks,

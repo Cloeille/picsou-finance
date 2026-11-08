@@ -31,6 +31,7 @@ FULL_SITE = Site(
     token_url=SITE.token_url,
     data_base_url=SITE.data_base_url,
     extra_hosts=frozenset({"www.as.group.test"}),
+    provisional_kinds=frozenset({"PEL", "LEP"}),
     personal_loan=ChainProfile(name="personal-loan"),
     home_loan=HomeLoanApp(
         chain=ChainProfile(name="home-loan"),
@@ -71,8 +72,26 @@ class SiteTest(unittest.TestCase):
             SITE.domain = "other.test"  # type: ignore[misc]
 
     def test_families_without_an_app_are_unsupported(self):
-        self.assertEqual(SITE.unsupported_families, frozenset({("6", "12"), ("6", "13"), ("4", "05")}))
+        self.assertEqual(
+            SITE.unsupported_families,
+            frozenset({("6", "12"), ("6", "13"), ("4", "05"), ("3", "04"), ("3", "27")}),
+        )
         self.assertEqual(FULL_SITE.unsupported_families, frozenset())
+
+    def test_a_site_without_provisional_kinds_reads_no_pel_lep_and_never_demotes(self):
+        items = [
+            contract(1, "1", None, "Compte"),
+            contract(2, "3", "04", "PEL 99 9999"),
+            contract(3, "3", "27", "LEP"),
+        ]
+        accounts, unsupported = kinds(items, skipped_families=SITE.unsupported_families,
+                                      provisional_kinds=SITE.provisional_kinds)
+        self.assertEqual(accounts, [("1", "CURRENT_ACCOUNT")])
+        self.assertEqual([u["subFamilyCode"] for u in unsupported], ["04", "27"])
+        # A label-detected LEP (3/01) that cannot be read still fails loudly on such a site.
+        broken = contract(4, "3", "01", "LEP", balance=None)
+        with self.assertRaises(accounts_parser.ParseError):
+            kinds([broken], skipped_families=SITE.unsupported_families, provisional_kinds=SITE.provisional_kinds)
 
     def test_region_labels_are_exact_and_only_for_listed_codes(self):
         self.assertEqual(FULL_SITE.region_label("SOUTH"), "SOUTH BAY")
@@ -167,11 +186,16 @@ class SkippedFamiliesTest(unittest.TestCase):
         ]
         accounts, unsupported = kinds(items, skipped_families=SITE.unsupported_families)
         self.assertEqual(accounts, [("1", "CURRENT_ACCOUNT")])
+        # The parser also carries diagnostic-only keys (`hasPfmId`, `productLabel`) that the
+        # fetcher drops before anything leaves the sidecar.
+        unsupported = [
+            {k: u[k] for k in ("externalId", "familyCode", "subFamilyCode")} for u in unsupported
+        ]
         self.assertEqual(unsupported, [
-            {"externalId": "contract:L1", "familyCode": "6"},
-            {"externalId": "contract:L2", "familyCode": "6"},
-            {"externalId": "contract:P1", "familyCode": "4"},
-            {"externalId": "contract:R1", "familyCode": "2"},
+            {"externalId": "contract:L1", "familyCode": "6", "subFamilyCode": "12"},
+            {"externalId": "contract:L2", "familyCode": "6", "subFamilyCode": "13"},
+            {"externalId": "contract:P1", "familyCode": "4", "subFamilyCode": "05"},
+            {"externalId": "contract:R1", "familyCode": "2", "subFamilyCode": "11"},
         ])
 
     def test_without_skipped_families_the_detail_kinds_are_read(self):
@@ -217,8 +241,8 @@ class FetchImportTest(unittest.IsolatedAsyncioTestCase):
                          [("1", "CURRENT_ACCOUNT"), ("2", "LIVRET_JEUNE")])
         self.assertEqual([t["externalId"] for t in result["accounts"][1]["transactions"]], ["t2"])
         self.assertEqual(result["unsupported"], [
-            {"externalId": "contract:L1", "familyCode": "6"},
-            {"externalId": "contract:R1", "familyCode": "2"},
+            {"externalId": "contract:L1", "familyCode": "6", "subFamilyCode": "12"},
+            {"externalId": "contract:R1", "familyCode": "2", "subFamilyCode": "11"},
         ])
         self.assertEqual(result["unavailable"], [])
         self.assertEqual(loan_token_calls, [])
