@@ -73,6 +73,11 @@ updates:
       # cannot install. services/base/test_dockerfile.py guards the pin.
       - dependency-name: python
         versions: [">=3.13"]
+      # PostgreSQL 18 moves PGDATA and cannot open a 16 data directory: it is a
+      # planned migration (mount path, upgrade path, chart, tests, docs), not a
+      # tag bump. Tracked in #508.
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
   # Compose image references are a separate ecosystem from Dockerfiles.
   - package-ecosystem: docker-compose
     directories:
@@ -80,3 +85,8 @@ updates:
       - /docker
     schedule:
       interval: weekly
+    ignore:
+      # Same pin as the docker entry above: the postgres image stays on 16 until
+      # the planned PostgreSQL 18 migration (#508).
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]

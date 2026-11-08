@@ -40,6 +40,17 @@ class DependabotCoverageTest(unittest.TestCase):
                 self.assertTrue(directories)
                 self.assertLessEqual(directories, covered.get(ecosystem, set()))
 
+    def test_postgres_major_bumps_are_ignored_until_the_planned_migration(self):
+        # PostgreSQL 18 moves PGDATA and cannot open a 16 data directory (#508).
+        config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+        for ecosystem in ("docker", "docker-compose"):
+            with self.subTest(ecosystem=ecosystem):
+                update = next(u for u in config["updates"] if u["package-ecosystem"] == ecosystem)
+                self.assertIn("/docker", update["directories"])
+                ignored = [i for i in update.get("ignore", []) if i["dependency-name"] == "postgres"]
+                self.assertEqual(len(ignored), 1)
+                self.assertEqual(ignored[0]["update-types"], ["version-update:semver-major"])
+
     def test_codeql_actions_share_one_revision_and_one_update(self):
         # analyze refuses a config written by another init release (#491, #492).
         pins = {}
