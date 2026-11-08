@@ -276,6 +276,23 @@ class BodyTest(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(replay.UpstreamError):
                     await fetch(insurer)
 
+    async def test_a_valid_answer_without_the_detail_object_is_told_apart_from_a_broken_one(self):
+        for name, body in {
+            "no detail": b'{"donneesContrat": {}}',
+            "detail null": b'{"detailContratVie": null}',
+            "detail not object": b'{"detailContratVie": []}',
+        }.items():
+            with self.subTest(name):
+                insurer = FakeInsurer(detail=lambda _r, b=body: httpx.Response(200, content=b))
+                with self.assertRaises(per_client.IncompleteInsurerDetail):
+                    await fetch(insurer)
+        for name, body in {"invalid json": b"{", "array": b"[]"}.items():
+            with self.subTest(name):
+                insurer = FakeInsurer(detail=lambda _r, b=body: httpx.Response(200, content=b))
+                with self.assertRaises(replay.UpstreamError) as caught:
+                    await fetch(insurer)
+                self.assertNotIsInstance(caught.exception, per_client.IncompleteInsurerDetail)
+
     async def test_oversize_bodies_are_refused_on_both_steps(self):
         big = b"x" * (replay.MAX_RESPONSE_BYTES + 1)
         for step in ("token", "detail"):

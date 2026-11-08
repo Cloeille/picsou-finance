@@ -85,6 +85,14 @@ class InvalidPerRequest(replay.ReplayError):
     code = "INVALID_PER_REQUEST"
 
 
+class IncompleteInsurerDetail(replay.UpstreamError):
+    """The insurer answered with valid JSON that lacks the contract detail object.
+
+    A format change rather than a transport failure: raised apart from the other upstream
+    errors so the caller can tell the two apart. Its code is the usual upstream one.
+    """
+
+
 class UnknownPerContract(InvalidPerRequest):
     """The contract id is not one of the insurer products this reader knows."""
 
@@ -345,7 +353,7 @@ async def fetch_per_detail(
         _check_status(status, stage="contract-detail")
         result = _json_object(body)
         if not isinstance(result.get("detailContratVie"), dict):
-            raise replay.UpstreamError("Insurer detail response is incomplete")
+            raise IncompleteInsurerDetail("Insurer detail response is incomplete")
         try:
             serialized = json.dumps(result, ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError):

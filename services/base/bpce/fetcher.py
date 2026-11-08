@@ -372,7 +372,7 @@ PerDetailProvider = Callable[[str, str], Awaitable[Any]]
 _CURRENT_KIND = "CURRENT_ACCOUNT"
 
 
-async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvider]) -> tuple[dict, dict, set]:
+async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvider]) -> tuple[dict, dict, dict]:
     """`({externalId: parsed insurer detail}, {externalId: code})` for every PER and assurance vie.
 
     Complete positions, or that contract unavailable.
@@ -385,9 +385,11 @@ async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvide
     """
     details: dict = {}
     unavailable: dict = {}
-    unrecognised: set = set()  # contract ids the insurer reader does not know
+    # Contracts to list as unsupported besides `unavailable`, with the reason: a product the
+    # insurer reader does not know, or an answer whose shape changed (not a transport failure).
+    listed: dict = {}
     if provider is None:
-        return details, unavailable, unrecognised
+        return details, unavailable, listed
     for account in accounts:
         if account["kind"] not in accounts_parser.INSURER_KINDS:
             continue
@@ -411,7 +413,9 @@ async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvide
                 # reader knows. Its masked shape tells a new insurer product (one filed
                 # under the PER code) apart, without any number.
                 log.info("insurer request refused: idShape=%s", _id_shape(ext))
-                unrecognised.add(ext)
+                listed[ext] = "unknown insurer product"
+            elif isinstance(exc, per_client.IncompleteInsurerDetail) and account["kind"] == "ASSURANCE_VIE":
+                listed[ext] = "insurer detail"
             unavailable[ext] = exc.code
             continue
         except httpx.HTTPError:
@@ -429,8 +433,10 @@ async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvide
             log.warning(
                 "insurer detail unreadable: kind=%s rejected=%s", account["kind"], accounts_parser._reason(exc)
             )
+            if account["kind"] == "ASSURANCE_VIE":
+                listed[ext] = "insurer detail"
             unavailable[ext] = exc.code
-    return details, unavailable, unrecognised
+    return details, unavailable, listed
 
 
 async def _fetch_loan_details(
@@ -597,30 +603,24 @@ async def fetch_import(
         loans, loan_unavailable = await _fetch_loan_details(
             client, base_url, accounts, loan_token, home_loan_token, home_loan_base_url
         )
-        pensions, per_unavailable, per_unrecognised = await _fetch_per_details(accounts, per_detail)
+        pensions, per_unavailable, per_listed = await _fetch_per_details(accounts, per_detail)
         unavailable.update(loan_unavailable)
         unavailable.update(per_unavailable)
         for account in accounts:
-            # An assurance vie seen in few live runs whose insurer detail no longer parses is
-            # also listed as unsupported, the one list the Sync tab shows (`unavailable` is not
-            # shown). A PER keeps its established handling, and a network or session failure
-            # is not a format change.
-            # A `4/05` contract whose product code the insurer reader does not know is listed
-            # too: a new insurer product, which the Sync tab should show rather than omit.
-            external_id = account["externalId"]
-            detail_changed = (
-                account["kind"] == "ASSURANCE_VIE"
-                and per_unavailable.get(external_id) == per_parser.INVALID_PER_DETAIL
-            )
-            if detail_changed or external_id in per_unrecognised:
+            # An assurance vie whose insurer answer changed shape (unparseable detail, or no detail
+            # object) and a `4/05` contract whose product the insurer reader does not know are also
+            # listed as unsupported, the one list the Sync tab shows (`unavailable` is not shown).
+            # A network or session failure is not a format change and is not listed.
+            reason = per_listed.get(account["externalId"])
+            if reason:
                 unsupported.append(
                     {
-                        "externalId": external_id,
+                        "externalId": account["externalId"],
                         "hasPfmId": False,
                         "familyCode": "4",
                         "subFamilyCode": "05",
                         "productLabel": None,
-                        "rejected": "insurer detail" if detail_changed else "unknown insurer product",
+                        "rejected": reason,
                     }
                 )
 

@@ -1152,6 +1152,25 @@ class AssuranceVieImportTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual([u["code"] for u in result["unavailable"]], ["INVALID_PER_REQUEST"])
 
+    async def test_an_assurance_vie_answered_without_a_detail_object_is_listed_as_unsupported(self):
+        async def detail(_contract_id, _entity_code):
+            raise per_client.IncompleteInsurerDetail("Insurer detail response is incomplete")
+
+        result = await run_fetch(self.av_ce(), per_detail=detail)
+
+        self.assertIn(
+            {"externalId": self.AV_ID, "familyCode": "4", "subFamilyCode": "05"}, result["unsupported"]
+        )
+        self.assertEqual([u["externalId"] for u in result["unavailable"]], [self.AV_ID])
+
+    async def test_a_per_answered_without_a_detail_object_is_not_listed_as_unsupported(self):
+        async def detail(_contract_id, _entity_code):
+            raise per_client.IncompleteInsurerDetail("Insurer detail response is incomplete")
+
+        result = await run_fetch(products_ce(), per_detail=detail)
+
+        self.assertNotIn(PER_ID, {u["externalId"] for u in result["unsupported"]})
+
     async def test_an_assurance_vie_whose_detail_no_longer_parses_is_also_listed_as_unsupported(self):
         async def detail(_contract_id, _entity_code):
             payload = PerHoldingsImportTest.payload()
