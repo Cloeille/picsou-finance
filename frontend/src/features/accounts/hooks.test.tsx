@@ -462,7 +462,8 @@ describe('usePortfolio', () => {
 
   it("adds the euro fund of a Caisse d'Epargne assurance vie, not of a manual one", async () => {
     list.mockResolvedValue([
-      { id: 11, name: 'AV synced', type: 'ASSURANCE_VIE', provider: "Caisse d'Epargne", color: '#000', currentBalanceEur: 500, cashBalance: 300 },
+      { id: 11, name: 'AV synced', type: 'ASSURANCE_VIE', provider: "Caisse d'Epargne", isManual: false, color: '#000', currentBalanceEur: 500, cashBalance: 300 },
+      { id: 13, name: 'AV hand-made', type: 'ASSURANCE_VIE', provider: "Caisse d'Epargne", isManual: true, color: '#000', currentBalanceEur: 500, cashBalance: 300 },
       { id: 12, name: 'AV manual', type: 'ASSURANCE_VIE', provider: null, color: '#000', currentBalanceEur: 500, cashBalance: 300 },
     ])
     holdings.mockResolvedValue([])

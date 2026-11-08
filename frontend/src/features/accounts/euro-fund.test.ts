@@ -3,11 +3,13 @@ import { euroFundLabelKey, hasSyncedEuroFund } from './euro-fund'
 
 describe('synced euro fund', () => {
   it('covers a PER and a Caisse d’Epargne assurance vie only', () => {
-    expect(hasSyncedEuroFund({ type: 'PER', provider: null })).toBe(true)
-    expect(hasSyncedEuroFund({ type: 'ASSURANCE_VIE', provider: "Caisse d'Epargne" })).toBe(true)
-    expect(hasSyncedEuroFund({ type: 'ASSURANCE_VIE', provider: 'CORUM' })).toBe(false)
-    expect(hasSyncedEuroFund({ type: 'ASSURANCE_VIE', provider: null })).toBe(false)
-    expect(hasSyncedEuroFund({ type: 'PEA', provider: "Caisse d'Epargne" })).toBe(false)
+    expect(hasSyncedEuroFund({ type: 'PER', provider: null, isManual: true })).toBe(true)
+    expect(hasSyncedEuroFund({ type: 'ASSURANCE_VIE', provider: "Caisse d'Epargne", isManual: false })).toBe(true)
+    // A hand-made account with that provider typed in is not a synced one.
+    expect(hasSyncedEuroFund({ type: 'ASSURANCE_VIE', provider: "Caisse d'Epargne", isManual: true })).toBe(false)
+    expect(hasSyncedEuroFund({ type: 'ASSURANCE_VIE', provider: 'CORUM', isManual: false })).toBe(false)
+    expect(hasSyncedEuroFund({ type: 'ASSURANCE_VIE', provider: null, isManual: true })).toBe(false)
+    expect(hasSyncedEuroFund({ type: 'PEA', provider: "Caisse d'Epargne", isManual: false })).toBe(false)
   })
 
   it('labels a PER and an assurance vie differently', () => {

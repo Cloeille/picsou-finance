@@ -378,13 +378,47 @@ class CaisseEpargneSyncServiceTest {
         for (AccountType type : AccountType.values()) {
             boolean expected = type == AccountType.PER || type == AccountType.ASSURANCE_VIE;
             assertThat(CaisseEpargneSyncService.isInsurerContract(
-                Account.builder().type(type).provider(CaisseEpargneSyncService.PROVIDER).build()))
+                Account.builder().type(type).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).build()))
                 .as(type.name()).isEqualTo(expected);
+            // A hand-made account never qualifies, even if the member typed this provider.
+            assertThat(CaisseEpargneSyncService.isInsurerContract(
+                Account.builder().type(type).provider(CaisseEpargneSyncService.PROVIDER).isManual(true).build()))
+                .as("hand-made " + type).isFalse();
             assertThat(CaisseEpargneSyncService.isInsurerContract(
                 Account.builder().type(type).provider("Amundi").build())).as("other " + type).isFalse();
             assertThat(CaisseEpargneSyncService.isInsurerContract(
                 Account.builder().type(type).build())).as("manual " + type).isFalse();
         }
+    }
+
+    @Test
+    void queueSync_retypesAnExistingPerRowToAnAssuranceVieKeepingTheSameAccount() {
+        Fixture f = new Fixture();
+        LocalDate valuationDate = TODAY.minusDays(3);
+        CaisseEpargnePort.PerDetails detail = new CaisseEpargnePort.PerDetails(
+            new BigDecimal("4200.00"), new BigDecimal("1000.00"), valuationDate, List.of());
+        CaisseEpargnePort.AccountData av = new CaisseEpargnePort.AccountData(
+            "contract:V0001", "ASSURANCE_VIE", "ASSURANCE VIE", new BigDecimal("4200.00"), "EUR",
+            null, false, null, null, null, null, null, null, null, List.of(), true, null, detail);
+        CaisseEpargnePerService.Prepared prepared = new CaisseEpargnePerService.Prepared(
+            new BigDecimal("4200.00"), new BigDecimal("1000.00"), valuationDate, List.of(),
+            java.util.Map.of(), java.util.Set.of());
+        when(perService.prepare(detail, "EUR")).thenReturn(prepared);
+        CaisseEpargneSession session = arrangeCommittableSync(av);
+        Account previous = Account.builder().id(40L).type(AccountType.PER).isManual(false)
+            .provider("Caisse d'Epargne").externalAccountId("ce_contract:V0001")
+            .name("Old name").currentBalance(new BigDecimal("1")).build();
+        when(accountRepository.findByExternalAccountIdAndMemberId("ce_contract:V0001", 7L))
+            .thenReturn(Optional.of(previous));
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        Account saved = accountCaptor.getValue();
+        assertThat(saved).isSameAs(previous);
+        assertThat(saved.getId()).isEqualTo(40L);
+        assertThat(saved.getType()).isEqualTo(AccountType.ASSURANCE_VIE);
+        verify(perService).apply(eq(previous), eq(prepared), any());
     }
 
     @Test

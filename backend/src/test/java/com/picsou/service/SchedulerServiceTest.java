@@ -51,7 +51,7 @@ class SchedulerServiceTest {
     private static Account perAccount(long id, String provider, FamilyMember member) {
         return Account.builder()
             .id(id).name("Retirement plan").type(AccountType.PER)
-            .provider(provider).currency("EUR").currentBalance(new BigDecimal("1200"))
+            .provider(provider).isManual(false).currency("EUR").currentBalance(new BigDecimal("1200"))
             .member(member).build();
     }
 

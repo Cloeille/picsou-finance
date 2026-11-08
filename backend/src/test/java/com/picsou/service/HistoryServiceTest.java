@@ -100,6 +100,7 @@ class HistoryServiceTest {
             .name("Retirement plan")
             .type(AccountType.PER)
             .provider(CaisseEpargneSyncService.PROVIDER)
+            .isManual(false)
             .currency("EUR")
             .currentBalance(new BigDecimal(balance))
             .cashBalance(new BigDecimal("200"))

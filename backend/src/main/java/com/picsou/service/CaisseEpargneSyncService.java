@@ -45,11 +45,13 @@ public class CaisseEpargneSyncService {
     /**
      * A PER or an assurance vie imported from the insurer's app: valued from the insurer's own unit
      * prices rather than the generic quote path. One definition for the sync and for the three
-     * services that value, snapshot and chart these accounts, so they cannot disagree.
+     * services that value, snapshot and chart these accounts, so they cannot disagree. A manual
+     * account never qualifies, whatever free-text provider the member typed.
      */
     static boolean isInsurerContract(Account account) {
         AccountType type = account.getType();
         return (type == AccountType.PER || type == AccountType.ASSURANCE_VIE)
+            && !account.isManual()
             && PROVIDER.equals(account.getProvider());
     }
 

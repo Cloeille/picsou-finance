@@ -1257,7 +1257,7 @@ class AccountServiceTest {
     @Test
     void caisseEpargnePer_usesLiveQuotesAndKeepsUnresolvedBankValuationsStale() {
         Account account = Account.builder().id(6L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
         LocalDate navDate = LocalDate.of(2026, 10, 6);
         AccountHolding ucA = AccountHolding.builder()
@@ -1314,7 +1314,7 @@ class AccountServiceTest {
     @Test
     void caisseEpargnePer_ignoresNonpositiveQuotesAndBankValues() {
         Account account = Account.builder().id(7L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
         AccountHolding valued = AccountHolding.builder()
             .ticker("UC_A").quantity(new BigDecimal("10"))
@@ -1347,7 +1347,7 @@ class AccountServiceTest {
     @Test
     void caisseEpargnePer_liveQuoteStaysFreshWhenBankFallbackIsInvalid() {
         Account account = Account.builder().id(10L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("500")).cashBalance(BigDecimal.ZERO).build();
         AccountHolding holding = AccountHolding.builder()
             .ticker("UC_A").quantity(new BigDecimal("10")).providerValueEur(BigDecimal.ZERO).build();
@@ -1363,7 +1363,7 @@ class AccountServiceTest {
     @Test
     void caisseEpargnePer_allMissingQuotesKeepsTheCompleteBankTotalAsStaleAndPriced() {
         Account account = Account.builder().id(8L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
         List<AccountHolding> holdings = List.of(
             AccountHolding.builder().ticker("UC_A").quantity(new BigDecimal("10"))
@@ -1382,7 +1382,7 @@ class AccountServiceTest {
     @Test
     void caisseEpargnePer_euroPocketWithoutHoldingsUsesItsStoredBalance() {
         Account account = Account.builder().id(9L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("1000")).cashBalance(new BigDecimal("1000")).build();
         when(holdingRepository.findByAccount_Id(9L)).thenReturn(List.of());
         when(priceService.toEur(new BigDecimal("1000"), "EUR", null)).thenReturn(new BigDecimal("1000"));

@@ -1292,7 +1292,7 @@ class AccountIsolationTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_per_detail_refusal_leaves_only_the_per_unavailable(self):
         async def detail(_contract_id, _entity_code):
-            raise replay.UpstreamError("PER insurer refused the request with insurer status 461")
+            raise replay.UpstreamError("Insurer refused the request with insurer status 461")
 
         result = await run_fetch(products_ce(), per_detail=detail)
 
@@ -1359,7 +1359,7 @@ class AccountIsolationTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_per_and_loan_failures_are_listed_together(self):
         async def detail(_contract_id, _entity_code):
-            raise replay.UpstreamError("PER insurer refused the request")
+            raise replay.UpstreamError("Insurer refused the request")
 
         result = await run_fetch(
             products_ce(loan_http=503), loan_token=loan_token_provider([]), per_detail=detail
