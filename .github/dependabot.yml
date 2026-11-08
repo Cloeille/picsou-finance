@@ -6,12 +6,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # CodeQL fails when init and analyze run different versions, so their
-    # bumps must land in one pull request (#491 and #492 failed apart).
-    groups:
-      codeql-action:
-        patterns:
-          - "github/codeql-action*"
   - package-ecosystem: maven
     directory: /backend
     schedule:
