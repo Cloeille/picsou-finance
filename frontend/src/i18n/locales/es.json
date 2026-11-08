@@ -550,7 +550,8 @@
       "onTrack": "Al día",
       "disclaimer": "Previsión orientativa, nunca contractual.",
       "simulationResult": "{{months}} meses · {{monthlyPayment}}/mes · {{interest}} de intereses",
-      "accruedHint": "Intereses devengados:"
+      "accruedHint": "Intereses devengados:",
+      "remainingHint": "Saldo restante (máximo por reembolso):"
     },
     "overview": {
       "title": "Préstamos entre particulares",
@@ -595,6 +596,7 @@
       "confirm": "Asignar",
       "created": "Devolución registrada."
     },
+    "linkedTransaction": "Vinculado al préstamo de {{name}}",
     "actions": {
       "close": "Cerrar el préstamo",
       "simulate": "Calcular"
@@ -603,6 +605,13 @@
       "title": "Cerrar el préstamo",
       "description": "El saldo restante ({{amount}}) se condonará y se retirará del patrimonio hoy.",
       "confirm": "Cerrar"
+    },
+    "deleteRepayment": {
+      "title": "Eliminar el reembolso",
+      "description": "El reembolso de {{amount}} se eliminará junto con su movimiento de caja. El saldo se recalculará.",
+      "descriptionLinked": "El reembolso de {{amount}} se desvinculará del préstamo. La transacción vinculada permanece en su cuenta. El saldo se recalculará.",
+      "descriptionNoCashLeg": "El reembolso de {{amount}} se eliminará. El saldo se recalculará.",
+      "confirm": "Eliminar"
     },
     "validation": {
       "principal": "El importe prestado debe ser mayor que cero.",

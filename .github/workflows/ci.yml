@@ -149,6 +149,7 @@ jobs:
           config.SsoLoginIntegrationTest
           config.SsoHandshakeSessionRaceIntegrationTest
           adapter.sidecar.SidecarBankCodesTest
+          service.PeerLoanTransactionLinksPostgresTest
           migration.V142SidecarSessionMigrationTest
           EOF
 

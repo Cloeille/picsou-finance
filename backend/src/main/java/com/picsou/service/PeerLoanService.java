@@ -74,8 +74,11 @@ public class PeerLoanService {
 
     private static final int MAX_ACCOUNT_NAME = 100;
 
-    /** No real loan predates this; it also caps the curve a backdated plan can draw. */
-    private static final LocalDate MIN_LENDING_DATE = LocalDate.of(1900, 1, 1);
+    /**
+     * No real loan or payment predates this. A date is the origin of the history repair and of
+     * the curve, so an ancient one would draw tens of thousands of points.
+     */
+    private static final LocalDate MIN_DATE = LocalDate.of(1900, 1, 1);
 
     /** The account types a peer loan can draw from and repay into. */
     private static final java.util.Set<AccountType> CASH_TYPES = java.util.Set.of(
@@ -286,6 +289,15 @@ public class PeerLoanService {
         if (termsRepository.findByLendingTransactionId(transaction.getId()).isPresent()) {
             throw new IllegalArgumentException("This transaction is already linked to a peer loan");
         }
+        // The transaction's date becomes the lending date, so it follows the same bounds:
+        // a future or ancient bank date would otherwise feed an unbounded curve.
+        LocalDate lendingDate = transaction.getDate();
+        if (lendingDate != null && lendingDate.isAfter(LocalDate.now())) {
+            throw new IllegalArgumentException("The transaction date cannot be in the future");
+        }
+        if (lendingDate != null && lendingDate.isBefore(MIN_DATE)) {
+            throw new IllegalArgumentException("The transaction date is too far in the past");
+        }
 
         String name = beneficiaryName(request.beneficiary(), transaction);
         BigDecimal principal = transaction.getAmount().abs();
@@ -331,7 +343,7 @@ public class PeerLoanService {
         if (request.lentAt().isAfter(LocalDate.now())) {
             throw new IllegalArgumentException("The lending date cannot be in the future");
         }
-        if (request.lentAt().isBefore(MIN_LENDING_DATE)) {
+        if (request.lentAt().isBefore(MIN_DATE)) {
             throw new IllegalArgumentException("The lending date is too far in the past");
         }
         if (request.expectedBack() != null && request.expectedBack().isBefore(request.lentAt())) {
@@ -383,6 +395,9 @@ public class PeerLoanService {
 
         terms.setCounterparty(getOrCreateCounterparty(memberId, account.getName()));
         terms.setPrincipal(request.principal());
+        // Postponing the lending date must repair history from the earlier date too: the
+        // snapshots between the old and the new date still show the old principal.
+        LocalDate previousLentAt = terms.getLentAt();
         terms.setLentAt(request.lentAt());
         terms.setExpectedBack(request.expectedBack());
         terms.setAnnualRate(PeerLoanCalculator.rate(request.annualRate()));
@@ -403,7 +418,10 @@ public class PeerLoanService {
         }
         termsRepository.save(terms);
 
-        refreshBalance(account, terms, request.lentAt());
+        refreshBalance(account, terms,
+            previousLentAt != null && previousLentAt.isBefore(request.lentAt())
+                ? previousLentAt
+                : request.lentAt());
         return build(account, terms, LocalDate.now());
     }
 
@@ -413,14 +431,21 @@ public class PeerLoanService {
     ) {
         Account account = requireAccount(accountId, memberId);
         requireType(account);
-        PeerLoanTerms terms = requireConfiguredTerms(accountId);
+        PeerLoanTerms terms = lockConfiguredTerms(accountId);
         requireOpen(terms);
 
         requireCompletedRepaymentDate(request.paidOn());
         PeerLoanRepaymentKind kind = request.kind() != null
             ? request.kind()
             : PeerLoanRepaymentKind.PRINCIPAL;
+        // A write-off is a closure decision, not a payment: it is recorded by close(),
+        // which stamps closedAt next to it. An open loan must never carry one.
+        if (kind == PeerLoanRepaymentKind.WRITE_OFF) {
+            throw new IllegalArgumentException(
+                "A write-off is recorded by closing the loan, not by adding a repayment");
+        }
         validateInterestRepayment(terms, kind, request.amount(), request.paidOn(), null);
+        validateRepaymentAmount(terms, request.amount(), request.paidOn(), null);
 
         PeerLoanRepayment repayment = PeerLoanRepayment.builder()
             .account(account)
@@ -453,7 +478,7 @@ public class PeerLoanService {
     ) {
         Account account = requireAccount(accountId, memberId);
         requireType(account);
-        PeerLoanTerms terms = requireConfiguredTerms(accountId);
+        PeerLoanTerms terms = lockConfiguredTerms(accountId);
         requireOpen(terms);
         PeerLoanRepaymentKind kind = request.kind() != null
             ? request.kind()
@@ -484,6 +509,9 @@ public class PeerLoanService {
         }
         requireCompletedRepaymentDate(transaction.getDate());
         validateInterestRepayment(terms, kind, transaction.getAmount(), transaction.getDate(), null);
+        // No overpayment check here, unlike the manual paths: the transaction already
+        // exists in the cash account and is already counted in net worth, so linking it
+        // creates no money — the ledger simply clamps to what the loan can absorb.
 
         PeerLoanRepayment repayment = repaymentRepository.save(PeerLoanRepayment.builder()
             .account(account)
@@ -494,10 +522,15 @@ public class PeerLoanService {
             .cashLegOwned(false)
             .build());
 
-        // The whole received movement is one transfer, whatever its label: the interest
-        // part is tracked in the loan ledger, not booked as budget income (one row, one
-        // category). Leaving INTEREST uncategorised would count it as income twice.
-        transaction.setCategoryRef(transferCategory(memberId));
+        // An explicit interest payment is real income: like the manual leg, the row
+        // stays uncategorised so the cashflow counts it by sign. Any other kind is one
+        // transfer, whatever its interest part: the split lives in the loan ledger, not
+        // as budget income (one row, one category).
+        if (kind == PeerLoanRepaymentKind.INTEREST) {
+            transaction.setCategoryRef(null);
+        } else {
+            transaction.setCategoryRef(transferCategory(memberId));
+        }
         transaction.setCategoryManual(true);
         transactionRepository.save(transaction);
 
@@ -511,7 +544,7 @@ public class PeerLoanService {
     ) {
         Account account = requireAccount(accountId, memberId);
         requireType(account);
-        PeerLoanTerms terms = requireConfiguredTerms(accountId);
+        PeerLoanTerms terms = lockConfiguredTerms(accountId);
         requireOpen(terms);
 
         PeerLoanRepayment repayment = repaymentRepository.findByIdAndAccountId(repaymentId, accountId)
@@ -522,9 +555,16 @@ public class PeerLoanService {
                     + "transaction again to change it.");
         }
         requireCompletedRepaymentDate(request.paidOn());
+        PeerLoanRepaymentKind effectiveKind =
+            request.kind() != null ? request.kind() : repayment.getKind();
+        if (effectiveKind == PeerLoanRepaymentKind.WRITE_OFF) {
+            throw new IllegalArgumentException(
+                "A write-off is recorded by closing the loan, not by editing a repayment");
+        }
         validateInterestRepayment(terms,
-            request.kind() != null ? request.kind() : repayment.getKind(),
+            effectiveKind,
             request.amount(), request.paidOn(), repayment.getId());
+        validateRepaymentAmount(terms, request.amount(), request.paidOn(), repayment.getId());
 
         // Moving a repayment changes the balance from the earlier of its two dates: the days
         // it used to affect are stale too, not only the new ones.
@@ -560,7 +600,7 @@ public class PeerLoanService {
     public void deleteRepayment(Long accountId, Long repaymentId, Long memberId) {
         Account account = requireAccount(accountId, memberId);
         requireType(account);
-        PeerLoanTerms terms = requireConfiguredTerms(accountId);
+        PeerLoanTerms terms = lockConfiguredTerms(accountId);
 
         PeerLoanRepayment repayment = repaymentRepository.findByIdAndAccountId(repaymentId, accountId)
             .orElseThrow(() -> new ResourceNotFoundException("Repayment not found"));
@@ -590,7 +630,7 @@ public class PeerLoanService {
     public PeerLoanDetailResponse close(Long accountId, Long memberId, LocalDate closedAt) {
         Account account = requireAccount(accountId, memberId);
         requireType(account);
-        PeerLoanTerms terms = requireConfiguredTerms(accountId);
+        PeerLoanTerms terms = lockConfiguredTerms(accountId);
 
         LocalDate date = closedAt != null ? closedAt : LocalDate.now();
         if (terms.getClosedAt() != null) {
@@ -602,10 +642,18 @@ public class PeerLoanService {
         if (date.isAfter(LocalDate.now())) {
             throw new IllegalArgumentException("The closure date cannot be in the future");
         }
+        if (date.isBefore(MIN_DATE)) {
+            throw new IllegalArgumentException("The closure date is too far in the past");
+        }
 
         List<PeerLoanRepayment> repayments =
             repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(accountId);
-        BigDecimal residual = PeerLoanCalculator.compute(terms, repayments, date).principalRemaining();
+        // Only the ledger up to the closure date counts: a repayment dated after it belongs
+        // to a future that the write-off must not erase.
+        List<PeerLoanRepayment> upToDate = repayments.stream()
+            .filter(repayment -> repayment.getPaidOn() == null || !repayment.getPaidOn().isAfter(date))
+            .toList();
+        BigDecimal residual = PeerLoanCalculator.compute(terms, upToDate, date).principalRemaining();
         if (residual.signum() > 0) {
             repaymentRepository.save(PeerLoanRepayment.builder()
                 .account(account)
@@ -763,10 +811,19 @@ public class PeerLoanService {
         return PeerLoanCalculator.compute(terms, upToDate, date).principalRemaining();
     }
 
-    /** The ledger holds completed payments; a forecast belongs in {@code planned_*}. */
+    /**
+     * The ledger holds completed payments; a forecast belongs in {@code planned_*}. The date
+     * also seeds the snapshot repair, so it follows the lending date's lower bound.
+     */
     private static void requireCompletedRepaymentDate(LocalDate paidOn) {
-        if (paidOn != null && paidOn.isAfter(LocalDate.now())) {
+        if (paidOn == null) {
+            return;
+        }
+        if (paidOn.isAfter(LocalDate.now())) {
             throw new IllegalArgumentException("A repayment date cannot be in the future");
+        }
+        if (paidOn.isBefore(MIN_DATE)) {
+            throw new IllegalArgumentException("A repayment date is too far in the past");
         }
     }
 
@@ -781,8 +838,13 @@ public class PeerLoanService {
         }
     }
 
-    private PeerLoanTerms requireConfiguredTerms(Long accountId) {
-        return termsRepository.findByAccountId(accountId)
+    /**
+     * The loan's terms, locked for the rest of the transaction. Used by every method that writes
+     * the ledger: the cap check reads the whole ledger, so two concurrent writers must not
+     * validate against the same snapshot and both commit a row the other made unabsorbable.
+     */
+    private PeerLoanTerms lockConfiguredTerms(Long accountId) {
+        return termsRepository.findForUpdateByAccountId(accountId)
             .orElseThrow(() -> new ResourceNotFoundException("Peer loan terms are not set for this account"));
     }
 
@@ -829,20 +891,100 @@ public class PeerLoanService {
         if (kind != PeerLoanRepaymentKind.INTEREST || amount == null || paidOn == null) {
             return;
         }
-        List<PeerLoanRepayment> others = repaymentRepository
-            .findByAccountIdOrderByPaidOnAscIdAsc(terms.getAccount().getId()).stream()
-            .filter(r -> excludedRepaymentId == null || !excludedRepaymentId.equals(r.getId()))
-            .filter(r -> r.getPaidOn() == null || !r.getPaidOn().isAfter(paidOn))
-            .toList();
-        BigDecimal accrued = PeerLoanCalculator.compute(terms, others, paidOn).interestAccrued();
-        // With no interest accrued there is nothing for an interest row to pay: the
-        // calculator already applies the whole amount to capital, which is the honest
-        // reading of a zero-rate loan. The guard targets a genuine overpayment of interest.
-        if (accrued.signum() > 0 && amount.compareTo(accrued) > 0) {
+        BigDecimal accrued = PeerLoanCalculator
+            .compute(terms, ledgerUpTo(terms, paidOn, excludedRepaymentId), paidOn)
+            .interestAccrued();
+        // An interest row pays what has accrued: with nothing accrued there is no
+        // interest to pay, so the row would be capital wearing the wrong label.
+        // (Open to debate: zero-rate loans never accrue; rejecting here forces the
+        // honest PRINCIPAL label instead of a ledger that says "interest".)
+        if (amount.compareTo(accrued) > 0) {
             throw new IllegalArgumentException(
                 "An interest repayment cannot exceed the accrued interest of "
                     + accrued.setScale(2, RoundingMode.HALF_UP) + " EUR");
         }
+    }
+
+    /**
+     * Accepting the repayment must not create cash the ledger cannot absorb. A payment is
+     * interest first, then capital, so the loan takes at most what is owed; the excess would
+     * be written in full to the cash account while the ledger drops it, inflating net worth.
+     *
+     * <p>The check covers the whole ledger, not only the rows dated before the candidate: a
+     * backdated payment pushes the later rows over the cap (and, on an interest-bearing
+     * loan, changes how much interest each of them pays). So the ledger is replayed without
+     * and with the candidate, and the candidate is refused when it leaves more cash
+     * unabsorbed than there already was. Comparing against the existing figure keeps a
+     * linked overpaying transaction (documented as clamped, never refused) from blocking
+     * every later edit.
+     */
+    private void validateRepaymentAmount(
+        PeerLoanTerms terms, BigDecimal amount, LocalDate paidOn, Long excludedRepaymentId
+    ) {
+        if (amount == null || paidOn == null) {
+            return;
+        }
+        List<PeerLoanRepayment> others = ledgerExcluding(terms, excludedRepaymentId);
+        // The candidate takes the place the saved row will have among same-day rows: an
+        // edited row keeps its id, a new one gets the next, so it sorts last.
+        PeerLoanRepayment candidate = PeerLoanRepayment.builder()
+            .id(excludedRepaymentId != null ? excludedRepaymentId : Long.MAX_VALUE)
+            .paidOn(paidOn)
+            .amount(amount)
+            .build();
+        List<PeerLoanRepayment> withCandidate = new ArrayList<>(others);
+        withCandidate.add(candidate);
+
+        if (unabsorbed(terms, withCandidate, paidOn).compareTo(unabsorbed(terms, others, paidOn)) > 0) {
+            BigDecimal interestAtPaidOn = PeerLoanCalculator
+                .compute(terms, upTo(others, paidOn), paidOn)
+                .interestAccrued();
+            BigDecimal remainingAfterOthers = PeerLoanCalculator
+                .compute(terms, others, paidOn)
+                .principalRemaining();
+            throw new IllegalArgumentException(
+                "A repayment cannot exceed "
+                    + interestAtPaidOn.add(remainingAfterOthers).setScale(2, RoundingMode.HALF_UP)
+                    + " EUR (accrued interest plus remaining capital)");
+        }
+    }
+
+    /**
+     * Cash the ledger recorded as paid but could not apply to interest or capital. Totals,
+     * not per-row ids: the splits of the replayed ledger are summed whichever row they belong to.
+     */
+    private static BigDecimal unabsorbed(
+        PeerLoanTerms terms, List<PeerLoanRepayment> rows, LocalDate asOf
+    ) {
+        BigDecimal paid = rows.stream()
+            .filter(row -> row.getKind() != PeerLoanRepaymentKind.WRITE_OFF)
+            .map(PeerLoanRepayment::getAmount)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal absorbed = PeerLoanCalculator.compute(terms, rows, asOf).splits().stream()
+            .map(split -> split.interest().add(split.capital()))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return paid.subtract(absorbed);
+    }
+
+    /** The ledger as it stood on {@code paidOn}, without the row being edited. */
+    private List<PeerLoanRepayment> ledgerUpTo(
+        PeerLoanTerms terms, LocalDate paidOn, Long excludedRepaymentId
+    ) {
+        return upTo(ledgerExcluding(terms, excludedRepaymentId), paidOn);
+    }
+
+    /** The whole ledger, without the row being edited. */
+    private List<PeerLoanRepayment> ledgerExcluding(PeerLoanTerms terms, Long excludedRepaymentId) {
+        return repaymentRepository
+            .findByAccountIdOrderByPaidOnAscIdAsc(terms.getAccount().getId()).stream()
+            .filter(r -> excludedRepaymentId == null || !excludedRepaymentId.equals(r.getId()))
+            .toList();
+    }
+
+    private static List<PeerLoanRepayment> upTo(List<PeerLoanRepayment> rows, LocalDate date) {
+        return rows.stream()
+            .filter(r -> r.getPaidOn() == null || !r.getPaidOn().isAfter(date))
+            .toList();
     }
 
     private PeerCounterparty getOrCreateCounterparty(Long memberId, String name) {

@@ -52,7 +52,8 @@ import static org.mockito.Mockito.when;
 @Import({CorumSyncService.class, SofidySyncService.class, ScpiPositionService.class,
     ScpiFundReconciler.class, ScpiFundService.class, CorumLifeWriter.class,
     CorumLifeOperationWriter.class, com.picsou.service.budget.CategoryService.class,
-    AccountService.class, ScpiSyncSessionPostgresTest.Transactions.class})
+    AccountService.class, PeerLoanTransactionLinks.class,
+    ScpiSyncSessionPostgresTest.Transactions.class})
 class ScpiSyncSessionPostgresTest {
     @Container
     @ServiceConnection

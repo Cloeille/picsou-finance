@@ -26,6 +26,7 @@ import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.RevolutSessionRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.PeerLoanTransactionLinks;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.CategoryService;
 import com.picsou.service.budget.RecurringDetectionService;
@@ -112,7 +113,8 @@ class SyncServiceCurrencyMatchTest {
         accountService = spy(new AccountService(
             accountRepository, snapshotRepository, mock(AccountHoldingRepository.class),
             null, null, null, debtRepository, null, new PriceService(priceProvider, null),
-            new LoanAmortizationService(), null, null, null, null, null, null, null, null));
+            new LoanAmortizationService(), null, null, null, null, null, null, null, null,
+            mock(PeerLoanTransactionLinks.class)));
         // Only response enrichment is stubbed; snapshot persistence and FX conversion run normally.
         doReturn(mock(AccountResponse.class)).when(accountService).toResponse(any(Account.class));
         bankTransactionImportService = mock(BankTransactionImportService.class);

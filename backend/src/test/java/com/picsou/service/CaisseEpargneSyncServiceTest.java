@@ -30,6 +30,7 @@ import com.picsou.repository.RealEstateMetadataRepository;
 import com.picsou.repository.SavingsInterestConfigRepository;
 import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.PeerLoanTransactionLinks;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.CategoryService;
 import org.junit.jupiter.api.BeforeEach;
@@ -269,7 +270,8 @@ class CaisseEpargneSyncServiceTest {
             mock(SavingsInterestConfigRepository.class), prices, mock(LoanAmortizationService.class),
             mock(AccountAccessResolver.class), mock(BankLogoResolver.class), mock(CryptoLogoService.class),
             mock(InstrumentLogoService.class), mock(ScpiPositionRepository.class), mock(ScpiFundService.class),
-            mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class));
+            mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class),
+            mock(PeerLoanTransactionLinks.class));
         when(perService.prepare(detail, "EUR")).thenReturn(prepared);
         CaisseEpargneSyncService sync = serviceWith(txTemplate, Runnable::run, actualAccountService);
         arrangeCommittableSync(withPer);
