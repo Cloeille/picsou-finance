@@ -1,5 +1,6 @@
 package com.picsou.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.dto.TransactionResponse;
 import com.picsou.dto.TransactionResponse.PeerLoanLink;
 import com.picsou.dto.TransactionResponse.PeerLoanLinkKind;
@@ -65,6 +66,14 @@ class PeerLoanTransactionLinksTest {
 
         assertThat(out.get(0).peerLoanLink()).isNull();
         assertThat(out.get(1).peerLoanLink()).isEqualTo(new PeerLoanLink(PeerLoanLinkKind.REPAYMENT, 20L, "Jean"));
+    }
+
+    @Test
+    void theLinkKindSerializesAsItsName() throws Exception {
+        String json = new ObjectMapper()
+            .writeValueAsString(new PeerLoanLink(PeerLoanLinkKind.REPAYMENT, 20L, "Jean"));
+
+        assertThat(json).isEqualTo("{\"kind\":\"REPAYMENT\",\"accountId\":20,\"accountName\":\"Jean\"}");
     }
 
     @Test
