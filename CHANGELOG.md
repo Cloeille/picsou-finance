@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The dashboard holdings card counted property, SCPI and Revolut pockets as cash.** Its
+  "Euros" line added up every account that is neither a holdings account nor a debt, so a flat
+  or an SCPI was shown as euros, and a Revolut wallet's money was counted again through each of
+  its pockets. The line now adds up bank and savings accounts only, the same types as the Cash
+  tab, and leaves out a pocket whose wallet is in that same list.
 - **Savings interest projection counted early-year movements twice.** When the first balance
   snapshot of the year came after some of that year's deposits or withdrawals (a livret connected
   mid-year, or a snapshot rebuilt from the ledger), those movements were already in the opening
