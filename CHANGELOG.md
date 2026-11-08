@@ -24,7 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the "Create a loan" / "Assign to a repayment" actions (they could only fail as
   "already linked") in favour of a link to the loan. The repayment dialog shows the
   remaining due next to the accrued interest, and deleting a repayment asks for
-  confirmation first. See [Peer loans](docs/features/peer-loans.md).
+  confirmation first, saying what happens to its cash movement: it is deleted with the
+  row when Picsou wrote it, it stays in its account when the repayment only links an
+  existing transaction, and it is not mentioned when the row has none. See
+  [Peer loans](docs/features/peer-loans.md).
 
 - **The app image is one non-root Java process.** nginx, supervisord and the shell entrypoint are
   gone. The container runs as uid 1000 on port 8080; Compose and Helm hand `/data` to that user
