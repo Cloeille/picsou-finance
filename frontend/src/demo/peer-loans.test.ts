@@ -166,4 +166,16 @@ describe('demo peer loan', () => {
     await expect(post(`/accounts/${fresh.accountId}/peer-loan/repayments`, { paidOn: '2026-06-10', amount: 10, kind: 'INTEREST' }))
       .rejects.toThrow(/accrued interest/)
   })
+
+  it('refuses demo linked rows the hardened API would refuse', async () => {
+    async function post<T>(url: string, data: unknown): Promise<T> {
+      const response = await adapter({ method: 'POST', url, data: JSON.stringify(data), headers: new AxiosHeaders() })
+      return response.data as T
+    }
+    await expect(post('/accounts/16/peer-loan/repayments/from-transaction', { transactionId: 12, kind: 'WRITE_OFF' }))
+      .rejects.toThrow(/closing the loan/)
+    // Transaction 12 is 200, above Jean's ~3.66 accrued interest.
+    await expect(post('/accounts/16/peer-loan/repayments/from-transaction', { transactionId: 12, kind: 'INTEREST' }))
+      .rejects.toThrow(/accrued interest/)
+  })
 })

@@ -5,6 +5,7 @@ import type {
   PeerLoanFromTransactionRequest,
   PeerLoanRepayment,
   PeerLoanRepaymentFromTransactionRequest,
+  PeerLoanRepaymentKind,
   PeerLoanRepaymentRequest,
   PeerLoanSimulationRequest,
   PeerLoanSimulationResponse,
@@ -500,7 +501,14 @@ handlers.set(key('PUT', '/accounts/:id/peer-loan/repayments/:repaymentId'), (con
   const target = Number(repaymentId)
   const data: PeerLoanRepaymentRequest = JSON.parse(config.data || '{}')
   const current = demoPeerLoanDetail(accountId)
-  assertDemoRepaymentAllowed(current, data)
+  const previous = current.repayments.find((repayment) => repayment.id === target)
+  // Same guard as the backend, with the row being edited excluded like the service does:
+  // the ceiling is what the loan can still absorb without it.
+  assertDemoRepaymentAllowed({
+    ...current,
+    principalRemaining: current.principalRemaining + (previous?.capitalPart ?? previous?.amount ?? 0),
+    principalRepaid: current.principalRepaid - (previous?.capitalPart ?? previous?.amount ?? 0),
+  }, data)
   const updated = current.repayments.map((repayment) => {
     if (repayment.id !== target) return repayment
     // The split follows the amount: the accrued interest part is unchanged, the rest
@@ -593,12 +601,24 @@ handlers.set(key('POST', '/accounts/:id/peer-loan/repayments/from-transaction'),
   const body: PeerLoanRepaymentFromTransactionRequest = JSON.parse(config.data || '{}')
   const transaction = demoTransactionById(body.transactionId)
   const current = demoPeerLoanDetail(accountId)
+  // A forged body can smuggle any string through JSON: read it as the full kind union
+  // rather than the narrowed request type, mirroring the backend's validation order.
+  const kind = (body.kind ?? 'PRINCIPAL') as PeerLoanRepaymentKind
+  // Like the backend: an explicit INTEREST row needs accrued interest to pay, but an
+  // overpaying linked transaction links anyway — the row already exists, so linking
+  // creates no money and the ledger clamps to what the loan can absorb.
+  if (kind === 'WRITE_OFF') {
+    throw new Error('A write-off is recorded by closing the loan, not by adding a repayment')
+  }
+  if (kind === 'INTEREST' && (current.interestAccrued <= 0 || (transaction ? Math.abs(transaction.amount) : 0) > current.interestAccrued)) {
+    throw new Error('An interest repayment cannot exceed the accrued interest')
+  }
   const amount = Math.abs(transaction?.amount ?? 0)
   const repayment: PeerLoanRepayment = {
     id: Date.now(),
     paidOn: transaction?.date ?? new Date().toISOString().slice(0, 10),
     amount,
-    kind: body.kind ?? 'PRINCIPAL',
+    kind,
     note: transaction?.description ?? null,
     interestPart: 0,
     capitalPart: amount,
