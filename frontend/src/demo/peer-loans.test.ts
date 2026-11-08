@@ -146,4 +146,24 @@ describe('demo peer loan', () => {
     expect(detail.configured).toBe(true)
     expect(detail.principalRemaining).toBeCloseTo(850, 2)
   })
+
+  it('refuses demo writes the hardened API would refuse', async () => {
+    async function post<T>(url: string, data: unknown): Promise<T> {
+      const response = await adapter({ method: 'POST', url, data: JSON.stringify(data), headers: new AxiosHeaders() })
+      return response.data as T
+    }
+    const jean = await get<PeerLoanDetail>('/accounts/16/peer-loan')
+    const over = jean.interestAccrued + jean.principalRemaining + 100
+    await expect(post('/accounts/16/peer-loan/repayments', { paidOn: '2026-06-10', amount: over }))
+      .rejects.toThrow(/cannot exceed/)
+    await expect(post('/accounts/16/peer-loan/repayments', { paidOn: '2026-06-10', amount: 50, kind: 'WRITE_OFF' }))
+      .rejects.toThrow(/closing the loan/)
+    // 10 exceeds Jean's ~3.66 accrued interest.
+    await expect(post('/accounts/16/peer-loan/repayments', { paidOn: '2026-06-10', amount: 10, kind: 'INTEREST' }))
+      .rejects.toThrow(/accrued interest/)
+    // A fresh zero-rate loan never accrues: any INTEREST row mislabels capital.
+    const fresh = await post<PeerLoanDetail>('/peer-loans/from-transaction', { transactionId: 14 })
+    await expect(post(`/accounts/${fresh.accountId}/peer-loan/repayments`, { paidOn: '2026-06-10', amount: 10, kind: 'INTEREST' }))
+      .rejects.toThrow(/accrued interest/)
+  })
 })

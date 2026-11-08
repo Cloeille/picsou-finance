@@ -338,6 +338,28 @@ const _peerLoanDetails = new Map<number, PeerLoanDetail>(
 
 const round2 = (value: number): number => Math.round(value * 100) / 100
 
+/**
+ * Mirrors the hardened API: a write-off goes through close(), a repayment cannot exceed
+ * what the loan can absorb, and an interest row needs accrued interest to pay. The
+ * adapter turns the throw into a rejected promise, like a 4xx from the backend.
+ */
+function assertDemoRepaymentAllowed(
+  current: PeerLoanDetail,
+  data: PeerLoanRepaymentRequest,
+): void {
+  if (data.kind === 'WRITE_OFF') {
+    throw new Error('A write-off is recorded by closing the loan, not by adding a repayment')
+  }
+  const maxAcceptable = current.interestAccrued + current.principalRemaining
+  if (data.amount > maxAcceptable) {
+    throw new Error(
+      `A repayment cannot exceed ${maxAcceptable} (accrued interest plus remaining capital)`)
+  }
+  if (data.kind === 'INTEREST' && (current.interestAccrued <= 0 || data.amount > current.interestAccrued)) {
+    throw new Error('An interest repayment cannot exceed the accrued interest')
+  }
+}
+
 function demoPeerLoanDetail(accountId: number): PeerLoanDetail {
   const existing = _peerLoanDetails.get(accountId)
   if (existing) return existing
@@ -450,6 +472,7 @@ handlers.set(key('POST', '/accounts/:id/peer-loan/repayments'), (config, { id })
   const accountId = Number(id)
   const data: PeerLoanRepaymentRequest = JSON.parse(config.data || '{}')
   const current = demoPeerLoanDetail(accountId)
+  assertDemoRepaymentAllowed(current, data)
   const repayment: PeerLoanRepayment = {
     id: Date.now(),
     paidOn: data.paidOn,
@@ -477,6 +500,7 @@ handlers.set(key('PUT', '/accounts/:id/peer-loan/repayments/:repaymentId'), (con
   const target = Number(repaymentId)
   const data: PeerLoanRepaymentRequest = JSON.parse(config.data || '{}')
   const current = demoPeerLoanDetail(accountId)
+  assertDemoRepaymentAllowed(current, data)
   const updated = current.repayments.map((repayment) => {
     if (repayment.id !== target) return repayment
     // The split follows the amount: the accrued interest part is unchanged, the rest
