@@ -431,7 +431,7 @@ public class PeerLoanService {
     ) {
         Account account = requireAccount(accountId, memberId);
         requireType(account);
-        PeerLoanTerms terms = requireConfiguredTerms(accountId);
+        PeerLoanTerms terms = lockConfiguredTerms(accountId);
         requireOpen(terms);
 
         requireCompletedRepaymentDate(request.paidOn());
@@ -478,7 +478,7 @@ public class PeerLoanService {
     ) {
         Account account = requireAccount(accountId, memberId);
         requireType(account);
-        PeerLoanTerms terms = requireConfiguredTerms(accountId);
+        PeerLoanTerms terms = lockConfiguredTerms(accountId);
         requireOpen(terms);
         PeerLoanRepaymentKind kind = request.kind() != null
             ? request.kind()
@@ -544,7 +544,7 @@ public class PeerLoanService {
     ) {
         Account account = requireAccount(accountId, memberId);
         requireType(account);
-        PeerLoanTerms terms = requireConfiguredTerms(accountId);
+        PeerLoanTerms terms = lockConfiguredTerms(accountId);
         requireOpen(terms);
 
         PeerLoanRepayment repayment = repaymentRepository.findByIdAndAccountId(repaymentId, accountId)
@@ -600,7 +600,7 @@ public class PeerLoanService {
     public void deleteRepayment(Long accountId, Long repaymentId, Long memberId) {
         Account account = requireAccount(accountId, memberId);
         requireType(account);
-        PeerLoanTerms terms = requireConfiguredTerms(accountId);
+        PeerLoanTerms terms = lockConfiguredTerms(accountId);
 
         PeerLoanRepayment repayment = repaymentRepository.findByIdAndAccountId(repaymentId, accountId)
             .orElseThrow(() -> new ResourceNotFoundException("Repayment not found"));
@@ -630,7 +630,7 @@ public class PeerLoanService {
     public PeerLoanDetailResponse close(Long accountId, Long memberId, LocalDate closedAt) {
         Account account = requireAccount(accountId, memberId);
         requireType(account);
-        PeerLoanTerms terms = requireConfiguredTerms(accountId);
+        PeerLoanTerms terms = lockConfiguredTerms(accountId);
 
         LocalDate date = closedAt != null ? closedAt : LocalDate.now();
         if (terms.getClosedAt() != null) {
@@ -835,8 +835,13 @@ public class PeerLoanService {
         }
     }
 
-    private PeerLoanTerms requireConfiguredTerms(Long accountId) {
-        return termsRepository.findByAccountId(accountId)
+    /**
+     * The loan's terms, locked for the rest of the transaction. Used by every method that writes
+     * the ledger: the cap check reads the whole ledger, so two concurrent writers must not
+     * validate against the same snapshot and both commit a row the other made unabsorbable.
+     */
+    private PeerLoanTerms lockConfiguredTerms(Long accountId) {
+        return termsRepository.findForUpdateByAccountId(accountId)
             .orElseThrow(() -> new ResourceNotFoundException("Peer loan terms are not set for this account"));
     }
 

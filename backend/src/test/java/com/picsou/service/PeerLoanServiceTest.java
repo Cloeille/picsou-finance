@@ -348,7 +348,7 @@ class PeerLoanServiceTest {
             .annualRate(BigDecimal.ZERO).linkedAccount(usd)
             .build();
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         assertThatThrownBy(() -> service.addRepayment(ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentRequest(
@@ -384,7 +384,7 @@ class PeerLoanServiceTest {
             .id(60L).account(foreignCash).date(LocalDate.now().minusDays(1))
             .amount(new BigDecimal("100")).build();
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID))
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID))
             .thenReturn(Optional.of(terms(account, new BigDecimal("500"), null)));
         when(transactionRepository.findById(60L)).thenReturn(Optional.of(transaction));
 
@@ -402,7 +402,7 @@ class PeerLoanServiceTest {
             .annualRate(BigDecimal.ZERO).linkedAccount(cashAccount(true))
             .build();
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID)).thenReturn(List.of());
 
         // 500 already covers the whole loan: 600 would write money the ledger drops.
@@ -426,7 +426,7 @@ class PeerLoanServiceTest {
         Account account = loanAccount("Jean");
         PeerLoanTerms terms = terms(account, new BigDecimal("1000"), null);
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
             .thenReturn(List.of(ledgerRow(account, 21L, "2026-03-01", "500")));
 
@@ -449,7 +449,7 @@ class PeerLoanServiceTest {
         PeerLoanRepayment march = ledgerRow(account, 21L, "2026-03-01", "500");
         PeerLoanRepayment april = ledgerRow(account, 22L, "2026-04-01", "300");
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.findByIdAndAccountId(22L, ACCOUNT_ID)).thenReturn(Optional.of(april));
         when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
             .thenReturn(List.of(march, april));
@@ -476,7 +476,7 @@ class PeerLoanServiceTest {
             .annualRate(new BigDecimal("0.365")).build();
         // 1100 on 2026-04-11 clears the loan exactly (1000 capital + 100 interest).
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
             .thenReturn(List.of(ledgerRow(account, 21L, "2026-04-11", "1100")));
 
@@ -491,12 +491,32 @@ class PeerLoanServiceTest {
     }
 
     @Test
+    void addRepaymentTakesTheLoanLockBeforeValidatingTheCap() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID)).thenReturn(List.of());
+
+        // The cap reads the whole ledger: two concurrent adds must not both validate against
+        // the same snapshot, so the terms row is locked first and the plain finder is not used.
+        assertThatThrownBy(() -> service.addRepayment(ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentRequest(
+            LocalDate.parse("2026-02-01"), new BigDecimal("600"),
+            PeerLoanRepaymentKind.PRINCIPAL, null, false)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("cannot exceed");
+
+        verify(termsRepository).findForUpdateByAccountId(ACCOUNT_ID);
+        verify(termsRepository, never()).findByAccountId(ACCOUNT_ID);
+    }
+
+    @Test
     void addRepaymentAcceptsTheExactPayoffInOrder() {
         Account account = loanAccount("Jean");
         PeerLoanTerms terms = terms(account, new BigDecimal("1000"), null);
         List<PeerLoanRepayment> ledger = new ArrayList<>(List.of(ledgerRow(account, 21L, "2026-02-01", "500")));
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
             PeerLoanRepayment saved = invocation.getArgument(0);
             saved.setId(22L);
@@ -523,7 +543,7 @@ class PeerLoanServiceTest {
             .annualRate(new BigDecimal("0.365")).build();
         List<PeerLoanRepayment> ledger = new ArrayList<>();
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
             PeerLoanRepayment saved = invocation.getArgument(0);
             saved.setId(22L);
@@ -548,7 +568,7 @@ class PeerLoanServiceTest {
         PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
         PeerLoanRepayment february = ledgerRow(account, 11L, "2026-02-01", "100");
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.findByIdAndAccountId(11L, ACCOUNT_ID)).thenReturn(Optional.of(february));
         when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
             .thenReturn(List.of(february));
@@ -568,7 +588,7 @@ class PeerLoanServiceTest {
         PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
         PeerLoanRepayment february = ledgerRow(account, 11L, "2026-02-01", "100");
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.findByIdAndAccountId(11L, ACCOUNT_ID)).thenReturn(Optional.of(february));
 
         assertThatThrownBy(() -> service.updateRepayment(ACCOUNT_ID, 11L, MEMBER_ID,
@@ -595,7 +615,7 @@ class PeerLoanServiceTest {
         List<PeerLoanRepayment> ledger = new ArrayList<>();
 
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(transactionRepository.findById(60L)).thenReturn(Optional.of(transaction));
         when(repaymentRepository.findByCashTransactionId(60L)).thenReturn(Optional.empty());
         when(termsRepository.findByLendingTransactionId(60L)).thenReturn(Optional.empty());
@@ -626,7 +646,7 @@ class PeerLoanServiceTest {
         Account account = loanAccount("Jean");
         PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
 
         assertThatThrownBy(() -> service.addRepayment(ACCOUNT_ID, MEMBER_ID,
             new PeerLoanRepaymentRequest(LocalDate.now(), new BigDecimal("50"),
@@ -640,7 +660,7 @@ class PeerLoanServiceTest {
         Account account = loanAccount("Jean");
         PeerLoanTerms terms = terms(account, new BigDecimal("500"), LocalDate.parse("2026-06-01"));
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
 
         assertThatThrownBy(() -> service.addRepayment(ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentRequest(
             LocalDate.parse("2026-07-01"), new BigDecimal("50"), PeerLoanRepaymentKind.PRINCIPAL, null)))
@@ -657,7 +677,7 @@ class PeerLoanServiceTest {
             .annualRate(BigDecimal.ZERO).linkedAccount(cashAccount(false))
             .build();
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID)).thenReturn(List.of());
         when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -678,7 +698,7 @@ class PeerLoanServiceTest {
             .annualRate(BigDecimal.ZERO).linkedAccount(cashAccount(true))
             .build();
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         List<PeerLoanRepayment> ledger = new ArrayList<>();
         when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
             PeerLoanRepayment saved = invocation.getArgument(0);
@@ -705,7 +725,7 @@ class PeerLoanServiceTest {
         Account account = loanAccount("Jean");
         PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
 
         assertThatThrownBy(() -> service.addRepayment(ACCOUNT_ID, MEMBER_ID,
             new PeerLoanRepaymentRequest(LocalDate.now().plusDays(1), new BigDecimal("50"),
@@ -721,7 +741,7 @@ class PeerLoanServiceTest {
         Account account = loanAccount("Jean");
         PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
 
         assertThatThrownBy(() -> service.addRepayment(ACCOUNT_ID, MEMBER_ID,
             new PeerLoanRepaymentRequest(LocalDate.parse("1800-01-01"), new BigDecimal("50"),
@@ -738,7 +758,7 @@ class PeerLoanServiceTest {
         PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
         PeerLoanRepayment february = ledgerRow(account, 11L, "2026-02-01", "100");
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.findByIdAndAccountId(11L, ACCOUNT_ID)).thenReturn(Optional.of(february));
 
         assertThatThrownBy(() -> service.updateRepayment(ACCOUNT_ID, 11L, MEMBER_ID,
@@ -759,7 +779,7 @@ class PeerLoanServiceTest {
             .id(60L).account(cash).date(LocalDate.parse("1800-01-01"))
             .description("Virement reçu").amount(new BigDecimal("100")).build();
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(transactionRepository.findById(60L)).thenReturn(Optional.of(ancient));
         when(repaymentRepository.findByCashTransactionId(60L)).thenReturn(Optional.empty());
         when(termsRepository.findByLendingTransactionId(60L)).thenReturn(Optional.empty());
@@ -789,7 +809,7 @@ class PeerLoanServiceTest {
         List<PeerLoanRepayment> ledger = new ArrayList<>(List.of(february, march));
 
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
             PeerLoanRepayment saved = invocation.getArgument(0);
             saved.setId(23L);
@@ -843,7 +863,7 @@ class PeerLoanServiceTest {
             .amount(new BigDecimal("100")).kind(PeerLoanRepaymentKind.PRINCIPAL)
             .cashTransactionId(60L).cashLegOwned(true).build();
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.findByIdAndAccountId(11L, ACCOUNT_ID)).thenReturn(Optional.of(repayment));
         when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
             .thenReturn(List.of(repayment));
@@ -870,7 +890,7 @@ class PeerLoanServiceTest {
         List<PeerLoanRepayment> ledger = new ArrayList<>();
 
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
             PeerLoanRepayment saved = invocation.getArgument(0);
             if (saved.getId() == null) {
@@ -907,7 +927,7 @@ class PeerLoanServiceTest {
         List<PeerLoanRepayment> ledger = new ArrayList<>();
 
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(transactionRepository.findById(60L)).thenReturn(Optional.of(transaction));
         when(repaymentRepository.findByCashTransactionId(60L)).thenReturn(Optional.empty());
         when(termsRepository.findByLendingTransactionId(60L)).thenReturn(Optional.empty());
@@ -944,7 +964,7 @@ class PeerLoanServiceTest {
             .annualRate(BigDecimal.ZERO).linkedAccount(cashAccount(true))
             .build();
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID)).thenReturn(List.of());
 
         // Zero rate, so nothing ever accrues: an INTEREST row would be capital wearing
@@ -974,7 +994,7 @@ class PeerLoanServiceTest {
         List<PeerLoanRepayment> ledger = new ArrayList<>();
 
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(transactionRepository.findById(60L)).thenReturn(Optional.of(transaction));
         when(repaymentRepository.findByCashTransactionId(60L)).thenReturn(Optional.empty());
         when(termsRepository.findByLendingTransactionId(60L)).thenReturn(Optional.empty());
@@ -1018,7 +1038,7 @@ class PeerLoanServiceTest {
             .cashTransactionId(60L).cashLegOwned(false).build();
 
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.findByIdAndAccountId(11L, ACCOUNT_ID)).thenReturn(Optional.of(repayment));
         when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID)).thenReturn(List.of());
         when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -1045,7 +1065,7 @@ class PeerLoanServiceTest {
         List<PeerLoanRepayment> ledger = new ArrayList<>(List.of(february, march));
 
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
             .thenAnswer(invocation -> List.copyOf(ledger));
         when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
@@ -1129,7 +1149,7 @@ class PeerLoanServiceTest {
         PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
         List<PeerLoanRepayment> ledger = new ArrayList<>();
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
             .thenAnswer(invocation -> List.copyOf(ledger));
         when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
@@ -1164,7 +1184,7 @@ class PeerLoanServiceTest {
         List<PeerLoanRepayment> ledger = new ArrayList<>(List.of(writeOff));
 
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
-        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(repaymentRepository.findByIdAndAccountId(9L, ACCOUNT_ID)).thenReturn(Optional.of(writeOff));
         when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
             .thenAnswer(invocation -> List.copyOf(ledger));
