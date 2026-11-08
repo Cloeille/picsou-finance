@@ -144,6 +144,7 @@ jobs:
           15 migration.LegacyMigrationRenumberingTest
           6 service.SidecarBudgetPostgresTest
           1 service.SetupAuditServicePostgresTest
+          2 service.PeerLoanTransactionLinksPostgresTest
           20 config.SsoLoginIntegrationTest
           2 config.SsoHandshakeSessionRaceIntegrationTest
           23 adapter.sidecar.SidecarBankCodesTest
