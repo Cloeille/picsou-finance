@@ -12,6 +12,7 @@ import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.AmundiSessionRepository;
 import com.picsou.repository.BoursoSessionRepository;
 import com.picsou.repository.BourseDirectSessionRepository;
+import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
 import com.picsou.repository.CicSessionRepository;
 import com.picsou.repository.CmesSessionRepository;
@@ -415,7 +416,8 @@ class InstanceStatusServiceTest {
                 new SsoProperties(), mock(UserIdentityRepository.class), Clock.systemUTC()),
             SidecarProperties.of(Map.of()),
             mock(TradeRepublicSessionRepository.class), mock(BoursoSessionRepository.class),
-            mock(CaisseEpargneSessionRepository.class), mock(RevolutSessionRepository.class),
+            mock(CaisseEpargneSessionRepository.class), mock(BanquePopulaireSessionRepository.class),
+            mock(RevolutSessionRepository.class),
             mock(BourseDirectSessionRepository.class), mock(DegiroSessionRepository.class),
             mock(AmundiSessionRepository.class), mock(AmexSessionRepository.class),
             mock(FortuneoSessionRepository.class), mock(CorumSessionRepository.class),
@@ -442,6 +444,7 @@ class InstanceStatusServiceTest {
             Map.entry("degiro-auth", "http://degiro"),
             Map.entry("tr-auth", "http://tr"),
             Map.entry("caisse-epargne-auth", "http://caisse"),
+            Map.entry("banque-populaire-auth", "http://banque-populaire"),
             Map.entry("bourse-direct-auth", "http://bourse"),
             Map.entry("amundi-auth", "http://amundi"),
             Map.entry("fortuneo-auth", "http://fortuneo"),
@@ -451,6 +454,7 @@ class InstanceStatusServiceTest {
         var tr = mock(TradeRepublicSessionRepository.class);
         var bourso = mock(BoursoSessionRepository.class);
         var caisse = mock(CaisseEpargneSessionRepository.class);
+        var banquePopulaire = mock(BanquePopulaireSessionRepository.class);
         var revolut = mock(RevolutSessionRepository.class);
         var bourse = mock(BourseDirectSessionRepository.class);
         var degiro = mock(DegiroSessionRepository.class);
@@ -474,12 +478,13 @@ class InstanceStatusServiceTest {
         when(sofidy.count()).thenReturn(11L);
         when(cmes.count()).thenReturn(12L);
         when(cic.count()).thenReturn(13L);
+        when(banquePopulaire.count()).thenReturn(14L);
 
         InstanceStatusService wired = new InstanceStatusService(
             disabledReleases(),
             setup,
             sidecars,
-            tr, bourso, caisse, revolut, bourse, degiro, amundi, amex, fortuneo, corum, sofidy, cmes, cic,
+            tr, bourso, caisse, banquePopulaire, revolut, bourse, degiro, amundi, amex, fortuneo, corum, sofidy, cmes, cic,
             "1.1.0");
 
         assertThat(wired.targets())
@@ -492,6 +497,7 @@ class InstanceStatusServiceTest {
                 tuple("degiro-auth", "sidecar-python"),
                 tuple("tr-auth", "sidecar-chromium"),
                 tuple("caisse-epargne-auth", "sidecar-chromium"),
+                tuple("banque-populaire-auth", "sidecar-chromium"),
                 tuple("bourse-direct-auth", "sidecar-chromium"),
                 tuple("amundi-auth", "sidecar-chromium"),
                 tuple("fortuneo-auth", "sidecar-chromium"),
@@ -511,6 +517,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "cic-auth").url().get()).isEqualTo("http://cic");
         assertThat(byName(wired, "degiro-auth").url().get()).isEqualTo("http://degiro");
         assertThat(byName(wired, "caisse-epargne-auth").url().get()).isEqualTo("http://caisse");
+        assertThat(byName(wired, "banque-populaire-auth").url().get()).isEqualTo("http://banque-populaire");
         assertThat(byName(wired, "revolut-auth").url().get()).isEqualTo("http://revolut");
         assertThat(byName(wired, "bourse-direct-auth").url().get()).isEqualTo("http://bourse");
         assertThat(byName(wired, "amundi-auth").url().get()).isEqualTo("http://amundi");
@@ -531,6 +538,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "sofidy-auth").sessions().getAsLong()).isEqualTo(11L);
         assertThat(byName(wired, "cmes-auth").sessions().getAsLong()).isEqualTo(12L);
         assertThat(byName(wired, "cic-auth").sessions().getAsLong()).isEqualTo(13L);
+        assertThat(byName(wired, "banque-populaire-auth").sessions().getAsLong()).isEqualTo(14L);
     }
 
     private static AppSetting setting(String value) {

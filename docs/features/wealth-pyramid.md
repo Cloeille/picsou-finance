@@ -26,7 +26,7 @@ silently vanish from a chart. A `Map` cannot have this property; a switch expres
 |---|---|
 | `SAFETY_NET` | `SAVINGS`, `LEP`, `LIVRET_A`, `LDDS`, `LIVRET_JEUNE`, `PEL`, `CEL` — and `CHECKING`, which the service then sets aside (below) |
 | `REAL_ESTATE` | `REAL_ESTATE`, `SCPI` (and `LOAN`, only so the switch stays total — loans never enter as assets) |
-| `EQUITY` | `PEA`, `COMPTE_TITRES`, `EMPLOYEE_SAVINGS`, `ASSURANCE_VIE`, `PER` |
+| `EQUITY` | `PEA`, `COMPTE_TITRES`, `BROKERAGE`, `EMPLOYEE_SAVINGS`, `ASSURANCE_VIE`, `PER` |
 | `CRYPTO` | `CRYPTO` |
 | `ALTERNATIVE` | `PRECIOUS_METALS`, `OTHER` |
 
