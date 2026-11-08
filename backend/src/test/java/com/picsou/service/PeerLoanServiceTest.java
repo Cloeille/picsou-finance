@@ -1218,6 +1218,25 @@ class PeerLoanServiceTest {
     }
 
     @Test
+    void closeRejectsAnAncientClosureDate() {
+        Account account = loanAccount("Jean");
+        // A legacy row lent before the 1900 bound existed: the closure date clears
+        // the lending-date check, so the lower bound is what refuses it.
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("500")).lentAt(LocalDate.parse("1800-01-01"))
+            .annualRate(BigDecimal.ZERO).build();
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+
+        assertThatThrownBy(() -> service.close(ACCOUNT_ID, MEMBER_ID, LocalDate.parse("1800-06-01")))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("too far in the past");
+
+        verify(repaymentRepository, never()).save(any(PeerLoanRepayment.class));
+    }
+
+    @Test
     void deletingTheClosingWriteOffReopensTheLoan() {
         Account account = loanAccount("Jean");
         PeerLoanTerms terms = terms(account, new BigDecimal("500"), LocalDate.parse("2026-06-01"));

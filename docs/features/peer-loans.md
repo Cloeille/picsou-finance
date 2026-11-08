@@ -147,8 +147,9 @@ Closing writes a `WRITE_OFF` row for the residual (if any) and stamps `closed_at
   budget (there is no cash movement and it is not consumption);
 - unpaid accrued interest is dropped: it was never received, so it was never counted.
 
-The closure date cannot precede the lending date or be in the future: a future write-off
-would claim a loss before it happened.
+The closure date cannot precede the lending date, be in the future, or predate
+1900: a future write-off would claim a loss before it happened, and an ancient
+one would seed the snapshot repair from that date.
 
 A **backdated** close writes off the residual as of the closure date. Repayments dated
 after it stay in the ledger (the write-off must not erase a payment that did arrive), so

@@ -642,6 +642,9 @@ public class PeerLoanService {
         if (date.isAfter(LocalDate.now())) {
             throw new IllegalArgumentException("The closure date cannot be in the future");
         }
+        if (date.isBefore(MIN_DATE)) {
+            throw new IllegalArgumentException("The closure date is too far in the past");
+        }
 
         List<PeerLoanRepayment> repayments =
             repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(accountId);
