@@ -144,6 +144,28 @@ public enum LabelKey {
     INSURANCE("Insurance"),
     TOTAL_PAYMENT("Payment"),
 
+    // ─── Peer loan ───────────────────────────────────────────────────────────────
+    PEER_LOAN("Peer loan"),
+    BORROWER("Borrower"),
+    LENT_AT("Lent on"),
+    EXPECTED_BACK("Expected back"),
+    RATE_PERIOD("Rate period"),
+    PLANNED_MONTHLY("Planned monthly"),
+    PLANNED_MONTHS("Planned months"),
+    PLANNED_INTEREST("Planned interest"),
+    PRINCIPAL("Principal"),
+    PRINCIPAL_REMAINING("Remaining capital"),
+    INTEREST_ACCRUED("Interest accrued"),
+    INTEREST_RECEIVED("Interest received"),
+    WRITTEN_OFF("Written off"),
+    CLOSED_AT("Closed on"),
+    CASH_ACCOUNT("Cash account"),
+    REPAYMENT_JOURNAL("Repayment journal"),
+    PAID_ON("Paid on"),
+    AMOUNT("Amount"),
+    KIND("Kind"),
+    NOTE("Note"),
+
     // ─── Values ──────────────────────────────────────────────────────────────
     YES("Yes"),
     NO("No");

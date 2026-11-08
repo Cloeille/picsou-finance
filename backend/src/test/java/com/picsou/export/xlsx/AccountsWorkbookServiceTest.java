@@ -13,11 +13,17 @@ import com.picsou.model.Debt;
 import com.picsou.model.Goal;
 import com.picsou.model.GoalType;
 import com.picsou.model.HouseholdStatus;
-import com.picsou.model.Debt;
+import com.picsou.model.PeerCounterparty;
+import com.picsou.model.PeerLoanRatePeriod;
+import com.picsou.model.PeerLoanRepayment;
+import com.picsou.model.PeerLoanRepaymentKind;
+import com.picsou.model.PeerLoanTerms;
 import com.picsou.model.PropertyValuation;
 import com.picsou.model.RealEstateMetadata;
 import com.picsou.model.ValuationConfidence;
 import com.picsou.repository.DebtRepository;
+import com.picsou.repository.PeerLoanRepaymentRepository;
+import com.picsou.repository.PeerLoanTermsRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.service.AccountService;
 import com.picsou.service.GoalService;
@@ -70,6 +76,8 @@ class AccountsWorkbookServiceTest {
     @Mock LoanAmortizationService loanAmortizationService;
     @Mock MemberProfileService memberProfileService;
     @Mock GoalService goalService;
+    @Mock PeerLoanTermsRepository peerLoanTermsRepository;
+    @Mock PeerLoanRepaymentRepository peerLoanRepaymentRepository;
     // Spied, not mocked: the summary's savings rate should come out of the real arithmetic.
     @Spy SavingsRateCalculator savingsRateCalculator = new SavingsRateCalculator();
 
@@ -267,6 +275,76 @@ class AccountsWorkbookServiceTest {
         Sheet sheet = export(List.of(1L)).getSheet("Prêt");
 
         assertThat(rowIndexOf(sheet, "Amortization schedule")).isEqualTo(-1);
+    }
+
+    @Test
+    void peerLoanBlock_writesTheTermsAndTheRepaymentJournal() throws IOException {
+        stubAccount(bank(1L, "Marie", AccountType.PEER_LOAN));
+        Account cash = Account.builder().name("Compte courant").build();
+        PeerCounterparty borrower = PeerCounterparty.builder().name("Marie").build();
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .counterparty(borrower).linkedAccount(cash)
+            .principal(new BigDecimal("1500"))
+            .lentAt(LocalDate.parse("2026-01-10"))
+            .expectedBack(LocalDate.parse("2026-12-10"))
+            .annualRate(new BigDecimal("0.05")).ratePeriod(PeerLoanRatePeriod.ANNUAL)
+            .plannedMonthlyAmount(new BigDecimal("200")).plannedMonths(8)
+            .note("Car loan").build();
+        // 50 days at 5 % on 1 500 EUR accrue 10.27 EUR: the row pays that first, then 289.73
+        // of capital. Asserting the split proves the journal carries the calculator's work.
+        PeerLoanRepayment repayment = PeerLoanRepayment.builder()
+            .paidOn(LocalDate.parse("2026-03-01"))
+            .amount(new BigDecimal("300"))
+            .kind(PeerLoanRepaymentKind.PRINCIPAL)
+            .note("March").build();
+        when(peerLoanTermsRepository.findByAccountId(1L)).thenReturn(Optional.of(terms));
+        when(peerLoanRepaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(1L))
+            .thenReturn(List.of(repayment));
+
+        Sheet sheet = export(List.of(1L)).getSheet("Marie");
+
+        assertThat(stringBesideLabel(sheet, "Borrower")).isEqualTo("Marie");
+        assertThat(numberBesideLabel(sheet, "Principal")).isEqualTo(1500);
+        // Stored annualized as a ratio (0.05); the column says "(%)".
+        assertThat(numberBesideLabel(sheet, "Interest rate (%)")).isEqualTo(5.0);
+        // 8 planned instalments of 200 on a 1500 principal.
+        assertThat(numberBesideLabel(sheet, "Planned interest")).isEqualTo(100);
+        assertThat(stringBesideLabel(sheet, "Cash account")).isEqualTo("Compte courant");
+
+        int header = rowIndexOf(sheet, "Repayment journal") + 1;
+        Row row = sheet.getRow(header + 1);
+        assertThat(row.getCell(1).getNumericCellValue()).isEqualTo(300.0);
+        assertThat(row.getCell(2).getStringCellValue()).isEqualTo("PRINCIPAL");
+        assertThat(row.getCell(3).getNumericCellValue()).isEqualTo(10.27);
+        assertThat(row.getCell(4).getNumericCellValue()).isEqualTo(289.73);
+        assertThat(row.getCell(5).getStringCellValue()).isEqualTo("March");
+
+        // The derived balances come from the same split, not a second computation.
+        assertThat(numberBesideLabel(sheet, "Remaining capital")).isEqualTo(1210.27);
+        assertThat(numberBesideLabel(sheet, "Capital repaid")).isEqualTo(289.73);
+        assertThat(numberBesideLabel(sheet, "Interest received")).isEqualTo(10.27);
+        assertThat(numberBesideLabel(sheet, "Written off")).isEqualTo(0.0);
+    }
+
+    @Test
+    void peerLoanBlock_expressesAMonthlyRatePerMonth() throws IOException {
+        stubAccount(bank(1L, "Jean", AccountType.PEER_LOAN));
+        PeerCounterparty borrower = PeerCounterparty.builder().name("Jean").build();
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .counterparty(borrower)
+            .principal(new BigDecimal("500"))
+            .lentAt(LocalDate.parse("2026-11-05"))
+            .annualRate(new BigDecimal("0.24")).ratePeriod(PeerLoanRatePeriod.MONTHLY)
+            .plannedMonthlyAmount(new BigDecimal("47.28")).plannedMonths(12)
+            .build();
+        when(peerLoanTermsRepository.findByAccountId(1L)).thenReturn(Optional.of(terms));
+        when(peerLoanRepaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(1L)).thenReturn(List.of());
+
+        Sheet sheet = export(List.of(1L)).getSheet("Jean");
+
+        // 0.24 annualized is 2 %/month; printing 24 next to "MONTHLY" would read as 24 %/month.
+        assertThat(numberBesideLabel(sheet, "Interest rate (%)")).isEqualTo(2.0);
+        assertThat(stringBesideLabel(sheet, "Rate period")).isEqualTo("MONTHLY");
     }
 
     // ─── Labels ──────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ import com.picsou.exception.SyncException;
 import com.picsou.model.CaisseEpargneSyncStatus;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
+import com.picsou.service.BpceSyncEngine;
 import com.picsou.service.CaisseEpargneSyncService;
 import com.picsou.service.UserContext;
 import io.github.bucket4j.Bucket;
@@ -82,8 +83,8 @@ class CaisseEpargneControllerAuthTest {
             .contentType(MediaType.APPLICATION_JSON).content(body).with(from(ip)));
     }
 
-    private static CaisseEpargneSyncService.InitiateResponse challenge(String processId) {
-        return new CaisseEpargneSyncService.InitiateResponse(processId,
+    private static BpceSyncEngine.InitiateResponse challenge(String processId) {
+        return new BpceSyncEngine.InitiateResponse(processId,
             new CaisseEpargnePort.Keypad(java.util.Collections.nCopies(10, IMAGE), 5), 90);
     }
 

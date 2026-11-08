@@ -7,6 +7,7 @@ import com.picsou.service.MemberSyncService;
 import com.picsou.service.SimplefinSyncService;
 import com.picsou.service.SyncStatusService;
 import com.picsou.service.UserContext;
+import com.picsou.service.WiseSyncService;
 import com.picsou.service.sync.SourceSyncResult;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.ConsumptionProbe;
@@ -35,7 +36,8 @@ public class SyncTools {
     private static final String SHARED_COOLDOWN_DESCRIPTION = " Cooldown is shared by all MCP trigger tools for this member: "
         + "one sync every 15 minutes, and four per day.";
 
-    static final Set<String> BANK_SOURCES = Set.of("enable-banking", "enable-banking-retry", SimplefinSyncService.SOURCE);
+    static final Set<String> BANK_SOURCES = Set.of("enable-banking", "enable-banking-retry", SimplefinSyncService.SOURCE,
+        WiseSyncService.SOURCE);
     static final Set<String> BROKER_SOURCES = Set.of(
         "trade-republic", "bourso", "bourse-direct", "amundi", "cmes", "corum", "fortuneo", "amex", "ibkr", "degiro");
     static final Set<String> EXCHANGE_SOURCES = Set.of("crypto-exchanges");
@@ -72,7 +74,7 @@ public class SyncTools {
 
     @Tool(name = "trigger_bank_sync",
         description = "Refresh the authenticated member's existing Enable Banking connections, including "
-            + "the retry of connections that failed last time, and the SimpleFIN connection. Does not include Revolut — use "
+            + "the retry of connections that failed last time, and the SimpleFIN and Wise connections. Does not include Revolut — use "
             + "trigger_full_sync for every source. Does not connect a new bank. Returns one status "
             + "line per source; a failure is named, not hidden." + SHARED_COOLDOWN_DESCRIPTION)
     @RequiresScope(Scopes.SYNC_TRIGGER)

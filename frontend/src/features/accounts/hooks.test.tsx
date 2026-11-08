@@ -578,6 +578,7 @@ describe('usePortfolio', () => {
       totalLiabilities: 0,
       netWorthHistory: [],
       distribution: [],
+      assets: [],
       liabilities: [],
       goalSummaries: [],
     } satisfies DashboardData))

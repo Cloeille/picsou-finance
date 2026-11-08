@@ -11,7 +11,10 @@ public record DashboardResponse(
     BigDecimal totalLiabilities,
     BigDecimal totalMonthlyPayment,      // null if no loan has a Debt row
     List<NetWorthPoint> netWorthHistory,
+    /** The allocation donut: investments and cash, never a receivable. */
     List<DistributionItem> distribution,
+    /** Every asset, receivables included: what the wealth modes and history are built on. */
+    List<DistributionItem> assets,
     List<LiabilityEntry> liabilities,
     List<GoalProgressResponse> goalSummaries
 ) {

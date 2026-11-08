@@ -19,6 +19,7 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -128,21 +129,34 @@ public class CaisseEpargnePerService {
         account.setCurrentBalance(prepared.balance());
         account.setCashBalance(prepared.euroFundBalance());
 
-        holdingRepository.deleteByAccountId(account.getId());
-        holdingRepository.flush();
-        List<AccountHolding> holdings = prepared.positions().stream()
-            .map(position -> AccountHolding.builder()
-                .account(account)
-                .ticker(position.ticker())
-                .name(position.name())
-                .quantity(position.quantity())
-                .currentPrice(position.unitPrice())
-                .quoteCurrency("EUR")
-                .providerValueEur(position.value())
-                .providerPriceDate(position.priceDate())
-                .lastSyncedAt(syncedAt)
-                .build())
-            .toList();
+        // Updated in place by ticker, never deleted and recreated: the insurer reports no
+        // acquisition cost, so a buy-in the member entered by hand must survive the next sync.
+        // Only a ticker the insurer no longer reports is removed.
+        Map<String, AccountHolding> stored = new HashMap<>();
+        for (AccountHolding existing : holdingRepository.findByAccount_Id(account.getId())) {
+            stored.put(existing.getTicker(), existing);
+        }
+        List<AccountHolding> holdings = new ArrayList<>();
+        for (PreparedPosition position : prepared.positions()) {
+            AccountHolding holding = stored.remove(position.ticker());
+            if (holding == null) {
+                holding = AccountHolding.builder().account(account).ticker(position.ticker()).build();
+            }
+            holding.setName(position.name());
+            holding.setQuantity(position.quantity());
+            holding.setCurrentPrice(position.unitPrice());
+            holding.setQuoteCurrency("EUR");
+            holding.setProviderValueEur(position.value());
+            holding.setProviderPriceDate(position.priceDate());
+            // The insurer gives no P&L; one left from an earlier edit no longer matches the line.
+            holding.setProviderPnlEur(null);
+            holding.setLastSyncedAt(syncedAt);
+            holdings.add(holding);
+        }
+        if (!stored.isEmpty()) {
+            holdingRepository.deleteAll(List.copyOf(stored.values()));
+            holdingRepository.flush();
+        }
         holdingRepository.saveAll(holdings);
         holdingRepository.flush();
     }

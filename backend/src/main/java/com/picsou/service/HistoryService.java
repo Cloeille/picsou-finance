@@ -134,6 +134,13 @@ public class HistoryService {
             .filter(a -> a.getType().isLiability())
             .map(Account::getId)
             .collect(Collectors.toSet());
+        // A peer loan is an asset, but not an investment: it belongs to net worth and never
+        // to the invested/PnL series. Same treatment as a liability on that side, opposite
+        // sign on the total.
+        Set<Long> receivableIds = accounts.stream()
+            .filter(a -> a.getType() == AccountType.PEER_LOAN)
+            .map(Account::getId)
+            .collect(Collectors.toSet());
 
         // Per-account forward-filled balance + invested snapshots + sorted dates.
         ForwardFillData ffData = buildPerAccountForwardFill(from, accounts);
@@ -161,6 +168,7 @@ public class HistoryService {
                 Long accId = account.getId();
                 boolean isLoan = loanIds.contains(accId);
                 boolean isLiability = liabilityIds.contains(accId);
+                boolean isReceivable = receivableIds.contains(accId);
 
                 NavigableMap<LocalDate, BigDecimal> balMap = ffData.balanceByAccount().get(accId);
                 NavigableMap<LocalDate, BigDecimal> invMap = ffData.investedByAccount().get(accId);
@@ -185,7 +193,7 @@ public class HistoryService {
                 // predates V18 / the account has no prior snapshot).
                 boolean unknownAccountPnl = unknownPerBasisIds.contains(accId)
                     || caisseEpargnePerIds.contains(accId) && invEntry == null;
-                BigDecimal accInvested = isLiability
+                BigDecimal accInvested = isLiability || isReceivable
                     ? BigDecimal.ZERO
                     : unknownAccountPnl
                         ? null
@@ -198,7 +206,7 @@ public class HistoryService {
 
                 // Debt-neutral pnl (issue #18): liabilities contribute 0 — outstanding debt
                 // is a liability, not an investment loss.
-                BigDecimal accPnl = isLiability ? BigDecimal.ZERO
+                BigDecimal accPnl = isLiability || isReceivable ? BigDecimal.ZERO
                     : accInvested == null ? null : accTotal.subtract(accInvested);
                 if (accPnl != null) {
                     aggPnl = aggPnl.add(accPnl);
@@ -232,15 +240,17 @@ public class HistoryService {
             BigDecimal accInvested = unknownAccountPnl
                 ? null : weigh(valuation.investedEur(), shares, account.getId());
             boolean isLiability = account.getType().isLiability();
+            boolean isReceivable = account.getType() == AccountType.PEER_LOAN;
             BigDecimal total = account.getType() == AccountType.LOAN ? accLive.negate() : accLive;
 
             liveTotal = liveTotal.add(total);
-            if (!isLiability && accInvested != null) {
+            if (!isLiability && !isReceivable && accInvested != null) {
                 liveInvested = liveInvested.add(accInvested);
             }
 
-            // Debt-neutral pnl (issue #18): liabilities contribute 0.
-            BigDecimal accPnl = isLiability ? BigDecimal.ZERO
+            // Debt-neutral pnl (issue #18): liabilities contribute 0. A receivable is not
+            // an investment either, so it contributes 0 to the P&L of the household.
+            BigDecimal accPnl = isLiability || isReceivable ? BigDecimal.ZERO
                 : accInvested == null ? null : accLive.subtract(accInvested);
             if (accPnl == null) {
                 unknownLivePnl = true;
@@ -249,7 +259,7 @@ public class HistoryService {
             }
 
             if (split) {
-                BigDecimal invested = isLiability ? BigDecimal.ZERO : accInvested;
+                BigDecimal invested = isLiability || isReceivable ? BigDecimal.ZERO : accInvested;
                 liveAccountPoints.put(account.getId(), new AccountPoint(total, invested, accPnl));
             }
         }
@@ -312,6 +322,7 @@ public class HistoryService {
         Set<Long> liabilityIds = new HashSet<>();
         Set<Long> caisseEpargnePerIds = new HashSet<>();
         Set<Long> unknownPerBasisIds = new HashSet<>();
+        Set<Long> receivableIds = new HashSet<>();
 
         LocalDate today = LocalDate.now();
 
@@ -323,6 +334,9 @@ public class HistoryService {
             }
             if (account.getType().isLiability()) {
                 liabilityIds.add(accId);
+            }
+            if (account.getType() == AccountType.PEER_LOAN) {
+                receivableIds.add(accId);
             }
 
             if (isCaisseEpargnePer(account)) {
@@ -473,7 +487,7 @@ public class HistoryService {
                     BigDecimal balance = accountBankBalance.getOrDefault(accId, BigDecimal.ZERO);
                     BigDecimal value = loanIds.contains(accId) ? balance.negate() : balance;
                     aggTotal = aggTotal.add(value);
-                    if (!liabilityIds.contains(accId)) {
+                    if (!liabilityIds.contains(accId) && !receivableIds.contains(accId)) {
                         aggInvested = aggInvested.add(value);
                     }
                 } else {
@@ -562,6 +576,10 @@ public class HistoryService {
             if (account.getType() == AccountType.LOAN) {
                 liveTotal = liveTotal.subtract(accLive);
             } else if (account.getType().isLiability()) {
+                liveTotal = liveTotal.add(accLive);
+            } else if (account.getType() == AccountType.PEER_LOAN) {
+                // A receivable is an asset but not an investment: net worth only, never
+                // invested, never a gain or a loss.
                 liveTotal = liveTotal.add(accLive);
             } else {
                 liveTotal = liveTotal.add(accLive);
