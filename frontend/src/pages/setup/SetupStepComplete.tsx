@@ -18,13 +18,14 @@ type AutoLoginState = 'idle' | 'attempting' | 'success' | 'failed'
  * Final screen. On mount:
  *   1. POST /api/setup/complete to flip setup.state to COMPLETE
  *   2. Immediately attempt auto-login with the in-memory credentials
- *      stashed by SetupStepAdmin (cleared here — one-shot consumption)
+ *      stashed by SetupStepAdmin (cleared here — one-shot consumption),
+ *      or, without them, through the session the SSO callback opened
  *   3. Show the confetti + "Open my dashboard" CTA
  *
- * Auto-login is best-effort: if credentials were cleared by a refresh or
- * the /login call itself rejects, the CTA falls back to routing the user
- * to /login manually. setup.state is COMPLETE either way, so the app
- * behaves normally from here.
+ * Auto-login is best-effort: if the /login call or the session probe
+ * rejects, the CTA falls back to routing the user to /login manually.
+ * setup.state is COMPLETE either way, so the app behaves normally from
+ * here.
  */
 export function SetupStepComplete() {
   const { t } = useTranslation()
@@ -62,15 +63,12 @@ export function SetupStepComplete() {
         }
       }
 
+      // No stashed password (SSO admin, or a reload mid-wizard): the session the SSO callback
+      // opened may still be there. Probing it before /complete resolves would answer 503.
       const creds = consumeSetupCredentials()
-      if (!creds) {
-        setAutoLogin('failed')
-        return
-      }
-
       setAutoLogin('attempting')
       try {
-        const user = await authApi.login(creds.username, creds.password)
+        const user = creds ? await authApi.login(creds.username, creds.password) : await authApi.refresh()
         loginIntoStore(user)
         // Make sure RequireSetup sees fresh status on dashboard nav.
         await refetchStatus()

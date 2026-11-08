@@ -31,6 +31,8 @@ app:
       url: ${CIC_AUTH_URL:http://127.0.0.1:8012}
     amex-auth:
       url: ${AMEX_AUTH_URL:http://127.0.0.1:8013}
+    banque-populaire-auth:
+      url: ${BANQUE_POPULAIRE_AUTH_URL:http://127.0.0.1:8014}
   enablebanking:
     private-key-path: ${ENABLEBANKING_PRIVATE_KEY_PATH:.local/keys/enablebanking-private.pem}
 
