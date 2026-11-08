@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 
 const { apiGet, apiPost, apiDelete } = vi.hoisted(() => ({
@@ -76,6 +76,10 @@ describe('LbpTab', () => {
     apiPost.mockReset()
     apiDelete.mockReset()
     apiGet.mockResolvedValue({ data: DISCONNECTED })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('asks for the identifier only, never a password', async () => {
@@ -256,5 +260,132 @@ describe('LbpTab', () => {
 
     await screen.findByText('sync.lbp.sessionActive')
     expect(apiPost).not.toHaveBeenCalledWith('/lbp/sync')
+  })
+
+  it('queues the first sync once when a lost completion later finds a live session', async () => {
+    // The completion request got a 502 and never answered, but the backend stored
+    // the session: the next status read sees it and queues the first sync.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    let live = false
+    apiGet.mockImplementation(async () => ({
+      data: live ? { ...ACTIVE, syncStatus: 'RUNNING' } : DISCONNECTED,
+    }))
+    apiPost.mockImplementation(async (url: string) => {
+      if (url === '/lbp/auth/initiate') return { data: INITIATED }
+      if (url === '/lbp/auth/keypad') return { data: KEYPAD_DONE }
+      if (url === '/lbp/auth/complete') throw problem(502, 'UPSTREAM_UNAVAILABLE')
+      return { data: { ...ACTIVE, syncStatus: 'QUEUED' } }
+    })
+    renderTab()
+    await signIn()
+    await screen.findByTestId('lbp-keypad-grid')
+    for (const index of [0, 1, 2, 3, 4, 5]) {
+      fireEvent.click(keyButtons()[index])
+    }
+    fireEvent.click(validateButton())
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith('/lbp/auth/complete', { processId: 'p1' }, { timeout: 180_000 }),
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000)
+    })
+    expect(screen.getByText('sync.lbp.securPassPrompt')).toBeInTheDocument()
+    expect(screen.getByTestId('lbp-countdown')).toHaveTextContent(/^2:5\d$/)
+    expect(apiGet).toHaveBeenCalledWith('/lbp/status', {
+      skipGlobalErrorRedirect: true,
+      timeout: 10_000,
+    })
+    expect(apiPost).not.toHaveBeenCalledWith('/lbp/sync')
+
+    live = true
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000)
+    })
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/lbp/sync'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9_000)
+    })
+    expect(apiPost.mock.calls.filter(c => c[0] === '/lbp/sync')).toHaveLength(1)
+    expect(apiPost.mock.calls.filter(c => c[0] === '/lbp/auth/complete')).toHaveLength(1)
+  })
+
+  it('reports a timeout 180 s after a lost completion that never brings a session', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const NETWORK_ERROR = Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' })
+    apiPost.mockImplementation(async (url: string) => {
+      if (url === '/lbp/auth/initiate') return { data: INITIATED }
+      if (url === '/lbp/auth/keypad') return { data: KEYPAD_DONE }
+      throw NETWORK_ERROR
+    })
+    renderTab()
+    await signIn()
+    await screen.findByTestId('lbp-keypad-grid')
+    for (const index of [0, 1, 2, 3, 4, 5]) {
+      fireEvent.click(keyButtons()[index])
+    }
+    fireEvent.click(validateButton())
+    await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(3))
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(177_000)
+    })
+    expect(screen.getByText('sync.lbp.securPassPrompt')).toBeInTheDocument()
+    expect(screen.queryByText('sync.lbp.errors.appValidationTimeout')).not.toBeInTheDocument()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000)
+    })
+
+    expect(await screen.findByText('sync.lbp.errors.appValidationTimeout')).toBeInTheDocument()
+    expect(screen.getByLabelText('sync.lbp.customerId')).toBeInTheDocument()
+    expect(screen.queryByText('sync.lbp.securPassPrompt')).not.toBeInTheDocument()
+    expect(apiPost).not.toHaveBeenCalledWith('/lbp/sync')
+  })
+
+  it('drops an expired keypad before submit and never sends it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    apiPost.mockResolvedValueOnce({ data: INITIATED })
+    renderTab()
+    await signIn()
+    await screen.findByTestId('lbp-keypad-grid')
+    for (const index of [0, 1, 2, 3, 4, 5]) {
+      fireEvent.click(keyButtons()[index])
+    }
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(301_000)
+    })
+
+    expect(screen.queryByTestId('lbp-keypad-grid')).not.toBeInTheDocument()
+    expect(screen.getByText('sync.lbp.errors.keypadExpired')).toBeInTheDocument()
+    expect(screen.getByLabelText('sync.lbp.customerId')).toBeInTheDocument()
+    expect(apiPost).toHaveBeenCalledTimes(1)
+    expect(apiPost).not.toHaveBeenCalledWith('/lbp/auth/keypad', expect.anything())
+  })
+
+  it('explains a throttled sync without blaming the sign-in', async () => {
+    apiGet.mockResolvedValue({ data: { ...ACTIVE, syncStatus: 'SUCCESS' } })
+    apiPost.mockRejectedValueOnce(problem(429, 'RATE_LIMITED'))
+    renderTab()
+
+    fireEvent.click(await screen.findByText('sync.lbp.sync'))
+
+    expect(await screen.findByText('sync.lbp.errors.tooManySyncs')).toBeInTheDocument()
+    expect(screen.queryByText('sync.lbp.errors.rateLimited')).not.toBeInTheDocument()
+  })
+
+  it('deletes the stored session only after the disconnect confirmation', async () => {
+    apiGet.mockResolvedValue({ data: { ...ACTIVE, syncStatus: 'SUCCESS' } })
+    apiDelete.mockResolvedValue({ data: { removed: true, bankSessionRevoked: false, message: '' } })
+    renderTab()
+
+    fireEvent.click(await screen.findByText('sync.lbp.clearSession'))
+
+    expect(await screen.findByText('sync.lbp.disconnectConfirm')).toBeInTheDocument()
+    expect(apiDelete).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('sync.lbp.disconnectConfirmAction'))
+
+    await waitFor(() => expect(apiDelete).toHaveBeenCalledWith('/lbp/session'))
   })
 })

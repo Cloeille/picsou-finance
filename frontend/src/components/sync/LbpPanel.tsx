@@ -222,6 +222,22 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
     )
   }, [messageForCode, t])
 
+  // A 429 on the sync itself means the bank throttles imports, not sign-ins:
+  // it gets its own copy so the user does not retry the whole login.
+  const formatSyncError = useCallback((value: unknown) => {
+    if (getErrorStatus(value) === 429) {
+      const seconds = retryAfterSeconds(value)
+      return seconds
+        ? t("sync.lbp.errors.tooManySyncsRetryAfter", {
+            minutes: Math.ceil(seconds / 60),
+          })
+        : t("sync.lbp.errors.tooManySyncs")
+    }
+    return (
+      messageForCode(errorCodeOf(value)) ?? t("sync.lbp.errors.serverError")
+    )
+  }, [messageForCode, t])
+
   const startFirstSync = useCallback(() => {
     if (firstSyncStarted.current) return
     firstSyncStarted.current = true
@@ -234,9 +250,9 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
     // manual retry must still tell the caller "connected" once the import succeeds.
     notifyConnectedOnSuccess.current = true
     syncMutate(undefined, {
-      onError: (value) => setError(formatError(value)),
+      onError: (value) => setError(formatSyncError(value)),
     })
-  }, [formatError, refetchStatus, syncMutate])
+  }, [formatSyncError, refetchStatus, syncMutate])
 
   useEffect(() => {
     if (lostCompletionAt === null) return
@@ -524,7 +540,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
                 onClick={() => {
                   setError(null)
                   sync.mutate(undefined, {
-                    onError: (value) => setError(formatError(value)),
+                    onError: (value) => setError(formatSyncError(value)),
                   })
                 }}
                 disabled={requestingSync}

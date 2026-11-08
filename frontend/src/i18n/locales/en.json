@@ -1741,6 +1741,8 @@
         "rateLimited": "Too many sign-in attempts. Please wait before trying again.",
         "rateLimitedRetryAfter": "Too many sign-in attempts. Try again in {{minutes}} min.",
         "invalidCredentials": "The bank refused the identifier or password. Check them before trying again: repeated failures can lock your account.",
+        "tooManySyncs": "Too many syncs. Please wait before syncing again.",
+        "tooManySyncsRetryAfter": "Too many syncs. Try again in {{minutes}} min.",
         "invalidIdentifier": "The identifier must contain 6 to 12 digits.",
         "keypadChanged": "The keypad changed, please start again. Nothing was sent.",
         "appValidationTimeout": "The sign-in was not approved in the mobile app in time. Start over if you want to try again.",

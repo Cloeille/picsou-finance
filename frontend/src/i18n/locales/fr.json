@@ -1196,7 +1196,7 @@
       "fortuneo": "Synchroniser vos comptes Fortuneo",
       "caisseEpargne": "Compte courant, Livret A, LDDS, PEL, LEP, PER, prêts et cartes à la Caisse d'Epargne",
       "banquePopulaire": "Compte courant, Livret A, Livret Jeune et LDDS à la Banque Populaire",
-      "lbp": "Compte courant, Livret A, LEP et livrets à La Banque Postale"
+      "lbp": "Compte courant, Livret A et LEP à La Banque Postale"
     }
   },
   "sync": {
@@ -1741,6 +1741,8 @@
         "rateLimited": "Trop de tentatives de connexion. Patientez avant de réessayer.",
         "rateLimitedRetryAfter": "Trop de tentatives de connexion. Réessayez dans {{minutes}} min.",
         "invalidCredentials": "La banque a refusé l'identifiant ou le mot de passe. Vérifiez-les avant de réessayer : des échecs répétés peuvent bloquer votre compte.",
+        "tooManySyncs": "Trop de synchronisations. Patientez avant de synchroniser à nouveau.",
+        "tooManySyncsRetryAfter": "Trop de synchronisations. Réessayez dans {{minutes}} min.",
         "invalidIdentifier": "L'identifiant doit contenir entre 6 et 12 chiffres.",
         "keypadChanged": "Le clavier a changé, recommencez. Rien n'a été envoyé.",
         "appValidationTimeout": "La connexion n'a pas été validée dans l'application mobile à temps. Recommencez si vous voulez réessayer.",

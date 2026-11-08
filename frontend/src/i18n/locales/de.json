@@ -1433,6 +1433,8 @@
         "rateLimited": "Zu viele Anmeldeversuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
         "rateLimitedRetryAfter": "Zu viele Anmeldeversuche. Versuchen Sie es in {{minutes}} Min. erneut.",
         "invalidCredentials": "Die Bank hat Kennung oder Passwort abgelehnt. Prüfen Sie sie, bevor Sie es erneut versuchen: wiederholte Fehlversuche können Ihr Konto sperren.",
+        "tooManySyncs": "Zu viele Synchronisierungen. Bitte warten Sie, bevor Sie erneut synchronisieren.",
+        "tooManySyncsRetryAfter": "Zu viele Synchronisierungen. Versuchen Sie es in {{minutes}} Min. erneut.",
         "invalidIdentifier": "Die Kennung muss aus 6 bis 12 Ziffern bestehen.",
         "keypadChanged": "Die Tastatur hat sich geändert, bitte neu beginnen. Es wurde nichts gesendet.",
         "appValidationTimeout": "Die Anmeldung wurde nicht rechtzeitig in der App bestätigt. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",

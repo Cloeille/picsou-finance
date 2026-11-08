@@ -1433,6 +1433,8 @@
         "rateLimited": "Demasiados intentos de inicio de sesión. Espera antes de volver a intentarlo.",
         "rateLimitedRetryAfter": "Demasiados intentos de inicio de sesión. Inténtalo de nuevo en {{minutes}} min.",
         "invalidCredentials": "El banco rechazó el identificador o la contraseña. Compruébalos antes de reintentar: los fallos repetidos pueden bloquear tu cuenta.",
+        "tooManySyncs": "Demasiadas sincronizaciones. Espera antes de volver a sincronizar.",
+        "tooManySyncsRetryAfter": "Demasiadas sincronizaciones. Inténtalo de nuevo en {{minutes}} min.",
         "invalidIdentifier": "El identificador debe contener entre 6 y 12 dígitos.",
         "keypadChanged": "El teclado cambió, empieza de nuevo. No se envió nada.",
         "appValidationTimeout": "El inicio de sesión no se aprobó a tiempo en la aplicación móvil. Empieza de nuevo si quieres reintentarlo.",
