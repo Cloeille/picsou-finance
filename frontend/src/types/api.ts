@@ -576,6 +576,11 @@ export interface PeerLoanRepayment {
   capitalPart?: number | null
   /** True when this row has a cash movement in a linked account. */
   hasCashLeg?: boolean
+  /**
+   * True when Picsou wrote that movement and deletes it with the row; false when the row only
+   * links a transaction that stays in its account.
+   */
+  cashLegOwned?: boolean
 }
 
 export type PeerLoanRatePeriod = 'ANNUAL' | 'MONTHLY'
@@ -1513,6 +1518,12 @@ export interface FinaryAutoSyncResponse {
   newAccountCount: number
 }
 
+export interface PeerLoanLink {
+  kind: 'LENDING' | 'REPAYMENT'
+  accountId: number
+  accountName: string
+}
+
 export interface Transaction {
   id: number
   date: string
@@ -1540,6 +1551,8 @@ export interface Transaction {
   fees: number | null
   /** True for CORUM Life contract operations: shown on the account, excluded from the budget. */
   budgetNeutral: boolean
+  /** The peer loan this row belongs to, if any: hides the link actions, links to the loan. */
+  peerLoanLink?: PeerLoanLink | null
 }
 
 export interface TransactionRequest {

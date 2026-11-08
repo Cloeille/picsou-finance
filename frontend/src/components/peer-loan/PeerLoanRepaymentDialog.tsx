@@ -24,6 +24,8 @@ interface PeerLoanRepaymentDialogProps {
   initial?: PeerLoanRepayment | null
   /** Shown as a hint: the interest this loan has accrued but not yet received. */
   accruedInterest: number
+  /** Shown as a hint: the most one repayment can take, so the user sees the ceiling. */
+  remainingDue: number
   onSubmit: (data: PeerLoanRepaymentRequest) => Promise<void> | void
   loading?: boolean
 }
@@ -37,6 +39,7 @@ export function PeerLoanRepaymentDialog({
   onOpenChange,
   initial,
   accruedInterest,
+  remainingDue,
   onSubmit,
   loading,
 }: PeerLoanRepaymentDialogProps) {
@@ -111,6 +114,9 @@ export function PeerLoanRepaymentDialog({
               {t('peerLoan.forecast.accruedHint')} <CurrencyDisplay value={accruedInterest} />
             </p>
           )}
+          <p className="text-xs text-muted-foreground">
+            {t('peerLoan.forecast.remainingHint')} <CurrencyDisplay value={remainingDue} />
+          </p>
 
           <div className="space-y-2">
             <Label htmlFor="peer-repayment-note">{t('peerLoan.fields.note')}</Label>

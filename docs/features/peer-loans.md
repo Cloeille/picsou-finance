@@ -1,6 +1,6 @@
 # Feature: Peer loans (receivables between individuals)
 
-> Last updated: 2026-11-05
+> Last updated: 2026-11-08
 > Status: ✅ v1 implemented. See
 > [the ADR](../decisions/2026-11-05-peer-loans-receivable.md).
 
@@ -38,7 +38,8 @@ page, the way a `SCPI` position is.
 ```sql
 -- V135: ALTER TYPE account_type ADD VALUE 'PEER_LOAN' BEFORE 'OTHER';
 -- V136: tables below.  V137: the two cash-leg links.  V138: cash_leg_owned.
--- V139: rate_period.
+-- V139: rate_period.  V140: widen annual_rate for high short-term rates.
+-- V141: drop the 100 % cap so the widened column is usable.
 
 peer_counterparty (id, member_id, name, note)
     UNIQUE (member_id, lower(name))
@@ -98,14 +99,39 @@ Edge cases:
 
 - a payment smaller than the accrued interest amortises nothing; the dialog shows the
   accrued figure so the user sees why;
-- an overpayment is clamped to zero capital for the balance, but the amount stays recorded;
-- an explicit `INTEREST` repayment cannot exceed the interest accrued at its own date: the
-  excess would be labelled as income while the ledger has nothing to pay;
+- a manually written repayment must not create cash the ledger cannot absorb: the excess
+  would be written in full to the cash account while the ledger drops it, inflating net
+  worth. The rule is checked against the **whole** ledger, not only the rows dated before
+  the new one. The service replays every other row with and without the candidate and
+  refuses it when it leaves more unabsorbed cash (amount − interest part − capital part,
+  summed over the payments) than there already was. A backdated payment therefore cannot
+  slip under the cap on its own date while pushing a later row over it (principal 1 000,
+  500 paid on 1 March: a 700 payment dated 1 February is refused), and on an
+  interest-bearing loan it cannot shift interest onto a later payoff. The same check runs
+  when a row is edited, with that row excluded from the ledger. The message names
+  the interest accrued at the payment's date plus the capital left after every other row.
+  (Open to debate: capping the cash leg at the applied amount instead of rejecting was
+  considered; rejection won because a silent partial write hides money just as badly.)
+  A linked transaction is exempt: its row already exists in the cash account, so linking
+  creates no money and the ledger simply clamps. Comparing with the existing figure also
+  means an earlier linked overpayment never blocks a later, valid edit.
+- a friendly round-up is recorded in two steps: if 348 € are owed and 350 € come back,
+  record 348 € as the repayment (the loan closes itself), then the 2 € surplus as a
+  separate manual deposit categorised as a gift or income. The error message names the
+  maximum so nobody has to compute it; splitting keeps the loan ledger and the gift
+  in their own rows instead of inventing a mixed movement.
+- an explicit `INTEREST` repayment cannot exceed the interest accrued at its own date:
+  with nothing accrued the row would be capital wearing the wrong label. (Open to
+  debate: zero-rate loans never accrue, so this forces the honest `PRINCIPAL` label;
+  the alternative is accepting the label and letting the calculator apply it to
+  capital anyway.)
 - a zero rate short-circuits the interest branch and the whole payment amortises;
 - the linked cash account must be in EUR, because the principal and the ledger are EUR
   figures that are never converted a second time;
 - a repayment date cannot be in the future: the ledger records completed payments, and the
-  forecast belongs to `planned_*`;
+  forecast belongs to `planned_*`; it cannot predate 1900 either, the lower bound of the
+  lending date, because the date seeds the snapshot repair and the curve (add, edit and
+  link-from-transaction all go through the same check);
 - the lending date cannot be in the future either: the receivable would count before the
   money left, and it cannot predate 1900 (a backdated plan would draw tens of thousands of
   curve points).
@@ -121,8 +147,16 @@ Closing writes a `WRITE_OFF` row for the residual (if any) and stamps `closed_at
   budget (there is no cash movement and it is not consumption);
 - unpaid accrued interest is dropped: it was never received, so it was never counted.
 
-The closure date cannot precede the lending date or be in the future: a future write-off
-would claim a loss before it happened.
+The closure date cannot precede the lending date, be in the future, or predate
+1900: a future write-off would claim a loss before it happened, and an ancient
+one would seed the snapshot repair from that date.
+
+A **backdated** close writes off the residual as of the closure date. Repayments dated
+after it stay in the ledger (the write-off must not erase a payment that did arrive), so
+they are clamped to what the loan can still absorb, which is nothing: the page can show
+"repaid 0 / written off X" next to rows with a positive amount. Net worth stays correct,
+because the receivable is zero from the closure date and the later deposits sit in the cash
+account as real cash.
 
 Deleting the closing write-off reopens the loan automatically: the marker is cleared when
 the recomputed capital is positive again. No separate "reopen" action can drift from the
@@ -134,7 +168,7 @@ ledger.
 |---|---|---|---|
 | Money lent (cash out) | — | `TRANSFER` | none |
 | Payment (cash in) | `PRINCIPAL` | `TRANSFER` | none; the interest part is in the ledger, not the budget |
-| Explicit interest-only entry (API) | `INTEREST` | uncategorised | counts as income by sign |
+| Explicit interest-only entry | `INTEREST` | uncategorised | counts as income by sign, however it was recorded |
 | Write-off | `WRITE_OFF` | none | net worth only |
 
 `CategoryKind.TRANSFER` is already excluded from cashflow. An **uncategorised** `DEPOSIT`
@@ -157,12 +191,21 @@ one rule:
 
 An interest repayment is a `DEPOSIT` left uncategorised: a positive amount counts as
 income in the cashflow, which is correct — interest is real income, not a transfer.
+That holds however the row was recorded: a transaction assigned as `INTEREST` keeps
+the same treatment as a typed one, so both entry paths report the same income.
 
 An incoming transaction can be **assigned** to an open loan instead of typing a
 repayment. It is linked (`cash_transaction_id`, `cash_leg_owned = false`) and never
 copied, so a synced account never receives a second row. Deleting that repayment only
 unlinks the transaction; the member's or provider's row stays. Editing a linked
 repayment is refused for the same reason: delete it and assign the transaction again.
+A linked row carries its loan (`peerLoanLink`) in the API: the transaction sheet hides
+the link actions, which could only fail, and points at the loan instead.
+
+A repayment row reports both `hasCashLeg` and `cashLegOwned` in the API. The delete
+confirmation words itself by the pair: an owned cash leg is deleted with the row, a linked
+transaction (`hasCashLeg` and not `cashLegOwned`) stays in its account and is only unlinked,
+and a row with no cash leg (a compensation) says nothing about a cash movement.
 
 The principal and the linked account cannot change once `lending_transaction_id` exists:
 the cash movement is a fact. Deleting and recreating the loan is the honest path.
@@ -223,6 +266,13 @@ or overflow the `NUMERIC` columns.
 
 Every account-scoped route resolves the account with `findByIdAndMemberId` before touching
 a child row: the ledger is scoped through its account, never through an unvalidated id.
+
+Every method that writes a loan's ledger (add, add from a transaction, edit, delete,
+close) starts by reading the terms row with a `PESSIMISTIC_WRITE` lock
+(`PeerLoanTermsRepository.findForUpdateByAccountId`). The cap check reads the whole ledger,
+so two concurrent writers must not validate against the same snapshot and both commit a row
+the other made unabsorbable; the lock serializes them per loan, and the second one's check
+sees the first one's row. Editing the terms does not write the ledger and does not lock.
 
 The overview reads every configured loan of the member, including closed ones, and derives
 the same figures as the detail one loan at a time. Its curve reuses `HistoryService` on the
@@ -321,7 +371,8 @@ Frontend:
 - `frontend/src/pages/accounts/AccountDetailPage.tsx`,
   `frontend/src/pages/accounts/AccountsPage.tsx`
 - `frontend/src/components/shared/AccountForm.tsx`
-- `frontend/src/demo/index.ts` (the two demo loans and the overview handler)
+- `frontend/src/demo/index.ts` (the two demo loans, the overview handler and the
+  transaction-link store both transaction lists read)
 
 ### Flow
 
@@ -438,8 +489,9 @@ The `db` container has no host port: the database is only reachable by the test 
 - **`HistoryService` excludes receivables explicitly** from the invested/PnL series, next
   to its liability branches. Without that branch the amount leaks into the P&L.
 - **Snapshot after the write, never before.** The daily point must reflect the new balance.
-- **Overpayment is clamped for the balance but not erased from the ledger.** The amount is
-  a fact.
+- **Overpayment is refused, not clamped.** The amount is a fact, but a fact the loan
+  cannot absorb must not reach the ledger: accepting it would write money the loan
+  drops to the cash account. (Open to debate: see above.)
 - **Closing is not deleting.** The account stays with a badge; deleting it would also
   delete the loss history through `ON DELETE CASCADE`.
 - **Reaching zero closes the loan automatically.** The last repayment that clears the
@@ -467,13 +519,21 @@ The `db` container has no host port: the database is only reachable by the test 
 - **A synced account's row is not categorised automatically.** The provider owns it, so
   the member classifies the **lending** row once as "Internal transfer"; the detail keeps
   the hint while no link is set. A repayment assigned from an incoming transaction is
-  categorised as a transfer for both capital and interest: the interest is tracked in the
-  loan ledger, not booked as income twice.
+  categorised as a transfer, except an explicit `INTEREST` row, which stays uncategorised
+  and counts as income like a typed one: the interest is otherwise tracked in the loan
+  ledger, not booked as income twice.
 - **A repayment can skip the cash leg.** `withCashLeg=false` records a compensation (a
   netting, or a payment already booked elsewhere): the receivable falls and no deposit is
   written. The row stays editable and deletable, and the ledger badges it "No cash
   movement". Use it only when the cash account genuinely must not move; otherwise the
   default keeps net worth honest.
+- **The transaction-link lookup must not touch a lazy loan account.** The batch that
+  annotates transaction lists (`PeerLoanTransactionLinks`) fetches the account with the
+  loan in the same query (`join fetch`). A soft-deleted loan account cannot be loaded
+  through a proxy (`Account` carries a `deleted_at` restriction), so a lazy read turned the
+  whole transaction list of the cash account into a 500; the inner join drops that loan
+  instead. A PostgreSQL test covers a live and a deleted loan and pins the batch at two
+  statements.
 - **A linked row is never duplicated or deleted.** A repayment added from an incoming
   transaction has `cash_leg_owned = false`: deleting the repayment only unlinks it, and
   editing it is refused (delete and re-assign). On a synced account the service writes no
@@ -492,8 +552,13 @@ The `db` container has no host port: the database is only reachable by the test 
   interest, interest-first allocation of a payment, zero rate, write-off, overpayment
   clamp, forecast drift, total planned interest, both simulation directions, high
   short-term rate.
+- `PeerLoanTransactionLinksTest` / `PeerLoanTransactionLinksPostgresTest` — the link kind
+  and its JSON name; a live and a soft-deleted loan against real PostgreSQL, and the
+  two-statement batch.
 - `PeerLoanServiceTest` — unconfigured detail, member scoping, wrong type, closed-loan
-  guard, account name as the borrower, no leg on a synced account, the outflow written on
+  guard, the whole-ledger cap (a backdated payment, a moved row and an interest shift are
+  refused for add and edit; an exact payoff is accepted), the 1900 lower bound, the loan
+  lock, `cashLegOwned`, account name as the borrower, no leg on a synced account, the outflow written on
   a manual one, a first configuration that deliberately skips the lending leg, a repayment
   with no cash leg, removing a cash leg on edit, closure write-off and zeroed balance, the
   final repayment closing the loan by itself, reopen on deleting the write-off, loan
@@ -506,6 +571,10 @@ The `db` container has no host port: the database is only reachable by the test 
   rate expressed in the stated period and the planned interest.
 - `PeerLoanToolsTest` — all four MCP tools delegate to `PeerLoanService`, validate their
   arguments, refuse a standalone write-off and require the `accounts:*` scope.
+- `PeerLoanDetailSection.test.tsx` — the three delete confirmations (owned cash leg,
+  linked transaction, no cash leg).
+- `demo/peer-loans.test.ts` — the demo emits `peerLoanLink` on both transaction lists,
+  drops it when the repayment is deleted, and reports `cashLegOwned` like the API.
 - `PeerLoansOverviewCard.test.tsx` — totals and one row per borrower, the
   late/on-time/closed badges, and opening a loan by click or keyboard.
 - `constants.test.ts` — the new account type has a label, is not a liability and is not a
