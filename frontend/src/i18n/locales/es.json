@@ -550,7 +550,8 @@
       "onTrack": "Al día",
       "disclaimer": "Previsión orientativa, nunca contractual.",
       "simulationResult": "{{months}} meses · {{monthlyPayment}}/mes · {{interest}} de intereses",
-      "accruedHint": "Intereses devengados:"
+      "accruedHint": "Intereses devengados:",
+      "remainingHint": "Saldo restante (máximo por reembolso):"
     },
     "overview": {
       "title": "Préstamos entre particulares",

@@ -359,6 +359,7 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
         }}
         initial={editingRepayment}
         accruedInterest={data.interestAccrued}
+        remainingDue={data.principalRemaining + data.interestAccrued}
         onSubmit={handleRepayment}
         loading={addRepayment.isPending || updateRepayment.isPending}
       />

@@ -561,7 +561,8 @@
       "onTrack": "On schedule",
       "disclaimer": "Indicative forecast, never contractual.",
       "simulationResult": "{{months}} months · {{monthlyPayment}}/month · {{interest}} of interest",
-      "accruedHint": "Interest accrued so far:"
+      "accruedHint": "Interest accrued so far:",
+      "remainingHint": "Remaining due (most one repayment can take):"
     },
     "overview": {
       "title": "Peer loans",

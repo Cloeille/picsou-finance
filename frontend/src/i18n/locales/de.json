@@ -550,7 +550,8 @@
       "onTrack": "Im Plan",
       "disclaimer": "Unverbindliche Prognose.",
       "simulationResult": "{{months}} Monate · {{monthlyPayment}}/Monat · {{interest}} Zinsen",
-      "accruedHint": "Bisher aufgelaufene Zinsen:"
+      "accruedHint": "Bisher aufgelaufene Zinsen:",
+      "remainingHint": "Restschuld (Höchstbetrag pro Rückzahlung):"
     },
     "overview": {
       "title": "Privatdarlehen",

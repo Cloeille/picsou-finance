@@ -561,7 +561,8 @@
       "onTrack": "Dans les temps",
       "disclaimer": "Prévision indicative, jamais contractuelle.",
       "simulationResult": "{{months}} mois · {{monthlyPayment}}/mois · {{interest}} d'intérêts",
-      "accruedHint": "Intérêts courus à ce jour :"
+      "accruedHint": "Intérêts courus à ce jour :",
+      "remainingHint": "Reste dû (maximum par remboursement) :"
     },
     "overview": {
       "title": "Prêts entre particuliers",
