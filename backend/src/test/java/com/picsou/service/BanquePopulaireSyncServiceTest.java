@@ -121,18 +121,21 @@ class BanquePopulaireSyncServiceTest {
     void queueSync_importsEachKindUnderThePrefixAndTheRegionalBanksName() {
         arrangeCommittableSync(current(), account("1002", "LIVRET_A", "LIVRET A", "5000.00"),
             account("1003", "LIVRET_JEUNE", "LIVRET JEUNE", "1600.00"),
-            account("1004", "LDDS", "LDDS", "3000.00"), card());
+            account("1004", "LDDS", "LDDS", "3000.00"),
+            account("1005", "SAVINGS", "COMPTE SUR LIVRET", "250.00"),
+            account("1006", "PEL", "PLAN EPARGNE LOGEMENT", "15000.00"),
+            card());
 
         BanquePopulaireSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(BanquePopulaireSyncStatus.SUCCESS);
-        verify(accountRepository, times(5)).save(accountCaptor.capture());
+        verify(accountRepository, times(7)).save(accountCaptor.capture());
         List<Account> saved = accountCaptor.getAllValues();
         assertThat(saved).extracting(Account::getType).containsExactly(
             AccountType.CHECKING, AccountType.LIVRET_A, AccountType.LIVRET_JEUNE, AccountType.LDDS,
-            AccountType.CREDIT_CARD);
+            AccountType.SAVINGS, AccountType.PEL, AccountType.CREDIT_CARD);
         assertThat(saved).extracting(Account::getExternalAccountId)
-            .containsExactly("bp_1001", "bp_1002", "bp_1003", "bp_1004", "bp_2001");
+            .containsExactly("bp_1001", "bp_1002", "bp_1003", "bp_1004", "bp_1005", "bp_1006", "bp_2001");
         assertThat(saved).allSatisfy(account -> {
             assertThat(account.getProvider()).isEqualTo(RIVES_DE_PARIS);
             assertThat(account.getCurrency()).isEqualTo("EUR");
@@ -159,6 +162,34 @@ class BanquePopulaireSyncServiceTest {
             assertThat(row.getExternalId()).isEqualTo("bp_j1");
             assertThat(row.getAmount()).isEqualByComparingTo("1.25");
             assertThat(row.getDescription()).isEqualTo("INTERETS");
+        });
+    }
+
+    @Test
+    void queueSync_importsACompteSurLivretAndAPelWithSavingsDefaultsAndTransactions() {
+        BanquePopulairePort.AccountData csl = new BanquePopulairePort.AccountData("1005", "SAVINGS", null,
+            new BigDecimal("250.00"), "EUR", null, false, null, null, null, null,
+            null, null, null, List.of(tx("s1", "2026-10-31", "50.00", "VERSEMENT")), true, null);
+        BanquePopulairePort.AccountData pel = new BanquePopulairePort.AccountData("1006", "PEL", " ",
+            new BigDecimal("15000.00"), "EUR", null, false, null, new BigDecimal("61200.00"), null, null,
+            null, null, null, List.of(tx("p1", "2026-10-31", "45.00", "VERSEMENT PEL")), true, null);
+        arrangeCommittableSync(csl, pel);
+
+        service.queueSync(7L);
+
+        verify(accountRepository, times(2)).save(accountCaptor.capture());
+        List<Account> saved = accountCaptor.getAllValues();
+        assertThat(saved).extracting(Account::getType).containsExactly(AccountType.SAVINGS, AccountType.PEL);
+        assertThat(saved).extracting(Account::getName).containsExactly("Compte sur livret", "PEL");
+        assertThat(saved).extracting(Account::getColor).containsOnly("#f59e0b");
+        verify(transactionRepository, times(2)).saveAllAndFlush(transactionsCaptor.capture());
+        assertThat(transactionsCaptor.getAllValues().get(0)).singleElement().satisfies(row -> {
+            assertThat(row.getExternalId()).isEqualTo("bp_s1");
+            assertThat(row.getAmount()).isEqualByComparingTo("50.00");
+        });
+        assertThat(transactionsCaptor.getAllValues().get(1)).singleElement().satisfies(row -> {
+            assertThat(row.getExternalId()).isEqualTo("bp_p1");
+            assertThat(row.getAmount()).isEqualByComparingTo("45.00");
         });
     }
 

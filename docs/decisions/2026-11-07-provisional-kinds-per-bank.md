@@ -13,11 +13,11 @@ about it everywhere would change what Banque Populaire does with a code nobody h
 
 ## Decision
 
-- `Site.provisional_kinds` lists the kinds a bank has seen in few live runs. Only the Caisse d'Epargne site sets it.
+- `Site.provisional_kinds` lists the kinds a bank has seen in few live runs: `{"PEL", "LEP"}` on Caisse d'Epargne and `{"SAVINGS", "PEL"}` on Banque Populaire.
 - For such a kind, a synthesis entry the parser cannot read is listed in `unsupported` (family and sub-family code, with
   the failing field path in the sidecar log) instead of failing the sync, and a failed transactions read still imports
   the account from its synthesis entry. Every other kind keeps failing loudly.
-- The same set turns on the kind's sub code (`Site.unsupported_families`): without it, `3/04` stays unsupported.
+- The same set turns on the kind's sub code (`Site.unsupported_families`): without it, `3/02`, `3/04` and `3/27` stay unsupported.
 - Contracts still unsupported are shown as `family/sub` in the Sync tab, and logged once per sync with a digit-masked
   id shape (letters and the catalogue name only with `CE_LOG_PRODUCT_DETAILS=1`), so the next product can be identified
   from a real sync.
@@ -47,4 +47,4 @@ Demotion keeps the problem visible (unsupported list, field path in the log) wit
 ## Consequences
 
 - A new kind seen on one bank is added to that bank's `provisional_kinds`, then moved to a strict kind once it has been observed repeatedly.
-- Banque Populaire's `Site` sets none: its `3/04` and `3/27` contracts stay unsupported.
+- Caisse d'Epargne's `Site` enables `PEL` (`3/04`) and `LEP` (`3/27`) while keeping `3/02` unsupported; Banque Populaire's `Site` enables `SAVINGS` (`3/02`, Compte sur Livret) and `PEL` (`3/04`) while keeping `3/27` unsupported.

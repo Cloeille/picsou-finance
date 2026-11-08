@@ -74,6 +74,7 @@ unchanged. The container listens on port 8001.
 
 Imported: the current account, `3/01` Livret A, `3/01` Livret Jeune
 (`LIVRET_JEUNE`, told apart by a `productLabel` with the word `JEUNE`), `3/28` LDDS,
+`3/02` Compte sur Livret (`SAVINGS`, provisional) and `3/04` PEL (`PEL`, provisional),
 all with their PFM transactions. A `3/01` label that names a LEP (`LEP`,
 `EPARGNE POPULAIRE`) is imported as `LEP`.
 
@@ -82,13 +83,14 @@ contract is checked for shape, then ignored. No card account, no card operation
 read, nothing listed in `unsupported` (a card is not a contract).
 
 Listed in `unsupported` (id, family and sub-family code only), never read, never fatal:
-personal loans `6/12`, home loans `6/13`, PER `4/05`, the revolving credit `2/11`
+personal loans `6/12`, home loans `6/13`, PER `4/05`, term deposit `4/09`,
+cooperative shares `4/10`, the revolving credit `2/11`
 ("Credit Renouvelable Facelia", null balance), and any family not listed above.
 Only the main token is ever minted.
 
-## Observed live (2026-11-05) and not
+## Observed live (2026-11-05, 2026-11-08) and not
 
-Observed, on one Rives de Paris account:
+Observed on a Rives de Paris account (2026-11-05) and a Val de France account (2026-11-08):
 
 - the entry URL (`service=dei` lands on `/se-connecter/erreur`), the establishment
   picker and its 12 options, the consent banner button, the identifier, keypad,
@@ -98,16 +100,17 @@ Observed, on one Rives de Paris account:
   `cdetab`, `claims`, `bpcesta`, `login_hint`, `display`, PKCE), the SAMLRequest on
   icgauth with its 303, `consume` and `token`: the chain Caisse d'Epargne replays;
 - the synthesis and transactions endpoints and their envelopes, a current account
-  with an immediate-debit card, a Livret A and a Livret Jeune both `3/01`, a
-  revolving credit `2/11`.
+  with an immediate-debit card, a Livret A and a Livret Jeune both `3/01`, an LDDS
+  `3/28`, a Compte sur Livret `3/02` and a PEL `3/04` (both with `contractPfmId`),
+  a revolving credit `2/11`, and `4/05` (PER), `4/09` (term deposit) and `4/10`
+  (cooperative shares) without `contractPfmId`.
 
-Run live end to end on 2026-11-05 (Rives de Paris): region, identifier with its
-letter, keypad, Sécur'Pass, session replay and `/accounts`. A wrong identifier or
-password was seen too: the bank shows a keypad for any identifier, then a modal
-"Identifiant ou mot de passe erroné", read as `INVALID_CREDENTIALS`.
+Run live end to end on 2026-11-05 (Rives de Paris) and 2026-11-08 (Val de France):
+region, identifier, keypad, Sécur'Pass, session replay and `/accounts`. A wrong
+identifier or password was seen too: the bank shows a keypad for any identifier,
+then a modal "Identifiant ou mot de passe erroné", read as `INVALID_CREDENTIALS`.
 
-Not observed: the revolving-credit detail, personal or home loans, PER, LDDS, LEP,
-and any establishment other than Rives de Paris.
+Not observed: the revolving-credit detail, personal or home loans, PER detail, LEP.
 
 ## Tests
 
