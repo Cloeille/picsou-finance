@@ -68,6 +68,26 @@ class LbpSyncServiceAuthTest {
     }
 
     @Test
+    void completeAuth_pastTheApprovalWindow_expiresWithoutCallingTheSidecar() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-11-06T10:00:00Z"));
+        LbpSyncService timed = new LbpSyncService(adapter, sessionRepository, accountRepository,
+            transactionRepository, memberRepository, accountService, savingsAutoConfig,
+            encryption, txTemplate, executor, clock);
+        List<String> keys = List.of("5", "3", "9", "8", "6", "1", "0", "7", "2", "4");
+        when(adapter.initiateAuth("1234567890")).thenReturn(
+            new LbpAdapter.InitiateResult("proc-1", new LbpAdapter.Keypad(keys, 5), 300));
+        LbpSyncService.InitiateResponse response = timed.initiateAuth("1234567890", MEMBER);
+        timed.submitKeypad(response.processId(), List.of(0, 1, 2, 3, 4, 5), MEMBER);
+        clock.advanceSeconds(181);
+
+        assertThatThrownBy(() -> timed.completeAuth(response.processId(), MEMBER))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo("AUTH_ATTEMPT_EXPIRED"));
+
+        verify(adapter, never()).completeAuth(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void evictExpiredPendingLogins_dropsOnlyDeadAttempts() {
         MutableClock clock = new MutableClock(Instant.parse("2026-11-06T10:00:00Z"));
         LbpSyncService timed = new LbpSyncService(adapter, sessionRepository, accountRepository,

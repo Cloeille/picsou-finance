@@ -2,6 +2,7 @@ package com.picsou.service;
 
 import com.picsou.adapter.LbpAdapter;
 import com.picsou.config.CryptoEncryption;
+import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.CardNature;
@@ -39,6 +40,7 @@ import java.util.function.Consumer;
 
 import static com.picsou.support.TestEntities.owner;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -504,6 +506,96 @@ class LbpSyncServiceSyncTest {
         assertThat(session.isActive()).isTrue();
         verify(accountRepository, never()).save(any());
         verify(transactionRepository, never()).saveAllAndFlush(any());
+    }
+
+    @Test
+    void queueSync_withNoSessionRow_failsAsExpiredAndPersistsNothing() {
+        when(sessionRepository.findByMemberIdForUpdate(MEMBER)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.queueSync(MEMBER))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo("SESSION_EXPIRED"));
+
+        verify(sessionRepository, never()).save(any());
+        verify(accountRepository, never()).save(any());
+        verify(transactionRepository, never()).saveAllAndFlush(any());
+        verify(accountService, never()).upsertSnapshot(any(), any(), any());
+        verify(savingsAutoConfig, never()).configureIfMissing(any(), any());
+        verify(adapter, never()).fetchAccounts(any());
+        verify(encryption, never()).decrypt(any());
+    }
+
+    @Test
+    void queueSync_withAnInactiveSession_failsAsExpiredAndPersistsNothing() {
+        FamilyMember member = owner();
+        LbpSession session = LbpSession.builder()
+            .id(3L)
+            .member(member)
+            .sessionState("encrypted")
+            .active(false)
+            .syncStatus(LbpSyncStatus.IDLE)
+            .build();
+        when(sessionRepository.findByMemberIdForUpdate(MEMBER)).thenReturn(Optional.of(session));
+
+        assertThatThrownBy(() -> service.queueSync(MEMBER))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo("SESSION_EXPIRED"));
+
+        assertThat(session.getSyncStatus()).isEqualTo(LbpSyncStatus.IDLE);
+        assertThat(session.isActive()).isFalse();
+        verify(sessionRepository, never()).save(any());
+        verify(accountRepository, never()).save(any());
+        verify(transactionRepository, never()).saveAllAndFlush(any());
+        verify(accountService, never()).upsertSnapshot(any(), any(), any());
+        verify(adapter, never()).fetchAccounts(any());
+    }
+
+    @Test
+    void queueSync_whileASyncIsInFlight_returnsTheCurrentStatusWithoutQueuingAnotherJob() {
+        FamilyMember member = owner();
+        LbpSession session = LbpSession.builder()
+            .id(3L)
+            .member(member)
+            .sessionState("encrypted")
+            .active(true)
+            .syncStatus(LbpSyncStatus.QUEUED)
+            .build();
+        LbpSyncService inFlightService = serviceWith(txTemplate, executor);
+        when(sessionRepository.findByMemberIdForUpdate(MEMBER)).thenReturn(Optional.of(session));
+
+        LbpSyncService.SessionStatusResponse result = inFlightService.queueSync(MEMBER);
+
+        assertThat(result.syncStatus()).isEqualTo(LbpSyncStatus.QUEUED);
+        assertThat(result.isActive()).isTrue();
+        verify(executor, never()).execute(any());
+        verify(adapter, never()).fetchAccounts(any());
+        verify(sessionRepository, never()).save(any());
+        verify(accountRepository, never()).save(any());
+        verify(transactionRepository, never()).saveAllAndFlush(any());
+        verify(accountService, never()).upsertSnapshot(any(), any(), any());
+    }
+
+    @Test
+    void queueSync_whenTheStoredSessionIsUnreadable_failsAsInvalidAndDeactivatesTheSession() {
+        FamilyMember member = owner();
+        LbpSession session = activeSession(member);
+        when(sessionRepository.findByMemberIdForUpdate(MEMBER)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("encrypted")).thenThrow(new IllegalStateException("wrong key"));
+
+        assertThatThrownBy(() -> service.queueSync(MEMBER))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo("INVALID_SESSION_STATE"));
+
+        assertThat(session.getSyncStatus()).isEqualTo(LbpSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INVALID_SESSION_STATE);
+        assertThat(session.isActive()).isFalse();
+        assertThat(session.getLastSyncCompletedAt()).isNotNull();
+        verify(sessionRepository).save(session);
+        verify(accountRepository, never()).save(any());
+        verify(transactionRepository, never()).saveAllAndFlush(any());
+        verify(accountService, never()).upsertSnapshot(any(), any(), any());
+        verify(savingsAutoConfig, never()).configureIfMissing(any(), any());
+        verify(adapter, never()).fetchAccounts(any());
     }
 
     @Test

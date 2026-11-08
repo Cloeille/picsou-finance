@@ -85,12 +85,6 @@ public class LbpSession extends AuditableEntity {
             .build();
     }
 
-    public void updateSessionState(String encryptedState, Instant validatedAt) {
-        this.sessionState = Objects.requireNonNull(encryptedState, "encryptedState");
-        this.lastValidatedAt = Objects.requireNonNull(validatedAt, "validatedAt");
-        this.active = true;
-    }
-
     /** Stores or clears the optionally remembered customer identifier. */
     public void updateEncryptedIdentifier(String encryptedIdentifier) {
         this.encryptedIdentifier = encryptedIdentifier;

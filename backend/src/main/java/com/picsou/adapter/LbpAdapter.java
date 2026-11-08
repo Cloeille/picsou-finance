@@ -248,17 +248,6 @@ public class LbpAdapter {
         }
     }
 
-    public CheckResult checkSession(String sessionState) {
-        return sidecar.post(
-            "/token-check",
-            Map.of("sessionState", sessionState),
-            CheckResult.class,
-            checkTimeout,
-            "Could not check the La Banque Postale session",
-            SidecarErrorCode.SESSION_EXPIRED
-        );
-    }
-
     public AccountsSnapshot fetchAccounts(String sessionState) {
         return sidecar.post(
             "/accounts",
@@ -271,8 +260,6 @@ public class LbpAdapter {
     }
 
     // --- normalized contract -----------------------------------------------------
-
-    public record CheckResult(boolean ok, long expiresIn) {}
 
     /** The pending login: the bank's keypad and how long the keypad step stays valid. */
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)

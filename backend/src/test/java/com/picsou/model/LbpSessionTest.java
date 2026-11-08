@@ -143,18 +143,6 @@ class LbpSessionTest {
     }
 
     @Test
-    void updatingTheSessionStateReactivatesIt() {
-        LbpSession session = session();
-        session.markQueued();
-        session.markFailed(SidecarErrorCode.SESSION_EXPIRED, NOW);
-
-        session.updateSessionState("fresh", NOW.plusSeconds(60));
-
-        assertThat(session.isActive()).isTrue();
-        assertThat(session.getSessionState()).isEqualTo("fresh");
-    }
-
-    @Test
     void loginErrorCodesNeverDeactivateAnExistingSession() {
         for (SidecarErrorCode code : new SidecarErrorCode[] {
             SidecarErrorCode.INVALID_CREDENTIALS, SidecarErrorCode.KEYPAD_CHANGED,
