@@ -24,7 +24,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Search, TrendingUp, TrendingDown } from 'lucide-react'
 import { cn, formatPercent, formatQuantity } from '@/lib/utils'
-import { accountTypeLabelKey } from '@/lib/constants'
+import { CASH_ACCOUNT_TYPES, accountTypeLabelKey } from '@/lib/constants'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { formatApiError } from '@/lib/errors'
 import { HoldingDetailModal } from '@/components/shared/HoldingDetailModal'
@@ -38,8 +38,7 @@ const FILTER_TABS: { value: FilterType; labelKey: string; match: (type: Account[
   { value: 'PEA', labelKey: 'accountTypes.pea', match: (t) => t === 'PEA' },
   { value: 'COMPTE_TITRES', labelKey: 'accountTypes.compteTitres', match: (t) => t === 'COMPTE_TITRES' },
   { value: 'CRYPTO', labelKey: 'accountTypes.crypto', match: (t) => t === 'CRYPTO' },
-  { value: 'cash', labelKey: 'portfolio.cash', match: (t) => ['CHECKING', 'SAVINGS', 'LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL', 'OTHER']
-      .includes(t) },
+  { value: 'cash', labelKey: 'portfolio.cash', match: (t) => CASH_ACCOUNT_TYPES.includes(t) },
 ]
 
 function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick?: () => void }) {

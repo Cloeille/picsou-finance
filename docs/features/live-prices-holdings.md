@@ -128,6 +128,7 @@ For each past date, both `total` and `invested` are read from `balance_snapshot`
 ## Gotchas / Pitfalls
 
 - **A CRYPTO account never takes a `/api/prices` quote**: `GET /api/prices` is keyed by bare ticker and sends a symbol CoinGecko does not map to Yahoo Finance, so a Finary wallet's 10 REG (RealToken, 10 EUR) came back at Regency Centers' share price and showed as 600 EUR. The holdings endpoint already prices a CRYPTO account crypto-only (`AccountService.quotesFor`), so both `useHoldingsWithLivePrices` and `usePortfolio` keep that value. A stock with the same ticker in another account still takes the live quote.
+- **The "Euros" line in `usePortfolio` adds up bank and savings accounts only** (`CASH_ACCOUNT_TYPES`, the same set as the holdings card's Cash tab). Debts, property and SCPI are not cash, and a Revolut pocket whose wallet is in the same cash list is left out because the wallet's balance already carries it. Summing every account that is neither holdings nor debt put a flat's value and each pocket a second time into that line.
 - **Prices are not persisted**: Live prices are only used for display. The DB `current_price` in `account_holding` is not updated — that still happens during sync.
 - **`useAccountHoldings` still exists**: The old hook is kept for the `usePortfolio` hook which fetches holdings for all accounts (portfolio view). Switching it to live prices would trigger many price API calls at once.
 - **No polling**: Prices refresh only on navigation (TanStack Query stale time of 2 min). There is no auto-refresh or polling interval.
@@ -143,6 +144,7 @@ For each past date, both `total` and `invested` are read from `balance_snapshot`
 
 - `AccountServiceTest.liveBalanceEur_usesBrokerPositionValue_whenLivePriceIsUnavailable`
 - `hooks.test.tsx` covers a crypto token and a stock sharing the `REG` symbol, in both `useHoldingsWithLivePrices` and `usePortfolio`
+- `hooks.test.tsx` keeps debts, property and SCPI out of the `usePortfolio` Euros line and counts a listed pocket once
 - Manual: navigate to a PEA/CT account, verify `/api/prices` call in network tab and live prices in table
 - Manual: navigate to a Crypto account, verify no `/api/prices` call
 - Manual: navigate to a checking/savings account, verify no `/api/prices` call
