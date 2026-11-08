@@ -246,6 +246,28 @@ class PeerLoanCalculatorTest {
     }
 
     @Test
+    void extremeButValidInputsCompleteWithFiniteResults() {
+        // 1 000/year over 1 200 months is representable (BigDecimal has no E+384 cap the
+        // way a double does): the bounds reject the unbounded, the calculator answers
+        // the merely extreme without hanging or throwing.
+        PeerLoanCalculator.Simulation out = PeerLoanCalculator.simulateByMonths(
+            new BigDecimal("1000"), new BigDecimal("1000"), 1200);
+        assertThat(out.months()).isEqualTo(1200);
+        assertThat(out.totalCost()).isNotNull();
+
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .principal(new BigDecimal("1000"))
+            .annualRate(new BigDecimal("1000"))
+            .lentAt(LocalDate.parse("2026-01-01"))
+            .plannedMonthlyAmount(new BigDecimal("100000"))
+            .plannedMonths(1200)
+            .build();
+        PeerLoanCalculator.Plan plan = PeerLoanCalculator.plan(
+            terms, new BigDecimal("1000"), LocalDate.parse("2126-01-01"));
+        assertThat(plan.scheduledRemaining()).isNotNull();
+    }
+
+    @Test
     void repaidPercentExcludesWriteOffs() {
         assertThat(PeerLoanCalculator.repaidPct(new BigDecimal("500"), new BigDecimal("300")))
             .isEqualByComparingTo("60.00");

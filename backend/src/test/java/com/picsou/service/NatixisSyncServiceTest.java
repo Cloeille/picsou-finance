@@ -7,8 +7,9 @@ import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
-import com.picsou.model.NatixisSession;
-import com.picsou.model.NatixisSyncStatus;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.dto.RealizedPnlResponse;
@@ -17,7 +18,7 @@ import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
-import com.picsou.repository.NatixisSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.sync.SourceSyncResult;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,7 +65,7 @@ class NatixisSyncServiceTest {
     private static final String PERCO_ID = "natixis_10000-1000000000001_PERCO-4242";
 
     @Mock NatixisAdapter port;
-    @Mock NatixisSessionRepository sessionRepository;
+    @Mock SidecarSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
     @Mock TransactionRepository transactionRepository;
@@ -89,13 +90,13 @@ class NatixisSyncServiceTest {
 
     @Test
     void importsEachPlanAsAnEmployeeSavingsAccountWithProviderValuedFunds() {
-        NatixisSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeCommittableSession(session);
         when(port.fetchPlans("plain-state")).thenReturn(positions("plain-state", peePlan(), emptyPerco()));
 
         NatixisSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(NatixisSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository, org.mockito.Mockito.times(2)).save(accountCaptor.capture());
         Account pee = accountCaptor.getAllValues().getFirst();
         assertThat(pee.getType()).isEqualTo(AccountType.EMPLOYEE_SAVINGS);
@@ -128,7 +129,7 @@ class NatixisSyncServiceTest {
 
     @Test
     void theSessionStateReturnedByPositionsReplacesTheStoredOne() {
-        NatixisSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeCommittableSession(session);
         when(port.fetchPlans("plain-state")).thenReturn(positions("rotated-state", peePlan()));
         when(encryption.encrypt("rotated-state")).thenReturn("rotated-encrypted");
@@ -136,12 +137,12 @@ class NatixisSyncServiceTest {
         service.queueSync(7L);
 
         assertThat(session.getSessionState()).isEqualTo("rotated-encrypted");
-        assertThat(session.getSyncStatus()).isEqualTo(NatixisSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
     }
 
     @Test
     void anIncompletePlanKeepsTheExistingHoldingsButStillStoresTheRotatedSession() {
-        NatixisSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         NatixisAdapter.PlanData broken = new NatixisAdapter.PlanData(PEE_ID, "Plan d'Épargne Entreprise", "PEE",
             "UES ACME", new BigDecimal("9999.99"), peePlan().positions(), true);
@@ -150,7 +151,7 @@ class NatixisSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(NatixisSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         // A partial read leaves the session usable for the next scheduled run.
         assertThat(session.isActive()).isTrue();
@@ -162,14 +163,14 @@ class NatixisSyncServiceTest {
 
     @Test
     void anExpiredSessionGoesInactiveAndTheScheduledResyncAsksForReauthentication() {
-        NatixisSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchPlans("plain-state"))
             .thenThrow(new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name()));
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(NatixisSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         assertThat(session.isActive()).isFalse();
         verify(accountRepository, never()).save(any());
@@ -184,14 +185,14 @@ class NatixisSyncServiceTest {
 
     @Test
     void aPlanWhoseAccountTheMemberDeletedIsNotImportedAgain() {
-        NatixisSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeCommittableSession(session);
         when(port.fetchPlans("plain-state")).thenReturn(positions("plain-state", peePlan(), emptyPerco()));
         when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId(PEE_ID, 7L)).thenReturn(true);
 
         NatixisSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(NatixisSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         // Only the PERCO is written: the deleted PEE gets no account, holdings or snapshot.
         verify(accountRepository).save(accountCaptor.capture());
         assertThat(accountCaptor.getValue().getExternalAccountId()).isEqualTo(PERCO_ID);
@@ -202,7 +203,7 @@ class NatixisSyncServiceTest {
 
     @Test
     void anUnlistedPlanIsClosedAtZero() {
-        NatixisSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeCommittableSession(session);
         when(port.fetchPlans("plain-state")).thenReturn(positions("plain-state", peePlan()));
         Account gone = Account.builder().id(20L).externalAccountId(PERCO_ID).name("PERCO")
@@ -219,7 +220,7 @@ class NatixisSyncServiceTest {
 
     @Test
     void aSaverWhoClosedEveryPlanGetsTheirOldAccountsClosedAtZero() {
-        NatixisSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeCommittableSession(session);
         when(port.fetchPlans("plain-state")).thenReturn(positions("plain-state"));
         Account gone = Account.builder().id(20L).externalAccountId(PEE_ID).name("PEE")
@@ -229,7 +230,7 @@ class NatixisSyncServiceTest {
 
         NatixisSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(NatixisSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         assertThat(gone.getCurrentBalance()).isEqualByComparingTo("0");
         verify(holdingRepository).deleteByAccountId(20L);
         verify(accountService).upsertSnapshot(gone, BigDecimal.ZERO, BigDecimal.ZERO, LocalDate.now());
@@ -237,7 +238,7 @@ class NatixisSyncServiceTest {
 
     @Test
     void theCommitLocksTheAccountsBeforeTheSessionLikeAnAccountDeletionDoes() {
-        NatixisSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeCommittableSession(session);
         when(port.fetchPlans("plain-state")).thenReturn(positions("plain-state", peePlan()));
 
@@ -247,12 +248,12 @@ class NatixisSyncServiceTest {
         order.verify(accountRepository).findAllByMemberIdAndProviderForUpdate(7L, NatixisSyncService.PROVIDER);
         order.verify(sessionRepository).findByIdAndMemberIdForUpdate(3L, 7L);
         order.verify(accountRepository).save(any(Account.class));
-        assertThat(session.getSyncStatus()).isEqualTo(NatixisSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
     }
 
     @Test
     void twoLabelOnlyFundsSharingTheirFirstCharactersKeepDistinctTickers() {
-        NatixisSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeCommittableSession(session);
         NatixisAdapter.PlanData plan = new NatixisAdapter.PlanData(PEE_ID, "Plan d'Épargne Entreprise", "PEE",
             "UES ACME", new BigDecimal("300.00"), List.of(
@@ -265,7 +266,7 @@ class NatixisSyncServiceTest {
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(NatixisSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(holdingRepository).saveAll(holdingsCaptor.capture());
         List<String> tickers = holdingsCaptor.getValue().stream().map(AccountHolding::getTicker).toList();
         assertThat(tickers).hasSize(2).doesNotHaveDuplicates()
@@ -275,7 +276,7 @@ class NatixisSyncServiceTest {
 
     @Test
     void aJobThatCannotBeMarkedRunningFailsRetryablyInsteadOfStayingQueued() {
-        NatixisSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(sessionRepository.findByIdAndMemberIdForUpdate(3L, 7L))
             .thenThrow(new org.springframework.dao.QueryTimeoutException("db hiccup"))
@@ -283,7 +284,7 @@ class NatixisSyncServiceTest {
 
         NatixisSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(NatixisSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_UNAVAILABLE);
         assertThat(session.isActive()).isTrue();
         verify(port, never()).fetchPlans(anyString());
@@ -310,9 +311,10 @@ class NatixisSyncServiceTest {
         started.recoverSyncsInterruptedByRestart();
 
         ArgumentCaptor<Instant> touchedBefore = ArgumentCaptor.forClass(Instant.class);
-        verify(sessionRepository).markInterruptedSyncsFailed(
-            eq(List.of(NatixisSyncStatus.QUEUED, NatixisSyncStatus.RUNNING)),
-            eq(NatixisSyncStatus.FAILED),
+        verify(sessionRepository).markInterruptedSyncsFailedBefore(
+            eq(SidecarBank.NATIXIS),
+            eq(List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING)),
+            eq(SidecarSyncStatus.FAILED),
             any(Instant.class),
             eq(SidecarErrorCode.INTERNAL_ERROR),
             touchedBefore.capture());
@@ -327,9 +329,10 @@ class NatixisSyncServiceTest {
         service.recoverInterruptedSyncs();
 
         ArgumentCaptor<Instant> staleBefore = ArgumentCaptor.forClass(Instant.class);
-        verify(sessionRepository).markInterruptedSyncsFailed(
-            eq(List.of(NatixisSyncStatus.QUEUED, NatixisSyncStatus.RUNNING)),
-            eq(NatixisSyncStatus.FAILED),
+        verify(sessionRepository).markInterruptedSyncsFailedBefore(
+            eq(SidecarBank.NATIXIS),
+            eq(List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING)),
+            eq(SidecarSyncStatus.FAILED),
             any(Instant.class),
             eq(SidecarErrorCode.INTERNAL_ERROR),
             staleBefore.capture());
@@ -347,11 +350,11 @@ class NatixisSyncServiceTest {
         when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         when(port.completeAuth("process", "123456")).thenReturn("fresh-state");
         when(encryption.encrypt("fresh-state")).thenReturn("fresh-encrypted");
-        when(sessionRepository.saveAndFlush(any(NatixisSession.class))).thenAnswer(invocation -> {
-            NatixisSession stored = invocation.getArgument(0);
+        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenAnswer(invocation -> {
+            SidecarSession stored = invocation.getArgument(0);
             lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(stored.getId(), 7L))
                 .thenReturn(Optional.of(stored));
-            lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(stored));
+            lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.NATIXIS, 7L)).thenReturn(Optional.of(stored));
             return stored;
         });
         when(port.fetchPlans("fresh-state"))
@@ -362,7 +365,7 @@ class NatixisSyncServiceTest {
 
         assertThat(init.mfaRequired()).isTrue();
         assertThat(init.mfaType()).isEqualTo("SMS");
-        ArgumentCaptor<NatixisSession> stored = ArgumentCaptor.forClass(NatixisSession.class);
+        ArgumentCaptor<SidecarSession> stored = ArgumentCaptor.forClass(SidecarSession.class);
         verify(sessionRepository).saveAndFlush(stored.capture());
         assertThat(stored.getValue().getSessionState()).isEqualTo("fresh-encrypted");
         verify(port).fetchPlans("fresh-state");
@@ -604,7 +607,7 @@ class NatixisSyncServiceTest {
     }
 
     private Account arrangeOperationsSync(boolean complete, NatixisAdapter.Operation... operations) {
-        NatixisSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeCommittableSession(session);
         Account pee = Account.builder().id(11L).externalAccountId(PEE_ID).provider(NatixisSyncService.PROVIDER)
             .member(owner()).name("PEE").currentBalance(new BigDecimal("1500.50")).build();
@@ -656,7 +659,7 @@ class NatixisSyncServiceTest {
         return row;
     }
 
-    private void arrangeCommittableSession(NatixisSession session) {
+    private void arrangeCommittableSession(SidecarSession session) {
         arrangeQueuedSession(session);
         when(memberRepository.findById(7L)).thenReturn(Optional.of(owner()));
         lenient().when(accountRepository.findByExternalAccountIdAndMemberId(any(), eq(7L))).thenReturn(Optional.empty());
@@ -668,11 +671,11 @@ class NatixisSyncServiceTest {
         lenient().when(encryption.encrypt("plain-state")).thenReturn("encrypted");
     }
 
-    private void arrangeQueuedSession(NatixisSession session) {
-        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+    private void arrangeQueuedSession(SidecarSession session) {
+        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.NATIXIS, 7L)).thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L))
             .thenReturn(Optional.of(session));
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.NATIXIS, 7L)).thenReturn(Optional.of(session));
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
     }
 
@@ -688,14 +691,15 @@ class NatixisSyncServiceTest {
         }).when(txTemplate).executeWithoutResult(any());
     }
 
-    private NatixisSession activeSession(FamilyMember member) {
-        return NatixisSession.builder()
+    private SidecarSession activeSession(FamilyMember member) {
+        return SidecarSession.builder()
+            .bank(SidecarBank.NATIXIS)
             .id(3L)
             .member(member)
             .sessionState("encrypted")
             .lastValidatedAt(Instant.now())
             .active(true)
-            .syncStatus(NatixisSyncStatus.IDLE)
+            .syncStatus(SidecarSyncStatus.IDLE)
             .build();
     }
 

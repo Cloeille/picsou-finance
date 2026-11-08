@@ -28,7 +28,7 @@ public class RevolutSession extends AuditableEntity {
      * Phone + passcode, serialized as JSON ({@code {"phone":...,"passcode":...}}) and encrypted
      * at rest via {@code CryptoEncryption} -- present only because the member opted in via
      * {@link #rememberCredentials}. Never stored in plain text, mirroring
-     * TradeRepublicSession/BoursoSession. A row only exists for a member who chose to remember;
+     * TradeRepublicSession/SidecarSession. A row only exists for a member who chose to remember;
      * see {@code RevolutSyncService}.
      */
     @Column(name = "credentials_enc", length = 2000)

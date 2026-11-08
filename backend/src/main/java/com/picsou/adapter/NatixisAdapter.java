@@ -3,7 +3,7 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.sidecar.SidecarClient;
-import com.picsou.adapter.sidecar.SidecarSession;
+import com.picsou.adapter.sidecar.SidecarSessionState;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.SidecarInitiate;
@@ -95,8 +95,8 @@ public class NatixisAdapter {
 
     /** A wrong code leaves the attempt open: the saver can type it again on the same {@code processId}. */
     public String completeAuth(String processId, String code) {
-        SidecarSession response = sidecar.post("/complete", Map.of("processId", processId, "code", code),
-            SidecarSession.class, completeTimeout, "Could not complete Natixis Interépargne authentication",
+        SidecarSessionState response = sidecar.post("/complete", Map.of("processId", processId, "code", code),
+            SidecarSessionState.class, completeTimeout, "Could not complete Natixis Interépargne authentication",
             SidecarErrorCode.INVALID_OTP);
         return response.sessionState();
     }

@@ -201,6 +201,9 @@ services:
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+      # Diagnostics only, off unless set to 1: adds the bank's catalogue product name to the
+      # log line of a contract Picsou does not import. See services/caisse-epargne-auth/README.md.
+      CE_LOG_PRODUCT_DETAILS: ${CE_LOG_PRODUCT_DETAILS:-}
 
   banque-populaire-auth:
     image: ghcr.io/cloeille/picsou-finance/banque-populaire-auth:latest

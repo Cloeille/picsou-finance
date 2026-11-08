@@ -561,7 +561,8 @@
       "onTrack": "On schedule",
       "disclaimer": "Indicative forecast, never contractual.",
       "simulationResult": "{{months}} months · {{monthlyPayment}}/month · {{interest}} of interest",
-      "accruedHint": "Interest accrued so far:"
+      "accruedHint": "Interest accrued so far:",
+      "remainingHint": "Remaining due (most one repayment can take):"
     },
     "overview": {
       "title": "Peer loans",
@@ -606,6 +607,7 @@
       "confirm": "Assign",
       "created": "Repayment recorded."
     },
+    "linkedTransaction": "Linked to {{name}}'s loan",
     "actions": {
       "close": "Close the loan",
       "simulate": "Calculate"
@@ -614,6 +616,13 @@
       "title": "Close the loan",
       "description": "The remaining balance ({{amount}}) will be written off and removed from net worth today.",
       "confirm": "Close"
+    },
+    "deleteRepayment": {
+      "title": "Delete the repayment",
+      "description": "The repayment of {{amount}} will be deleted together with its cash movement. The loan balance will be recomputed.",
+      "descriptionLinked": "The repayment of {{amount}} will be unlinked from the loan. The linked transaction stays in its account. The loan balance will be recomputed.",
+      "descriptionNoCashLeg": "The repayment of {{amount}} will be deleted. The loan balance will be recomputed.",
+      "confirm": "Delete"
     },
     "validation": {
       "principal": "The amount lent must be greater than zero.",
@@ -1195,7 +1204,7 @@
       "sofidy": "Sofidy SCPI units, at the withdrawal price",
       "property": "House, apartment, land…",
       "fortuneo": "Sync your Fortuneo accounts",
-      "caisseEpargne": "Current account, Livret A, LDDS, PER, loans and cards at Caisse d'Epargne",
+      "caisseEpargne": "Current account, Livret A, LDDS, PEL, LEP, PER, loans and cards at Caisse d'Epargne",
       "banquePopulaire": "Current account, Livret A, Livret Jeune and LDDS at Banque Populaire"
     }
   },
@@ -1621,7 +1630,7 @@
       "disconnectConfirmAction": "Delete the stored session",
       "noSession": "No active session",
       "sessionActive": "Session active",
-      "scope": "Syncs your Caisse d'Epargne current accounts, Livret A, LDDS, PER (balance only), personal loans and cards on demand. Only the session is kept, encrypted. Contracts Picsou cannot import are listed but never created.",
+      "scope": "Syncs your Caisse d'Epargne current accounts, Livret A, LDDS, PEL, LEP, PER (with its funds when the insurer details are available), personal loans and cards on demand. Only the session is kept, encrypted. Contracts Picsou cannot import are listed but never created.",
       "notice": {
         "neverStored": "Picsou never sees or stores your password. You click it on the bank's keypad yourself; only the positions of the keys are sent, once.",
         "noRetry": "Picsou never retries a sign-in. If it fails, nothing is sent again until you submit the form yourself.",
@@ -1631,7 +1640,7 @@
       "securPassHint": "Picsou does not touch your phone. This page continues on its own once you approve.",
       "countdownLabel": "Time left to approve:",
       "unsupportedTitle": "Contracts not imported",
-      "unsupportedHint": "Picsou does not support these contract families yet (family code shown).",
+      "unsupportedHint": "Picsou does not support these contracts yet (family/sub-family code shown).",
       "errors": {
         "rateLimited": "Too many sign-in attempts. Please wait before trying again.",
         "rateLimitedRetryAfter": "Too many sign-in attempts. Try again in {{minutes}} min.",
@@ -1683,7 +1692,7 @@
       "securPassHint": "Picsou does not touch your phone. This page continues on its own once you approve.",
       "countdownLabel": "Time left to approve:",
       "unsupportedTitle": "Contracts not imported",
-      "unsupportedHint": "Picsou does not support these contract families yet (family code shown).",
+      "unsupportedHint": "Picsou does not support these contracts yet (family/sub-family code shown).",
       "errors": {
         "rateLimited": "Too many sign-in attempts. Please wait before trying again.",
         "rateLimitedRetryAfter": "Too many sign-in attempts. Try again in {{minutes}} min.",

@@ -2,7 +2,7 @@ package com.picsou.controller;
 
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
-import com.picsou.model.NatixisSyncStatus;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.NatixisSyncService;
 import com.picsou.service.UserContext;
@@ -79,7 +79,7 @@ class NatixisControllerTest {
 
     @Test
     void completeScopesTheCodeToTheCurrentMember() throws Exception {
-        when(service.completeAuth("process", "123456", MEMBER_ID)).thenReturn(sessionStatus(NatixisSyncStatus.QUEUED));
+        when(service.completeAuth("process", "123456", MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
 
         mockMvc.perform(post("/api/natixis/auth/complete")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -135,7 +135,7 @@ class NatixisControllerTest {
     void loginAndCodeHaveSeparateBudgets() {
         when(service.initiateAuth("saver@example.com", "secret", MEMBER_ID))
             .thenReturn(new NatixisSyncService.AuthInitResponse("process", true, "SMS"));
-        when(service.completeAuth("process", "000000", MEMBER_ID)).thenReturn(sessionStatus(NatixisSyncStatus.QUEUED));
+        when(service.completeAuth("process", "000000", MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
 
         for (int attempt = 0; attempt < 5; attempt++) {
             assertThat(initiate().getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -153,7 +153,7 @@ class NatixisControllerTest {
 
     @Test
     void syncIsQueuedForTheCurrentMemberAndThrottled() {
-        when(service.queueSync(MEMBER_ID)).thenReturn(sessionStatus(NatixisSyncStatus.QUEUED));
+        when(service.queueSync(MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
 
         for (int attempt = 0; attempt < 10; attempt++) {
             assertThat(controller.sync(request).getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
@@ -165,7 +165,7 @@ class NatixisControllerTest {
 
     @Test
     void statusAndDisconnectTouchOnlyTheCurrentMember() throws Exception {
-        when(service.getStatus(MEMBER_ID)).thenReturn(sessionStatus(NatixisSyncStatus.SUCCESS));
+        when(service.getStatus(MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.SUCCESS));
 
         mockMvc.perform(get("/api/natixis/status"))
             .andExpect(status().isOk())
@@ -186,7 +186,7 @@ class NatixisControllerTest {
         return controller.complete(new NatixisController.CompleteRequest("process", "000000"), request);
     }
 
-    private NatixisSyncService.SessionStatusResponse sessionStatus(NatixisSyncStatus syncStatus) {
+    private NatixisSyncService.SessionStatusResponse sessionStatus(SidecarSyncStatus syncStatus) {
         return new NatixisSyncService.SessionStatusResponse(true, syncStatus, null, null, null);
     }
 }

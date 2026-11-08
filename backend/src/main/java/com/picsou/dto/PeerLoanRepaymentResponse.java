@@ -21,7 +21,12 @@ public record PeerLoanRepaymentResponse(
     BigDecimal interestPart,
     BigDecimal capitalPart,
     /** True when this row has a cash movement in a linked account (written or linked). */
-    boolean hasCashLeg
+    boolean hasCashLeg,
+    /**
+     * True when this service wrote that cash movement and deletes it with the row; false when
+     * the row only links a transaction that stays where it is (and deleting only unlinks it).
+     */
+    boolean cashLegOwned
 ) {
     public static PeerLoanRepaymentResponse from(PeerLoanRepayment repayment) {
         return from(repayment, null);
@@ -38,7 +43,8 @@ public record PeerLoanRepaymentResponse(
             repayment.getNote(),
             split == null ? null : split.interest(),
             split == null ? null : split.capital(),
-            repayment.getCashTransactionId() != null
+            repayment.getCashTransactionId() != null,
+            repayment.isCashLegOwned()
         );
     }
 }

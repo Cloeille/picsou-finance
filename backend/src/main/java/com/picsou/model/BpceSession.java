@@ -5,9 +5,9 @@ import com.picsou.port.SidecarErrorCode;
 import java.time.Instant;
 
 /**
- * What the shared BPCE sync engine needs from a bank's session row. Each BPCE bank keeps its own
- * table and entity ({@link CaisseEpargneSession}, {@link BanquePopulaireSession}); the state
- * machine is the same: IDLE, QUEUED, RUNNING, then SUCCESS or FAILED.
+ * What the shared BPCE sync engine needs from a bank's session row: Caisse d'Epargne's
+ * {@link SidecarSession} (bank {@code CAISSE_EPARGNE}) and {@link BanquePopulaireSession}. The
+ * state machine is the same: IDLE, QUEUED, RUNNING, then SUCCESS or FAILED.
  */
 public interface BpceSession {
     Long getId();

@@ -9,8 +9,8 @@ import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
-import com.picsou.model.NatixisSession;
-import com.picsou.model.NatixisSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.port.SidecarErrorCode;
@@ -18,7 +18,7 @@ import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.FamilyMemberRepository;
-import com.picsou.repository.NatixisSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.sync.SourceSyncResult;
 import org.slf4j.Logger;
@@ -97,7 +97,7 @@ public class NatixisSyncService {
     private static final int SETTLEMENT_MARGIN_DAYS = 90;
 
     private final NatixisAdapter port;
-    private final NatixisSessionRepository sessionRepository;
+    private final SidecarSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final AccountHoldingRepository holdingRepository;
     private final TransactionRepository transactionRepository;
@@ -124,7 +124,7 @@ public class NatixisSyncService {
 
     public NatixisSyncService(
         NatixisAdapter port,
-        NatixisSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         AccountHoldingRepository holdingRepository,
         TransactionRepository transactionRepository,
@@ -203,7 +203,7 @@ public class NatixisSyncService {
 
     public SessionStatusResponse queueSync(Long memberId) {
         QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
-            NatixisSession session = sessionRepository.findByMemberIdForUpdate(memberId)
+            SidecarSession session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.NATIXIS, memberId)
                 .orElseThrow(() -> error(
                     SidecarErrorCode.SESSION_EXPIRED,
                     "No active Natixis session. Please reconnect.",
@@ -248,12 +248,12 @@ public class NatixisSyncService {
         return requireTransactionResult(txTemplate.execute(status -> {
             FamilyMember member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
+            sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.NATIXIS, memberId).ifPresent(sessionRepository::delete);
             sessionRepository.flush();
 
-            NatixisSession newSession = NatixisSession.create(member, encryption.encrypt(plainState), Instant.now());
+            SidecarSession newSession = SidecarSession.create(SidecarBank.NATIXIS, member, encryption.encrypt(plainState), Instant.now());
             newSession.markQueued();
-            NatixisSession stored = sessionRepository.saveAndFlush(newSession);
+            SidecarSession stored = sessionRepository.saveAndFlush(newSession);
             return new SyncJob(stored.getId(), memberId, plainState);
         }));
     }
@@ -314,16 +314,16 @@ public class NatixisSyncService {
         }
         txTemplate.executeWithoutResult(status -> sessionRepository
             .findByIdAndMemberIdForUpdate(job.sessionId(), job.memberId())
-            .filter(NatixisSession::isActive)
+            .filter(SidecarSession::isActive)
             .ifPresent(session -> {
-                session.updateSessionState(encryption.encrypt(plainState));
+                session.updateSessionState(encryption.encrypt(plainState), Instant.now());
                 sessionRepository.save(session);
             }));
     }
 
     private boolean markRunning(SyncJob job) {
         return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<NatixisSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+            Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(),
                 job.memberId()
             );
@@ -331,8 +331,8 @@ public class NatixisSyncService {
                 log.info("Natixis sync session disappeared before execution (member={})", job.memberId());
                 return false;
             }
-            NatixisSession session = current.get();
-            if (!session.isActive() || session.getSyncStatus() != NatixisSyncStatus.QUEUED) {
+            SidecarSession session = current.get();
+            if (!session.isActive() || session.getSyncStatus() != SidecarSyncStatus.QUEUED) {
                 log.warn(
                     "Natixis sync cannot start from state {} (member={}; active={})",
                     session.getSyncStatus(),
@@ -464,7 +464,7 @@ public class NatixisSyncService {
             // first here, then writing the accounts, could deadlock against a deletion.
             List<Account> imported = accountRepository.findAllByMemberIdAndProviderForUpdate(
                 job.memberId(), PROVIDER);
-            Optional<NatixisSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+            Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                 job.sessionId(),
                 job.memberId()
             );
@@ -472,8 +472,8 @@ public class NatixisSyncService {
                 log.info("Natixis sync session disappeared before commit (member={})", job.memberId());
                 return false;
             }
-            NatixisSession session = current.get();
-            if (!session.isActive() || session.getSyncStatus() != NatixisSyncStatus.RUNNING) {
+            SidecarSession session = current.get();
+            if (!session.isActive() || session.getSyncStatus() != SidecarSyncStatus.RUNNING) {
                 log.warn(
                     "Natixis sync cannot commit from state {} (member={}; active={})",
                     session.getSyncStatus(),
@@ -752,7 +752,7 @@ public class NatixisSyncService {
     private void markFailed(SyncJob job, SidecarErrorCode code) {
         try {
             txTemplate.executeWithoutResult(status -> {
-                Optional<NatixisSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
+                Optional<SidecarSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
                     job.sessionId(),
                     job.memberId()
                 );
@@ -760,7 +760,7 @@ public class NatixisSyncService {
                     log.info("Natixis sync session disappeared before failure was recorded (member={})", job.memberId());
                     return;
                 }
-                NatixisSession session = current.get();
+                SidecarSession session = current.get();
                 if (!session.isSyncInFlight()) {
                     log.warn(
                         "Natixis sync failure ignored from state {} (member={}; code={})",
@@ -802,9 +802,10 @@ public class NatixisSyncService {
     }
 
     private void markInterruptedSyncsFailed(Instant touchedBefore) {
-        int recovered = sessionRepository.markInterruptedSyncsFailed(
-            List.of(NatixisSyncStatus.QUEUED, NatixisSyncStatus.RUNNING),
-            NatixisSyncStatus.FAILED,
+        int recovered = sessionRepository.markInterruptedSyncsFailedBefore(
+            SidecarBank.NATIXIS,
+            List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING),
+            SidecarSyncStatus.FAILED,
             Instant.now(),
             SidecarErrorCode.INTERNAL_ERROR,
             touchedBefore
@@ -816,7 +817,7 @@ public class NatixisSyncService {
 
     @Transactional(readOnly = true)
     public SessionStatusResponse getStatus(Long memberId) {
-        return sessionRepository.findByMemberId(memberId)
+        return sessionRepository.findByBankAndMemberId(SidecarBank.NATIXIS, memberId)
             .map(this::toStatus)
             .orElseGet(SessionStatusResponse::inactive);
     }
@@ -831,7 +832,7 @@ public class NatixisSyncService {
         synchronized (sessionWriteLock) {
             authGenerations.merge(memberId, 1L, Long::sum);
             removed = Boolean.TRUE.equals(txTemplate.execute(status -> {
-                var session = sessionRepository.findByMemberIdForUpdate(memberId);
+                var session = sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.NATIXIS, memberId);
                 session.ifPresent(sessionRepository::delete);
                 return session.isPresent();
             }));
@@ -882,7 +883,7 @@ public class NatixisSyncService {
         }
     }
 
-    private SessionStatusResponse toStatus(NatixisSession session) {
+    private SessionStatusResponse toStatus(SidecarSession session) {
         return new SessionStatusResponse(
             session.isActive(),
             session.getSyncStatus(),
@@ -985,13 +986,13 @@ public class NatixisSyncService {
 
     public record SessionStatusResponse(
         boolean isActive,
-        NatixisSyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError
     ) {
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, NatixisSyncStatus.IDLE, null, null, null);
+            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null);
         }
     }
 

@@ -27,9 +27,10 @@ ends the session.
   the reconciliation and account writes, and `resyncReporting`.
 - `backend/.../controller/NatixisController.java`: `/api/natixis` with
   `/auth/initiate`, `/auth/complete`, `/sync`, `GET /status` and `DELETE /session`.
-- `backend/.../model/NatixisSession.java` and
-  `db/migration/V142__natixis_session.sql`: one session per member, holding the
-  encrypted session state and the sync status. No credentials are stored.
+- `backend/.../model/SidecarSession.java` (`bank = 'NATIXIS'`) and
+  `db/migration/V143__natixis_sidecar_session.sql`: one `sidecar_session` row per member,
+  holding the encrypted session state and the sync status. No credentials are stored (the
+  database refuses `encrypted_credentials` on it).
 - `frontend/src/components/sync/NatixisPanel.tsx` and
   `frontend/src/pages/sync/NatixisTab.tsx`: the connection panel, also reachable
   from the add-account modal.

@@ -550,7 +550,8 @@
       "onTrack": "Im Plan",
       "disclaimer": "Unverbindliche Prognose.",
       "simulationResult": "{{months}} Monate · {{monthlyPayment}}/Monat · {{interest}} Zinsen",
-      "accruedHint": "Bisher aufgelaufene Zinsen:"
+      "accruedHint": "Bisher aufgelaufene Zinsen:",
+      "remainingHint": "Restschuld (Höchstbetrag pro Rückzahlung):"
     },
     "overview": {
       "title": "Privatdarlehen",
@@ -595,6 +596,7 @@
       "confirm": "Zuordnen",
       "created": "Rückzahlung erfasst."
     },
+    "linkedTransaction": "Verknüpft mit dem Darlehen von {{name}}",
     "actions": {
       "close": "Darlehen schließen",
       "simulate": "Berechnen"
@@ -603,6 +605,13 @@
       "title": "Darlehen schließen",
       "description": "Der Restbetrag ({{amount}}) wird abgeschrieben und heute aus dem Vermögen entfernt.",
       "confirm": "Schließen"
+    },
+    "deleteRepayment": {
+      "title": "Rückzahlung löschen",
+      "description": "Die Rückzahlung über {{amount}} wird samt Buchung gelöscht. Der Darlehenssaldo wird neu berechnet.",
+      "descriptionLinked": "Die Rückzahlung über {{amount}} wird vom Darlehen getrennt. Die verknüpfte Buchung bleibt in ihrem Konto bestehen. Der Darlehenssaldo wird neu berechnet.",
+      "descriptionNoCashLeg": "Die Rückzahlung über {{amount}} wird gelöscht. Der Darlehenssaldo wird neu berechnet.",
+      "confirm": "Löschen"
     },
     "validation": {
       "principal": "Der verliehene Betrag muss größer als null sein.",
@@ -919,7 +928,7 @@
       "property": "Haus, Wohnung, Grundstück…",
       "revolut": "Phone + passcode, on-demand sync",
       "fortuneo": "Fortuneo-Konten synchronisieren",
-      "caisseEpargne": "Girokonto, Livret A, LDDS, PER, Kredite und Karten bei der Caisse d'Epargne",
+      "caisseEpargne": "Girokonto, Livret A, LDDS, PEL, LEP, PER, Kredite und Karten bei der Caisse d'Epargne",
       "banquePopulaire": "Girokonto, Livret A, Livret Jeune und LDDS bei der Banque Populaire"
     }
   },
@@ -1313,7 +1322,7 @@
       "disconnectConfirmAction": "Gespeicherte Sitzung löschen",
       "noSession": "Keine aktive Sitzung",
       "sessionActive": "Sitzung aktiv",
-      "scope": "Synchronisiert Ihre Girokonten, Livret A, LDDS, PER (nur Saldo), Privatkredite und Karten bei der Caisse d'Epargne auf Abruf. Nur die Sitzung wird verschlüsselt gespeichert. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
+      "scope": "Synchronisiert Ihre Girokonten, Livret A, LDDS, PEL, LEP, PER (mit seinen Fonds, wenn die Versicherungsdetails verfügbar sind), Privatkredite und Karten bei der Caisse d'Epargne auf Abruf. Nur die Sitzung wird verschlüsselt gespeichert. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
       "notice": {
         "neverStored": "Picsou sieht und speichert Ihr Passwort nie. Sie klicken es selbst auf der Tastatur der Bank; nur die Tastenpositionen werden einmalig gesendet.",
         "noRetry": "Picsou wiederholt eine Anmeldung nie. Schlägt sie fehl, wird nichts erneut gesendet, bis Sie das Formular selbst absenden.",
@@ -1323,7 +1332,7 @@
       "securPassHint": "Picsou greift nicht auf Ihr Telefon zu. Diese Seite geht von selbst weiter, sobald Sie bestätigen.",
       "countdownLabel": "Verbleibende Zeit zum Bestätigen:",
       "unsupportedTitle": "Nicht importierte Verträge",
-      "unsupportedHint": "Picsou unterstützt diese Vertragsfamilien noch nicht (Familiencode angezeigt).",
+      "unsupportedHint": "Picsou unterstützt diese Verträge noch nicht (Familien-/Unterfamiliencode angezeigt).",
       "errors": {
         "rateLimited": "Zu viele Anmeldeversuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
         "rateLimitedRetryAfter": "Zu viele Anmeldeversuche. Versuchen Sie es in {{minutes}} Min. erneut.",
@@ -1375,7 +1384,7 @@
       "securPassHint": "Picsou greift nicht auf Ihr Telefon zu. Diese Seite geht von selbst weiter, sobald Sie bestätigen.",
       "countdownLabel": "Verbleibende Zeit zum Bestätigen:",
       "unsupportedTitle": "Nicht importierte Verträge",
-      "unsupportedHint": "Picsou unterstützt diese Vertragsfamilien noch nicht (Familiencode angezeigt).",
+      "unsupportedHint": "Picsou unterstützt diese Verträge noch nicht (Familien-/Unterfamiliencode angezeigt).",
       "errors": {
         "rateLimited": "Zu viele Anmeldeversuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
         "rateLimitedRetryAfter": "Zu viele Anmeldeversuche. Versuchen Sie es in {{minutes}} Min. erneut.",
