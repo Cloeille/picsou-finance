@@ -19,6 +19,8 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Read-only "insight" MCP tools: the net-worth dashboard, net-worth history, profit-and-loss, the
@@ -27,8 +29,8 @@ import java.util.List;
  * data and touches no member's data, so it carries the narrow {@code prices:read} scope.
  *
  * <p>History and PnL accept an optional {@code accountIds}: when the caller omits it the tool
- * defaults to <em>all</em> of the member's accounts (their whole net worth), which the REST layer
- * always supplies explicitly from the selected accounts in the UI.
+ * defaults to <em>all</em> of the member's accounts (their whole net worth, a pocket counted through
+ * its listed wallet), which the REST layer always supplies explicitly from the selected accounts in the UI.
  */
 @Component
 public class InsightTools {
@@ -68,7 +70,7 @@ public class InsightTools {
 
     @Tool(name = "get_net_worth_history",
         description = "Get the member's net-worth over time as monthly points. accountIds defaults to ALL of the "
-            + "member's accounts; months defaults to 12.")
+            + "member's accounts (a pocket whose wallet is listed counts through the wallet); months defaults to 12.")
     @RequiresScope(Scopes.DASHBOARD_READ)
     public List<DashboardResponse.NetWorthPoint> getNetWorthHistory(
         @ToolParam(description = "Account ids to include; omit for all of the member's accounts", required = false) List<Long> accountIds,
@@ -80,7 +82,8 @@ public class InsightTools {
 
     @Tool(name = "get_profit_and_loss",
         description = "Get profit-and-loss across the member's investment accounts (total, invested, PnL and "
-            + "optionally the change since a 'from' date). accountIds defaults to ALL of the member's accounts.")
+            + "optionally the change since a 'from' date). accountIds defaults to ALL of the member's accounts "
+            + "(a pocket whose wallet is listed counts through the wallet).")
     @RequiresScope(Scopes.DASHBOARD_READ)
     public PnlResponse getProfitAndLoss(
         @ToolParam(description = "Account ids to include; omit for all of the member's accounts", required = false) List<Long> accountIds,
@@ -106,11 +109,22 @@ public class InsightTools {
         return priceService.getPriceEur(ticker);
     }
 
-    /** Use the caller's explicit account ids, or fall back to every account the member owns. */
+    /**
+     * Use the caller's explicit account ids, or fall back to every account the member owns.
+     *
+     * <p>The fallback leaves out a pocket whose parent wallet is in the list: the parent's balance
+     * already carries it, and HistoryService sums whatever ids it is given, so the dashboard
+     * drops pockets before it calls in. Explicit ids are taken as asked.
+     */
     private List<Long> resolveAccountIds(List<Long> accountIds, Long memberId) {
         if (accountIds != null && !accountIds.isEmpty()) {
             return accountIds;
         }
-        return accountService.findAll(memberId).stream().map(AccountResponse::id).toList();
+        List<AccountResponse> accounts = accountService.findAll(memberId);
+        Set<Long> listedIds = accounts.stream().map(AccountResponse::id).collect(Collectors.toSet());
+        return accounts.stream()
+            .filter(a -> a.parentAccountId() == null || !listedIds.contains(a.parentAccountId()))
+            .map(AccountResponse::id)
+            .toList();
     }
 }

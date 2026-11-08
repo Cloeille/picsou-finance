@@ -178,6 +178,65 @@ class FamilyViewServiceTest {
         assertThat(response.totalSharedNetWorth()).isEqualByComparingTo("-8000");
     }
 
+    // ─── Pockets: the parent wallet already carries their balance ────────────
+
+    @Test
+    void getFamilyDashboard_pocketUnderSharedWallet_countsOnceInNetWorth() {
+        FamilyMember viewer = FamilyMember.builder().id(1L).displayName("Viewer").build();
+        FamilyMember owner = FamilyMember.builder().id(2L).displayName("Owner").build();
+        // A Revolut wallet parent carries the sum of its pockets (revolut-sidecar.md).
+        Account wallet = Account.builder()
+            .id(10L).name("Revolut EUR").type(AccountType.CHECKING).currency("EUR")
+            .currentBalance(new BigDecimal("1000")).build();
+        Account pocket = Account.builder()
+            .id(11L).name("Holidays").type(AccountType.CHECKING).currency("EUR")
+            .currentBalance(new BigDecimal("400")).parentAccountId(10L).build();
+
+        when(memberRepository.findAllByOrderByCreatedAtAsc()).thenReturn(List.of(viewer, owner));
+        when(sharingSettingsRepository.findByMemberIdAndResourceType(2L, "ACCOUNT"))
+            .thenReturn(Optional.of(new SharingSettings(null, owner, "ACCOUNT", SharingLevel.ALL)));
+        when(sharingSettingsRepository.findByMemberIdAndResourceType(2L, "GOAL"))
+            .thenReturn(Optional.empty());
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(2L))
+            .thenReturn(List.of(wallet, pocket));
+        when(accountService.signedLiveBalanceEur(wallet)).thenReturn(new BigDecimal("1000"));
+        when(accountService.signedLiveBalanceEur(pocket)).thenReturn(new BigDecimal("400"));
+
+        FamilyDashboardResponse response = familyViewService.getFamilyDashboard(1L);
+
+        // Both cards stay, each with its own balance...
+        assertThat(response.sharedAccounts()).extracting(FamilyDashboardResponse.SharedAccountInfo::id)
+            .containsExactly(10L, 11L);
+        // ...but the 400 is inside the wallet's 1000, not on top of it.
+        assertThat(response.totalSharedNetWorth()).isEqualByComparingTo("1000");
+    }
+
+    @Test
+    void getFamilyDashboard_pocketSharedWithoutItsWallet_stillCounts() {
+        FamilyMember viewer = FamilyMember.builder().id(1L).displayName("Viewer").build();
+        FamilyMember owner = FamilyMember.builder().id(2L).displayName("Owner").build();
+        Account pocket = Account.builder()
+            .id(11L).name("Holidays").type(AccountType.CHECKING).currency("EUR")
+            .currentBalance(new BigDecimal("400")).parentAccountId(10L).build();
+        SharedResource resource = SharedResource.builder()
+            .ownerMember(owner).resourceType("ACCOUNT").resourceId(11L).build();
+
+        when(memberRepository.findAllByOrderByCreatedAtAsc()).thenReturn(List.of(viewer, owner));
+        when(sharingSettingsRepository.findByMemberIdAndResourceType(2L, "ACCOUNT"))
+            .thenReturn(Optional.of(new SharingSettings(null, owner, "ACCOUNT", SharingLevel.MANUAL)));
+        when(sharingSettingsRepository.findByMemberIdAndResourceType(2L, "GOAL"))
+            .thenReturn(Optional.empty());
+        when(sharedResourceRepository.findAllByOwnerMemberIdAndResourceType(2L, "ACCOUNT"))
+            .thenReturn(List.of(resource));
+        when(accountRepository.findByIdInAndMemberId(List.of(11L), 2L)).thenReturn(List.of(pocket));
+        when(accountService.signedLiveBalanceEur(pocket)).thenReturn(new BigDecimal("400"));
+
+        FamilyDashboardResponse response = familyViewService.getFamilyDashboard(1L);
+
+        // No parent in the list to carry it, so the pocket is the only place its money shows.
+        assertThat(response.totalSharedNetWorth()).isEqualByComparingTo("400");
+    }
+
     @Test
     void getFamilyDashboard_sharedGoalWithLoan_progressCountsLoanNegatively() {
         FamilyMember viewer = FamilyMember.builder().id(1L).displayName("Viewer").build();
