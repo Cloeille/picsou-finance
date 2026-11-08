@@ -2,6 +2,7 @@ import type { QueryKey } from '@tanstack/react-query'
 import {
   amexApi,
   amundiApi,
+  banquePopulaireApi,
   boursoApi,
   bourseDirectApi,
   caisseEpargneApi,
@@ -56,9 +57,9 @@ export interface SidecarProviderEntry {
   /** Query keys invalidated, besides the status, once the session is cleared. Defaults to the account views. */
   refreshOnClear?: readonly QueryKey[]
   getStatus: () => Promise<SidecarSessionStatus>
-  /** Absent when the caller drives the login itself (Caisse d'Epargne). */
+  /** Absent when the caller drives the login itself (Caisse d'Epargne, Banque Populaire). */
   initiate?: (vars: never) => Promise<SidecarAuthInitResponse>
-  /** A status, except Caisse d'Epargne's login result (`singleAttemptComplete`). */
+  /** A status, except the BPCE banks' login result (`singleAttemptComplete`). */
   complete: (vars: never) => Promise<SidecarSessionStatus | CaisseEpargneAuthCompleteResponse>
   sync: () => Promise<SidecarSessionStatus>
   clear: () => Promise<unknown>
@@ -123,6 +124,17 @@ export const sidecarProviders = {
     complete: ({ processId }: { processId: string }) => caisseEpargneApi.completeAuth(processId),
     sync: () => caisseEpargneApi.sync(),
     clear: () => caisseEpargneApi.clearSession(),
+    singleAttemptComplete: true,
+  },
+
+  /** Same BPCE login as Caisse d'Epargne, so the same deliberate absence of `initiate`. */
+  banquePopulaire: {
+    queryKey: syncKeys.banquePopulaire(),
+    refreshOnSuccess: ACCOUNT_VIEWS,
+    getStatus: () => banquePopulaireApi.getStatus(),
+    complete: ({ processId }: { processId: string }) => banquePopulaireApi.completeAuth(processId),
+    sync: () => banquePopulaireApi.sync(),
+    clear: () => banquePopulaireApi.clearSession(),
     singleAttemptComplete: true,
   },
 
@@ -225,7 +237,7 @@ type Providers = typeof sidecarProviders
 export type SidecarProviderId = keyof Providers
 
 /** Providers rendered by the shared `SidecarSessionPanel`. */
-export type PanelProviderId = Exclude<SidecarProviderId, 'bourso' | 'caisseEpargne' | 'fortuneo'>
+export type PanelProviderId = Exclude<SidecarProviderId, 'bourso' | 'caisseEpargne' | 'banquePopulaire' | 'fortuneo'>
 
 /** What `SidecarSessionPanel` reads from an entry: a login answer, then session statuses. */
 interface PanelProviderEntry extends SidecarProviderEntry {

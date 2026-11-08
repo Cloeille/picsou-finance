@@ -146,7 +146,7 @@ jobs:
           1 service.SetupAuditServicePostgresTest
           20 config.SsoLoginIntegrationTest
           2 config.SsoHandshakeSessionRaceIntegrationTest
-          21 adapter.sidecar.SidecarBankCodesTest
+          23 adapter.sidecar.SidecarBankCodesTest
           EOF
 
   frontend:

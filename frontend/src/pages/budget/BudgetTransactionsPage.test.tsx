@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
 import { BudgetTransactionsPage } from './BudgetTransactionsPage'
 
 vi.mock('@tanstack/react-query', () => ({
@@ -24,9 +25,21 @@ vi.mock('@/features/accounts/hooks', () => ({
   useAccounts: () => ({ data: [] }),
 }))
 
+// The page offers peer-loan shortcuts from an outgoing or incoming row. They are not
+// under test here, and the react-query mock below only provides useQueryClient.
+vi.mock('@/features/peer-loans/hooks', () => ({
+  useOpenPeerLoans: () => ({ data: [] }),
+  useCreatePeerLoanFromTransaction: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useAssignPeerLoanRepayment: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}))
+
 describe('BudgetTransactionsPage filters', () => {
   it('names the account and category filters for assistive technology', () => {
-    render(<BudgetTransactionsPage />)
+    render(
+      <MemoryRouter>
+        <BudgetTransactionsPage />
+      </MemoryRouter>,
+    )
 
     expect(screen.getByRole('combobox', { name: 'transactions.account' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'common.category' })).toBeInTheDocument()

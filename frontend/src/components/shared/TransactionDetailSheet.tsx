@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Pencil, Trash2 } from 'lucide-react'
+import { ArrowDownLeft, Coins, Pencil, Trash2 } from 'lucide-react'
 import type { Category, Transaction } from '@/types/api'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { MerchantAvatar } from '@/components/shared/MerchantAvatar'
@@ -29,6 +29,12 @@ interface TransactionDetailSheetProps {
   logoUrlFor?: (brandId: number | null | undefined) => string | null
   categories?: Category[]
   onCategorize?: (txId: number, categoryId: number) => void
+  onCreatePeerLoan?: (tx: Transaction) => void
+  /** Whether this row can start a loan; defaults to "any outgoing movement". */
+  canCreatePeerLoan?: (tx: Transaction) => boolean
+  onAssignRepayment?: (tx: Transaction) => void
+  /** Whether this row can repay a loan; defaults to "any incoming movement". */
+  canAssignRepayment?: (tx: Transaction) => boolean
   onEdit?: (tx: Transaction) => void
   onDelete?: (txId: number) => void
   /** The provider of the transaction's account, when the caller knows it. */
@@ -47,6 +53,10 @@ export function TransactionDetailSheet({
   logoUrlFor,
   categories,
   onCategorize,
+  onCreatePeerLoan,
+  canCreatePeerLoan,
+  onAssignRepayment,
+  canAssignRepayment,
   onEdit,
   onDelete,
   accountProvider,
@@ -66,14 +76,20 @@ export function TransactionDetailSheet({
   })
   if (tx !== derivedFrom.tx || categories !== derivedFrom.categories) {
     setDerivedFrom({ tx, categories })
-    const match = tx && categories ? categories.find(c => c.name === tx.category) : undefined
+    const match = tx && categories
+      ? categories.find(c => (tx.categoryId != null && c.id === tx.categoryId) || c.name === tx.category)
+      : undefined
     setPendingCategoryId(match ? match.id : '')
   }
 
   if (!tx) return null
 
   const label = tx.merchantLabel || transactionDescription(tx, t, accountProvider)
-  const canCategorize = !tx.isManual && !!onCategorize && !!categories
+  // The category is editable on any transaction, manual or synced: the endpoint stamps
+  // `category_manual`, so a re-sync or the categorizer never overwrites the choice.
+  const canCategorize = !!onCategorize && !!categories
+  const canStartLoan = !!onCreatePeerLoan && (canCreatePeerLoan ? canCreatePeerLoan(tx) : tx.amount < 0)
+  const canAssign = !!onAssignRepayment && (canAssignRepayment ? canAssignRepayment(tx) : tx.amount > 0)
 
   function confirmCategory() {
     if (!tx || pendingCategoryId === '') return
@@ -151,6 +167,38 @@ export function TransactionDetailSheet({
           <span className="font-medium">{tx.category}</span>
         </div>
       ) : null}
+
+      {/* A loan can start from the outflow itself: the transaction becomes the cash leg
+          instead of being copied, so net worth stays neutral. */}
+      {canStartLoan && (
+        <>
+          <Separator />
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => { onCreatePeerLoan(tx); onClose() }}
+          >
+            <Coins size={14} className="mr-1.5" />
+            {t('peerLoan.fromTransaction.action')}
+          </Button>
+        </>
+      )}
+
+      {canAssign && (
+        <>
+          <Separator />
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => { onAssignRepayment!(tx); onClose() }}
+          >
+            <ArrowDownLeft size={14} className="mr-1.5" />
+            {t('peerLoan.fromTransaction.assignAction')}
+          </Button>
+        </>
+      )}
 
       {/* Actions for manual transactions */}
       {tx.isManual && (onEdit || onDelete) && (

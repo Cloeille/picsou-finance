@@ -34,7 +34,41 @@ public interface SimplefinPort {
         String name,
         String currency,
         BigDecimal balance,
-        List<SimplefinTransaction> transactions
+        List<SimplefinTransaction> transactions,
+        /** Bare website host of the bank behind the connection ("fidelity.com"), or null. */
+        String institutionDomain,
+        /** Positions the bridge reports; empty for cash accounts and for a response that omitted them. */
+        List<SimplefinHolding> holdings,
+        /**
+         * False when the parser dropped a row it could not read or stopped at its row cap: the list
+         * is then only part of the portfolio and must never replace the stored positions.
+         */
+        boolean holdingsComplete
+    ) {
+        public SimplefinAccount(String externalId, String connectionName, String name, String currency,
+                                BigDecimal balance, List<SimplefinTransaction> transactions) {
+            this(externalId, connectionName, name, currency, balance, transactions, null, List.of(), true);
+        }
+
+        public SimplefinAccount(String externalId, String connectionName, String name, String currency,
+                                BigDecimal balance, List<SimplefinTransaction> transactions,
+                                String institutionDomain) {
+            this(externalId, connectionName, name, currency, balance, transactions, institutionDomain, List.of(), true);
+        }
+    }
+
+    /**
+     * One position. Every figure is optional: Fidelity, for one, reports {@code cost_basis} as
+     * 0.00 for every line, so a zero is "unknown", never "free".
+     */
+    record SimplefinHolding(
+        String symbol,
+        String description,
+        String currency,
+        BigDecimal shares,
+        BigDecimal marketValue,
+        BigDecimal costBasis,
+        BigDecimal purchasePrice
     ) {}
 
     record SimplefinTransaction(
