@@ -46,6 +46,49 @@ class V142SidecarSessionMigrationTest {
           FROM sidecar_session WHERE bank = ? AND member_id = ?
         """;
 
+    private static final String BEFORE = """
+        SELECT bank, count(*), md5(string_agg(line, ';' ORDER BY member_id))
+          FROM (
+        SELECT 'AMEX' AS bank, member_id, concat_ws('|', member_id, session_state, last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, created_at, updated_at) AS line FROM amex_session
+         WHERE member_id NOT IN (SELECT id FROM family_member WHERE display_name IN ('carol', 'dave'))
+        UNION ALL
+        SELECT 'AMUNDI' AS bank, member_id, concat_ws('|', member_id, session_state, last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, created_at, updated_at) AS line FROM amundi_session
+         WHERE member_id NOT IN (SELECT id FROM family_member WHERE display_name IN ('carol', 'dave'))
+        UNION ALL
+        SELECT 'BOURSE_DIRECT' AS bank, member_id, concat_ws('|', member_id, session_state, last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, created_at, updated_at) AS line FROM bourse_direct_session
+         WHERE member_id NOT IN (SELECT id FROM family_member WHERE display_name IN ('carol', 'dave'))
+        UNION ALL
+        SELECT 'BOURSO' AS bank, member_id, concat_ws('|', member_id, session_state, last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, created_at, updated_at) AS line FROM bourso_session
+         WHERE member_id NOT IN (SELECT id FROM family_member WHERE display_name IN ('carol', 'dave'))
+        UNION ALL
+        SELECT 'CAISSE_EPARGNE' AS bank, member_id, concat_ws('|', member_id, session_state, last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, created_at, updated_at) AS line FROM caisse_epargne_session
+         WHERE member_id NOT IN (SELECT id FROM family_member WHERE display_name IN ('carol', 'dave'))
+        UNION ALL
+        SELECT 'CIC' AS bank, member_id, concat_ws('|', member_id, session_state, last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, created_at, updated_at) AS line FROM cic_session
+         WHERE member_id NOT IN (SELECT id FROM family_member WHERE display_name IN ('carol', 'dave'))
+        UNION ALL
+        SELECT 'CMES' AS bank, member_id, concat_ws('|', member_id, session_state, last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, created_at, updated_at) AS line FROM cmes_session
+         WHERE member_id NOT IN (SELECT id FROM family_member WHERE display_name IN ('carol', 'dave'))
+        UNION ALL
+        SELECT 'CORUM' AS bank, member_id, concat_ws('|', member_id, session_state, last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, created_at, updated_at) AS line FROM corum_session
+         WHERE member_id NOT IN (SELECT id FROM family_member WHERE display_name IN ('carol', 'dave'))
+        UNION ALL
+        SELECT 'FORTUNEO' AS bank, member_id, concat_ws('|', member_id, session_state, last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, created_at, updated_at) AS line FROM fortuneo_session
+         WHERE member_id NOT IN (SELECT id FROM family_member WHERE display_name IN ('carol', 'dave'))
+        UNION ALL
+        SELECT 'SOFIDY' AS bank, member_id, concat_ws('|', member_id, session_state, last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, created_at, updated_at) AS line FROM sofidy_session
+         WHERE member_id NOT IN (SELECT id FROM family_member WHERE display_name IN ('carol', 'dave'))
+          ) rows GROUP BY bank
+        """;
+
+    private static final String AFTER = """
+        SELECT bank, count(*), md5(string_agg(concat_ws('|', member_id, session_state, last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, created_at, updated_at), ';' ORDER BY member_id))
+          FROM sidecar_session
+         WHERE bank <> 'BANQUE_POPULAIRE'
+           AND member_id NOT IN (SELECT id FROM family_member WHERE display_name IN ('carol', 'dave'))
+         GROUP BY bank
+        """;
+
     private static final Instant STARTED = Instant.parse("2026-10-03T08:00:00Z");
 
     @Container
@@ -117,43 +160,19 @@ class V142SidecarSessionMigrationTest {
                     + "VALUES (" + gina + ", 'gina', 'IDLE')");
             }
         }
-        before = fingerprints();
+        before = fingerprints(BEFORE);
         PostgresContainers.migrateTo(POSTGRES, "142");
         // Taken right here: later tests insert their own rows into sidecar_session.
-        after = fingerprintsAfter();
+        after = fingerprints(AFTER);
     }
 
-    /** Per bank: row count and a digest of the columns all ten tables share, ordered by member (credentials are checked row by row). */
-    private static java.util.Map<String, String> fingerprints() throws SQLException {
+    /** Per bank: row count and a digest of the columns all ten tables share (credentials are checked row by row). */
+    private static java.util.Map<String, String> fingerprints(String sql) throws SQLException {
         java.util.Map<String, String> result = new java.util.TreeMap<>();
-        try (Connection c = PostgresContainers.connection(POSTGRES)) {
-            for (String table : TABLES) {
-                try (ResultSet rs = c.createStatement().executeQuery(
-                    "SELECT count(*), md5(string_agg(concat_ws('|', member_id, session_state, "
-                        + "last_validated_at, is_active, sync_status, "
-                        + "last_sync_started_at, last_sync_completed_at, created_at, updated_at), ';' ORDER BY member_id)) "
-                        + "FROM " + table + "_session WHERE member_id NOT IN (" + carol + ", " + dave + ")")) {
-                    rs.next();
-                    result.put(table, rs.getLong(1) + " " + rs.getString(2));
-                }
-            }
-        }
-        return result;
-    }
-
-    private static java.util.Map<String, String> fingerprintsAfter() throws SQLException {
-        java.util.Map<String, String> result = new java.util.TreeMap<>();
-        try (Connection c = PostgresContainers.connection(POSTGRES)) {
-            for (String table : TABLES) {
-                try (ResultSet rs = c.createStatement().executeQuery(
-                    "SELECT count(*), md5(string_agg(concat_ws('|', member_id, session_state, "
-                        + "last_validated_at, is_active, sync_status, "
-                        + "last_sync_started_at, last_sync_completed_at, created_at, updated_at), ';' ORDER BY member_id)) "
-                        + "FROM sidecar_session WHERE bank = '" + table.toUpperCase(Locale.ROOT)
-                        + "' AND member_id NOT IN (" + carol + ", " + dave + ")")) {
-                    rs.next();
-                    result.put(table, rs.getLong(1) + " " + rs.getString(2));
-                }
+        try (Connection c = PostgresContainers.connection(POSTGRES);
+             ResultSet rs = c.createStatement().executeQuery(sql)) {
+            while (rs.next()) {
+                result.put(rs.getString(1), rs.getLong(2) + " " + rs.getString(3));
             }
         }
         return result;
@@ -162,6 +181,7 @@ class V142SidecarSessionMigrationTest {
     /** Hundreds of members on every bank: no row lost, duplicated or altered by the copy. */
     @Test
     void aBulkOfSessionsKeepsItsCountAndEveryColumnDigest() throws SQLException {
+        assertThat(before).hasSize(TABLES.length);
         assertThat(before.values()).allSatisfy(v -> assertThat(Long.parseLong(v.split(" ")[0])).isGreaterThan(BULK));
         assertThat(after).isEqualTo(before);
     }
