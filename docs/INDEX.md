@@ -90,6 +90,7 @@
 | 2026-11-05 | [CORUM Life contracts sync as one assurance-vie account each](./decisions/2026-11-05-corum-life-sync.md) | Active |
 | 2026-11-05 | [Banque Populaire shares the Caisse d'Epargne code through a BPCE package and sync engine](./decisions/2026-11-05-bpce-shared-sidecar-and-engine.md) | Active |
 | 2026-11-05 | [La Banque Postale through a dedicated sidecar, replacing Enable Banking](./decisions/2026-11-05-la-banque-postale-sidecar.md) | Active |
+| 2026-11-07 | [Contract kinds seen in few live runs are enabled per bank and demoted, not fatal](./decisions/2026-11-07-provisional-kinds-per-bank.md) | Active |
 
 ## Feature notes
 

@@ -178,10 +178,10 @@ class AccountsTest(unittest.TestCase):
         body = self.post("/accounts").json()
 
         self.assertEqual(body["unsupported"], [
-            {"externalId": "contract:PRET1", "familyCode": "6"},
-            {"externalId": "contract:IMMO1", "familyCode": "6"},
-            {"externalId": "contract:PER1", "familyCode": "4"},
-            {"externalId": "contract:FACELIA1", "familyCode": "2"},
+            {"externalId": "contract:PRET1", "familyCode": "6", "subFamilyCode": "12"},
+            {"externalId": "contract:IMMO1", "familyCode": "6", "subFamilyCode": "13"},
+            {"externalId": "contract:PER1", "familyCode": "4", "subFamilyCode": "05"},
+            {"externalId": "contract:FACELIA1", "familyCode": "2", "subFamilyCode": "11"},
         ])
         paths = [r.url.path for r in self.bank.requests if r.url.host == DATA_HOST]
         self.assertEqual(paths.count(fetcher.SYNTHESIS_PATH), 1)
@@ -233,7 +233,8 @@ class SiteTest(unittest.TestCase):
         self.assertIsNone(main.SITE.personal_loan)
         self.assertIsNone(main.SITE.home_loan)
         self.assertIsNone(main.SITE.per)
-        self.assertEqual(main.SITE.unsupported_families, frozenset({("6", "12"), ("6", "13"), ("4", "05")}))
+        self.assertEqual(main.SITE.unsupported_families, frozenset({("6", "12"), ("6", "13"), ("4", "05"), ("3", "04"), ("3", "27")}))
+        self.assertEqual(main.SITE.provisional_kinds, frozenset())
 
     def test_the_allow_list_is_banque_populaire_only(self):
         self.assertEqual(main.SITE.extra_hosts, frozenset())

@@ -1156,10 +1156,14 @@ export type BoursoErrorCode =
 /** `mfaType` is always `APP_PUSH` when a second factor is required. */
 export type BoursoAuthInitResponse = SidecarAuthInitResponse<'APP_PUSH'>
 
-/** Contract family the sidecar saw but Picsou does not import: family code only, never the id. */
+/**
+ * Contract the sidecar saw but Picsou does not import: shown by family and sub-family code only,
+ * never by id. `subFamilyCode` is null when the bank sends none, or on a list stored before it.
+ */
 export interface CaisseEpargneUnsupportedContract {
   externalId: string
   familyCode: string
+  subFamilyCode?: string | null
 }
 
 export type CaisseEpargneErrorCode =
