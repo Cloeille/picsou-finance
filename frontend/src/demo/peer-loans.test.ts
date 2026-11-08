@@ -1,6 +1,6 @@
 import { AxiosHeaders } from 'axios'
 import { afterAll, describe, expect, it, vi } from 'vitest'
-import type { Account, PeerLoanDetail, PeerLoanOpen, PeerLoansOverview } from '@/types/api'
+import type { Account, PeerLoanDetail, PeerLoanOpen, PeerLoansOverview, Transaction } from '@/types/api'
 
 // One instant for every fixture, before they load: the peer-loan terms and their ledger are
 // relative to today. Mid-month keeps the curve clear of a month boundary.
@@ -177,5 +177,69 @@ describe('demo peer loan', () => {
     // Transaction 12 is 200, above Jean's ~3.66 accrued interest.
     await expect(post('/accounts/16/peer-loan/repayments/from-transaction', { transactionId: 12, kind: 'INTEREST' }))
       .rejects.toThrow(/accrued interest/)
+  })
+
+  describe('transaction links', () => {
+    async function send<T>(method: 'POST' | 'DELETE', url: string, data?: unknown): Promise<T> {
+      const response = await adapter({
+        method, url, data: data === undefined ? undefined : JSON.stringify(data), headers: new AxiosHeaders(),
+      })
+      return response.data as T
+    }
+    const accountList = (accountId: number) => get<Transaction[]>(`/accounts/${accountId}/transactions`)
+    const found = (list: Transaction[], id: number) => list.find((transaction) => transaction.id === id)
+
+    it('marks the source transaction as the lending leg of the loan it created', async () => {
+      // Transaction 13 is an outgoing payment on an account list; nothing links it yet.
+      expect(found(await accountList(5), 13)?.peerLoanLink ?? null).toBeNull()
+
+      const created = await send<PeerLoanDetail>('POST', '/peer-loans/from-transaction', { transactionId: 13 })
+
+      expect(found(await accountList(5), 13)?.peerLoanLink).toEqual({
+        kind: 'LENDING', accountId: created.accountId, accountName: created.accountName,
+      })
+    })
+
+    it('annotates the budget ledger too, which serves the main checking account', async () => {
+      const ledger = await get<Transaction[]>('/transactions')
+      const outflow = ledger.find((transaction) => transaction.amount < 0)!
+      expect(outflow.peerLoanLink ?? null).toBeNull()
+
+      const created = await send<PeerLoanDetail>('POST', '/peer-loans/from-transaction', { transactionId: outflow.id })
+
+      // The ledger row resolves like any other: the loan carries its amount, not 0.
+      expect(created.principal).toBeCloseTo(Math.abs(outflow.amount), 2)
+      const expected = { kind: 'LENDING', accountId: created.accountId, accountName: created.accountName }
+      expect(found(await get<Transaction[]>('/transactions'), outflow.id)?.peerLoanLink).toEqual(expected)
+      expect(found(await accountList(outflow.accountId!), outflow.id)?.peerLoanLink).toEqual(expected)
+    })
+
+    it('marks a transaction linked as a repayment, and unlinks it when the row is deleted', async () => {
+      // Transaction 123 is an incoming transfer on another account list.
+      const detail = await send<PeerLoanDetail>(
+        'POST', '/accounts/16/peer-loan/repayments/from-transaction', { transactionId: 123 })
+
+      expect(found(await accountList(12), 123)?.peerLoanLink).toEqual({
+        kind: 'REPAYMENT', accountId: 16, accountName: 'Jean',
+      })
+      const linked = detail.repayments.at(-1)!
+      // The transaction was not written by Picsou: the page words the delete accordingly.
+      expect(linked.hasCashLeg).toBe(true)
+      expect(linked.cashLegOwned).toBe(false)
+
+      await send('DELETE', `/accounts/16/peer-loan/repayments/${linked.id}`)
+
+      expect(found(await accountList(12), 123)?.peerLoanLink ?? null).toBeNull()
+    })
+
+    it('reports the cash leg of a manual repayment as written by Picsou, unless it has none', async () => {
+      const withLeg = await send<{ hasCashLeg: boolean; cashLegOwned: boolean }>(
+        'POST', '/accounts/16/peer-loan/repayments', { paidOn: '2026-06-10', amount: 10 })
+      const compensation = await send<{ hasCashLeg: boolean; cashLegOwned: boolean }>(
+        'POST', '/accounts/16/peer-loan/repayments', { paidOn: '2026-06-10', amount: 10, withCashLeg: false })
+
+      expect(withLeg).toMatchObject({ hasCashLeg: true, cashLegOwned: true })
+      expect(compensation).toMatchObject({ hasCashLeg: false, cashLegOwned: true })
+    })
   })
 })

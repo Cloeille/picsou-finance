@@ -3,6 +3,7 @@ import type {
   CicSessionStatus,
   PeerLoanDetail,
   PeerLoanFromTransactionRequest,
+  PeerLoanLink,
   PeerLoanRepayment,
   PeerLoanRepaymentFromTransactionRequest,
   PeerLoanRepaymentKind,
@@ -42,6 +43,7 @@ import {
   mockCategories,
   mockCategoryDetail,
   mockFlow,
+  mockLedger,
   mockRecurring,
   mockRules,
   mockSpendingByCategory,
@@ -49,7 +51,7 @@ import {
   mockUncategorized,
 } from './data/budget'
 import { mockUpcomingDividends } from './data/dividends'
-import type { CashflowPeriod, CategorizeRequest } from '@/types/api'
+import type { CashflowPeriod, CategorizeRequest, Transaction } from '@/types/api'
 import { demoLoanSchedule } from './data/loans'
 import { demoPeerLoans } from './data/peer-loans'
 
@@ -339,6 +341,19 @@ const _peerLoanDetails = new Map<number, PeerLoanDetail>(
 
 const round2 = (value: number): number => Math.round(value * 100) / 100
 
+// The one place that knows which transaction belongs to which loan. The two list handlers
+// annotate from it, like the API does from the loan tables, so a link created by a demo
+// write shows up on every list that carries the transaction, and disappears with the row.
+// A repayment link remembers its row, so deleting the repayment unlinks the transaction.
+const _peerLoanLinks = new Map<number, { link: PeerLoanLink; repaymentId?: number }>()
+
+function withPeerLoanLinks(transactions: Transaction[]): Transaction[] {
+  return transactions.map((transaction) => {
+    const entry = _peerLoanLinks.get(transaction.id)
+    return entry ? { ...transaction, peerLoanLink: entry.link } : transaction
+  })
+}
+
 /**
  * Mirrors the hardened API: a write-off goes through close(), a repayment cannot exceed
  * what the loan can absorb, and an interest row needs accrued interest to pay. The
@@ -433,8 +448,11 @@ function demoNewPeerLoanAccount(accountId: number, name: string): void {
   }]
 }
 
+// The account lists and the budget ledger (which serves the main checking account) carry
+// distinct ids, so a transaction opened from either list resolves here.
 function demoTransactionById(transactionId: number) {
-  return Object.values(mockTransactions).flat().find((transaction) => transaction.id === transactionId)
+  return [...Object.values(mockTransactions).flat(), ...mockLedger]
+    .find((transaction) => transaction.id === transactionId)
 }
 
 handlers.set(key('GET', '/accounts/:id'), (_config, { id }) =>
@@ -482,6 +500,9 @@ handlers.set(key('POST', '/accounts/:id/peer-loan/repayments'), (config, { id })
     note: data.note ?? null,
     interestPart: 0,
     capitalPart: data.amount,
+    // Picsou writes the deposit unless the member records a compensation.
+    hasCashLeg: data.withCashLeg !== false,
+    cashLegOwned: true,
   }
   const applied = Math.min(data.amount, current.principalRemaining)
   const repaid = current.principalRepaid + applied
@@ -545,6 +566,9 @@ handlers.set(key('DELETE', '/accounts/:id/peer-loan/repayments/:repaymentId'), (
   const current = demoPeerLoanDetail(accountId)
   const removed = current.repayments.find((repayment) => repayment.id === target)
   if (removed) {
+    for (const [transactionId, entry] of _peerLoanLinks) {
+      if (entry.repaymentId === target) _peerLoanLinks.delete(transactionId)
+    }
     const restored = current.principalRemaining + (removed.capitalPart ?? removed.amount)
     _peerLoanDetails.set(accountId, {
       ...current,
@@ -593,6 +617,7 @@ handlers.set(key('POST', '/peer-loans/from-transaction'), (config) => {
     curve: [],
   }
   _peerLoanDetails.set(accountId, detail)
+  _peerLoanLinks.set(body.transactionId, { link: { kind: 'LENDING', accountId, accountName: name } })
   return detail
 })
 
@@ -622,6 +647,9 @@ handlers.set(key('POST', '/accounts/:id/peer-loan/repayments/from-transaction'),
     note: transaction?.description ?? null,
     interestPart: 0,
     capitalPart: amount,
+    // The transaction already exists: it is linked, never written, so deleting only unlinks it.
+    hasCashLeg: true,
+    cashLegOwned: false,
   }
   const applied = Math.min(amount, current.principalRemaining)
   const repaid = current.principalRepaid + applied
@@ -634,6 +662,10 @@ handlers.set(key('POST', '/accounts/:id/peer-loan/repayments/from-transaction'),
     repayments: [...current.repayments, repayment],
   }
   _peerLoanDetails.set(accountId, detail)
+  _peerLoanLinks.set(body.transactionId, {
+    link: { kind: 'REPAYMENT', accountId, accountName: current.accountName },
+    repaymentId: repayment.id,
+  })
   return detail
 })
 // The open list and the overview read the same mutable store as the detail: a demo
@@ -740,9 +772,9 @@ handlers.set(key('GET', '/prices/:ticker/intraday'), (_config, { ticker }) => {
 // Account details: transactions for all accounts
 for (let i = 1; i <= mockAccounts.length; i++) {
   handlers.set(key('GET', `/accounts/${i}/transactions`), (config) =>
-    i === mockAccounts.find((account) => account.type === 'CHECKING')?.id
+    withPeerLoanLinks(i === mockAccounts.find((account) => account.type === 'CHECKING')?.id
       ? mockTransactionSearch({ ...config.params, accountId: i })
-      : mockTransactions[i] ?? [])
+      : mockTransactions[i] ?? []))
 }
 
 // Pocket rename (accounts 9 and 10) — re-uses the standard PUT /accounts/:id shape.
@@ -1842,7 +1874,8 @@ handlers.set(key('PUT', '/transactions/:id/category'), (config, { id }) => {
 
 // The budget ledger on the main checking account: the rows the Spending pages and the review
 // inbox summarize, so a search over any period lists what they count.
-handlers.set(key('GET', '/transactions'), (config) => mockTransactionSearch(config.params ?? {}))
+handlers.set(key('GET', '/transactions'), (config) =>
+  withPeerLoanLinks(mockTransactionSearch(config.params ?? {})))
 // Optional AI categorizer over the inbox (legacy sync shape).
 handlers.set(key('POST', '/transactions/categorize-ai'), () => ({
   running: false, total: 0, processed: 0, applied: 0, suggested: 0, done: true, error: null,
