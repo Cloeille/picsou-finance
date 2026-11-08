@@ -338,23 +338,46 @@ class CaisseEpargneSyncServiceTest {
     }
 
     @Test
-    void queueSync_mapsPelToItsPicsouAccountTypeWithSavingsDefaults() {
+    void queueSync_mapsPelAndLepToTheirPicsouAccountTypesWithSavingsDefaults() {
         Fixture f = new Fixture();
-        arrangeCommittableSync(f.withName(f.pel(), null));
+        arrangeCommittableSync(f.withName(f.pel(), null), f.withName(f.lep(), " "));
 
         CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
-        verify(accountRepository).save(accountCaptor.capture());
+        verify(accountRepository, times(2)).save(accountCaptor.capture());
         List<Account> saved = accountCaptor.getAllValues();
-        assertThat(saved).extracting(Account::getType).containsExactly(AccountType.PEL);
-        assertThat(saved).extracting(Account::getName).containsExactly("PEL");
-        assertThat(saved).extracting(Account::getExternalAccountId).containsExactly("ce_1004");
+        assertThat(saved).extracting(Account::getType).containsExactly(AccountType.PEL, AccountType.LEP);
+        assertThat(saved).extracting(Account::getName).containsExactly("PEL", "LEP");
+        assertThat(saved).extracting(Account::getExternalAccountId).containsExactly("ce_1004", "ce_1005");
         // Regulated savings share the amber of the Livret A and LDDS, not the default colour.
         assertThat(saved).extracting(Account::getColor).containsOnly("#f59e0b");
         assertThat(saved).extracting(Account::getCurrentBalance)
             .usingElementComparator(BigDecimal::compareTo)
-            .containsExactly(new BigDecimal("15000.00"));
+            .containsExactly(new BigDecimal("15000.00"), new BigDecimal("2500.00"));
+    }
+
+    @Test
+    void queueSync_persistsThePelAndLepTransactionsOnTheirOwnAccounts() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(
+            f.with(f.pel(), List.of(f.tx("p1", "2026-10-01", "25.00", "VIREMENT RECU"))),
+            f.with(f.lep(), List.of(f.tx("l1", "2026-10-02", "-10.00", "RETRAIT"))));
+
+        service.queueSync(7L);
+
+        verify(accountRepository, times(2)).save(accountCaptor.capture());
+        List<Account> saved = accountCaptor.getAllValues();
+        verify(transactionRepository, times(2)).saveAllAndFlush(transactionsCaptor.capture());
+        List<Transaction> rows = new java.util.ArrayList<>();
+        transactionsCaptor.getAllValues().forEach(batch -> batch.forEach(rows::add));
+        assertThat(rows).extracting(Transaction::getExternalId).containsExactlyInAnyOrder("ce_p1", "ce_l1");
+        Transaction pel = rows.stream().filter(r -> "ce_p1".equals(r.getExternalId())).findFirst().orElseThrow();
+        Transaction lep = rows.stream().filter(r -> "ce_l1".equals(r.getExternalId())).findFirst().orElseThrow();
+        assertThat(pel.getAmount()).isEqualByComparingTo("25.00");
+        assertThat(pel.getAccount()).isSameAs(saved.get(0));
+        assertThat(lep.getAmount()).isEqualByComparingTo("-10.00");
+        assertThat(lep.getAccount()).isSameAs(saved.get(1));
     }
 
     @Test
@@ -1950,6 +1973,13 @@ class CaisseEpargneSyncServiceTest {
             return new CaisseEpargnePort.AccountData("1004", "PEL", "PLAN EPARGNE LOGEMENT",
                 new BigDecimal("15000.00"), "EUR", null, false,
                 null, new BigDecimal("61200.00"), null, null,
+                null, null, null, List.of(), true, null);
+        }
+
+        CaisseEpargnePort.AccountData lep() {
+            return new CaisseEpargnePort.AccountData("1005", "LEP", "LIVRET EPARGNE POPULAIRE",
+                new BigDecimal("2500.00"), "EUR", null, false,
+                null, new BigDecimal("10000.00"), new BigDecimal("7500.00"), null,
                 null, null, null, List.of(), true, null);
         }
 

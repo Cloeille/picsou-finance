@@ -742,7 +742,7 @@ class UnsupportedPassThroughTest(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(200, json=FIXTURES["transactions"]["livret_a"])  # accountId 1002
             return None
 
-        for sub, kind in (("04", "PEL"), ("28", "LDDS")):
+        for sub, kind in (("04", "PEL"), ("27", "LEP"), ("28", "LDDS")):
             for name, override in (("http 500", fail_http), ("other account's rows", wrong_account)):
                 with self.subTest(kind=kind, fault=name):
                     synth = copy.deepcopy(FIXTURES["synthesis_products"])
@@ -830,7 +830,7 @@ class UnsupportedPassThroughTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(fetcher._id_shape("holder Smith"), "999999 S9999")  # lowercase never
 
     async def test_pel_and_lep_read_their_pfm_transactions_like_a_livret(self):
-        for sub, kind in [("04", "PEL")]:
+        for sub, kind in [("04", "PEL"), ("27", "LEP")]:
             with self.subTest(kind=kind):
                 synth = copy.deepcopy(FIXTURES["synthesis_products"])
                 for item in synth["items"]:
