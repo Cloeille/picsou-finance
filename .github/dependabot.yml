@@ -6,6 +6,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # init and analyze must run the same release: analyze refuses a config
+    # written by a different init version, so a lone bump of either fails
+    # every CodeQL job (#491, #492).
+    groups:
+      codeql-action:
+        patterns:
+          - github/codeql-action/*
   - package-ecosystem: maven
     directory: /backend
     schedule:

@@ -1,5 +1,6 @@
 """Keep dependency-update coverage aligned with the repository manifests."""
 
+from fnmatch import fnmatch
 from pathlib import Path
 import re
 import unittest
@@ -38,6 +39,16 @@ class DependabotCoverageTest(unittest.TestCase):
             with self.subTest(ecosystem=ecosystem):
                 self.assertTrue(directories)
                 self.assertLessEqual(directories, covered.get(ecosystem, set()))
+
+    def test_codeql_actions_are_bumped_together(self):
+        config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+        actions = next(u for u in config["updates"] if u["package-ecosystem"] == "github-actions")
+        workflow = (ROOT / ".github/workflows/codeql.yml").read_text()
+        used = set(re.findall(r"uses: (github/codeql-action/[\w-]+)@", workflow))
+        self.assertGreater(len(used), 1)
+        grouped = [group for group in actions.get("groups", {}).values()
+                   if all(any(fnmatch(name, p) for p in group.get("patterns", [])) for name in used)]
+        self.assertTrue(grouped, f"{sorted(used)} must share one Dependabot group")
 
 
 if __name__ == "__main__":
