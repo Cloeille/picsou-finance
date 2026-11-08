@@ -4,13 +4,17 @@ import com.picsou.dto.AccountResponse;
 import com.picsou.dto.DebtResponse;
 import com.picsou.dto.HoldingResponse;
 import com.picsou.dto.RealEstateMetadataResponse;
+import com.picsou.model.PeerLoanRatePeriod;
+import com.picsou.model.PeerLoanTerms;
 import com.picsou.model.PropertyValuation;
 import com.picsou.service.LoanAmortizationService;
 import com.picsou.service.LoanAmortizationService.LoanInstallment;
 import com.picsou.service.LoanAmortizationService.LoanSummary;
+import com.picsou.service.PeerLoanCalculator;
 import org.apache.poi.ss.usermodel.Sheet;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
 import static com.picsou.export.xlsx.LabelKey.*;
@@ -49,6 +53,9 @@ final class AccountSheetWriter {
         }
         if (data.account().debt() != null) {
             writeLoan(cursor, data.account().debt(), data.schedule());
+        }
+        if (data.peerLoan() != null) {
+            writePeerLoan(cursor, data.peerLoan());
         }
     }
 
@@ -238,8 +245,66 @@ final class AccountSheetWriter {
         }
     }
 
+    /**
+     * The terms and the dated repayment journal of a peer loan. The stored rate is annualized
+     * (0.24 for 2 %/month), so the sheet converts it back to the period the member stated --
+     * printing 24 "%" next to "MONTHLY" would read as a monthly 24 %.
+     */
+    private void writePeerLoan(SheetCursor cursor, PeerLoanExportData peer) {
+        PeerLoanTerms t = peer.terms();
+        cursor.blank();
+        cursor.title(label(PEER_LOAN));
+        cursor.field(label(BORROWER),
+            t.getCounterparty() == null ? null : t.getCounterparty().getName());
+        cursor.field(label(PRINCIPAL), t.getPrincipal());
+        cursor.field(label(LENT_AT), t.getLentAt());
+        cursor.field(label(EXPECTED_BACK), t.getExpectedBack());
+        cursor.fieldPercent(label(INTEREST_RATE), rateInStatedPeriod(t));
+        cursor.field(label(RATE_PERIOD), t.getRatePeriod());
+        cursor.field(label(PLANNED_MONTHLY), t.getPlannedMonthlyAmount());
+        cursor.field(label(PLANNED_MONTHS), t.getPlannedMonths());
+        cursor.field(label(PLANNED_INTEREST), peer.plannedInterest());
+        cursor.field(label(CASH_ACCOUNT),
+            t.getLinkedAccount() == null ? null : t.getLinkedAccount().getName());
+        cursor.field(label(NOTE), t.getNote());
+        cursor.field(label(CLOSED_AT), t.getClosedAt());
+
+        PeerLoanCalculator.Computed c = peer.computed();
+        cursor.field(label(PRINCIPAL_REMAINING), c.principalRemaining());
+        cursor.field(label(INTEREST_ACCRUED), c.interestAccrued());
+        cursor.field(label(INTEREST_RECEIVED), c.interestReceived());
+        cursor.field(label(CAPITAL_REPAID), c.principalPaid());
+        cursor.field(label(WRITTEN_OFF), c.writtenOff());
+
+        if (peer.repayments().isEmpty()) return;
+
+        cursor.blank();
+        cursor.title(label(REPAYMENT_JOURNAL));
+        cursor.headerRow(List.of(
+            label(PAID_ON), label(AMOUNT), label(KIND),
+            label(INTEREST), label(CAPITAL), label(NOTE)
+        ));
+        for (PeerLoanExportData.RepaymentRow r : peer.repayments()) {
+            SheetCursor.RowCursor row = cursor.row();
+            row.date(r.paidOn());
+            row.money(r.amount());
+            row.text(r.kind() == null ? null : r.kind().name());
+            row.money(r.interestPart());
+            row.money(r.capitalPart());
+            row.text(r.note());
+        }
+    }
+
     private String label(LabelKey key) {
         return labels.get(key);
+    }
+
+    /** Annualized ratio → the percentage the member typed, in their chosen period. */
+    private static BigDecimal rateInStatedPeriod(PeerLoanTerms terms) {
+        if (terms.getAnnualRate() == null) return null;
+        BigDecimal annualPercent = terms.getAnnualRate().multiply(HUNDRED);
+        if (terms.getRatePeriod() != PeerLoanRatePeriod.MONTHLY) return annualPercent;
+        return annualPercent.divide(BigDecimal.valueOf(12), 6, RoundingMode.HALF_UP);
     }
 
     private String bool(boolean value) {

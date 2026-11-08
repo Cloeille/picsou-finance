@@ -73,10 +73,14 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: { connected: false, connectionId: null, status: null, lastSyncedAt: null, maskedToken: null } })
       case '/simplefin/status':
         return Promise.resolve({ data: simplefinStatus })
+      case '/wise/status':
+        return Promise.resolve({ data: wiseStatus })
       case '/amex/status':
         return Promise.resolve({ data: amexStatus })
       case '/caisse-epargne/status':
         return Promise.resolve({ data: caisseEpargneStatus })
+      case '/banque-populaire/status':
+        return Promise.resolve({ data: banquePopulaireStatus })
       case '/corum/status':
         return Promise.resolve({ data: corumStatus })
       case '/cmes/status':
@@ -100,6 +104,7 @@ function mockStatusEndpoints() {
 /** Overridden per test to drive the session-provider rows. */
 let amundiStatus: Record<string, unknown>
 let simplefinStatus: Record<string, unknown>
+let wiseStatus: Record<string, unknown>
 let accountsFixture: unknown[]
 let revolutStatus: Record<string, unknown>
 let revolutProgress: Record<string, unknown>
@@ -124,6 +129,7 @@ const SIMPLEFIN_DISCONNECTED = {
 }
 let amexStatus: Record<string, unknown>
 let caisseEpargneStatus: Record<string, unknown>
+let banquePopulaireStatus: Record<string, unknown>
 let corumStatus: Record<string, unknown>
 let sofidyStatus: Record<string, unknown>
 let cmesStatus: Record<string, unknown>
@@ -160,6 +166,15 @@ const CAISSE_EPARGNE_ACCOUNT = {
   provider: "Caisse d'Epargne",
 }
 
+/** A current account created by the Banque Populaire sidecar: its provider is the regional bank's name. */
+const BANQUE_POPULAIRE_ACCOUNT = {
+  ...TR_ACCOUNT,
+  id: 8,
+  name: 'Compte courant',
+  type: 'CHECKING',
+  provider: 'Banque Populaire Rives de Paris',
+}
+
 /** An account created by the Crédit Mutuel / CIC Épargne Salariale sidecar (`CmesSyncService.PROVIDER`). */
 const CMES_ACCOUNT = {
   ...TR_ACCOUNT,
@@ -192,8 +207,10 @@ const SCPI_ACCOUNT = {
 function resetFixtures() {
   amundiStatus = AMUNDI_INACTIVE
   simplefinStatus = SIMPLEFIN_DISCONNECTED
+  wiseStatus = SIMPLEFIN_DISCONNECTED
   amexStatus = AMUNDI_INACTIVE
   caisseEpargneStatus = { ...AMUNDI_INACTIVE, unsupported: [], unsupportedCount: 0 }
+  banquePopulaireStatus = { ...AMUNDI_INACTIVE, unsupported: [], unsupportedCount: 0 }
   corumStatus = AMUNDI_INACTIVE
   sofidyStatus = AMUNDI_INACTIVE
   cmesStatus = AMUNDI_INACTIVE
@@ -338,6 +355,7 @@ describe('SyncAllModal session providers', () => {
     expect(screen.queryByText('DEGIRO')).not.toBeInTheDocument()
     expect(screen.queryByText('Interactive Brokers')).not.toBeInTheDocument()
     expect(screen.queryByText('SimpleFIN')).not.toBeInTheDocument()
+    expect(screen.queryByText('Wise Jars')).not.toBeInTheDocument()
   })
 
   it('lists SimpleFIN when connected and syncs through its endpoint', async () => {
@@ -350,6 +368,29 @@ describe('SyncAllModal session providers', () => {
     fireEvent.click(within(row).getByRole('button'))
 
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/simplefin/sync'))
+  })
+
+  it('lists Wise Jars when connected and syncs through its endpoint', async () => {
+    wiseStatus = { ...SIMPLEFIN_DISCONNECTED, connected: true, connectionId: 1, status: 'CONNECTED' }
+    apiPost.mockResolvedValue({ data: [] })
+    renderModal()
+
+    const row = (await screen.findByText('Wise Jars')).closest('[data-slot="card"]') as HTMLElement
+    expect(row).not.toBeNull()
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/wise/sync'))
+  })
+
+  it('sends a Wise Jars row whose token Wise refused to its tab instead of retrying it', async () => {
+    wiseStatus = { ...SIMPLEFIN_DISCONNECTED, connected: true, connectionId: 1, status: 'REAUTH_REQUIRED' }
+    renderModal()
+
+    const row = (await screen.findByText('Wise Jars')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=wise'))
+    expect(apiPost).not.toHaveBeenCalledWith('/wise/sync')
   })
 
   it('spins a row while its server-side sync job is queued or running', async () => {
@@ -505,6 +546,72 @@ describe('SyncAllModal session providers', () => {
     fireEvent.click(within(row).getByRole('button'))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=caisse-epargne'))
     expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
+  })
+
+  it('lists and syncs a live Banque Populaire session', async () => {
+    banquePopulaireStatus = { ...banquePopulaireStatus, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: banquePopulaireStatus })
+    renderModal()
+
+    const row = (await screen.findByText('Banque Populaire')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/banque-populaire/sync'))
+    expect(apiPost).not.toHaveBeenCalledWith('/caisse-epargne/sync')
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  /** Same BPCE keypad plus Sécur'Pass login as Caisse d'Epargne: only its tab can run it. */
+  it('keeps an expired Banque Populaire row with its accounts and routes to its tab', async () => {
+    accountsFixture = [TR_ACCOUNT, BANQUE_POPULAIRE_ACCOUNT]
+    renderModal()
+
+    const row = (await screen.findByText('Banque Populaire')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=banque-populaire'))
+    expect(apiPost).not.toHaveBeenCalledWith('/banque-populaire/sync')
+  })
+
+  /** One label per `BanquePopulaireRegion.institutionName()`. */
+  it.each([
+    'Banque Populaire Alsace Lorraine Champagne',
+    'Banque Populaire Aquitaine Centre Atlantique',
+    'Banque Populaire Auvergne Rhône Alpes',
+    'Banque Populaire Bourgogne Franche-Comté',
+    'BRED Banque Populaire',
+    'Banque Populaire Grand Ouest',
+    'Banque Populaire Méditerranée',
+    'Banque Populaire du Nord',
+    'Banque Populaire Occitane',
+    'Banque Populaire Rives de Paris',
+    'Banque Populaire du Sud',
+    'Banque Populaire Val de France',
+  ])('keeps an expired Banque Populaire row for an account labelled %s', async (provider) => {
+    accountsFixture = [TR_ACCOUNT, { ...BANQUE_POPULAIRE_ACCOUNT, provider }]
+    renderModal()
+
+    const row = (await screen.findByText('Banque Populaire')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.all.sessionExpired')).toBeInTheDocument()
+  })
+
+  it.each(['Banque Populaire Rives de Paris', 'Banque Populaire'])(
+    'lists no Banque Populaire row for a manual account labelled %s',
+    async (provider) => {
+      // Picked from the bank catalog or typed: nothing ever connected it.
+      accountsFixture = [TR_ACCOUNT, { ...BANQUE_POPULAIRE_ACCOUNT, provider, isManual: true }]
+      renderModal()
+
+      await screen.findByText('Trade Republic')
+      expect(screen.queryByText('Banque Populaire')).not.toBeInTheDocument()
+    },
+  )
+
+  it('lists no Banque Populaire row for an account of another bank whose name merely mentions it', async () => {
+    accountsFixture = [TR_ACCOUNT, { ...BANQUE_POPULAIRE_ACCOUNT, provider: 'Banque Populaire Imaginaire' }]
+    renderModal()
+
+    await screen.findByText('Trade Republic')
+    expect(screen.queryByText('Banque Populaire')).not.toBeInTheDocument()
   })
 
   /** The backend refuses a dead CE session (`SESSION_EXPIRED`), so the batch must skip the row. */

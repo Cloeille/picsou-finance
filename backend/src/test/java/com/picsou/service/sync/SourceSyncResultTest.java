@@ -69,6 +69,16 @@ class SourceSyncResultTest {
         assertStatus("simplefin", new SyncException("Bridge unavailable"), SourceSyncResult.Status.FAILED);
     }
 
+    @Test
+    void fromSyncException_wiseRefusedToken_needsReauth() {
+        assertStatus("wise", coded("SESSION_EXPIRED"), SourceSyncResult.Status.NEEDS_REAUTH);
+    }
+
+    @Test
+    void fromSyncException_wiseWithoutCode_isFailed() {
+        assertStatus("wise", new SyncException("Wise is limiting requests right now."), SourceSyncResult.Status.FAILED);
+    }
+
     private static SyncException coded(String code) {
         return new SyncException("provider failure", null, code);
     }

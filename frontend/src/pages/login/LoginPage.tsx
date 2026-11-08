@@ -1,29 +1,74 @@
-import { useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useLoginWithRememberMe } from '@/features/mfa/hooks'
+import { ssoErrorMessage } from '@/features/sso/errors'
+import { useSsoInfo } from '@/features/sso/hooks'
+import { submitSsoStart } from '@/features/sso/start'
 import { useAppStore } from '@/stores/app-store'
 import { safeRedirect, isOAuthAuthorizeRedirect } from '@/lib/utils'
 import { formatApiError, getErrorStatus } from '@/lib/errors'
+import { consumeSsoRevalidate, rememberSsoPreference, ssoRememberPreference } from '@/lib/sso-revalidate'
 import { Button } from '@/components/ui/button'
 import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, Loader2 } from 'lucide-react'
+import { SsoProgressScreen } from './SsoProgressScreen'
 
 export function LoginPage() {
   const { t } = useTranslation()
+  const [searchParams] = useSearchParams()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [showPw, setShowPw] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(() => {
+    const ssoError = searchParams.get('ssoError')
+    return ssoError ? ssoErrorMessage(t, ssoError) : null
+  })
+  const [ssoRedirecting, setSsoRedirecting] = useState(false)
   const loginMutation = useLoginWithRememberMe()
   const demoMode = useAppStore(s => s.demoMode)
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
   const redirect = safeRedirect(searchParams.get('redirect'))
+  const ssoInfo = useSsoInfo(!demoMode)
+  const sso = !demoMode && ssoInfo.data?.enabled ? ssoInfo.data : null
+  const ssoSettled = ssoInfo.isSuccess || ssoInfo.isError
+  const revalidationHandled = useRef(false)
+
+  const startSso = (remember: boolean) => {
+    setSsoRedirecting(true)
+    submitSsoStart({ intent: 'login', redirect, rememberMe: remember })
+  }
+
+  const handleSsoClick = () => {
+    rememberSsoPreference(rememberMe)
+    startSso(rememberMe)
+  }
+
+  // After an SSO_REVALIDATE refusal, restart the IdP round trip without a click. The one-shot
+  // flag is read only once the SSO info has answered; read earlier, it would be spent while
+  // the provider is still unknown.
+  const restartRevalidation = useEffectEvent(() => {
+    if (consumeSsoRevalidate() && sso) startSso(ssoRememberPreference())
+  })
+  useEffect(() => {
+    if (!ssoSettled || revalidationHandled.current) return
+    revalidationHandled.current = true
+    restartRevalidation()
+  }, [ssoSettled])
+
+  // Back from the IdP can restore this page from the back/forward cache, spinner included.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setSsoRedirecting(false)
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
+  }, [])
 
   // A /oauth2/ target is the backend authorize endpoint (native app login) — hand off with a
   // full-page navigation so the server resumes the flow; everything else is an in-app SPA route.
@@ -64,6 +109,8 @@ export function LoginPage() {
     }
   }
 
+  if (ssoRedirecting) return <SsoProgressScreen message={t('auth.sso.redirecting')} />
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
@@ -76,6 +123,39 @@ export function LoginPage() {
           </CardHeader>
 
           <CardContent className="px-6 sm:px-10">
+            {!demoMode && ssoInfo.isError && (
+              <AlertBanner
+                variant="roomy"
+                role="alert"
+                className="mb-6"
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={() => void ssoInfo.refetch()}>
+                    {t('common.retry')}
+                  </Button>
+                }
+              >
+                {t('auth.sso.infoError')}
+              </AlertBanner>
+            )}
+            {sso && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleSsoClick}
+                  className="h-auto min-h-12 w-full whitespace-normal rounded-full px-8 py-3 text-base"
+                >
+                  <KeyRound className="size-5" aria-hidden="true" />
+                  {t('auth.sso.button', { provider: sso.providerName })}
+                </Button>
+                <div className="my-6 flex items-center gap-3">
+                  <Separator className="h-px flex-1" />
+                  <span className="text-sm text-muted-foreground">{t('auth.sso.or')}</span>
+                  <Separator className="h-px flex-1" />
+                </div>
+              </>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">
                 <Label htmlFor="username" className="text-base font-semibold">

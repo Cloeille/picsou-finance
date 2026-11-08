@@ -111,7 +111,7 @@ class SyncServiceCurrencyMatchTest {
         accountService = spy(new AccountService(
             accountRepository, snapshotRepository, mock(AccountHoldingRepository.class),
             null, null, null, debtRepository, null, new PriceService(priceProvider, null),
-            new LoanAmortizationService(), null, null, null, null, null, null));
+            new LoanAmortizationService(), null, null, null, null, null, null, null, null));
         // Only response enrichment is stubbed; snapshot persistence and FX conversion run normally.
         doReturn(mock(AccountResponse.class)).when(accountService).toResponse(any(Account.class));
         bankTransactionImportService = mock(BankTransactionImportService.class);
