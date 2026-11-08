@@ -576,6 +576,11 @@ export interface PeerLoanRepayment {
   capitalPart?: number | null
   /** True when this row has a cash movement in a linked account. */
   hasCashLeg?: boolean
+  /**
+   * True when Picsou wrote that movement and deletes it with the row; false when the row only
+   * links a transaction that stays in its account.
+   */
+  cashLegOwned?: boolean
 }
 
 export type PeerLoanRatePeriod = 'ANNUAL' | 'MONTHLY'

@@ -609,6 +609,8 @@
     "deleteRepayment": {
       "title": "Eliminar el reembolso",
       "description": "El reembolso de {{amount}} se eliminará junto con su movimiento de caja. El saldo se recalculará.",
+      "descriptionLinked": "El reembolso de {{amount}} se desvinculará del préstamo. La transacción vinculada permanece en su cuenta. El saldo se recalculará.",
+      "descriptionNoCashLeg": "El reembolso de {{amount}} se eliminará. El saldo se recalculará.",
       "confirm": "Eliminar"
     },
     "validation": {

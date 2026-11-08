@@ -717,7 +717,45 @@ class PeerLoanServiceTest {
         // A compensation reduces the receivable without inventing a bank deposit.
         verify(manualTransactionService, never()).addTransaction(anyLong(), anyLong(), any());
         assertThat(response.hasCashLeg()).isFalse();
+        // No cash movement at all: the page must not claim one is deleted with the row.
+        assertThat(response.cashLegOwned()).isTrue();
         assertThat(account.getCurrentBalance()).isEqualByComparingTo("450");
+    }
+
+    @Test
+    void addRepaymentOnAManualAccountReportsTheCashLegAsOwned() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = PeerLoanTerms.builder()
+            .id(10L).account(account).counterparty(counterparty())
+            .principal(new BigDecimal("500")).lentAt(LocalDate.now().minusDays(10))
+            .annualRate(BigDecimal.ZERO).linkedAccount(cashAccount(true))
+            .build();
+        List<PeerLoanRepayment> ledger = new ArrayList<>();
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findForUpdateByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
+            PeerLoanRepayment saved = invocation.getArgument(0);
+            saved.setId(11L);
+            if (!ledger.contains(saved)) {
+                ledger.add(saved);
+            }
+            return saved;
+        });
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenAnswer(invocation -> List.copyOf(ledger));
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(categorizationService.categoriesBySlug(MEMBER_ID))
+            .thenReturn(Map.of(PeerLoanService.TRANSFER_SLUG, transferCategory()));
+        when(manualTransactionService.addTransaction(eq(CASH_ID), eq(MEMBER_ID), any(TransactionRequest.class)))
+            .thenReturn(mock(TransactionResponse.class));
+
+        PeerLoanRepaymentResponse response = service.addRepayment(ACCOUNT_ID, MEMBER_ID,
+            new PeerLoanRepaymentRequest(LocalDate.now(), new BigDecimal("50"),
+                PeerLoanRepaymentKind.PRINCIPAL, null));
+
+        // The service wrote the deposit, so deleting the row deletes it too.
+        assertThat(response.hasCashLeg()).isTrue();
+        assertThat(response.cashLegOwned()).isTrue();
     }
 
     @Test
@@ -950,6 +988,11 @@ class PeerLoanServiceTest {
         assertThat(ledger).hasSize(1);
         assertThat(ledger.getFirst().getCashTransactionId()).isEqualTo(60L);
         assertThat(ledger.getFirst().isCashLegOwned()).isFalse();
+        // The detail tells the page that this cash row is not ours to delete.
+        assertThat(response.repayments()).singleElement().satisfies(row -> {
+            assertThat(row.hasCashLeg()).isTrue();
+            assertThat(row.cashLegOwned()).isFalse();
+        });
         assertThat(transaction.getCategoryRef().getId()).isEqualTo(TRANSFER_CATEGORY_ID);
         assertThat(transaction.isCategoryManual()).isTrue();
         verify(manualTransactionService, never()).addTransaction(anyLong(), anyLong(), any());

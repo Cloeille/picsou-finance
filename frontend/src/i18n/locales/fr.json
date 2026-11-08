@@ -620,6 +620,8 @@
     "deleteRepayment": {
       "title": "Supprimer le remboursement",
       "description": "Le remboursement de {{amount}} sera supprimé avec son écriture de trésorerie. Le solde du prêt sera recalculé.",
+      "descriptionLinked": "Le remboursement de {{amount}} sera dissocié du prêt. La transaction liée reste dans son compte. Le solde du prêt sera recalculé.",
+      "descriptionNoCashLeg": "Le remboursement de {{amount}} sera supprimé. Le solde du prêt sera recalculé.",
       "confirm": "Supprimer"
     },
     "validation": {

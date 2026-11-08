@@ -42,6 +42,19 @@ const KIND_VARIANT: Record<PeerLoanRepaymentKind, 'default' | 'secondary' | 'des
 }
 
 /**
+ * What deleting a row does depends on its cash leg: Picsou's own movement goes with it, a
+ * linked transaction only loses its link and stays where it is, and a row with no cash leg
+ * touches no cash account at all. A response without the flags keeps the original wording.
+ */
+function deleteDescriptionKey(repayment: PeerLoanRepayment | null): string {
+  if (repayment?.hasCashLeg === false) return 'peerLoan.deleteRepayment.descriptionNoCashLeg'
+  if (repayment?.hasCashLeg && repayment.cashLegOwned === false) {
+    return 'peerLoan.deleteRepayment.descriptionLinked'
+  }
+  return 'peerLoan.deleteRepayment.description'
+}
+
+/**
  * The peer-loan detail view: the nominal still owed, the dated ledger, the optional
  * forecast, and the borrower's factual history. No risk score anywhere — the numbers
  * are events, not predictions.
@@ -368,7 +381,7 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
         open={deletingRepayment != null}
         onOpenChange={(open) => { if (!open) setDeletingRepayment(null) }}
         title={t('peerLoan.deleteRepayment.title')}
-        description={t('peerLoan.deleteRepayment.description', {
+        description={t(deleteDescriptionKey(deletingRepayment), {
           amount: money.amount(deletingRepayment?.amount ?? 0),
         })}
         confirmLabel={t('peerLoan.deleteRepayment.confirm')}

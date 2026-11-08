@@ -620,6 +620,8 @@
     "deleteRepayment": {
       "title": "Delete the repayment",
       "description": "The repayment of {{amount}} will be deleted together with its cash movement. The loan balance will be recomputed.",
+      "descriptionLinked": "The repayment of {{amount}} will be unlinked from the loan. The linked transaction stays in its account. The loan balance will be recomputed.",
+      "descriptionNoCashLeg": "The repayment of {{amount}} will be deleted. The loan balance will be recomputed.",
       "confirm": "Delete"
     },
     "validation": {

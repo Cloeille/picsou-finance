@@ -609,6 +609,8 @@
     "deleteRepayment": {
       "title": "Rückzahlung löschen",
       "description": "Die Rückzahlung über {{amount}} wird samt Buchung gelöscht. Der Darlehenssaldo wird neu berechnet.",
+      "descriptionLinked": "Die Rückzahlung über {{amount}} wird vom Darlehen getrennt. Die verknüpfte Buchung bleibt in ihrem Konto bestehen. Der Darlehenssaldo wird neu berechnet.",
+      "descriptionNoCashLeg": "Die Rückzahlung über {{amount}} wird gelöscht. Der Darlehenssaldo wird neu berechnet.",
       "confirm": "Löschen"
     },
     "validation": {
