@@ -56,6 +56,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -542,6 +543,44 @@ class PeerLoanServiceTest {
     }
 
     @Test
+    void updateRepaymentRejectsAnAmountTheLoanCannotAbsorb() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
+        PeerLoanRepayment february = ledgerRow(account, 11L, "2026-02-01", "100");
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.findByIdAndAccountId(11L, ACCOUNT_ID)).thenReturn(Optional.of(february));
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenReturn(List.of(february));
+
+        assertThatThrownBy(() -> service.updateRepayment(ACCOUNT_ID, 11L, MEMBER_ID,
+            new PeerLoanRepaymentRequest(LocalDate.parse("2026-02-01"), new BigDecimal("600"),
+                PeerLoanRepaymentKind.PRINCIPAL, null, false)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("cannot exceed 500.00 EUR");
+
+        assertThat(february.getAmount()).isEqualByComparingTo("100");
+    }
+
+    @Test
+    void updateRepaymentRefusesToTurnARowIntoAWriteOff() {
+        Account account = loanAccount("Jean");
+        PeerLoanTerms terms = terms(account, new BigDecimal("500"), null);
+        PeerLoanRepayment february = ledgerRow(account, 11L, "2026-02-01", "100");
+        when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
+        when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
+        when(repaymentRepository.findByIdAndAccountId(11L, ACCOUNT_ID)).thenReturn(Optional.of(february));
+
+        assertThatThrownBy(() -> service.updateRepayment(ACCOUNT_ID, 11L, MEMBER_ID,
+            new PeerLoanRepaymentRequest(LocalDate.parse("2026-02-01"), new BigDecimal("100"),
+                PeerLoanRepaymentKind.WRITE_OFF, null, false)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("closing the loan");
+
+        assertThat(february.getKind()).isEqualTo(PeerLoanRepaymentKind.PRINCIPAL);
+    }
+
+    @Test
     void addRepaymentFromTransactionLinksAnOverpayingTransactionAndClampsTheLedger() {
         Account account = loanAccount("Jean");
         Account cash = cashAccount(false);
@@ -948,12 +987,18 @@ class PeerLoanServiceTest {
         when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
             .thenAnswer(invocation -> List.copyOf(ledger));
         when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        // The transfer category exists and any other kind would take it: only the INTEREST
+        // branch leaves the row uncategorised. Unstubbed, the lookup answers an empty map and
+        // the row stays null whatever the branch does, so the assertion below proves nothing.
+        lenient().when(categorizationService.categoriesBySlug(MEMBER_ID))
+            .thenReturn(Map.of(PeerLoanService.TRANSFER_SLUG, transferCategory()));
 
         PeerLoanDetailResponse response = service.addRepaymentFromTransaction(
             ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentFromTransactionRequest(60L, PeerLoanRepaymentKind.INTEREST));
 
         // Same rule as the manual leg: interest is real income, counted by sign.
         assertThat(transaction.getCategoryRef()).isNull();
+        verify(categorizationService, never()).categoriesBySlug(anyLong());
         assertThat(transaction.isCategoryManual()).isTrue();
         assertThat(response.interestReceived()).isEqualByComparingTo("50.00");
         assertThat(response.principalRemaining()).isEqualByComparingTo("10000.00");
