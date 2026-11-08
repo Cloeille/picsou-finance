@@ -27,7 +27,7 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 ## Features
 
 - **Account aggregation** — Bank accounts (LEP, PEA, Livret, current), brokerage, crypto wallets, on-chain addresses, debts/loans
-- **Bank sync** — Enable Banking (PSD2/OAuth, 2000+ EU banks) and SimpleFIN (setup token, mostly US banks via SimpleFIN Bridge).
+- **Bank sync** — Enable Banking (PSD2/OAuth, 2000+ EU banks) and SimpleFIN (setup token, mostly US banks via SimpleFIN Bridge). Wise jars through a Wise personal API token.
 - **BoursoBank** — Current accounts, livrets and the PEA/CTO with its cash and positions, via a local read-only sidecar. Reaches the securities account PSD2 cannot.
 - **Brokerage sync** — Trade Republic via WebSocket or CSV import, and Bourse Direct PEA/CTO positions via a local read-only sidecar
 - **Employee savings** — Amundi Épargne Salariale plans (PEE/PEG, PERCO, PER) and their FCPE lines, via a local read-only sidecar
@@ -94,11 +94,12 @@ Picsou publishes pre-built, multi-arch (amd64/arm64) images to the GitHub Contai
 | `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` | Bourse Direct login/2FA sidecar |
 | `ghcr.io/cloeille/picsou-finance/amundi-auth` | Amundi Épargne Salariale login/2FA sidecar |
 | `ghcr.io/cloeille/picsou-finance/bourso-auth` | BoursoBank login/2FA sidecar |
-| `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth` | Caisse d'Epargne read-only sidecar (no in-app login yet) |
+| `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth` | Caisse d'Epargne login (keypad + Sécur'Pass) and accounts sidecar |
+| `ghcr.io/cloeille/picsou-finance/banque-populaire-auth` | Banque Populaire login (keypad + Sécur'Pass) and accounts sidecar |
 | `ghcr.io/cloeille/picsou-finance/fortuneo-auth` | Fortuneo login/2FA and portfolio sidecar |
 | `ghcr.io/cloeille/picsou-finance/cmes-auth` | Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar |
 
-Bank connectors (the `*-auth` sidecars) are opt-in: with no profile, Compose pulls and runs only the app and the database. Pick the banks you sync through a comma-separated `COMPOSE_PROFILES` list, or use `all-connectors` for every one. Add `tls` to that same list when you use the bundled Caddy proxy. Connector profiles: `amex`, `amundi`, `bourse-direct`, `bourso`, `caisse-epargne`, `cic`, `cmes`, `corum`, `degiro`, `fortuneo`, `revolut`, `sofidy`, and `tr` (Trade Republic). The `tls` profile enables the bundled Caddy proxy. The app and the enabled connectors authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`, required as soon as one connector is enabled; each connector refuses to start without it. Set the shared key before the first launch:
+Bank connectors (the `*-auth` sidecars) are opt-in: with no profile, Compose pulls and runs only the app and the database. Pick the banks you sync through a comma-separated `COMPOSE_PROFILES` list, or use `all-connectors` for every one. Add `tls` to that same list when you use the bundled Caddy proxy. Connector profiles: `amex`, `amundi`, `banque-populaire`, `bourse-direct`, `bourso`, `caisse-epargne`, `cic`, `cmes`, `corum`, `degiro`, `fortuneo`, `revolut`, `sofidy`, and `tr` (Trade Republic). The `tls` profile enables the bundled Caddy proxy. The app and the enabled connectors authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`, required as soon as one connector is enabled; each connector refuses to start without it. Set the shared key before the first launch:
 
 ```bash
 [ -f docker/.env ] || cp docker/.env.example docker/.env
@@ -378,6 +379,7 @@ cp docker/.env.example docker/.env
 | `ENABLEBANKING_*` | Skip wizard | From your [Enable Banking dashboard](https://enablebanking.com/). The redirect URI must be `https://` |
 | `BOURSO_AUTH_URL` | Custom sidecar | Defaults to `http://bourso-auth:8001` |
 | `CAISSE_EPARGNE_AUTH_URL` | Custom sidecar | Defaults to `http://caisse-epargne-auth:8001` |
+| `BANQUE_POPULAIRE_AUTH_URL` | Custom sidecar | Defaults to `http://banque-populaire-auth:8001` |
 | `BOURSE_DIRECT_AUTH_URL` | Custom sidecar | Defaults to `http://bourse-direct-auth:8001` |
 | `FORTUNEO_AUTH_URL` | Custom sidecar | Defaults to `http://fortuneo-auth:8001` |
 | `CMES_AUTH_URL` | Custom sidecar | Defaults to `http://cmes-auth:8001`. Set it to reach a `cmes-auth` sidecar run elsewhere (Crédit Mutuel / CIC Épargne Salariale) |

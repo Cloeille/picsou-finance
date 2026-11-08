@@ -5,6 +5,11 @@ mint a short-lived Bearer token, without a browser, and reads the accounts and
 their transactions with it. The login itself runs in a real browser (see
 "Login by browser" below).
 
+The login, replay and import code is the shared `bpce` package
+(`services/base/bpce`, shipped by the base image), also used by
+`banque-populaire-auth`. This sidecar keeps its routes and its `Site`
+(`main.SITE`: hosts, personal-loan, home-loan and PER apps).
+
 ## Chain replayed (observed on the real bank, 2026-10-06/07)
 
 1. `POST {authorize}?<params>` with a fresh PKCE `code_challenge` (S256) and `nonce` -> `{action, parameters{SAMLRequest}}`
@@ -47,7 +52,7 @@ GET-only calls on `https://www.rs-ext-bad-ce.caisse-epargne.fr` with
 `Authorization: Bearer <token>` and `Accept: application/json`:
 
 - `GET /bapi/contract/v2/augmentedSynthesisViews?pfmCharacteristicsIndicator=true&productFamilyPFM=1,2,3,4,6,7,17,18,20,19`
-- per imported account with PFM transactions (current account, Livret A, LDDS, card), `GET /pfm/user/v1.1/transactions` with the query observed in the spike (`accountIds=<id>`, ...), then `pageToken=<meta.nextPageToken>` until the token is absent. Current account, Livret A and LDDS are ordered by `accountingDate` and paging stops at the first page that reaches a row booked more than 365 days ago (`HISTORY_DAYS`), but only once a strictly newest-first step has been read; older rows already stored are kept. Until then, or if a row is newer than one read before it, the account is paged to the end (the sort direction is not yet confirmed live). Hard cap: 60 pages per account, beyond that `UPSTREAM_FORMAT_CHANGED` with `cause=page-cap` (never a silent truncation). Cards are paged to the end, under the same cap. All reads share one 100 s `/accounts` deadline, which can trip first (`UPSTREAM_UNAVAILABLE`). A PER or a loan has no PFM transactions: no call, no IBAN.
+- per imported account with PFM transactions (current account, Livret A, LDDS, PEL, card), `GET /pfm/user/v1.1/transactions` with the query observed in the spike (`accountIds=<id>`, ...), then `pageToken=<meta.nextPageToken>` until the token is absent. Current account, Livret A, LDDS, PEL and LEP are ordered by `accountingDate` and paging stops at the first page that reaches a row booked more than 365 days ago (`HISTORY_DAYS`), but only once a strictly newest-first step has been read; older rows already stored are kept. Until then, or if a row is newer than one read before it, the account is paged to the end (the sort direction is not yet confirmed live). Hard cap: 60 pages per account, beyond that `UPSTREAM_FORMAT_CHANGED` with `cause=page-cap` (never a silent truncation). Cards are paged to the end, under the same cap. All reads share one 100 s `/accounts` deadline, which can trip first (`UPSTREAM_UNAVAILABLE`). A PER or a loan has no PFM transactions: no call, no IBAN.
 - per loan, `GET /bapi/personalLoanPrd/v1/personalLoanPrdSynthesisView/<contractId.id>` with the **personal-loan token** (see below).
 
 Supported products, from `productFamilyPFM.code` / `subProductFamilyPFM.code`
@@ -58,10 +63,50 @@ Supported products, from `productFamilyPFM.code` / `subProductFamilyPFM.code`
 | `1` | `CURRENT_ACCOUNT` | `contractPfmId` |
 | `3` / `01` (or label `LIVRET A` without a sub code) | `LIVRET_A` | `contractPfmId` |
 | `3` / `28` | `LDDS` | `contractPfmId` |
+| `3` / `04` | `PEL` (observed live 2026-11-06) | `contractPfmId`; without one, listed in `unsupported` |
 | `4` / `05` | `PER` (complete owned UC + euro-fund detail, total >= 0) | `contract:<contractId.id>` |
 | `6` / `12` | `LOAN` (personal loan; balance = outstanding capital, <= 0) | `contract:<contractId.id>` |
 | `6` / `13` | `LOAN` (home loan, "Crédit immobilier"; same balance rule) | `contract:<contractId.id>` |
-| anything else (home insurance `5`, other sub codes) | listed in `unsupported`, never imported, never fatal | pfm id, else `contract:<id>` |
+| anything else (home insurance `5`, other sub codes) | listed in `unsupported` with `familyCode` and `subFamilyCode`, never imported, never fatal | pfm id, else `contract:<id>` |
+
+Each unsupported contract also gets one INFO log line, to identify a product not observed yet
+(the PEL code was found this way) from a real sync without capturing traffic:
+`unsupported contract: family=<code> sub=<code|None> pfmId=<present|absent> idShape=<shape>`.
+By default it carries codes and lengths only; `CE_LOG_PRODUCT_DETAILS=1` adds letters (below).
+- `family` and `sub` are the bank's codes. The parser keeps one only if it is 1 to 8 characters
+  of `[A-Za-z0-9_-]`, else reports `?`, in the log and in the `/accounts` answer alike, so an
+  unexpected value never reaches a log or the backend.
+- `idShape` is the contract id, masked by `fetcher._mask` and cut at 32 characters. By default
+  every character but a blank becomes `9` (e.g. `99999  99999999999`): only the length shows.
+  With `CE_LOG_PRODUCT_DETAILS=1`, ASCII capitals are kept (e.g. `99999  PERIC999999`) so the
+  product code of an insurer contract can be read; digits, lowercase and symbols are always masked.
+- `product=<name>` (the bank's catalogue `productLabel`, e.g. `PEL 99 9999`, never the account's
+  own `contractLabel`) is only logged with `CE_LOG_PRODUCT_DETAILS=1`, with the same masking.
+  Both are free text on a product not seen yet, so they are **off by default**: set the variable
+  on the sidecar for one diagnostic run (Compose passes it through from the environment; in
+  Helm set `sidecars.caisse-epargne-auth.env.CE_LOG_PRODUCT_DETAILS`, which the chart declares
+  empty). `productLabel` never leaves the sidecar.
+  **Do not leave the flag on.** The capital letters of a free-text label can include a name or other
+  personal text (a probe with an adversarial label leaked one); enable it for one run, copy the
+  product codes, then unset it.
+
+A PER whose contract id the insurer reader does not know (`per_client.UnknownPerContract`, code
+`INVALID_PER_REQUEST`, refused before any insurer request; the PER token is minted first) logs
+`PER request refused: idShape=<shape>`
+the same way; an invalid token or entity code logs nothing of the id.
+
+A PEL is a *provisional* kind (seen in one live run): a PEL the parser cannot read
+(no integer `contractPfmId`, no balance, a negative balance...) is listed in `unsupported`, keyed
+by its `contract:<id>` (or by its position when it has no usable id), instead of failing the
+synthesis, and the log line then ends with `rejected=<field path>` (e.g. `rejected=items[3].balance:
+missing`, field names and positions only) so a format change is told apart from a product never
+supported. Their cards are not read and their transactions' IBAN is ignored. When their
+transactions cannot be read (HTTP fault, rows of another account, page cap), the plan is still
+imported from its synthesis entry with no transactions and a warning
+`account imported without transactions: kind=<kind> code=<code>`, instead of landing in
+`unavailable` (which the backend ignores) and vanishing; a Livret A or LDDS keeps the
+`unavailable` rule. The leniency is only for an unreadable PEL: a Livret A, an LDDS or the
+current account whose *synthesis entry* is unreadable still refuses the whole snapshot.
 
 #### Second token: personal loan
 
@@ -70,7 +115,7 @@ its own token from the same SSO session: the replay above with three authorize
 overrides (`client_id=30c229b8-…`, `scope=managePersonalLoanPrd readPersonalLoanPrd readUser`,
 `redirect_uri=https://www.caisse-epargne.fr/espace-gestion/pret-personnel/postMessage/index.html`)
 and no `claims`; every other captured parameter is kept, PKCE and nonce are
-fresh (`replay.LOAN_CHAIN`). It is cached apart from the main token and only
+fresh (`SITE.personal_loan`). It is cached apart from the main token and only
 minted when the synthesis holds a loan. A 401 on any data call drops both
 tokens and the whole read is replayed once.
 
@@ -108,7 +153,7 @@ A home loan is managed by another web app (`gestion-client/credit-immobilier`),
 served by the BPCE group hosts (observed live 2026-10-25). Its token comes from
 `www.as-ext-bad-me.bpce.fr`, through the same authorize -> AuthnRequest ->
 consume -> token chain, with that app's public client and redirect, an empty
-`scope` and no `claims` (`replay.HOME_LOAN_CHAIN`). These two BPCE hosts, and
+`scope` and no `claims` (`SITE.home_loan`). These two BPCE hosts, and
 only them, are added to the allow-list. The detail is
 `GET https://www.rs-ext-bad-me.bpce.fr/bapi/loan/v1/loans/<entityCode>-<contractId.id>`
 (`accounts_parser.parse_home_loan_detail`): ISO dates, the rate in percent in
@@ -135,7 +180,7 @@ Response 200 (money as decimal strings, never floats; a card's `balance` is its
 outstanding, the sum of operations with a future `dueDate`, so <= 0):
 
 ```json
-{"accounts": [{"externalId": "1001", "kind": "CURRENT_ACCOUNT|LIVRET_A|LDDS|PER|LOAN|CARD", "name": "str|null",
+{"accounts": [{"externalId": "1001", "kind": "CURRENT_ACCOUNT|LIVRET_A|LDDS|PEL|PER|LOAN|CARD", "name": "str|null",
   "balance": "1234.56", "currency": "EUR", "iban": "str|null", "ibanAmbiguous": false,
   "authorizedOverdraft": "str|null", "ceiling": "str|null", "remainingDepositCapacity": "str|null",
   "fillingRatio": "str|null", "cardNature": "CREDIT|DEFERRED_DEBIT|IMMEDIATE_DEBIT|null",
@@ -144,7 +189,7 @@ outstanding, the sum of operations with a future `dueDate`, so <= 0):
                     "amount": "-12.5", "currency": "EUR", "label": "str"}],
   "snapshotComplete": true,
   "loan": null}],
- "unsupported": [{"externalId": "1003", "familyCode": "7"}],
+ "unsupported": [{"externalId": "1003", "familyCode": "7", "subFamilyCode": "01|null"}],
  "unavailable": [{"externalId": "1002", "kind": "LIVRET_A", "code": "UPSTREAM_UNAVAILABLE"}]}
 ```
 
@@ -179,7 +224,7 @@ the web front, 2026-10-15, Millevie PER on `www.espace-assurances-de-personnes.c
    makes `clientToken` answer 500). The answer's `contractId` echoes that insurer id and the
    requested establishment; both must agree, and the routing URL must point at the insurer
    host. That URL itself is never followed.
-1. A third OAuth token is minted from the same SSO session (`replay.PER_CHAIN`): the insurer
+1. A third OAuth token is minted from the same SSO session (`SITE.per`): the insurer
    app's public client and `postMessage` redirect, an empty `scope`, no `claims`. The bank
    grants `assuranceVieAuth_get_<id> readUser` for one hour. It is minted only when the
    synthesis holds a PER.
@@ -206,7 +251,8 @@ costs and historical quantities unavailable.
 Only the synthesis and the current account are all-or-nothing: a failure there gives
 `UPSTREAM_UNAVAILABLE` or `UPSTREAM_FORMAT_CHANGED` and no partial list. Any other account
 (Livret A, LDDS, card, loan detail, PER detail) that cannot be read is left out of
-`accounts` and listed in `unavailable` as `{externalId, kind, code}`. An expired session
+`accounts` and listed in `unavailable` as `{externalId, kind, code}`. A PEL whose synthesis
+entry is unreadable is listed in `unsupported` instead. An expired session
 still fails the whole import, and so does the overall deadline.
 
 | HTTP | `detail` | Meaning |
@@ -223,7 +269,9 @@ and the cause, so a 502 can be told apart without a debug build: `accounts fetch
 exception class>|format|page-cap>`. A current account the parser or the serialiser rejects logs
 `accounts import rejected: <code>` or `accounts serialisation rejected: <type>` just before
 it. No URL, body, identifier or token is logged, and the transport exception's message is
-never printed (it can quote a URL). Two other 502s log no stage: the overall deadline
+never printed (it can quote a URL). The one exception is the diagnostic line of a contract
+Picsou does not import (see "Each unsupported contract" above): codes, the length shape of the id and,
+only with `CE_LOG_PRODUCT_DETAILS=1`, the masked letters of the id and catalogue name. Two other 502s log no stage: the overall deadline
 (`accounts deadline exceeded`) and a failed token chain (`token replay failed: <code>`).
 
 Unverified, to confirm on the next live run: card transactions are requested
@@ -236,7 +284,8 @@ bank files them under another id, the import fails with
 - SSRF guard: authorize, token, SAML and the `action` URLs returned by the bank must be `https` on `*.caisse-epargne.fr` (default port, no userinfo, no apex), or on exactly one of the two home-loan hosts `www.as-ext-bad-me.bpce.fr` and `www.rs-ext-bad-me.bpce.fr` (never a wildcard on `bpce.fr`). A URL that fails is rejected before any request is sent. Redirects are never followed.
 - Finite timeouts (10 s connect, 25 s per request), response bodies capped at 1 MiB, the httpx client is always closed.
 - Cookies, SAML payloads, codes, tokens and authorize parameters are never logged or returned. The access token lives only in an in-memory cache until `expires_in - 30 s` (at most 64 entries) and is never returned by the API.
-- Read-only target: the OAuth/SAML replay POSTs and, for `/accounts`, GET data calls only. No balance, label, IBAN or token is ever logged.
+- Read-only target: the OAuth/SAML replay POSTs and, for `/accounts`, GET data calls only. No balance, account label, IBAN or token is ever logged (the unsupported-contract diagnostic
+  logs codes and masked shapes only, see above).
 
 ## Login by browser (`POST /initiate`, `POST /keypad`, `POST /complete`)
 
@@ -286,7 +335,8 @@ Rules:
 - Nothing secret is stored, logged, echoed, put in an error, a screenshot, a
   trace or a video: neither the password (which only the page ever sees) nor the
   identifier, the positions, the key images or the cookies. Errors and logs
-  carry codes, counts and exception types only.
+  carry codes, counts and exception types only (plus the masked diagnostic of an unsupported
+  contract, see "Each unsupported contract").
 - The pad is typed once: a refusal never triggers a second attempt, here or
   anywhere in the stack (a wrong password costs a bank attempt).
 - Navigation is allow-listed: any request outside `https://*.caisse-epargne.fr`
@@ -343,6 +393,7 @@ cd services/caisse-epargne-auth && APP_SIDECAR_API_KEY=test-key \
 Every test is a stdlib `unittest` case: no test-only dependency.
 
 The data calls use `httpx.MockTransport`; the login uses a fake Playwright
-(`fake_browser.py`): no browser, no network, no real credentials, no bank data.
+(`bpce/testing.py` in services/base, mounted read-only in CI since the image does
+not ship it): no browser, no network, no real credentials, no bank data.
 `test_dockerfile.py` fails if the Dockerfile `COPY` misses a module that
-`main.py` imports.
+`main.py` imports, or the base image a `bpce` module it needs.

@@ -22,6 +22,8 @@ import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.CaisseEpargneSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.PeerLoanRepaymentRepository;
+import com.picsou.repository.PeerLoanTermsRepository;
 import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
 import com.picsou.repository.SavingsInterestConfigRepository;
@@ -116,9 +118,64 @@ class CaisseEpargneSyncServiceTest {
             .containsExactly("ce_1001", "ce_1002", "ce_2001");
         assertThat(saved).allSatisfy(account -> {
             assertThat(account.getProvider()).isEqualTo("Caisse d'Epargne");
+            assertThat(account.getLogoUrl()).isNull();
             assertThat(account.getCurrency()).isEqualTo("EUR");
             assertThat(account.isManual()).isFalse();
             assertThat(account.getLastSyncedAt()).isNotNull();
+        });
+    }
+
+    @Test
+    void queueSync_keepsTheCaisseEpargneLabelAndLeavesAStoredLogoAlone() {
+        Fixture f = new Fixture();
+        Account stored = Account.builder().id(40L).externalAccountId("ce_1001")
+            .provider("Caisse d'Epargne").logoUrl("https://logos.example/ce.png").build();
+        arrangeCommittableSync(f.current());
+        when(accountRepository.findByExternalAccountIdAndMemberId("ce_1001", 7L)).thenReturn(Optional.of(stored));
+
+        service.queueSync(7L);
+
+        assertThat(stored.getProvider()).isEqualTo("Caisse d'Epargne");
+        assertThat(stored.getLogoUrl()).isEqualTo("https://logos.example/ce.png");
+    }
+
+    @Test
+    void queueSync_mapsALepToItsOwnType() {
+        Fixture f = new Fixture();
+        CaisseEpargnePort.AccountData lep = f.with(f.withName(f.withKind(f.livret(), "LEP"), " "),
+            List.of(f.tx("l1", "2026-10-01", "25.00", "VIREMENT RECU")));
+        arrangeCommittableSync(lep);
+
+        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        verify(accountRepository).save(accountCaptor.capture());
+        Account saved = accountCaptor.getValue();
+        assertThat(saved.getType()).isEqualTo(AccountType.LEP);
+        assertThat(saved.getName()).isEqualTo("LEP");
+        assertThat(saved.getColor()).isEqualTo("#f59e0b");
+    }
+
+    @Test
+    void queueSync_mapsALivretJeuneToItsOwnTypeWithItsTransactions() {
+        Fixture f = new Fixture();
+        CaisseEpargnePort.AccountData jeune = f.with(f.withName(f.withKind(f.livret(), "LIVRET_JEUNE"), " "),
+            List.of(f.tx("j1", "2026-10-01", "25.00", "VIREMENT RECU")));
+        arrangeCommittableSync(jeune);
+
+        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        verify(accountRepository).save(accountCaptor.capture());
+        Account saved = accountCaptor.getValue();
+        assertThat(saved.getType()).isEqualTo(AccountType.LIVRET_JEUNE);
+        assertThat(saved.getName()).isEqualTo("Livret Jeune");
+        assertThat(saved.getExternalAccountId()).isEqualTo("ce_1002");
+        assertThat(saved.getColor()).isEqualTo("#f59e0b");
+        verify(transactionRepository).saveAllAndFlush(transactionsCaptor.capture());
+        assertThat(transactionsCaptor.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.getExternalId()).isEqualTo("ce_j1");
+            assertThat(row.getAmount()).isEqualByComparingTo("25.00");
         });
     }
 
@@ -210,7 +267,8 @@ class CaisseEpargneSyncServiceTest {
             mock(RealEstateMetadataRepository.class), mock(PropertyValuationRepository.class), debtRepository,
             mock(SavingsInterestConfigRepository.class), prices, mock(LoanAmortizationService.class),
             mock(AccountAccessResolver.class), mock(BankLogoResolver.class), mock(CryptoLogoService.class),
-            mock(InstrumentLogoService.class), mock(ScpiPositionRepository.class), mock(ScpiFundService.class));
+            mock(InstrumentLogoService.class), mock(ScpiPositionRepository.class), mock(ScpiFundService.class),
+            mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class));
         when(perService.prepare(detail, "EUR")).thenReturn(prepared);
         CaisseEpargneSyncService sync = serviceWith(txTemplate, Runnable::run, actualAccountService);
         arrangeCommittableSync(withPer);
@@ -280,6 +338,26 @@ class CaisseEpargneSyncServiceTest {
     }
 
     @Test
+    void queueSync_mapsPelToItsPicsouAccountTypeWithSavingsDefaults() {
+        Fixture f = new Fixture();
+        arrangeCommittableSync(f.withName(f.pel(), null));
+
+        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
+        verify(accountRepository).save(accountCaptor.capture());
+        List<Account> saved = accountCaptor.getAllValues();
+        assertThat(saved).extracting(Account::getType).containsExactly(AccountType.PEL);
+        assertThat(saved).extracting(Account::getName).containsExactly("PEL");
+        assertThat(saved).extracting(Account::getExternalAccountId).containsExactly("ce_1004");
+        // Regulated savings share the amber of the Livret A and LDDS, not the default colour.
+        assertThat(saved).extracting(Account::getColor).containsOnly("#f59e0b");
+        assertThat(saved).extracting(Account::getCurrentBalance)
+            .usingElementComparator(BigDecimal::compareTo)
+            .containsExactly(new BigDecimal("15000.00"));
+    }
+
+    @Test
     void queueSync_fallsBackToAReadableNameForEachNewKind() {
         Fixture f = new Fixture();
         arrangeCommittableSync(f.withName(f.ldds(), null), f.withName(f.per(), " "), f.withName(f.loan(), null));
@@ -303,7 +381,7 @@ class CaisseEpargneSyncServiceTest {
         Account loan = accountCaptor.getValue();
         assertThat(loan.getCurrentBalance()).isEqualByComparingTo("9000.00");
         assertThat(loan.getType().isLiability()).isTrue();
-        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("9000.00")), eq(LocalDate.now()));
+        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("9000.00")), eq(TODAY));
     }
 
     @Test
@@ -345,8 +423,8 @@ class CaisseEpargneSyncServiceTest {
 
         service.queueSync(7L);
 
-        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("1234.56")), eq(LocalDate.now()));
-        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("-87.10")), eq(LocalDate.now()));
+        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("1234.56")), eq(TODAY));
+        verify(accountService).upsertSnapshot(any(Account.class), eq(new BigDecimal("-87.10")), eq(TODAY));
     }
 
     @Test
@@ -502,18 +580,127 @@ class CaisseEpargneSyncServiceTest {
     void queueSync_countsUnsupportedContractsInTheStatusWithoutCreatingAccounts() {
         arrangeCommittableSync(new CaisseEpargnePort.AccountsSnapshot(
             List.of(new Fixture().current()),
-            List.of(new CaisseEpargnePort.Unsupported("9001", "7"),
-                new CaisseEpargnePort.Unsupported("9002", "17"))));
+            List.of(new CaisseEpargnePort.Unsupported("9001", "7", "02"),
+                new CaisseEpargnePort.Unsupported("9002", "17", null))));
 
         CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         verify(accountRepository, times(1)).save(any(Account.class));
         assertThat(result.unsupportedCount()).isEqualTo(2);
-        assertThat(result.unsupported()).extracting(CaisseEpargneSyncService.UnsupportedContract::externalId)
+        assertThat(result.unsupported()).extracting(BpceSyncEngine.UnsupportedContract::externalId)
             .containsExactly("9001", "9002");
-        assertThat(result.unsupported()).extracting(CaisseEpargneSyncService.UnsupportedContract::familyCode)
+        assertThat(result.unsupported()).extracting(BpceSyncEngine.UnsupportedContract::familyCode)
             .containsExactly("7", "17");
+        assertThat(result.unsupported()).extracting(BpceSyncEngine.UnsupportedContract::subFamilyCode)
+            .containsExactly("02", null);
         assertThat(service.getStatus(7L).unsupportedCount()).isEqualTo(2);
+    }
+
+    @Test
+    void queueSync_boundsAndNormalisesTheUnsupportedCodesItStores() {
+        arrangeCommittableSync(new CaisseEpargnePort.AccountsSnapshot(
+            List.of(new Fixture().current()),
+            List.of(
+                new CaisseEpargnePort.Unsupported("X".repeat(500), "7".repeat(40), "02;<script>"),
+                new CaisseEpargnePort.Unsupported("9002", " 3 ", "  "),
+                new CaisseEpargnePort.Unsupported("9003", "3", "04"))));
+
+        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.unsupported()).hasSize(3);
+        assertThat(result.unsupported().get(0).externalId()).hasSize(128);
+        assertThat(result.unsupported().get(0).familyCode()).isEqualTo("?");
+        assertThat(result.unsupported().get(0).subFamilyCode()).isEqualTo("?");
+        assertThat(result.unsupported().get(1).familyCode()).isEqualTo("3");
+        assertThat(result.unsupported().get(1).subFamilyCode()).isNull();
+        assertThat(result.unsupported().get(2).subFamilyCode()).isEqualTo("04");
+    }
+
+    @Test
+    void queueSync_replacesAnUnsupportedCodeWithOddCharactersByAQuestionMark() {
+        arrangeCommittableSync(new CaisseEpargnePort.AccountsSnapshot(
+            List.of(new Fixture().current()),
+            List.of(
+                new CaisseEpargnePort.Unsupported("1", "7", "a b"),
+                new CaisseEpargnePort.Unsupported("2", "7", "\u00e91"),
+                new CaisseEpargnePort.Unsupported("3", "7", "<b>"),
+                new CaisseEpargnePort.Unsupported("4", "0123", "04"),
+                new CaisseEpargnePort.Unsupported("5", "ab_-9", "x"))));
+
+        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.unsupported()).extracting(BpceSyncEngine.UnsupportedContract::familyCode)
+            .containsExactly("7", "7", "7", "0123", "ab_-9");
+        assertThat(result.unsupported()).extracting(BpceSyncEngine.UnsupportedContract::subFamilyCode)
+            .containsExactly("?", "?", "?", "04", "x");
+    }
+
+    @Test
+    void queueSync_keepsACodeOfEightCharactersAndReplacesOneOfNine() {
+        arrangeCommittableSync(new CaisseEpargnePort.AccountsSnapshot(
+            List.of(new Fixture().current()),
+            List.of(
+                new CaisseEpargnePort.Unsupported("1", "ABCD1234", "abcdefgh"),
+                new CaisseEpargnePort.Unsupported("2", "ABCD12345", "abcdefghi"))));
+
+        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.unsupported().get(0).familyCode()).isEqualTo("ABCD1234");
+        assertThat(result.unsupported().get(0).subFamilyCode()).isEqualTo("abcdefgh");
+        assertThat(result.unsupported().get(1).familyCode()).isEqualTo("?");
+        assertThat(result.unsupported().get(1).subFamilyCode()).isEqualTo("?");
+    }
+
+    @Test
+    void queueSync_keepsAnUnsupportedIdOf128CharactersAndCutsOneOf129() {
+        arrangeCommittableSync(new CaisseEpargnePort.AccountsSnapshot(
+            List.of(new Fixture().current()),
+            List.of(
+                new CaisseEpargnePort.Unsupported("x".repeat(128), "7", null),
+                new CaisseEpargnePort.Unsupported("y".repeat(129), "7", null))));
+
+        CaisseEpargneSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.unsupported().get(0).externalId()).isEqualTo("x".repeat(128));
+        assertThat(result.unsupported().get(1).externalId()).isEqualTo("y".repeat(128));
+    }
+
+    @Test
+    void queueSync_acceptsExactlyOneHundredUnsupportedContractsAndRefusesMore() {
+        List<CaisseEpargnePort.Unsupported> hundred = new java.util.ArrayList<>();
+        for (int i = 0; i < 100; i++) {
+            hundred.add(new CaisseEpargnePort.Unsupported("u" + i, "7", "1"));
+        }
+        arrangeCommittableSync(new CaisseEpargnePort.AccountsSnapshot(
+            List.of(new Fixture().current()), hundred));
+        assertThat(service.queueSync(7L).unsupportedCount()).isEqualTo(100);
+
+        List<CaisseEpargnePort.Unsupported> tooMany = new java.util.ArrayList<>(hundred);
+        tooMany.add(new CaisseEpargnePort.Unsupported("u100", "7", "1"));
+        org.mockito.Mockito.clearInvocations(accountRepository, transactionRepository, accountService);
+        CaisseEpargneSession session = arrangeCommittableSync(new CaisseEpargnePort.AccountsSnapshot(
+            List.of(new Fixture().current()), tooMany));
+
+        service.queueSync(7L);
+
+        assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
+    }
+
+    @Test
+    void queueSync_refusesTheWholeSnapshotWhenAnUnsupportedContractHasNoIdOrFamilyCode() {
+        for (CaisseEpargnePort.Unsupported odd : List.of(
+            new CaisseEpargnePort.Unsupported("9001", null, "02"),
+            new CaisseEpargnePort.Unsupported("9001", "  ", null),
+            new CaisseEpargnePort.Unsupported(" ", "7", null),
+            new CaisseEpargnePort.Unsupported(null, "7", null))) {
+            CaisseEpargneSession session = arrangeCommittableSync(new CaisseEpargnePort.AccountsSnapshot(
+                List.of(new Fixture().current()), List.of(odd)));
+
+            service.queueSync(7L);
+
+            assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
+            org.mockito.Mockito.clearInvocations(accountRepository, transactionRepository, accountService);
+        }
     }
 
     // -- all-or-nothing -----------------------------------------------------
@@ -521,7 +708,7 @@ class CaisseEpargneSyncServiceTest {
     @Test
     void queueSync_refusesTheWholeSnapshotWhenOneAccountHasAnUnknownKind() {
         CaisseEpargneSession session = arrangeCommittableSync(
-            new Fixture().current(), new Fixture().withKind(new Fixture().livret(), "PEL"));
+            new Fixture().current(), new Fixture().withKind(new Fixture().livret(), "PEA"));
 
         service.queueSync(7L);
 
@@ -553,6 +740,16 @@ class CaisseEpargneSyncServiceTest {
     void queueSync_refusesANonEuroAccount() {
         Fixture f = new Fixture();
         CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.withCurrency(f.livret(), "USD"));
+
+        service.queueSync(7L);
+
+        assertFailedWithNothingWritten(session, SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
+    }
+
+    @Test
+    void queueSync_refusesANonEuroPel() {
+        Fixture f = new Fixture();
+        CaisseEpargneSession session = arrangeCommittableSync(f.current(), f.withCurrency(f.pel(), "USD"));
 
         service.queueSync(7L);
 
@@ -785,6 +982,57 @@ class CaisseEpargneSyncServiceTest {
 
         assertThat(service.clearSession(7L)).isFalse();
         verify(sessionRepository, never()).delete(any());
+    }
+
+    @Test
+    void getStatus_readsAnUnsupportedListStoredBeforeTheSubFamilyCode() {
+        CaisseEpargneSession session = activeSession(owner());
+        session.recordUnsupportedContracts("[{\"externalId\":\"9001\",\"familyCode\":\"7\"}]");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+
+        CaisseEpargneSyncService.SessionStatusResponse status = service.getStatus(7L);
+
+        assertThat(status.unsupported()).containsExactly(
+            new BpceSyncEngine.UnsupportedContract("9001", "7", null));
+    }
+
+    @Test
+    void getStatus_boundsTheCodesOfAnUnsupportedListStoredBeforeThemBeingBounded() {
+        CaisseEpargneSession session = activeSession(owner());
+        session.recordUnsupportedContracts("[{\"externalId\":\"" + "x".repeat(300)
+            + "\",\"familyCode\":\"<script>alert(1)</script>\",\"subFamilyCode\":\"0123456789\"}]");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+
+        List<BpceSyncEngine.UnsupportedContract> unsupported = service.getStatus(7L).unsupported();
+
+        assertThat(unsupported).hasSize(1);
+        assertThat(unsupported.get(0).externalId()).hasSize(128);
+        assertThat(unsupported.get(0).familyCode()).isEqualTo("?");
+        assertThat(unsupported.get(0).subFamilyCode()).isEqualTo("?");
+    }
+
+    @Test
+    void getStatus_ignoresFieldsAddedLaterToTheStoredUnsupportedList() {
+        // Forward compatibility: a row written by a newer version still reads after a rollback to
+        // this record, instead of the whole list disappearing.
+        CaisseEpargneSession session = activeSession(owner());
+        session.recordUnsupportedContracts(
+            "[{\"externalId\":\"9001\",\"familyCode\":\"3\",\"subFamilyCode\":\"04\",\"later\":1}]");
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+
+        assertThat(service.getStatus(7L).unsupported()).containsExactly(
+            new BpceSyncEngine.UnsupportedContract("9001", "3", "04"));
+    }
+
+    @Test
+    void getStatus_returnsAnEmptyUnsupportedListWhenTheStoredJsonIsUnusable() {
+        for (String stored : List.of("{not json", "null", "[null]", "{}", "\"text\"", "[1]", "[{}]", "[{\"foo\":1}]")) {
+            CaisseEpargneSession session = activeSession(owner());
+            session.recordUnsupportedContracts(stored);
+            when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+
+            assertThat(service.getStatus(7L).unsupported()).as(stored).isEmpty();
+        }
     }
 
     @Test
@@ -1695,6 +1943,13 @@ class CaisseEpargneSyncServiceTest {
             return new CaisseEpargnePort.AccountData("1003", "LDDS", "LIVRET DEV DURABLE",
                 new BigDecimal("3000.00"), "EUR", null, false,
                 null, new BigDecimal("12000.00"), new BigDecimal("9000.00"), new BigDecimal("0.25"),
+                null, null, null, List.of(), true, null);
+        }
+
+        CaisseEpargnePort.AccountData pel() {
+            return new CaisseEpargnePort.AccountData("1004", "PEL", "PLAN EPARGNE LOGEMENT",
+                new BigDecimal("15000.00"), "EUR", null, false,
+                null, new BigDecimal("61200.00"), null, null,
                 null, null, null, List.of(), true, null);
         }
 

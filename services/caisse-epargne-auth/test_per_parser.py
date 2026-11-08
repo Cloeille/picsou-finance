@@ -5,8 +5,8 @@ import unittest
 from datetime import date
 from decimal import Decimal
 
-from accounts_parser import ParseError
-from per_parser import parse_per_detail
+from bpce.accounts_parser import ParseError
+from bpce.per_parser import parse_per_detail
 
 
 ISIN_A = "AA0000000001"
