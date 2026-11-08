@@ -40,15 +40,24 @@ class DependabotCoverageTest(unittest.TestCase):
                 self.assertTrue(directories)
                 self.assertLessEqual(directories, covered.get(ecosystem, set()))
 
-    def test_codeql_actions_are_bumped_together(self):
+    def test_codeql_actions_share_one_revision_and_one_update(self):
+        # analyze refuses a config written by another init release (#491, #492).
+        pins = {}
+        for path in (ROOT / ".github/workflows").glob("*.y*ml"):
+            for job in yaml.safe_load(path.read_text())["jobs"].values():
+                for step in job.get("steps", []):
+                    name, _, revision = step.get("uses", "").partition("@")
+                    if name.startswith("github/codeql-action/"):
+                        pins.setdefault(name, set()).add(revision)
+        self.assertLessEqual({"github/codeql-action/init", "github/codeql-action/analyze"}, pins.keys())
+        revisions = set().union(*pins.values())
+        self.assertEqual(len(revisions), 1, pins)
+
         config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
         actions = next(u for u in config["updates"] if u["package-ecosystem"] == "github-actions")
-        workflow = (ROOT / ".github/workflows/codeql.yml").read_text()
-        used = set(re.findall(r"uses: (github/codeql-action/[\w-]+)@", workflow))
-        self.assertGreater(len(used), 1)
         grouped = [group for group in actions.get("groups", {}).values()
-                   if all(any(fnmatch(name, p) for p in group.get("patterns", [])) for name in used)]
-        self.assertTrue(grouped, f"{sorted(used)} must share one Dependabot group")
+                   if all(any(fnmatch(name, p) for p in group.get("patterns", [])) for name in pins)]
+        self.assertTrue(grouped, f"{sorted(pins)} must share one Dependabot group")
 
 
 if __name__ == "__main__":
