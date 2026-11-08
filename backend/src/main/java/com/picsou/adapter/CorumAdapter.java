@@ -3,7 +3,7 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.sidecar.SidecarClient;
-import com.picsou.adapter.sidecar.SidecarSession;
+import com.picsou.adapter.sidecar.SidecarSessionState;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.exception.SyncException;
 import com.picsou.port.SidecarErrorCode;
@@ -74,7 +74,7 @@ public class CorumAdapter {
         return sidecar.post(
             "/initiate",
             Map.of("login", login, "password", password),
-            SidecarSession.class,
+            SidecarSessionState.class,
             authTimeout,
             "Could not authenticate with CORUM",
             SidecarErrorCode.INVALID_CREDENTIALS
