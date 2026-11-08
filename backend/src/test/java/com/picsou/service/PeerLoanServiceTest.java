@@ -415,7 +415,7 @@ class PeerLoanServiceTest {
     }
 
     @Test
-    void addRepaymentFromTransactionRejectsAnOverpayment() {
+    void addRepaymentFromTransactionLinksAnOverpayingTransactionAndClampsTheLedger() {
         Account account = loanAccount("Jean");
         Account cash = cashAccount(false);
         PeerLoanTerms terms = PeerLoanTerms.builder()
@@ -426,17 +426,33 @@ class PeerLoanServiceTest {
         Transaction transaction = Transaction.builder()
             .id(60L).account(cash).date(LocalDate.parse("2026-02-01"))
             .description("Virement reçu").amount(new BigDecimal("600")).build();
+        List<PeerLoanRepayment> ledger = new ArrayList<>();
+
         when(accountRepository.findByIdAndMemberId(ACCOUNT_ID, MEMBER_ID)).thenReturn(Optional.of(account));
         when(termsRepository.findByAccountId(ACCOUNT_ID)).thenReturn(Optional.of(terms));
         when(transactionRepository.findById(60L)).thenReturn(Optional.of(transaction));
         when(repaymentRepository.findByCashTransactionId(60L)).thenReturn(Optional.empty());
         when(termsRepository.findByLendingTransactionId(60L)).thenReturn(Optional.empty());
-        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID)).thenReturn(List.of());
+        when(repaymentRepository.save(any(PeerLoanRepayment.class))).thenAnswer(invocation -> {
+            PeerLoanRepayment saved = invocation.getArgument(0);
+            saved.setId(11L);
+            ledger.add(saved);
+            return saved;
+        });
+        when(repaymentRepository.findByAccountIdOrderByPaidOnAscIdAsc(ACCOUNT_ID))
+            .thenAnswer(invocation -> List.copyOf(ledger));
+        when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(categorizationService.categoriesBySlug(MEMBER_ID))
+            .thenReturn(Map.of(PeerLoanService.TRANSFER_SLUG, transferCategory()));
 
-        assertThatThrownBy(() -> service.addRepaymentFromTransaction(
-            ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentFromTransactionRequest(60L, null)))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("cannot exceed");
+        // The 600 already sit in the cash account: linking creates no money, so the row
+        // links and the ledger absorbs only the 500 the loan can take.
+        PeerLoanDetailResponse response = service.addRepaymentFromTransaction(
+            ACCOUNT_ID, MEMBER_ID, new PeerLoanRepaymentFromTransactionRequest(60L, null));
+
+        assertThat(response.principalRemaining()).isEqualByComparingTo("0.00");
+        assertThat(ledger).hasSize(1);
+        assertThat(transaction.getCategoryRef().getId()).isEqualTo(TRANSFER_CATEGORY_ID);
     }
 
     @Test

@@ -99,11 +99,13 @@ Edge cases:
 
 - a payment smaller than the accrued interest amortises nothing; the dialog shows the
   accrued figure so the user sees why;
-- a repayment cannot exceed the accrued interest plus the remaining capital at its own
-  date: the excess would be written in full to the cash account while the ledger drops
-  it, inflating net worth. (Open to debate: capping the cash leg at the applied amount
-  instead of rejecting was considered; rejection won because a silent partial write
-  hides money just as badly.)
+- a manually written repayment cannot exceed the accrued interest plus the remaining
+  capital at its own date: the excess would be written in full to the cash account
+  while the ledger drops it, inflating net worth. (Open to debate: capping the cash
+  leg at the applied amount instead of rejecting was considered; rejection won because
+  a silent partial write hides money just as badly.) A linked transaction is exempt:
+  its row already exists in the cash account, so linking creates no money and the
+  ledger simply clamps.
 - an explicit `INTEREST` repayment cannot exceed the interest accrued at its own date:
   with nothing accrued the row would be capital wearing the wrong label. (Open to
   debate: zero-rate loans never accrue, so this forces the honest `PRINCIPAL` label;

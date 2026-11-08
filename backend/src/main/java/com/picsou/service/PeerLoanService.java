@@ -506,7 +506,9 @@ public class PeerLoanService {
         }
         requireCompletedRepaymentDate(transaction.getDate());
         validateInterestRepayment(terms, kind, transaction.getAmount(), transaction.getDate(), null);
-        validateRepaymentAmount(terms, transaction.getAmount(), transaction.getDate(), null);
+        // No overpayment check here, unlike the manual paths: the transaction already
+        // exists in the cash account and is already counted in net worth, so linking it
+        // creates no money — the ledger simply clamps to what the loan can absorb.
 
         PeerLoanRepayment repayment = repaymentRepository.save(PeerLoanRepayment.builder()
             .account(account)
