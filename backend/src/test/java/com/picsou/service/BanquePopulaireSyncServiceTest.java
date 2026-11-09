@@ -127,7 +127,7 @@ class BanquePopulaireSyncServiceTest {
             account("1006", "PEL", "PLAN EPARGNE LOGEMENT", "15000.00"),
             account("contract:TD1", "TERM_DEPOSIT", "TIP TOP'P 3 ANS", "1234.56"),
             account("contract:CS1", "COOPERATIVE_SHARES", "PART SOCIALE BP", "250.00"),
-            account("contract:00000     PERIB12345678", "PER", "PLAN EPARGNE RETRAITE", "2500.00"),
+            account("contract:PERIB123456789", "PER", "PLAN EPARGNE RETRAITE", "2500.00"),
             card());
 
         BanquePopulaireSyncService.SessionStatusResponse result = service.queueSync(7L);
@@ -141,7 +141,7 @@ class BanquePopulaireSyncServiceTest {
             AccountType.PER, AccountType.CREDIT_CARD);
         assertThat(saved).extracting(Account::getExternalAccountId)
             .containsExactly("bp_1001", "bp_1002", "bp_1003", "bp_1004", "bp_1005", "bp_1006",
-                "bp_contract:TD1", "bp_contract:CS1", "bp_contract:00000     PERIB12345678", "bp_2001");
+                "bp_contract:TD1", "bp_contract:CS1", "bp_contract:PERIB123456789", "bp_2001");
         assertThat(saved).allSatisfy(account -> {
             assertThat(account.getProvider()).isEqualTo(RIVES_DE_PARIS);
             assertThat(account.getCurrency()).isEqualTo("EUR");

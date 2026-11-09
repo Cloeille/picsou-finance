@@ -21,7 +21,7 @@ import main
 GATEWAY_HOST = "www.rs-ext-bad-ib.banquepopulaire.fr"
 INSURER_HOST = "www.espace-assurances-de-personnes.banquepopulaire.fr"
 ENTITY = "12345"
-CONTRACT_ID = "00000     PERIB12345678"
+CONTRACT_ID = "PERIB123456789"
 PRODUCER_ID = "PERIB876543"
 TOKEN = "synthetic-access-token-DO-NOT-LEAK"
 MAIN_TOKEN = "synthetic-main-token-DO-NOT-LEAK"
@@ -78,7 +78,7 @@ class PerIbChainTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, RAW_DETAIL)
         self.assertEqual([str(r.url) for r in insurer.requests], [
             f"https://{GATEWAY_HOST}/bapi/contract/v1/contracts/"
-            "12345-00000%20%20%20%20%20PERIB12345678/prepareRouting",
+            "12345-PERIB123456789/prepareRouting",
             f"https://{GATEWAY_HOST}/natixis/assurance/assuranceVieAuth/v1/clientToken/{PRODUCER_ID}",
             f"https://{INSURER_HOST}/etna-web/rest/v2/contratVie/load/PER/IB/876543",
         ])
@@ -89,6 +89,17 @@ class PerIbChainTest(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("cookie", request.headers)
         self.assertEqual(insurer.requests[0].headers["authorization"], f"Bearer {MAIN_TOKEN}")
         self.assertEqual(insurer.requests[2].headers["iw4-jwt-token"], JWT)
+
+    async def test_a_prefixed_perib_contract_id_is_also_accepted(self):
+        insurer = FakeInsurer()
+
+        result = await fetch(insurer, contract_id="00000     PERIB12345678")
+
+        self.assertEqual(result, RAW_DETAIL)
+        self.assertEqual(
+            str(insurer.requests[0].url),
+            f"https://{GATEWAY_HOST}/bapi/contract/v1/contracts/12345-00000%20%20%20%20%20PERIB12345678/prepareRouting",
+        )
 
     async def test_the_insurer_number_keeps_its_leading_zeros(self):
         insurer = FakeInsurer(routing=lambda _r: httpx.Response(201, json=routing_body(producer="PERIB0001")))
@@ -132,12 +143,16 @@ class PerIbChainTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_bank_contract_ids_not_observed_are_refused_without_a_request(self):
         for name, contract_id in {
-            "no entity prefix": "PERIB12345678",
             "asv prefix": "ASVPERIB12345678",
             "entity prefix and asv prefix": "00000     ASVPERIB12345678",
             "other company letter": "00000     PERIA12345678",
+            "compact other company letter": "PERIA12345678",
             "letters in the number": "00000     PERIB12AB",
+            "compact letters in the number": "PERIB12AB",
             "lowercase": "00000     perib12345678",
+            "compact lowercase": "perib12345678",
+            "compact no number": "PERIB",
+            "compact too long": "PERIB" + "1" * 65,
         }.items():
             with self.subTest(name):
                 insurer = FakeInsurer()

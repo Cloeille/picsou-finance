@@ -33,7 +33,7 @@ INSURER_HOST = "www.espace-assurances-de-personnes.banquepopulaire.fr"
 ACCESS_TOKEN = "synthetic-access-token"
 PER_ACCESS_TOKEN = "synthetic-per-access-token"
 PER_CLIENT_ID = "dcd51401-debb-47e4-ad8d-12a72e529f08"
-PER_BANK_ID = "00000     PERIB12345678"
+PER_BANK_ID = "PERIB123456789"
 PER_PRODUCER_ID = "PERIB876543"
 PER_JWT = "eyJzeW50aGV0aWMi.eyJET05PVExFQUsi.c2lnbmF0dXJlLURPLU5PVC1MRUFL"
 _STAMP = int(datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp() * 1000)  # fixed, never today

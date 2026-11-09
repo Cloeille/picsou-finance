@@ -115,7 +115,7 @@ region, identifier, keypad, Sécur'Pass, session replay and `/accounts`. A wrong
 identifier or password was seen too: the bank shows a keypad for any identifier,
 then a modal "Identifiant ou mot de passe erroné", read as `INVALID_CREDENTIALS`.
 
-Not observed: the revolving-credit detail, personal or home loans, LEP; full PER detail payload (OAuth and prepareRouting answered 201 live, producer ID format pinned to `PERIB`).
+Not observed: the revolving-credit detail, personal or home loans, LEP.
 
 ## Tests
 
