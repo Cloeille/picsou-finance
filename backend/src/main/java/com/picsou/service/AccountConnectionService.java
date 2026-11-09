@@ -55,11 +55,12 @@ public class AccountConnectionService {
     private static final String SIMPLEFIN_PREFIX = "sfin_";
     private static final String DEGIRO_EXTERNAL_ID = "degiro-portfolio";
     private static final String CORUM_LIFE_PREFIX = Account.CORUM_LIFE_EXTERNAL_ID_PREFIX;
+    private static final String LBP_PREFIX = "lbp_";
 
     /** One connection instance. {@code discriminator} separates two of the same kind. */
     public record ConnectionRef(Kind kind, String discriminator) {}
 
-    public enum Kind { WALLET, EXCHANGE, AMUNDI, CMES, CIC, TRADE_REPUBLIC, BOURSE_DIRECT, BOURSO, FORTUNEO, IBKR, SIMPLEFIN, WISE, DEGIRO, CORUM, ENABLE_BANKING }
+    public enum Kind { WALLET, EXCHANGE, AMUNDI, CMES, CIC, TRADE_REPUBLIC, BOURSE_DIRECT, BOURSO, FORTUNEO, IBKR, SIMPLEFIN, WISE, DEGIRO, CORUM, LBP, ENABLE_BANKING }
 
     /**
      * What deleting an account would cost ({@link #describeDeletion}, a prediction) or what it
@@ -87,6 +88,7 @@ public class AccountConnectionService {
     private final SimplefinSyncService simplefinSyncService;
     private final WiseSyncService wiseSyncService;
     private final CorumSyncService corumSyncService;
+    private final LbpSyncService lbpSyncService;
 
     public AccountConnectionService(
         AccountRepository accountRepository,
@@ -108,7 +110,8 @@ public class AccountConnectionService {
         IbkrSyncService ibkrSyncService,
         SimplefinSyncService simplefinSyncService,
         WiseSyncService wiseSyncService,
-        CorumSyncService corumSyncService
+        CorumSyncService corumSyncService,
+        LbpSyncService lbpSyncService
     ) {
         this.accountRepository = accountRepository;
         this.accountService = accountService;
@@ -130,6 +133,7 @@ public class AccountConnectionService {
         this.simplefinSyncService = simplefinSyncService;
         this.wiseSyncService = wiseSyncService;
         this.corumSyncService = corumSyncService;
+        this.lbpSyncService = lbpSyncService;
     }
 
     /**
@@ -231,6 +235,7 @@ public class AccountConnectionService {
             if (externalId.startsWith(WiseSyncService.EXTERNAL_ID_PREFIX)) return singleton(Kind.WISE);
             if (externalId.equals(DEGIRO_EXTERNAL_ID)) return singleton(Kind.DEGIRO);
             if (externalId.startsWith(CORUM_LIFE_PREFIX)) return singleton(Kind.CORUM);
+            if (externalId.startsWith(LBP_PREFIX)) return singleton(Kind.LBP);
         }
 
         // The CORUM login also syncs SCPI funds, onto manual accounts with no external id:
@@ -297,6 +302,7 @@ public class AccountConnectionService {
             case FORTUNEO -> fortuneoSyncService.clearSession(memberId);
             case DEGIRO -> degiroSyncService.clearSession(memberId);
             case CORUM -> corumSyncService.clearSession(memberId);
+            case LBP -> lbpSyncService.clearSession(memberId);
             case IBKR -> ibkrSyncService.deleteConnection(memberId);
             case SIMPLEFIN -> simplefinSyncService.deleteConnection(memberId);
             case WISE -> wiseSyncService.deleteConnection(memberId);
@@ -325,6 +331,7 @@ public class AccountConnectionService {
             case FORTUNEO -> "Fortuneo";
             case DEGIRO -> "DEGIRO";
             case CORUM -> "CORUM";
+            case LBP -> "La Banque Postale";
             case IBKR -> "Interactive Brokers";
             case SIMPLEFIN -> "SimpleFIN";
             case WISE -> "Wise Jars";

@@ -15,9 +15,9 @@ import java.sql.SQLException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** V143 lets a Caisse d'Epargne session keep the encrypted identifier, and still refuses it elsewhere. */
+/** V145 lets a Caisse d'Epargne session keep the encrypted identifier, and still refuses it elsewhere. */
 @RequiresPostgres
-class V143CaisseEpargneStoredIdentifierMigrationTest {
+class V145CaisseEpargneStoredIdentifierMigrationTest {
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
@@ -26,7 +26,7 @@ class V143CaisseEpargneStoredIdentifierMigrationTest {
 
     @BeforeAll
     static void migrate() throws SQLException {
-        PostgresContainers.migrateTo(POSTGRES, "143");
+        PostgresContainers.migrateTo(POSTGRES, "145");
         try (Connection c = connection(); var st = c.createStatement();
              ResultSet rs = st.executeQuery("INSERT INTO family_member (display_name) VALUES ('Test') RETURNING id")) {
             rs.next();

@@ -6,6 +6,7 @@ import com.picsou.model.AppSetting;
 import com.picsou.repository.AppSettingRepository;
 import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FinarySessionRepository;
+import com.picsou.repository.LbpSessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +36,7 @@ public class IntegrationsService {
     private final TradeRepublicSessionRepository tradeRepublicSessions;
     private final FinarySessionRepository finarySessions;
     private final SidecarSessionRepository sidecarSessions;
+    private final LbpSessionRepository lbpSessions;
     private final UserContext userContext;
 
     public IntegrationsService(AppSettingRepository settingRepository,
@@ -42,12 +44,14 @@ public class IntegrationsService {
                                TradeRepublicSessionRepository tradeRepublicSessions,
                                FinarySessionRepository finarySessions,
                                SidecarSessionRepository sidecarSessions,
+                               LbpSessionRepository lbpSessions,
                                UserContext userContext) {
         this.settingRepository = settingRepository;
         this.enableBankingConfig = enableBankingConfig;
         this.tradeRepublicSessions = tradeRepublicSessions;
         this.finarySessions = finarySessions;
         this.sidecarSessions = sidecarSessions;
+        this.lbpSessions = lbpSessions;
         this.userContext = userContext;
     }
 
@@ -89,7 +93,7 @@ public class IntegrationsService {
      *   <li><strong>traderepublic</strong> / <strong>finary</strong> — a login
      *       session row exists (these have no env config; auth is runtime).</li>
      *   <li><strong>boursedirect</strong> / <strong>boursobank</strong> /
-     *       <strong>fortuneo</strong> — an
+     *       <strong>fortuneo</strong> / <strong>lbp</strong> — an
      *       active sidecar session row exists.</li>
      *   <li><strong>crypto</strong> (no config to detect) — no cheap signal, so
      *       it falls back to the stored flag.</li>
@@ -118,6 +122,9 @@ public class IntegrationsService {
                 SidecarBank.FORTUNEO,
                 userContext.currentMemberId()
             );
+            case "lbp" -> lbpSessions.findByMemberId(userContext.currentMemberId())
+                .map(session -> session.isActive())
+                .orElse(false);
             default -> false;
         };
     }

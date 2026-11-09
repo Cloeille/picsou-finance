@@ -116,6 +116,23 @@ public enum SidecarBank {
         say(UPSTREAM_UNAVAILABLE, "Caisse d'Epargne is temporarily unavailable"),
         say(INTERNAL_ERROR, "Caisse d'Epargne is temporarily unavailable"))),
 
+    /**
+     * The sign-in is approved in the bank's mobile app: there is no {@code INVALID_OTP}, because
+     * no code is submitted. Certicode is no longer the flow for a modern account.
+     */
+    LBP("La Banque Postale", "lbp-auth", Map.ofEntries(
+        say(SESSION_EXPIRED, "The La Banque Postale session expired"),
+        say(INVALID_SESSION_STATE, "The stored La Banque Postale session is unusable"),
+        say(INVALID_CREDENTIALS, "La Banque Postale refused the identifier or password"),
+        say(KEYPAD_EXPIRED, "The La Banque Postale keypad expired. Start again."),
+        say(INVALID_POSITIONS, "The keypad choice is not valid. Start again."),
+        say(KEYPAD_CHANGED, "La Banque Postale changed its login page. Nothing was sent."),
+        say(APP_VALIDATION_TIMEOUT, "The sign-in was not approved in the mobile app in time"),
+        say(AUTH_ATTEMPT_EXPIRED, "This La Banque Postale sign-in attempt expired. Start again."),
+        say(UPSTREAM_FORMAT_CHANGED, "The La Banque Postale data format changed"),
+        say(UPSTREAM_UNAVAILABLE, "La Banque Postale is temporarily unavailable"),
+        say(INTERNAL_ERROR, "La Banque Postale is temporarily unavailable"))),
+
     /** The second factor is a mobile confirmation or an SMS code, depending on how the saver's access is set up. */
     CIC("CIC", "cic-auth", Map.ofEntries(
         say(INVALID_CREDENTIALS, "CIC rejected the customer number or password"),
@@ -219,10 +236,11 @@ public enum SidecarBank {
 
     /**
      * Whether this bank's sessions live in {@code sidecar_session}. Banque Populaire keeps its own
-     * {@code banque_populaire_session} table (V134) until it moves over in a follow-up.
+     * {@code banque_populaire_session} table (V134) and La Banque Postale its own
+     * {@code lbp_session} table until they move over in a follow-up.
      */
     public boolean storedInSidecarSession() {
-        return this != BANQUE_POPULAIRE;
+        return this != BANQUE_POPULAIRE && this != LBP;
     }
 
     /** The codes this bank's sidecar declares, i.e. the values its session table accepts. */
