@@ -108,7 +108,7 @@ balance.
   External id `cic_<account number digits>`.
 - **Backend**: `CicSyncService`, shaped like `CmesSyncService` (stored credentials, re-login with the
   previous session, daily source `cic`), balance-only accounts with `upsertSnapshot`. Migration
-  V121 `cic_session`. `/api/cic/*`, `/api/cic/auth/complete` given 180 s in nginx.
+  V121 `cic_session`, folded into `sidecar_session` by V142. `/api/cic/*`, `/api/cic/auth/complete` given 180 s in nginx.
   `/auth/initiate` and `/auth/reconnect` share 5 password checks per IP per 15 min; `/auth/complete`
   has its own 10, so retyped SMS codes do not use them up. An account a complete fetch no longer
   lists is closed at zero (balance 0, zero snapshot), not soft-deleted, so it can come back; only

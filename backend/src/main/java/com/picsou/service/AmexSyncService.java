@@ -6,15 +6,15 @@ import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
-import com.picsou.model.AmexSession;
-import com.picsou.model.AmexSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.adapter.AmexAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.AmexSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.sync.SourceSyncResult;
@@ -44,7 +44,6 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
@@ -83,19 +82,18 @@ public class AmexSyncService {
     private static final Pattern CURRENT_TX_ID = Pattern.compile("^amex_txp?_[0-9a-f]{32}$");
 
     private final AmexAdapter port;
-    private final AmexSessionRepository sessionRepository;
+    private final SidecarSessionRepository sessionRepository;
     private final AccountRepository accountRepository;
     private final FamilyMemberRepository memberRepository;
     private final TransactionRepository transactionRepository;
     private final AccountService accountService;
     private final FortuneoTransactionWriter transactionWriter;
     private final CryptoEncryption encryption;
-    private final TransactionTemplate txTemplate;
-    private final Executor syncExecutor;
+    private final SidecarSyncTemplate<List<PreparedAccount>> sync;
 
     public AmexSyncService(
         AmexAdapter port,
-        AmexSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         FamilyMemberRepository memberRepository,
         TransactionRepository transactionRepository,
@@ -113,8 +111,32 @@ public class AmexSyncService {
         this.accountService = accountService;
         this.transactionWriter = transactionWriter;
         this.encryption = encryption;
-        this.txTemplate = txTemplate;
-        this.syncExecutor = syncExecutor;
+        this.sync = new SidecarSyncTemplate<>(SidecarBank.AMEX, new Strategy(), sessionRepository,
+            memberRepository, encryption, txTemplate, syncExecutor, false);
+    }
+
+    private final class Strategy implements SidecarSyncStrategy<List<PreparedAccount>> {
+        @Override
+        public List<PreparedAccount> fetch(SidecarSyncJob job) {
+            // Preserve caller ownership: a history recovery is explicit and uses the saved session.
+            return prepareAccounts(job.history()
+                ? port.fetchTransactionHistory(job.plainState())
+                : port.fetchAccounts(job.plainState()));
+        }
+
+        @Override
+        public void commit(SidecarSyncJob job, List<PreparedAccount> prepared, Instant syncedAt) {
+            FamilyMember member = memberRepository.findById(job.memberId())
+                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
+            for (PreparedAccount data : prepared) {
+                upsertAccount(data, member, job.memberId(), syncedAt, job.history());
+            }
+        }
+
+        @Override
+        public String describe(List<PreparedAccount> prepared) {
+            return "accounts=" + prepared.size();
+        }
     }
 
     public AuthInitResponse initiateAuth(String login, String password, String method, Long memberId) {
@@ -145,129 +167,16 @@ public class AmexSyncService {
     }
 
     private SessionStatusResponse queue(Long memberId, boolean history) {
-        QueueDecision decision = requireTransactionResult(txTemplate.execute(status -> {
-            AmexSession session = sessionRepository.findByMemberIdForUpdate(memberId)
-                .orElseThrow(() -> error(
-                    SidecarErrorCode.SESSION_EXPIRED,
-                    "No active American Express session. Please reconnect.",
-                    null
-                ));
-            if (!session.isActive()) {
-                throw error(
-                    SidecarErrorCode.SESSION_EXPIRED,
-                    "The American Express session expired. Please reconnect.",
-                    null
-                );
-            }
-            if (session.getSyncStatus() == AmexSyncStatus.QUEUED
-                || session.getSyncStatus() == AmexSyncStatus.RUNNING) {
-                return new QueueDecision(null, toStatus(session));
-            }
-
-            String plainState = encryption.decrypt(session.getSessionState());
-            session.markQueued();
-            sessionRepository.save(session);
-            return new QueueDecision(
-                new SyncJob(session.getId(), memberId, plainState, history),
-                toStatus(session)
-            );
-        }));
-
-        if (decision.job() != null) {
-            submit(decision.job());
-            return getStatus(memberId);
-        }
-        return decision.status();
+        return toStatus(sync.queue(memberId, history));
     }
 
     private SessionStatusResponse storeSessionAndQueue(String plainState, Long memberId) {
-        SyncJob job = requireTransactionResult(txTemplate.execute(status -> {
-            FamilyMember member = memberRepository.findById(memberId)
-                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete);
-            sessionRepository.flush();
-
-            AmexSession newSession = AmexSession.create(
-                member,
-                encryption.encrypt(plainState),
-                Instant.now()
-            );
-            newSession.markQueued();
-            AmexSession stored = sessionRepository.saveAndFlush(newSession);
-            // Initial connect imports the full provider history (same provider-max
-            // request the explicit recovery action runs) -- the connect flow is already
-            // the heavy operation (browser login + OTP), and every other sidecar imports
-            // deeply at connect. Routine syncs (manual button, daily scheduler) keep the
-            // cheap 90-day window below.
-            return new SyncJob(stored.getId(), memberId, plainState, true);
-        }));
-
-        submit(job);
+        // Initial connect imports the full provider history (same provider-max request the
+        // explicit recovery action runs): the connect flow is already the heavy operation
+        // (browser login + OTP), and every other sidecar imports deeply at connect. Routine
+        // syncs (manual button, daily scheduler) keep the cheap 90-day window.
+        sync.replaceAndQueue(memberId, plainState, true, session -> {});
         return getStatus(memberId);
-    }
-
-    private void submit(SyncJob job) {
-        try {
-            syncExecutor.execute(() -> executeJob(job));
-        } catch (RuntimeException ex) {
-            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
-            throw error(
-                SidecarErrorCode.INTERNAL_ERROR,
-                "Could not schedule the American Express synchronization",
-                ex
-            );
-        }
-    }
-
-    private void executeJob(SyncJob job) {
-        if (!markRunning(job)) {
-            return;
-        }
-        try {
-        // Preserve caller ownership: a history recovery is explicit and uses the saved session.
-        var fetched = job.history()
-            ? port.fetchTransactionHistory(job.plainState())
-            : port.fetchAccounts(job.plainState());
-        List<PreparedAccount> prepared = prepareAccounts(fetched);
-        if (commitAccounts(job, prepared)) {
-                log.info("American Express sync completed (member={}; accounts={})", job.memberId(), prepared.size());
-            } else {
-                log.info("Discarded stale American Express sync result (member={})", job.memberId());
-            }
-        } catch (SyncException ex) {
-            SidecarErrorCode code = codeOf(ex);
-            markFailed(job, code);
-            log.warn("American Express sync failed (member={}; code={})", job.memberId(), code);
-        } catch (Exception ex) {
-            markFailed(job, SidecarErrorCode.INTERNAL_ERROR);
-            log.error("American Express sync failed unexpectedly (member={})", job.memberId(), ex);
-        }
-    }
-
-    private boolean markRunning(SyncJob job) {
-        return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<AmexSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
-                job.sessionId(),
-                job.memberId()
-            );
-            if (current.isEmpty()) {
-                log.info("American Express sync session disappeared before execution (member={})", job.memberId());
-                return false;
-            }
-            AmexSession session = current.get();
-            if (!session.isActive() || session.getSyncStatus() != AmexSyncStatus.QUEUED) {
-                log.warn(
-                    "American Express sync cannot start from state {} (member={}; active={})",
-                    session.getSyncStatus(),
-                    job.memberId(),
-                    session.isActive()
-                );
-                return false;
-            }
-            session.markRunning(Instant.now());
-            sessionRepository.save(session);
-            return true;
-        }));
     }
 
     private List<PreparedAccount> prepareAccounts(List<AmexAdapter.AccountData> fetched) {
@@ -352,43 +261,6 @@ public class AmexSyncService {
             // SHA-256 is mandated by the JDK; unreachable on any supported runtime.
             throw new IllegalStateException("SHA-256 is unavailable", ex);
         }
-    }
-
-    private boolean commitAccounts(SyncJob job, List<PreparedAccount> prepared) {
-        return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<AmexSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
-                job.sessionId(),
-                job.memberId()
-            );
-            if (current.isEmpty()) {
-                log.info("American Express sync session disappeared before commit (member={})", job.memberId());
-                return false;
-            }
-            AmexSession session = current.get();
-            if (!session.isActive()) {
-                log.warn("American Express sync session became inactive before commit (member={})", job.memberId());
-                return false;
-            }
-            if (session.getSyncStatus() != AmexSyncStatus.RUNNING) {
-                log.warn(
-                    "American Express sync cannot commit from state {} (member={})",
-                    session.getSyncStatus(),
-                    job.memberId()
-                );
-                return false;
-            }
-
-            FamilyMember member = memberRepository.findById(job.memberId())
-                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            Instant syncedAt = Instant.now();
-            for (PreparedAccount data : prepared) {
-                upsertAccount(data, member, job.memberId(), syncedAt, job.history());
-            }
-
-            session.markSuccessful(syncedAt);
-            sessionRepository.save(session);
-            return true;
-        }));
     }
 
     private void upsertAccount(PreparedAccount data, FamilyMember member, Long memberId, Instant syncedAt, boolean history) {
@@ -764,40 +636,6 @@ public class AmexSyncService {
         return stored.stream().filter(row -> !merged.contains(row)).toList();
     }
 
-    private void markFailed(SyncJob job, SidecarErrorCode code) {
-        try {
-            txTemplate.executeWithoutResult(status -> {
-                Optional<AmexSession> current = sessionRepository.findByIdAndMemberIdForUpdate(
-                    job.sessionId(),
-                    job.memberId()
-                );
-                if (current.isEmpty()) {
-                    log.info("American Express sync session disappeared before failure was recorded (member={})", job.memberId());
-                    return;
-                }
-                AmexSession session = current.get();
-                if (!session.isSyncInFlight()) {
-                    log.warn(
-                        "American Express sync failure ignored from state {} (member={}; code={})",
-                        session.getSyncStatus(),
-                        job.memberId(),
-                        code
-                    );
-                    return;
-                }
-                session.markFailed(code, Instant.now());
-                sessionRepository.save(session);
-            });
-        } catch (RuntimeException ex) {
-            log.error(
-                "Could not persist American Express sync failure (member={}; code={})",
-                job.memberId(),
-                code,
-                ex
-            );
-        }
-    }
-
     /**
      * Queued jobs live in a process-local executor and cannot survive a backend restart. Turn
      * persisted in-flight states into a retryable failure instead of leaving the UI polling
@@ -805,28 +643,16 @@ public class AmexSyncService {
      */
     @Transactional
     public void recoverInterruptedSyncs() {
-        int recovered = sessionRepository.markInterruptedSyncsFailed(
-            List.of(AmexSyncStatus.QUEUED, AmexSyncStatus.RUNNING),
-            AmexSyncStatus.FAILED,
-            Instant.now(),
-            SidecarErrorCode.INTERNAL_ERROR
-        );
-        if (recovered > 0) {
-            log.warn("Recovered {} interrupted American Express sync job(s)", recovered);
-        }
+        sync.recoverInterrupted();
     }
 
     @Transactional(readOnly = true)
     public SessionStatusResponse getStatus(Long memberId) {
-        return sessionRepository.findByMemberId(memberId)
-            .map(this::toStatus)
-            .orElseGet(SessionStatusResponse::inactive);
+        return sync.find(memberId).map(this::toStatus).orElseGet(SessionStatusResponse::inactive);
     }
 
     public void clearSession(Long memberId) {
-        txTemplate.executeWithoutResult(status ->
-            sessionRepository.findByMemberIdForUpdate(memberId).ifPresent(sessionRepository::delete)
-        );
+        sync.clear(memberId);
     }
 
     public void resyncIfSessionActive(Long memberId) {
@@ -885,7 +711,7 @@ public class AmexSyncService {
         }
     }
 
-    private SessionStatusResponse toStatus(AmexSession session) {
+    private SessionStatusResponse toStatus(SidecarSession session) {
         return new SessionStatusResponse(
             session.isActive(),
             session.getSyncStatus(),
@@ -896,7 +722,7 @@ public class AmexSyncService {
     }
 
     private SidecarErrorCode codeOf(SyncException exception) {
-        return SyncValues.errorCode(exception, SidecarBank.AMEX, SidecarErrorCode.UPSTREAM_UNAVAILABLE);
+        return sync.codeOf(exception);
     }
 
     private SyncException error(SidecarErrorCode code, String message, Throwable cause) {
@@ -946,26 +772,20 @@ public class AmexSyncService {
         return trimmed;
     }
 
-    private <T> T requireTransactionResult(T value) {
-        return Objects.requireNonNull(value, "Transaction callback returned no result");
-    }
-
     public record AuthInitResponse(String processId, boolean mfaRequired, String mfaType) {}
 
     public record SessionStatusResponse(
         boolean isActive,
-        AmexSyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError
-    ) {
+    ) implements SidecarSessionView {
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, AmexSyncStatus.IDLE, null, null, null);
+            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null);
         }
     }
 
-    private record QueueDecision(SyncJob job, SessionStatusResponse status) {}
-    private record SyncJob(Long sessionId, Long memberId, String plainState, boolean history) {}
     private record PreparedAccount(
         String externalId,
         String name,

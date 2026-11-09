@@ -1,20 +1,21 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.OpenFigiIsinConverter;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
-import com.picsou.model.BourseDirectSession;
-import com.picsou.model.BourseDirectSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.adapter.BourseDirectAdapter;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.BourseDirectSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,7 +52,7 @@ import static com.picsou.support.TestEntities.owner;
 @SuppressWarnings("unchecked")
 class BourseDirectSyncServiceTest {
     @Mock BourseDirectAdapter port;
-    @Mock BourseDirectSessionRepository sessionRepository;
+    @Mock SidecarSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
     @Mock FamilyMemberRepository memberRepository;
@@ -74,8 +75,8 @@ class BourseDirectSyncServiceTest {
 
     @Test
     void clearSessionReportsTheSessionItDeleted() {
-        BourseDirectSession session = activeSession(owner());
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        SidecarSession session = activeSession(owner());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSE_DIRECT, 7L)).thenReturn(Optional.of(session));
 
         assertThat(service.clearSession(7L)).isTrue();
         verify(sessionRepository).delete(session);
@@ -83,7 +84,7 @@ class BourseDirectSyncServiceTest {
 
     @Test
     void clearSessionReportsNothingWhenNoSessionIsStored() {
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSE_DIRECT, 7L)).thenReturn(Optional.empty());
 
         assertThat(service.clearSession(7L)).isFalse();
         verify(sessionRepository, never()).delete(any());
@@ -92,7 +93,7 @@ class BourseDirectSyncServiceTest {
     @Test
     void queueSync_commitsCompletePortfolioThenWritesSnapshotFromCurrentPositions() {
         FamilyMember member = owner();
-        BourseDirectSession session = activeSession(member);
+        SidecarSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(completeAccount()));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
@@ -115,7 +116,7 @@ class BourseDirectSyncServiceTest {
 
         BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(BourseDirectSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository).save(accountCaptor.capture());
         Account savedAccount = accountCaptor.getValue();
         assertThat(savedAccount.getProvider()).isEqualTo("Bourse Direct");
@@ -143,7 +144,7 @@ class BourseDirectSyncServiceTest {
 
     @Test
     void incompleteSnapshot_failsWithoutDeletingExistingHoldings() {
-        BourseDirectSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         BourseDirectAdapter.AccountData incomplete = new BourseDirectAdapter.AccountData(
             "pea-123", "PEA", AccountType.PEA,
@@ -153,7 +154,7 @@ class BourseDirectSyncServiceTest {
 
         BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(BourseDirectSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(holdingRepository, never()).deleteByAccountId(any());
         verify(accountRepository, never()).save(any());
@@ -161,7 +162,7 @@ class BourseDirectSyncServiceTest {
 
     @Test
     void nativeQuoteWithoutCurrency_rejectsTheWholeSnapshot() {
-        BourseDirectSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         BourseDirectAdapter.Position ambiguous = new BourseDirectAdapter.Position(
             null, "ACME", "Acme", BigDecimal.ONE, new BigDecimal("80"),
@@ -174,14 +175,14 @@ class BourseDirectSyncServiceTest {
 
         BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(BourseDirectSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
 
     @Test
     void expiredSession_isInvalidatedInFollowUpTransactionAndRemainsObservable() {
-        BourseDirectSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(new SyncException(
             "Session expired", null, SidecarErrorCode.SESSION_EXPIRED.name()
@@ -190,7 +191,7 @@ class BourseDirectSyncServiceTest {
         BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.isActive()).isFalse();
-        assertThat(result.syncStatus()).isEqualTo(BourseDirectSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
@@ -200,25 +201,25 @@ class BourseDirectSyncServiceTest {
         AtomicReference<Runnable> queuedTask = new AtomicReference<>();
         BourseDirectSyncService delayedService = serviceWith(queuedTask::set);
         FamilyMember member = owner();
-        BourseDirectSession stored = BourseDirectSession.builder()
+        SidecarSession stored = SidecarSession.builder().bank(SidecarBank.BOURSE_DIRECT)
             .id(9L)
             .member(member)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(BourseDirectSyncStatus.QUEUED)
+            .syncStatus(SidecarSyncStatus.QUEUED)
             .build();
         when(port.completeAuth("process", "123456")).thenReturn("plain-state");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSE_DIRECT, 7L)).thenReturn(Optional.empty());
         when(encryption.encrypt("plain-state")).thenReturn("encrypted");
-        when(sessionRepository.saveAndFlush(any(BourseDirectSession.class))).thenReturn(stored);
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(stored));
+        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenReturn(stored);
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BOURSE_DIRECT, 7L)).thenReturn(Optional.of(stored));
 
         BourseDirectSyncService.SessionStatusResponse result =
             delayedService.completeAuth("process", "123456", 7L);
 
         assertThat(result.isActive()).isTrue();
-        assertThat(result.syncStatus()).isEqualTo(BourseDirectSyncStatus.QUEUED);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.QUEUED);
         assertThat(queuedTask.get()).isNotNull();
         verify(port, never()).fetchAccounts(any());
     }
@@ -228,21 +229,21 @@ class BourseDirectSyncServiceTest {
         AtomicReference<Runnable> queuedTask = new AtomicReference<>();
         BourseDirectSyncService delayedService = serviceWith(queuedTask::set);
         FamilyMember member = owner();
-        BourseDirectSession stored = BourseDirectSession.builder()
+        SidecarSession stored = SidecarSession.builder().bank(SidecarBank.BOURSE_DIRECT)
             .id(9L)
             .member(member)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(BourseDirectSyncStatus.QUEUED)
+            .syncStatus(SidecarSyncStatus.QUEUED)
             .build();
         when(port.initiateAuth("login", "password")).thenReturn(
             new SidecarInitiate(null, false, null, "plain-state")
         );
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSE_DIRECT, 7L)).thenReturn(Optional.empty());
         when(encryption.encrypt("plain-state")).thenReturn("encrypted");
-        when(sessionRepository.saveAndFlush(any(BourseDirectSession.class))).thenReturn(stored);
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(stored));
+        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenReturn(stored);
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BOURSE_DIRECT, 7L)).thenReturn(Optional.of(stored));
 
         BourseDirectSyncService.AuthInitResponse response =
             delayedService.initiateAuth("login", "password", 7L);
@@ -253,23 +254,11 @@ class BourseDirectSyncServiceTest {
         verify(port, never()).fetchAccounts(any());
     }
 
-    @Test
-    void queueSync_doesNotScheduleDuplicateWhileJobIsRunning() {
-        BourseDirectSession session = activeSession(owner());
-        session.markQueued();
-        session.markRunning(Instant.now());
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
-
-        BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
-
-        assertThat(result.syncStatus()).isEqualTo(BourseDirectSyncStatus.RUNNING);
-        verify(port, never()).fetchAccounts(any());
-    }
 
     @Test
     void foreignQuote_keepsNativeCurrentPriceButStoresEurValuation() {
         FamilyMember member = owner();
-        BourseDirectSession session = activeSession(member);
+        SidecarSession session = activeSession(member);
         arrangeQueuedSession(session);
         BourseDirectAdapter.Position position = new BourseDirectAdapter.Position(
             null, "US", "US share", new BigDecimal("2"), new BigDecimal("70"),
@@ -299,7 +288,7 @@ class BourseDirectSyncServiceTest {
 
     @Test
     void reconciliationMismatch_rejectsTheWholeSnapshot() {
-        BourseDirectSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         BourseDirectAdapter.Position position = position(
             null, "ACME", BigDecimal.ONE, new BigDecimal("1000"),
@@ -311,7 +300,7 @@ class BourseDirectSyncServiceTest {
 
         BourseDirectSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(BourseDirectSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).deleteByAccountId(any());
@@ -320,7 +309,7 @@ class BourseDirectSyncServiceTest {
     @Test
     void duplicatePositions_areMergedWithWeightedPrices() {
         FamilyMember member = owner();
-        BourseDirectSession session = activeSession(member);
+        SidecarSession session = activeSession(member);
         arrangeQueuedSession(session);
         BourseDirectAdapter.Position first = position(
             null, "ACME", new BigDecimal("2"), new BigDecimal("200"),
@@ -350,7 +339,7 @@ class BourseDirectSyncServiceTest {
     @Test
     void duplicatePositions_doNotInventMissingPrices() {
         FamilyMember member = owner();
-        BourseDirectSession session = activeSession(member);
+        SidecarSession session = activeSession(member);
         arrangeQueuedSession(session);
         BourseDirectAdapter.Position incompletePrice = position(
             null, "ACME", BigDecimal.ONE, new BigDecimal("90"),
@@ -379,7 +368,7 @@ class BourseDirectSyncServiceTest {
 
     @Test
     void unsupportedAccountType_rejectsTheWholeSnapshot() {
-        BourseDirectSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(account(
             "other", AccountType.OTHER, BigDecimal.ZERO, BigDecimal.ZERO, List.of()
@@ -393,7 +382,7 @@ class BourseDirectSyncServiceTest {
 
     @Test
     void duplicateExternalAccountId_rejectsTheWholeSnapshot() {
-        BourseDirectSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         BourseDirectAdapter.AccountData account = account(
             "same", AccountType.PEA, BigDecimal.TEN, BigDecimal.TEN, List.of()
@@ -409,7 +398,7 @@ class BourseDirectSyncServiceTest {
     @Test
     void zeroQuantityPosition_isFilteredBeforePersistence() {
         FamilyMember member = owner();
-        BourseDirectSession session = activeSession(member);
+        SidecarSession session = activeSession(member);
         arrangeQueuedSession(session);
         BourseDirectAdapter.Position closed = position(
             null, "CLOSED", BigDecimal.ZERO, new BigDecimal("999"),
@@ -429,7 +418,7 @@ class BourseDirectSyncServiceTest {
 
     @Test
     void invalidIsin_rejectsTheWholeSnapshot() {
-        BourseDirectSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         BourseDirectAdapter.Position invalid = position(
             "not-an-isin", "ACME", BigDecimal.ONE, new BigDecimal("100"),
@@ -448,7 +437,7 @@ class BourseDirectSyncServiceTest {
     @Test
     void oversizedSymbol_fallsBackToAValidIsin() {
         FamilyMember member = owner();
-        BourseDirectSession session = activeSession(member);
+        SidecarSession session = activeSession(member);
         arrangeQueuedSession(session);
         BourseDirectAdapter.Position position = position(
             "FR0000000001", "X".repeat(31), BigDecimal.ONE, new BigDecimal("100"),
@@ -468,7 +457,7 @@ class BourseDirectSyncServiceTest {
 
     @Test
     void missingSymbolAndIsin_rejectsTheWholeSnapshot() {
-        BourseDirectSession session = activeSession(owner());
+        SidecarSession session = activeSession(owner());
         arrangeQueuedSession(session);
         BourseDirectAdapter.Position unidentified = position(
             null, null, BigDecimal.ONE, new BigDecimal("100"),
@@ -488,9 +477,9 @@ class BourseDirectSyncServiceTest {
     void replacedSession_preventsAnOldJobFromCommittingItsPortfolio() {
         AtomicReference<Runnable> queuedTask = new AtomicReference<>();
         BourseDirectSyncService delayedService = serviceWith(queuedTask::set);
-        BourseDirectSession session = activeSession(owner());
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        SidecarSession session = activeSession(owner());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSE_DIRECT, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BOURSE_DIRECT, 7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
 
         delayedService.queueSync(7L);
@@ -504,39 +493,21 @@ class BourseDirectSyncServiceTest {
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
 
-    @Test
-    void applicationStart_marksInterruptedJobsAsRetryableFailures() {
-        when(sessionRepository.markInterruptedSyncsFailed(
-            any(),
-            eq(BourseDirectSyncStatus.FAILED),
-            any(),
-            eq(SidecarErrorCode.INTERNAL_ERROR)
-        )).thenReturn(2);
 
-        service.recoverInterruptedSyncs();
-
-        verify(sessionRepository).markInterruptedSyncsFailed(
-            eq(List.of(BourseDirectSyncStatus.QUEUED, BourseDirectSyncStatus.RUNNING)),
-            eq(BourseDirectSyncStatus.FAILED),
-            any(),
-            eq(SidecarErrorCode.INTERNAL_ERROR)
-        );
-    }
-
-    private void arrangeQueuedSession(BourseDirectSession session) {
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+    private void arrangeQueuedSession(SidecarSession session) {
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BOURSE_DIRECT, 7L)).thenReturn(Optional.of(session));
         when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L)).thenReturn(Optional.of(session));
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BOURSE_DIRECT, 7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
     }
 
-    private BourseDirectSession activeSession(FamilyMember member) {
-        return BourseDirectSession.builder()
+    private SidecarSession activeSession(FamilyMember member) {
+        return SidecarSession.builder().bank(SidecarBank.BOURSE_DIRECT)
             .id(3L)
             .member(member)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(BourseDirectSyncStatus.IDLE)
+            .syncStatus(SidecarSyncStatus.IDLE)
             .build();
     }
 

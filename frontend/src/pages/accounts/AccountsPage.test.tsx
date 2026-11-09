@@ -1,11 +1,12 @@
 import '@testing-library/jest-dom'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
-import type { Account, RealEstateMetadata } from '@/types/api'
+import type { Account, PeerLoansOverview, RealEstateMetadata } from '@/types/api'
 import type { NetWorthPoint } from '@/features/history/api'
 
 const useAccounts = vi.fn()
 const useHistory = vi.fn()
+const usePeerLoansOverview = vi.fn<() => { data: PeerLoansOverview | undefined }>(() => ({ data: undefined }))
 
 vi.mock('@/features/accounts/hooks', async (importActual) => ({
   // useAccountTree is a pure useMemo over the accounts handed in -- it groups Revolut pockets
@@ -13,6 +14,8 @@ vi.mock('@/features/accounts/hooks', async (importActual) => ({
   // the real one stays and only the query hooks are replaced.
   ...(await importActual<typeof import('@/features/accounts/hooks')>()),
   useAccounts: () => useAccounts(),
+  // Reads the budget settings query, which has no client in this test and nothing to say here.
+  useInstitutionLogoUrl: () => () => null,
   useAccountDeletionImpact: () => ({ data: undefined }),
   useUpdateAccount: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteAccount: () => ({ mutate: vi.fn(), isPending: false }),
@@ -26,6 +29,11 @@ vi.mock('@/features/savings/hooks', () => ({
 
 vi.mock('@/features/history/hooks', () => ({
   useHistory: () => useHistory(),
+}))
+
+// The closed-loan filter is a query of its own; it has nothing to say about gain/loss.
+vi.mock('@/features/peer-loans/hooks', () => ({
+  usePeerLoansOverview: () => usePeerLoansOverview(),
 }))
 
 // The form and the two add-account modals drag in zod and the whole connector catalog. They
@@ -110,10 +118,11 @@ function selectRealEstate() {
   fireEvent.click(screen.getByRole('button', { name: 'accounts.filters.REAL_ESTATE' }))
 }
 
-describe('AccountsPage — Immobilier gain / loss', () => {
+describe('AccountsPage - Immobilier gain / loss', () => {
   beforeEach(() => {
     useAccounts.mockReset()
     useHistory.mockReset()
+    usePeerLoansOverview.mockReturnValue({ data: undefined })
   })
 
   it('shows the gain against the property cost basis, not the snapshot invested amount', () => {
@@ -212,10 +221,11 @@ describe('AccountsPage — Immobilier gain / loss', () => {
   })
 })
 
-describe('AccountsPage — card actions on touch screens', () => {
+describe('AccountsPage - card actions on touch screens', () => {
   beforeEach(() => {
     useAccounts.mockReset()
     useHistory.mockReset()
+    usePeerLoansOverview.mockReturnValue({ data: undefined })
   })
 
   it('keeps the edit and delete buttons visible without hover', () => {
@@ -230,6 +240,72 @@ describe('AccountsPage — card actions on touch screens', () => {
       const actions = screen.getByRole('button', { name }).parentElement
       expect(actions).toHaveClass('pointer-coarse:opacity-100', 'group-focus-within:opacity-100')
     }
+  })
+})
+
+describe('AccountsPage - closed peer loans', () => {
+  beforeEach(() => {
+    useAccounts.mockReset()
+    useHistory.mockReset()
+    usePeerLoansOverview.mockReturnValue({ data: undefined })
+  })
+
+  it('hides a closed loan by default and reveals it with the Receivables toggle', () => {
+    const closedLoan: Account = {
+      id: 99,
+      name: 'Camille',
+      type: 'PEER_LOAN',
+      provider: null,
+      currency: 'EUR',
+      currentBalance: 0,
+      currentBalanceEur: 0,
+      lastSyncedAt: null,
+      isManual: true,
+      color: '#0d9488',
+      ticker: null,
+      logoUrl: null,
+      logoKey: null,
+      createdAt: '2026-01-01T00:00:00Z',
+      hidden: false,
+    }
+    useAccounts.mockReturnValue({ data: [closedLoan], isLoading: false })
+    useHistory.mockReturnValue({ data: history([closedLoan]), isLoading: false })
+    usePeerLoansOverview.mockReturnValue({
+      data: {
+        totalOutstanding: 0,
+        openCount: 0,
+        closedCount: 1,
+        interestAccrued: 0,
+        loans: [{
+          accountId: 99,
+          name: 'Camille',
+          principal: 300,
+          principalRemaining: 0,
+          repaidPct: 100,
+          interestAccrued: 0,
+          interestReceived: 0,
+          closedAt: '2026-11-05',
+        }],
+        history: [],
+      },
+    })
+
+    render(<AccountsPage />)
+
+    // Not an active card, and the Créances overview is not on screen yet.
+    expect(screen.queryByText('Camille')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'accounts.filters.RECEIVABLES' }))
+    // The overview table lists it even before the toggle: only the cards are filtered.
+    expect(screen.getAllByText('Camille')).toHaveLength(1)
+    expect(screen.getAllByText('peerLoan.overview.status.closed')).toHaveLength(1)
+    expect(screen.queryByText('peerLoan.summary.closed')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'accounts.showClosedLoans' }))
+    // The closed loan now appears both in the overview table and on its account card.
+    expect(screen.getAllByText('Camille')).toHaveLength(2)
+    expect(screen.getAllByText('peerLoan.overview.status.closed')).toHaveLength(1)
+    expect(screen.getAllByText('peerLoan.summary.closed')).toHaveLength(1)
   })
 })
 

@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 function memoryStorage(): Storage {
@@ -25,6 +25,7 @@ vi.mock('@/features/auth/api', () => ({ authApi: { refresh } }))
 const { PublicOnly, RequireAuth, RequireAdmin } = await import('./guards')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { useAppStore } = await import('@/stores/app-store')
+const { consumeSsoRevalidate } = await import('@/lib/sso-revalidate')
 
 const USER = { username: 'alice', role: 'ADMIN' as const, memberId: 1, displayName: 'Alice' }
 
@@ -101,6 +102,141 @@ describe('PublicOnly session probe', () => {
 
     expect(screen.queryByText('login-form')).not.toBeInTheDocument()
     expect(refresh).not.toHaveBeenCalled()
+  })
+})
+
+describe('PublicOnly OAuth authorize resume', () => {
+  const OAUTH_ENTRY = '/login?redirect=%2Foauth2%2Fauthorize%3Fclient_id%3Dx'
+
+  beforeEach(() => {
+    refresh.mockReset()
+    sessionStorage.clear()
+    localStorage.clear()
+    useAuthStore.setState({ user: null, isAuthenticated: false })
+    useAppStore.setState({ demoMode: false })
+  })
+
+  function renderOAuth(entry: string, probe = true) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    return render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={[entry]}>
+          <PublicOnly probe={probe}>
+            <div>login-form</div>
+          </PublicOnly>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+  }
+
+  it('marks the revalidation flag, drops the stale session and shows the form on SSO_REVALIDATE', async () => {
+    useAuthStore.getState().login(USER)
+    refresh.mockRejectedValue({ response: { status: 401, data: { code: 'SSO_REVALIDATE' } } })
+
+    renderOAuth(OAUTH_ENTRY)
+
+    await waitFor(() => expect(screen.getByText('login-form')).toBeInTheDocument())
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(sessionStorage.getItem('picsou_user')).toBeNull()
+    expect(useAuthStore.getState().isAuthenticated).toBe(false)
+    expect(consumeSsoRevalidate()).toBe(true)
+  })
+
+  it('resumes the authorization with a full-page navigation that replaces this entry', async () => {
+    useAuthStore.getState().login(USER)
+    refresh.mockResolvedValue(USER)
+    const assign = vi.fn()
+    const replace = vi.fn()
+    const original = window.location
+    Object.defineProperty(window, 'location', {
+      value: { assign, replace, href: 'http://localhost/' },
+      configurable: true,
+      writable: true,
+    })
+    try {
+      renderOAuth(OAUTH_ENTRY)
+
+      // Replaced, not pushed: Back must not return to the spent spinner.
+      await waitFor(() => expect(replace).toHaveBeenCalledWith('/oauth2/authorize?client_id=x'))
+      expect(assign).not.toHaveBeenCalled()
+      expect(refresh).toHaveBeenCalledTimes(1)
+      // The spinner holds until the navigation: the login form never flashes.
+      expect(screen.queryByText('login-form')).not.toBeInTheDocument()
+    } finally {
+      Object.defineProperty(window, 'location', { value: original, configurable: true })
+    }
+  })
+
+  it('still redirects a signed-in visitor without probing when the redirect is not an /oauth2/ target', () => {
+    useAuthStore.getState().login(USER)
+
+    renderOAuth('/login?redirect=%2Fsettings')
+
+    expect(screen.queryByText('login-form')).not.toBeInTheDocument()
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('never probes in demo mode, even with an /oauth2/ redirect', () => {
+    useAppStore.setState({ demoMode: true })
+    refresh.mockResolvedValue(USER)
+
+    renderOAuth(OAUTH_ENTRY)
+
+    expect(screen.queryByText('login-form')).not.toBeInTheDocument()
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('never probes on the MFA challenge page, even with an /oauth2/ redirect', () => {
+    renderOAuth('/login/mfa?redirect=%2Foauth2%2Fauthorize%3Fclient_id%3Dx', false)
+
+    expect(screen.getByText('login-form')).toBeInTheDocument()
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('shows the form without marking the flag when the refresh fails for another reason', async () => {
+    useAuthStore.getState().login(USER)
+    refresh.mockRejectedValue(new Error('network down'))
+
+    renderOAuth(OAUTH_ENTRY)
+
+    await waitFor(() => expect(screen.getByText('login-form')).toBeInTheDocument())
+    expect(consumeSsoRevalidate()).toBe(false)
+    expect(sessionStorage.getItem('picsou_user')).toBeNull()
+  })
+})
+
+describe('RequireAuth without a session', () => {
+  beforeEach(() => {
+    refresh.mockReset()
+    useAuthStore.setState({ user: null, isAuthenticated: false })
+    useAppStore.setState({ demoMode: false })
+  })
+
+  function LoginLocation() {
+    const location = useLocation()
+    return <div>{`login ${location.search}`}</div>
+  }
+
+  it.each([
+    ['/accounts?x=1', 'login ?redirect=%2Faccounts%3Fx%3D1'],
+    ['/settings#security', 'login ?redirect=%2Fsettings%23security'],
+    ['/', 'login '],
+  ])('sends %s to /login and keeps it as the redirect target', async (entry, expected) => {
+    refresh.mockRejectedValue(new Error('401'))
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={[entry]}>
+          <Routes>
+            <Route path="/login" element={<LoginLocation />} />
+            <Route path="*" element={<RequireAuth><div>app</div></RequireAuth>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect((await screen.findByText(/^login/)).textContent).toBe(expected)
   })
 })
 

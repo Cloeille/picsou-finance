@@ -8,6 +8,8 @@ import '@/pages/setup/setup.css'
 import {
   LoginPage,
   MfaChallengePage,
+  SsoCallbackPage,
+  SsoCompletePage,
   DashboardPage,
   AccountsPage,
   AccountDetailPage,
@@ -40,6 +42,7 @@ import {
   SetupStepBourseDirect,
   SetupStepFortuneo,
   SetupStepTradeRepublic,
+  SetupStepLbp,
   SetupStepRevolut,
   SetupStepFinary,
   SetupStepCrypto,
@@ -73,6 +76,26 @@ export const router = createBrowserRouter([
           <MfaChallengePage />
         </SuspensePage>
       </PublicOnly>
+    ),
+  },
+  {
+    // The IdP's redirect target (registered redirect_uri). Outside every guard, like /consent:
+    // the page only re-posts the IdP result to the backend SSO chain, signed in or not.
+    path: '/login/sso/callback',
+    element: (
+      <SuspensePage fallback={<RouteSpinner />}>
+        <SsoCallbackPage />
+      </SuspensePage>
+    ),
+  },
+  {
+    // Where the backend lands a successful SSO sign-in. Outside the guards: PublicOnly would
+    // redirect a tab that is still flagged as signed in before the page could reset its state.
+    path: '/login/sso-complete',
+    element: (
+      <SuspensePage fallback={<RouteSpinner />}>
+        <SsoCompletePage />
+      </SuspensePage>
     ),
   },
   {
@@ -110,6 +133,7 @@ export const router = createBrowserRouter([
       { path: 'integrations/boursedirect', element: <SuspensePage fallback={null}><SetupStepBourseDirect /></SuspensePage> },
       { path: 'integrations/fortuneo', element: <SuspensePage fallback={null}><SetupStepFortuneo /></SuspensePage> },
       { path: 'integrations/traderepublic', element: <SuspensePage fallback={null}><SetupStepTradeRepublic /></SuspensePage> },
+      { path: 'integrations/lbp', element: <SuspensePage fallback={null}><SetupStepLbp /></SuspensePage> },
       { path: 'integrations/revolut', element: <SuspensePage fallback={null}><SetupStepRevolut /></SuspensePage> },
       { path: 'integrations/finary', element: <SuspensePage fallback={null}><SetupStepFinary /></SuspensePage> },
       { path: 'integrations/crypto', element: <SuspensePage fallback={null}><SetupStepCrypto /></SuspensePage> },

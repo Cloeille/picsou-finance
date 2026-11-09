@@ -1,0 +1,4 @@
+# Shell scripts must stay LF on every checkout. On Windows, `core.autocrlf=true`
+# turns the shebang into `#!/bin/sh\r`, and the container then fails at exec with
+# "no such file or directory" (seen with docker/entrypoint.sh).
+*.sh text eol=lf

@@ -519,7 +519,7 @@ class CaisseEpargneAdapterAuthTest {
 
     @Test
     void theKeypadBodyNeverPrintsThePositions() throws Exception {
-        Class<?> body = java.util.Arrays.stream(CaisseEpargneAdapter.class.getDeclaredClasses())
+        Class<?> body = java.util.Arrays.stream(BpceSidecarAdapter.class.getDeclaredClasses())
             .filter(c -> c.getSimpleName().equals("KeypadBody")).findFirst().orElseThrow();
         var ctor = body.getDeclaredConstructors()[0];
         ctor.setAccessible(true);
