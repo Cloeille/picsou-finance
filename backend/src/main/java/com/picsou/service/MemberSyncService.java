@@ -1,11 +1,14 @@
 package com.picsou.service;
 
 import com.picsou.dto.FinaryAutoSyncResponse;
+import com.picsou.exception.SyncException;
 import com.picsou.finary.FinaryApiSyncService;
+import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.sync.SourceSyncResult;
 import com.picsou.service.sync.SourceSyncResult.Status;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -43,7 +46,10 @@ public class MemberSyncService {
         // Same: re-logs in with credentials the member chose to store.
         "corum",
         // Never logs in again by itself: an expired session waits for the saver.
-        "natixis"
+        "natixis",
+        // On demand only: the session holds no credentials, so an expired one can only
+        // be renewed by the user on the LBP tab and reads as needing reauthentication.
+        "lbp"
     );
 
     private final RevolutSyncService revolutSyncService;
@@ -66,6 +72,7 @@ public class MemberSyncService {
     private final CicSyncService cicSyncService;
     private final CorumSyncService corumSyncService;
     private final NatixisSyncService natixisSyncService;
+    private final LbpSyncService lbpSyncService;
 
     public MemberSyncService(
             RevolutSyncService revolutSyncService,
@@ -87,7 +94,8 @@ public class MemberSyncService {
             CmesSyncService cmesSyncService,
             CicSyncService cicSyncService,
             CorumSyncService corumSyncService,
-            NatixisSyncService natixisSyncService) {
+            NatixisSyncService natixisSyncService,
+            LbpSyncService lbpSyncService) {
         this.revolutSyncService = revolutSyncService;
         this.syncService = syncService;
         this.trSyncService = trSyncService;
@@ -108,6 +116,7 @@ public class MemberSyncService {
         this.cicSyncService = cicSyncService;
         this.corumSyncService = corumSyncService;
         this.natixisSyncService = natixisSyncService;
+        this.lbpSyncService = lbpSyncService;
     }
 
     public List<SourceSyncResult> resyncScheduled(Long memberId) {
@@ -176,6 +185,8 @@ public class MemberSyncService {
                     return corumSyncService.resyncReporting(memberId);
                 case "natixis":
                     return natixisSyncService.resyncReporting(memberId);
+                case "lbp":
+                    return lbpResyncReporting(memberId);
                 case "fortuneo":
                     return fortuneoSyncService.resyncReporting(memberId);
                 case "amex":
@@ -225,6 +236,43 @@ public class MemberSyncService {
             // never let one source stop others
             log.error("{} sync failed unexpectedly for member {}", source, memberId, ex);
             return new SourceSyncResult(source, Status.FAILED, "Unexpected sync error");
+        }
+    }
+
+    /**
+     * The LBP entry, shaped like {@link CorumSyncService#resyncReporting}: the connector owns
+     * no reporting of its own, so this maps its status onto the shared contract here. An
+     * active session is queued; an inactive one is reported, never retried. When the LBP
+     * connector grows its own {@code resyncReporting}, this case collapses to one line.
+     */
+    private SourceSyncResult lbpResyncReporting(Long memberId) {
+        try {
+            LbpSyncService.SessionStatusResponse status = lbpSyncService.getStatus(memberId);
+            if (!status.isActive()) {
+                if (status.lastSyncError() == SidecarErrorCode.SESSION_EXPIRED
+                    || status.lastSyncError() == SidecarErrorCode.INVALID_CREDENTIALS) {
+                    return new SourceSyncResult("lbp", Status.NEEDS_REAUTH,
+                        status.lastSyncError().name());
+                }
+                if (status.lastSyncError() != null) {
+                    return new SourceSyncResult("lbp", Status.FAILED,
+                        status.lastSyncError().name());
+                }
+                return new SourceSyncResult("lbp", Status.SKIPPED_NOT_CONNECTED, "No active session");
+            }
+            lbpSyncService.queueSync(memberId);
+            return new SourceSyncResult("lbp", Status.QUEUED, "");
+        } catch (DataAccessException ex) {
+            log.error("Database error during scheduled La Banque Postale sync (member={})", memberId, ex);
+            return new SourceSyncResult("lbp", Status.FAILED, "Database error");
+        } catch (SyncException ex) {
+            log.warn("Could not queue scheduled La Banque Postale sync (member={}; code={})", memberId, ex.getCode(), ex);
+            SourceSyncResult classified = SourceSyncResult.fromSyncException("lbp", ex);
+            return new SourceSyncResult("lbp", classified.status(),
+                classified.status() == Status.NEEDS_REAUTH ? ex.getCode() : "Sync failed");
+        } catch (Exception ex) {
+            log.error("La Banque Postale scheduled sync failed unexpectedly for member {}", memberId, ex);
+            return new SourceSyncResult("lbp", Status.FAILED, "Unexpected sync error");
         }
     }
 

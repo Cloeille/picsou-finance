@@ -19,6 +19,7 @@ test.describe('Sync page tabs', () => {
       'Revolut',
       'BoursoBank',
       "Caisse d'Epargne",
+      'La Banque Postale',
       'Banque Populaire',
       'Bourse Direct',
       'DEGIRO',
@@ -89,6 +90,14 @@ test.describe('Sync page tabs', () => {
     await expect(page.getByText('Aucune session active')).toBeVisible()
     await expect(page.getByLabel('Identifiant')).toBeVisible()
     await expect(page.getByText(/Invalid input|syncStatus|ZodError/)).toHaveCount(0)
+  })
+
+  test('should open the La Banque Postale tab and show its identifier form', async ({ page }) => {
+    await page.getByRole('tab', { name: 'La Banque Postale', exact: true }).click()
+
+    await expect(page.locator('#lbp-customer-id')).toBeVisible()
+    await expect(page.getByLabel('Identifiant', { exact: true })).toBeVisible()
+    await expect(page.getByText('Aucune session active')).toBeVisible()
   })
 
   // Switching tabs no longer rewrites the URL (?tab= is only read as the

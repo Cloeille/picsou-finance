@@ -1255,6 +1255,71 @@ export type BanquePopulaireAuthKeypadResponse = CaisseEpargneAuthKeypadResponse
 export type BanquePopulaireAuthCompleteResponse = CaisseEpargneAuthCompleteResponse
 export type BanquePopulaireDeleteResponse = CaisseEpargneDeleteResponse
 
+// --- La Banque Postale ---
+
+export type LbpErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'KEYPAD_CHANGED'
+  | 'KEYPAD_EXPIRED'
+  | 'INVALID_POSITIONS'
+  | 'APP_VALIDATION_TIMEOUT'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'INVALID_SESSION_STATE'
+  | 'INTERNAL_ERROR'
+
+/** A product the sidecar saw but does not import: family code only, never the account id. */
+export interface LbpUnsupportedProduct {
+  externalId: string
+  familyCode: string
+}
+
+/** Mirrors `LbpSyncService.SessionStatusResponse`. */
+export interface LbpSessionStatus {
+  isActive: boolean
+  syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED'
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+  lastSyncError: LbpErrorCode | null
+  unsupported: LbpUnsupportedProduct[]
+  unsupportedCount: number
+  /** The identifier the user asked to remember, decrypted for the form. Never a password. */
+  savedIdentifier: string | null
+}
+
+/**
+ * The bank's shuffled keypad: ten digit labels in DOM order. The user clicks his
+ * own digits and only the clicked positions go back, never the digits.
+ */
+export interface LbpKeypad {
+  keys: string[]
+  columns: number
+}
+
+export interface LbpAuthInitResponse {
+  processId: string
+  keypad: LbpKeypad
+  /** Lifetime of the keypad step, not of the mobile-approval wait. */
+  expiresInSeconds: number
+}
+
+/** The second factor is a notification in the bank's mobile app: a human approves it. */
+export interface LbpAuthKeypadResponse {
+  processId: string
+  status: 'APPROVAL_PENDING'
+}
+
+export type LbpAuthCompleteResponse = LbpSessionStatus
+
+/** `bankSessionRevoked` is always false: only Picsou's stored copy is deleted. */
+export interface LbpDeleteResponse {
+  removed: boolean
+  bankSessionRevoked: boolean
+  message: string
+}
+
 export type DegiroSessionStatusValue = 'ACTIVE' | 'REAUTH_REQUIRED' | 'FAILED'
 
 export interface DegiroSessionStatus {

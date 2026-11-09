@@ -51,6 +51,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **La Banque Postale replacement connector.** A dedicated sidecar reads the current
+  account and the savings products Enable Banking cannot reach (Livret A, LDDS, LEP,
+  Compte sur Livret, Livret Jeune), then replaces the Enable Banking connection for
+  this bank. The login runs in headless Chromium (shuffled keypad clicked by the user,
+  mobile approval), the identifier can be remembered encrypted, and the regulated
+  livrets get their default savings configuration on import. The connector is wired
+  into the Sync tab, Add-account and the dashboard Sync all modal. Migrations V129-V130.
+  Validated live on an isolated stack by the author (current account, Livret A and
+  LEP, 27 transactions); the maintainer live run is still pending. See
+  [La Banque Postale](docs/features/la-banque-postale.md).
+
 - **Banque Populaire sync.** A new Sync tab connects a Banque Populaire account: pick your
   regional bank, type your identifier, click your digits on the bank's keypad and approve in
   Sécur'Pass. Imports the current account, Livret A, Livret Jeune and LDDS with their
@@ -87,7 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refuses it and asks to reconnect. Each plan (PEE, PER) becomes an account holding its fund
   lines at the units and unit values Natixis reports, so the balance matches the saver space.
   The operations history comes in as BUY and SELL transactions on the plan, kept off the
-  budget, cash flow and categorization. The provider gets its logo. Migration V143 (a `NATIXIS` row in `sidecar_session`). See
+  budget, cash flow and categorization. The provider gets its logo. Migration V145 (a `NATIXIS` row in `sidecar_session`). See
   [Natixis Interépargne](docs/features/natixis-interepargne.md).
 
 - **Sign in with your identity provider (SSO).** Set `SSO_ISSUER_URI` and `SSO_CLIENT_ID` to add

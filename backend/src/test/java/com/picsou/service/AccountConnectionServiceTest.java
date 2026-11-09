@@ -62,6 +62,7 @@ class AccountConnectionServiceTest {
     @Mock SimplefinSyncService simplefinSyncService;
     @Mock WiseSyncService wiseSyncService;
     @Mock CorumSyncService corumSyncService;
+    @Mock LbpSyncService lbpSyncService;
 
     private AccountConnectionService service() {
         return new AccountConnectionService(
@@ -70,7 +71,7 @@ class AccountConnectionServiceTest {
             amundiSyncService, cmesSyncService, cicSyncService, natixisSyncService,
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
             fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService,
-            wiseSyncService, corumSyncService);
+            wiseSyncService, corumSyncService, lbpSyncService);
     }
 
     private static Account account(long id, String externalId) {
@@ -414,6 +415,42 @@ class AccountConnectionServiceTest {
         assertThat(service().deleteAccount(10L, MEMBER_ID))
             .isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
         verify(cicSyncService).clearSession(MEMBER_ID);
+    }
+
+    @Test
+    void deletingTheLastLbpAccountClearsItsSessionAndSavedIdentifier() {
+        given(account(10L, "lbp_9f2c4a1e5b6d"), account(11L, "cmes_employee-plan"));
+        when(lbpSyncService.clearSession(MEMBER_ID)).thenReturn(true);
+
+        AccountConnectionService service = service();
+        assertThat(service.describeDeletion(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "La Banque Postale"));
+        assertThat(service.deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "La Banque Postale"));
+        verify(accountService).delete(10L, MEMBER_ID);
+        verify(lbpSyncService).clearSession(MEMBER_ID);
+        verify(cmesSyncService, never()).clearSession(anyLong());
+    }
+
+    @Test
+    void deletingAnLbpAccountPreservesTheSessionWhileAnotherLbpAccountRemains() {
+        given(account(10L, "lbp_9f2c4a1e5b6d"), account(11L, "lbp_7a1b3c9d2e4f"));
+
+        assertThat(service().describeDeletion(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        assertThat(service().deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(accountService).delete(10L, MEMBER_ID);
+        verify(lbpSyncService, never()).clearSession(anyLong());
+    }
+
+    @Test
+    void deletingTheLastLbpAccountReportsNoRemovalIfItsSessionIsAlreadyGone() {
+        given(account(10L, "lbp_9f2c4a1e5b6d"));
+
+        assertThat(service().deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(lbpSyncService).clearSession(MEMBER_ID);
     }
 
     @Test

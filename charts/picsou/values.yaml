@@ -327,6 +327,10 @@ sidecars:
     # contract Picsou does not import (see services/caisse-epargne-auth/README.md).
     env:
       CE_LOG_PRODUCT_DETAILS: ""
+  lbp-auth:
+    enabled: true
+    urlEnv: LBP_AUTH_URL
+    port: 8001
   bourse-direct-auth:
     enabled: true
     urlEnv: BOURSE_DIRECT_AUTH_URL

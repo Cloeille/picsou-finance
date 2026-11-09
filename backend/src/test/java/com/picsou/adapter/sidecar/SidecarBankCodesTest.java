@@ -51,7 +51,7 @@ class SidecarBankCodesTest {
         bank.codes().forEach(code -> declared.add(code.name()));
         Set<String> allowed = bank.storedInSidecarSession()
             ? allowedByCheck().get(bank.name())
-            : quotedBy("ck_banque_populaire_session_last_sync_error");
+            : quotedBy(ownTableCheck(bank));
         assertThat(allowed).isEqualTo(declared);
     }
 
@@ -64,6 +64,15 @@ class SidecarBankCodesTest {
             }
         }
         assertThat(allowedByCheck().keySet()).isEqualTo(banks);
+    }
+
+    /** The own-table CHECK of a bank that does not live in {@code sidecar_session}. */
+    private static String ownTableCheck(SidecarBank bank) {
+        return switch (bank) {
+            case BANQUE_POPULAIRE -> "ck_banque_populaire_session_last_sync_error";
+            case LBP -> "ck_lbp_session_last_sync_error";
+            default -> throw new IllegalArgumentException(bank + " is stored in sidecar_session");
+        };
     }
 
     /** Every code name quoted by one CHECK constraint, found by name. */

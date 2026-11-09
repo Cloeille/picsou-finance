@@ -195,7 +195,8 @@ class AccountToolsTest {
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
             fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService,
             wiseSyncService,
-            mock(com.picsou.service.CorumSyncService.class));
+            mock(com.picsou.service.CorumSyncService.class),
+            mock(com.picsou.service.LbpSyncService.class));
         return new RealServiceFixture(realService, accountRepository, accountServiceForConn,
             boursoSyncService, tradeRepublicSyncService);
     }

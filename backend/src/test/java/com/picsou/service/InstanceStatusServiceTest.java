@@ -12,6 +12,7 @@ import com.picsou.repository.AppUserRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
+import com.picsou.repository.LbpSessionRepository;
 import com.picsou.repository.RevolutSessionRepository;
 import com.picsou.repository.TradeRepublicSessionRepository;
 import com.picsou.repository.UserIdentityRepository;
@@ -410,6 +411,7 @@ class InstanceStatusServiceTest {
             mock(TradeRepublicSessionRepository.class), mock(SidecarSessionRepository.class),
             mock(BanquePopulaireSessionRepository.class),
             mock(RevolutSessionRepository.class), mock(DegiroSessionRepository.class),
+            mock(LbpSessionRepository.class),
             "1.1.0");
 
         assertThat(byName(wired, "tr-auth").url().get()).isEmpty();
@@ -437,6 +439,7 @@ class InstanceStatusServiceTest {
             Map.entry("amundi-auth", "http://amundi"),
             Map.entry("fortuneo-auth", "http://fortuneo"),
             Map.entry("corum-auth", "http://corum"),
+            Map.entry("lbp-auth", "http://lbp"),
             Map.entry("amex-auth", "http://amex"),
             Map.entry("revolut-auth", "http://revolut")));
         var tr = mock(TradeRepublicSessionRepository.class);
@@ -444,6 +447,7 @@ class InstanceStatusServiceTest {
         var banquePopulaire = mock(BanquePopulaireSessionRepository.class);
         var revolut = mock(RevolutSessionRepository.class);
         var degiro = mock(DegiroSessionRepository.class);
+        var lbp = mock(LbpSessionRepository.class);
         when(tr.count()).thenReturn(1L);
         when(sidecarSessions.countByBank(SidecarBank.BOURSO)).thenReturn(2L);
         when(sidecarSessions.countByBank(SidecarBank.CAISSE_EPARGNE)).thenReturn(3L);
@@ -459,12 +463,13 @@ class InstanceStatusServiceTest {
         when(sidecarSessions.countByBank(SidecarBank.CIC)).thenReturn(13L);
         when(banquePopulaire.count()).thenReturn(14L);
         when(sidecarSessions.countByBank(SidecarBank.NATIXIS)).thenReturn(15L);
+        when(lbp.count()).thenReturn(15L);
 
         InstanceStatusService wired = new InstanceStatusService(
             disabledReleases(),
             setup,
             sidecars,
-            tr, sidecarSessions, banquePopulaire, revolut, degiro,
+            tr, sidecarSessions, banquePopulaire, revolut, degiro, lbp,
             "1.1.0");
 
         assertThat(wired.targets())
@@ -483,6 +488,7 @@ class InstanceStatusServiceTest {
                 tuple("amundi-auth", "sidecar-chromium"),
                 tuple("fortuneo-auth", "sidecar-chromium"),
                 tuple("corum-auth", "sidecar-chromium"),
+                tuple("lbp-auth", "sidecar-chromium"),
                 tuple("amex-auth", "sidecar-camoufox"),
                 tuple("revolut-auth", "sidecar-camoufox"));
 
@@ -505,6 +511,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "amundi-auth").url().get()).isEqualTo("http://amundi");
         assertThat(byName(wired, "fortuneo-auth").url().get()).isEqualTo("http://fortuneo");
         assertThat(byName(wired, "corum-auth").url().get()).isEqualTo("http://corum");
+        assertThat(byName(wired, "lbp-auth").url().get()).isEqualTo("http://lbp");
         assertThat(byName(wired, "amex-auth").url().get()).isEqualTo("http://amex");
 
         assertThat(byName(wired, "tr-auth").sessions().getAsLong()).isEqualTo(1L);
@@ -520,6 +527,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "sofidy-auth").sessions().getAsLong()).isEqualTo(11L);
         assertThat(byName(wired, "cmes-auth").sessions().getAsLong()).isEqualTo(12L);
         assertThat(byName(wired, "cic-auth").sessions().getAsLong()).isEqualTo(13L);
+        assertThat(byName(wired, "lbp-auth").sessions().getAsLong()).isEqualTo(15L);
         assertThat(byName(wired, "banque-populaire-auth").sessions().getAsLong()).isEqualTo(14L);
         assertThat(byName(wired, "natixis-auth").sessions().getAsLong()).isEqualTo(15L);
     }

@@ -16,13 +16,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V143 lets {@code sidecar_session} hold Natixis Interépargne. A database at V142 with sessions on
- * the ten banks keeps every one of them untouched through V143, and the table then accepts a
+ * V145 lets {@code sidecar_session} hold Natixis Interépargne. A database at V144 with sessions on
+ * the ten banks keeps every one of them untouched through V145, and the table then accepts a
  * Natixis session under the same rules as the others: no stored login, only the codes its sidecar
  * can report.
  */
 @RequiresPostgres
-class V143NatixisSidecarSessionMigrationTest {
+class V145NatixisSidecarSessionMigrationTest {
 
     private static final String DIGEST = """
         SELECT count(*), md5(string_agg(concat_ws('|', bank, member_id, session_state, encrypted_credentials,
@@ -44,8 +44,8 @@ class V143NatixisSidecarSessionMigrationTest {
     static long member;
 
     @BeforeAll
-    static void seedV142AndMigrate() throws SQLException {
-        PostgresContainers.migrateTo(POSTGRES, "142");
+    static void seedV144AndMigrate() throws SQLException {
+        PostgresContainers.migrateTo(POSTGRES, "144");
         try (Connection c = PostgresContainers.connection(POSTGRES)) {
             member = newMember(c, "saver");
             execute(c, "INSERT INTO family_member (display_name) SELECT 'bulk-' || g FROM generate_series(1, 200) g");
@@ -58,7 +58,7 @@ class V143NatixisSidecarSessionMigrationTest {
             }
         }
         before = digest();
-        PostgresContainers.migrateTo(POSTGRES, "143");
+        PostgresContainers.migrateTo(POSTGRES, "145");
         after = digest();
     }
 

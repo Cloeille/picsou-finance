@@ -28,7 +28,7 @@ ends the session.
 - `backend/.../controller/NatixisController.java`: `/api/natixis` with
   `/auth/initiate`, `/auth/complete`, `/sync`, `GET /status` and `DELETE /session`.
 - `backend/.../model/SidecarSession.java` (`bank = 'NATIXIS'`) and
-  `db/migration/V143__natixis_sidecar_session.sql`: one `sidecar_session` row per member,
+  `db/migration/V145__natixis_sidecar_session.sql`: one `sidecar_session` row per member,
   holding the encrypted session state and the sync status. No credentials are stored (the
   database refuses `encrypted_credentials` on it).
 - `frontend/src/components/sync/NatixisPanel.tsx` and
