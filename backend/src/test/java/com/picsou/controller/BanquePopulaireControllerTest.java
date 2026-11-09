@@ -59,7 +59,8 @@ class BanquePopulaireControllerTest {
     private static BanquePopulaireSyncService.SessionStatusResponse statusOf(SidecarSyncStatus syncStatus) {
         return new BanquePopulaireSyncService.SessionStatusResponse(
             true, syncStatus, null, null, null,
-            List.of(new BpceSyncEngine.UnsupportedContract("9001", "7", "02")));
+            List.of(new BpceSyncEngine.UnsupportedContract("9001", "7", "02")),
+            false);
     }
 
     @Test

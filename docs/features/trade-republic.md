@@ -35,7 +35,7 @@ failures:
 
 ### Session persistence
 
-Sessions live in the shared `sidecar_session` table (bank `TRADE_REPUBLIC`), like the other sidecar banks; see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md). `V148__trade_republic_sidecar_session.sql` widens the table's two CHECK constraints with the Trade Republic branch and drops `trade_republic_session`.
+Sessions live in the shared `sidecar_session` table (bank `TRADE_REPUBLIC`), like the other sidecar banks; see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md). `V149__trade_republic_sidecar_session.sql` widens the table's two CHECK constraints with the Trade Republic branch and drops `trade_republic_session`.
 
 **Members reconnect Trade Republic once after this upgrade.** The old rows are not copied: their refresh token only worked with the v1 refresh route, which Trade Republic now answers with 401. With no row left, the daily sync reports Trade Republic as `SKIPPED_NOT_CONNECTED`, not `NEEDS_REAUTH`, and logs nothing. The Trade Republic accounts keep their last balances and holdings, frozen, until the member signs in again. The Trade Republic tab says so: with no session and at least one Trade Republic account a past session imported (not a `tr_csv_*` CSV import), it shows "no longer updated" above the login form.
 
@@ -140,7 +140,7 @@ The two legs are strict mirrors: the investment leg always carries the **opposit
 - `backend/src/main/java/com/picsou/service/TradeRepublicSyncService.java` -- Auth flow, `SidecarSyncStrategy`, CSV import, session management
 - `backend/src/main/java/com/picsou/controller/TradeRepublicController.java` -- REST endpoints under `/api/tr/`
 - `backend/src/main/java/com/picsou/model/SidecarSession.java` -- the shared session entity (bank `TRADE_REPUBLIC`)
-- `backend/src/main/resources/db/migration/V148__trade_republic_sidecar_session.sql` -- CHECK constraints + drop of the old table
+- `backend/src/main/resources/db/migration/V149__trade_republic_sidecar_session.sql` -- CHECK constraints + drop of the old table
 
 ### Flow
 
@@ -246,7 +246,7 @@ Without rule 2, Playwright installs to `/root/.cache/ms-playwright/`, which the 
 - `services/tr-auth/test_endpoints.py` -- the sidecar endpoints against a fake TR API, including a WAF refresh that hangs at the confirmation deadline
 - `TradeRepublicAdapterTest#initiateAuth_*`, `#completeAuth_*`, `#openSession_*` -- the sidecar's `detail` codes, bare-status fallbacks, explicit-null `tan`, the 150 s completion wait
 - `TradeRepublicAdapterTest#fetchAccounts_*` -- against a fake TR WebSocket: the `tr_session` cookie on the handshake, accounts read from the claims, the ticker subscribed on the venue the `instrument` answer lists, `LSX` when it lists none, and a refused ticker leaves `currentPrice` null with the account total at cost (#268)
-- `SidecarSyncContractTest`, `SidecarBankCodesTest`, `V148TradeRepublicSidecarSessionMigrationTest` -- the shared sync scenarios, the Java/SQL code lists, the migration
+- `SidecarSyncContractTest`, `SidecarBankCodesTest`, `V149TradeRepublicSidecarSessionMigrationTest` -- the shared sync scenarios, the Java/SQL code lists, the migration
 - `frontend/src/pages/sync/TradeRepublicTab.test.tsx` -- also the login form under the expiry message, and the "no longer updated" hint without a session
 - `frontend/src/pages/sync/TradeRepublicTab.test.tsx` and `frontend/src/components/shared/AddAccountModal.test.tsx` -- frontend regression tests for initiation failure staying on phone/PIN and a failed confirmation staying on the confirmation step
 - Manual integration testing against real TR accounts (auth flow, CSV import)

@@ -38,7 +38,7 @@ V{n}__description.sql
 | `V1__init_schema.sql` | Core tables: `app_user`, `account`, `balance_snapshot`, `account_type` enum |
 | `V2__goals.sql` | `goal` table + `goal_account` join table |
 | `V3__requisitions.sql` | `requisition` table for bank connections |
-| `V4__trade_republic_session.sql` | `trade_republic_session` (dropped by V148; sessions moved to `sidecar_session`) |
+| `V4__trade_republic_session.sql` | `trade_republic_session` (dropped by V149; sessions moved to `sidecar_session`) |
 | `V5__tr_refresh_token.sql` | Refresh token column for TR sessions |
 | `V6__rename_gocardless_column.sql` | Rename `gocardless_account_id` to `external_account_id` |
 | `V7__goal_month_override.sql` | `goal_month_override` table |
@@ -74,7 +74,8 @@ V{n}__description.sql
 | `V145__caisse_epargne_stored_identifier.sql` | `sidecar_session.encrypted_credentials` is also allowed for `CAISSE_EPARGNE`: the encrypted Caisse d'Epargne identifier (never the password) |
 | `V146__natixis_sidecar_session.sql` | Natixis Interépargne joins `sidecar_session`: its bank and its error-code branch are added to the CHECKs; no table of its own, so no copy |
 | `V147__banque_populaire_sidecar_session.sql` | Banque Populaire joins `sidecar_session`: `region` column with `ck_sidecar_session_region` (set for `BANQUE_POPULAIRE`, null otherwise), bank added to the bank, unsupported-contracts and error-code CHECKs; `banque_populaire_session` (V134) rows copied as stored, then dropped |
-| `V148__trade_republic_sidecar_session.sql` | Trade Republic joins `sidecar_session` (bank and error-code CHECKs widened, Banque Populaire kept); `trade_republic_session` dropped, members reconnect once |
+| `V148__banque_populaire_stored_identifier.sql` | `sidecar_session.encrypted_credentials` is also allowed for `BANQUE_POPULAIRE`: the encrypted Banque Populaire identifier of the last successful login (never the password) |
+| `V149__trade_republic_sidecar_session.sql` | Trade Republic joins `sidecar_session` (bank and error-code CHECKs widened, Banque Populaire kept); `trade_republic_session` dropped, members reconnect once |
 
 Note: V8 is absent by design (skipped — never rolled into another migration). Numbering after V32 is not contiguous (V33–V36 unused).
 

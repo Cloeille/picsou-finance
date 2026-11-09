@@ -1,5 +1,7 @@
 package com.picsou.model;
 
+import java.lang.reflect.Field;
+import java.util.Arrays;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BanquePopulaireRegion;
@@ -53,6 +55,16 @@ class BanquePopulaireSessionTest {
             SidecarBank.BANQUE_POPULAIRE, FamilyMember.builder().id(7L).displayName("Owner").build(), "encrypted", NOW))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("region");
+    }
+
+    @Test
+    void neverStoresThePassword() {
+        // Decision D5: never the password. The only credential kept is the encrypted identifier.
+        assertThat(Arrays.stream(SidecarSession.class.getDeclaredFields()).map(Field::getName))
+            .noneMatch(name -> name.toLowerCase().contains("password"));
+        assertThat(Arrays.stream(SidecarSession.class.getDeclaredFields()).map(Field::getName)
+            .filter(name -> name.toLowerCase().contains("credential")))
+            .containsExactly("encryptedCredentials");
     }
 
     @Test

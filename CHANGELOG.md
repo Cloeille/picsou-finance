@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Banque Populaire: remember identifier across reconnections.** The customer
+  identifier from the last successful login is stored encrypted at rest on its `sidecar_session` row (`V148`),
+  and reconnecting offers to reuse it along with its associated regional bank,
+  matching the Caisse d'Epargne reconnection flow. The user can choose to type
+  another identifier instead. Passwords and virtual keypad inputs are never stored.
+
 - **SimpleFIN accounts show their bank and their positions.** A Chase and a Fidelity account now read "Fidelity Investments · via SimpleFIN"
   instead of "SimpleFIN", and show the bank's logo when logos are enabled in the budget settings. A new account for which the
   bridge reports positions is created as the new **Brokerage account** type (any broker, any country or tax wrapper: Roth IRA, HSA,
@@ -297,7 +303,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CI calls the same targets, and `CONTRIBUTING.md` is the one place that lists commands.
 - **Trade Republic moves to the shared sidecar session table; members reconnect it once.**
   The old refresh route no longer works, so stored Trade Republic sessions are dropped by
-  migration V148. Until a member signs in again, their Trade Republic balances and holdings stay
+  migration V149. Until a member signs in again, their Trade Republic balances and holdings stay
   frozen at the last sync, and the daily sync lists Trade Republic as not connected
   (`SKIPPED_NOT_CONNECTED`), not as needing re-authentication; the Trade Republic tab says the
   accounts are no longer updated. Each member signs in again once, with phone number and PIN, and

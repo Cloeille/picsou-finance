@@ -25,7 +25,7 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 |------|--------|--------|-----------------|
 | Crypto exchange API key | `CryptoExchangeSession` | `api_key` | V15 (2026-04-08) |
 | Crypto exchange API secret | `CryptoExchangeSession` | `api_secret` | V9 (initial) |
-| Trade Republic session state (refresh and device cookies) | `SidecarSession` (bank `TRADE_REPUBLIC`) | `session_state` | V148 (2026-11); was `trade_republic_session.session_token` / `refresh_token` from V15 |
+| Trade Republic session state (refresh and device cookies) | `SidecarSession` (bank `TRADE_REPUBLIC`) | `session_state` | V149 (2026-11); was `trade_republic_session.session_token` / `refresh_token` from V15 |
 | DEGIRO session blob | `DegiroSession` | `session_blob` | V71 (2026-08-10), `TEXT` since V86 |
 | SimpleFIN access URL | `SimplefinConnection` | `access_url` | V113 (2026-10-06) |
 | BoursoBank login and password (JSON), stored at every login | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'BOURSO'`) | V103, moved by V142 |
@@ -33,7 +33,8 @@ Picsou stores sensitive credentials in PostgreSQL: crypto exchange API keys/secr
 | CIC login and password (JSON), stored at every login | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'CIC'`) | V121, moved by V142 |
 | CORUM login and password (JSON), opt-in ("Remember my credentials"), NULL otherwise | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'CORUM'`) | V127, moved by V142 |
 | Caisse d'Epargne identifier of the last successful login (JSON, no password), NULL until then | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'CAISSE_EPARGNE'`) | V145 (2026-11-09) |
-| Caisse d'Epargne and Banque Populaire session cookies (no password is stored for Banque Populaire, `ck_sidecar_session_credentials`) | `SidecarSession` | `sidecar_session.session_state` (`bank IN ('CAISSE_EPARGNE', 'BANQUE_POPULAIRE')`) | V109 / V134, moved by V142 / V147 |
+| Banque Populaire identifier of the last successful login (JSON, no password), NULL until then | `SidecarSession` | `sidecar_session.encrypted_credentials` (`bank = 'BANQUE_POPULAIRE'`) | V148 (2026-11-09) |
+| Caisse d'Epargne and Banque Populaire session cookies (no password is stored for either) | `SidecarSession` | `sidecar_session.session_state` (`bank IN ('CAISSE_EPARGNE', 'BANQUE_POPULAIRE')`) | V109 / V134, moved by V142 / V147 |
 | Wise personal API token | `WiseConnection` | `api_token` | V131 (2026-11-03) |
 | Natixis Interépargne session state (refresh token, device and employee ids; no password is stored) | `SidecarSession` | `sidecar_session.session_state` (`bank = 'NATIXIS'`) | V146 (2026-11-06) |
 

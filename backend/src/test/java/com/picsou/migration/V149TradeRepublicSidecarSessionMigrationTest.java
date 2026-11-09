@@ -16,11 +16,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Proves V148 lets Trade Republic into {@code sidecar_session}, keeps every other bank's rows and
+ * Proves V149 lets Trade Republic into {@code sidecar_session}, keeps every other bank's rows and
  * rules, and drops the old table: its rows are not copied, so members reconnect once.
  */
 @RequiresPostgres
-class V148TradeRepublicSidecarSessionMigrationTest {
+class V149TradeRepublicSidecarSessionMigrationTest {
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
@@ -41,7 +41,7 @@ class V148TradeRepublicSidecarSessionMigrationTest {
             execute(c, "INSERT INTO sidecar_session (bank, member_id, session_state, region, sync_status, last_sync_error) "
                 + "VALUES ('BANQUE_POPULAIRE', " + bob + ", 'bp-state', 'NORD', 'FAILED', 'KEYPAD_CHANGED')");
         }
-        PostgresContainers.migrateToOutOfOrder(POSTGRES, "148");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "149");
     }
 
     @Test
@@ -60,7 +60,7 @@ class V148TradeRepublicSidecarSessionMigrationTest {
 
     @Test
     void banquePopulaireKeepsItsRowAndItsRules() throws SQLException {
-        // V147 added the bank, its region column and its error codes; V148 rewrites the same CHECKs.
+        // V147 added the bank, its region column and its error codes; V149 rewrites the same CHECKs.
         assertThat(count("SELECT count(*) FROM sidecar_session WHERE bank = 'BANQUE_POPULAIRE' AND member_id = " + bob
             + " AND session_state = 'bp-state' AND region = 'NORD' AND last_sync_error = 'KEYPAD_CHANGED'")).isEqualTo(1L);
         try (Connection c = PostgresContainers.connection(POSTGRES)) {
