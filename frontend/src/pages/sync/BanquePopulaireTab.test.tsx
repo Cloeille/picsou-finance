@@ -31,7 +31,10 @@ const DISCONNECTED = {
   lastSyncError: null,
   unsupported: [],
   unsupportedCount: 0,
+  remembered: false,
 }
+
+const DISCONNECTED_REMEMBERED = { ...DISCONNECTED, remembered: true }
 
 const PAD = Array.from({ length: 10 }, (_, i) => `data:image/png;base64,PAD${i}`)
 const INITIATED = { processId: 'p1', keypad: { images: PAD, columns: 5 }, expiresInSeconds: 90 }
@@ -142,6 +145,78 @@ describe('BanquePopulaireTab', () => {
         expect(apiPost).toHaveBeenCalledWith('/banque-populaire/auth/initiate', {
           customerId: 'A123456',
           region: 'GRAND_OUEST',
+        }),
+      )
+    })
+
+    it('reuses the remembered identifier and region without asking for them', async () => {
+      apiGet.mockResolvedValue({ data: DISCONNECTED_REMEMBERED })
+      apiPost.mockReturnValueOnce(new Promise(() => {}))
+      renderTab()
+
+      expect(await screen.findByText('sync.banquePopulaire.rememberedIdentifier')).toBeInTheDocument()
+      expect(screen.queryByLabelText('sync.banquePopulaire.customerId')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('sync.banquePopulaire.region')).not.toBeInTheDocument()
+      expect(connectButton()).toBeEnabled()
+      fireEvent.click(connectButton())
+
+      await waitFor(() =>
+        expect(apiPost).toHaveBeenCalledWith('/banque-populaire/auth/initiate', {
+          customerId: '',
+          region: '',
+        }),
+      )
+    })
+
+    it('shows the identifier and region fields again when the bank rejects the remembered one', async () => {
+      apiGet
+        .mockResolvedValueOnce({ data: DISCONNECTED_REMEMBERED })
+        .mockResolvedValue({ data: DISCONNECTED })
+      apiPost.mockRejectedValueOnce(problem(401, 'INVALID_CREDENTIALS'))
+      renderTab()
+
+      expect(await screen.findByText('sync.banquePopulaire.rememberedIdentifier')).toBeInTheDocument()
+      fireEvent.click(connectButton())
+
+      expect(await screen.findByLabelText('sync.banquePopulaire.customerId')).toBeInTheDocument()
+      expect(await screen.findByLabelText('sync.banquePopulaire.region')).toBeInTheDocument()
+      expect(screen.queryByText('sync.banquePopulaire.rememberedIdentifier')).not.toBeInTheDocument()
+    })
+
+    it('lets the user type another identifier and choose a region instead of the remembered one', async () => {
+      apiGet.mockResolvedValue({ data: DISCONNECTED_REMEMBERED })
+      apiPost.mockReturnValueOnce(new Promise(() => {}))
+      renderTab()
+
+      fireEvent.click(await screen.findByText('sync.banquePopulaire.useAnotherIdentifier'))
+      expect(await screen.findByLabelText('sync.banquePopulaire.region')).toBeInTheDocument()
+      expect(screen.getByLabelText('sync.banquePopulaire.customerId')).toBeInTheDocument()
+      await signIn({ region: 'GRAND_OUEST', customerId: '87654321' })
+
+      await waitFor(() =>
+        expect(apiPost).toHaveBeenCalledWith('/banque-populaire/auth/initiate', {
+          customerId: '87654321',
+          region: 'GRAND_OUEST',
+        }),
+      )
+    })
+
+    it('lets the user go back to the remembered identifier', async () => {
+      apiGet.mockResolvedValue({ data: DISCONNECTED_REMEMBERED })
+      apiPost.mockReturnValueOnce(new Promise(() => {}))
+      renderTab()
+
+      fireEvent.click(await screen.findByText('sync.banquePopulaire.useAnotherIdentifier'))
+      expect(await screen.findByLabelText('sync.banquePopulaire.region')).toBeInTheDocument()
+      fireEvent.click(screen.getByText('sync.banquePopulaire.backToRememberedIdentifier'))
+
+      expect(screen.queryByLabelText('sync.banquePopulaire.customerId')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('sync.banquePopulaire.region')).not.toBeInTheDocument()
+      fireEvent.click(connectButton())
+      await waitFor(() =>
+        expect(apiPost).toHaveBeenCalledWith('/banque-populaire/auth/initiate', {
+          customerId: '',
+          region: '',
         }),
       )
     })

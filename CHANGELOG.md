@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is synced via the Natixis Assurances portal with its funds and euro fund, matching
   Caisse d'Epargne support. (#524)
 
+- **Banque Populaire: remember identifier across reconnections.** The customer
+  identifier from the last successful login is stored encrypted at rest on its `sidecar_session` row (`V148`),
+  and reconnecting offers to reuse it along with its associated regional bank,
+  matching the Caisse d'Epargne reconnection flow. The user can choose to type
+  another identifier instead. Passwords and virtual keypad inputs are never stored.
 
 - **SimpleFIN accounts show their bank and their positions.** A Chase and a Fidelity account now read "Fidelity Investments · via SimpleFIN"
   instead of "SimpleFIN", and show the bank's logo when logos are enabled in the budget settings. A new account for which the

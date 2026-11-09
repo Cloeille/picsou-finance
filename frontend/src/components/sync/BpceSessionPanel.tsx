@@ -183,9 +183,9 @@ export function BpceSessionPanel({
   const key = useCallback((suffix: string) => `${translationPrefix}.${suffix}`, [translationPrefix])
   const [authState, setAuthState] = useState<AuthState>("IDLE")
   const [customerId, setCustomerId] = useState("")
-  // Caisse d'Epargne only: the backend remembers the identifier of the last successful login
-  // (encrypted, never sent back) and an empty one reuses it. This flag shows the field to type
-  // another one.
+  // Caisse d'Epargne and Banque Populaire: the backend remembers the identifier of the last
+  // successful login (encrypted, never sent back) and an empty one reuses it. This flag shows
+  // the field to type another one.
   const [typingIdentifier, setTypingIdentifier] = useState(false)
   const [region, setRegion] = useState("")
   const [pad, setPad] = useState<KeypadPad | null>(null)
@@ -461,7 +461,7 @@ export function BpceSessionPanel({
   const pending =
     authState === "SUBMITTING" || authState === "KEYPAD" || authState === "SENDING_KEYPAD"
   // With a region step, nothing goes out before both choices are made.
-  const incomplete = regions !== undefined && (region === "" || customerId === "")
+  const incomplete = !useRememberedIdentifier && regions !== undefined && (region === "" || customerId === "")
 
   return (
     <div className="space-y-6">
@@ -614,7 +614,7 @@ export function BpceSessionPanel({
           </Card>
           <Card size="sm">
             <CardContent className="space-y-4 py-4">
-              {regions && (
+              {regions && !useRememberedIdentifier && (
                 <div className="space-y-2">
                   <Label htmlFor={`${fieldIdPrefix}-region`}>{t(key("region"))}</Label>
                   <NativeSelect

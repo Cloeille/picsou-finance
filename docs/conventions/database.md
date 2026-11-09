@@ -74,6 +74,7 @@ V{n}__description.sql
 | `V145__caisse_epargne_stored_identifier.sql` | `sidecar_session.encrypted_credentials` is also allowed for `CAISSE_EPARGNE`: the encrypted Caisse d'Epargne identifier (never the password) |
 | `V146__natixis_sidecar_session.sql` | Natixis Interépargne joins `sidecar_session`: its bank and its error-code branch are added to the CHECKs; no table of its own, so no copy |
 | `V147__banque_populaire_sidecar_session.sql` | Banque Populaire joins `sidecar_session`: `region` column with `ck_sidecar_session_region` (set for `BANQUE_POPULAIRE`, null otherwise), bank added to the bank, unsupported-contracts and error-code CHECKs; `banque_populaire_session` (V134) rows copied as stored, then dropped |
+| `V148__banque_populaire_stored_identifier.sql` | `sidecar_session.encrypted_credentials` is also allowed for `BANQUE_POPULAIRE`: the encrypted Banque Populaire identifier of the last successful login (never the password) |
 
 Note: V8 is absent by design (skipped — never rolled into another migration). Numbering after V32 is not contiguous (V33–V36 unused).
 
