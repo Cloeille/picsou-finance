@@ -40,7 +40,9 @@ public class FortuneoAdapter {
         ObjectMapper objectMapper
     ) {
         this(
-            clients.create(SidecarBank.FORTUNEO.label(), SidecarBank.FORTUNEO.serviceName()),
+            // A real account with a long history exceeds Spring's 256 KB default buffer.
+            clients.create(SidecarBank.FORTUNEO.label(), SidecarBank.FORTUNEO.serviceName(),
+                builder -> builder.codecs(c -> c.defaultCodecs().maxInMemorySize(16 * 1024 * 1024))),
             objectMapper,
             DEFAULT_AUTH_TIMEOUT,
             DEFAULT_PORTFOLIO_TIMEOUT
