@@ -38,7 +38,7 @@ existed for some banks and not others (issue #337, part of #326).
   scenarios against every bank's real service.
 
 Degiro and Revolut keep their own tables. Their schemas differ, and they are
-left to a follow-up. Trade Republic joined `sidecar_session` later, in V130.
+left to a follow-up. Trade Republic joined `sidecar_session` later, in V148.
 
 ## Alternatives considered
 

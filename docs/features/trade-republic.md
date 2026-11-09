@@ -246,7 +246,7 @@ Without rule 2, Playwright installs to `/root/.cache/ms-playwright/`, which the 
 - `services/tr-auth/test_endpoints.py` -- the sidecar endpoints against a fake TR API, including a WAF refresh that hangs at the confirmation deadline
 - `TradeRepublicAdapterTest#initiateAuth_*`, `#completeAuth_*`, `#openSession_*` -- the sidecar's `detail` codes, bare-status fallbacks, explicit-null `tan`, the 150 s completion wait
 - `TradeRepublicAdapterTest#fetchAccounts_*` -- against a fake TR WebSocket: the `tr_session` cookie on the handshake, accounts read from the claims, the ticker subscribed on the venue the `instrument` answer lists, `LSX` when it lists none, and a refused ticker leaves `currentPrice` null with the account total at cost (#268)
-- `SidecarSyncContractTest`, `SidecarBankCodesTest`, `V130TradeRepublicSidecarSessionMigrationTest` -- the shared sync scenarios, the Java/SQL code lists, the migration
+- `SidecarSyncContractTest`, `SidecarBankCodesTest`, `V148TradeRepublicSidecarSessionMigrationTest` -- the shared sync scenarios, the Java/SQL code lists, the migration
 - `frontend/src/pages/sync/TradeRepublicTab.test.tsx` -- also the login form under the expiry message, and the "no longer updated" hint without a session
 - `frontend/src/pages/sync/TradeRepublicTab.test.tsx` and `frontend/src/components/shared/AddAccountModal.test.tsx` -- frontend regression tests for initiation failure staying on phone/PIN and a failed confirmation staying on the confirmation step
 - Manual integration testing against real TR accounts (auth flow, CSV import)

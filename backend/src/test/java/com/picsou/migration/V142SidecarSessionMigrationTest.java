@@ -35,7 +35,7 @@ class V142SidecarSessionMigrationTest {
         "cic", "cmes", "corum", "fortuneo", "sofidy"
     };
 
-    /** The banks V142 moved: Banque Populaire (V134) keeps its own table, Natixis arrives with V146, Trade Republic with V130. */
+    /** The banks V142 moved: Banque Populaire (V134) keeps its own table, Natixis arrives with V146, Trade Republic with V148. */
     private static final List<SidecarBank> V142_BANKS = java.util.Arrays.stream(SidecarBank.values())
         .filter(SidecarBank::storedInSidecarSession).filter(bank -> bank != SidecarBank.NATIXIS)
         .filter(bank -> bank != SidecarBank.TRADE_REPUBLIC).toList();

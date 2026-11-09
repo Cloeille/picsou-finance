@@ -38,7 +38,7 @@ V{n}__description.sql
 | `V1__init_schema.sql` | Core tables: `app_user`, `account`, `balance_snapshot`, `account_type` enum |
 | `V2__goals.sql` | `goal` table + `goal_account` join table |
 | `V3__requisitions.sql` | `requisition` table for bank connections |
-| `V4__trade_republic_session.sql` | `trade_republic_session` (dropped by V130; sessions moved to `sidecar_session`) |
+| `V4__trade_republic_session.sql` | `trade_republic_session` (dropped by V148; sessions moved to `sidecar_session`) |
 | `V5__tr_refresh_token.sql` | Refresh token column for TR sessions |
 | `V6__rename_gocardless_column.sql` | Rename `gocardless_account_id` to `external_account_id` |
 | `V7__goal_month_override.sql` | `goal_month_override` table |

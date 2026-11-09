@@ -16,11 +16,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Proves V130 lets Trade Republic into {@code sidecar_session}, keeps every other bank's rows and
+ * Proves V148 lets Trade Republic into {@code sidecar_session}, keeps every other bank's rows and
  * rules, and drops the old table: its rows are not copied, so members reconnect once.
  */
 @RequiresPostgres
-class V130TradeRepublicSidecarSessionMigrationTest {
+class V148TradeRepublicSidecarSessionMigrationTest {
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = PostgresContainers.newContainer();
@@ -28,8 +28,8 @@ class V130TradeRepublicSidecarSessionMigrationTest {
     static long alice;
 
     @BeforeAll
-    static void seedV129AndMigrate() throws SQLException {
-        PostgresContainers.migrateToOutOfOrder(POSTGRES, "129");
+    static void seedV146AndMigrate() throws SQLException {
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "146");
         try (Connection c = PostgresContainers.connection(POSTGRES)) {
             alice = newMember(c, "alice");
             execute(c, "INSERT INTO trade_republic_session (member_id, session_token, refresh_token) "
@@ -37,7 +37,7 @@ class V130TradeRepublicSidecarSessionMigrationTest {
             execute(c, "INSERT INTO sidecar_session (bank, member_id, session_state, sync_status, last_sync_error) "
                 + "VALUES ('BOURSO', " + alice + ", 'bourso-state', 'FAILED', 'SESSION_EXPIRED')");
         }
-        PostgresContainers.migrateToOutOfOrder(POSTGRES, "130");
+        PostgresContainers.migrateToOutOfOrder(POSTGRES, "148");
     }
 
     @Test

@@ -152,7 +152,7 @@ jobs:
           service.PeerLoanTransactionLinksPostgresTest
           migration.V142SidecarSessionMigrationTest
           migration.V146NatixisSidecarSessionMigrationTest
-          migration.V130TradeRepublicSidecarSessionMigrationTest
+          migration.V148TradeRepublicSidecarSessionMigrationTest
           EOF
 
   frontend:
