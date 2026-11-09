@@ -68,6 +68,8 @@ REGION_CODES = tuple(code for code, _ in REGIONS)
 # Hosts observed on the real bank, 2026-11-05. `service=dei` (Caisse d'Epargne's
 # entry) lands on `/se-connecter/erreur` here: the web front enters with `cyber`.
 SITE = Site(
+    # Seen in one live run (2026-11-08): Compte sur Livret 3/02 and PEL 3/04.
+    provisional_kinds=frozenset({"SAVINGS", "PEL"}),
     domain="banquepopulaire.fr",
     login_url="https://www.icgauth.banquepopulaire.fr/se-connecter/sso?service=cyber",
     client_host="www.banquepopulaire.fr",

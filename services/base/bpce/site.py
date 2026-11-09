@@ -53,7 +53,10 @@ class PerApp:
 PERSONAL_LOAN_FAMILY = ("6", "12")
 HOME_LOAN_FAMILY = ("6", "13")
 PER_FAMILY = ("4", "05")
-# Kinds seen in one live run on one bank: PEL `3/04` and LEP `3/27` (Caisse d'Epargne, 2026-11-06).
+# Kinds seen in few live runs: Compte sur Livret `3/02` (Banque Populaire, 2026-11-08),
+# PEL `3/04` (Caisse d'Epargne, 2026-11-06; Banque Populaire, 2026-11-08) and
+# LEP `3/27` (Caisse d'Epargne, 2026-11-06).
+SAVINGS_FAMILY = ("3", "02")
 PEL_FAMILY = ("3", "04")
 LEP_FAMILY = ("3", "27")
 
@@ -89,8 +92,8 @@ class Site:
     per: PerApp | None = None
     # Kinds this site has seen in few live runs: an unreadable one is listed in `unsupported`
     # with a reason instead of failing the sync, and a failed transactions read still imports
-    # it from its synthesis entry. `PEL` and `LEP` also turn on their sub codes (`3/04`, `3/27`);
-    # empty, they stay unsupported. Banque Populaire has seen none of them.
+    # it from its synthesis entry. `SAVINGS`, `PEL` and `LEP` also turn on their sub codes
+    # (`3/02`, `3/04`, `3/27`); when absent from `provisional_kinds`, they stay unsupported.
     provisional_kinds: frozenset[str] = frozenset()
     _region_labels: dict[str, str] = field(init=False, repr=False, compare=False)
 
@@ -111,6 +114,8 @@ class Site:
             skipped.add(HOME_LOAN_FAMILY)
         if self.per is None:
             skipped.add(PER_FAMILY)
+        if "SAVINGS" not in self.provisional_kinds:
+            skipped.add(SAVINGS_FAMILY)
         if "PEL" not in self.provisional_kinds:
             skipped.add(PEL_FAMILY)
         if "LEP" not in self.provisional_kinds:

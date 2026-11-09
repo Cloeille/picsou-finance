@@ -1224,6 +1224,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         }
         return switch (kind) {
             case "CURRENT_ACCOUNT" -> AccountType.CHECKING;
+            case "SAVINGS" -> AccountType.SAVINGS;
             case "LIVRET_A" -> AccountType.LIVRET_A;
             case "LIVRET_JEUNE" -> AccountType.LIVRET_JEUNE;
             case "LEP" -> AccountType.LEP;
@@ -1241,6 +1242,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
     private String fallbackName(AccountType type) {
         return switch (type) {
             case CREDIT_CARD -> bank.cardName();
+            case SAVINGS -> "Compte sur livret";
             case LIVRET_A -> "Livret A";
             case LIVRET_JEUNE -> "Livret Jeune";
             case LEP -> "LEP";
@@ -1255,8 +1257,8 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
 
     private static String colorFor(AccountType type) {
         return switch (type) {
-            // Same colour for every regulated savings book, as the Bourso connector does.
-            case LIVRET_A, LIVRET_JEUNE, LEP, LDDS, PEL -> "#f59e0b";
+            // Same colour for every savings book, as the Bourso connector does.
+            case SAVINGS, LIVRET_A, LIVRET_JEUNE, LEP, LDDS, PEL -> "#f59e0b";
             case PER, ASSURANCE_VIE -> "#8b5cf6";
             case LOAN -> "#64748b";
             case CREDIT_CARD -> "#2563eb";
