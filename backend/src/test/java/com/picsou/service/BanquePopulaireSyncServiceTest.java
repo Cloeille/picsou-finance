@@ -1,11 +1,12 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
-import com.picsou.model.BanquePopulaireSession;
-import com.picsou.model.BanquePopulaireSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.Debt;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Transaction;
@@ -14,7 +15,7 @@ import com.picsou.port.BanquePopulairePort;
 import com.picsou.port.BanquePopulaireRegion;
 import com.picsou.port.BankConnectorPort;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.BanquePopulaireSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
@@ -73,7 +74,7 @@ class BanquePopulaireSyncServiceTest {
     private static final String LOGO = "https://logos.example/rives-de-paris.png";
 
     @Mock BanquePopulairePort port;
-    @Mock BanquePopulaireSessionRepository sessionRepository;
+    @Mock SidecarSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock TransactionRepository transactionRepository;
     @Mock FamilyMemberRepository memberRepository;
@@ -130,7 +131,7 @@ class BanquePopulaireSyncServiceTest {
 
         BanquePopulaireSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(BanquePopulaireSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository, times(9)).save(accountCaptor.capture());
         List<Account> saved = accountCaptor.getAllValues();
         assertThat(saved).extracting(Account::getType).containsExactly(
@@ -302,11 +303,11 @@ class BanquePopulaireSyncServiceTest {
 
     @Test
     void queueSync_usesTheRegionTheSessionWasOpenedAt() {
-        BanquePopulaireSession session = arrangeCommittableSync(BanquePopulaireRegion.BRED, current());
+        SidecarSession session = arrangeCommittableSync(BanquePopulaireRegion.BRED, current());
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository).save(accountCaptor.capture());
         assertThat(accountCaptor.getValue().getProvider()).isEqualTo("BRED Banque Populaire");
         verify(logoResolver).logoUrlOrNull("FR", null, "BRED Banque Populaire");
@@ -343,11 +344,11 @@ class BanquePopulaireSyncServiceTest {
     @Test
     void queueSync_importsWithoutALogoWhenTheCatalogHasNoMatch() {
         when(logoResolver.logoUrlOrNull("FR", null, RIVES_DE_PARIS)).thenReturn(null);
-        BanquePopulaireSession session = arrangeCommittableSync(current());
+        SidecarSession session = arrangeCommittableSync(current());
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository).save(accountCaptor.capture());
         assertThat(accountCaptor.getValue().getProvider()).isEqualTo(RIVES_DE_PARIS);
         assertThat(accountCaptor.getValue().getLogoUrl()).isNull();
@@ -359,11 +360,11 @@ class BanquePopulaireSyncServiceTest {
         when(unconfigured.searchInstitutions(anyString(), anyString()))
             .thenThrow(new SyncException("Enable Banking Application ID is missing"));
         service = serviceWith(new BankLogoResolver(unconfigured));
-        BanquePopulaireSession session = arrangeCommittableSync(current());
+        SidecarSession session = arrangeCommittableSync(current());
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository).save(accountCaptor.capture());
         assertThat(accountCaptor.getValue().getProvider()).isEqualTo(RIVES_DE_PARIS);
         assertThat(accountCaptor.getValue().getLogoUrl()).isNull();
@@ -373,11 +374,11 @@ class BanquePopulaireSyncServiceTest {
     @Test
     void queueSync_keepsTheRegionalNameWhenTheLookupThrowsAnyway() {
         when(logoResolver.logoUrlOrNull(anyString(), any(), anyString())).thenThrow(new IllegalStateException());
-        BanquePopulaireSession session = arrangeCommittableSync(current());
+        SidecarSession session = arrangeCommittableSync(current());
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.SUCCESS);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
         verify(accountRepository).save(accountCaptor.capture());
         assertThat(accountCaptor.getValue().getProvider()).isEqualTo(RIVES_DE_PARIS);
         assertThat(accountCaptor.getValue().getLogoUrl()).isNull();
@@ -396,14 +397,14 @@ class BanquePopulaireSyncServiceTest {
 
     @Test
     void anExpiredSessionIsRecordedWithTheBanquePopulaireCodeAndDeactivated() {
-        BanquePopulaireSession session = activeSession();
+        SidecarSession session = activeSession();
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(
             new SyncException("expired", null, SidecarErrorCode.SESSION_EXPIRED.name()));
 
         BanquePopulaireSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(BanquePopulaireSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         assertThat(result.isActive()).isFalse();
         verify(accountRepository, never()).save(any());
@@ -411,32 +412,32 @@ class BanquePopulaireSyncServiceTest {
 
     @Test
     void anUnknownKindRefusesTheWholeSnapshot() {
-        BanquePopulaireSession session = arrangeCommittableSync(current(), account("1009", "PEA", "PEA", "1.00"));
+        SidecarSession session = arrangeCommittableSync(current(), account("1009", "PEA", "PEA", "1.00"));
 
         service.queueSync(7L);
 
-        assertThat(session.getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.FAILED);
+        assertThat(session.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
         assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED);
         verify(accountRepository, never()).save(any());
     }
 
     @Test
-    void recoverInterruptedSyncsUsesTheBanquePopulaireTable() {
+    void recoverInterruptedSyncsFailsOnlyTheBanquePopulaireRows() {
         service.recoverInterruptedSyncs();
 
         verify(sessionRepository).markInterruptedSyncsFailed(
-            eq(List.of(BanquePopulaireSyncStatus.QUEUED, BanquePopulaireSyncStatus.RUNNING)),
-            eq(BanquePopulaireSyncStatus.FAILED), any(Instant.class), eq(SidecarErrorCode.INTERNAL_ERROR));
+            eq(SidecarBank.BANQUE_POPULAIRE), eq(List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING)),
+            eq(SidecarSyncStatus.FAILED), any(Instant.class), eq(SidecarErrorCode.INTERNAL_ERROR));
     }
 
     @Test
     void theStatusWithoutASessionIsInactiveAndIdle() {
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
 
         BanquePopulaireSyncService.SessionStatusResponse status = service.getStatus(7L);
 
         assertThat(status.isActive()).isFalse();
-        assertThat(status.syncStatus()).isEqualTo(BanquePopulaireSyncStatus.IDLE);
+        assertThat(status.syncStatus()).isEqualTo(SidecarSyncStatus.IDLE);
         assertThat(status.unsupportedCount()).isZero();
     }
 
@@ -463,40 +464,40 @@ class BanquePopulaireSyncServiceTest {
         when(port.completeAuth("proc-1")).thenReturn("{\"cookies\":[]}");
         FamilyMember member = member();
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
         when(encryption.encrypt("{\"cookies\":[]}")).thenReturn("encrypted-state");
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
 
         service.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.BRED, 7L);
         service.submitKeypad("proc-1", POSITIONS, 7L);
         service.completeAuth("proc-1", 7L);
 
-        ArgumentCaptor<BanquePopulaireSession> stored = ArgumentCaptor.forClass(BanquePopulaireSession.class);
+        ArgumentCaptor<SidecarSession> stored = ArgumentCaptor.forClass(SidecarSession.class);
         verify(sessionRepository).saveAndFlush(stored.capture());
         assertThat(stored.getValue().getSessionState()).isEqualTo("encrypted-state");
         assertThat(stored.getValue().isActive()).isTrue();
-        assertThat(stored.getValue().getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.IDLE);
+        assertThat(stored.getValue().getSyncStatus()).isEqualTo(SidecarSyncStatus.IDLE);
         assertThat(stored.getValue().getRegion()).isEqualTo(BanquePopulaireRegion.BRED);
         verify(port).submitKeypad("proc-1", POSITIONS);
     }
 
     @Test
     void aNewLoginReplacesTheSessionAndItsRegion() {
-        BanquePopulaireSession earlier = activeSession();
+        SidecarSession earlier = activeSession();
         when(port.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.SUD))
             .thenReturn(new BanquePopulairePort.InitiateResult("proc-2", keypad(), 90));
         when(port.completeAuth("proc-2")).thenReturn("{\"cookies\":[]}");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(earlier));
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(earlier));
         when(encryption.encrypt("{\"cookies\":[]}")).thenReturn("encrypted-state");
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
 
         service.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.SUD, 7L);
         service.submitKeypad("proc-2", POSITIONS, 7L);
         service.completeAuth("proc-2", 7L);
 
         verify(sessionRepository).delete(earlier);
-        ArgumentCaptor<BanquePopulaireSession> stored = ArgumentCaptor.forClass(BanquePopulaireSession.class);
+        ArgumentCaptor<SidecarSession> stored = ArgumentCaptor.forClass(SidecarSession.class);
         verify(sessionRepository).saveAndFlush(stored.capture());
         assertThat(stored.getValue()).isNotSameAs(earlier);
         assertThat(stored.getValue().getRegion()).isEqualTo(BanquePopulaireRegion.SUD);
@@ -510,16 +511,16 @@ class BanquePopulaireSyncServiceTest {
             .thenReturn(new BanquePopulairePort.InitiateResult("proc-o", keypad(), 90));
         when(port.completeAuth("proc-n")).thenReturn("state-n");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
         when(encryption.encrypt("state-n")).thenReturn("encrypted-n");
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
 
         service.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.NORD, 7L);
         service.initiateAuth("B7654321", BanquePopulaireRegion.OCCITANE, 7L);
         service.submitKeypad("proc-n", POSITIONS, 7L);
         service.completeAuth("proc-n", 7L);
 
-        ArgumentCaptor<BanquePopulaireSession> stored = ArgumentCaptor.forClass(BanquePopulaireSession.class);
+        ArgumentCaptor<SidecarSession> stored = ArgumentCaptor.forClass(SidecarSession.class);
         verify(sessionRepository).saveAndFlush(stored.capture());
         assertThat(stored.getValue().getRegion()).isEqualTo(BanquePopulaireRegion.NORD);
     }
@@ -527,13 +528,13 @@ class BanquePopulaireSyncServiceTest {
     @Test
     void storeSessionStoresTheRegionItIsGiven() {
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member()));
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
         when(encryption.encrypt("cookies")).thenReturn("encrypted-state");
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
 
         service.storeSession("cookies", BanquePopulaireRegion.VAL_DE_FRANCE, 7L);
 
-        ArgumentCaptor<BanquePopulaireSession> stored = ArgumentCaptor.forClass(BanquePopulaireSession.class);
+        ArgumentCaptor<SidecarSession> stored = ArgumentCaptor.forClass(SidecarSession.class);
         verify(sessionRepository).saveAndFlush(stored.capture());
         assertThat(stored.getValue().getRegion()).isEqualTo(BanquePopulaireRegion.VAL_DE_FRANCE);
         verify(port, never()).fetchAccounts(anyString());
@@ -558,7 +559,7 @@ class BanquePopulaireSyncServiceTest {
                 assertThat(error.getMessage()).contains("Banque Populaire");
             });
         verify(port, never()).submitKeypad(anyString(), any());
-        verify(sessionRepository, never()).findByMemberId(anyLong());
+        verify(sessionRepository, never()).findByBankAndMemberId(any(), anyLong());
     }
 
     @Test
@@ -583,15 +584,15 @@ class BanquePopulaireSyncServiceTest {
 
     // -- fixtures -----------------------------------------------------------
 
-    private BanquePopulaireSession arrangeCommittableSync(BanquePopulairePort.AccountData... accounts) {
+    private SidecarSession arrangeCommittableSync(BanquePopulairePort.AccountData... accounts) {
         return arrangeCommittableSync(BanquePopulaireRegion.RIVES_DE_PARIS, accounts);
     }
 
-    private BanquePopulaireSession arrangeCommittableSync(
+    private SidecarSession arrangeCommittableSync(
         BanquePopulaireRegion region, BanquePopulairePort.AccountData... accounts
     ) {
         FamilyMember member = member();
-        BanquePopulaireSession session = activeSession(region);
+        SidecarSession session = activeSession(region);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state"))
             .thenReturn(new BanquePopulairePort.AccountsSnapshot(List.of(accounts), List.of()));
@@ -607,11 +608,11 @@ class BanquePopulaireSyncServiceTest {
         return session;
     }
 
-    private void arrangeQueuedSession(BanquePopulaireSession session) {
-        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+    private void arrangeQueuedSession(SidecarSession session) {
+        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(session));
         lenient().when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L))
             .thenReturn(Optional.of(session));
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(session));
         lenient().when(encryption.decrypt("encrypted")).thenReturn("plain-state");
     }
 
@@ -619,18 +620,19 @@ class BanquePopulaireSyncServiceTest {
         return FamilyMember.builder().id(7L).displayName("Owner").build();
     }
 
-    private static BanquePopulaireSession activeSession() {
+    private static SidecarSession activeSession() {
         return activeSession(BanquePopulaireRegion.RIVES_DE_PARIS);
     }
 
-    private static BanquePopulaireSession activeSession(BanquePopulaireRegion region) {
-        return BanquePopulaireSession.builder()
+    private static SidecarSession activeSession(BanquePopulaireRegion region) {
+        return SidecarSession.builder()
             .id(3L)
+            .bank(SidecarBank.BANQUE_POPULAIRE)
             .member(member())
             .region(region)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(BanquePopulaireSyncStatus.IDLE)
+            .syncStatus(SidecarSyncStatus.IDLE)
             .build();
     }
 

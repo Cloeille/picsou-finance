@@ -42,9 +42,13 @@ the login state machine.
    `BpceSidecarAdapter` (on the shared `SidecarClient`) and `BpceSession` carry the
    shared contract. Errors use the shared `SidecarErrorCode`; each bank declares its
    codes in `SidecarBank` (`CAISSE_EPARGNE`, `BANQUE_POPULAIRE`). Each bank keeps its
-   own controller, session table, rate-limit buckets, executor and error-code CHECK. CE keeps `caisse_epargne_session`,
-   the `ce_` prefix and its REST paths. BP gets `banque_populaire_session`
-   (`V134`), the `bp_` prefix and `/api/banque-populaire`.
+   own controller, session table, rate-limit buckets, executor and error-code CHECK
+   (as decided here). CE keeps `caisse_epargne_session`, the `ce_` prefix and its
+   REST paths. BP gets `banque_populaire_session` (`V134`), the `bp_` prefix and
+   `/api/banque-populaire`. Later update: #423 (V142) and #478 (V147) moved both
+   banks' sessions into the shared `sidecar_session` table, with one error-code
+   CHECK branch per bank; each bank keeps its own prefix, paths, buckets and
+   executor.
 3. **Frontend.** `BpceSessionPanel` holds the keypad pop-up, the Sécur'Pass
    wait and the recovery of a lost completion. `CaisseEpargnePanel` and
    `BanquePopulairePanel` wrap it with their own API, translation prefix and,
@@ -96,5 +100,6 @@ tests guard the refactor.
 - New: `services/base/bpce`, `services/banque-populaire-auth`, the `BanquePopulaire*`
   backend classes, `V134__banque_populaire_session.sql`, `BpceSessionPanel`,
   `BanquePopulairePanel`, Compose profile `banque-populaire`, GHCR image
-  `banque-populaire-auth`.
+  `banque-populaire-auth`. `V147` (#478) later copied the `V134` table into
+  `sidecar_session` and dropped it.
 - Details: [docs/features/banque-populaire.md](../features/banque-populaire.md).

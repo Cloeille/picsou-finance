@@ -189,6 +189,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   old app writing a session after the copy loses it), then use the
   [safe release deployment](docs/features/release-deployment.md), which takes a backup first.
   (#337)
+- **Banque Populaire sessions join the shared session table.** Migration V147 moves every
+  stored Banque Populaire session, regional bank included, into `sidecar_session`, so nobody
+  has to reconnect, then drops the old table. The same offline upgrade applies. (#478)
 
 ### Fixed
 

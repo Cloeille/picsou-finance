@@ -6,6 +6,7 @@ import com.picsou.exception.SyncException;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.SidecarSession;
 import com.picsou.model.SidecarSyncStatus;
+import com.picsou.port.BanquePopulaireRegion;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.SidecarSessionRepository;
@@ -49,8 +50,8 @@ import static org.mockito.Mockito.when;
  * Only the shared collaborators are controlled; every bank-specific one is a plain mock, and the
  * bank's adapter fails any fetch, so no scenario depends on a bank's payload.
  *
- * <p>Banque Populaire is excluded: it keeps banque_populaire_session (V134) and its own
- * BanquePopulaireSyncServiceTest until it moves to sidecar_session in a follow-up.
+ * <p>La Banque Postale is excluded: it keeps lbp_session and its own sync service until it
+ * moves to sidecar_session in a follow-up.
  *
  * <p>Natixis Interépargne is excluded too: its row lives in sidecar_session, but its sync is not
  * the shared cycle (a login hand-off with an e-mailed code, a refresh token rotated on every read,
@@ -62,17 +63,18 @@ class SidecarSyncContractTest {
     private static final long MEMBER = 7L;
     private static final long SESSION = 3L;
 
-    private static final Map<SidecarBank, Class<?>> SERVICES = Map.of(
-        SidecarBank.AMEX, AmexSyncService.class,
-        SidecarBank.AMUNDI, AmundiSyncService.class,
-        SidecarBank.BOURSE_DIRECT, BourseDirectSyncService.class,
-        SidecarBank.BOURSO, BoursoSyncService.class,
-        SidecarBank.CAISSE_EPARGNE, CaisseEpargneSyncService.class,
-        SidecarBank.CIC, CicSyncService.class,
-        SidecarBank.CMES, CmesSyncService.class,
-        SidecarBank.CORUM, CorumSyncService.class,
-        SidecarBank.FORTUNEO, FortuneoSyncService.class,
-        SidecarBank.SOFIDY, SofidySyncService.class
+    private static final Map<SidecarBank, Class<?>> SERVICES = Map.ofEntries(
+        Map.entry(SidecarBank.AMEX, AmexSyncService.class),
+        Map.entry(SidecarBank.AMUNDI, AmundiSyncService.class),
+        Map.entry(SidecarBank.BANQUE_POPULAIRE, BanquePopulaireSyncService.class),
+        Map.entry(SidecarBank.BOURSE_DIRECT, BourseDirectSyncService.class),
+        Map.entry(SidecarBank.BOURSO, BoursoSyncService.class),
+        Map.entry(SidecarBank.CAISSE_EPARGNE, CaisseEpargneSyncService.class),
+        Map.entry(SidecarBank.CIC, CicSyncService.class),
+        Map.entry(SidecarBank.CMES, CmesSyncService.class),
+        Map.entry(SidecarBank.CORUM, CorumSyncService.class),
+        Map.entry(SidecarBank.FORTUNEO, FortuneoSyncService.class),
+        Map.entry(SidecarBank.SOFIDY, SofidySyncService.class)
     );
 
     /** The banks SidecarSyncRecovery does not run at boot, as before this refactor. */
@@ -80,7 +82,7 @@ class SidecarSyncContractTest {
 
     /** The banks the daily scheduler does not resync. CORUM joined it with its stored login (#452). */
     private static final Set<SidecarBank> NOT_SCHEDULED =
-        EnumSet.of(SidecarBank.SOFIDY, SidecarBank.CAISSE_EPARGNE);
+        EnumSet.of(SidecarBank.SOFIDY, SidecarBank.CAISSE_EPARGNE, SidecarBank.BANQUE_POPULAIRE);
 
     private SidecarSessionRepository sessions;
     private FamilyMemberRepository members;
@@ -105,13 +107,13 @@ class SidecarSyncContractTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void everySidecarBankHasAService(SidecarBank bank) {
         assertThat(SERVICES).containsKey(bank);
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void queueingWithoutAStoredSessionAsksForAReconnect(SidecarBank bank) {
         Bank service = service(bank);
 
@@ -123,7 +125,7 @@ class SidecarSyncContractTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void queueingAnInactiveSessionAsksForAReconnect(SidecarBank bank) {
         SidecarSession session = stored(bank);
         session.markQueued();
@@ -138,7 +140,7 @@ class SidecarSyncContractTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void aSecondSyncIsNotStackedOnAnInFlightSession(SidecarBank bank) {
         for (SidecarSyncStatus inFlight : List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING)) {
             SidecarSession session = stored(bank);
@@ -153,7 +155,7 @@ class SidecarSyncContractTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void anUpstreamFailureIsRecordedOnTheSessionAndKeepsItConnected(SidecarBank bank) {
         SidecarSession session = stored(bank);
         Bank service = service(bank);
@@ -168,7 +170,7 @@ class SidecarSyncContractTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void aFailureForASessionDisconnectedMidFlightIsNotWrittenBack(SidecarBank bank) {
         SidecarSession session = stored(bank);
         Bank service = service(bank);
@@ -182,7 +184,7 @@ class SidecarSyncContractTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void aJobWhoseSessionWasReplacedBeforeItStartsNeverFetches(SidecarBank bank) {
         stored(bank);
         Bank service = service(bank);
@@ -197,7 +199,7 @@ class SidecarSyncContractTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void anExecutorThatRefusesTheJobFailsTheQueuedSession(SidecarBank bank) {
         SidecarSession session = stored(bank);
         RejectedExecutionException rejection = new RejectedExecutionException("full");
@@ -214,7 +216,7 @@ class SidecarSyncContractTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void anUnreadableStoredSessionFailsAsTheBankDeclares(SidecarBank bank) {
         SidecarSession session = stored(bank);
         when(encryption.decrypt("encrypted")).thenThrow(new IllegalStateException("bad tag"));
@@ -235,7 +237,7 @@ class SidecarSyncContractTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void writesLockTheMemberRowOnlyForTheBanksThatSerializeOnIt(SidecarBank bank) {
         stored(bank);
 
@@ -246,7 +248,7 @@ class SidecarSyncContractTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void theStatusOfAMemberWithoutASessionIsInactive(SidecarBank bank) {
         SidecarSessionView status = service(bank).status();
 
@@ -255,7 +257,7 @@ class SidecarSyncContractTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void clearingDeletesOnlyThisBanksSession(SidecarBank bank) {
         SidecarSession session = stored(bank);
 
@@ -266,7 +268,7 @@ class SidecarSyncContractTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void recoveryFailsOnlyThisBanksInFlightJobsWithARetryableError(SidecarBank bank) {
         Bank service = service(bank);
         if (NO_BOOT_RECOVERY.contains(bank)) {
@@ -289,7 +291,7 @@ class SidecarSyncContractTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void theSchedulerSkipsAMemberWithoutASessionAndAsksAnExpiredOneToReconnect(SidecarBank bank) {
         Bank service = service(bank);
         if (NOT_SCHEDULED.contains(bank)) {
@@ -310,7 +312,7 @@ class SidecarSyncContractTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = SidecarBank.class, names = {"BANQUE_POPULAIRE", "LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = SidecarBank.class, names = {"LBP", "NATIXIS"}, mode = EnumSource.Mode.EXCLUDE)
     void theSchedulerQueuesAnActiveSession(SidecarBank bank) {
         Bank service = service(bank);
         if (NOT_SCHEDULED.contains(bank)) {
@@ -330,6 +332,7 @@ class SidecarSyncContractTest {
             .bank(bank)
             .member(member)
             .sessionState("encrypted")
+            .region(bank == SidecarBank.BANQUE_POPULAIRE ? BanquePopulaireRegion.RIVES_DE_PARIS : null)
             .active(true)
             .syncStatus(SidecarSyncStatus.IDLE)
             .build();

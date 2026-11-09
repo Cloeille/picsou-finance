@@ -1,6 +1,6 @@
 # Feature: Banque Populaire sync
 
-> Last updated: 2026-11-08
+> Last updated: 2026-11-09
 > Status: sidecar, backend and frontend are in the codebase. Docker Compose (profile `banque-populaire`) and the Helm chart run the `banque-populaire-auth` sidecar. The user connects from the Sync page (Banque Populaire tab) or the add-account modal: they pick their regional bank, type their identifier, click their own digits on the bank's keypad, then approve in Sécur'Pass. Sync is on demand only. Full logins and syncs through Picsou ran against real Rives de Paris (2026-11-05) and Val de France (2026-11-08) accounts (see "Verification boundaries").
 
 ## Context
@@ -13,7 +13,7 @@ Banque Populaire runs the BPCE platform that Caisse d'Epargne runs, so this conn
 
 - `services/banque-populaire-auth/main.py`: routes and the Banque Populaire `Site`. See its README for what was observed live.
 - `services/base/bpce/`: login, replay, fetcher and parsers shared with Caisse d'Epargne.
-- `BanquePopulaireController` (`/api/banque-populaire`), `BanquePopulaireSyncService` (on `BpceSyncEngine` with the Banque Populaire `BpceBank`), `BanquePopulaireAdapter`, `BanquePopulaireSession` (table `banque_populaire_session`, migration `V134`), `BanquePopulaireRegion`; its error codes are `SidecarBank.BANQUE_POPULAIRE` (the same 11 as Caisse d'Epargne).
+- `BanquePopulaireController` (`/api/banque-populaire`), `BanquePopulaireSyncService` (on `BpceSyncEngine` with the Banque Populaire `BpceBank`), `BanquePopulaireAdapter`, `SidecarSession` rows with `bank = 'BANQUE_POPULAIRE'` (table `sidecar_session`, since migration `V147`), `BanquePopulaireRegion`; its error codes are `SidecarBank.BANQUE_POPULAIRE` (the same 11 as Caisse d'Epargne).
 - `frontend/src/components/sync/BanquePopulairePanel.tsx` (on `BpceSessionPanel`), `pages/sync/BanquePopulaireTab.tsx`, `banquePopulaireApi`, i18n `sync.banquePopulaire.*`.
 
 ### Login
@@ -32,7 +32,7 @@ Banque Populaire runs the BPCE platform that Caisse d'Epargne runs, so this conn
 
 ### Storage
 
-Table `banque_populaire_session` (migration `V134`) has the Caisse d'Epargne table's shape and the full 11-code `last_sync_error` CHECK, plus `region` (`VARCHAR(32) NOT NULL`, CHECK listing the 12 `BanquePopulaireRegion` names). It stores the cookies encrypted; no password and no Sécur'Pass approval is stored. The region is stored in clear: it is not a secret, it names the bank. A new login replaces the row, region included. External ids are prefixed `bp_`.
+Sessions are `sidecar_session` rows with `bank = 'BANQUE_POPULAIRE'`, as Caisse d'Epargne's are. `V134` first created a `banque_populaire_session` table; `V147` copied its rows as stored and dropped it. The bank's branch of `ck_sidecar_session_last_sync_error` lists the same 11 codes as Caisse d'Epargne, and `region` (`VARCHAR(32)`) is set on every Banque Populaire row and null on every other bank (`ck_sidecar_session_region`, listing the 12 `BanquePopulaireRegion` names). It stores the cookies encrypted; no password and no Sécur'Pass approval is stored. The region is stored in clear: it is not a secret, it names the bank. A new login replaces the row, region included. External ids are prefixed `bp_`.
 
 ### Branding
 
@@ -78,6 +78,7 @@ The bank answers a wrong identifier or password with a modal titled "Identifiant
 
 ## Gotchas / Pitfalls
 
+- `V147` drops `banque_populaire_session` after the copy, so there is no rollback past it without a database restore. Upgrade offline, as for `V142`: stop the old app first, then use the [safe release deployment](release-deployment.md). A session the old app writes after the copy is lost with the table.
 - A BPCE `3/01` code covers both Livret A and Livret Jeune. The product label tells them apart (whole word `JEUNE`), for both banks. A LEP label (`LEP`, `EPARGNE POPULAIRE`) is imported as `LEP` (not observed live).
 - `3/02` (`SAVINGS`, Compte sur Livret), `3/04` (`PEL`), `4/09` (`TERM_DEPOSIT`, term deposit) and `4/10` (`COOPERATIVE_SHARES`, cooperative shares) are enabled on Banque Populaire through `Site.provisional_kinds=frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES"})` ([ADR](../decisions/2026-11-07-provisional-kinds-per-bank.md)): an unreadable entry is demoted to `unsupported` instead of failing the synthesis, and `3/02`, `4/09` and `4/10` stay in `unsupported_families` on Caisse d'Epargne until observed there.
 - The host allow-list is strictly `*.banquepopulaire.fr`. A `caisse-epargne.fr` or `bpce.fr` URL is refused for this bank, and the other way round for Caisse d'Epargne.
@@ -89,7 +90,7 @@ The bank answers a wrong identifier or password with a modal titled "Identifiant
 ## Tests
 
 - Sidecar: `services/banque-populaire-auth/test_*.py` (region picker against a synthetic page in real Chromium, login, `/initiate` validation, accounts), `services/base/test_bpce.py` (Site, allow-lists, Livret Jeune / LEP rules, unsupported families).
-- Backend: `BanquePopulaire*Test` (region kept from the pending login, provider label and logo rules, catalog miss and Enable Banking not configured), `BanquePopulaireRegionTest` (the 12 names), `V134BanquePopulaireSessionMigrationTest` (Testcontainers, region column and CHECK), plus the Caisse d'Epargne suites that cover `BpceSyncEngine` (label unchanged, no logo).
+- Backend: `BanquePopulaire*Test` (region kept from the pending login, provider label and logo rules, catalog miss and Enable Banking not configured), `BanquePopulaireRegionTest` (the 12 names), `V134BanquePopulaireSessionMigrationTest` (Testcontainers, the V134 table, kept for history), `V147BanquePopulaireSidecarSessionMigrationTest` (every column, every status and every region copied; region CHECK), `SidecarSyncContractTest` (the shared scenarios), plus the Caisse d'Epargne suites that cover `BpceSyncEngine` (label unchanged, no logo).
 - Frontend: `BanquePopulaireTab.test.tsx`, `banque-populaire-scope.test.ts`, `demo/banque-populaire.test.ts`, SyncAllModal (each regional label keeps the row) / AddAccountModal / providers tests.
 
 ## Verification boundaries
