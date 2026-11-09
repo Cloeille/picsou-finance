@@ -369,7 +369,7 @@ class CaisseEpargneSyncServiceTest {
         CaisseEpargnePort.AccountData av = new CaisseEpargnePort.AccountData(
             "contract:V0001", "ASSURANCE_VIE", negative.name(), negative.balance(), "EUR",
             null, false, null, null, null, null, null, null, null, List.of(), true, null);
-        CaisseEpargneSession session = arrangeCommittableSync(f.current(), av);
+        SidecarSession session = arrangeCommittableSync(f.current(), av);
 
         service.queueSync(7L);
 
@@ -407,7 +407,7 @@ class CaisseEpargneSyncServiceTest {
             new BigDecimal("4200.00"), new BigDecimal("1000.00"), valuationDate, List.of(),
             java.util.Map.of(), java.util.Set.of());
         when(perService.prepare(detail, "EUR")).thenReturn(prepared);
-        CaisseEpargneSession session = arrangeCommittableSync(av);
+        SidecarSession session = arrangeCommittableSync(av);
         Account previous = Account.builder().id(40L).type(AccountType.PER).isManual(false)
             .provider("Caisse d'Epargne").externalAccountId("ce_contract:V0001")
             .name("Old name").currentBalance(new BigDecimal("1")).build();
