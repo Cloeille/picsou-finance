@@ -23,13 +23,20 @@ session-death signal (`codeRetour: "-10"`, a string).
    is unverified; the sidecar classifies the page and stops with `MFA_TYPE_UNSUPPORTED` when it cannot.
 4. **Cookies only, encrypted, in `sidecar_session`** (migration V150, rebuilt from V149). Nothing the
    member typed or clicked is stored.
-5. **Strict allow-list of six hosts**, per brand, every request and redirect hop; an unknown host on a
+5. **Strict allow-list of six exact hosts plus the `.bnpparibas` dotBrand TLD**, per brand, every request and redirect hop; an unknown host on a
    navigation, a body-carrying request or a foreign frame = stop and log the host name only. Two
    refinements, because the login page itself loads ThreatMetrix tags: sub-resources the bank's page loads from ThreatMetrix (`*.online-metrix.net`, dot-bounded suffix, https,
    no credentials) are allowed, because an empty `pf.idTMX` would likely get the login refused; other
    passive third-party sub-resources (analytics) are aborted without stopping the login. Main-frame
    navigations, the form post and anything that could carry the identifier or code stay on the exact list.
-   The WebRTC beacon stays off. Every stop logs a fixed stage name.
+   The WebRTC beacon stays off. Every stop logs a fixed stage name, and a stop after the login submit one
+   structure-only line (host and path with digits masked, query keys, title length, form and field names).
+   The second refinement: every https host under `.bnpparibas` (dot boundary, port 443) is a brand host for both
+   brands, navigations included, because the post-login redirect chain goes through other BNP Paribas hosts
+   (`mabanqueprivee.bnpparibas`, seen in a first owner-assisted run). `.bnpparibas` is a dotBrand gTLD: the IANA
+   root zone database lists BNP Paribas as the sole manager of the TLD
+   (https://www.iana.org/domains/root/db/bnpparibas.html, read 2026-11-09), so no third party can register a name
+   under it. `hellobank.fr` is an ordinary domain and stays on its three exact hosts.
 6. **Fail closed**: unknown product kinds are listed, incomplete snapshots never replace data, unexpected
    pages stop the attempt.
 

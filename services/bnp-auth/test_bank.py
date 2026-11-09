@@ -59,6 +59,10 @@ class AllowListTest(unittest.TestCase):
             "https://content.connexion.hellobank.fr/a.css",
             "data:text/plain,a",
             "about:blank",
+            # Every host of the dotBrand TLD (only BNP Paribas can register under it).
+            "https://mabanqueprivee.bnpparibas/fr/x",
+            "https://a.b-c.bnpparibas:443/",
+            "https://xmabanque.bnpparibas/",  # a different name under the same TLD: still BNP Paribas'
         ]
         bad = [
             "http://mabanque.bnpparibas/",
@@ -66,8 +70,18 @@ class AllowListTest(unittest.TestCase):
             "https://evil.example/mabanque.bnpparibas",
             "https://user@mabanque.bnpparibas/",
             "https://mabanque.bnpparibas:8443/",
-            "https://xmabanque.bnpparibas/",
             "https://hellobank.fr/",  # not an allow-listed host: only www.
+            "https://other.hellobank.fr/",  # hellobank.fr stays on exact hosts
+            "https://bnpparibas/",  # the TLD apex itself
+            "https://evilbnpparibas/",
+            "https://xbnpparibas.example/",
+            "https://mabanqueprivee.bnpparibas.evil.example/",
+            "https://mabanqueprivee.bnpparibas./",
+            "https://mabanqueprivee.bnpparibas:8443/",
+            "http://mabanqueprivee.bnpparibas/",
+            "https://user@mabanqueprivee.bnpparibas/",
+            "https://under_score.bnpparibas/",
+            "https://mabanqueprivee.bnpparibas.com/",
             "https://assets.adobedtm.com/x.js",
             "https://aa.online-metrix.net/fp.js",
             "https://h64.online-metrix.net/fp/tags.js",
@@ -86,9 +100,36 @@ class AllowListTest(unittest.TestCase):
             with self.subTest(url=url):
                 self.assertFalse(bank.is_allowed_url(url))
 
-    def test_a_brand_never_reaches_the_other_brands_hosts(self):
+    def test_a_brand_never_reaches_the_other_brands_exact_hosts(self):
         self.assertFalse(bank.is_allowed_url("https://www.hellobank.fr/", BNP.hosts))
-        self.assertFalse(bank.is_allowed_url("https://connexion.mabanque.bnpparibas/", HELLO.hosts))
+        self.assertFalse(bank.is_allowed_url("https://connexion.hellobank.fr/", BNP.hosts))
+
+    def test_the_dotbrand_tld_is_a_brand_host_for_both_brands(self):
+        for brand in (BNP, HELLO):
+            with self.subTest(brand=brand.name):
+                self.assertTrue(bank.is_allowed_url("https://mabanqueprivee.bnpparibas/fr/x", brand.hosts))
+
+    def test_a_navigation_or_post_to_another_bnpparibas_host_loads_and_never_stops_the_attempt(self):
+        guard = bank.Guard(BNP.hosts)
+        url = "https://mabanqueprivee.bnpparibas/fr/secure/x?code=c&state=s"
+        for request in (req(url, "document"), req(url, "xhr", "POST", "{}"), req(url, "script")):
+            route = routed(request)
+            run(guard.route(route))
+            route.continue_.assert_awaited_once()
+            route.abort.assert_not_awaited()
+        guard.observe(req(url, "document", redirected_from=req(LOGIN, "document")))
+        self.assertFalse(guard.tainted)
+        self.assertEqual(guard.unknown_hosts, [])
+
+    def test_another_bnpparibas_host_is_logged_once_by_name_only(self):
+        guard = bank.Guard(BNP.hosts)
+        with self.assertLogs("bnp-auth", level="INFO") as logs:
+            for _ in range(3):
+                run(guard.route(routed(req("https://mabanqueprivee.bnpparibas/a?token=secret", "document"))))
+            run(guard.route(routed(req("https://mabanque.bnpparibas/a", "document"))))
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("mabanqueprivee.bnpparibas", logs.output[0])
+        self.assertNotIn("secret", logs.output[0])
 
     def test_every_hop_of_a_redirect_chain_is_checked(self):
         guard = bank.Guard(BNP.hosts)
@@ -292,6 +333,38 @@ class LoginOutcomeTest(unittest.TestCase):
         self.assertFalse(bank.on_site("https://mabanque.bnpparibas/auth/login", BNP))
         self.assertFalse(bank.on_site(LOGIN, BNP))
 
+    def test_the_error_code_parameter_is_read_under_both_spellings(self):
+        base = "https://mabanqueprivee.bnpparibas/fr/connexion?"
+        self.assertEqual(self.failure(base + "errorCode=201"), (401, "INVALID_CREDENTIALS"))
+        self.assertEqual(self.failure(base + "errorCode=TechnicalException"), (502, "UPSTREAM_UNAVAILABLE"))
+
+    def test_every_bnpparibas_host_past_the_login_is_the_site(self):
+        self.assertTrue(bank.on_site("https://mabanqueprivee.bnpparibas/fr/secure/comptes-et-contrats", BNP))
+        self.assertTrue(bank.on_site("https://mabanqueprivee.bnpparibas/fr/secure/comptes-et-contrats", HELLO))
+        self.assertFalse(bank.on_site("https://connexion.mabanqueprivee.bnpparibas/as/x/authorization.ping", BNP))
+        self.assertFalse(bank.on_site("https://evil.example/fr/secure/x", BNP))
+        self.assertFalse(bank.on_site("https://mabanqueprivee.bnpparibas/auth/login", BNP))
+
+    def test_pages_after_the_submit_are_told_apart_by_what_the_url_carries(self):
+        cases = {
+            "https://connexion.mabanque.bnpparibas/as/x/authorization.oauth2?error_code=201": "error",
+            "https://mabanqueprivee.bnpparibas/fr/connexion?errorCode=SecretErrorException": "error",
+            "https://mabanqueprivee.bnpparibas/fr/secure/authentification-forte": "second_factor",
+            "https://mabanque.bnpparibas/fr/espace-prive/authentification-forte-anr": "second_factor",
+            "https://mabanqueprivee.bnpparibas/fr/secure/authentForte?x=1": "second_factor",
+            "https://mabanque.bnpparibas/fr/secure/mot-de-passe-expire": "password",
+            "https://mabanque.bnpparibas/fr/espace-pro/changer-son-mot-de-passe": "password",
+            "https://mabanque.bnpparibas/fr/connexion/100-connexion": "password",
+            "https://connexion.mabanque.bnpparibas/as/abc/resume/as/authorization.ping": "login",
+            "https://mabanqueprivee.bnpparibas/fr/callback?code=c&state=s": "callback",
+            "https://mabanque.bnpparibas/fr/secure/comptes-et-contrats": "site",
+            "https://evil.example/fr/secure/authentification-forte": "other",
+            "https://mabanque.bnpparibas/fr/secure/authentification-forte?error_code=3": "error",
+        }
+        for url, expected in cases.items():
+            with self.subTest(url=url):
+                self.assertEqual(bank.classify_url(url, BNP), expected)
+
     def test_session_death_is_the_string_minus_ten(self):
         self.assertFalse(bank.session_alive({"codeRetour": "-10", "message": "user not connected"}))
         self.assertFalse(bank.session_alive({"codeRetour": -10}))
@@ -308,6 +381,52 @@ class LoginOutcomeTest(unittest.TestCase):
         self.assertIsNone(bank.classify_second_factor(2, "code"))
 
 
+class StructureLogTest(unittest.TestCase):
+    def test_a_url_keeps_host_path_shape_and_query_keys_only(self):
+        url = ("https://mabanqueprivee.bnpparibas/fr/secure/ABCdef123456/pay/987654/authorization.oauth2"
+               "?code=SECRETCODE1&state=xyz789&error_code=201&x#frag=tok")
+        text = bank.describe_url(url)
+        self.assertEqual(
+            text,
+            "host=mabanqueprivee.bnpparibas path=/fr/secure/<ID>/pay/<N>/authorization.oauth<N> query=[code,state,error_code,x]",
+        )
+        for leaked in ("SECRETCODE1", "xyz789", "987654", "ABCdef", "frag", "tok", "201"):
+            self.assertNotIn(leaked, text)
+
+    def test_a_foreign_host_is_named_with_its_digits_masked_and_junk_is_not_a_host(self):
+        self.assertEqual(bank.describe_url("https://h64.evil.example/a?b=c"), "host=h<N>.evil.example path=/a query=[b]")
+        for junk in ("not a url", None, 5, "https://[::1"):
+            with self.subTest(junk=junk):
+                self.assertTrue(bank.describe_url(junk).startswith("host=<none>"))
+
+    def test_query_keys_that_look_like_values_are_masked(self):
+        text = bank.describe_url("https://mabanque.bnpparibas/a?" + "A1b2C3d4E5f6G7h8I9j0K1l2=v&ok=1&" + "k" * 80 + "=v")
+        self.assertEqual(text, "host=mabanque.bnpparibas path=/a query=[<K>,ok,<K>]")
+
+    def test_the_structure_line_counts_the_title_and_never_prints_it(self):
+        raw = {
+            "title": "Bonjour Jean Dupont", "ready": "complete", "frames": 2,
+            "forms": [
+                {"id": "form123", "fields": [{"n": "otp", "t": "tel"}, {"n": "token9f8a7b6c5d4e3f21", "t": "hidden"}]},
+                {"id": "", "fields": []},
+            ],
+            "landmarks": ["main-content", "acct-1234567890", "Jean Dupont", "x" * 90],
+            "types": {"tel": 1, "hidden": 1},
+        }
+        text = bank.describe_structure(raw)
+        self.assertIn("title_len=19", text)
+        self.assertIn("form<N>(otp:tel,<X>:hidden)", text)
+        self.assertIn("acct-<N>", text)
+        self.assertIn("main-content", text)
+        for leaked in ("Jean", "Dupont", "1234567890", "9f8a7b6c5d4e3f21", "xxxx"):
+            self.assertNotIn(leaked, text)
+
+    def test_a_malformed_answer_is_reported_as_unreadable_not_raised(self):
+        for raw in (None, "text", 5, {"forms": "x", "landmarks": 3, "title": None}):
+            with self.subTest(raw=raw):
+                self.assertIsInstance(bank.describe_structure(raw), str)
+
+
 class SessionStateTest(unittest.TestCase):
     def test_only_the_brands_cookies_survive_a_round_trip(self):
         jar = bank.encode_session(BNP, [
@@ -320,6 +439,16 @@ class SessionStateTest(unittest.TestCase):
         self.assertIs(brand, BNP)
         self.assertEqual([c["name"] for c in cookies], ["S", "T"])
         self.assertNotIn("extra", cookies[0])
+
+    def test_cookies_of_another_bnpparibas_host_are_kept_and_the_tld_apex_is_not(self):
+        jar = bank.encode_session(BNP, [
+            {"name": "P", "value": "p", "domain": "mabanqueprivee.bnpparibas"},
+            {"name": "Q", "value": "q", "domain": ".mabanqueprivee.bnpparibas"},
+            {"name": "A", "value": "a", "domain": ".bnpparibas"},
+            {"name": "E", "value": "e", "domain": "mabanqueprivee.bnpparibas.evil.example"},
+        ])
+        _, cookies = bank.decode_session(jar)
+        self.assertEqual([c["name"] for c in cookies], ["P", "Q"])
 
     def test_nothing_to_keep_is_a_failure_not_an_empty_session(self):
         with self.assertRaises(HTTPException) as caught:
@@ -353,8 +482,12 @@ class FakeKeys:
 
 
 class FakePage:
+    """`plan` = [(seconds after the submit, url)]: the page follows the chain on its own clock."""
+
     def __init__(self, url=LOGIN):
-        self.url = url
+        self._url = url
+        self.plan = []
+        self.submitted_at = None
         self.results = []
         self.evaluated = []
         self.filled = []
@@ -364,6 +497,20 @@ class FakePage:
         self.text = ""
         self.on_submit = lambda: None
         self.sms_typed = []
+
+    @property
+    def url(self):
+        if self.plan and self.submitted_at is not None:
+            elapsed = time.monotonic() - self.submitted_at
+            due = [url for after, url in self.plan if after <= elapsed]
+            if due:
+                return due[-1]
+        return self._url
+
+    @url.setter
+    def url(self, value):
+        self._url = value
+        self.plan = []
 
     async def goto(self, url, **_):
         return None  # the real browser follows the redirect; tests set `url` up front
@@ -393,6 +540,7 @@ class FakePage:
 
     async def click(self, selector, **_):
         self.clicked.append(selector)
+        self.submitted_at = time.monotonic()
         if self.on_submit:
             self.on_submit()
 
@@ -422,7 +570,7 @@ def form(**over):
 class FlowTest(unittest.TestCase):
     def setUp(self):
         self.client = bank.BrowserBankClient()
-        for target, value in (("_close", AsyncMock()), ("MIN_LOGIN_GAP", 0), ("POLL_SECONDS", 0.01)):
+        for target, value in (("_close", AsyncMock()), ("MIN_LOGIN_GAP", 0), ("POLL_SECONDS", 0.01), ("SETTLE_POLL_SECONDS", 0.02), ("STRUCTURE_RETRY_SECONDS", 0)):
             patcher = patch.object(bank, target, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -564,6 +712,114 @@ class FlowTest(unittest.TestCase):
             run(self.client.keypad("p1", [0, 1, 2, 3, 4, 5]))
         self.assertEqual((caught.exception.status_code, caught.exception.detail), (401, "INVALID_CREDENTIALS"))
         self.assertNotIn("p1", self.client.pending)
+
+    def chain(self, page, plan, *, alive=None, text="", codes=0, settle=None, fetch=None):
+        """Submit once, then the page follows `plan`; returns the keypad() status."""
+        page.results = [{"value": "012345", "enabled": True}]
+        page.text, page.codes, page.plan = text, codes, plan
+        self.park(page, submit_url=LOGIN)
+        patches = [patch.object(bank, "STABLE_SECONDS", 0.2)]
+        if settle is not None:
+            patches.append(patch.object(bank, "SETTLE_SECONDS", settle))
+        patches.append(patch.object(bank, "fetch_json", fetch or AsyncMock(return_value={"codeRetour": "-10"})))
+        for patcher in patches:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return run(self.client.keypad("p1", [0, 1, 2, 3, 4, 5]))
+
+    CALLBACK = "https://mabanqueprivee.bnpparibas/fr/callback?code=c&state=s"
+    FORTE = "https://mabanqueprivee.bnpparibas/fr/secure/authentification-forte"
+
+    def test_the_chain_through_the_private_banking_host_ends_on_an_sms_code_page(self):
+        page = FakePage()
+        status = self.chain(page, [(0, STEP2), (0.05, self.CALLBACK), (0.15, self.FORTE)], codes=1, text="code")
+        self.assertEqual(status, "CODE_REQUIRED")
+        self.assertEqual(self.client.pending._states["p1"]["kind"], "sms")
+
+    def test_the_chain_through_the_private_banking_host_ends_on_an_app_approval_page(self):
+        page = FakePage()
+        status = self.chain(page, [(0, STEP2), (0.05, self.CALLBACK), (0.15, self.FORTE)], text="Validez dans votre application Clé Digitale")
+        self.assertEqual(status, "APPROVAL_PENDING")
+        self.assertEqual(self.client.pending._states["p1"]["kind"], "app")
+
+    def test_a_callback_that_never_moves_on_is_a_timeout_not_a_second_factor(self):
+        page = FakePage()
+        with self.assertRaises(HTTPException) as caught:
+            self.chain(page, [(0, STEP2), (0.05, self.CALLBACK)], codes=1, text="code", settle=1.0)
+        self.assertEqual((caught.exception.status_code, caught.exception.detail), (409, "KEYPAD_CHANGED"))
+
+    def test_a_landing_on_another_bnpparibas_host_with_a_session_is_a_login(self):
+        page = FakePage()
+        landing = "https://mabanqueprivee.bnpparibas/fr/secure/comptes-et-contrats"
+        fetch = AsyncMock(return_value={"codeRetour": 0, "message": "OK"})
+        status = self.chain(page, [(0, STEP2), (0.05, self.CALLBACK), (0.1, landing)], fetch=fetch)
+        self.assertEqual(status, "APPROVAL_PENDING")
+        self.assertEqual(self.client.pending._states["p1"]["kind"], "none")
+        fetch.assert_awaited()
+
+    def test_an_expired_password_page_is_an_action_for_the_member(self):
+        page = FakePage()
+        expired = "https://mabanqueprivee.bnpparibas/fr/secure/mot-de-passe-expire"
+        with self.assertLogs("bnp-auth", level="WARNING") as logs, self.assertRaises(HTTPException) as caught:
+            self.chain(page, [(0, STEP2), (0.05, expired)])
+        self.assertEqual((caught.exception.status_code, caught.exception.detail), (409, "ACTION_REQUIRED"))
+        self.assertIn("stage=password_expired", logs.output[0])
+        self.assertNotIn("p1", self.client.pending)
+
+    def test_a_refusal_under_the_other_spelling_of_the_error_parameter(self):
+        page = FakePage()
+        refused = "https://mabanqueprivee.bnpparibas/fr/connexion?errorCode=201"
+        with self.assertRaises(HTTPException) as caught:
+            self.chain(page, [(0, STEP2), (0.05, refused)])
+        self.assertEqual((caught.exception.status_code, caught.exception.detail), (401, "INVALID_CREDENTIALS"))
+
+    def test_a_strong_authentication_page_nobody_can_classify_stops_with_a_structure_line(self):
+        page = FakePage()
+        page.results = [{"value": "012345", "enabled": True}, {
+            "title": 31, "ready": "complete", "frames": 1,
+            "forms": [{"id": "otpForm", "fields": [{"n": "tokenField", "t": "hidden"}]}],
+            "landmarks": ["main-content"], "types": {"hidden": 1},
+        }]
+        self.park(page, submit_url=LOGIN)
+        page.plan = [(0, STEP2), (0.05, self.FORTE + "/12345678?ref=SECRETREF&state=SECRETSTATE")]
+        with (
+            self.assertLogs("bnp-auth", level="WARNING") as logs,
+            patch.object(bank, "STABLE_SECONDS", 0.2),
+            patch.object(bank, "fetch_json", AsyncMock(return_value={"codeRetour": "-10"})),
+            self.assertRaises(HTTPException) as caught,
+        ):
+            run(self.client.keypad("p1", [0, 1, 2, 3, 4, 5]))
+        self.assertEqual(caught.exception.detail, "MFA_TYPE_UNSUPPORTED")
+        lines = [line for line in logs.output if "page structure" in line]
+        self.assertEqual(len(lines), 1)
+        text = "\n".join(logs.output)
+        for leaked in ("SECRETREF", "SECRETSTATE", "12345678"):
+            self.assertNotIn(leaked, text)
+        self.assertIn("stage=second_factor", lines[0])
+        self.assertIn("host=mabanqueprivee.bnpparibas", lines[0])
+        self.assertIn("otpForm", lines[0])
+        self.assertIn("title_len=31", lines[0])
+
+    def test_a_stop_before_the_submit_logs_no_structure(self):
+        page = FakePage()
+        with self.assertLogs("bnp-auth", level="WARNING") as logs:
+            with self.assertRaises(HTTPException):
+                self.initiate(page, results=[form(form=False)])
+        self.assertFalse([line for line in logs.output if "page structure" in line])
+
+    def test_a_page_that_cannot_be_read_never_hides_the_original_stop(self):
+        page = FakePage()
+        page.results = [{"value": "012345", "enabled": True}]  # no structure answer: evaluate raises
+        self.park(page, submit_url=LOGIN)
+        page.plan = [(0, STEP2), (0.05, "https://mabanque.bnpparibas/fr/secure/mot-de-passe-expire")]
+        with (
+            self.assertLogs("bnp-auth", level="WARNING") as logs,
+            patch.object(bank, "fetch_json", AsyncMock(return_value={"codeRetour": "-10"})),
+            self.assertRaises(HTTPException) as caught,
+        ):
+            run(self.client.keypad("p1", [0, 1, 2, 3, 4, 5]))
+        self.assertEqual(caught.exception.detail, "ACTION_REQUIRED")
+        self.assertTrue([line for line in logs.output if "page structure unavailable" in line])
 
     def test_a_redirect_to_an_unknown_host_after_submit_is_reported_not_followed(self):
         page = FakePage()

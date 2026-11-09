@@ -51,9 +51,15 @@ hosts. The page fills `pf.idTMX` from that profiling, so the sidecar lets those 
 them would leave the profile empty and the bank would likely refuse or escalate the login (a blanket "any
 off-list host is a site change" rule would stop every login on these tags). The policy is decided per request (`verdict` in `services/bnp-auth/bank.py`), in this order:
 
-1. **Exact brand hosts** (`mabanque.bnpparibas`, `connexion.mabanque.bnpparibas`,
-   `content.connexion.mabanque.bnpparibas`, or the three Hello bank! ones; https, port 443, no credentials):
-   allowed. Akamai `/akam` scripts and pixels live on these hosts, so they are covered.
+1. **Brand hosts** (https, port 443, no credentials): the exact hosts `mabanque.bnpparibas`,
+   `connexion.mabanque.bnpparibas`, `content.connexion.mabanque.bnpparibas` (or the three Hello bank! ones),
+   **and every host under the `.bnpparibas` TLD** (dot boundary, valid DNS labels; the bare TLD, a trailing dot,
+   another port and `mabanque.bnpparibas.evil.example` do not match). `.bnpparibas` is a dotBrand gTLD managed
+   by BNP Paribas itself (IANA root zone database), so nobody else can register a name under it; the post-login
+   chain goes through such hosts (the private banking site `mabanqueprivee.bnpparibas`). Allowed for
+   navigations, sub-resources and requests with a body; the first use of each extra host is logged once
+   (host name only). Akamai `/akam` scripts and pixels live on these hosts too. `hellobank.fr` stays on its three
+   exact hosts.
 2. **Main-frame navigation** to anything else, including every redirect hop and the login form post:
    stops the attempt (`UPSTREAM_FORMAT_CHANGED`, the host name is logged, never the URL). Fail closed.
 3. **Known vendor sub-resources** (ThreatMetrix: any strict sub-domain of `online-metrix.net`, matched on a
@@ -72,8 +78,26 @@ Every stop logs a fixed stage name next to the stable code, for example
 `BNP attempt stopped: UPSTREAM_FORMAT_CHANGED (stage=page_load)`. Stages: `page_load`, `login_page`,
 `login_form`, `customer_number`, `keypad_read`, `keypad_press`, `submit`, `after_submit`,
 `after_submit_redirect`, `after_submit_timeout`, `login_error`, `second_factor`, `second_factor_wait`,
-`sms_code`, `approval_wait`, `session_cookies`, `snapshot_load`, `snapshot_fetch`, `snapshot_parse`,
+`password_expired`, `sms_code`, `approval_wait`, `session_cookies`, `snapshot_load`, `snapshot_fetch`, `snapshot_parse`,
 `snapshot`. A stage is a constant of the code, never page content, so it is safe to share.
+
+### After the login submit
+
+The bank answers the single form post with a redirect chain: PingFederate `.../authorization.ping`, an OIDC
+callback carrying `code` and `state`, then the site (the open-source woob `bnp` module checks the same chain
+one redirect at a time, `modules/bnp/pp/browser.py`, `check_redirections`). `classify_url` tells each page
+from its URL alone: `error` (`error_code` or `errorCode` query key), `second_factor` (`authentification-forte`,
+`authentForte`), `password` (`mot-de-passe-expire`, `changer-son-mot-de-passe`, `100-connexion`, stage
+`password_expired`, `ACTION_REQUIRED`), `login`, `callback` (a hop in flight: never a verdict, never a second
+factor), `site`, `other`. A page without a session that stays put is read by its shape (a code field = SMS, the
+Cle Digitale wording and no code field = app approval); anything else stops with `MFA_TYPE_UNSUPPORTED`.
+
+Every stop with a stage after the submit also logs ONE structure-only line,
+`BNP page structure (stage=...) host=... path=... query=[keys] kind=... title_len=N ready=... frames=N
+forms=[id(field:type,...)] inputs=[type=count] landmarks=[tag#id,...]`: the host and the path with every digit
+run replaced by `<N>` and opaque segments by `<ID>`, the query keys only (never a value or the fragment), the
+title as a length, form ids and field names and types, a few element ids. Names that look like tokens become
+`<X>`. A page that cannot be read logs `page structure unavailable`. It contains no value typed, clicked or shown.
 
 ## Product mapping and import rules
 
@@ -102,8 +126,8 @@ either checked on the **public** pages with a real browser (nothing typed), or *
 - The login runs on a PingFederate OIDC page: `connexion.mabanque.bnpparibas` (BNP Paribas) and
   `connexion.hellobank.fr` (Hello bank!), path `/as/authorization.oauth2`. The site hosts are
   `mabanque.bnpparibas` and `www.hellobank.fr`; ThreatMetrix first-party hosts are
-  `content.connexion.<domain>`. These six hosts are the whole exact allow-list; the ThreatMetrix vendor
-  domain is the only suffix rule (see "Host policy").
+  `content.connexion.<domain>`. These six hosts are the exact allow-list; the `.bnpparibas` dotBrand TLD and the
+  ThreatMetrix vendor domain are the two suffix rules (see "Host policy").
 - The form is `form#identForm` with `pf.username`, `pf.pass.positions` and `pf.idTMX`. The keypad is ten
   HTML `<button>` elements in a 5x2 grid, shuffled per page load; the value submitted for a key is its
   0-based DOM position. The login is one POST; a refusal comes back as a redirect carrying `error_code`.

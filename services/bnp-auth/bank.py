@@ -18,7 +18,8 @@ Verification status (docs/features/bnp-paribas.md, "Verification boundary"):
     endpoint, path, verb and schema below, `codeRetour` -30, session lifetime.
 Whenever the page does not look as expected the sidecar stops and says so (KEYPAD_CHANGED,
 MFA_TYPE_UNSUPPORTED, UPSTREAM_FORMAT_CHANGED); it never guesses, and any request to a host outside
-the brand's allow-list stops the login and logs the host name (host only), except the sub-resources
+the brand's allow-list stops the login and logs the host name (host only), except the other hosts of
+BNP Paribas' own dotBrand TLD (`*.bnpparibas`, see `is_brand_tld_host`), which load, the sub-resources
 the bank's own page loads from its known fraud vendor (ThreatMetrix, `*.online-metrix.net`), which load,
 and passive third-party sub-resources (analytics), which are dropped silently (see `verdict`). Every
 stop logs a fixed stage name (`stage=...`), never page content.
@@ -34,7 +35,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, parse_qsl, urlsplit
 
 from fastapi import HTTPException
 from picsou_sidecar import PendingStore
@@ -77,6 +78,8 @@ BRANDS = {
 # without a body is aborted silently; anything else off-list stops the attempt.
 ALL_HOSTS = frozenset().union(*(brand.hosts for brand in BRANDS.values()))
 VENDOR_DOMAINS = ("online-metrix.net",)  # ThreatMetrix (LexisNexis): `<n>.online-metrix.net`, `<id>.e.aa.online-metrix.net`
+BRAND_TLD = "bnpparibas"  # a dotBrand gTLD: only BNP Paribas can register a name under it (IANA root zone db)
+_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 ALLOW, IGNORE, STOP = "allow", "ignore", "stop"
 MAX_LOGGED_HOSTS = 10
@@ -85,6 +88,9 @@ PENDING_TTL_SECONDS = 300
 MAX_PENDING = 4
 STEP_SECONDS = 20
 SETTLE_SECONDS = 30
+SETTLE_POLL_SECONDS = 0.5
+STRUCTURE_RETRY_SECONDS = 1.0
+STRUCTURE_TIMEOUT_SECONDS = 5
 STABLE_SECONDS = 3.0
 APP_APPROVAL_SECONDS = 180
 SMS_SETTLE_SECONDS = 45
@@ -148,6 +154,20 @@ _PRESSED_JS = """([grid, submit]) => {
   return {value: input ? input.value : null, enabled: !!button && !button.disabled};
 }"""
 
+# Structure only: counts, ids, field names and types. The title leaves the page as a length, no value
+# (input value, text, attribute value, URL) is read.
+_STRUCTURE_JS = """() => {
+  const forms = [...document.forms].slice(0, 6).map(f => ({
+    id: f.id || '',
+    fields: [...f.elements].slice(0, 24).map(e => ({n: e.name || e.id || '', t: e.type || e.tagName.toLowerCase()})),
+  }));
+  const types = {};
+  for (const input of document.querySelectorAll('input')) { const t = input.type || 'text'; types[t] = (types[t] || 0) + 1; }
+  const landmarks = [...document.querySelectorAll('main,[role=main],[role=dialog],dialog,h1,h2,h3,form,fieldset,section,button,iframe')]
+    .filter(e => e.id).slice(0, 16).map(e => e.tagName.toLowerCase() + '#' + e.id);
+  return {title: (document.title || '').length, ready: document.readyState, frames: window.frames.length, forms, types, landmarks};
+}"""
+
 _FETCH_JS = """async ([method, path, body]) => {
   const init = {method, credentials: 'same-origin', redirect: 'error', headers: {'Accept': 'application/json'}};
   if (body !== null) { init.body = JSON.stringify(body); init.headers['Content-Type'] = 'application/json'; }
@@ -158,9 +178,11 @@ _FETCH_JS = """async ([method, path, body]) => {
 
 def fail(status: int, detail: str, stage: str | None = None) -> HTTPException:
     """`stage` is a fixed step name (never page content): it is logged so a failure is diagnosable."""
+    exc = HTTPException(status_code=status, detail=detail)
     if stage is not None:
         log.warning("BNP attempt stopped: %s (stage=%s)", detail, stage)
-    return HTTPException(status_code=status, detail=detail)
+        exc.stage = stage  # type: ignore[attr-defined]
+    return exc
 
 
 # ─── allow-list ──────────────────────────────────────────────────────────────
@@ -173,8 +195,18 @@ def host_of(url: Any) -> str | None:
         return None
 
 
+def is_brand_tld_host(host: str) -> bool:
+    """A name under `.bnpparibas`, at a dot boundary (at least one valid label before the TLD)."""
+    host = host.lower()
+    if not host.endswith("." + BRAND_TLD):
+        return False
+    labels = host[: -len(BRAND_TLD) - 1].split(".")
+    return all(_LABEL.fullmatch(label) for label in labels)
+
+
 def is_allowed_url(url: Any, hosts: frozenset[str] = ALL_HOSTS) -> bool:
-    """https only, an exact brand host, the default port, no credentials in the URL."""
+    """https only, an exact brand host or any host of the `.bnpparibas` dotBrand TLD, the default
+    port, no credentials in the URL."""
     if not isinstance(url, str):
         return False
     if url.startswith("data:") or url == "about:blank":
@@ -183,7 +215,7 @@ def is_allowed_url(url: Any, hosts: frozenset[str] = ALL_HOSTS) -> bool:
         parts = urlsplit(url)
         return (
             parts.scheme == "https"
-            and (parts.hostname or "") in hosts
+            and ((parts.hostname or "") in hosts or is_brand_tld_host(parts.hostname or ""))
             and parts.username is None
             and parts.password is None
             and parts.port in (None, 443)
@@ -271,11 +303,16 @@ class Guard:
         self.unknown_hosts: list[str] = []
         self.ignored_hosts: list[str] = []
         self.vendors_seen: list[str] = []
+        self.brand_hosts_seen: list[str] = []
 
     def _note(self, request: Any) -> None:
         """Host names only, once each (a vendor once per domain: its sub-domains are random)."""
         vendor = vendor_of(request.url)
         if is_allowed_url(request.url, self.hosts):
+            host = host_of(request.url) or ""
+            if host not in self.hosts and host not in self.brand_hosts_seen and len(self.brand_hosts_seen) < MAX_LOGGED_HOSTS:
+                self.brand_hosts_seen.append(host)
+                log.info("BNP page uses another host of the bank's own domain: %s", host[:100])
             return
         if vendor is not None:
             if vendor not in self.vendors_seen and len(self.vendors_seen) < MAX_LOGGED_HOSTS:
@@ -376,9 +413,17 @@ def require_clean(state: dict[str, Any], stage: str) -> None:
 
 
 def on_site(url: str, brand: Brand) -> bool:
-    """On the bank's site host, past the login redirect."""
+    """On the bank's site, past the login: its own host or any other host of its domain (the private
+    banking space is on another `.bnpparibas` host), never a PingFederate login host."""
     parts = urlsplit(url)
-    return (parts.hostname or "") == brand.site and not parts.path.startswith(LOGIN_PATH)
+    host = parts.hostname or ""
+    if host != brand.site and not (is_allowed_url(url, brand.hosts) and is_brand_tld_host(host)):
+        return False
+    return not parts.path.startswith(LOGIN_PATH) and not _is_login_host(host)
+
+
+def _is_login_host(host: str) -> bool:
+    return host.startswith("connexion.") or host.startswith("content.connexion.")
 
 
 def on_login(url: str, brand: Brand) -> bool:
@@ -407,9 +452,37 @@ ERROR_NAMES = (
 )
 
 
+ERROR_PARAMS = ("error_code", "errorCode")  # the login page / the site's redirect (woob reads `errorCode`)
+SECOND_FACTOR_PATH = re.compile(r"authentification-forte|authentforte", re.I)
+PASSWORD_PATH = re.compile(r"mot-de-passe-expire|changer-son-mot-de-passe|mdp-expire|/100-connexion", re.I)
+
+
+def classify_url(url: str, brand: Brand) -> str:
+    """What the page the browser is on stands for after the login submit, from its URL alone:
+    error | second_factor | password | login | callback | site | other.
+    Paths from the open-source woob module (modules/bnp/pp/browser.py: `otp`, `con_threshold`)."""
+    if not is_allowed_url(url, brand.hosts):
+        return "other"
+    parts = urlsplit(url)
+    query = parse_qs(parts.query)
+    if any(query.get(name) for name in ERROR_PARAMS):
+        return "error"
+    if SECOND_FACTOR_PATH.search(parts.path):
+        return "second_factor"
+    if PASSWORD_PATH.search(parts.path):
+        return "password"
+    host = parts.hostname or ""
+    if _is_login_host(host) or parts.path.startswith(LOGIN_PATH):
+        return "login"
+    if ("code" in query and "state" in query) or "callback" in parts.path.lower():
+        return "callback"
+    return "site"
+
+
 def login_failure(url: str) -> HTTPException | None:
     """The failure a login error redirect (`error_code=<id>`) stands for, None when the URL is not one."""
-    values = parse_qs(urlsplit(url).query).get("error_code", [])
+    query = parse_qs(urlsplit(url).query)
+    values = next((query[name] for name in ERROR_PARAMS if query.get(name)), [])
     if not values:
         return None
     value = values[0].strip()
@@ -421,6 +494,106 @@ def login_failure(url: str) -> HTTPException | None:
             (502, "UPSTREAM_FORMAT_CHANGED"),
         )
     return fail(status, code, stage="login_error")
+
+
+# ─── structure-only diagnostics ──────────────────────────────────────────────
+# One line per stop after the login submit. Only shapes: the host and the path with every digit run
+# replaced, the query KEYS (never a value, never the fragment), the title as a length, the ids and
+# names of forms and fields, a few landmark ids. Anything that looks like an opaque token is masked.
+
+
+def _word_like(text: str, *, max_uppercase: int = 1, max_digit_runs: int = 1, max_length: int = 40) -> bool:
+    return (
+        len(text) <= max_length
+        and bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9_.:\-#]*", text) or re.fullmatch(r"[0-9]+", text))
+        and sum(c.isupper() for c in text) <= max_uppercase
+        and len(re.findall(r"[0-9]+", text)) <= max_digit_runs
+    )
+
+
+def _mask_digits(text: str) -> str:
+    return re.sub(r"[0-9]+", "<N>", text)
+
+
+def describe_url(url: Any) -> str:
+    """`host=<h> path=<p> query=[keys]` with digit runs masked and opaque segments and keys masked."""
+    try:
+        parts = urlsplit(url) if isinstance(url, str) else None
+        host = parts.hostname if parts else None
+        port = parts.port if parts else None
+    except ValueError:
+        parts, host, port = None, None, None
+    if parts is None or not host:
+        return "host=<none> path=<none> query=[]"
+    segments = [(_mask_digits(seg) if not seg or _word_like(seg) else "<ID>") for seg in parts.path.split("/")]
+    keys = [
+        _mask_digits(key) if _word_like(key, max_uppercase=4, max_digit_runs=2) else "<K>"
+        for key, _ in parse_qsl(parts.query, keep_blank_values=True)[:15]
+    ]
+    shown_host = _mask_digits(host.lower())[:100] + ("" if port in (None, 443) else ":<port>")
+    return f"host={shown_host} path={'/'.join(segments) or '/'} query=[{','.join(keys)}]"
+
+
+def _name(text: Any) -> str:
+    text = text if isinstance(text, str) else ""
+    if not text:
+        return "-"
+    # Names and ids are code identifiers; a long token or one with many digit runs is data.
+    if len(text) > 40 or (len(text) >= 16 and re.search(r"[0-9]", text)) or len(re.findall(r"[0-9]+", text)) > 2:
+        return "<X>"
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.:\-#]*", text):
+        return "<X>"
+    return _mask_digits(text)
+
+
+def describe_structure(raw: Any) -> str:
+    """The page-shape part of the diagnostic line, from what `_STRUCTURE_JS` returned. Never raises."""
+    if not isinstance(raw, dict):
+        return "unreadable=1"
+    title = raw.get("title")
+    title_len = title if isinstance(title, int) and not isinstance(title, bool) else len(title) if isinstance(title, str) else -1
+    forms = []
+    for entry in (raw.get("forms") if isinstance(raw.get("forms"), list) else [])[:6]:
+        if not isinstance(entry, dict):
+            continue
+        fields = entry.get("fields") if isinstance(entry.get("fields"), list) else []
+        shown = ",".join(
+            f"{_name(f.get('n'))}:{_name(f.get('t'))}" for f in fields[:24] if isinstance(f, dict)
+        )
+        forms.append(f"{_name(entry.get('id'))}({shown})")
+    types = raw.get("types") if isinstance(raw.get("types"), dict) else {}
+    kinds = ",".join(f"{_name(k)}={v}" for k, v in list(types.items())[:12] if isinstance(v, int))
+    landmarks = [
+        _mask_digits(mark) for mark in (raw.get("landmarks") if isinstance(raw.get("landmarks"), list) else [])[:16]
+        if isinstance(mark, str) and _word_like(mark, max_uppercase=3, max_digit_runs=2)
+    ]
+    ready = raw.get("ready") if raw.get("ready") in ("loading", "interactive", "complete") else "?"
+    frames = raw.get("frames") if isinstance(raw.get("frames"), int) else -1
+    return (
+        f"title_len={title_len} ready={ready} frames={frames} forms=[{';'.join(forms)}] "
+        f"inputs=[{kinds}] landmarks=[{','.join(landmarks)}]"
+    )
+
+
+async def log_page_structure(page: Any, brand: Brand, stage: str) -> None:
+    """ONE structure-only line for a stop after the login submit. A page that cannot be read says so."""
+    raw: Any = None
+    for attempt in range(2):
+        try:
+            raw = await asyncio.wait_for(page.evaluate(_STRUCTURE_JS), timeout=STRUCTURE_TIMEOUT_SECONDS)
+            break
+        except Exception:
+            if attempt == 0:
+                await asyncio.sleep(STRUCTURE_RETRY_SECONDS)  # often a navigation still going on
+    try:
+        url = page.url
+        where = f"{describe_url(url)} kind={classify_url(url, brand)}"
+    except Exception:
+        where = "host=<none> path=<none> query=[]"
+    if raw is None:
+        log.warning("BNP page structure unavailable (stage=%s) %s", stage, where)
+    else:
+        log.warning("BNP page structure (stage=%s) %s %s", stage, where, describe_structure(raw))
 
 
 async def fetch_json(page: Any, key: str, body: dict | None = None) -> Any:
@@ -558,6 +731,7 @@ class BrowserBankClient:
         brand: Brand = state["brand"]
         page = state["page"]
         keep = False
+        submitted = False
         try:
             require_clean(state, "keypad_press")
             if len(positions) != POSITIONS or any(not 0 <= position < KEY_COUNT for position in positions):
@@ -577,6 +751,7 @@ class BrowserBankClient:
                 raise fail(409, "KEYPAD_CHANGED", stage="keypad_press")
             # One submission, never retried: a wrong keypad counts against the bank's lockout.
             try:
+                submitted = True
                 await page.click(SUBMIT_BUTTON, timeout=10_000)
             except Exception:
                 require_clean(state, "submit")
@@ -597,32 +772,54 @@ class BrowserBankClient:
             await self.pending.repark(process_id, state)
             keep = True
             return status
+        except HTTPException as exc:
+            if submitted:
+                await self._diagnose(page, brand, exc)
+            raise
         finally:
             if not keep:
                 await _close(state)
 
+    @staticmethod
+    async def _diagnose(page: Any, brand: Brand, exc: HTTPException) -> None:
+        """Every stop with a stage after the login submit leaves one structure-only line."""
+        stage = getattr(exc, "stage", None)
+        if stage:
+            await log_page_structure(page, brand, stage)
+
     async def _settle(self, page: Any, brand: Brand, state: dict[str, Any]) -> Any:
-        """After the single submit: 'logged_in', 'second_factor', or an HTTPException to raise."""
+        """After the single submit: 'logged_in', 'second_factor', or an HTTPException to raise.
+
+        The bank answers with a redirect chain (PingFederate resume, an OIDC callback with `code` and
+        `state`, then the site, possibly on another `.bnpparibas` host). The URL says what each page
+        is (`classify_url`); a callback is a hop in flight and never a verdict."""
         deadline = time.monotonic() + SETTLE_SECONDS
         last_url, changed_at = page.url, time.monotonic()
         while time.monotonic() < deadline:
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(SETTLE_POLL_SECONDS)
             if state["guard"].tainted:
                 return fail(502, "UPSTREAM_FORMAT_CHANGED", stage="after_submit")
             url = page.url
             if not is_allowed_url(url, brand.hosts):
                 return fail(502, "UPSTREAM_FORMAT_CHANGED", stage="after_submit_redirect")
-            failure = login_failure(url)
-            if failure is not None:
-                return failure
+            kind = classify_url(url, brand)
+            if kind == "error":
+                failure = login_failure(url)
+                if failure is not None:
+                    return failure
+            if kind == "password":
+                return fail(409, "ACTION_REQUIRED", stage="password_expired")
             if url != last_url:
                 last_url, changed_at = url, time.monotonic()
+            if kind == "callback":
+                continue
             if await probe_session(page, brand):
                 return "logged_in"
             # Still on the page the form posted from: nothing happened yet.
             if url == state.get("submit_url"):
                 continue
-            # A different page that stayed put without a session: the second-factor step (UNVERIFIED).
+            # A different page that stayed put without a session: the second-factor step. The page's
+            # own shape decides which one (`_second_factor_kind`), and an unknown one stops the login.
             if time.monotonic() - changed_at >= STABLE_SECONDS:
                 return "second_factor"
         return fail(409, "KEYPAD_CHANGED", stage="after_submit_timeout")
@@ -687,6 +884,9 @@ class BrowserBankClient:
                     raise fail(408, "APP_VALIDATION_TIMEOUT") if kind == "app" else fail(502, "UPSTREAM_FORMAT_CHANGED", stage="approval_wait")
             require_clean(state, "session_cookies")
             return encode_session(brand, await state["context"].cookies())
+        except HTTPException as exc:
+            await self._diagnose(page, brand, exc)
+            raise
         finally:
             if not keep:
                 await _close(state)
@@ -769,7 +969,8 @@ COOKIE_KEYS = ("name", "value", "domain", "path", "expires", "httpOnly", "secure
 
 
 def cookie_in_scope(cookie: dict, brand: Brand) -> bool:
-    return str(cookie.get("domain") or "").lstrip(".").lower() in brand.cookie_domains
+    domain = str(cookie.get("domain") or "").lstrip(".").lower()
+    return domain in brand.cookie_domains or is_brand_tld_host(domain)
 
 
 def encode_session(brand: Brand, cookies: list[dict]) -> str:
