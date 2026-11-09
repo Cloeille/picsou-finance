@@ -98,6 +98,19 @@ class SiteTest(unittest.TestCase):
         with self.assertRaises(accounts_parser.ParseError):
             kinds([broken], skipped_families=SITE.unsupported_families, provisional_kinds=SITE.provisional_kinds)
 
+    def test_a_label_detected_lep_never_has_its_cards_checked_even_when_not_provisional(self):
+        lep = contract(4, "3", "01", "LEP")
+        del lep["identity"]["augmentedCards"]
+        self.assertEqual(
+            kinds([lep], skipped_families=SITE.unsupported_families, provisional_kinds=SITE.provisional_kinds),
+            ([("4", "LEP")], []),
+        )
+        # A Livret A on the same site still refuses a missing card list.
+        livret = contract(2, "3", "01", "Livret A")
+        del livret["identity"]["augmentedCards"]
+        with self.assertRaises(accounts_parser.ParseError):
+            kinds([livret], skipped_families=SITE.unsupported_families, provisional_kinds=SITE.provisional_kinds)
+
     def test_region_labels_are_exact_and_only_for_listed_codes(self):
         self.assertEqual(FULL_SITE.region_label("SOUTH"), "SOUTH BAY")
         for code in ("south", "SOUTH BAY", "", None, 1, "WEST"):

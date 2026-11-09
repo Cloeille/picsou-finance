@@ -66,7 +66,7 @@ Modules, data flows and key constraints: [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 | Layer | Technology |
 |-------|-----------|
 | Backend | Java 21, Spring Boot 3.5, Maven |
-| Frontend | React 19, TypeScript 5.9, Vite 7, Tailwind v4, Bun |
+| Frontend | React 19, TypeScript 5.9, Vite 8, Tailwind v4, Bun |
 | Database | PostgreSQL 16, Flyway |
 | Runtime | Docker (one non-root Spring Boot process) |
 

@@ -94,6 +94,7 @@ class FakeBank:
         self.requests: list[httpx.Request] = []
         self.authorize_action = f"https://{LOGIN_HOST}/dacsrest/api/v1u0/saml2/sso"
         self.authn_status = "AUTHENTICATION_SUCCESS"
+        self.failing_transactions: set[str] = set()
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -121,6 +122,8 @@ class FakeBank:
             return httpx.Response(200, json=SYNTHESIS)
         if (host, path) == (DATA_HOST, fetcher.TRANSACTIONS_PATH):
             account = request.url.params["accountIds"]
+            if account in self.failing_transactions:
+                return httpx.Response(500)
             row = {
                 "id": f"tx-{account}", "accountId": int(account), "date": "2026-11-02T00:00:00",
                 "dueDate": "2099-01-01" if account == "9001" else "2026-11-02",
@@ -213,6 +216,26 @@ class AccountsTest(unittest.TestCase):
         # The current account's card is not imported for this bank, and not listed either:
         # it is not a contract.
         self.assertNotIn("CARD", {a["kind"] for a in body["accounts"]})
+        self.assertEqual(body["unavailable"], [])
+
+    def test_a_provisional_account_whose_transactions_fail_is_imported_without_iban(self):
+        # Compte sur Livret and PEL are provisional here: a failed feed imports them from
+        # their synthesis entry, with no transaction and no IBAN, rather than dropping them.
+        self.bank.failing_transactions = {"1005", "1006"}
+        with self.assertLogs("bpce", "WARNING"):
+            response = self.post("/accounts")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        imported = {a["externalId"]: a for a in body["accounts"]}
+        for external_id, kind in (("1005", "SAVINGS"), ("1006", "PEL")):
+            with self.subTest(kind=kind):
+                account = imported[external_id]
+                self.assertEqual(account["kind"], kind)
+                self.assertEqual(account["transactions"], [])
+                self.assertIsNone(account["iban"])
+                self.assertFalse(account["ibanAmbiguous"])
+        self.assertEqual(imported["1004"]["iban"], "FR76SYNTHETIC1004")  # the others are untouched
         self.assertEqual(body["unavailable"], [])
 
     def test_loans_per_and_revolving_credit_are_unsupported_and_never_read(self):

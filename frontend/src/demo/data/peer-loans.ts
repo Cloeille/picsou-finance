@@ -141,7 +141,7 @@ function computeAt(fixture: LoanFixture, asOf: string): Snapshot {
     if (row.paidOn > asOf) break
     accrued += remaining * terms.annualRate * daysBetween(cursor, row.paidOn) / 365
     let interest = 0
-    let capital = 0
+    let capital: number
     if (row.kind === 'WRITE_OFF') {
       capital = Math.min(row.amount, remaining)
       writtenOff += capital

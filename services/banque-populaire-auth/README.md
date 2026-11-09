@@ -80,9 +80,11 @@ and `4/10` cooperative shares (`COOPERATIVE_SHARES`, provisional) from their syn
 balance (without PFM transactions). A `3/01` label that names a LEP (`LEP`,
 `EPARGNE POPULAIRE`) is imported as `LEP`.
 
-Cards are not imported (`Site.cards=False`): for non-provisional contracts, the `augmentedCards` list of a
-contract is checked for shape, then ignored (for provisional savings accounts, card validation is skipped). No card account, no card operation
-read, nothing listed in `unsupported` (a card is not a contract).
+Cards are not imported (`Site.cards=False`): the `augmentedCards` list of a
+contract is checked for shape, then ignored. The list of a Compte sur Livret, a PEL
+or a LEP is not checked at all (a savings book has no card), so a malformed value
+there is accepted. No card account, no card operation read, nothing listed in
+`unsupported` (a card is not a contract).
 
 Listed in `unsupported` (id, family and sub-family code only), never read, never fatal:
 personal loans `6/12`, home loans `6/13`, PER `4/05`, the revolving credit `2/11`
