@@ -12,6 +12,7 @@ import {
   corumApi,
   fortuneoApi,
   lbpApi,
+  bnpApi,
   sofidyApi,
 } from './api'
 import type { SidecarApi } from './api'
@@ -155,6 +156,22 @@ export const sidecarProviders = {
     singleAttemptComplete: true,
   },
 
+  /**
+   * BNP Paribas / Hello bank!: same keypad rule as LBP (positions in component state only), but
+   * the second factor is either an SMS code typed here or an approval in the bank's app, which
+   * the keypad answer tells apart. Completion is therefore `{ processId, code? }`.
+   */
+  bnp: {
+    queryKey: syncKeys.bnp(),
+    refreshOnSuccess: ACCOUNT_VIEWS,
+    getStatus: () => bnpApi.getStatus(),
+    complete: ({ processId, code }: { processId: string; code?: string }) =>
+      bnpApi.completeAuth(processId, code),
+    sync: () => bnpApi.sync(),
+    clear: () => bnpApi.clearSession(),
+    singleAttemptComplete: true,
+  },
+
   bourseDirect: {
     queryKey: syncKeys.bourseDirect(),
     refreshOnSuccess: PORTFOLIO_VIEWS,
@@ -262,7 +279,7 @@ export type SidecarProviderId = keyof Providers
 /** Providers rendered by the shared `SidecarSessionPanel`. */
 export type PanelProviderId = Exclude<
   SidecarProviderId,
-  'bourso' | 'caisseEpargne' | 'banquePopulaire' | 'fortuneo' | 'lbp'
+  'bourso' | 'caisseEpargne' | 'banquePopulaire' | 'fortuneo' | 'lbp' | 'bnp'
 >
 
 /** What `SidecarSessionPanel` reads from an entry: a login answer, then session statuses. */

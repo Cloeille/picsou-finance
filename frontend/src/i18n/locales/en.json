@@ -1207,7 +1207,8 @@
       "fortuneo": "Sync your Fortuneo accounts",
       "caisseEpargne": "Current account, Livret A, LDDS, PEL, LEP, PER, life insurance, loans and cards at Caisse d'Epargne",
       "banquePopulaire": "Current account, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, term deposit and cooperative shares at Banque Populaire",
-      "lbp": "Current account, Livret A and LEP at La Banque Postale"
+      "lbp": "Current account, Livret A and LEP at La Banque Postale",
+      "bnp": "Current accounts, savings, securities and life insurance at BNP Paribas or Hello bank!"
     }
   },
   "sync": {
@@ -2122,6 +2123,73 @@
         "formatChanged": "Fortuneo changed its portfolio format. Your existing data was kept unchanged.",
         "invalidData": "Fortuneo returned inconsistent portfolio data. Your existing data was kept unchanged.",
         "serverError": "Could not reach Fortuneo. Please try again."
+      }
+    },
+    "bnp": {
+      "title": "BNP Paribas / Hello bank!",
+      "customerId": "Customer number",
+      "brand": "Bank",
+      "brands": {
+        "bnp": "BNP Paribas",
+        "hellobank": "Hello bank!"
+      },
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "Last sync succeeded.",
+      "clearSession": "Disconnect",
+      "disconnectConfirm": "Delete the stored BNP Paribas / Hello bank! session from Picsou? The bank's own session is not revoked.",
+      "disconnectConfirmAction": "Delete the session",
+      "noSession": "No session",
+      "sessionActive": "Session active",
+      "scope": "Imports current accounts, savings, securities accounts (PEA, securities account) with their positions, life insurance (balance only) and loans, as far as the bank's site exposes them. Products Picsou does not recognise are listed, never guessed.",
+      "notice": {
+        "neverStored": "Your password is never stored: you click it on the bank's own keypad, shown below.",
+        "noRetry": "Only one attempt is made. A wrong password counts against the bank's limit and nothing is retried automatically.",
+        "lockRisk": "Too many wrong attempts can lock your access at the bank.",
+        "unverified": "Not yet verified against a real account: the login page was checked, but the second factor and the data import follow the open-source woob module."
+      },
+      "approvalPrompt": "Approve the sign-in in your bank's mobile app.",
+      "approvalHint": "This page waits for your approval, then imports your accounts.",
+      "countdownLabel": "Time left:",
+      "codePrompt": "Enter the code the bank sent you by SMS.",
+      "codeHint": "The code is sent once to the bank and never stored.",
+      "code": "SMS code",
+      "sendCode": "Send the code",
+      "sendingCode": "Sending…",
+      "unsupportedTitle": "Products not imported",
+      "unsupportedHint": "Picsou does not import these products yet. Only the product family code is shown.",
+      "errors": {
+        "invalidIdentifier": "The customer number must be 7 to 10 digits.",
+        "invalidCredentials": "The bank refused these credentials. Wait before trying again.",
+        "invalidCode": "The code is wrong. Check the SMS and try again.",
+        "keypadChanged": "The bank's login page changed. Nothing was sent.",
+        "keypadExpired": "The keypad expired. Start again.",
+        "invalidPositions": "The keypad answer was refused. Start again.",
+        "mfaUnsupported": "This second factor is not supported by Picsou.",
+        "actionRequired": "The bank requires an action on its own site (password change or reactivation).",
+        "rateLimited": "Too many attempts. Wait before trying again.",
+        "rateLimitedRetryAfter": "Too many attempts. Try again in about {{minutes}} min.",
+        "tooManySyncs": "Too many syncs. Wait before trying again.",
+        "tooManySyncsRetryAfter": "Too many syncs. Try again in about {{minutes}} min.",
+        "appValidationTimeout": "The approval did not arrive in time. Start again.",
+        "authAttemptExpired": "This sign-in attempt expired. Start again.",
+        "sessionExpired": "The session expired. Sign in again.",
+        "formatChanged": "The bank's site no longer looks as expected. Nothing was imported.",
+        "invalidSessionState": "The stored session is unusable. Sign in again.",
+        "serverError": "Something went wrong. Try again later."
+      },
+      "keypad": {
+        "title": "Click your password",
+        "description": "Click the keys showing the six digits of your password, in order. The keys are shuffled by the bank. Picsou does not see your digits.",
+        "key": "Key {{position}}",
+        "entered": "{{count}} of 6 digits entered",
+        "countdownLabel": "Time left:",
+        "cancel": "Cancel",
+        "clear": "Clear",
+        "validate": "Validate"
       }
     }
   },

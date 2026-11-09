@@ -1149,7 +1149,7 @@
       "previewCount_other": "{{count}} transactions seront modifiées",
       "previewCapped": "Affichage des 200 premières correspondances sur {{count}}",
       "createRule": "Créer une règle",
-      "ruleActive": "Règle : {{pattern}}"
+      "ruleActive": "Règle\u00a0: {{pattern}}"
     },
     "settings": {
       "cycleTitle": "Jour de paie",
@@ -1207,7 +1207,8 @@
       "fortuneo": "Synchroniser vos comptes Fortuneo",
       "caisseEpargne": "Compte courant, Livret A, LDDS, PEL, LEP, PER, assurance vie, prêts et cartes à la Caisse d'Epargne",
       "banquePopulaire": "Compte courant, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, compte à terme et parts sociales à la Banque Populaire",
-      "lbp": "Compte courant, Livret A et LEP à La Banque Postale"
+      "lbp": "Compte courant, Livret A et LEP à La Banque Postale",
+      "bnp": "Comptes courants, épargne, titres et assurance vie chez BNP Paribas ou Hello bank!"
     }
   },
   "sync": {
@@ -2122,6 +2123,73 @@
         "formatChanged": "Le format du portefeuille Fortuneo a changé. Vos données existantes ont été conservées.",
         "invalidData": "Fortuneo a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
         "serverError": "Impossible de joindre Fortuneo. Veuillez réessayer."
+      }
+    },
+    "bnp": {
+      "title": "BNP Paribas / Hello bank!",
+      "customerId": "Numéro client",
+      "brand": "Banque",
+      "brands": {
+        "bnp": "BNP Paribas",
+        "hellobank": "Hello bank!"
+      },
+      "connect": "Se connecter",
+      "connecting": "Connexion…",
+      "sync": "Synchroniser",
+      "queued": "Synchronisation en attente…",
+      "syncing": "Synchronisation…",
+      "syncSuccess": "La dernière synchronisation a réussi.",
+      "clearSession": "Déconnecter",
+      "disconnectConfirm": "Supprimer la session BNP Paribas / Hello bank! stockée dans Picsou ? La session côté banque n'est pas révoquée.",
+      "disconnectConfirmAction": "Supprimer la session",
+      "noSession": "Aucune session",
+      "sessionActive": "Session active",
+      "scope": "Importe les comptes courants, l'épargne, les comptes titres (PEA, compte-titres) avec leurs positions, l'assurance vie (solde uniquement) et les crédits, dans la mesure où le site de la banque les expose. Les produits que Picsou ne reconnaît pas sont listés, jamais devinés.",
+      "notice": {
+        "neverStored": "Votre mot de passe n'est jamais stocké : vous le saisissez sur le clavier de la banque, affiché ci-dessous.",
+        "noRetry": "Une seule tentative est faite. Un mauvais mot de passe compte dans la limite de la banque et rien n'est rejoué automatiquement.",
+        "lockRisk": "Trop d'essais erronés peuvent bloquer votre accès à la banque.",
+        "unverified": "Pas encore vérifié sur un vrai compte : la page de connexion a été contrôlée, mais la double authentification et l'import suivent le module open source woob."
+      },
+      "approvalPrompt": "Validez la connexion dans l'application mobile de votre banque.",
+      "approvalHint": "Cette page attend votre validation, puis importe vos comptes.",
+      "countdownLabel": "Temps restant :",
+      "codePrompt": "Saisissez le code reçu par SMS de la banque.",
+      "codeHint": "Le code est envoyé une seule fois à la banque et jamais stocké.",
+      "code": "Code SMS",
+      "sendCode": "Envoyer le code",
+      "sendingCode": "Envoi…",
+      "unsupportedTitle": "Produits non importés",
+      "unsupportedHint": "Picsou n'importe pas encore ces produits. Seul le code de famille du produit est affiché.",
+      "errors": {
+        "invalidIdentifier": "Le numéro client doit comporter de 7 à 10 chiffres.",
+        "invalidCredentials": "La banque a refusé ces identifiants. Patientez avant de réessayer.",
+        "invalidCode": "Le code est incorrect. Vérifiez le SMS et réessayez.",
+        "keypadChanged": "La page de connexion de la banque a changé. Rien n'a été envoyé.",
+        "keypadExpired": "Le clavier a expiré. Recommencez.",
+        "invalidPositions": "La réponse du clavier a été refusée. Recommencez.",
+        "mfaUnsupported": "Cette double authentification n'est pas prise en charge par Picsou.",
+        "actionRequired": "La banque exige une action sur son propre site (changement de mot de passe ou réactivation).",
+        "rateLimited": "Trop de tentatives. Patientez avant de réessayer.",
+        "rateLimitedRetryAfter": "Trop de tentatives. Réessayez dans environ {{minutes}} min.",
+        "tooManySyncs": "Trop de synchronisations. Patientez avant de réessayer.",
+        "tooManySyncsRetryAfter": "Trop de synchronisations. Réessayez dans environ {{minutes}} min.",
+        "appValidationTimeout": "La validation n'est pas arrivée à temps. Recommencez.",
+        "authAttemptExpired": "Cette tentative de connexion a expiré. Recommencez.",
+        "sessionExpired": "La session a expiré. Reconnectez-vous.",
+        "formatChanged": "Le site de la banque ne ressemble plus à ce qui est attendu. Rien n'a été importé.",
+        "invalidSessionState": "La session stockée est inutilisable. Reconnectez-vous.",
+        "serverError": "Un problème est survenu. Réessayez plus tard."
+      },
+      "keypad": {
+        "title": "Cliquez votre mot de passe",
+        "description": "Cliquez les touches affichant les six chiffres de votre mot de passe, dans l'ordre. Les touches sont mélangées par la banque. Picsou ne voit pas vos chiffres.",
+        "key": "Touche {{position}}",
+        "entered": "{{count}} chiffre(s) sur 6 saisi(s)",
+        "countdownLabel": "Temps restant :",
+        "cancel": "Annuler",
+        "clear": "Effacer",
+        "validate": "Valider"
       }
     }
   },
