@@ -489,7 +489,10 @@ def _parse_synthesis(
             continue  # its cards are skipped with it
         add(contract, where)
         if contract["kind"] in provisional_kinds or contract["kind"] == "LEP":
-            continue  # no card is read from a provisional savings book or plan
+            # A savings book or plan has no card: none is read, and its `augmentedCards`
+            # is not checked. A LEP is skipped on every site, since a `3/01` contract
+            # can be labelled LEP where `LEP` is not provisional.
+            continue
 
         if "augmentedCards" not in item["identity"]:
             raise ParseError(INVALID_SYNTHESIS, f"{where}.augmentedCards: missing")
