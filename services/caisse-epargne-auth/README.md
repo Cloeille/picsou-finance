@@ -66,6 +66,7 @@ Supported products, from `productFamilyPFM.code` / `subProductFamilyPFM.code`
 | `3` / `04` | `PEL` (observed live 2026-11-06) | `contractPfmId`; without one, listed in `unsupported` |
 | `3` / `27` | `LEP` (observed live 2026-11-06) | `contractPfmId`; without one, listed in `unsupported` |
 | `4` / `05` | `PER` (complete owned UC + euro-fund detail, total >= 0) | `contract:<contractId.id>` |
+| `4` / `05` | `ASSURANCE_VIE` (same detail; told from a PER by the product code `ESSEN` in `contractId.id`, observed live 2026-11-06: Millevie Essentielle) | `contract:<contractId.id>` |
 | `6` / `12` | `LOAN` (personal loan; balance = outstanding capital, <= 0) | `contract:<contractId.id>` |
 | `6` / `13` | `LOAN` (home loan, "Crédit immobilier"; same balance rule) | `contract:<contractId.id>` |
 | anything else (home insurance `5`, other sub codes) | listed in `unsupported` with `familyCode` and `subFamilyCode`, never imported, never fatal | pfm id, else `contract:<id>` |
@@ -91,9 +92,9 @@ By default it carries codes and lengths only; `CE_LOG_PRODUCT_DETAILS=1` adds le
   personal text (a probe with an adversarial label leaked one); enable it for one run, copy the
   product codes, then unset it.
 
-A PER whose contract id the insurer reader does not know (`per_client.UnknownPerContract`, code
+A PER or assurance vie whose contract id the insurer reader does not know (`per_client.UnknownPerContract`, code
 `INVALID_PER_REQUEST`, refused before any insurer request; the PER token is minted first) logs
-`PER request refused: idShape=<shape>`
+`insurer request refused: idShape=<shape>`
 the same way; an invalid token or entity code logs nothing of the id.
 
 PEL and LEP are *provisional* kinds (seen in one live run): a PEL or LEP the parser cannot read
@@ -181,7 +182,7 @@ Response 200 (money as decimal strings, never floats; a card's `balance` is its
 outstanding, the sum of operations with a future `dueDate`, so <= 0):
 
 ```json
-{"accounts": [{"externalId": "1001", "kind": "CURRENT_ACCOUNT|LIVRET_A|LDDS|PEL|LEP|PER|LOAN|CARD", "name": "str|null",
+{"accounts": [{"externalId": "1001", "kind": "CURRENT_ACCOUNT|LIVRET_A|LDDS|PEL|LEP|PER|ASSURANCE_VIE|LOAN|CARD", "name": "str|null",
   "balance": "1234.56", "currency": "EUR", "iban": "str|null", "ibanAmbiguous": false,
   "authorizedOverdraft": "str|null", "ceiling": "str|null", "remainingDepositCapacity": "str|null",
   "fillingRatio": "str|null", "cardNature": "CREDIT|DEFERRED_DEBIT|IMMEDIATE_DEBIT|null",
@@ -213,6 +214,13 @@ entity code is taken from the synthesis. Complete EUR details must reconcile wit
 Production refuses a failed PER detail fetch rather than silently returning a balance-only
 success; legacy omission must not erase holdings in the application.
 
+The assurance vie follows the same chain with its own codes (`ESSEN` in the bank id, `ESS` + `EN` + number
+at the insurer). The routing answer must be for the same product as the bank id. Two differences were
+seen live: its unit lines carry no `dateValeurUniteCompte`, so a line without one takes the contract's
+valuation date (a PER still requires it); and the kind is *provisional* like PEL and LEP, so an
+unreadable one is listed in `unsupported` with a `rejected` reason. The log line
+`insurer detail unreadable: kind=... rejected=<field path>` names the changed field and never a value.
+
 **Insurer detail (observed live, 2026-10-15):**
 
 The insurer detail is read the way the bank's own insurer app reads it (observed live in
@@ -228,10 +236,10 @@ the web front, 2026-10-15, Millevie PER on `www.espace-assurances-de-personnes.c
 1. A third OAuth token is minted from the same SSO session (`SITE.per`): the insurer
    app's public client and `postMessage` redirect, an empty `scope`, no `claims`. The bank
    grants `assuranceVieAuth_get_<id> readUser` for one hour. It is minted only when the
-   synthesis holds a PER.
+   synthesis holds a PER or an assurance vie.
 2. `GET https://www.rs-ext-bad-ce.caisse-epargne.fr/natixis/assurance/assuranceVieAuth/v1/clientToken/<producerContratId>`
    with `Authorization: Bearer <token>`, `iw4-user-token` (same token), `iw4-app-code: IW4`,
-   `iw4-company-code` (entity code) and `iw4-product-code: PER`. The insurer JWT comes back in
+   `iw4-company-code` (entity code) and `iw4-product-code` (`PER`, or `ESS` for an assurance vie). The insurer JWT comes back in
    the `iw4-jwt-token` response header.
 3. `GET https://www.espace-assurances-de-personnes.caisse-epargne.fr/etna-web/rest/v2/contratVie/load/<product>/<company>/<number>`
    (the three parts of `producerContratId`)

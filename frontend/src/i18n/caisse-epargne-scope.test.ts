@@ -6,6 +6,7 @@ import fr from './locales/fr.json'
 
 // The Caisse d'Epargne connector imports LDDS, PEL, LEP, PER and personal loans as well as
 // the current account, Livret A and cards: the copy a user reads before connecting must say so.
+const lifeWord = { fr: /assurance vie/i, en: /life insurance/i, de: /lebensversicherung/i, es: /seguro de vida/i }
 const loanWord = { fr: /prêt/i, en: /loan/i, de: /kredit/i, es: /préstamo/i }
 
 describe("Caisse d'Epargne scope copy", () => {
@@ -17,6 +18,7 @@ describe("Caisse d'Epargne scope copy", () => {
       expect(text).toMatch(/\bLEP\b/)
       expect(text).toMatch(/\bPER\b/)
       expect(text).toMatch(loanWord[lang as keyof typeof loanWord])
+      expect(text).toMatch(lifeWord[lang as keyof typeof lifeWord])
     }
   })
 })

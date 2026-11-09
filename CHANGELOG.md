@@ -84,6 +84,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is `:latest` in Compose); an older app refuses the whole sync, current account included, as
   soon as you hold a PEL (a LEP alone is already known to it). If you created a PEL or LEP by hand, delete or archive it
   first: the first sync creates its own and net worth would count both.
+- **Caisse d'Epargne: assurance vie.** An assurance vie is now imported like a PER: each unit-linked
+  fund with its ISIN, quantity and price, plus the euro fund as a separate line, repriced between syncs. Funds the insurer shows without a price date
+  take the contract's valuation date. A contract the sync cannot read is listed under
+  unsupported instead of failing the sync. No contract number, name or amount is logged.
+  **Upgrade:** update the `caisse-epargne-auth` sidecar and the app together; an older app
+  refuses the whole sync as soon as you hold one. If you created the contract by hand, delete or
+  archive it first: the first sync creates its own and net worth would count both.
 - **Wise jars.** Wise's open-banking access only returns current balances, so money in
   jars was missing. A member can now paste a read-only Wise personal API token; Picsou
   imports every jar as a savings account and refreshes its balance by hand, from Sync All

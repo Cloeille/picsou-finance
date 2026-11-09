@@ -5,6 +5,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
+import com.picsou.model.Account;
+import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.SidecarSession;
 import com.picsou.model.SidecarSyncStatus;
@@ -46,6 +48,19 @@ public class CaisseEpargneSyncService {
 
     static final String PROVIDER = "Caisse d'Epargne";
     static final BpceBank BANK = BpceBank.named(PROVIDER, "ce_");
+
+    /**
+     * A PER or an assurance vie imported from the insurer's app: valued from the insurer's own unit
+     * prices rather than the generic quote path. One definition for the sync and for the three
+     * services that value, snapshot and chart these accounts, so they cannot disagree. A manual
+     * account never qualifies, whatever free-text provider the member typed.
+     */
+    static boolean isInsurerContract(Account account) {
+        AccountType type = account.getType();
+        return (type == AccountType.PER || type == AccountType.ASSURANCE_VIE)
+            && !account.isManual()
+            && PROVIDER.equals(account.getProvider());
+    }
 
     private final CaisseEpargnePort port;
     private final SidecarSessionRepository sessionRepository;

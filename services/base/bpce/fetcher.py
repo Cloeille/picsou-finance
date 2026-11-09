@@ -356,7 +356,7 @@ def _serialise_account(
         "snapshotComplete": True,
         "loan": _serialise_loan(loan) if kind == "LOAN" else None,
     }
-    if per is not None and kind == "PER":
+    if per is not None and kind in accounts_parser.INSURER_KINDS:
         # The insurer valuation can be newer than the bank's synthesis total.
         result["balance"] = _dec(per["balance"])
         result["per"] = _serialise_per(per)
@@ -372,8 +372,10 @@ PerDetailProvider = Callable[[str, str], Awaitable[Any]]
 _CURRENT_KIND = "CURRENT_ACCOUNT"
 
 
-async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvider]) -> tuple[dict, dict]:
-    """`({externalId: parsed PER}, {externalId: code})`: complete positions, or the PER unavailable.
+async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvider]) -> tuple[dict, dict, dict]:
+    """`({externalId: parsed insurer detail}, {externalId: code})` for every PER and assurance vie.
+
+    Complete positions, or that contract unavailable.
 
     A missing provider is legacy compatibility for direct callers. Production supplies it
     using the stored session and never substitutes a successful balance-only import on failure.
@@ -383,10 +385,13 @@ async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvide
     """
     details: dict = {}
     unavailable: dict = {}
+    # Contracts to list as unsupported besides `unavailable`, with the reason: a product the
+    # insurer reader does not know, or an answer whose shape changed (not a transport failure).
+    listed: dict = {}
     if provider is None:
-        return details, unavailable
+        return details, unavailable, listed
     for account in accounts:
-        if account["kind"] != "PER":
+        if account["kind"] not in accounts_parser.INSURER_KINDS:
             continue
         ext = account["externalId"]
         entity_code = account.get("perEntityCode")
@@ -405,19 +410,33 @@ async def _fetch_per_details(accounts: list, provider: Optional[PerDetailProvide
         except replay.ReplayError as exc:
             if isinstance(exc, per_client.UnknownPerContract):
                 # Refused before any request: the contract id is not one the insurer
-                # reader knows. Its masked shape tells a new product (an assurance vie
-                # filed under the PER code) apart, without any number.
-                log.info("PER request refused: idShape=%s", _id_shape(ext))
+                # reader knows. Its masked shape tells a new insurer product (one filed
+                # under the PER code) apart, without any number.
+                log.info("insurer request refused: idShape=%s", _id_shape(ext))
+                listed[ext] = "unknown insurer product"
+            elif isinstance(exc, per_client.IncompleteInsurerDetail) and account["kind"] == "ASSURANCE_VIE":
+                listed[ext] = "insurer detail"
             unavailable[ext] = exc.code
             continue
         except httpx.HTTPError:
             unavailable[ext] = UpstreamUnavailable.code
             continue
         try:
-            details[ext] = per_parser.parse_per_detail(raw, currency=account["balance"]["currency"])
+            details[ext] = per_parser.parse_per_detail(
+                raw,
+                currency=account["balance"]["currency"],
+                undated_prices_ok=account["kind"] == "ASSURANCE_VIE",
+            )
         except accounts_parser.ParseError as exc:
+            # Field path only (the parser names fields and positions, never a value): which
+            # part of an insurer answer changed, for a product seen in few live runs.
+            log.warning(
+                "insurer detail unreadable: kind=%s rejected=%s", account["kind"], accounts_parser._reason(exc)
+            )
+            if account["kind"] == "ASSURANCE_VIE":
+                listed[ext] = "insurer detail"
             unavailable[ext] = exc.code
-    return details, unavailable
+    return details, unavailable, listed
 
 
 async def _fetch_loan_details(
@@ -584,9 +603,26 @@ async def fetch_import(
         loans, loan_unavailable = await _fetch_loan_details(
             client, base_url, accounts, loan_token, home_loan_token, home_loan_base_url
         )
-        pensions, per_unavailable = await _fetch_per_details(accounts, per_detail)
+        pensions, per_unavailable, per_listed = await _fetch_per_details(accounts, per_detail)
         unavailable.update(loan_unavailable)
         unavailable.update(per_unavailable)
+        for account in accounts:
+            # An assurance vie whose insurer answer changed shape (unparseable detail, or no detail
+            # object) and a `4/05` contract whose product the insurer reader does not know are also
+            # listed as unsupported, the one list the Sync tab shows (`unavailable` is not shown).
+            # A network or session failure is not a format change and is not listed.
+            reason = per_listed.get(account["externalId"])
+            if reason:
+                unsupported.append(
+                    {
+                        "externalId": account["externalId"],
+                        "hasPfmId": False,
+                        "familyCode": "4",
+                        "subFamilyCode": "05",
+                        "productLabel": None,
+                        "rejected": reason,
+                    }
+                )
 
         stage = "serialisation"
         result_accounts: list = []

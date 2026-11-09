@@ -1,4 +1,4 @@
-"""PER insurer detail transport (bearer + insurer JWT, no HTML navigation).
+"""Insurer detail transport (bearer + insurer JWT, no HTML navigation).
 
 Observed live on 2026-10-15 in the bank's own web front, for a Millevie PER:
 
@@ -54,8 +54,13 @@ APP_CODE = "IW4"
 JWT_HEADER = "iw4-jwt-token"
 
 _ENTITY_CODE_RE = re.compile(r"[0-9]{5}\Z")
-_CONTRACT_ID_RE = re.compile(r"[0-9]{5} {1,16}PERIC(?P<number>[0-9]{1,64})\Z")
-_PRODUCER_ID_RE = re.compile(r"(?P<product>PER)(?P<company>IC)(?P<number>[0-9]{1,32})\Z")
+# The insurer products this reader knows, each pinned to its exact codes (never a
+# `[A-Z]{3}` wildcard): a PER (`PERIC`) and an assurance vie (`ESSEN`, Millevie Essentielle).
+# The bank contract id is `<entity> <PRODUCT><number>`; the insurer's own id is
+# `<product 3><company 2><number>` and starts with the same five letters.
+_CONTRACT_ID_RE = re.compile(r"[0-9]{5} {1,16}(?P<product>PERIC|ESSEN)(?P<number>[0-9]{1,64})\Z")
+_PRODUCER_ID_RE = re.compile(r"(?P<product>PER|ESS)(?P<company>IC|EN)(?P<number>[0-9]{1,32})\Z")
+_PRODUCER_PAIRS = frozenset({("PER", "IC"), ("ESS", "EN")})
 ROUTING_PATH = "/bapi/contract/v1/contracts"
 _ROUTING_BODY = {
     "characteristics": {
@@ -80,6 +85,14 @@ class InvalidPerRequest(replay.ReplayError):
     code = "INVALID_PER_REQUEST"
 
 
+class IncompleteInsurerDetail(replay.UpstreamError):
+    """The insurer answered with valid JSON that lacks the contract detail object.
+
+    A format change rather than a transport failure: raised apart from the other upstream
+    errors so the caller can tell the two apart. Its code is the usual upstream one.
+    """
+
+
 class UnknownPerContract(InvalidPerRequest):
     """The contract id is not one of the insurer products this reader knows."""
 
@@ -101,13 +114,13 @@ def _reject_json_constant(_: str) -> None:
     raise ValueError
 
 
-def _contract_number(contract_id: Any) -> str:
+def _parse_contract_id(contract_id: Any) -> re.Match:
     if not isinstance(contract_id, str) or len(contract_id) > 128:
         raise UnknownPerContract("Invalid PER contract identifier")
     match = _CONTRACT_ID_RE.fullmatch(contract_id)
     if match is None:
         raise UnknownPerContract("Invalid PER contract identifier")
-    return match.group("number")
+    return match
 
 
 def _validate_entity_code(entity_code: Any) -> str:
@@ -156,9 +169,9 @@ def _json_object(body: bytes) -> dict[str, Any]:
         )
     except (ValueError, TypeError, UnicodeError, RecursionError):
         # RecursionError: a deeply nested body under the size cap.
-        raise replay.UpstreamError("PER insurer returned invalid JSON") from None
+        raise replay.UpstreamError("Insurer returned invalid JSON") from None
     if not isinstance(decoded, dict):
-        raise replay.UpstreamError("PER insurer returned an invalid object")
+        raise replay.UpstreamError("Insurer returned an invalid object")
     return decoded
 
 
@@ -196,15 +209,19 @@ async def _get(
 def _check_status(status: int, *, stage: str) -> None:
     if 200 <= status < 300:
         return
-    log.warning("PER detail refused: stage=%s status=%d", stage, status)
+    log.warning("insurer detail refused: stage=%s status=%d", stage, status)
     if status == 401:
-        raise replay.SessionExpired("PER token is no longer accepted")
+        raise replay.SessionExpired("Insurer token is no longer accepted")
     # 403 is a denial, not an expired session: it must not trigger a replay.
-    raise replay.UpstreamError("PER insurer request failed")
+    raise replay.UpstreamError("Insurer request failed")
 
 
-def _producer_id(body: bytes, *, entity_code: str, insurer_host: str) -> str:
-    """The insurer contract id from a prepareRouting answer, bound to this contract."""
+def _producer_id(body: bytes, *, entity_code: str, insurer_host: str, product: str | None = None) -> str:
+    """The insurer contract id from a prepareRouting answer, bound to this contract.
+
+    `product` is the five-letter product code of the bank contract id asked for; the
+    answer must be for the same product.
+    """
     root = _json_object(body)
     # Three shapes: the characteristics object itself (logged live), or wrapped in
     # `characteristics`, or in `prepareRouting.characteristics`.
@@ -212,26 +229,33 @@ def _producer_id(body: bytes, *, entity_code: str, insurer_host: str) -> str:
     holder = wrapped if isinstance(wrapped, dict) else root
     characteristics = holder.get("characteristics", holder if "routingMode" in holder else None)
     if not isinstance(characteristics, dict):
-        raise replay.UpstreamError("PER routing response is incomplete")
+        raise replay.UpstreamError("insurer routing response is incomplete")
     href = (characteristics.get("routingUrl") or {}).get("href") if isinstance(
         characteristics.get("routingUrl"), dict) else None
     context = characteristics.get("routingContext")
     value = context.get("value") if isinstance(context, dict) else None
     query = value.get("queryParameters") if isinstance(value, dict) else None
     if not isinstance(href, str) or not isinstance(query, dict):
-        log.warning("PER detail refused: stage=routing reason=incomplete")
-        raise replay.UpstreamError("PER routing response is incomplete")
+        log.warning("insurer detail refused: stage=routing reason=incomplete")
+        raise replay.UpstreamError("insurer routing response is incomplete")
     # The routing target is never followed; it must still be the insurer we call.
     if (urllib.parse.urlsplit(href).hostname or "").lower() != insurer_host:
-        log.warning("PER detail refused: stage=routing reason=other-host")
+        log.warning("insurer detail refused: stage=routing reason=other-host")
         raise replay.HostNotAllowed("Refused a PER URL outside the exact HTTPS host")
     producer_id = query.get("producerContratId")
-    if not isinstance(producer_id, str) or (match := _PRODUCER_ID_RE.fullmatch(producer_id)) is None:
-        log.warning("PER detail refused: stage=routing reason=producer-id-format")
-        raise replay.UpstreamError("PER routing returned an unusable contract id")
+    if (
+        not isinstance(producer_id, str)
+        or (match := _PRODUCER_ID_RE.fullmatch(producer_id)) is None
+        or (match.group("product"), match.group("company")) not in _PRODUCER_PAIRS
+    ):
+        log.warning("insurer detail refused: stage=routing reason=producer-id-format")
+        raise replay.UpstreamError("insurer routing returned an unusable contract id")
+    if product is not None and not producer_id.startswith(product):
+        log.warning("insurer detail refused: stage=routing reason=other-product")
+        raise replay.UpstreamError("insurer routing answered for another product")
     if query.get("cdEtab") != entity_code:
-        log.warning("PER detail refused: stage=routing reason=other-establishment")
-        raise replay.UpstreamError("PER routing answered for another establishment")
+        log.warning("insurer detail refused: stage=routing reason=other-establishment")
+        raise replay.UpstreamError("insurer routing answered for another establishment")
     # Consistency of the answer. Observed live: `contractId` echoes the INSURER id
     # (`PERIC` + 6 digits, 11 chars), not the bank id asked for (23 chars), with the
     # requested entity code. The bank id is bound by the request URL; the answer must
@@ -242,8 +266,8 @@ def _producer_id(body: bytes, *, entity_code: str, insurer_host: str) -> str:
         or echoed.get("id") != producer_id
         or echoed.get("entityCode") != entity_code
     ):
-        log.warning("PER detail refused: stage=routing reason=other-contract")
-        raise replay.UpstreamError("PER routing answered for another contract")
+        log.warning("insurer detail refused: stage=routing reason=other-contract")
+        raise replay.UpstreamError("insurer routing answered for another contract")
     return producer_id
 
 
@@ -282,7 +306,7 @@ async def fetch_per_detail(
     _validate_token(access_token)
     _validate_token(routing_token)
     entity_code = _validate_entity_code(entity_code)
-    _contract_number(contract_id)
+    product = _parse_contract_id(contract_id).group("product")
     route_segment = urllib.parse.quote(f"{entity_code}-{contract_id}", safe="")
     routing_url = _guard_url(
         site, f"https://{gateway_host}{ROUTING_PATH}/{route_segment}/prepareRouting", gateway_host
@@ -299,9 +323,11 @@ async def fetch_per_detail(
             stage="routing", method="POST", json_body=_ROUTING_BODY,
         )
         if not 200 <= status < 300:
-            log.warning("PER detail refused: stage=routing status=%d", status)
-            raise replay.UpstreamError("PER routing request failed")
-        producer_id = _producer_id(body, entity_code=entity_code, insurer_host=insurer_host)
+            log.warning("insurer detail refused: stage=routing status=%d", status)
+            raise replay.UpstreamError("insurer routing request failed")
+        producer_id = _producer_id(
+            body, entity_code=entity_code, insurer_host=insurer_host, product=product
+        )
         match = _PRODUCER_ID_RE.fullmatch(producer_id)
         token_url = _guard_url(site, f"https://{gateway_host}{CLIENT_TOKEN_PATH}/{producer_id}", gateway_host)
         detail_url = _guard_url(
@@ -317,8 +343,8 @@ async def fetch_per_detail(
         _check_status(status, stage="client-token")
         jwt = response_headers.get(JWT_HEADER, "")
         if not jwt or len(jwt) > _MAX_TOKEN_LENGTH or _JWT_RE.fullmatch(jwt) is None:
-            log.warning("PER detail refused: stage=client-token reason=no-jwt")
-            raise replay.UpstreamError("PER insurer token is missing")
+            log.warning("insurer detail refused: stage=client-token reason=no-jwt")
+            raise replay.UpstreamError("Insurer token is missing")
 
         client.cookies.clear()
         status, body, _ = await _get(
@@ -327,13 +353,13 @@ async def fetch_per_detail(
         _check_status(status, stage="contract-detail")
         result = _json_object(body)
         if not isinstance(result.get("detailContratVie"), dict):
-            raise replay.UpstreamError("PER insurer detail response is incomplete")
+            raise IncompleteInsurerDetail("Insurer detail response is incomplete")
         try:
             serialized = json.dumps(result, ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError):
-            raise replay.UpstreamError("PER insurer detail response is malformed") from None
+            raise replay.UpstreamError("Insurer detail response is malformed") from None
         if access_token in serialized or routing_token in serialized or jwt in serialized:
-            raise replay.UpstreamError("PER insurer detail response contained forbidden data")
+            raise replay.UpstreamError("Insurer detail response contained forbidden data")
         return result
     finally:
         await client.aclose()

@@ -663,6 +663,49 @@ class ProductFamiliesTest(unittest.TestCase):
         with self.assertRaises(ParseError):
             parse_synthesis(s)
 
+    def _with_insurer_id(self, contract_id):
+        s = products()
+        family(s, "4", "05")["identification"]["contractId"]["id"] = contract_id
+        return by_id(parse_synthesis(s))
+
+    def test_a_4_05_contract_with_the_essen_code_is_an_assurance_vie(self):
+        accounts = self._with_insurer_id("00000     ESSEN12345678")
+        account = accounts["contract:00000     ESSEN12345678"]
+        self.assertEqual(account["kind"], "ASSURANCE_VIE")
+        self.assertIsNotNone(account["perEntityCode"])
+        self.assertIsNone(account["iban"])
+
+    def test_a_4_05_contract_with_the_peric_code_or_any_other_stays_a_per(self):
+        for contract_id in ("00000     PERIC12345678", "00000     OTHER12345678", "12345678", "00000 essen123"):
+            with self.subTest(contract_id):
+                kinds = {a["kind"] for a in self._with_insurer_id(contract_id).values()}
+                self.assertIn("PER", kinds)
+                self.assertNotIn("ASSURANCE_VIE", kinds)
+
+    def test_a_4_05_contract_without_identification_is_listed_by_position_and_never_fails_the_sync(self):
+        for broken in (None, "x", [], 5):
+            with self.subTest(identification=broken):
+                s = products()
+                family(s, "4", "05")["identification"] = broken
+                accounts, unsupported = _parse_synthesis(s)
+                self.assertNotIn("PER", {a["kind"] for a in accounts})
+                self.assertIn("05", [u["subFamilyCode"] for u in unsupported])
+
+    def test_a_4_05_contract_without_identification_still_fails_where_assurance_vie_is_not_enabled(self):
+        s = products()
+        family(s, "4", "05")["identification"] = None
+        with self.assertRaises(ParseError):
+            _parse_synthesis(s, provisional_kinds=frozenset({"PEL", "LEP"}))
+
+    def test_a_negative_assurance_vie_is_not_imported_and_is_reported(self):
+        s = products()
+        item = family(s, "4", "05")
+        item["identification"]["contractId"]["id"] = "00000     ESSEN12345678"
+        item["identity"]["balance"]["value"] = -1
+        accounts, unsupported = _parse_synthesis(s)
+        self.assertNotIn("ASSURANCE_VIE", {a["kind"] for a in accounts})
+        self.assertTrue(any("balance" in u.get("rejected", "") for u in unsupported))
+
     def test_loan_balance_is_kept_negative(self):
         a = by_id(parse_synthesis(products()))[LOAN_ID]
         self.assertEqual(a["balance"], {"value": Decimal("-9876.54"), "currency": "EUR"})
