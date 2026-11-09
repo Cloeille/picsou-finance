@@ -77,17 +77,27 @@ public class BanquePopulaireController {
      * user to click. Throttled at 3 per 15 minutes per IP: a wrong pad costs a bank attempt. The
      * body is validated first, so a malformed request spends neither an attempt nor a browser
      * slot. Never retried here. The region is passed to the sidecar and kept with the pending
-     * login; {@code /auth/complete} stores it on the session row.
+     * login; {@code /auth/complete} stores it on the session row. An empty {@code customerId} reuses
+     * the identifier and region remembered from the last successful login; the request's region is
+     * then ignored, so the remembered identifier never goes to another regional bank.
      */
     @PostMapping("/auth/initiate")
     public ResponseEntity<?> initiate(@RequestBody JsonNode body, HttpServletRequest request) {
         // Read strictly: an unexpected field (a password, typically) is refused, never ignored.
         requireOnlyFields(body, "customerId", "region");
         String customerId = text(body, "customerId");
-        if (!CUSTOMER_ID.matcher(customerId).matches()) {
-            throw invalidBody();
+        String rawRegion = text(body, "region");
+        BanquePopulaireRegion region;
+        if (customerId.isEmpty()) {
+            // The remembered login keeps its own region: whatever region came with it is ignored.
+            customerId = null;
+            region = null;
+        } else {
+            if (!CUSTOMER_ID.matcher(customerId).matches()) {
+                throw invalidBody();
+            }
+            region = region(rawRegion);
         }
-        BanquePopulaireRegion region = region(text(body, "region"));
         ConsumptionProbe probe = consumeToken(authBuckets, RateLimitConfig::createBanquePopulaireAuthBucket, request);
         if (!probe.isConsumed()) {
             return authRateLimited(probe);
