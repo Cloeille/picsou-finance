@@ -395,6 +395,12 @@ class LoginOutcomeTest(unittest.TestCase):
             with self.subTest(url=url):
                 self.assertEqual(bank.classify_url(url, BNP), expected)
 
+    def test_an_ok_answer_without_the_customer_block_is_a_dead_session(self):
+        # Seen live: once the session has idled out, the signed-in site still answers "0" / "OK", with no data.
+        self.assertFalse(bank.session_alive({"codeRetour": "0", "message": "OK", "data": None}))
+        self.assertFalse(bank.session_alive({"codeRetour": "0", "message": "OK", "data": {}}))
+        self.assertTrue(bank.session_alive({"codeRetour": "0", "message": "OK", "data": {"client": {"ikpiPersonne": "x"}}}))
+
     def test_session_death_is_the_string_minus_ten(self):
         self.assertFalse(bank.session_alive({"codeRetour": "-10", "message": "user not connected"}))
         self.assertFalse(bank.session_alive({"codeRetour": -10}))
@@ -1247,6 +1253,16 @@ class FlowTest(unittest.TestCase):
                 self.assertIn("stage=snapshot_info_dead phase=fresh_browser", text)
                 self.assertIn("host=mabanqueprivee.bnpparibas path=/fr/comptes query=[code] kind=site", text)
                 self.assert_structure_only(text)
+
+    def test_stage_info_dead_when_the_bank_answers_ok_without_a_customer(self):
+        async def fetch(_page, key, body=None):
+            if key == bank.INFOS_CLIENT:
+                return {"codeRetour": "0", "message": "OK", "data": None}
+            return {"codeRetour": 99, "message": "Une erreur est survenue", "data": None}
+
+        exc, text = self.stopped(self.logged_in_page(), fetch)
+        self.assertEqual((exc.status_code, exc.detail, exc.stage), (401, "SESSION_EXPIRED", "snapshot_info_dead"))
+        self.assertIn("stage=snapshot_info_dead phase=fresh_browser", text)
 
     def test_stage_info_dead_when_a_data_answer_says_the_session_is_over(self):
         async def fetch(_page, key, body=None):
