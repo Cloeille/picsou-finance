@@ -424,9 +424,10 @@ export const cicApi = {
 // --- American Express ---
 
 export const amexApi = {
-  initiateAuth: (login: string, password: string, method: AmexOtpMethod) =>
+  /** `remember` stores the credentials encrypted for the unattended re-login; false stores none. */
+  initiateAuth: (login: string, password: string, method: AmexOtpMethod, remember = false) =>
     api
-      .post<AmexAuthInitResponse>('/amex/auth/initiate', { login, password, method })
+      .post<AmexAuthInitResponse>('/amex/auth/initiate', { login, password, method, remember })
       .then(r => r.data),
 
   completeAuth: (processId: string, code: string) =>

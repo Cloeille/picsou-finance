@@ -99,7 +99,7 @@ class SyncStatusServiceTest {
         when(fortuneoSyncService.getStatus(MID)).thenReturn(
             new FortuneoSyncService.SessionStatusResponse(false, null, SidecarSyncStatus.IDLE, null, null, null));
         when(amexSyncService.getStatus(MID)).thenReturn(
-            new AmexSyncService.SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null));
+            new AmexSyncService.SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null, false));
         when(ibkrConnectionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
         when(simplefinConnectionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
         when(wiseConnectionRepository.findByMemberId(MID)).thenReturn(Optional.empty());
@@ -127,12 +127,12 @@ class SyncStatusServiceTest {
     @Test
     void amexReportsQueuedCompletionAndReauthenticationTruthfully() {
         when(amexSyncService.getStatus(MID)).thenReturn(new AmexSyncService.SessionStatusResponse(
-            true, SidecarSyncStatus.QUEUED, null, SYNCED_AT, null));
+            true, SidecarSyncStatus.QUEUED, null, SYNCED_AT, null, false));
         String queued = service.describe(MID);
         assertThat(queued).contains("amex: QUEUED lastSync=2026-10-04T06:00:00Z reauth=false");
 
         when(amexSyncService.getStatus(MID)).thenReturn(new AmexSyncService.SessionStatusResponse(
-            false, SidecarSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.SESSION_EXPIRED));
+            false, SidecarSyncStatus.FAILED, null, SYNCED_AT, SidecarErrorCode.SESSION_EXPIRED, false));
         String expired = service.describe(MID);
         assertThat(expired).contains("amex: NEEDS_REAUTH lastSync=2026-10-04T06:00:00Z reauth=true — SESSION_EXPIRED");
     }
@@ -353,7 +353,7 @@ class SyncStatusServiceTest {
     @MethodSource("amexCodes")
     void amexFailedStatusUsesOnlyTheExactSessionExpiryCodeForReauthentication(SidecarErrorCode error) {
         when(amexSyncService.getStatus(MID)).thenReturn(new AmexSyncService.SessionStatusResponse(
-            false, SidecarSyncStatus.FAILED, null, SYNCED_AT, error));
+            false, SidecarSyncStatus.FAILED, null, SYNCED_AT, error, false));
         boolean reauth = error == SidecarErrorCode.SESSION_EXPIRED;
         String expectedStatus = reauth ? "NEEDS_REAUTH" : "FAILED";
 

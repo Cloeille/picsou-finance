@@ -1678,6 +1678,8 @@
       "syncing": "Sincronizando…",
       "syncSuccess": "Tarjeta American Express sincronizada.",
       "clearSession": "Desconectar",
+      "remember": "Recordar mis credenciales (cifradas)",
+      "credentialsRemembered": "Credenciales recordadas (cifradas): Picsou vuelve a iniciar sesión solo cuando la sesión caduca, sin código mientras American Express reconozca el dispositivo. Desconecta para olvidarlas.",
       "noSession": "Sin sesión activa",
       "sessionActive": "Sesión activa",
       "scope": "Sincroniza su tarjeta de crédito American Express: saldo e historial de transacciones.",

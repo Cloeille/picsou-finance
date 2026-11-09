@@ -41,7 +41,8 @@ public class AmexController {
     public ResponseEntity<?> initiate(@Valid @RequestBody InitiateRequest req, HttpServletRequest request) {
         if (!consumeAuthToken(request)) return rateLimited();
         return ResponseEntity.ok(
-            service.initiateAuth(req.login(), req.password(), req.method(), userContext.currentMemberId())
+            service.initiateAuth(req.login(), req.password(), req.method(), Boolean.TRUE.equals(req.remember()),
+                userContext.currentMemberId())
         );
     }
 
@@ -108,7 +109,9 @@ public class AmexController {
     record InitiateRequest(
         @NotBlank @Size(max = 100) String login,
         @NotBlank @Size(max = 100) String password,
-        @NotBlank @Pattern(regexp = "sms|email") String method
+        @NotBlank @Pattern(regexp = "sms|email") String method,
+        /** Store the credentials, encrypted, so a sync can log in again when the session expires. Absent = false. */
+        Boolean remember
     ) {}
 
     record CompleteRequest(

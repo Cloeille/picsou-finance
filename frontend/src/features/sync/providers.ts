@@ -190,8 +190,8 @@ export const sidecarProviders = {
     queryKey: syncKeys.amex(),
     refreshOnSuccess: PORTFOLIO_VIEWS,
     getStatus: () => amexApi.getStatus(),
-    initiate: ({ login, password, method }: Credentials) =>
-      amexApi.initiateAuth(login, password, method as AmexOtpMethod),
+    initiate: ({ login, password, method, remember }: Credentials) =>
+      amexApi.initiateAuth(login, password, method as AmexOtpMethod, remember === true),
     complete: ({ processId, code }: SecondFactor) => amexApi.completeAuth(processId, code ?? ''),
     sync: () => amexApi.sync(),
     clear: () => amexApi.clearSession(),

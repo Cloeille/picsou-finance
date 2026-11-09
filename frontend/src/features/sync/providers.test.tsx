@@ -77,8 +77,18 @@ describe("sidecar provider quirks", () => {
     await act(() => initiate.result.current.mutateAsync({ login: "l", password: "p", method: "email" }))
     await act(() => complete.result.current.mutateAsync({ processId: "p" }))
 
-    expect(apis.amexApi.initiateAuth).toHaveBeenCalledWith("l", "p", "email")
+    expect(apis.amexApi.initiateAuth).toHaveBeenCalledWith("l", "p", "email", false)
     expect(apis.amexApi.completeAuth).toHaveBeenCalledWith("p", "")
+  })
+
+  it("Amex forwards the remember choice only when it is exactly true", async () => {
+    apis.amexApi.initiateAuth.mockResolvedValue({ processId: "p", mfaRequired: true, mfaType: "OTP" })
+    const { wrapper } = createHarness()
+    const initiate = renderHook(() => useProviderInitiate("amex"), { wrapper })
+
+    await act(() => initiate.result.current.mutateAsync({ login: "l", password: "p", method: "sms", remember: true }))
+
+    expect(apis.amexApi.initiateAuth).toHaveBeenLastCalledWith("l", "p", "sms", true)
   })
 
   it("Amex history recovery also refreshes accounts, dashboard and history, even on failure", async () => {

@@ -77,11 +77,36 @@ public class AmexAdapter {
      * the code it just sent.
      *
      * @param method "sms" or "email"
+     * @param previousSessionState the member's previous session, whose cookies let Amex recognise the
+     *     trusted device; {@code null} or blank when there is none
      */
-    public SidecarInitiate initiateAuth(String userId, String password, String method) {
+    public SidecarInitiate initiateAuth(String userId, String password, String method, String previousSessionState) {
+        return initiate(userId, password, method, previousSessionState, false);
+    }
+
+    /**
+     * Logs in again with stored credentials and no one to type a code: the sidecar answers
+     * {@code SESSION_EXPIRED} instead of asking Amex to send one when the login reaches the
+     * verification page.
+     */
+    public SidecarInitiate reauthenticate(String userId, String password, String method, String previousSessionState) {
+        return initiate(userId, password, method, previousSessionState, true);
+    }
+
+    private SidecarInitiate initiate(
+        String userId, String password, String method, String previousSessionState, boolean unattended
+    ) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("userId", userId);
+        body.put("password", password);
+        body.put("method", method);
+        if (previousSessionState != null && !previousSessionState.isBlank()) {
+            body.put("sessionState", previousSessionState);
+        }
+        if (unattended) body.put("unattended", true);
         return sidecar.post(
             "/initiate",
-            Map.of("userId", userId, "password", password, "method", method),
+            body,
             SidecarInitiate.class,
             authTimeout,
             "Could not initiate Amex authentication",

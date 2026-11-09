@@ -9,7 +9,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/api-client', () => ({ api: apiMocks }))
 
-import { fortuneoApi } from './api'
+import { amexApi, fortuneoApi } from './api'
 
 const idleStatus = {
   isActive: true,
@@ -120,5 +120,25 @@ describe('fortuneoApi response validation', () => {
 
     await expect(fortuneoApi.initiateAuth('anonymous', 'redacted'))
       .rejects.toBeInstanceOf(ZodError)
+  })
+})
+
+describe('amexApi.initiateAuth', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('posts remember=false by default', async () => {
+    apiMocks.post.mockResolvedValue({ data: { processId: 'p', mfaRequired: true, mfaType: 'OTP' } })
+
+    await amexApi.initiateAuth('l', 'p', 'sms')
+
+    expect(apiMocks.post).toHaveBeenCalledWith('/amex/auth/initiate', { login: 'l', password: 'p', method: 'sms', remember: false })
+  })
+
+  it('posts remember=true when asked', async () => {
+    apiMocks.post.mockResolvedValue({ data: { processId: 'p', mfaRequired: true, mfaType: 'OTP' } })
+
+    await amexApi.initiateAuth('l', 'p', 'email', true)
+
+    expect(apiMocks.post).toHaveBeenCalledWith('/amex/auth/initiate', { login: 'l', password: 'p', method: 'email', remember: true })
   })
 })

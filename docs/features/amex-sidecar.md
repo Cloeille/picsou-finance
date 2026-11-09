@@ -1,6 +1,6 @@
 # Feature: American Express France sidecar
 
-> Last updated: 2026-11-01
+> Last updated: 2026-11-09
 
 ## Context
 
@@ -16,6 +16,24 @@ manager. A wrong OTP returns HTTP 401 `INVALID_OTP` and keeps the attempt for
 retry when capacity allows; if other logins have filled the pool during
 completion, re-parking returns HTTP 503 `UPSTREAM_UNAVAILABLE`, releases those
 same resources, and removes the attempt.
+
+**Remembered credentials and unattended re-login (#537).** The login form has an unticked
+"Remember my credentials (encrypted)" box. Ticked, login, password and the code channel are
+stored encrypted (`CryptoEncryption`) in `sidecar_session.encrypted_credentials`; after a
+code login they wait in memory by process id (10 minutes, same member only) and are written
+when the code completes. Every `/initiate` sends the member's previous session state: the
+sidecar adds its cookies to the new browser context before opening the login page, so AMEX
+recognises the trusted device. A live test (one account) reached the dashboard without a code
+two days after the first login, with only those cookies in a fresh Camoufox fingerprint. The
+code completion ticks `[data-testid=trust-device]` before **Continuer**. A sync whose session
+expired logs in once through `/initiate` with `unattended: true`, replaces the session and
+reads with it; if AMEX still shows the verify page, the sidecar stops before choosing a channel
+(no SMS sent) and answers 401 `SESSION_EXPIRED`, so the member reconnects as before and the
+credentials stay. Re-logins draw on a per-member bucket (`amexReloginBuckets`, the AMEX auth
+budget); throttled runs end `UPSTREAM_UNAVAILABLE` and keep the credentials. A rejected stored
+password clears them and ends the session, as for CIC, CMES and CORUM. No keep-alive: the same
+test measured data calls refused 2 h after login and the session capped at 6 h whatever
+`UpdateUserSession` does, so every daily sync logs in again.
 
 The user selects SMS (default) or e-mail for AMEX's one-time code. On AMEX's verify page the channels are radio inputs labelled with the masked phone number and masked e-mail address; the sidecar picks the e-mail channel when the label contains `@`, otherwise the phone (SMS) channel, then clicks **Continuer**. The older option-button markup is still handled. Logs never include labels, ids, phone numbers or e-mail addresses. The browser completes login and OTP, then captures value-free JSON response diagnostics from American Express domains while the dashboard loads. Account discovery falls back to the servicing balances API; missing enrichments remain null and never fail a sync.
 

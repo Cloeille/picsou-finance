@@ -25,6 +25,7 @@ export function AmexPanel({ onConnected }: AmexPanelProps = {}) {
           { value: "email", label: t("sync.amex.otpMethodEmail") },
         ],
       }}
+      rememberCredentials
       onConnected={onConnected}
       recoveryAction={{
         label: t("sync.amex.recoverHistory"),

@@ -261,6 +261,16 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-member AMEX unattended re-login limiter: the {@link #createAmexAuthBucket()} budget,
+     * keyed by member id (not IP), because a sync logging in again with the stored credentials
+     * has no client IP and every re-login is a real credential check against AMEX.
+     */
+    @Bean("amexReloginBuckets")
+    public Map<Long, Bucket> amexReloginBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-IP Sofidy auth rate limiter: 5 attempts per 15 minutes.
      */
     @Bean("sofidyAuthBuckets")
