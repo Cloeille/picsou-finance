@@ -8,7 +8,6 @@ import com.picsou.dto.ReleaseUpdate;
 import com.picsou.dto.SidecarIssue;
 import com.picsou.dto.SidecarIssueCode;
 import com.picsou.adapter.sidecar.SidecarBank;
-import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.DegiroSessionRepository;
 import com.picsou.repository.LbpSessionRepository;
@@ -69,7 +68,6 @@ public class InstanceStatusService {
         SidecarProperties sidecars,
         TradeRepublicSessionRepository trSessions,
         SidecarSessionRepository sidecarSessions,
-        BanquePopulaireSessionRepository banquePopulaireSessions,
         RevolutSessionRepository revolutSessions,
         DegiroSessionRepository degiroSessions,
         LbpSessionRepository lbpSessions,
@@ -77,7 +75,7 @@ public class InstanceStatusService {
     ) {
         this(releaseCheck, currentVersion, registry(
             setupService, sidecars,
-            trSessions, sidecarSessions, banquePopulaireSessions, revolutSessions, degiroSessions, lbpSessions
+            trSessions, sidecarSessions, revolutSessions, degiroSessions, lbpSessions
         ), defaultWebClient(PROBE_TIMEOUT), PROBE_TIMEOUT, OVERALL_DEADLINE);
     }
 
@@ -323,7 +321,6 @@ public class InstanceStatusService {
         SidecarProperties sidecars,
         TradeRepublicSessionRepository trSessions,
         SidecarSessionRepository sidecarSessions,
-        BanquePopulaireSessionRepository banquePopulaireSessions,
         RevolutSessionRepository revolutSessions,
         DegiroSessionRepository degiroSessions,
         LbpSessionRepository lbpSessions
@@ -346,7 +343,7 @@ public class InstanceStatusService {
             new SidecarTarget("caisse-epargne-auth", BASE_CHROMIUM,
                 () -> sidecarUrl(sidecars, "caisse-epargne-auth"), () -> sidecarSessions.countByBank(SidecarBank.CAISSE_EPARGNE)),
             new SidecarTarget("banque-populaire-auth", BASE_CHROMIUM,
-                () -> sidecarUrl(sidecars, "banque-populaire-auth"), banquePopulaireSessions::count),
+                () -> sidecarUrl(sidecars, "banque-populaire-auth"), () -> sidecarSessions.countByBank(SidecarBank.BANQUE_POPULAIRE)),
             new SidecarTarget("bourse-direct-auth", BASE_CHROMIUM,
                 () -> sidecarUrl(sidecars, "bourse-direct-auth"), () -> sidecarSessions.countByBank(SidecarBank.BOURSE_DIRECT)),
             new SidecarTarget("amundi-auth", BASE_CHROMIUM,

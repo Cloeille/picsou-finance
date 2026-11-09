@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Banque Populaire: remember identifier across reconnections.** The customer
-  identifier from the last successful login is stored encrypted at rest (`V147`),
+  identifier from the last successful login is stored encrypted at rest on its `sidecar_session` row (`V148`),
   and reconnecting offers to reuse it along with its associated regional bank,
   matching the Caisse d'Epargne reconnection flow. The user can choose to type
   another identifier instead. Passwords and virtual keypad inputs are never stored.
@@ -195,6 +195,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   old app writing a session after the copy loses it), then use the
   [safe release deployment](docs/features/release-deployment.md), which takes a backup first.
   (#337)
+- **Banque Populaire sessions join the shared session table.** Migration V147 moves every
+  stored Banque Populaire session, regional bank included, into `sidecar_session`, so nobody
+  has to reconnect, then drops the old table. The same offline upgrade applies. (#478)
 
 ### Fixed
 

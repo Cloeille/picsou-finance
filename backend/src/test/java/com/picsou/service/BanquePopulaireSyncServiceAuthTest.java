@@ -2,14 +2,15 @@ package com.picsou.service;
 
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
-import com.picsou.model.BanquePopulaireSession;
-import com.picsou.model.BanquePopulaireSyncStatus;
+import com.picsou.adapter.sidecar.SidecarBank;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.BanquePopulairePort;
 import com.picsou.port.BanquePopulaireRegion;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.BanquePopulaireSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
@@ -54,7 +55,7 @@ class BanquePopulaireSyncServiceAuthTest {
     private static final Instant T0 = Instant.parse("2026-10-07T10:00:00Z");
 
     @Mock BanquePopulairePort port;
-    @Mock BanquePopulaireSessionRepository sessionRepository;
+    @Mock SidecarSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock TransactionRepository transactionRepository;
     @Mock FamilyMemberRepository memberRepository;
@@ -103,11 +104,11 @@ class BanquePopulaireSyncServiceAuthTest {
     private void arrangeStore(String plainState) {
         FamilyMember member = FamilyMember.builder().id(7L).displayName("Owner").build();
         lenient().when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
         lenient().when(encryption.encrypt(plainState)).thenReturn("encrypted-state");
-        lenient().when(sessionRepository.saveAndFlush(any(BanquePopulaireSession.class)))
+        lenient().when(sessionRepository.saveAndFlush(any(SidecarSession.class)))
             .thenAnswer(invocation -> invocation.getArgument(0));
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
     }
 
     // -- initiate -----------------------------------------------------------
@@ -338,11 +339,11 @@ class BanquePopulaireSyncServiceAuthTest {
 
         service.completeAuth("proc-1", 7L);
 
-        ArgumentCaptor<BanquePopulaireSession> stored = ArgumentCaptor.forClass(BanquePopulaireSession.class);
+        ArgumentCaptor<SidecarSession> stored = ArgumentCaptor.forClass(SidecarSession.class);
         verify(sessionRepository).saveAndFlush(stored.capture());
         assertThat(stored.getValue().getSessionState()).isEqualTo("encrypted-state");
         assertThat(stored.getValue().getRegion()).isEqualTo(REGION);
-        assertThat(stored.getValue().getSyncStatus()).isEqualTo(BanquePopulaireSyncStatus.IDLE);
+        assertThat(stored.getValue().getSyncStatus()).isEqualTo(SidecarSyncStatus.IDLE);
         assertThat(stored.getValue().isActive()).isTrue();
         verify(port, never()).fetchAccounts(any());
         verify(port, never()).checkSession(any());
@@ -361,7 +362,7 @@ class BanquePopulaireSyncServiceAuthTest {
         verify(encryption, org.mockito.Mockito.times(2)).encrypt(encrypted.capture());
         assertThat(encrypted.getAllValues())
             .containsExactlyInAnyOrder("cookies-json", "{\"customerId\":\"" + CUSTOMER_ID + "\"}");
-        ArgumentCaptor<BanquePopulaireSession> stored = ArgumentCaptor.forClass(BanquePopulaireSession.class);
+        ArgumentCaptor<SidecarSession> stored = ArgumentCaptor.forClass(SidecarSession.class);
         verify(sessionRepository).saveAndFlush(stored.capture());
         assertThat(stored.getValue().getEncryptedCredentials()).isEqualTo("encrypted-id");
         assertThat(stored.getValue().getRegion()).isEqualTo(REGION);
@@ -369,12 +370,12 @@ class BanquePopulaireSyncServiceAuthTest {
 
     // -- remembered identifier ----------------------------------------------
 
-    private BanquePopulaireSession storedSession(String encryptedCredentials) {
+    private SidecarSession storedSession(String encryptedCredentials) {
         return storedSession(encryptedCredentials, REGION);
     }
 
-    private BanquePopulaireSession storedSession(String encryptedCredentials, BanquePopulaireRegion region) {
-        BanquePopulaireSession session = BanquePopulaireSession.create(
+    private SidecarSession storedSession(String encryptedCredentials, BanquePopulaireRegion region) {
+        SidecarSession session = SidecarSession.createBanquePopulaire(
             FamilyMember.builder().id(7L).displayName("Owner").build(), "encrypted-state", T0, region);
         session.setEncryptedCredentials(encryptedCredentials);
         return session;
@@ -382,7 +383,7 @@ class BanquePopulaireSyncServiceAuthTest {
 
     @Test
     void initiateAuth_withoutAnIdentifierReusesTheRememberedOneAndItsRegion() {
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(storedSession("encrypted-id", BanquePopulaireRegion.SUD)));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(storedSession("encrypted-id", BanquePopulaireRegion.SUD)));
         when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
         when(port.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.SUD))
             .thenReturn(new BanquePopulairePort.InitiateResult("proc-1", keypad(), 90));
@@ -394,7 +395,7 @@ class BanquePopulaireSyncServiceAuthTest {
 
     @Test
     void initiateAuth_withoutAnIdentifierAlwaysUsesTheRememberedRegion() {
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(storedSession("encrypted-id", BanquePopulaireRegion.SUD)));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(storedSession("encrypted-id", BanquePopulaireRegion.SUD)));
         when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
         when(port.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.SUD))
             .thenReturn(new BanquePopulairePort.InitiateResult("proc-1", keypad(), 90));
@@ -407,7 +408,7 @@ class BanquePopulaireSyncServiceAuthTest {
 
     @Test
     void initiateAuth_withoutAnIdentifierAndNoneRememberedRefusesWithoutCallingTheBank() {
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.initiateAuth(null, REGION, 7L))
             .isInstanceOfSatisfying(SyncException.class, error ->
@@ -417,9 +418,9 @@ class BanquePopulaireSyncServiceAuthTest {
 
     @Test
     void initiateAuth_forgetsARememberedIdentifierTheBankRejects() {
-        BanquePopulaireSession session = storedSession("encrypted-id");
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        SidecarSession session = storedSession("encrypted-id");
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
         when(port.initiateAuth(CUSTOMER_ID, REGION)).thenThrow(new SyncException(
             "The identifier was refused", null, SidecarErrorCode.INVALID_CREDENTIALS.name()));
@@ -432,9 +433,9 @@ class BanquePopulaireSyncServiceAuthTest {
 
     @Test
     void initiateAuth_aRejectionKeepsAnIdentifierAConcurrentLoginJustStored() {
-        BanquePopulaireSession session = storedSession("encrypted-id");
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        SidecarSession session = storedSession("encrypted-id");
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
         when(port.initiateAuth(CUSTOMER_ID, REGION)).thenAnswer(call -> {
             // Another login succeeds while the bank answers this one: a new identifier is stored.
@@ -447,15 +448,15 @@ class BanquePopulaireSyncServiceAuthTest {
 
         assertThat(session.getEncryptedCredentials()).isEqualTo("encrypted-newer-id");
         verify(sessionRepository, never()).save(any());
-        verify(sessionRepository).findByMemberId(7L);
-        verify(sessionRepository).findByMemberIdForUpdate(7L);
+        verify(sessionRepository).findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L);
+        verify(sessionRepository).findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L);
         verifyNoMoreInteractions(sessionRepository);
     }
 
     @Test
     void initiateAuth_keepsTheRememberedIdentifierOnATransientFailure() {
-        BanquePopulaireSession session = storedSession("encrypted-id");
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
+        SidecarSession session = storedSession("encrypted-id");
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
         when(port.initiateAuth(CUSTOMER_ID, REGION)).thenThrow(new SyncException(
             "Sidecar down", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
@@ -469,11 +470,11 @@ class BanquePopulaireSyncServiceAuthTest {
     @Test
     void storeSession_withoutANewIdentifierKeepsTheRememberedOne() {
         arrangeStore("cookies-json");
-        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
 
         service.storeSession("cookies-json", REGION, 7L);
 
-        ArgumentCaptor<BanquePopulaireSession> stored = ArgumentCaptor.forClass(BanquePopulaireSession.class);
+        ArgumentCaptor<SidecarSession> stored = ArgumentCaptor.forClass(SidecarSession.class);
         verify(sessionRepository).saveAndFlush(stored.capture());
         assertThat(stored.getValue().getEncryptedCredentials()).isEqualTo("encrypted-id");
         assertThat(stored.getValue().getRegion()).isEqualTo(REGION);
@@ -481,33 +482,33 @@ class BanquePopulaireSyncServiceAuthTest {
 
     @Test
     void status_saysAnIdentifierIsRememberedWithoutExposingIt() {
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
         when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
 
         BanquePopulaireSyncService.SessionStatusResponse status = service.getStatus(7L);
 
         assertThat(status.remembered()).isTrue();
         assertThat(status.toString()).doesNotContain("encrypted-id").doesNotContain(CUSTOMER_ID);
-        verify(sessionRepository).findByMemberId(7L);
+        verify(sessionRepository).findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L);
         verifyNoMoreInteractions(sessionRepository);
     }
 
     @Test
     void status_doesNotRememberAnIdentifierThatCannotBeRead() {
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
         when(encryption.decrypt("encrypted-id")).thenThrow(new IllegalStateException("wrong key"));
 
         assertThat(service.getStatus(7L).remembered()).isFalse();
 
         // a GET never writes: the unreadable value is only forgotten by the next initiate
-        verify(sessionRepository).findByMemberId(7L);
+        verify(sessionRepository).findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L);
         verifyNoMoreInteractions(sessionRepository);
         verifyNoInteractions(txTemplate);
     }
 
     @Test
     void status_doesNotRememberAStoredValueWithoutAnIdentifier() {
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
         when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\" \"}");
 
         assertThat(service.getStatus(7L).remembered()).isFalse();
@@ -516,13 +517,25 @@ class BanquePopulaireSyncServiceAuthTest {
 
     @Test
     void status_doesNotRememberWhenNothingIsStored() {
-        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(storedSession(null)));
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, 7L)).thenReturn(Optional.of(storedSession(null)));
 
         assertThat(service.getStatus(7L).remembered()).isFalse();
         verifyNoInteractions(encryption);
     }
 
     // -- disconnect while a login is in flight -------------------------------
+
+    @Test
+    void clearSession_deletesTheRowAndTheRememberedIdentifierWithIt() {
+        SidecarSession session = storedSession("encrypted-id");
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, 7L))
+            .thenReturn(Optional.of(session));
+
+        assertThat(service.clearSession(7L)).isTrue();
+
+        verify(sessionRepository).delete(session);
+        verify(sessionRepository, never()).save(any());
+    }
 
     @Test
     void clearSession_cancelsALoginWaitingOnThePhoneApproval() {
@@ -598,7 +611,7 @@ class BanquePopulaireSyncServiceAuthTest {
         arrangeStore("cookies-json");
 
         service.completeAuth("proc-1", 7L);
-        verify(sessionRepository).saveAndFlush(any(BanquePopulaireSession.class));
+        verify(sessionRepository).saveAndFlush(any(SidecarSession.class));
 
         // a login started after the disconnect is a new attempt and can be stored
         service.clearSession(7L);
@@ -606,7 +619,7 @@ class BanquePopulaireSyncServiceAuthTest {
         when(port.completeAuth("proc-2")).thenReturn("cookies-json");
 
         service.completeAuth("proc-2", 7L);
-        verify(sessionRepository, org.mockito.Mockito.times(2)).saveAndFlush(any(BanquePopulaireSession.class));
+        verify(sessionRepository, org.mockito.Mockito.times(2)).saveAndFlush(any(SidecarSession.class));
     }
 
     @Test
@@ -616,7 +629,7 @@ class BanquePopulaireSyncServiceAuthTest {
 
         service.storeSession("cookies-json", REGION, 7L);
 
-        verify(sessionRepository).saveAndFlush(any(BanquePopulaireSession.class));
+        verify(sessionRepository).saveAndFlush(any(SidecarSession.class));
     }
 
     @Test

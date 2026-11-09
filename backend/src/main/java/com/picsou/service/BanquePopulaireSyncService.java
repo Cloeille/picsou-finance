@@ -5,16 +5,16 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
-import com.picsou.model.BanquePopulaireSession;
-import com.picsou.model.BanquePopulaireSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.BanquePopulairePort;
 import com.picsou.port.BanquePopulaireRegion;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.CategoryService;
@@ -37,12 +37,13 @@ import java.util.concurrent.Executor;
  * Imports Banque Populaire current accounts, savings books, term deposits and cooperative shares, with their transactions.
  * Banque Populaire runs on the BPCE platform, so the import is the shared {@link BpceSyncEngine}'s
  * (loans and PER included, should the sidecar ever report them); this service binds it to the
- * Banque Populaire port, session table and labels, and owns the transaction boundaries. The sync
+ * Banque Populaire port, its rows of {@code sidecar_session} and labels, and owns the transaction boundaries. The sync
  * is <b>on demand only</b>, like Caisse d'Epargne's: no scheduler, startup or member sync. The
  * password is never stored; like Caisse d'Epargne, the identifier of the last successful login is
  * kept encrypted so reconnections can reuse it. The regional bank chosen at login is stored on the
- * session: each sync stamps its official name on the accounts as their provider, with that bank's logo
- * from the Enable Banking catalog, so they look like the ones Enable Banking would create for that bank.
+ * session: each sync stamps its official name on the accounts as their provider, with that bank's
+ * logo from the Enable Banking catalog, so they look like the ones Enable Banking would create for
+ * that bank.
  */
 @Service
 public class BanquePopulaireSyncService {
@@ -56,15 +57,15 @@ public class BanquePopulaireSyncService {
     static final String LOGO_COUNTRY = "FR";
 
     private final BanquePopulairePort port;
-    private final BanquePopulaireSessionRepository sessionRepository;
+    private final SidecarSessionRepository sessionRepository;
     private final CryptoEncryption encryption;
     private final TransactionTemplate txTemplate;
-    private final BpceSyncEngine<BanquePopulaireSession, SessionStatusResponse> engine;
+    private final BpceSyncEngine<SidecarSession, SessionStatusResponse> engine;
 
     @org.springframework.beans.factory.annotation.Autowired
     public BanquePopulaireSyncService(
         BanquePopulairePort port,
-        BanquePopulaireSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
@@ -85,7 +86,7 @@ public class BanquePopulaireSyncService {
 
     BanquePopulaireSyncService(
         BanquePopulairePort port,
-        BanquePopulaireSessionRepository sessionRepository,
+        SidecarSessionRepository sessionRepository,
         AccountRepository accountRepository,
         TransactionRepository transactionRepository,
         FamilyMemberRepository memberRepository,
@@ -118,6 +119,11 @@ public class BanquePopulaireSyncService {
      * clicks himself. A failure leaves any session already stored (valid or not) exactly as it was.
      * The region is kept with the pending login and stored on the session it opens: the later
      * steps never take one from the request.
+     *
+     * <p>A blank {@code customerId} reuses the identifier and the regional bank remembered from the
+     * last successful login ({@code region} is then ignored, so the remembered identifier never goes
+     * to another regional bank). If the bank rejects that remembered identifier, it is forgotten so
+     * it is never submitted again. The identifier that logs in is stored with the session once approved.
      */
     public BpceSyncEngine.InitiateResponse initiateAuth(
         String customerId, BanquePopulaireRegion region, Long memberId
@@ -126,7 +132,6 @@ public class BanquePopulaireSyncService {
             ? storedLogin(memberId)
             : null;
         String identifier = stored != null ? stored.customerId() : customerId;
-        // A remembered identifier always goes back to the regional bank it logged in at.
         BanquePopulaireRegion effectiveRegion = stored != null
             ? stored.region()
             : Objects.requireNonNull(region, "region");
@@ -155,16 +160,16 @@ public class BanquePopulaireSyncService {
 
     /**
      * Stores (encrypted) a session state opened at {@code region}, replacing the member's session.
-     * It does <b>not</b> queue a sync: the user triggers it.
+     * It does <b>not</b> queue a sync: the user triggers it. Keeps any identifier already remembered.
      */
     public SessionStatusResponse storeSession(String plainState, BanquePopulaireRegion region, Long memberId) {
         Objects.requireNonNull(region, "region");
         return engine.storeSession(plainState, memberId, sessionAt(region));
     }
 
-    private static BpceSyncEngine.SessionFactory<BanquePopulaireSession> sessionAt(BanquePopulaireRegion region) {
+    private static BpceSyncEngine.SessionFactory<SidecarSession> sessionAt(BanquePopulaireRegion region) {
         return (member, encryptedState, validatedAt, previous) -> {
-            BanquePopulaireSession session = BanquePopulaireSession.create(member, encryptedState, validatedAt, region);
+            SidecarSession session = SidecarSession.createBanquePopulaire(member, encryptedState, validatedAt, region);
             if (previous != null) {
                 session.setEncryptedCredentials(previous.getEncryptedCredentials());
             }
@@ -173,11 +178,11 @@ public class BanquePopulaireSyncService {
     }
 
     /** A session row that also stores the identifier that logged in, encrypted. */
-    private BpceSyncEngine.SessionFactory<BanquePopulaireSession> sessionRemembering(
+    private BpceSyncEngine.SessionFactory<SidecarSession> sessionRemembering(
         String customerId, BanquePopulaireRegion region
     ) {
         return (member, encryptedState, validatedAt, previous) -> {
-            BanquePopulaireSession session = BanquePopulaireSession.create(member, encryptedState, validatedAt, region);
+            SidecarSession session = SidecarSession.createBanquePopulaire(member, encryptedState, validatedAt, region);
             session.setEncryptedCredentials(encryptCustomerId(customerId));
             return session;
         };
@@ -185,9 +190,9 @@ public class BanquePopulaireSyncService {
 
     /** The remembered login (identifier and region), or a refusal when there is none (or it cannot be read). */
     private StoredLogin storedLogin(Long memberId) {
-        Optional<BanquePopulaireSession> sessionOpt = sessionRepository.findByMemberId(memberId);
+        Optional<SidecarSession> sessionOpt = sessionRepository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, memberId);
         if (sessionOpt.isPresent()) {
-            BanquePopulaireSession session = sessionOpt.get();
+            SidecarSession session = sessionOpt.get();
             String encrypted = session.getEncryptedCredentials();
             if (encrypted != null) {
                 Optional<String> customerId = readCustomerId(encrypted);
@@ -220,7 +225,7 @@ public class BanquePopulaireSyncService {
      */
     private void forgetStoredCustomerId(Long memberId, String readCiphertext) {
         txTemplate.execute(status -> {
-            sessionRepository.findByMemberIdForUpdate(memberId)
+            sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, memberId)
                 .filter(session -> readCiphertext.equals(session.getEncryptedCredentials()))
                 .ifPresent(session -> {
                     session.setEncryptedCredentials(null);
@@ -268,8 +273,9 @@ public class BanquePopulaireSyncService {
     @Transactional
     public void recoverInterruptedSyncs() {
         int recovered = sessionRepository.markInterruptedSyncsFailed(
-            List.of(BanquePopulaireSyncStatus.QUEUED, BanquePopulaireSyncStatus.RUNNING),
-            BanquePopulaireSyncStatus.FAILED,
+            SidecarBank.BANQUE_POPULAIRE,
+            List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING),
+            SidecarSyncStatus.FAILED,
             Instant.now(),
             SidecarErrorCode.INTERNAL_ERROR
         );
@@ -293,7 +299,7 @@ public class BanquePopulaireSyncService {
 
     /** Whether the stored identifier is readable is part of the answer, so it is decrypted here; nothing is written. */
     private SessionStatusResponse toStatus(
-        BanquePopulaireSession session, List<BpceSyncEngine.UnsupportedContract> unsupported
+        SidecarSession session, List<BpceSyncEngine.UnsupportedContract> unsupported
     ) {
         String encryptedCredentials = session.getEncryptedCredentials();
         return new SessionStatusResponse(
@@ -307,37 +313,37 @@ public class BanquePopulaireSyncService {
         );
     }
 
-    /** The Banque Populaire session table, as the engine uses it. */
-    private record Sessions(BanquePopulaireSessionRepository repository)
-        implements BpceSyncEngine.SessionStore<BanquePopulaireSession> {
+    /** The Banque Populaire rows of the shared sidecar session table, as the engine uses them. */
+    private record Sessions(SidecarSessionRepository repository)
+        implements BpceSyncEngine.SessionStore<SidecarSession> {
 
         @Override
-        public Optional<BanquePopulaireSession> findByMemberId(Long memberId) {
-            return repository.findByMemberId(memberId);
+        public Optional<SidecarSession> findByMemberId(Long memberId) {
+            return repository.findByBankAndMemberId(SidecarBank.BANQUE_POPULAIRE, memberId);
         }
 
         @Override
-        public Optional<BanquePopulaireSession> findByMemberIdForUpdate(Long memberId) {
-            return repository.findByMemberIdForUpdate(memberId);
+        public Optional<SidecarSession> findByMemberIdForUpdate(Long memberId) {
+            return repository.findByBankAndMemberIdForUpdate(SidecarBank.BANQUE_POPULAIRE, memberId);
         }
 
         @Override
-        public Optional<BanquePopulaireSession> findByIdAndMemberIdForUpdate(Long id, Long memberId) {
+        public Optional<SidecarSession> findByIdAndMemberIdForUpdate(Long id, Long memberId) {
             return repository.findByIdAndMemberIdForUpdate(id, memberId);
         }
 
         @Override
-        public void save(BanquePopulaireSession session) {
+        public void save(SidecarSession session) {
             repository.save(session);
         }
 
         @Override
-        public void saveAndFlush(BanquePopulaireSession session) {
+        public void saveAndFlush(SidecarSession session) {
             repository.saveAndFlush(session);
         }
 
         @Override
-        public void delete(BanquePopulaireSession session) {
+        public void delete(SidecarSession session) {
             repository.delete(session);
         }
 
@@ -349,20 +355,20 @@ public class BanquePopulaireSyncService {
 
     public record SessionStatusResponse(
         boolean isActive,
-        BanquePopulaireSyncStatus syncStatus,
+        SidecarSyncStatus syncStatus,
         Instant lastSyncStartedAt,
         Instant lastSyncCompletedAt,
         SidecarErrorCode lastSyncError,
         List<BpceSyncEngine.UnsupportedContract> unsupported,
         /** An identifier is remembered: a reconnect can send a blank one. Never the value itself. */
         boolean remembered
-    ) {
+    ) implements SidecarSessionView {
         public SessionStatusResponse {
             unsupported = unsupported == null ? List.of() : List.copyOf(unsupported);
         }
 
         static SessionStatusResponse inactive() {
-            return new SessionStatusResponse(false, BanquePopulaireSyncStatus.IDLE, null, null, null, List.of(), false);
+            return new SessionStatusResponse(false, SidecarSyncStatus.IDLE, null, null, null, List.of(), false);
         }
 
         @JsonProperty("unsupportedCount")
