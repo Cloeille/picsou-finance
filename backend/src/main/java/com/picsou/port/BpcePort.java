@@ -62,10 +62,12 @@ public interface BpcePort {
     /**
      * Money is carried as {@link BigDecimal} parsed from the sidecar's decimal strings; a
      * float never appears. {@code kind} is {@code CURRENT_ACCOUNT}, {@code SAVINGS}, {@code LIVRET_A},
-     * {@code LIVRET_JEUNE}, {@code LEP}, {@code LDDS}, {@code PEL}, {@code PER}, {@code LOAN} or {@code CARD}; an unknown kind is rejected by
+     * {@code LIVRET_JEUNE}, {@code LEP}, {@code LDDS}, {@code PEL}, {@code PER}, {@code ASSURANCE_VIE},
+     * {@code LOAN} or {@code CARD}; an unknown kind is rejected by
      * the sync service, not guessed here. A card's {@code balance} is its outstanding (sum of
      * operations with a future {@code dueDate}), zero or negative. A loan's {@code balance} is
-     * its outstanding capital as the bank shows it, zero or negative; a PER's is zero or more.
+     * its outstanding capital as the bank shows it, zero or negative; a PER's or an assurance vie's is
+     * zero or more.
      * {@code loan} is set on a {@code LOAN} only, and only when the sidecar could read the
      * loan's details; null otherwise.
      */
@@ -89,7 +91,7 @@ public interface BpcePort {
         List<Transaction> transactions,
         boolean snapshotComplete,
         LoanDetails loan,
-        /** Null means legacy/unavailable detail, never an empty portfolio. PER only. */
+        /** Null means legacy/unavailable detail, never an empty portfolio. PER and assurance vie only. */
         PerDetails per
     ) {
         public AccountData {
@@ -110,7 +112,10 @@ public interface BpcePort {
         }
     }
 
-    /** Complete insurer valuation: euro-fund pocket plus owned UC, not the product catalogue. */
+    /**
+     * Complete insurer valuation of a PER or an assurance vie: euro-fund pocket plus owned UC, not
+     * the product catalogue.
+     */
     record PerDetails(
         BigDecimal balance,
         BigDecimal euroFundBalance,

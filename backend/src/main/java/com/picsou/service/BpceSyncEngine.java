@@ -49,7 +49,7 @@ import java.util.function.Supplier;
 /**
  * The sync engine shared by the BPCE banks (Caisse d'Epargne, Banque Populaire): their sidecars
  * speak one contract ({@link BpcePort}), so the login bookkeeping, the job state machine and the
- * import of current accounts, savings books (PEL included), cards, loans and PER live here once. Each bank keeps
+ * import of current accounts, savings books (PEL included), cards, loans, PER and assurance vie live here once. Each bank keeps
  * its own service, session table, port and error code, and hands the engine a {@link BpceBank}
  * descriptor, access to its sessions, and the {@link Branding} its imported accounts carry.
  *
@@ -129,6 +129,13 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
      * nor the session. Process-local on purpose, a restart drops the attempt and the user starts again.
      */
     private final Map<String, PendingLogin<S>> pendingLogins = new ConcurrentHashMap<>();
+    /**
+     * Bumped by {@link #clearSession}: a login that was waiting on the bank or the phone when the
+     * connection was removed carries an older generation and stores nothing. Checked and bumped
+     * under {@link #sessionWriteLock}.
+     */
+    private final Map<Long, Long> authGenerations = new ConcurrentHashMap<>();
+    private final Object sessionWriteLock = new Object();
 
     /**
      * The bank's session table, seen through the calls the engine makes on it. Each method is a
@@ -154,10 +161,12 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
      * Builds a new active, idle session row; not saved. Given per login rather than once per bank,
      * so whatever the login was started with (Banque Populaire's regional bank) is captured server
      * side when the login starts and lands on the row it opens, never taken from a later request.
+     * {@code previous} is the row this one replaces (read under its lock, already deleted), or null:
+     * a bank that keeps something across logins carries it over from there.
      */
     @FunctionalInterface
     interface SessionFactory<S> {
-        S create(FamilyMember member, String encryptedState, Instant validatedAt);
+        S create(FamilyMember member, String encryptedState, Instant validatedAt, S previous);
     }
 
     /**
@@ -251,6 +260,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         Supplier<BpcePort.InitiateResult> initiate, Long memberId, SessionFactory<S> sessionFactory
     ) {
         Objects.requireNonNull(sessionFactory, "sessionFactory");
+        long generation = authGeneration(memberId);
         BpcePort.InitiateResult result = initiate.get();
         if (result == null || result.processId() == null || result.processId().isBlank()
             || result.keypad() == null || result.expiresInSeconds() <= 0) {
@@ -261,8 +271,8 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         Instant now = clock.instant();
         // Swept on every start: a stale process id must never be reachable again.
         pendingLogins.values().removeIf(pending -> !pending.deadline().isAfter(now));
-        pendingLogins.put(result.processId(),
-            new PendingLogin<>(memberId, now.plusSeconds(result.expiresInSeconds()), null, sessionFactory));
+        registerPending(result.processId(),
+            new PendingLogin<>(memberId, now.plusSeconds(result.expiresInSeconds()), null, sessionFactory, generation));
         return new InitiateResponse(result.processId(), result.keypad(), result.expiresInSeconds());
     }
 
@@ -320,8 +330,32 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
                 "The " + bank.provider() + " keypad expired. Start again.", null);
         }
         port.submitKeypad(processId, positions);
-        pendingLogins.put(processId, new PendingLogin<>(memberId, null,
-            clock.instant().plusSeconds(KEYPAD_APPROVAL_WINDOW_SECONDS), pending.sessionFactory()));
+        registerPending(processId, new PendingLogin<>(memberId, null,
+            clock.instant().plusSeconds(KEYPAD_APPROVAL_WINDOW_SECONDS), pending.sessionFactory(),
+            pending.generation()));
+    }
+
+    /**
+     * Puts a login in the map unless {@link #clearSession} ran since it started: a disconnect
+     * during a sidecar call must not leave a process that could later be completed.
+     */
+    private void registerPending(String processId, PendingLogin<S> pending) {
+        synchronized (sessionWriteLock) {
+            requireGeneration(pending.memberId(), pending.generation());
+            pendingLogins.put(processId, pending);
+        }
+    }
+
+    private long authGeneration(Long memberId) {
+        return authGenerations.getOrDefault(memberId, 0L);
+    }
+
+    /** Must be called under {@link #sessionWriteLock}, in the same block as the write it guards. */
+    private void requireGeneration(Long memberId, long generation) {
+        if (authGeneration(memberId) != generation) {
+            throw error(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED,
+                "The " + bank.provider() + " connection was removed during the login", null);
+        }
     }
 
     /**
@@ -364,7 +398,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
             throw error(SidecarErrorCode.UPSTREAM_FORMAT_CHANGED,
                 bank.provider() + " did not return a session", null);
         }
-        return storeSession(plainState, memberId, pending.sessionFactory());
+        return storeSession(plainState, memberId, pending.sessionFactory(), pending.generation());
     }
 
     /**
@@ -373,18 +407,31 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
      * the user triggers it.
      */
     R storeSession(String plainState, Long memberId, SessionFactory<S> sessionFactory) {
+        return storeSession(plainState, memberId, sessionFactory, authGeneration(memberId));
+    }
+
+    /**
+     * Refused when {@link #clearSession} ran since {@code generation} was read: the user
+     * disconnected while this login was in flight.
+     */
+    private R storeSession(String plainState, Long memberId, SessionFactory<S> sessionFactory, long generation) {
         if (plainState == null || plainState.isBlank()) {
             throw error(SidecarErrorCode.INVALID_SESSION_STATE, "No " + bank.provider() + " session was provided", null);
         }
-        requireTransactionResult(txTemplate.execute(status -> {
-            FamilyMember member = memberRepository.findById(memberId)
-                .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
-            sessions.findByMemberIdForUpdate(memberId).ifPresent(sessions::delete);
-            sessions.flush();
-            S created = sessionFactory.create(member, encryption.encrypt(plainState), Instant.now());
-            sessions.saveAndFlush(created);
-            return created;
-        }));
+        synchronized (sessionWriteLock) {
+            requireGeneration(memberId, generation);
+            requireTransactionResult(txTemplate.execute(status -> {
+                FamilyMember member = memberRepository.findById(memberId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
+                Optional<S> previous = sessions.findByMemberIdForUpdate(memberId);
+                previous.ifPresent(sessions::delete);
+                sessions.flush();
+                S created = sessionFactory.create(
+                    member, encryption.encrypt(plainState), Instant.now(), previous.orElse(null));
+                sessions.saveAndFlush(created);
+                return created;
+            }));
+        }
         return getStatus(memberId);
     }
 
@@ -559,15 +606,17 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
                 // The bank shows a loan's outstanding capital as a negative figure.
                 throw invalid("a loan with a positive outstanding");
             }
-            if (type == AccountType.PER && account.balance().signum() < 0) {
-                throw invalid("a retirement plan with a negative balance");
+            // A PER and an assurance vie are read from the insurer; both are assets.
+            boolean insurerContract = type == AccountType.PER || type == AccountType.ASSURANCE_VIE;
+            if (insurerContract && account.balance().signum() < 0) {
+                throw invalid("an insurer contract with a negative balance");
             }
             // Picsou stores a loan positive and applies the liability sign itself.
-            if (account.per() != null && type != AccountType.PER) {
-                throw invalid("PER details on another account type");
+            if (account.per() != null && !insurerContract) {
+                throw invalid("insurer details on another account type");
             }
             // Validated and resolved here, outside any database transaction: it may call market providers.
-            CaisseEpargnePerService.Prepared per = type == AccountType.PER
+            CaisseEpargnePerService.Prepared per = insurerContract
                 ? perService.prepare(account.per(), account.currency())
                 : null;
             BigDecimal balance = per != null
@@ -1108,14 +1157,20 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
     /**
      * Deletes the stored session. This only forgets the cookies in Picsou: the bank session is
      * not revoked (there is no confirmed logout call on the port) and may stay active until it
-     * expires. Returns whether a stored session was there to delete.
+     * expires. Returns whether a stored session was there to delete. A login still in flight is
+     * cancelled too, so an approval on the phone after this stores nothing.
      */
     boolean clearSession(Long memberId) {
-        return Boolean.TRUE.equals(txTemplate.execute(status -> {
-            Optional<S> session = sessions.findByMemberIdForUpdate(memberId);
-            session.ifPresent(sessions::delete);
-            return session.isPresent();
-        }));
+        synchronized (sessionWriteLock) {
+            authGenerations.merge(memberId, 1L, Long::sum);
+            boolean removed = Boolean.TRUE.equals(txTemplate.execute(status -> {
+                Optional<S> session = sessions.findByMemberIdForUpdate(memberId);
+                session.ifPresent(sessions::delete);
+                return session.isPresent();
+            }));
+            pendingLogins.values().removeIf(pending -> pending.memberId().equals(memberId));
+            return removed;
+        }
     }
 
     private R toStatus(S session) {
@@ -1176,6 +1231,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
             case "LDDS" -> AccountType.LDDS;
             case "PEL" -> AccountType.PEL;
             case "PER" -> AccountType.PER;
+            case "ASSURANCE_VIE" -> AccountType.ASSURANCE_VIE;
             case "LOAN" -> AccountType.LOAN;
             case "CARD" -> AccountType.CREDIT_CARD;
             // Never guess: an unknown kind means the format moved under us.
@@ -1193,6 +1249,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
             case LDDS -> "LDDS";
             case PEL -> "PEL";
             case PER -> "PER";
+            case ASSURANCE_VIE -> "Assurance vie";
             case LOAN -> bank.loanName();
             default -> bank.accountName();
         };
@@ -1202,7 +1259,7 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
         return switch (type) {
             // Same colour for every savings book, as the Bourso connector does.
             case SAVINGS, LIVRET_A, LIVRET_JEUNE, LEP, LDDS, PEL -> "#f59e0b";
-            case PER -> "#8b5cf6";
+            case PER, ASSURANCE_VIE -> "#8b5cf6";
             case LOAN -> "#64748b";
             case CREDIT_CARD -> "#2563eb";
             default -> "#dc2626";
@@ -1279,7 +1336,8 @@ public final class BpceSyncEngine<S extends BpceSession, R> {
      * nothing about the pad survives a step.
      */
     private record PendingLogin<S>(
-        Long memberId, Instant keypadExpiresAt, Instant approvalExpiresAt, SessionFactory<S> sessionFactory
+        Long memberId, Instant keypadExpiresAt, Instant approvalExpiresAt, SessionFactory<S> sessionFactory,
+        long generation
     ) {
         Instant deadline() {
             return approvalExpiresAt != null ? approvalExpiresAt : keypadExpiresAt;

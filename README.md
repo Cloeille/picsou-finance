@@ -29,6 +29,7 @@ Track bank accounts, brokerage, crypto, and net worth — all in one place.
 - **Account aggregation** — Bank accounts (LEP, PEA, Livret, current), brokerage, crypto wallets, on-chain addresses, debts/loans
 - **Bank sync** — Enable Banking (PSD2/OAuth, 2000+ EU banks) and SimpleFIN (setup token, mostly US banks via SimpleFIN Bridge). Wise jars through a Wise personal API token.
 - **BoursoBank** — Current accounts, livrets and the PEA/CTO with its cash and positions, via a local read-only sidecar. Reaches the securities account PSD2 cannot.
+- **La Banque Postale** — Current account and livrets (Livret A, LDDS, LEP) via a local sidecar, replacing Enable Banking for this bank.
 - **Brokerage sync** — Trade Republic via WebSocket or CSV import, and Bourse Direct PEA/CTO positions via a local read-only sidecar
 - **Employee savings** — Amundi Épargne Salariale plans (PEE/PEG, PERCO, PER) and their FCPE lines, via a local read-only sidecar
 - **Crypto** — Binance and Meria exchange sync, on-chain BTC/ETH/SOL address tracking
@@ -96,10 +97,12 @@ Picsou publishes pre-built, multi-arch (amd64/arm64) images to the GitHub Contai
 | `ghcr.io/cloeille/picsou-finance/bourso-auth` | BoursoBank login/2FA sidecar |
 | `ghcr.io/cloeille/picsou-finance/caisse-epargne-auth` | Caisse d'Epargne login (keypad + Sécur'Pass) and accounts sidecar |
 | `ghcr.io/cloeille/picsou-finance/banque-populaire-auth` | Banque Populaire login (keypad + Sécur'Pass) and accounts sidecar |
+| `ghcr.io/cloeille/picsou-finance/lbp-auth` | La Banque Postale browser-login sidecar (current account and livrets) |
 | `ghcr.io/cloeille/picsou-finance/fortuneo-auth` | Fortuneo login/2FA and portfolio sidecar |
 | `ghcr.io/cloeille/picsou-finance/cmes-auth` | Crédit Mutuel / CIC Épargne Salariale login/2FA and plans sidecar |
+| `ghcr.io/cloeille/picsou-finance/natixis-auth` | Natixis Interépargne login/2FA and plans sidecar |
 
-Bank connectors (the `*-auth` sidecars) are opt-in: with no profile, Compose pulls and runs only the app and the database. Pick the banks you sync through a comma-separated `COMPOSE_PROFILES` list, or use `all-connectors` for every one. Add `tls` to that same list when you use the bundled Caddy proxy. Connector profiles: `amex`, `amundi`, `banque-populaire`, `bourse-direct`, `bourso`, `caisse-epargne`, `cic`, `cmes`, `corum`, `degiro`, `fortuneo`, `revolut`, `sofidy`, and `tr` (Trade Republic). The `tls` profile enables the bundled Caddy proxy. The app and the enabled connectors authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`, required as soon as one connector is enabled; each connector refuses to start without it. Set the shared key before the first launch:
+Bank connectors (the `*-auth` sidecars) are opt-in: with no profile, Compose pulls and runs only the app and the database. Pick the banks you sync through a comma-separated `COMPOSE_PROFILES` list, or use `all-connectors` for every one. Add `tls` to that same list when you use the bundled Caddy proxy. Connector profiles: `amex`, `amundi`, `banque-populaire`, `bourse-direct`, `bourso`, `caisse-epargne`, `cic`, `cmes`, `corum`, `degiro`, `fortuneo`, `lbp`, `natixis`, `revolut`, `sofidy`, and `tr` (Trade Republic). The `tls` profile enables the bundled Caddy proxy. The app and the enabled connectors authenticate each other with one shared secret, `APP_SIDECAR_API_KEY`, required as soon as one connector is enabled; each connector refuses to start without it. Set the shared key before the first launch:
 
 ```bash
 [ -f docker/.env ] || cp docker/.env.example docker/.env
@@ -382,7 +385,9 @@ cp docker/.env.example docker/.env
 | `BANQUE_POPULAIRE_AUTH_URL` | Custom sidecar | Defaults to `http://banque-populaire-auth:8001` |
 | `BOURSE_DIRECT_AUTH_URL` | Custom sidecar | Defaults to `http://bourse-direct-auth:8001` |
 | `FORTUNEO_AUTH_URL` | Custom sidecar | Defaults to `http://fortuneo-auth:8001` |
+| `LBP_AUTH_URL` | Custom sidecar | Defaults to `http://lbp-auth:8001`. Set it to reach an `lbp-auth` sidecar run elsewhere (La Banque Postale) |
 | `CMES_AUTH_URL` | Custom sidecar | Defaults to `http://cmes-auth:8001`. Set it to reach a `cmes-auth` sidecar run elsewhere (Crédit Mutuel / CIC Épargne Salariale) |
+| `NATIXIS_AUTH_URL` | Custom sidecar | Defaults to `http://natixis-auth:8001`. Set it to reach a `natixis-auth` sidecar run elsewhere (Natixis Interépargne) |
 | `CIC_AUTH_URL` | Custom sidecar | Defaults to `http://cic-auth:8001`. Set it to reach a `cic-auth` sidecar run elsewhere (CIC online banking) |
 | `PICSOU_DOMAIN` | TLS profile | Hostname Caddy serves — see [step 3](#3-https-decide-before-the-first-launch) |
 | `HSTS_ENABLED` | Trusted cert | `true` only with a publicly-trusted certificate |

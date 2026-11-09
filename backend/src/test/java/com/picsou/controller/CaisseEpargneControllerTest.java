@@ -2,7 +2,7 @@ package com.picsou.controller;
 
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
-import com.picsou.model.CaisseEpargneSyncStatus;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.BpceSyncEngine;
 import com.picsou.service.CaisseEpargneSyncService;
@@ -56,15 +56,15 @@ class CaisseEpargneControllerTest {
         lenient().when(userContext.currentMemberId()).thenReturn(MEMBER_ID);
     }
 
-    private static CaisseEpargneSyncService.SessionStatusResponse statusOf(CaisseEpargneSyncStatus syncStatus) {
+    private static CaisseEpargneSyncService.SessionStatusResponse statusOf(SidecarSyncStatus syncStatus) {
         return new CaisseEpargneSyncService.SessionStatusResponse(
             true, syncStatus, null, null, null,
-            List.of(new BpceSyncEngine.UnsupportedContract("9001", "7", "02")));
+            List.of(new BpceSyncEngine.UnsupportedContract("9001", "7", "02")), false);
     }
 
     @Test
     void syncQueuesTheSyncForTheCurrentMemberAndAnswers202() throws Exception {
-        when(service.queueSync(MEMBER_ID)).thenReturn(statusOf(CaisseEpargneSyncStatus.QUEUED));
+        when(service.queueSync(MEMBER_ID)).thenReturn(statusOf(SidecarSyncStatus.QUEUED));
 
         mockMvc.perform(post("/api/caisse-epargne/sync").with(request -> {
                 request.setRemoteAddr("127.0.0.1");
@@ -82,7 +82,7 @@ class CaisseEpargneControllerTest {
 
     @Test
     void syncIsRateLimitedLikeTheOtherSyncEndpoints() throws Exception {
-        when(service.queueSync(MEMBER_ID)).thenReturn(statusOf(CaisseEpargneSyncStatus.QUEUED));
+        when(service.queueSync(MEMBER_ID)).thenReturn(statusOf(SidecarSyncStatus.QUEUED));
         var request = post("/api/caisse-epargne/sync").with(r -> {
             r.setRemoteAddr("127.0.0.1");
             return r;
@@ -100,7 +100,7 @@ class CaisseEpargneControllerTest {
 
     @Test
     void theRateLimitIsPerClientIp() throws Exception {
-        when(service.queueSync(anyLong())).thenReturn(statusOf(CaisseEpargneSyncStatus.QUEUED));
+        when(service.queueSync(anyLong())).thenReturn(statusOf(SidecarSyncStatus.QUEUED));
 
         for (int i = 0; i < 10; i++) {
             mockMvc.perform(post("/api/caisse-epargne/sync").with(r -> {
@@ -129,7 +129,7 @@ class CaisseEpargneControllerTest {
 
     @Test
     void statusReturnsTheStoredState() throws Exception {
-        when(service.getStatus(MEMBER_ID)).thenReturn(statusOf(CaisseEpargneSyncStatus.SUCCESS));
+        when(service.getStatus(MEMBER_ID)).thenReturn(statusOf(SidecarSyncStatus.SUCCESS));
 
         mockMvc.perform(get("/api/caisse-epargne/status"))
             .andExpect(status().isOk())

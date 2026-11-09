@@ -246,6 +246,7 @@
     },
     "cashBalance": "Efectivo en la cuenta PEA/de valores",
     "perEuroFundBalance": "Fondo en euros del PER (última sincronización)",
+    "lifeEuroFundBalance": "Fondo en euros (última sincronización)",
     "dividends": {
       "title": "Dividendos por venir",
       "carousel": "Carrusel de dividendos por venir",
@@ -550,7 +551,8 @@
       "onTrack": "Al día",
       "disclaimer": "Previsión orientativa, nunca contractual.",
       "simulationResult": "{{months}} meses · {{monthlyPayment}}/mes · {{interest}} de intereses",
-      "accruedHint": "Intereses devengados:"
+      "accruedHint": "Intereses devengados:",
+      "remainingHint": "Saldo restante (máximo por reembolso):"
     },
     "overview": {
       "title": "Préstamos entre particulares",
@@ -595,6 +597,7 @@
       "confirm": "Asignar",
       "created": "Devolución registrada."
     },
+    "linkedTransaction": "Vinculado al préstamo de {{name}}",
     "actions": {
       "close": "Cerrar el préstamo",
       "simulate": "Calcular"
@@ -603,6 +606,13 @@
       "title": "Cerrar el préstamo",
       "description": "El saldo restante ({{amount}}) se condonará y se retirará del patrimonio hoy.",
       "confirm": "Cerrar"
+    },
+    "deleteRepayment": {
+      "title": "Eliminar el reembolso",
+      "description": "El reembolso de {{amount}} se eliminará junto con su movimiento de caja. El saldo se recalculará.",
+      "descriptionLinked": "El reembolso de {{amount}} se desvinculará del préstamo. La transacción vinculada permanece en su cuenta. El saldo se recalculará.",
+      "descriptionNoCashLeg": "El reembolso de {{amount}} se eliminará. El saldo se recalculará.",
+      "confirm": "Eliminar"
     },
     "validation": {
       "principal": "El importe prestado debe ser mayor que cero.",
@@ -912,14 +922,16 @@
       "finary": "Importar desde Finary",
       "manual": "Crear una cuenta manualmente",
       "amundi": "PEE, PEG, PERCO, PER en Amundi",
+      "natixis": "PEE, PERCO, PER en Natixis Interépargne",
       "amex": "Tarjeta de crédito American Express: saldo y transacciones",
       "corum": "SCPI y seguro de vida CORUM Life: participaciones, valoración y operaciones",
       "sofidy": "Participaciones de SCPI Sofidy, al precio de reembolso",
       "property": "Casa, piso, terreno…",
       "revolut": "Phone + passcode, on-demand sync",
       "fortuneo": "Sincronizar tus cuentas Fortuneo",
-      "caisseEpargne": "Cuenta corriente, Livret A, LDDS, PEL, LEP, PER, préstamos y tarjetas en Caisse d'Epargne",
-      "banquePopulaire": "Cuenta corriente, Livret A, Livret Jeune, LDDS, Compte sur Livret y PEL en Banque Populaire"
+      "caisseEpargne": "Cuenta corriente, Livret A, LDDS, PEL, LEP, PER, seguro de vida, préstamos y tarjetas en Caisse d'Epargne",
+      "banquePopulaire": "Cuenta corriente, Livret A, Livret Jeune, LDDS, Compte sur Livret y PEL en Banque Populaire",
+      "lbp": "Cuenta corriente, Livret A y LEP en La Banque Postale"
     }
   },
   "sync": {
@@ -1301,6 +1313,9 @@
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Identificador",
+      "rememberedIdentifier": "Identificador guardado",
+      "useAnotherIdentifier": "Usar otro identificador",
+      "backToRememberedIdentifier": "Usar el identificador guardado",
       "connect": "Conectar",
       "connecting": "Conectando…",
       "sync": "Sincronizar",
@@ -1312,7 +1327,7 @@
       "disconnectConfirmAction": "Borrar la sesión guardada",
       "noSession": "Sin sesión activa",
       "sessionActive": "Sesión activa",
-      "scope": "Sincroniza bajo demanda tus cuentas corrientes, Livret A, LDDS, PEL, LEP, PER (con sus fondos cuando el detalle del asegurador está disponible), préstamos personales y tarjetas de Caisse d'Epargne. Solo se guarda la sesión, cifrada. Los contratos que Picsou no puede importar se listan pero nunca se crean.",
+      "scope": "Sincroniza bajo demanda tus cuentas corrientes, Livret A, LDDS, PEL, LEP, PER (con sus fondos cuando el detalle del asegurador está disponible), seguro de vida, préstamos personales y tarjetas de Caisse d'Epargne. Solo se guardan la sesión y tu identificador, cifrados; nunca tu contraseña. Los contratos que Picsou no puede importar se listan pero nunca se crean.",
       "notice": {
         "neverStored": "Picsou nunca ve ni guarda tu contraseña. La pulsas tú mismo en el teclado del banco; solo se envían las posiciones de las teclas, una única vez.",
         "noRetry": "Picsou nunca reintenta un inicio de sesión. Si falla, no se vuelve a enviar nada hasta que envíes el formulario tú mismo.",
@@ -1401,6 +1416,60 @@
         "countdownLabel": "Tiempo restante:"
       }
     },
+    "lbp": {
+      "title": "La Banque Postale",
+      "customerId": "Identificador",
+      "rememberIdentifier": "Recordar el identificador",
+      "rememberIdentifierHint": "El identificador se guarda cifrado en tu servidor. La contraseña nunca se guarda.",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "sync": "Sincronizar",
+      "queued": "Sincronización en cola…",
+      "syncing": "Sincronizando…",
+      "syncSuccess": "Cuentas de La Banque Postale sincronizadas.",
+      "clearSession": "Desconectar",
+      "disconnectConfirm": "Esto borra la sesión guardada y el identificador recordado en Picsou. La sesión de La Banque Postale en sí no se cierra y puede seguir activa hasta que caduque.",
+      "disconnectConfirmAction": "Borrar la sesión guardada",
+      "noSession": "Sin sesión activa",
+      "sessionActive": "Sesión activa",
+      "scope": "Sincroniza bajo demanda tu cuenta corriente y tus libretas (Livret A, LDDS, LEP, Compte sur livret) de La Banque Postale. Solo se guarda la sesión, cifrada.",
+      "notice": {
+        "neverStored": "Picsou nunca ve ni guarda tu contraseña. Pulsas tus seis cifras tú mismo en el teclado mezclado del banco; solo se envían las posiciones de las teclas, una única vez.",
+        "noRetry": "Picsou nunca reintenta un inicio de sesión. Si falla, no se vuelve a enviar nada hasta que envíes el formulario tú mismo.",
+        "lockRisk": "Los intentos fallidos cuentan ante tu banco y pueden bloquear tu acceso a La Banque Postale. Comprueba tu identificador y las seis cifras pulsadas antes de validar."
+      },
+      "securPassPrompt": "Aprueba el inicio de sesión en la aplicación La Banque Postale.",
+      "securPassHint": "Picsou no toca tu teléfono. Esta página continúa sola en cuanto apruebes.",
+      "countdownLabel": "Tiempo restante para aprobar:",
+      "unsupportedTitle": "Productos no importados",
+      "unsupportedHint": "Picsou aún no admite estos productos (se muestra el código de familia).",
+      "errors": {
+        "rateLimited": "Demasiados intentos de inicio de sesión. Espera antes de volver a intentarlo.",
+        "rateLimitedRetryAfter": "Demasiados intentos de inicio de sesión. Inténtalo de nuevo en {{minutes}} min.",
+        "invalidCredentials": "El banco rechazó el identificador o la contraseña. Compruébalos antes de reintentar: los fallos repetidos pueden bloquear tu cuenta.",
+        "tooManySyncs": "Demasiadas sincronizaciones. Espera antes de volver a sincronizar.",
+        "tooManySyncsRetryAfter": "Demasiadas sincronizaciones. Inténtalo de nuevo en {{minutes}} min.",
+        "invalidIdentifier": "El identificador debe contener entre 6 y 12 dígitos.",
+        "keypadChanged": "El teclado cambió, empieza de nuevo. No se envió nada.",
+        "appValidationTimeout": "El inicio de sesión no se aprobó a tiempo en la aplicación móvil. Empieza de nuevo si quieres reintentarlo.",
+        "authAttemptExpired": "El intento de inicio de sesión caducó. Empieza de nuevo si quieres reintentarlo.",
+        "sessionExpired": "La sesión de La Banque Postale caducó. Vuelve a conectar.",
+        "formatChanged": "El formato del sitio de La Banque Postale cambió. Se conservaron tus datos existentes.",
+        "invalidSessionState": "No se pudo leer la sesión guardada. Vuelve a conectar.",
+        "serverError": "No se pudo contactar con La Banque Postale. Inténtalo de nuevo más tarde.",
+        "keypadExpired": "El teclado caducó antes de validar. Empieza de nuevo si quieres reintentarlo.",
+        "invalidPositions": "No se aceptó la entrada del teclado. Empieza de nuevo e introduce seis teclas."
+      },
+      "keypad": {
+        "title": "Pulsa tu contraseña",
+        "description": "Pulsa en orden las seis cifras de tu contraseña. Los dígitos se muestran en las propias teclas.",
+        "entered": "{{count}} teclas introducidas",
+        "clear": "Borrar",
+        "cancel": "Cancelar",
+        "validate": "Validar",
+        "countdownLabel": "Tiempo restante:"
+      }
+    },
     "degiro": {
       "title": "DEGIRO",
       "username": "Usuario",
@@ -1484,6 +1553,37 @@
         "formatChanged": "El formato del sitio de Amundi ha cambiado. Se han conservado sus datos existentes.",
         "invalidData": "Amundi devolvió datos incoherentes. Se han conservado sus datos existentes.",
         "serverError": "No se puede contactar con Amundi. Inténtelo de nuevo."
+      }
+    },
+    "natixis": {
+      "title": "Natixis Interépargne",
+      "login": "Correo electrónico",
+      "password": "Contraseña",
+      "otpCode": "Código de verificación",
+      "otpPrompt": "Introduce el código que Natixis Interépargne te envió por SMS, correo electrónico o llamada de voz.",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "validate": "Validar el código",
+      "validating": "Validando…",
+      "sync": "Sincronizar",
+      "queued": "Sincronización en cola…",
+      "syncing": "Sincronizando…",
+      "syncSuccess": "Planes de ahorro sincronizados.",
+      "clearSession": "Desconectar",
+      "noSession": "Ninguna sesión activa",
+      "sessionActive": "Sesión activa",
+      "scope": "Sincroniza tus planes de ahorro salarial de Natixis Interépargne (PEE, PERCO, PER…) y los fondos que contienen: participaciones, valor liquidativo y ganancia. Tras este primer inicio de sesión, las sincronizaciones se ejecutan solas hasta que Natixis cierre la sesión; entonces deberás volver a conectarte.",
+      "errors": {
+        "tooManyAttempts": "Natixis Interépargne bloqueó nuevos intentos. Inténtalo más tarde.",
+        "invalidCredentials": "Natixis Interépargne rechazó el correo o la contraseña.",
+        "mfaTypeUnsupported": "Esta cuenta solo ofrece acceso con passkey, o un segundo factor que Picsou no admite. Picsou necesita el acceso con contraseña y los códigos por SMS, correo electrónico o llamada de voz: activa ambos en los ajustes de seguridad de Natixis Interépargne.",
+        "authAttemptExpired": "El intento de autenticación caducó. Empieza de nuevo.",
+        "sessionExpired": "La sesión de Natixis Interépargne caducó. Vuelve a conectarte para reanudar la sincronización.",
+        "portfolioIncomplete": "Natixis Interépargne devolvió planes de ahorro incompletos. Se conservaron tus datos existentes.",
+        "formatChanged": "Cambió el formato del sitio de Natixis Interépargne. Se conservaron tus datos existentes.",
+        "invalidData": "Natixis Interépargne devolvió datos de plan no válidos. Se conservaron tus datos existentes.",
+        "serverError": "Natixis Interépargne no está disponible por el momento. Inténtalo de nuevo.",
+        "invalidCode": "Código de verificación incorrecto. Compruébalo y vuelve a escribirlo."
       }
     },
     "cmes": {
@@ -2119,6 +2219,7 @@
       "corum": "Participaciones SCPI y seguro de vida de CORUM",
       "sofidy": "Participaciones SCPI de Sofidy",
       "traderepublic": "Trade Republic",
+      "lbp": "La Banque Postale",
       "finary": "Finary",
       "crypto": "Cripto"
     },
@@ -2368,6 +2469,10 @@
         "fortuneo": {
           "title": "Fortuneo",
           "description": "Sincroniza tu PEA, cuenta de valores y cuentas corrientes con autenticación de dos factores."
+        },
+        "lbp": {
+          "title": "La Banque Postale",
+          "description": "Sincroniza tu cuenta corriente y tus libretas (Livret A, LEP) con teclado y validación móvil."
         }
       },
       "hint": {
@@ -2533,6 +2638,13 @@
       "tip": "Picsou solo guarda una sesión cifrada. La contraseña y el código 2FA nunca se almacenan. Las cuentas importadas permanecen vinculadas a su PEA, cuenta de valores o cuenta corriente.",
       "cta": "Activar Fortuneo",
       "skip": "No activar Fortuneo"
+    },
+    "lbp": {
+      "title": "La Banque Postale está lista.",
+      "body": "Conecta tu cuenta después de la configuración desde Cuentas → Añadir una cuenta. Introducirás tu identificador y luego tus seis dígitos en el teclado del banco.",
+      "tip": "Picsou solo guarda una sesión cifrada y, si lo pides, tu identificador. La contraseña y las posiciones del teclado nunca se almacenan.",
+      "cta": "Activar La Banque Postale",
+      "skip": "No activar La Banque Postale"
     }
   },
   "import": {

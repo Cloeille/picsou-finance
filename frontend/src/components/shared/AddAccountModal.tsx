@@ -17,8 +17,10 @@ import { BourseDirectPanel } from '@/components/sync/BourseDirectPanel'
 import { BoursoPanel } from '@/components/sync/BoursoPanel'
 import { CaisseEpargnePanel } from '@/components/sync/CaisseEpargnePanel'
 import { BanquePopulairePanel } from '@/components/sync/BanquePopulairePanel'
+import { LbpPanel } from '@/components/sync/LbpPanel'
 import { DegiroPanel } from '@/components/sync/DegiroPanel'
 import { AmundiPanel } from '@/components/sync/AmundiPanel'
+import { NatixisPanel } from '@/components/sync/NatixisPanel'
 import { FortuneoPanel } from '@/components/sync/FortuneoPanel'
 import { AmexPanel } from '@/components/sync/AmexPanel'
 import { CorumPanel } from '@/components/sync/CorumPanel'
@@ -59,7 +61,7 @@ interface AddAccountModalProps {
 
 type WizardStep =
   | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso' | 'caisseEpargne' | 'banquePopulaire'
-  | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'wise' | 'amundi' | 'fortuneo' | 'amex' | 'corum' | 'sofidy'
+  | 'lbp' | 'bourseDirect' | 'degiro' | 'ibkr' | 'simplefin' | 'wise' | 'amundi' | 'natixis' | 'fortuneo' | 'amex' | 'corum' | 'sofidy'
   | 'finary' | 'property' | 'manual'
 
 // ---------------------------------------------------------------------------
@@ -75,12 +77,14 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
   { key: 'bourso', icon: Landmark, labelKey: 'sync.bourso.title', descKey: 'addAccount.desc.bourso' },
   { key: 'caisseEpargne', icon: Landmark, labelKey: 'sync.caisseEpargne.title', descKey: 'addAccount.desc.caisseEpargne' },
   { key: 'banquePopulaire', icon: Landmark, labelKey: 'sync.banquePopulaire.title', descKey: 'addAccount.desc.banquePopulaire' },
+  { key: 'lbp', icon: Landmark, labelKey: 'sync.lbp.title', descKey: 'addAccount.desc.lbp' },
   { key: 'bourseDirect', icon: BriefcaseBusiness, labelKey: 'sync.bourseDirect.title', descKey: 'addAccount.desc.bourseDirect' },
   { key: 'degiro', icon: TrendingUp, labelKey: 'sync.degiro.title', descKey: 'addAccount.desc.degiro' },
   { key: 'ibkr', icon: BriefcaseBusiness, labelKey: 'sync.ibkr.title', descKey: 'addAccount.desc.ibkr' },
   { key: 'simplefin', icon: Landmark, labelKey: 'sync.simplefin.title', descKey: 'addAccount.desc.simplefin' },
   { key: 'wise', icon: PiggyBank, labelKey: 'sync.wise.title', descKey: 'addAccount.desc.wise' },
   { key: 'amundi', icon: PiggyBank, labelKey: 'sync.amundi.title', descKey: 'addAccount.desc.amundi' },
+  { key: 'natixis', icon: PiggyBank, labelKey: 'sync.natixis.title', descKey: 'addAccount.desc.natixis' },
   { key: 'fortuneo', icon: PiggyBank, labelKey: 'sync.fortuneo.title', descKey: 'addAccount.desc.fortuneo' },
   { key: 'amex', icon: CreditCard, labelKey: 'sync.amex.title', descKey: 'addAccount.desc.amex' },
   { key: 'corum', icon: Building2, labelKey: 'sync.corum.title', descKey: 'addAccount.desc.corum' },
@@ -95,12 +99,14 @@ const PANEL_STEPS: Partial<Record<WizardStep, ComponentType<{ onConnected?: () =
   bourso: BoursoPanel,
   caisseEpargne: CaisseEpargnePanel,
   banquePopulaire: BanquePopulairePanel,
+  lbp: LbpPanel,
   bourseDirect: BourseDirectPanel,
   degiro: DegiroPanel,
   ibkr: IbkrPanel,
   simplefin: SimplefinPanel,
   wise: WisePanel,
   amundi: AmundiPanel,
+  natixis: NatixisPanel,
   fortuneo: FortuneoPanel,
   amex: AmexPanel,
   corum: CorumPanel,

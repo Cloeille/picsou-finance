@@ -70,8 +70,13 @@ def _epoch_date(value: Any, where: str) -> str:
     return result.date().isoformat()
 
 
-def parse_per_detail(payload: Any, *, currency: str = "EUR") -> dict:
-    """Return reconciled EUR balance, euro-fund balance, date, and UC lines."""
+def parse_per_detail(payload: Any, *, currency: str = "EUR", undated_prices_ok: bool = False) -> dict:
+    """Return reconciled EUR balance, euro-fund balance, date, and UC lines.
+
+    `undated_prices_ok`: a unit line with no NAV date takes the contract valuation date
+    (an assurance vie's answer omits it; the line still has to reconcile quantity x NAV
+    with its value). A PER keeps the strict rule: the field is required.
+    """
     if currency != "EUR":
         _fail("currency", "only EUR is supported")
 
@@ -140,9 +145,12 @@ def parse_per_detail(payload: Any, *, currency: str = "EUR") -> dict:
         compartment_id = _required(support, "idCompartment", where)
         if isinstance(compartment_id, bool) or not isinstance(compartment_id, int) or compartment_id < 0:
             _fail(f"{where}.idCompartment", "expected a nonnegative integer compartment id")
-        price_date = _epoch_date(
-            _required(support, "dateValeurUniteCompte", where), f"{where}.dateValeurUniteCompte"
-        )
+        if undated_prices_ok and "dateValeurUniteCompte" not in support:
+            price_date = valuation_date
+        else:
+            price_date = _epoch_date(
+                _required(support, "dateValeurUniteCompte", where), f"{where}.dateValeurUniteCompte"
+            )
         if price_date > valuation_date:
             _fail(f"{where}.dateValeurUniteCompte", "NAV date is after contract valuation")
 

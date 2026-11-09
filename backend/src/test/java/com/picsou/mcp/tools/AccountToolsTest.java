@@ -191,10 +191,12 @@ class AccountToolsTest {
             walletSyncService, cryptoExchangeSyncService, amundiSyncService,
             mock(com.picsou.service.CmesSyncService.class),
             mock(com.picsou.service.CicSyncService.class),
+            mock(com.picsou.service.NatixisSyncService.class),
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
             fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService,
             wiseSyncService,
-            mock(com.picsou.service.CorumSyncService.class));
+            mock(com.picsou.service.CorumSyncService.class),
+            mock(com.picsou.service.LbpSyncService.class));
         return new RealServiceFixture(realService, accountRepository, accountServiceForConn,
             boursoSyncService, tradeRepublicSyncService);
     }

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { ArrowDownLeft, Coins, Pencil, Trash2 } from 'lucide-react'
 import type { Category, Transaction } from '@/types/api'
@@ -62,6 +63,7 @@ export function TransactionDetailSheet({
   accountProvider,
 }: TransactionDetailSheetProps) {
   const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
   const isMobile = useIsMobile()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const [pendingCategoryId, setPendingCategoryId] = useState<number | ''>('')
@@ -170,7 +172,7 @@ export function TransactionDetailSheet({
 
       {/* A loan can start from the outflow itself: the transaction becomes the cash leg
           instead of being copied, so net worth stays neutral. */}
-      {canStartLoan && (
+      {!tx.peerLoanLink && canStartLoan && (
         <>
           <Separator />
           <Button
@@ -185,7 +187,7 @@ export function TransactionDetailSheet({
         </>
       )}
 
-      {canAssign && (
+      {!tx.peerLoanLink && canAssign && (
         <>
           <Separator />
           <Button
@@ -196,6 +198,23 @@ export function TransactionDetailSheet({
           >
             <ArrowDownLeft size={14} className="mr-1.5" />
             {t('peerLoan.fromTransaction.assignAction')}
+          </Button>
+        </>
+      )}
+
+      {/* A linked transaction already belongs to a loan: the link actions could only
+          fail, so the sheet points at the loan instead. */}
+      {tx.peerLoanLink && (
+        <>
+          <Separator />
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => { onClose(); navigate(`/accounts/${tx.peerLoanLink!.accountId}`) }}
+          >
+            <Coins size={14} className="mr-1.5" />
+            {t('peerLoan.linkedTransaction', { name: tx.peerLoanLink.accountName })}
           </Button>
         </>
       )}

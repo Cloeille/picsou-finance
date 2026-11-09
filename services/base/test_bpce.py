@@ -31,7 +31,7 @@ FULL_SITE = Site(
     token_url=SITE.token_url,
     data_base_url=SITE.data_base_url,
     extra_hosts=frozenset({"www.as.group.test"}),
-    provisional_kinds=frozenset({"SAVINGS", "PEL", "LEP"}),
+    provisional_kinds=frozenset({"SAVINGS", "PEL", "LEP", "ASSURANCE_VIE"}),
     personal_loan=ChainProfile(name="personal-loan"),
     home_loan=HomeLoanApp(
         chain=ChainProfile(name="home-loan"),

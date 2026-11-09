@@ -35,6 +35,7 @@ import com.picsou.repository.RealEstateMetadataRepository;
 import com.picsou.repository.SavingsInterestConfigRepository;
 import com.picsou.repository.ScpiPositionRepository;
 import com.picsou.repository.TransactionRepository;
+import com.picsou.service.PeerLoanTransactionLinks;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -974,6 +975,33 @@ class AccountServiceTest {
     }
 
     /**
+     * Natixis employer funds are quoted nowhere: a quote that resolves for one of
+     * their tickers is another instrument's, so even when every line "resolves" the
+     * plan keeps the values Natixis reported.
+     */
+    @Test
+    void natixis_keepsTheProviderValuesEvenWhenEveryTickerWouldResolve() {
+        Account account = Account.builder().id(6L).name("PEE — ACME")
+            .type(AccountType.EMPLOYEE_SAVINGS).provider(NatixisSyncService.PROVIDER)
+            .currency("EUR").currentBalance(new BigDecimal("1500.50")).build();
+        AccountHolding holding = AccountHolding.builder()
+            .id(60L).ticker("FR0010405035").quantity(new BigDecimal("10"))
+            .providerValueEur(new BigDecimal("1500.50")).providerPnlEur(new BigDecimal("100.50")).build();
+        when(holdingRepository.findByAccount_Id(6L)).thenReturn(List.of(holding));
+        when(accountRepository.findByIdAndMemberId(6L, 1L)).thenReturn(Optional.of(account));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(6L)).thenReturn(List.of(holding));
+        // An unrelated instrument's price that the old code would have used: 10 x 999.
+        org.mockito.Mockito.lenient().when(priceService.getQuotes(any())).thenReturn(Map.of("FR0010405035",
+            new PriceService.Quote(new BigDecimal("999"), LocalDate.now(), true)));
+
+        assertThat(accountService.liveBalanceEur(account)).isEqualByComparingTo("1500.50");
+        HoldingResponse line = accountService.getHoldings(6L, 1L).getFirst();
+        assertThat(line.currentValueEur()).isEqualByComparingTo("1500.50");
+        assertThat(line.pnlEur()).isEqualByComparingTo("100.50");
+        verify(priceService, never()).getQuotes(any());
+    }
+
+    /**
      * BoursoBank's trading board exposes only its own instrument symbol, so a
      * line whose ISIN never resolved is unpriceable by construction. Without the
      * provider-valued fallback the PEA reads as its cash sleeve alone.
@@ -1233,9 +1261,31 @@ class AccountServiceTest {
     }
 
     @Test
+    void caisseEpargneAssuranceVie_isValuedFromInsurerFiguresLikeAPer_andAManualOneIsNot() {
+        AccountHolding uc = AccountHolding.builder()
+            .ticker("UC_A").quantity(new BigDecimal("10"))
+            .currentPrice(new BigDecimal("50")).quoteCurrency("USD")
+            .providerValueEur(new BigDecimal("500")).build();
+        when(holdingRepository.findByAccount_Id(6L)).thenReturn(List.of(uc));
+        when(priceService.getQuotes(any())).thenReturn(
+            Map.of("UC_A", new PriceService.Quote(new BigDecimal("60"), LocalDate.now(), true)));
+
+        Account synced = Account.builder().id(6L).name("Synthetic life insurance")
+            .type(AccountType.ASSURANCE_VIE).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .currentBalance(new BigDecimal("1500")).cashBalance(new BigDecimal("1000")).isManual(false).build();
+
+        AccountService.Valuation valuation = accountService.valuation(synced);
+
+        // 1000 euro fund + 10 units at the live 60, repriced between syncs.
+        assertThat(valuation.liveEur()).isEqualByComparingTo("1600");
+        // The insurer baseline is the live value itself; the generic path would report a cost basis.
+        assertThat(valuation.investedEur()).isEqualByComparingTo("1600");
+    }
+
+    @Test
     void caisseEpargnePer_usesLiveQuotesAndKeepsUnresolvedBankValuationsStale() {
         Account account = Account.builder().id(6L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
         LocalDate navDate = LocalDate.of(2026, 10, 6);
         AccountHolding ucA = AccountHolding.builder()
@@ -1292,7 +1342,7 @@ class AccountServiceTest {
     @Test
     void caisseEpargnePer_ignoresNonpositiveQuotesAndBankValues() {
         Account account = Account.builder().id(7L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
         AccountHolding valued = AccountHolding.builder()
             .ticker("UC_A").quantity(new BigDecimal("10"))
@@ -1325,7 +1375,7 @@ class AccountServiceTest {
     @Test
     void caisseEpargnePer_liveQuoteStaysFreshWhenBankFallbackIsInvalid() {
         Account account = Account.builder().id(10L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("500")).cashBalance(BigDecimal.ZERO).build();
         AccountHolding holding = AccountHolding.builder()
             .ticker("UC_A").quantity(new BigDecimal("10")).providerValueEur(BigDecimal.ZERO).build();
@@ -1341,7 +1391,7 @@ class AccountServiceTest {
     @Test
     void caisseEpargnePer_allMissingQuotesKeepsTheCompleteBankTotalAsStaleAndPriced() {
         Account account = Account.builder().id(8L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("1700")).cashBalance(new BigDecimal("1000")).build();
         List<AccountHolding> holdings = List.of(
             AccountHolding.builder().ticker("UC_A").quantity(new BigDecimal("10"))
@@ -1360,7 +1410,7 @@ class AccountServiceTest {
     @Test
     void caisseEpargnePer_euroPocketWithoutHoldingsUsesItsStoredBalance() {
         Account account = Account.builder().id(9L).name("Synthetic pension")
-            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).currency("EUR")
+            .type(AccountType.PER).provider(CaisseEpargneSyncService.PROVIDER).isManual(false).currency("EUR")
             .currentBalance(new BigDecimal("1000")).cashBalance(new BigDecimal("1000")).build();
         when(holdingRepository.findByAccount_Id(9L)).thenReturn(List.of());
         when(priceService.toEur(new BigDecimal("1000"), "EUR", null)).thenReturn(new BigDecimal("1000"));
@@ -1429,7 +1479,8 @@ class AccountServiceTest {
             transactionRepository, realEstateMetadataRepository, propertyValuationRepository, debtRepository,
             savingsInterestConfigRepository, realPrices, loanAmortizationService, accessResolver,
             bankLogoResolver, cryptoLogoService, instrumentLogoService, scpiPositionRepository, scpiFundService,
-            mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class));
+            mock(PeerLoanTermsRepository.class), mock(PeerLoanRepaymentRepository.class),
+            mock(PeerLoanTransactionLinks.class));
         // What a verified-EUR Finary crypto snapshot stores: 10 REG that Finary values at 10 EUR.
         Account account = Account.builder().id(9L).name("Finary wallet").type(AccountType.CRYPTO)
             .currency("EUR").currentBalance(BigDecimal.TEN).build();
@@ -1698,6 +1749,27 @@ class AccountServiceTest {
         assertThat(h.getAverageBuyIn()).isEqualByComparingTo("150");
         // 400 - 2 x 150
         assertThat(line.pnlEur()).isEqualByComparingTo("100");
+    }
+
+    @Test
+    void updateHolding_caisseEpargneInsurerContract_keepsTheInsurerValueAndClearsOnlyThePnl() {
+        for (AccountType type : List.of(AccountType.PER, AccountType.ASSURANCE_VIE)) {
+            Account insurer = Account.builder().id(1L).type(type).currency("EUR")
+                .provider(CaisseEpargneSyncService.PROVIDER).isManual(false).externalAccountId("ce_contract:V1").build();
+            AccountHolding h = AccountHolding.builder()
+                .account(insurer).ticker("UC_A").quantity(new BigDecimal("2"))
+                .providerValueEur(new BigDecimal("400")).providerPnlEur(new BigDecimal("40")).build();
+            when(accountRepository.findByIdAndMemberId(1L, 9L)).thenReturn(Optional.of(insurer));
+            when(holdingRepository.findByAccountIdAndTicker(1L, "UC_A")).thenReturn(Optional.of(h));
+            when(holdingRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            stubQuotes("UC_A", null);
+
+            accountService.updateHolding(1L, 9L, "UC_A", null, new BigDecimal("150"));
+
+            assertThat(h.getProviderValueEur()).as(type.name()).isEqualByComparingTo("400");
+            assertThat(h.getProviderPnlEur()).as(type.name()).isNull();
+            assertThat(h.getAverageBuyIn()).isEqualByComparingTo("150");
+        }
     }
 
     @Test
