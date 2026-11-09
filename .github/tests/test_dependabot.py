@@ -51,6 +51,15 @@ class DependabotCoverageTest(unittest.TestCase):
                 self.assertEqual(len(ignored), 1)
                 self.assertEqual(ignored[0]["update-types"], ["version-update:semver-major"])
 
+    def test_typescript_major_bumps_are_ignored_until_typescript_eslint_supports_it(self):
+        # typescript-eslint peers on typescript <6.1.0, so TypeScript 7 cannot be linted (#526).
+        config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+        update = next(u for u in config["updates"]
+                      if u["package-ecosystem"] == "bun" and u["directory"] == "/frontend")
+        ignored = [i for i in update.get("ignore", []) if i["dependency-name"] == "typescript"]
+        self.assertEqual(len(ignored), 1)
+        self.assertEqual(ignored[0]["update-types"], ["version-update:semver-major"])
+
     def test_codeql_actions_share_one_revision_and_one_update(self):
         # analyze refuses a config written by another init release (#491, #492).
         pins = {}
