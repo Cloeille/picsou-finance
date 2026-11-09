@@ -63,6 +63,7 @@ class AccountConnectionServiceTest {
     @Mock WiseSyncService wiseSyncService;
     @Mock CorumSyncService corumSyncService;
     @Mock LbpSyncService lbpSyncService;
+    @Mock BnpSyncService bnpSyncService;
 
     private AccountConnectionService service() {
         return new AccountConnectionService(
@@ -71,7 +72,7 @@ class AccountConnectionServiceTest {
             amundiSyncService, cmesSyncService, cicSyncService, natixisSyncService,
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
             fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService,
-            wiseSyncService, corumSyncService, lbpSyncService);
+            wiseSyncService, corumSyncService, lbpSyncService, bnpSyncService);
     }
 
     private static Account account(long id, String externalId) {

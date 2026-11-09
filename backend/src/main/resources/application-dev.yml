@@ -37,6 +37,8 @@ app:
       url: ${LBP_AUTH_URL:http://127.0.0.1:8015}
     natixis-auth:
       url: ${NATIXIS_AUTH_URL:http://127.0.0.1:8016}
+    bnp-auth:
+      url: ${BNP_AUTH_URL:http://127.0.0.1:8017}
   enablebanking:
     private-key-path: ${ENABLEBANKING_PRIVATE_KEY_PATH:.local/keys/enablebanking-private.pem}
 

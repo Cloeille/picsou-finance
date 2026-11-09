@@ -64,6 +64,30 @@ public enum SidecarBank {
         say(UPSTREAM_UNAVAILABLE, "Banque Populaire is temporarily unavailable"),
         say(INTERNAL_ERROR, "Banque Populaire is temporarily unavailable"))),
 
+    /**
+     * BNP Paribas and Hello bank! (same platform, other base URL). The customer number opens an
+     * attempt, the member clicks the six digits on the bank's shuffled keypad, then confirms the
+     * strong authentication (Clé Digitale app or SMS code). No password or code is ever stored.
+     */
+    BNP("BNP Paribas", "bnp-auth", Map.ofEntries(
+        say(SESSION_EXPIRED, "The BNP Paribas session expired, reconnect to resume syncing"),
+        say(INVALID_SESSION_STATE, "The stored BNP Paribas session is unusable"),
+        say(INVALID_CREDENTIALS, "BNP Paribas refused the customer number or the code"),
+        say(KEYPAD_EXPIRED, "The BNP Paribas keypad expired. Start again."),
+        say(INVALID_POSITIONS, "The keypad choice is not valid. Start again."),
+        say(KEYPAD_CHANGED, "BNP Paribas changed its login page. Nothing was sent."),
+        say(MFA_TYPE_UNSUPPORTED, "BNP Paribas asked for a strong authentication Picsou does not support"),
+        say(INVALID_OTP, "BNP Paribas rejected the verification code"),
+        say(APP_VALIDATION_TIMEOUT, "The sign-in was not approved in the Clé Digitale app in time"),
+        say(AUTH_ATTEMPT_EXPIRED, "This BNP Paribas sign-in attempt expired. Start again."),
+        say(RATE_LIMITED, "BNP Paribas locked or delayed further attempts, try again later"),
+        say(ACTION_REQUIRED, "BNP Paribas asks for an action on its website before Picsou can sign in"),
+        say(PORTFOLIO_INCOMPLETE, "BNP Paribas returned an incomplete portfolio"),
+        say(UPSTREAM_FORMAT_CHANGED, "The BNP Paribas data format changed"),
+        say(INVALID_DATA, "BNP Paribas returned invalid account data"),
+        say(UPSTREAM_UNAVAILABLE, "BNP Paribas is temporarily unavailable"),
+        say(INTERNAL_ERROR, "BNP Paribas is temporarily unavailable"))),
+
     BOURSE_DIRECT("Bourse Direct", "bourse-direct-auth", Map.ofEntries(
         say(INVALID_CREDENTIALS, "Bourse Direct rejected the credentials"),
         say(INVALID_OTP, "Bourse Direct rejected the verification code"),

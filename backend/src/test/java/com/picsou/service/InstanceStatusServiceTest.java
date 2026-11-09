@@ -438,6 +438,7 @@ class InstanceStatusServiceTest {
             Map.entry("corum-auth", "http://corum"),
             Map.entry("lbp-auth", "http://lbp"),
             Map.entry("amex-auth", "http://amex"),
+            Map.entry("bnp-auth", "http://bnp"),
             Map.entry("revolut-auth", "http://revolut")));
         var sidecarSessions = mock(SidecarSessionRepository.class);
         var revolut = mock(RevolutSessionRepository.class);
@@ -458,6 +459,7 @@ class InstanceStatusServiceTest {
         when(sidecarSessions.countByBank(SidecarBank.CIC)).thenReturn(13L);
         when(sidecarSessions.countByBank(SidecarBank.BANQUE_POPULAIRE)).thenReturn(14L);
         when(sidecarSessions.countByBank(SidecarBank.NATIXIS)).thenReturn(15L);
+        when(sidecarSessions.countByBank(SidecarBank.BNP)).thenReturn(16L);
         when(lbp.count()).thenReturn(15L);
 
         InstanceStatusService wired = new InstanceStatusService(
@@ -485,6 +487,7 @@ class InstanceStatusServiceTest {
                 tuple("corum-auth", "sidecar-chromium"),
                 tuple("lbp-auth", "sidecar-chromium"),
                 tuple("amex-auth", "sidecar-camoufox"),
+                tuple("bnp-auth", "sidecar-camoufox"),
                 tuple("revolut-auth", "sidecar-camoufox"));
 
         assertThat(byName(wired, "bourso-auth").url().get()).isEqualTo("http://setup-bourso");
@@ -508,6 +511,8 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "corum-auth").url().get()).isEqualTo("http://corum");
         assertThat(byName(wired, "lbp-auth").url().get()).isEqualTo("http://lbp");
         assertThat(byName(wired, "amex-auth").url().get()).isEqualTo("http://amex");
+        assertThat(byName(wired, "bnp-auth").url().get()).isEqualTo("http://bnp");
+        assertThat(byName(wired, "bnp-auth").sessions().getAsLong()).isEqualTo(16L);
 
         assertThat(byName(wired, "tr-auth").sessions().getAsLong()).isEqualTo(1L);
         assertThat(byName(wired, "bourso-auth").sessions().getAsLong()).isEqualTo(2L);

@@ -67,6 +67,12 @@ public class SyncExecutorConfig {
         return singleWorker("lbp-sync-");
     }
 
+    /** One worker: syncs are on demand and must never overlap on the bank's session. */
+    @Bean(name = "bnpSyncExecutor")
+    public Executor bnpSyncExecutor() {
+        return singleWorker("bnp-sync-");
+    }
+
     @Bean(name = "cicSyncExecutor")
     public Executor cicSyncExecutor() {
         return singleWorker("cic-sync-");

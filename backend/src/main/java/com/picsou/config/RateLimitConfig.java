@@ -143,6 +143,22 @@ public class RateLimitConfig {
     }
 
     /**
+     * Per-IP BNP Paribas login rate limiter: 3 attempts per 15 minutes. Stricter on purpose: a
+     * wrong keypad consumes a bank attempt and the bank can lock the customer number. Only
+     * {@code /auth/initiate} draws from it.
+     */
+    @Bean("bnpAuthBuckets")
+    public Map<String, Bucket> bnpAuthBuckets() {
+        return boundedBucketStore();
+    }
+
+    /** Per-IP BNP Paribas keypad and code limiter, kept apart from the login bucket. */
+    @Bean("bnpKeypadBuckets")
+    public Map<String, Bucket> bnpKeypadBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
      * Per-IP Banque Populaire login rate limiter: 3 attempts per 15 minutes, like Caisse
      * d'Epargne's (same BPCE login, same risk of locking the account), in a store of its own so
      * one bank's attempts never eat the other's. Only {@code /auth/initiate} draws from it.
@@ -538,6 +554,24 @@ public class RateLimitConfig {
             .addLimit(Bandwidth.builder()
                 .capacity(3)
                 .refillIntervally(3, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createBnpAuthBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(3)
+                .refillIntervally(3, Duration.ofMinutes(15))
+                .build())
+            .build();
+    }
+
+    public static Bucket createBnpKeypadBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(5)
+                .refillIntervally(5, Duration.ofMinutes(15))
                 .build())
             .build();
     }

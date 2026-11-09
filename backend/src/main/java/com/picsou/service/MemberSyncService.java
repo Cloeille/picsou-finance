@@ -49,7 +49,9 @@ public class MemberSyncService {
         "natixis",
         // On demand only: the session holds no credentials, so an expired one can only
         // be renewed by the user on the LBP tab and reads as needing reauthentication.
-        "lbp"
+        "lbp",
+        // On demand and daily: the session holds no credentials, so an expired one waits for the member.
+        "bnp"
     );
 
     private final RevolutSyncService revolutSyncService;
@@ -73,6 +75,7 @@ public class MemberSyncService {
     private final CorumSyncService corumSyncService;
     private final NatixisSyncService natixisSyncService;
     private final LbpSyncService lbpSyncService;
+    private final BnpSyncService bnpSyncService;
 
     public MemberSyncService(
             RevolutSyncService revolutSyncService,
@@ -95,7 +98,8 @@ public class MemberSyncService {
             CicSyncService cicSyncService,
             CorumSyncService corumSyncService,
             NatixisSyncService natixisSyncService,
-            LbpSyncService lbpSyncService) {
+            LbpSyncService lbpSyncService,
+            BnpSyncService bnpSyncService) {
         this.revolutSyncService = revolutSyncService;
         this.syncService = syncService;
         this.trSyncService = trSyncService;
@@ -117,6 +121,7 @@ public class MemberSyncService {
         this.corumSyncService = corumSyncService;
         this.natixisSyncService = natixisSyncService;
         this.lbpSyncService = lbpSyncService;
+        this.bnpSyncService = bnpSyncService;
     }
 
     public List<SourceSyncResult> resyncScheduled(Long memberId) {
@@ -187,6 +192,8 @@ public class MemberSyncService {
                     return natixisSyncService.resyncReporting(memberId);
                 case "lbp":
                     return lbpResyncReporting(memberId);
+                case "bnp":
+                    return bnpSyncService.resyncReporting(memberId);
                 case "fortuneo":
                     return fortuneoSyncService.resyncReporting(memberId);
                 case "amex":

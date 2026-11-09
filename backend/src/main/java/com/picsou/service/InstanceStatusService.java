@@ -353,6 +353,8 @@ public class InstanceStatusService {
                 () -> sidecarUrl(sidecars, "lbp-auth"), lbpSessions::count),
             new SidecarTarget("amex-auth", BASE_CAMOUFOX,
                 () -> sidecarUrl(sidecars, "amex-auth"), () -> sidecarSessions.countByBank(SidecarBank.AMEX)),
+            new SidecarTarget("bnp-auth", BASE_CAMOUFOX,
+                () -> sidecarUrl(sidecars, "bnp-auth"), () -> sidecarSessions.countByBank(SidecarBank.BNP)),
             new SidecarTarget("revolut-auth", BASE_CAMOUFOX,
                 () -> sidecarUrl(sidecars, "revolut-auth"), revolutSessions::count)
         );

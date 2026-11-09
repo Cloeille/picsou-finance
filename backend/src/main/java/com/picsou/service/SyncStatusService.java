@@ -33,7 +33,7 @@ import java.util.function.Supplier;
 @Service
 public class SyncStatusService {
 
-    private static final Set<String> REAUTH_ON_INVALID_CREDENTIALS = Set.of("bourso", "cmes", "cic", "corum", "natixis", "lbp");
+    private static final Set<String> REAUTH_ON_INVALID_CREDENTIALS = Set.of("bourso", "cmes", "cic", "corum", "natixis", "lbp", "bnp");
 
     private final RevolutSyncService revolutSyncService;
     private final RequisitionRepository requisitionRepository;
@@ -46,6 +46,7 @@ public class SyncStatusService {
     private final CorumSyncService corumSyncService;
     private final NatixisSyncService natixisSyncService;
     private final LbpSyncService lbpSyncService;
+    private final BnpSyncService bnpSyncService;
     private final FortuneoSyncService fortuneoSyncService;
     private final AmexSyncService amexSyncService;
     private final IbkrConnectionRepository ibkrConnectionRepository;
@@ -67,6 +68,7 @@ public class SyncStatusService {
                              CorumSyncService corumSyncService,
                              NatixisSyncService natixisSyncService,
                              LbpSyncService lbpSyncService,
+                             BnpSyncService bnpSyncService,
                              FortuneoSyncService fortuneoSyncService,
                              AmexSyncService amexSyncService,
                              IbkrConnectionRepository ibkrConnectionRepository,
@@ -87,6 +89,7 @@ public class SyncStatusService {
         this.corumSyncService = corumSyncService;
         this.natixisSyncService = natixisSyncService;
         this.lbpSyncService = lbpSyncService;
+        this.bnpSyncService = bnpSyncService;
         this.fortuneoSyncService = fortuneoSyncService;
         this.amexSyncService = amexSyncService;
         this.ibkrConnectionRepository = ibkrConnectionRepository;
@@ -138,6 +141,10 @@ public class SyncStatusService {
         add(lines, "lbp", () -> {
             LbpSyncService.SessionStatusResponse s = lbpSyncService.getStatus(memberId);
             return List.of(broker("lbp", s.isActive(), s.syncStatus().name(), s.lastSyncCompletedAt(), s.lastSyncError()));
+        });
+        add(lines, "bnp", () -> {
+            BnpSyncService.SessionStatusResponse s = bnpSyncService.getStatus(memberId);
+            return List.of(broker("bnp", s.isActive(), s.syncStatus().name(), s.lastSyncCompletedAt(), s.lastSyncError()));
         });
         add(lines, "fortuneo", () -> {
             FortuneoSyncService.SessionStatusResponse s = fortuneoSyncService.getStatus(memberId);
