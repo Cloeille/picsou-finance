@@ -75,7 +75,7 @@ never values.
 ### Backend
 
 `CmesSyncService` follows `AmundiSyncService` for the import and `BoursoSyncService` for the
-session: credentials are stored encrypted (`cmes_session.encrypted_credentials`, V117), and a
+session: credentials are stored encrypted (`sidecar_session.encrypted_credentials`, added to `cmes_session` by V117 and moved by V142), and a
 sync whose session expired logs in again with them, passing the previous session for its
 remembered-device cookie. The site's sessions last minutes, so this is the normal path of the
 daily 08:00 sync (`MemberSyncService`, source `cmes`). Only when the site asks for a new
@@ -153,7 +153,7 @@ modal lists no CMES row there.
   Euro-Information login and second-factor handling in
   `services/base/euro_information/{client.py,forms.py}`.
 - `SidecarBank.CMES`, `adapter/CmesAdapter.java`,
-  `service/CmesSyncService.java`, `controller/CmesController.java`, `model/CmesSession.java`,
+  `service/CmesSyncService.java`, `controller/CmesController.java`, `model/SidecarSession.java`,
   `db/migration/V117__cmes_session.sql`, `V120__cmes_session_invalid_otp.sql`.
 - `frontend/src/components/sync/CmesPanel.tsx`, `features/sync/{api,hooks}.ts`.
 - No proxy timeout applies since #342 (Tomcat has none): the confirmation of
