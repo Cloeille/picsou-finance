@@ -299,9 +299,12 @@ public class BnpSyncService {
             FamilyMember member = memberRepository.findById(job.memberId())
                 .orElseThrow(() -> new ResourceNotFoundException("Family member not found"));
             CategorizationService.CategorizationContext context = categorizationService.loadContext(job.memberId());
+            // Read before the upserts: only what a previous sync imported is a candidate for closing.
+            List<Account> imported = accountRepository.findAllByMemberIdAndProvider(job.memberId(), prepared.provider());
             for (PreparedAccount data : prepared.accounts()) {
                 upsertAccount(data, prepared.provider(), member, job.memberId(), syncedAt, context);
             }
+            closeUnlistedAccounts(prepared, imported, job.memberId(), syncedAt);
             storeUnsupported(job, prepared.unsupported());
         }
 
@@ -589,6 +592,51 @@ public class BnpSyncService {
         }
     }
 
+    /**
+     * Zeroes the imported accounts a complete snapshot no longer lists: the customer closed or
+     * transferred them. Closed at zero rather than soft deleted, which would read as removed by
+     * the member and block an account that reopens.
+     *
+     * <p>Only a complete snapshot gets here: {@link #prepare} fails the whole sync on any
+     * incomplete or invalid account, so {@code commit} never sees a partial listing and a failed
+     * sync closes nothing. A loan the bank closed is dropped by the sidecar (it carries only
+     * nulls), so it is closed at zero here, which is right.
+     *
+     * <p>Candidates are the accounts of the snapshot's own provider ({@code BNP Paribas} or
+     * {@code Hello bank!}, so the two brands never close each other) whose id carries the
+     * {@link #EXTERNAL_ID_PREFIX}: a manual account or an Enable Banking one is never touched. A
+     * product the sidecar lists as unsupported is still held by the customer, so it keeps its
+     * last imported balance. Once that list reaches its cap it may omit a product that turned
+     * unsupported, so nothing is closed then (an exact-cap list is treated the same: erring toward
+     * keeping a balance, never zeroing one).
+     */
+    private void closeUnlistedAccounts(Prepared prepared, List<Account> imported, Long memberId, Instant syncedAt) {
+        if (prepared.unsupported().size() >= MAX_UNSUPPORTED) {
+            log.warn("BNP Paribas unsupported-product list is capped, keeping every unlisted account (member={})", memberId);
+            return;
+        }
+        Set<String> kept = new HashSet<>();
+        prepared.accounts().forEach(account -> kept.add(account.externalId()));
+        prepared.unsupported().forEach(product -> kept.add(prefixed(product.externalId())));
+        for (Account account : imported) {
+            String externalId = account.getExternalAccountId();
+            if (externalId == null || !externalId.startsWith(EXTERNAL_ID_PREFIX) || kept.contains(externalId)) {
+                continue;
+            }
+            if (account.getCurrentBalance() != null && account.getCurrentBalance().signum() == 0) {
+                continue;
+            }
+            log.info("BNP Paribas no longer lists an imported account, closing it at zero (member={}; account={})",
+                memberId, account.getId());
+            account.setCurrentBalance(BigDecimal.ZERO);
+            account.setCashBalance(null);
+            account.setLastSyncedAt(syncedAt);
+            Account saved = accountRepository.save(account);
+            holdingRepository.deleteByAccountId(saved.getId());
+            accountService.upsertSnapshot(saved, BigDecimal.ZERO, BigDecimal.ZERO, LocalDate.now(clock));
+        }
+    }
+
     private static String colorFor(AccountType type) {
         return switch (type) {
             case PEA -> "#10b981";
@@ -642,12 +690,16 @@ public class BnpSyncService {
 
     private static String stableExternalId(String raw) {
         String cleaned = clean(raw);
-        String externalId = cleaned == null ? null
-            : cleaned.startsWith(EXTERNAL_ID_PREFIX) ? cleaned : EXTERNAL_ID_PREFIX + cleaned;
+        String externalId = cleaned == null ? null : prefixed(cleaned);
         if (externalId == null || externalId.length() > MAX_EXTERNAL_ID_LENGTH) {
             throw error(SidecarErrorCode.INVALID_DATA, "BNP Paribas returned an invalid account identifier", null);
         }
         return externalId;
+    }
+
+    /** The form an id is stored under, shared by accounts and unsupported products so they compare exactly. */
+    private static String prefixed(String cleanedId) {
+        return cleanedId.startsWith(EXTERNAL_ID_PREFIX) ? cleanedId : EXTERNAL_ID_PREFIX + cleanedId;
     }
 
     // ─── Types ────────────────────────────────────────────────────────────────────────────

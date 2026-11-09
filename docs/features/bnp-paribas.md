@@ -126,8 +126,16 @@ title as a length, form ids and field names and types, a few element ids. Names 
 - An account is matched by its external id, then by IBAN across the provider family (BNP Paribas and
   Hello bank! share one platform, and an existing Enable Banking link of the same bank is adopted), so it
   is not duplicated.
-- An incomplete snapshot (`snapshotComplete: false`) keeps the previous data; a vanished account is not
-  deleted by one partial answer.
+- An incomplete snapshot (`snapshotComplete: false`) fails the whole sync and keeps the previous data:
+  nothing is imported and nothing is closed.
+- On a complete snapshot, an imported account (`bnp_` external id, same provider: BNP Paribas and Hello
+  bank! never close each other's) that the bank no longer lists is closed at zero: balance and cash set to
+  0, holdings deleted, a zero balance snapshot written. It is not soft-deleted, which would read as removed
+  by the member and block an account that reopens. A manual account, an Enable Banking link without the
+  `bnp_` id, an account already at zero, and a product listed as unsupported (still held, only not read)
+  are left as they were; so is everything when the unsupported list hit its 100-entry cap, as it may then
+  hide a product. A closed loan is dropped by the sidecar (the bank sends only nulls), so it is closed at
+  zero too.
 
 ## Operating it
 

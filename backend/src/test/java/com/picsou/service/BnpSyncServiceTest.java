@@ -508,6 +508,111 @@ class BnpSyncServiceTest {
     }
 
     @Test
+    void anImportedAccountAbsentFromACompleteSnapshotIsClosedAtZero() {
+        arrangeCommittableSync("bnp", account("c1", "CURRENT_ACCOUNT", "Compte", "10.00", null, null));
+        Account closed = imported(21L, "bnp_gone", AccountType.PEA, "1500.00");
+        closed.setCashBalance(new BigDecimal("500.00"));
+        Account kept = imported(22L, "bnp_c1", AccountType.CHECKING, "10.00");
+        when(accountRepository.findAllByMemberIdAndProvider(7L, "BNP Paribas")).thenReturn(List.of(closed, kept));
+
+        service.queueSync(7L);
+
+        assertThat(closed.getCurrentBalance()).isEqualByComparingTo("0");
+        assertThat(closed.getCashBalance()).isNull();
+        assertThat(closed.getLastSyncedAt()).isNotNull();
+        verify(accountRepository).save(closed);
+        verify(holdingRepository).deleteByAccountId(21L);
+        verify(accountService).upsertSnapshot(eq(closed), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO), eq(LocalDate.of(2026, 1, 10)));
+        // The account that is still listed is upserted, not closed.
+        assertThat(kept.getCurrentBalance()).isEqualByComparingTo("10.00");
+    }
+
+    @Test
+    void aProductThatTurnedUnsupportedIsNotClosed() {
+        arrangeCommittableSync("bnp", account("c1", "CURRENT_ACCOUNT", "Compte", "10.00", null, null));
+        // The sidecar reports the raw stable id; the stored form carries the bnp_ prefix.
+        when(port.fetchAccounts("plain-state")).thenReturn(new BnpAdapter.AccountsSnapshot("bnp",
+            List.of(account("c1", "CURRENT_ACCOUNT", "Compte", "10.00", null, null)),
+            List.of(new BnpAdapter.Unsupported("t1", "3"), new BnpAdapter.Unsupported("bnp_t2", "3")), null));
+        Account first = imported(21L, "bnp_t1", AccountType.SAVINGS, "800.00");
+        Account second = imported(22L, "bnp_t2", AccountType.SAVINGS, "900.00");
+        when(accountRepository.findAllByMemberIdAndProvider(7L, "BNP Paribas")).thenReturn(List.of(first, second));
+
+        service.queueSync(7L);
+
+        assertThat(first.getCurrentBalance()).isEqualByComparingTo("800.00");
+        assertThat(second.getCurrentBalance()).isEqualByComparingTo("900.00");
+        verify(holdingRepository, never()).deleteByAccountId(21L);
+        verify(holdingRepository, never()).deleteByAccountId(22L);
+        verify(accountRepository, times(1)).save(any(Account.class));
+    }
+
+    @Test
+    void aCappedUnsupportedListClosesNothingBecauseItMayHideAProduct() {
+        arrangeCommittableSync("bnp", account("c1", "CURRENT_ACCOUNT", "Compte", "10.00", null, null));
+        List<BnpAdapter.Unsupported> capped = IntStream.range(0, 101)
+            .mapToObj(i -> new BnpAdapter.Unsupported("u" + i, "3")).toList();
+        when(port.fetchAccounts("plain-state")).thenReturn(new BnpAdapter.AccountsSnapshot("bnp",
+            List.of(account("c1", "CURRENT_ACCOUNT", "Compte", "10.00", null, null)), capped, null));
+        Account unlisted = imported(21L, "bnp_gone", AccountType.SAVINGS, "800.00");
+        when(accountRepository.findAllByMemberIdAndProvider(7L, "BNP Paribas")).thenReturn(List.of(unlisted));
+
+        service.queueSync(7L);
+
+        assertThat(unlisted.getCurrentBalance()).isEqualByComparingTo("800.00");
+        verify(holdingRepository, never()).deleteByAccountId(21L);
+        verify(accountRepository, times(1)).save(any(Account.class));
+    }
+
+    @Test
+    void anAlreadyZeroAccountAndAnAccountThatIsNotABnpImportAreLeftAlone() {
+        arrangeCommittableSync("bnp", account("c1", "CURRENT_ACCOUNT", "Compte", "10.00", null, null));
+        Account alreadyClosed = imported(21L, "bnp_old", AccountType.SAVINGS, "0.00");
+        Account manual = imported(22L, null, AccountType.SAVINGS, "300.00");
+        Account enableBanking = imported(23L, "eb-id", AccountType.CHECKING, "40.00");
+        when(accountRepository.findAllByMemberIdAndProvider(7L, "BNP Paribas"))
+            .thenReturn(List.of(alreadyClosed, manual, enableBanking));
+
+        service.queueSync(7L);
+
+        assertThat(manual.getCurrentBalance()).isEqualByComparingTo("300.00");
+        assertThat(enableBanking.getCurrentBalance()).isEqualByComparingTo("40.00");
+        verify(accountRepository, times(1)).save(any(Account.class));
+        verify(holdingRepository, never()).deleteByAccountId(21L);
+        verify(holdingRepository, never()).deleteByAccountId(22L);
+        verify(holdingRepository, never()).deleteByAccountId(23L);
+        verify(accountService, never()).upsertSnapshot(eq(alreadyClosed), any(), any(), any());
+    }
+
+    @Test
+    void aHelloBankSnapshotOnlyClosesHelloBankAccounts() {
+        arrangeCommittableSync("hellobank", account("c1", "CURRENT_ACCOUNT", "Compte", "10.00", null, null));
+        Account helloBank = imported(21L, "bnp_gone", AccountType.SAVINGS, "800.00");
+        helloBank.setProvider("Hello bank!");
+        when(accountRepository.findAllByMemberIdAndProvider(7L, "Hello bank!")).thenReturn(List.of(helloBank));
+
+        service.queueSync(7L);
+
+        assertThat(helloBank.getCurrentBalance()).isEqualByComparingTo("0");
+        verify(accountRepository, never()).findAllByMemberIdAndProvider(7L, "BNP Paribas");
+    }
+
+    @Test
+    void aFailedSnapshotClosesNothing() {
+        BnpAdapter.AccountData partial = new BnpAdapter.AccountData("c1", "CURRENT_ACCOUNT", "Compte",
+            new BigDecimal("10.00"), null, "EUR", null, List.of(), List.of(), false);
+        arrangeQueuedSync("bnp", partial);
+        lenient().when(accountRepository.findAllByMemberIdAndProvider(7L, "BNP Paribas"))
+            .thenReturn(List.of(imported(21L, "bnp_gone", AccountType.SAVINGS, "800.00")));
+
+        service.queueSync(7L);
+
+        assertFailed(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
+        verify(holdingRepository, never()).deleteByAccountId(anyLong());
+        verify(accountService, never()).upsertSnapshot(any(), any(), any(), any());
+    }
+
+    @Test
     void verifiedIbanAcceptsOnlyAValidChecksum() {
         assertThat(BnpSyncService.verifiedIban(" fr76 3000 6000 0112 3456 7890 189 ")).isEqualTo(IBAN);
         assertThat(BnpSyncService.verifiedIban("FR7630006000011234567890188")).isNull();
@@ -552,6 +657,11 @@ class BnpSyncServiceTest {
                                            BnpAdapter.Position... positions) {
         return new BnpAdapter.AccountData(id, kind, name, new BigDecimal(balance),
             cash == null ? null : new BigDecimal(cash), "EUR", iban, List.of(), List.of(positions), true);
+    }
+
+    private Account imported(Long id, String externalId, AccountType type, String balance) {
+        return Account.builder().id(id).member(owner()).name("Synthetic").provider("BNP Paribas").type(type)
+            .externalAccountId(externalId).isManual(externalId == null).currentBalance(new BigDecimal(balance)).build();
     }
 
     private SidecarSession arrangeCommittableSync(String brand, BnpAdapter.AccountData... accounts) {
