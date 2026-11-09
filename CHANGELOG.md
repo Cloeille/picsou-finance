@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **American Express can log in again by itself.** The connection form has a "Remember my
+  credentials (encrypted)" box. Ticked, the daily sync signs in again on its own when the session
+  has expired, without a code as long as American Express recognises the device (Picsou now
+  ticks "trusted device" after your code). If American Express asks for a code anyway, no SMS
+  is sent and you reconnect as before. A refused password is forgotten. Disconnect forgets
+  everything (#537).
+
 - **SimpleFIN accounts show their bank and their positions.** A Chase and a Fidelity account now read "Fidelity Investments · via SimpleFIN"
   instead of "SimpleFIN", and show the bank's logo when logos are enabled in the budget settings. A new account for which the
   bridge reports positions is created as the new **Brokerage account** type (any broker, any country or tax wrapper: Roth IRA, HSA,
@@ -191,13 +198,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (#337)
 
 ### Fixed
-
-- **American Express can log in again by itself.** The connection form has a "Remember my
-  credentials (encrypted)" box. Ticked, the daily sync signs in again on its own when the session
-  has expired, without a code as long as American Express recognises the device (Picsou now
-  ticks "trusted device" after your code). If American Express asks for a code anyway, no SMS
-  is sent and you reconnect as before. A refused password is forgotten. Disconnect forgets
-  everything (#537).
 
 - **Caisse d'Epargne remembers your identifier.** A reconnect after the bank session
   expired no longer asks for the identifier again: the one from the last successful login is
