@@ -90,6 +90,8 @@ PostgreSQL.
   It is a destructive change, so it needs the planned offline upgrade of the
   [safe release deployment](../features/release-deployment.md): stop the old app
   first, or a session it writes after the copy is dropped with its table.
+  V147 drops `banque_populaire_session` the same way: no rollback past it
+  without a restore, and the same offline upgrade.
 - The CORUM and Sofidy tables never enforced "FAILED requires an error code".
   V142 repairs a row that breaks it before the copy (stale error cleared,
   missing one set to `INTERNAL_ERROR`) instead of failing the boot.

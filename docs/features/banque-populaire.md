@@ -78,6 +78,7 @@ The bank answers a wrong identifier or password with a modal titled "Identifiant
 
 ## Gotchas / Pitfalls
 
+- `V147` drops `banque_populaire_session` after the copy, so there is no rollback past it without a database restore. Upgrade offline, as for `V142`: stop the old app first, then use the [safe release deployment](release-deployment.md). A session the old app writes after the copy is lost with the table.
 - A BPCE `3/01` code covers both Livret A and Livret Jeune. The product label tells them apart (whole word `JEUNE`), for both banks. A LEP label (`LEP`, `EPARGNE POPULAIRE`) is imported as `LEP` (not observed live).
 - `3/02` (`SAVINGS`, Compte sur Livret), `3/04` (`PEL`), `4/09` (`TERM_DEPOSIT`, term deposit) and `4/10` (`COOPERATIVE_SHARES`, cooperative shares) are enabled on Banque Populaire through `Site.provisional_kinds=frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES"})` ([ADR](../decisions/2026-11-07-provisional-kinds-per-bank.md)): an unreadable entry is demoted to `unsupported` instead of failing the synthesis, and `3/02`, `4/09` and `4/10` stay in `unsupported_families` on Caisse d'Epargne until observed there.
 - The host allow-list is strictly `*.banquepopulaire.fr`. A `caisse-epargne.fr` or `bpce.fr` URL is refused for this bank, and the other way round for Caisse d'Epargne.
