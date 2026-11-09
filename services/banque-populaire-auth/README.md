@@ -75,7 +75,9 @@ unchanged. The container listens on port 8001.
 Imported: the current account, `3/01` Livret A, `3/01` Livret Jeune
 (`LIVRET_JEUNE`, told apart by a `productLabel` with the word `JEUNE`), `3/28` LDDS,
 `3/02` Compte sur Livret (`SAVINGS`, provisional) and `3/04` PEL (`PEL`, provisional),
-all with their PFM transactions. A `3/01` label that names a LEP (`LEP`,
+all with their PFM transactions, plus `4/09` term deposit (`TERM_DEPOSIT`, provisional)
+and `4/10` cooperative shares (`COOPERATIVE_SHARES`, provisional) from their synthesis
+balance (without PFM transactions). A `3/01` label that names a LEP (`LEP`,
 `EPARGNE POPULAIRE`) is imported as `LEP`.
 
 Cards are not imported (`Site.cards=False`): for non-provisional contracts, the `augmentedCards` list of a
@@ -83,8 +85,7 @@ contract is checked for shape, then ignored (for provisional savings accounts, c
 read, nothing listed in `unsupported` (a card is not a contract).
 
 Listed in `unsupported` (id, family and sub-family code only), never read, never fatal:
-personal loans `6/12`, home loans `6/13`, PER `4/05`, term deposit `4/09`,
-cooperative shares `4/10`, the revolving credit `2/11`
+personal loans `6/12`, home loans `6/13`, PER `4/05`, the revolving credit `2/11`
 ("Credit Renouvelable Facelia", null balance), and any family not listed above.
 Only the main token is ever minted.
 

@@ -63,7 +63,9 @@ LIVRET_A_LABEL = "LIVRET A"
 
 # Observed live 2026-10-13: `productFamilyPFM.code` / `subProductFamilyPFM.code`.
 # PEL `3/04` and LEP `3/27` observed live 2026-11-06; Compte sur Livret `3/02` and
-# PEL `3/04` observed live on Banque Populaire 2026-11-08 (all with a `contractPfmId`).
+# PEL `3/04` observed live on Banque Populaire 2026-11-08 (all with a `contractPfmId`);
+# term deposit `4/09` and cooperative shares `4/10` observed live on Banque Populaire
+# 2026-11-08 (both without `contractPfmId`).
 # Any other pair (insurance `5`, other sub codes) is unsupported, never fatal.
 _KINDS_BY_FAMILY = {
     (FAMILY_SAVINGS_AVAILABLE, "02"): "SAVINGS",
@@ -71,6 +73,8 @@ _KINDS_BY_FAMILY = {
     (FAMILY_SAVINGS_AVAILABLE, "04"): "PEL",
     (FAMILY_SAVINGS_AVAILABLE, "27"): "LEP",
     ("4", "05"): "PER",
+    ("4", "09"): "TERM_DEPOSIT",
+    ("4", "10"): "COOPERATIVE_SHARES",
     ("6", "12"): "LOAN",
     ("6", "13"): "LOAN",
 }
@@ -100,7 +104,7 @@ _INSURER_ID_RE = re.compile(r"[0-9]{5} {1,16}(?P<product>[A-Z]{5})[0-9]{1,64}\Z"
 # is listed as unsupported instead of failing the whole synthesis, as it was before
 # they were supported; the loud failure of the long-observed kinds is kept for those.
 # Their cards are not read: a savings book, a plan or an assurance vie has none.
-PROVISIONAL_KINDS = frozenset({"SAVINGS", "PEL", "LEP", "ASSURANCE_VIE"})
+PROVISIONAL_KINDS = frozenset({"SAVINGS", "PEL", "LEP", "ASSURANCE_VIE", "TERM_DEPOSIT", "COOPERATIVE_SHARES"})
 
 # A family or sub-family code the bank sends: short and plain. Anything else is
 # reported as "?" so an unexpected value never reaches a log or the backend.
@@ -300,11 +304,11 @@ def _code(value: Any) -> str:
 
 def _check_balance_sign(kind: str, balance: Optional[dict], where: str) -> None:
     # A loan is outstanding capital, negative on the bank side; a PER, an assurance vie, a PEL,
-    # a LEP and a Compte sur Livret are assets. The other sign means the field changed meaning.
+    # a LEP, a Compte sur Livret, a term deposit and cooperative shares are assets. The other sign means the field changed meaning.
     if balance is None:  # `_money(required=True)` has already refused it
         raise ParseError(INVALID_SYNTHESIS, f"{where}.balance: missing")
     value = balance["value"]
-    if (kind == "LOAN" and value > 0) or (kind in INSURER_KINDS | {"SAVINGS", "PEL", "LEP"} and value < 0):
+    if (kind == "LOAN" and value > 0) or (kind in INSURER_KINDS | {"SAVINGS", "PEL", "LEP", "TERM_DEPOSIT", "COOPERATIVE_SHARES"} and value < 0):
         raise ParseError(INVALID_SYNTHESIS, f"{where}.balance.value: unexpected sign for this kind")
 
 

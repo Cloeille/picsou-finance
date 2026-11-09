@@ -124,18 +124,22 @@ class BanquePopulaireSyncServiceTest {
             account("1004", "LDDS", "LDDS", "3000.00"),
             account("1005", "SAVINGS", "COMPTE SUR LIVRET", "250.00"),
             account("1006", "PEL", "PLAN EPARGNE LOGEMENT", "15000.00"),
+            account("contract:TD1", "TERM_DEPOSIT", "TIP TOP'P 3 ANS", "1234.56"),
+            account("contract:CS1", "COOPERATIVE_SHARES", "PART SOCIALE BP", "250.00"),
             card());
 
         BanquePopulaireSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.syncStatus()).isEqualTo(BanquePopulaireSyncStatus.SUCCESS);
-        verify(accountRepository, times(7)).save(accountCaptor.capture());
+        verify(accountRepository, times(9)).save(accountCaptor.capture());
         List<Account> saved = accountCaptor.getAllValues();
         assertThat(saved).extracting(Account::getType).containsExactly(
             AccountType.CHECKING, AccountType.LIVRET_A, AccountType.LIVRET_JEUNE, AccountType.LDDS,
-            AccountType.SAVINGS, AccountType.PEL, AccountType.CREDIT_CARD);
+            AccountType.SAVINGS, AccountType.PEL, AccountType.SAVINGS, AccountType.SAVINGS,
+            AccountType.CREDIT_CARD);
         assertThat(saved).extracting(Account::getExternalAccountId)
-            .containsExactly("bp_1001", "bp_1002", "bp_1003", "bp_1004", "bp_1005", "bp_1006", "bp_2001");
+            .containsExactly("bp_1001", "bp_1002", "bp_1003", "bp_1004", "bp_1005", "bp_1006",
+                "bp_contract:TD1", "bp_contract:CS1", "bp_2001");
         assertThat(saved).allSatisfy(account -> {
             assertThat(account.getProvider()).isEqualTo(RIVES_DE_PARIS);
             assertThat(account.getCurrency()).isEqualTo("EUR");
@@ -191,6 +195,42 @@ class BanquePopulaireSyncServiceTest {
             assertThat(row.getExternalId()).isEqualTo("bp_p1");
             assertThat(row.getAmount()).isEqualByComparingTo("45.00");
         });
+    }
+
+    @Test
+    void importsTermDepositAsSavingsAccount() {
+        BanquePopulairePort.AccountData termDeposit = new BanquePopulairePort.AccountData(
+            "contract:TD1", "TERM_DEPOSIT", null, new BigDecimal("1234.56"), "EUR", null, false,
+            null, null, null, null, null, null, null, List.of(), true, null);
+        arrangeCommittableSync(termDeposit);
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getType()).isEqualTo(AccountType.SAVINGS);
+        assertThat(accountCaptor.getValue().getExternalAccountId()).isEqualTo("bp_contract:TD1");
+        assertThat(accountCaptor.getValue().getName()).isEqualTo("Compte à terme");
+        assertThat(accountCaptor.getValue().getCurrentBalance()).isEqualByComparingTo("1234.56");
+        assertThat(accountCaptor.getValue().getColor()).isEqualTo("#f59e0b");
+        verify(transactionRepository, never()).saveAllAndFlush(any());
+    }
+
+    @Test
+    void importsCooperativeSharesAsSavingsAccount() {
+        BanquePopulairePort.AccountData shares = new BanquePopulairePort.AccountData(
+            "contract:CS1", "COOPERATIVE_SHARES", " ", new BigDecimal("250.00"), "EUR", null, false,
+            null, null, null, null, null, null, null, List.of(), true, null);
+        arrangeCommittableSync(shares);
+
+        service.queueSync(7L);
+
+        verify(accountRepository).save(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getType()).isEqualTo(AccountType.SAVINGS);
+        assertThat(accountCaptor.getValue().getExternalAccountId()).isEqualTo("bp_contract:CS1");
+        assertThat(accountCaptor.getValue().getName()).isEqualTo("Parts sociales");
+        assertThat(accountCaptor.getValue().getCurrentBalance()).isEqualByComparingTo("250.00");
+        assertThat(accountCaptor.getValue().getColor()).isEqualTo("#f59e0b");
+        verify(transactionRepository, never()).saveAllAndFlush(any());
     }
 
     @Test
