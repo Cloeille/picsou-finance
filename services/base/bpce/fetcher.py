@@ -22,7 +22,6 @@ transactions query, and the `meta.nextPageToken` / `pageToken` pagination
 import copy
 import json
 import logging
-import os
 import urllib.parse
 from datetime import date, timedelta
 from decimal import Decimal
@@ -30,7 +29,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 import httpx
 
-from . import accounts_parser, per_client, per_parser, replay
+from . import accounts_parser, per_client, per_parser, replay, shape
 from .site import Site
 
 log = logging.getLogger("bpce")
@@ -265,30 +264,8 @@ def _serialise_loan(loan: Optional[dict]) -> Optional[dict]:
     }
 
 
-def _mask(value: Any, *, cap: int, letters: bool) -> str:
-    """One masking rule for every diagnostic log field.
-
-    Every digit, lowercase letter, accent and symbol becomes `9`, and the value is cut
-    at `cap` characters first. With `letters`, ASCII capitals are kept (a product code
-    such as `PERIC`, a catalogue name such as `LIVRET A`); without, they are masked
-    too and only the blanks and the length show. No number ever shows.
-    """
-    if not isinstance(value, str):
-        return "None"
-    keep = (lambda c: "A" <= c <= "Z" or c == " ") if letters else (lambda c: c == " ")
-    kept = "".join(c if keep(c) else "9" for c in value[:cap])
-    return kept.strip() or "None"
-
-
-def _log_details() -> bool:
-    """`CE_LOG_PRODUCT_DETAILS=1` adds the letters of the contract id and the bank's
-    catalogue name to the diagnostic log of a contract Picsou does not import.
-
-    Off by default: both are free text on a product not seen yet, so a normal run
-    never writes them (it logs the codes, whether a pfm id was sent and the length
-    shape of the id).
-    """
-    return os.environ.get("CE_LOG_PRODUCT_DETAILS") == "1"
+_mask = shape.mask  # one masking rule for every diagnostic log field (see `shape`)
+_log_details = shape.log_details
 
 
 def _id_shape(external_id: str) -> str:

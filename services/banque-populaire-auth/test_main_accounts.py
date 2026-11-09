@@ -6,14 +6,16 @@ The bank is an `httpx.MockTransport` playing the hosts observed live (2026-11-05
 immediate-debit card, which this site does not import, Livret A and Livret Jeune
 both `3/01`, LDDS `3/28`, Compte sur Livret `3/02`, PEL `3/04`, term deposit `4/09`,
 cooperative shares `4/10`, a revolving
-credit `2/11` with a null balance) plus the loan and PER families this site does
-not read. Every value is synthetic.
+credit `2/11` with a null balance) plus the loan families this site does not read and a
+PER `4/05` read from the insurer app (the `PERIB` shape of issue #524, synthetic digits).
+Every value is synthetic.
 """
 
 import json
 import os
 import unittest
 import urllib.parse
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import httpx
@@ -27,7 +29,22 @@ HEADERS = {"X-Picsou-Sidecar-Key": TEST_KEY}
 AS_HOST = "www.as-ext-bad-ib.banquepopulaire.fr"
 LOGIN_HOST = "www.icgauth.banquepopulaire.fr"
 DATA_HOST = "www.rs-ext-bad-ib.banquepopulaire.fr"
+INSURER_HOST = "www.espace-assurances-de-personnes.banquepopulaire.fr"
 ACCESS_TOKEN = "synthetic-access-token"
+PER_ACCESS_TOKEN = "synthetic-per-access-token"
+PER_CLIENT_ID = "dcd51401-debb-47e4-ad8d-12a72e529f08"
+PER_BANK_ID = "00000     PERIB12345678"
+PER_PRODUCER_ID = "PERIB876543"
+PER_JWT = "eyJzeW50aGV0aWMi.eyJET05PVExFQUsi.c2lnbmF0dXJlLURPLU5PVC1MRUFL"
+_STAMP = int(datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp() * 1000)  # fixed, never today
+PER_DETAIL = {"detailContratVie": {"valorisation": {
+    "montant": 1700, "date": _STAMP,
+    "globalInvestCalcRest": {"globalAmountFondEuros": 1000, "globalAmountUnitesCompte": 700},
+    "supports": [{"nom": "Synthetic fund", "codeIsin": "XX0000000001",
+                  "nombreUnitesCompte": 10, "valeurUniteCompte": 70,
+                  "montant": 700, "dateValeurUniteCompte": _STAMP,
+                  "idCompartment": 1, "familleFondsGeneraux": False}],
+}}}
 CLIENT_ID = "00000000-0000-4000-8000-000000000001"
 SESSION_STATE = json.dumps({
     "cookies": [{"name": "SSO", "value": "BP-COOKIE-SECRET", "domain": ".banquepopulaire.fr", "path": "/"}],
@@ -82,7 +99,7 @@ SYNTHESIS = {"items": [
     contract(None, "4", "10", "Part Sociale BP", balance=250.0, contract_id="CS1"),
     contract(None, "6", "12", "Pret Personnel", balance=-1000.0, contract_id="PRET1"),
     contract(None, "6", "13", "Credit Immobilier", balance=-90000.0, contract_id="IMMO1"),
-    contract(None, "4", "05", "PER", balance=2500.0, contract_id="PER1"),
+    contract(None, "4", "05", "PER", balance=1700.0, contract_id=PER_BANK_ID),
     contract(None, "2", "11", "Credit Renouvelable Facelia", balance=None, contract_id="FACELIA1"),
 ]}
 
@@ -95,6 +112,19 @@ class FakeBank:
         self.authorize_action = f"https://{LOGIN_HOST}/dacsrest/api/v1u0/saml2/sso"
         self.authn_status = "AUTHENTICATION_SUCCESS"
         self.failing_transactions: set[str] = set()
+        self.routing_producer = PER_PRODUCER_ID
+        self.synthesis = SYNTHESIS
+
+    def routing_answer(self, path: str) -> dict:
+        # The 201 body shape seen live on Caisse d'Epargne: the insurer's id, not the bank's.
+        query = {"codeTransaction": "synthetic", "cdEtab": "00000", "producerContratId": self.routing_producer,
+                 "urlRetour": "https://www.banquepopulaire.fr/synthetic"}
+        return {
+            "contractId": {"entityCode": "00000", "id": self.routing_producer},
+            "routingMode": {"code": "1", "label": "synthetic"},
+            "routingUrl": {"href": f"https://{INSURER_HOST}/"},
+            "routingContext": {"suppliedName": None, "value": {"queryParameters": query}},
+        }
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -115,11 +145,28 @@ class FakeBank:
         if (host, path) == (AS_HOST, "/api/oauth/v2/consume"):
             return httpx.Response(200, json={"parameters": {"code": "synthetic-code"}})
         if (host, path) == (AS_HOST, "/api/oauth/v2/token"):
-            return httpx.Response(200, json={"access_token": ACCESS_TOKEN, "token_type": "Bearer", "expires_in": 267})
-        if host == DATA_HOST and request.headers.get("authorization") != f"Bearer {ACCESS_TOKEN}":
+            form = dict(urllib.parse.parse_qsl(request.content.decode()))
+            token = PER_ACCESS_TOKEN if form.get("client_id") == PER_CLIENT_ID else ACCESS_TOKEN
+            return httpx.Response(200, json={"access_token": token, "token_type": "Bearer", "expires_in": 267})
+        authorization = request.headers.get("authorization")
+        if host == DATA_HOST and path.endswith("/prepareRouting"):
+            # The routing call carries the MAIN bearer; the producer id comes from its answer.
+            if authorization != f"Bearer {ACCESS_TOKEN}":
+                return httpx.Response(401)
+            return httpx.Response(201, json=self.routing_answer(path))
+        if host == DATA_HOST and "/clientToken/" in path:
+            if authorization != f"Bearer {PER_ACCESS_TOKEN}" or not path.endswith(f"/{PER_PRODUCER_ID}"):
+                return httpx.Response(401)
+            return httpx.Response(200, headers={"iw4-jwt-token": PER_JWT}, json={})
+        if host == INSURER_HOST:
+            if authorization != f"Bearer {PER_ACCESS_TOKEN}" or request.headers.get("iw4-jwt-token") != PER_JWT:
+                return httpx.Response(401)
+            assert path == "/etna-web/rest/v2/contratVie/load/PER/IB/876543", path
+            return httpx.Response(200, json=PER_DETAIL)
+        if host == DATA_HOST and authorization != f"Bearer {ACCESS_TOKEN}":
             return httpx.Response(401)
         if (host, path) == (DATA_HOST, fetcher.SYNTHESIS_PATH):
-            return httpx.Response(200, json=SYNTHESIS)
+            return httpx.Response(200, json=self.synthesis)
         if (host, path) == (DATA_HOST, fetcher.TRANSACTIONS_PATH):
             account = request.url.params["accountIds"]
             if account in self.failing_transactions:
@@ -173,7 +220,8 @@ class AccountsTest(unittest.TestCase):
             [("1001", "CURRENT_ACCOUNT"), ("1002", "LIVRET_A"),
              ("1003", "LIVRET_JEUNE"), ("1004", "LDDS"),
              ("1005", "SAVINGS"), ("1006", "PEL"),
-             ("contract:TD1", "TERM_DEPOSIT"), ("contract:CS1", "COOPERATIVE_SHARES")],
+             ("contract:TD1", "TERM_DEPOSIT"), ("contract:CS1", "COOPERATIVE_SHARES"),
+             ("contract:" + PER_BANK_ID, "PER")],
         )
         jeune = body["accounts"][2]
         self.assertEqual(jeune["name"], "Livret Pour La Jeunesse")
@@ -238,24 +286,76 @@ class AccountsTest(unittest.TestCase):
         self.assertEqual(imported["1004"]["iban"], "FR76SYNTHETIC1004")  # the others are untouched
         self.assertEqual(body["unavailable"], [])
 
-    def test_loans_per_and_revolving_credit_are_unsupported_and_never_read(self):
+    def test_loans_and_revolving_credit_are_unsupported_and_never_read(self):
         body = self.post("/accounts").json()
 
         self.assertEqual(body["unsupported"], [
             {"externalId": "contract:PRET1", "familyCode": "6", "subFamilyCode": "12"},
             {"externalId": "contract:IMMO1", "familyCode": "6", "subFamilyCode": "13"},
-            {"externalId": "contract:PER1", "familyCode": "4", "subFamilyCode": "05"},
             {"externalId": "contract:FACELIA1", "familyCode": "2", "subFamilyCode": "11"},
         ])
         paths = [r.url.path for r in self.bank.requests if r.url.host == DATA_HOST]
         self.assertEqual(paths.count(fetcher.SYNTHESIS_PATH), 1)
         self.assertEqual(
             sorted(r.url.params["accountIds"] for r in self.bank.requests if r.url.path == fetcher.TRANSACTIONS_PATH),
-            ["1001", "1002", "1003", "1004", "1005", "1006"],  # never term deposit, shares, or the card
+            ["1001", "1002", "1003", "1004", "1005", "1006"],  # never term deposit, shares, PER or the card
         )
-        # One token, the main one: no loan, home-loan or PER chain is ever minted.
-        self.assertEqual([f["client_id"] for f in self.bank.token_forms()], [CLIENT_ID])
+        # The main token, then the PER chain's: no loan or home-loan chain is ever minted.
+        self.assertEqual([f["client_id"] for f in self.bank.token_forms()], [CLIENT_ID, PER_CLIENT_ID])
         self.assertTrue(all(r.url.host.endswith(".banquepopulaire.fr") for r in self.bank.requests))
+
+    def test_a_perib_per_is_read_from_the_insurer_with_the_per_token_only(self):
+        body = self.post("/accounts").json()
+
+        per = {a["externalId"]: a for a in body["accounts"]}["contract:" + PER_BANK_ID]
+        self.assertEqual(per["kind"], "PER")
+        self.assertEqual(per["balance"], "1700")
+        self.assertEqual(per["per"]["euroFundBalance"], "1000")
+        self.assertEqual(per["per"]["valuationDate"], "2026-10-01")
+        self.assertEqual(per["per"]["positions"][0]["isin"], "XX0000000001")
+        self.assertEqual(per["per"]["positions"][0]["quantity"], "10")
+        self.assertEqual(per["transactions"], [])
+        insurer_calls = [(r.url.host, r.method) for r in self.bank.requests
+                         if r.url.host == INSURER_HOST or "/clientToken/" in r.url.path
+                         or r.url.path.endswith("/prepareRouting")]
+        self.assertEqual(insurer_calls, [(DATA_HOST, "POST"), (DATA_HOST, "GET"), (INSURER_HOST, "GET")])
+        self.assertTrue(all("cookie" not in r.headers for r in self.bank.requests if r.url.host == INSURER_HOST))
+        # The PER token's authorize call is the app's own: its client and redirect, no claims.
+        authorizes = [r for r in self.bank.requests if r.url.path == "/api/oauth/v2/authorize"]
+        per_authorize = [r for r in authorizes if r.url.params.get("client_id") == PER_CLIENT_ID]
+        self.assertEqual(len(per_authorize), 1)
+        self.assertEqual(per_authorize[0].url.params["redirect_uri"],
+                         f"https://{INSURER_HOST}/postMessage/index.html")
+        self.assertNotIn("claims", per_authorize[0].url.params)
+        self.assertNotIn(PER_ACCESS_TOKEN, json.dumps(body))
+        self.assertNotIn(PER_JWT, json.dumps(body))
+
+    def test_a_per_with_an_unknown_id_shape_is_listed_unsupported_and_never_sent(self):
+        self.bank.synthesis = {"items": [*SYNTHESIS["items"],
+                                          contract(None, "4", "05", "PER", balance=2500.0, contract_id="PER1")]}
+        with self.assertLogs("bpce", "INFO") as logs:
+            body = self.post("/accounts").json()
+
+        self.assertIn({"externalId": "contract:PER1", "familyCode": "4", "subFamilyCode": "05"},
+                      body["unsupported"])
+        self.assertNotIn("contract:PER1", {a["externalId"] for a in body["accounts"]})
+        self.assertFalse(any("PER1" in r.url.path for r in self.bank.requests))
+        # Masked shape only: no letter and no digit of the id reaches the log.
+        self.assertTrue(any("insurer request refused: idShape=" in line for line in logs.output))
+        self.assertFalse(any("PER1" in line for line in logs.output))
+
+    def test_a_producer_id_that_is_not_pinned_leaves_only_the_per_unavailable(self):
+        self.bank.routing_producer = "PERIX876543"
+        with self.assertLogs("bpce", "WARNING") as logs:
+            body = self.post("/accounts").json()
+
+        self.assertNotIn("contract:" + PER_BANK_ID, {a["externalId"] for a in body["accounts"]})
+        self.assertIn("1001", {a["externalId"] for a in body["accounts"]})
+        self.assertEqual([u["kind"] for u in body["unavailable"]], ["PER"])
+        self.assertTrue(any("reason=producer-id-format shape=" in line for line in logs.output))
+        self.assertFalse(any("PERIX" in line or "876543" in line for line in logs.output))
+        self.assertFalse(any(r.url.host == INSURER_HOST or "/clientToken/" in r.url.path
+                             for r in self.bank.requests))
 
     def test_nothing_secret_is_returned(self):
         text = self.post("/accounts").text
@@ -293,11 +393,11 @@ class SiteTest(unittest.TestCase):
         for url in (site.login_url, site.authorize_url, site.token_url, site.data_base_url):
             self.assertTrue(replay.is_allowed_url(site, url), url)
 
-    def test_no_loan_or_per_app(self):
+    def test_no_loan_app_but_a_per_app(self):
         self.assertIsNone(main.SITE.personal_loan)
         self.assertIsNone(main.SITE.home_loan)
-        self.assertIsNone(main.SITE.per)
-        self.assertEqual(main.SITE.unsupported_families, frozenset({("6", "12"), ("6", "13"), ("4", "05"), ("3", "27")}))
+        self.assertIsNotNone(main.SITE.per)
+        self.assertEqual(main.SITE.unsupported_families, frozenset({("6", "12"), ("6", "13"), ("3", "27")}))
         self.assertEqual(main.SITE.provisional_kinds, frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES"}))
 
     def test_the_allow_list_is_banque_populaire_only(self):
