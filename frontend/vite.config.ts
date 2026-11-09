@@ -5,14 +5,14 @@ import basicSsl from '@vitejs/plugin-basic-ssl'
 import path from 'path'
 import fs from 'node:fs'
 
-const localCertPath = path.resolve(__dirname, '.local/certs/picsou-local-cert.pem')
-const localKeyPath = path.resolve(__dirname, '.local/certs/picsou-local-key.pem')
+const localCertPath = path.resolve(import.meta.dirname, '.local/certs/picsou-local-cert.pem')
+const localKeyPath = path.resolve(import.meta.dirname, '.local/certs/picsou-local-key.pem')
 
 interface PackageJson {
   version: string
 }
 
-const packageJsonPath = path.resolve(__dirname, 'package.json')
+const packageJsonPath = path.resolve(import.meta.dirname, 'package.json')
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as PackageJson
 const appVersion = process.env.VITE_APP_VERSION ?? packageJson.version
 
@@ -42,7 +42,7 @@ export default defineConfig(({ command }) => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, './src'),
+        '@': path.resolve(import.meta.dirname, './src'),
       },
       // Force a single React instance. Without this a transitive dep can resolve
       // its own copy, which surfaces as "dispatcher is null" / "can't access
