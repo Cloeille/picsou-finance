@@ -98,6 +98,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Banking. Jars carry no transactions: Wise refuses statements to personal tokens in the
   EEA and the UK. Migration V131. See [ADR](docs/decisions/2026-11-03-wise-jars-beside-enable-banking.md)
   and [feature note](docs/features/wise-jars.md).
+
+- **Natixis Interépargne (employee savings) sync.** A new Natixis Interépargne tab connects a
+  saver space once, with the code Natixis sends by SMS, voice call or e-mail; later syncs, manual
+  or in the daily 08:00 job, run unattended on the refresh token Natixis issues, until Natixis
+  refuses it and asks to reconnect. Each plan (PEE, PER) becomes an account holding its fund
+  lines at the units and unit values Natixis reports, so the balance matches the saver space.
+  The operations history comes in as BUY and SELL transactions on the plan, kept off the
+  budget, cash flow and categorization. The provider gets its logo. Migration V146 (a `NATIXIS` row in `sidecar_session`). See
+  [Natixis Interépargne](docs/features/natixis-interepargne.md).
+
 - **Sign in with your identity provider (SSO).** Set `SSO_ISSUER_URI` and `SSO_CLIENT_ID` to add
   a "Sign in with <provider>" button that works with any OpenID Connect provider (Zitadel,
   Authentik, Keycloak, Authelia, Pocket ID...). It sits alongside passwords: without these

@@ -35,6 +35,8 @@ app:
       url: ${BANQUE_POPULAIRE_AUTH_URL:http://127.0.0.1:8014}
     lbp-auth:
       url: ${LBP_AUTH_URL:http://127.0.0.1:8015}
+    natixis-auth:
+      url: ${NATIXIS_AUTH_URL:http://127.0.0.1:8016}
   enablebanking:
     private-key-path: ${ENABLEBANKING_PRIVATE_KEY_PATH:.local/keys/enablebanking-private.pem}
 

@@ -85,6 +85,8 @@ function mockStatusEndpoints() {
         return Promise.resolve({ data: corumStatus })
       case '/cmes/status':
         return Promise.resolve({ data: cmesStatus })
+      case '/natixis/status':
+        return Promise.resolve({ data: natixisStatus })
       case '/cic/status':
         return Promise.resolve({ data: cicStatus })
       case '/lbp/status':
@@ -135,6 +137,7 @@ let banquePopulaireStatus: Record<string, unknown>
 let corumStatus: Record<string, unknown>
 let sofidyStatus: Record<string, unknown>
 let cmesStatus: Record<string, unknown>
+let natixisStatus: Record<string, unknown>
 let cicStatus: Record<string, unknown>
 let lbpStatus: Record<string, unknown>
 
@@ -226,6 +229,7 @@ function resetFixtures() {
   corumStatus = AMUNDI_INACTIVE
   sofidyStatus = AMUNDI_INACTIVE
   cmesStatus = AMUNDI_INACTIVE
+  natixisStatus = AMUNDI_INACTIVE
   cicStatus = AMUNDI_INACTIVE
   lbpStatus = { ...AMUNDI_INACTIVE, unsupported: [], unsupportedCount: 0, savedIdentifier: null }
   accountsFixture = [TR_ACCOUNT]
@@ -745,6 +749,53 @@ describe('SyncAllModal session providers', () => {
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=cmes'))
     expect(apiPost).not.toHaveBeenCalledWith('/cmes/sync')
   })
+
+  it('lists and syncs a live Natixis Interépargne session', async () => {
+    natixisStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockResolvedValue({ data: natixisStatus })
+    renderModal()
+
+    const row = (await screen.findByText('Natixis Interépargne')).closest('[data-slot="card"]') as HTMLElement
+    fireEvent.click(within(row).getByRole('button'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/natixis/sync'))
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  // The sync request only queues the import, so the row stays busy until the status says it ran.
+  it('keeps a row busy while its queued import runs, then frees it on SUCCESS', async () => {
+    natixisStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }
+    apiPost.mockImplementation(() => Promise.resolve({ data: { ...natixisStatus, syncStatus: 'QUEUED' } }))
+    renderModal()
+
+    const row = (await screen.findByText('Natixis Interépargne')).closest('[data-slot="card"]') as HTMLElement
+    const button = within(row).getByRole('button')
+    await waitFor(() => expect(button).toBeEnabled())
+
+    natixisStatus = { ...natixisStatus, syncStatus: 'QUEUED' }
+    fireEvent.click(button)
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/natixis/sync'))
+    await waitFor(() => expect(button).toBeDisabled())
+    expect(button.querySelector('.animate-spin')).not.toBeNull()
+
+    // Sync all must not queue a second Natixis import while one is in flight.
+    apiPost.mockClear()
+    const syncAll = screen.getByRole('button', { name: /sync\.all\.syncing/ })
+    expect(syncAll).toBeDisabled()
+    fireEvent.click(syncAll)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(apiPost).not.toHaveBeenCalledWith('/natixis/sync')
+    expect(button).toBeDisabled()
+
+    // The hook polls every 1.5 s while QUEUED or RUNNING.
+    natixisStatus = { ...natixisStatus, syncStatus: 'RUNNING' }
+    await new Promise(resolve => setTimeout(resolve, 1_700))
+    expect(button).toBeDisabled()
+    expect(button.querySelector('.animate-spin')).not.toBeNull()
+
+    natixisStatus = { ...natixisStatus, syncStatus: 'SUCCESS', lastSyncCompletedAt: '2026-08-10T08:00:00Z' }
+    await waitFor(() => expect(button).toBeEnabled(), { timeout: 4_000 })
+    expect(button.querySelector('.animate-spin')).toBeNull()
+  }, 15_000)
 
   it('lists and syncs a live CIC (livrets) session', async () => {
     cicStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'SUCCESS' }

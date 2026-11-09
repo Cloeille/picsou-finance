@@ -975,6 +975,33 @@ class AccountServiceTest {
     }
 
     /**
+     * Natixis employer funds are quoted nowhere: a quote that resolves for one of
+     * their tickers is another instrument's, so even when every line "resolves" the
+     * plan keeps the values Natixis reported.
+     */
+    @Test
+    void natixis_keepsTheProviderValuesEvenWhenEveryTickerWouldResolve() {
+        Account account = Account.builder().id(6L).name("PEE — ACME")
+            .type(AccountType.EMPLOYEE_SAVINGS).provider(NatixisSyncService.PROVIDER)
+            .currency("EUR").currentBalance(new BigDecimal("1500.50")).build();
+        AccountHolding holding = AccountHolding.builder()
+            .id(60L).ticker("FR0010405035").quantity(new BigDecimal("10"))
+            .providerValueEur(new BigDecimal("1500.50")).providerPnlEur(new BigDecimal("100.50")).build();
+        when(holdingRepository.findByAccount_Id(6L)).thenReturn(List.of(holding));
+        when(accountRepository.findByIdAndMemberId(6L, 1L)).thenReturn(Optional.of(account));
+        when(holdingRepository.findByAccountIdOrderByCurrentPriceDesc(6L)).thenReturn(List.of(holding));
+        // An unrelated instrument's price that the old code would have used: 10 x 999.
+        org.mockito.Mockito.lenient().when(priceService.getQuotes(any())).thenReturn(Map.of("FR0010405035",
+            new PriceService.Quote(new BigDecimal("999"), LocalDate.now(), true)));
+
+        assertThat(accountService.liveBalanceEur(account)).isEqualByComparingTo("1500.50");
+        HoldingResponse line = accountService.getHoldings(6L, 1L).getFirst();
+        assertThat(line.currentValueEur()).isEqualByComparingTo("1500.50");
+        assertThat(line.pnlEur()).isEqualByComparingTo("100.50");
+        verify(priceService, never()).getQuotes(any());
+    }
+
+    /**
      * BoursoBank's trading board exposes only its own instrument symbol, so a
      * line whose ISIN never resolved is unpriceable by construction. Without the
      * provider-valued fallback the PEA reads as its cash sleeve alone.

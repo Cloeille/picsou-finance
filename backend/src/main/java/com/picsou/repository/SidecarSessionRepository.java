@@ -63,6 +63,29 @@ public interface SidecarSessionRepository extends JpaRepository<SidecarSession, 
         @Param("errorCode") SidecarErrorCode errorCode
     );
 
+    /**
+     * {@link #markInterruptedSyncsFailed(SidecarBank, Collection, SidecarSyncStatus, Instant, SidecarErrorCode)}
+     * for the rows of one bank not touched since {@code staleBefore}: a live job keeps updating its row,
+     * so only an orphan is failed.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+        UPDATE SidecarSession session
+        SET session.syncStatus = :failed,
+            session.lastSyncCompletedAt = :completedAt,
+            session.lastSyncError = :errorCode
+        WHERE session.bank = :bank AND session.syncStatus IN :interrupted
+          AND session.updatedAt < :staleBefore
+        """)
+    int markInterruptedSyncsFailedBefore(
+        @Param("bank") SidecarBank bank,
+        @Param("interrupted") Collection<SidecarSyncStatus> interrupted,
+        @Param("failed") SidecarSyncStatus failed,
+        @Param("completedAt") Instant completedAt,
+        @Param("errorCode") SidecarErrorCode errorCode,
+        @Param("staleBefore") Instant staleBefore
+    );
+
     /** Row-locked so two concurrent syncs cannot both pass the "is one already running" check. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""

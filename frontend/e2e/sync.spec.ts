@@ -28,6 +28,7 @@ test.describe('Sync page tabs', () => {
       'Wise Jars',
       'Amundi',
       'Crédit Mutuel / CIC Épargne Salariale',
+      'Natixis Interépargne',
       'CIC (livrets)',
       'Fortuneo',
       'American Express',

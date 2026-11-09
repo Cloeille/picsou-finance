@@ -81,6 +81,11 @@ public class SyncExecutorConfig {
      * One worker: a sync reads a browser-backed sidecar, and two concurrent
      * reads for the same member would contend on the same row lock anyway.
      */
+    @Bean(name = "natixisSyncExecutor")
+    public Executor natixisSyncExecutor() {
+        return singleWorker("natixis-sync-");
+    }
+
     @Bean(name = "corumSyncExecutor")
     public Executor corumSyncExecutor() {
         return singleWorker("corum-sync-");

@@ -290,8 +290,8 @@ sessions/credentials as the documented side effect of deleting a connection's la
   the user to reconnect; `NEEDS_REAUTH` is reserved for authentication/session-expiry codes.
 - **Inactive browser sessions preserve their stored failure reason.** BoursoBank, Bourse Direct,
   Amundi, Crédit Mutuel / CIC Épargne Salariale (`cmes`), CIC (`cic`), CORUM (`corum`), La Banque
-  Postale (`lbp`), and Fortuneo report `NEEDS_REAUTH` for
-  `SESSION_EXPIRED` (also `INVALID_CREDENTIALS` for BoursoBank, `cmes`, `cic`, `corum`, and `lbp`; the
+  Postale (`lbp`), Natixis Interépargne (`natixis`), and Fortuneo report `NEEDS_REAUTH` for
+  `SESSION_EXPIRED` (also `INVALID_CREDENTIALS` for BoursoBank, `cmes`, `cic`, `corum`, `lbp`, and `natixis`; the
   credential-storing ones clear a rejected password), `FAILED` for another stored error, and `SKIPPED_NOT_CONNECTED` only when no error is
   recorded. Database failures and sync exceptions retain their throwable in server logs; raw
   database messages are never returned in their MCP summary.

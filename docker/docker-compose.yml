@@ -122,7 +122,7 @@ services:
   # `--build` builds them before the sidecars (Compose v2.33+).
   sidecar-python:
     image: ghcr.io/cloeille/picsou-finance/sidecar-python:latest
-    profiles: ["bourso", "cic", "cmes", "degiro", "sofidy", "all-connectors"]
+    profiles: ["bourso", "cic", "cmes", "degiro", "natixis", "sofidy", "all-connectors"]
     build:
       context: ../services/base
       target: python
@@ -340,6 +340,20 @@ services:
     profiles: ["cmes", "all-connectors"]
     build:
       context: ../services/cmes-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-python
+      additional_contexts:
+        sidecar-python: service:sidecar-python
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+
+  natixis-auth:
+    image: ghcr.io/cloeille/picsou-finance/natixis-auth:latest
+    profiles: ["natixis", "all-connectors"]
+    build:
+      context: ../services/natixis-auth
       dockerfile: Dockerfile
       args:
         SIDECAR_BASE: sidecar-python

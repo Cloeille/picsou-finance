@@ -337,6 +337,8 @@ public class InstanceStatusService {
                 () -> sidecarUrl(sidecars, "cmes-auth"), () -> sidecarSessions.countByBank(SidecarBank.CMES)),
             new SidecarTarget("cic-auth", BASE_PYTHON,
                 () -> sidecarUrl(sidecars, "cic-auth"), () -> sidecarSessions.countByBank(SidecarBank.CIC)),
+            new SidecarTarget("natixis-auth", BASE_PYTHON,
+                () -> sidecarUrl(sidecars, "natixis-auth"), () -> sidecarSessions.countByBank(SidecarBank.NATIXIS)),
             new SidecarTarget("degiro-auth", BASE_PYTHON,
                 () -> sidecarUrl(sidecars, "degiro-auth"), degiroSessions::count),
             new SidecarTarget("tr-auth", BASE_CHROMIUM,

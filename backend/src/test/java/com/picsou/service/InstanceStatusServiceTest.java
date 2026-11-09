@@ -430,6 +430,7 @@ class InstanceStatusServiceTest {
             Map.entry("sofidy-auth", "http://sofidy"),
             Map.entry("cmes-auth", "http://cmes"),
             Map.entry("cic-auth", "http://cic"),
+            Map.entry("natixis-auth", "http://natixis"),
             Map.entry("degiro-auth", "http://degiro"),
             Map.entry("tr-auth", "http://tr"),
             Map.entry("caisse-epargne-auth", "http://caisse"),
@@ -461,6 +462,7 @@ class InstanceStatusServiceTest {
         when(sidecarSessions.countByBank(SidecarBank.CMES)).thenReturn(12L);
         when(sidecarSessions.countByBank(SidecarBank.CIC)).thenReturn(13L);
         when(banquePopulaire.count()).thenReturn(14L);
+        when(sidecarSessions.countByBank(SidecarBank.NATIXIS)).thenReturn(15L);
         when(lbp.count()).thenReturn(15L);
 
         InstanceStatusService wired = new InstanceStatusService(
@@ -477,6 +479,7 @@ class InstanceStatusServiceTest {
                 tuple("sofidy-auth", "sidecar-python"),
                 tuple("cmes-auth", "sidecar-python"),
                 tuple("cic-auth", "sidecar-python"),
+                tuple("natixis-auth", "sidecar-python"),
                 tuple("degiro-auth", "sidecar-python"),
                 tuple("tr-auth", "sidecar-chromium"),
                 tuple("caisse-epargne-auth", "sidecar-chromium"),
@@ -499,6 +502,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "sofidy-auth").url().get()).isEqualTo("http://sofidy");
         assertThat(byName(wired, "cmes-auth").url().get()).isEqualTo("http://cmes");
         assertThat(byName(wired, "cic-auth").url().get()).isEqualTo("http://cic");
+        assertThat(byName(wired, "natixis-auth").url().get()).isEqualTo("http://natixis");
         assertThat(byName(wired, "degiro-auth").url().get()).isEqualTo("http://degiro");
         assertThat(byName(wired, "caisse-epargne-auth").url().get()).isEqualTo("http://caisse");
         assertThat(byName(wired, "banque-populaire-auth").url().get()).isEqualTo("http://banque-populaire");
@@ -525,6 +529,7 @@ class InstanceStatusServiceTest {
         assertThat(byName(wired, "cic-auth").sessions().getAsLong()).isEqualTo(13L);
         assertThat(byName(wired, "lbp-auth").sessions().getAsLong()).isEqualTo(15L);
         assertThat(byName(wired, "banque-populaire-auth").sessions().getAsLong()).isEqualTo(14L);
+        assertThat(byName(wired, "natixis-auth").sessions().getAsLong()).isEqualTo(15L);
     }
 
     private static AppSetting setting(String value) {

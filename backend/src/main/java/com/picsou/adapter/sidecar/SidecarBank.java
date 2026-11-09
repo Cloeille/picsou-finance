@@ -193,6 +193,24 @@ public enum SidecarBank {
         say(UPSTREAM_UNAVAILABLE, "Fortuneo is temporarily unavailable"),
         say(INTERNAL_ERROR, "Fortuneo is temporarily unavailable"))),
 
+    /**
+     * Natixis always asks for a second factor (SMS, voice call or e-mail code), so no stored password
+     * can log in again unattended: an expired session waits for the saver to reconnect.
+     */
+    NATIXIS("Natixis Interépargne", "natixis-auth", Map.ofEntries(
+        say(INVALID_CREDENTIALS, "Natixis Interépargne rejected the e-mail or password"),
+        say(MFA_TYPE_UNSUPPORTED,
+            "Natixis Interépargne only offers passkey login or an unsupported second factor for this account"),
+        say(INVALID_OTP, "Natixis Interépargne rejected the verification code"),
+        say(RATE_LIMITED, "Natixis Interépargne blocked further attempts, try again later"),
+        say(AUTH_ATTEMPT_EXPIRED, "The Natixis Interépargne authentication attempt expired"),
+        say(SESSION_EXPIRED, "The Natixis Interépargne session expired, reconnect to resume syncing"),
+        say(PORTFOLIO_INCOMPLETE, "Natixis Interépargne returned incomplete savings plans"),
+        say(UPSTREAM_FORMAT_CHANGED, "The Natixis Interépargne website format changed"),
+        say(INVALID_DATA, "Natixis Interépargne returned invalid savings plan data"),
+        say(UPSTREAM_UNAVAILABLE, "Natixis Interépargne is temporarily unavailable"),
+        say(INTERNAL_ERROR, "Natixis Interépargne is temporarily unavailable"))),
+
     SOFIDY("Sofidy", "sofidy-auth", Map.ofEntries(
         say(INVALID_CREDENTIALS, "Sofidy rejected the associate code or the password"),
         say(MFA_INVALID, "Sofidy rejected the verification code"),

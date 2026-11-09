@@ -151,6 +151,7 @@ jobs:
           adapter.sidecar.SidecarBankCodesTest
           service.PeerLoanTransactionLinksPostgresTest
           migration.V142SidecarSessionMigrationTest
+          migration.V146NatixisSidecarSessionMigrationTest
           EOF
 
   frontend:

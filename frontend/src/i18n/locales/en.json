@@ -1199,6 +1199,7 @@
       "finary": "Import from Finary",
       "manual": "Create an account manually",
       "amundi": "PEE, PEG, PERCO, PER held at Amundi",
+      "natixis": "PEE, PERCO, PER held at Natixis Interépargne",
       "amex": "American Express credit card: balance and transactions",
       "corum": "CORUM SCPI and CORUM Life insurance: units, valuation and operations",
       "sofidy": "Sofidy SCPI units, at the withdrawal price",
@@ -1860,6 +1861,37 @@
         "formatChanged": "The Amundi website format changed. Your existing data was kept.",
         "invalidData": "Amundi returned inconsistent data. Your existing data was kept.",
         "serverError": "Could not reach Amundi. Please try again."
+      }
+    },
+    "natixis": {
+      "title": "Natixis Interépargne",
+      "login": "E-mail",
+      "password": "Password",
+      "otpCode": "Verification code",
+      "otpPrompt": "Enter the code Natixis Interépargne sent you by SMS, e-mail or voice call.",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "validate": "Submit code",
+      "validating": "Validating…",
+      "sync": "Sync",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "Savings plans synced.",
+      "clearSession": "Disconnect",
+      "noSession": "No active session",
+      "sessionActive": "Session active",
+      "scope": "Syncs your Natixis Interépargne employee savings plans (PEE, PERCO, PER…) and the funds they hold: units, unit value and gain. After this first sign-in, syncs run on their own until Natixis ends the session; you will then be asked to reconnect.",
+      "errors": {
+        "tooManyAttempts": "Natixis Interépargne blocked further attempts. Please try again later.",
+        "invalidCredentials": "Natixis Interépargne rejected the e-mail or password.",
+        "mfaTypeUnsupported": "This account only offers passkey sign-in, or a second factor Picsou cannot handle. Picsou needs password sign-in and codes by SMS, e-mail or voice call: enable both in your Natixis Interépargne security settings.",
+        "authAttemptExpired": "The authentication attempt expired. Please start over.",
+        "sessionExpired": "The Natixis Interépargne session expired. Reconnect to resume syncing.",
+        "portfolioIncomplete": "Natixis Interépargne returned incomplete savings plans. Your existing data was kept.",
+        "formatChanged": "The Natixis Interépargne website format changed. Your existing data was kept.",
+        "invalidData": "Natixis Interépargne returned invalid savings plan data. Your existing data was kept.",
+        "serverError": "Natixis Interépargne is temporarily unavailable. Please try again.",
+        "invalidCode": "Wrong verification code. Check it and type it again."
       }
     },
     "cmes": {

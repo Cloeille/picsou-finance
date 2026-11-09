@@ -19,6 +19,7 @@ import { AccountsVisibilityTab } from './AccountsVisibilityTab'
 import { DegiroTab } from './DegiroTab'
 import { AmundiTab } from './AmundiTab'
 import { CmesTab } from './CmesTab'
+import { NatixisTab } from './NatixisTab'
 import { CicTab } from './CicTab'
 import { AmexTab } from './AmexTab'
 import { CorumTab } from './CorumTab'
@@ -58,6 +59,7 @@ export function SyncPage() {
             <TabsTrigger value="wise" className="flex-none">{t('sync.wise.title')}</TabsTrigger>
             <TabsTrigger value="amundi" className="flex-none">{t('sync.amundi.title')}</TabsTrigger>
             <TabsTrigger value="cmes" className="flex-none">{t('sync.cmes.title')}</TabsTrigger>
+            <TabsTrigger value="natixis" className="flex-none">{t('sync.natixis.title')}</TabsTrigger>
             <TabsTrigger value="cic" className="flex-none">{t('sync.cic.title')}</TabsTrigger>
             <TabsTrigger value="fortuneo" className="flex-none">{t('sync.fortuneo.title')}</TabsTrigger>
             <TabsTrigger value="amex" className="flex-none">{t('sync.amex.title')}</TabsTrigger>
@@ -116,6 +118,9 @@ export function SyncPage() {
         </TabsContent>
         <TabsContent value="cmes" className="mt-6">
           <CmesTab />
+        </TabsContent>
+        <TabsContent value="natixis" className="mt-6">
+          <NatixisTab />
         </TabsContent>
         <TabsContent value="cic" className="mt-6">
           <CicTab />

@@ -52,6 +52,7 @@ class AccountConnectionServiceTest {
     @Mock AmundiSyncService amundiSyncService;
     @Mock CmesSyncService cmesSyncService;
     @Mock CicSyncService cicSyncService;
+    @Mock NatixisSyncService natixisSyncService;
     @Mock TradeRepublicSyncService tradeRepublicSyncService;
     @Mock BourseDirectSyncService bourseDirectSyncService;
     @Mock BoursoSyncService boursoSyncService;
@@ -67,7 +68,7 @@ class AccountConnectionServiceTest {
         return new AccountConnectionService(
             accountRepository, accountService, walletRepository, exchangeSessionRepository,
             requisitionRepository, scpiPositionRepository, walletSyncService, cryptoExchangeSyncService,
-            amundiSyncService, cmesSyncService, cicSyncService,
+            amundiSyncService, cmesSyncService, cicSyncService, natixisSyncService,
             tradeRepublicSyncService, bourseDirectSyncService, boursoSyncService,
             fortuneoSyncService, degiroSyncService, ibkrSyncService, simplefinSyncService,
             wiseSyncService, corumSyncService, lbpSyncService);
@@ -352,6 +353,32 @@ class AccountConnectionServiceTest {
             new AccountConnectionService.DeletionImpact(true, "Crédit Mutuel / CIC Épargne Salariale"));
         verify(accountService).delete(10L, MEMBER_ID);
         verify(cmesSyncService).clearSession(MEMBER_ID);
+    }
+
+    @Test
+    void keepsTheNatixisSessionWhileAnotherPlanRemains() {
+        given(account(10L, "natixis_10000-1000000000001_PEE-4242"),
+            account(11L, "natixis_10000-1000000000001_PERCO-4243"));
+
+        AccountConnectionService.DeletionImpact impact = service().deleteAccount(10L, MEMBER_ID);
+
+        assertThat(impact).isEqualTo(new AccountConnectionService.DeletionImpact(false, null));
+        verify(natixisSyncService, never()).clearSession(anyLong());
+    }
+
+    @Test
+    void deletingTheLastNatixisPlanClearsItsSession() {
+        given(account(10L, "natixis_10000-1000000000001_PEE-4242"), account(11L, "cmes_employee-plan"));
+        when(natixisSyncService.clearSession(MEMBER_ID)).thenReturn(true);
+
+        AccountConnectionService service = service();
+        assertThat(service.describeDeletion(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "Natixis Interépargne"));
+        assertThat(service.deleteAccount(10L, MEMBER_ID))
+            .isEqualTo(new AccountConnectionService.DeletionImpact(true, "Natixis Interépargne"));
+        verify(accountService).delete(10L, MEMBER_ID);
+        verify(natixisSyncService).clearSession(MEMBER_ID);
+        verify(cmesSyncService, never()).clearSession(anyLong());
     }
 
     @Test

@@ -37,6 +37,7 @@ class MemberSyncServiceTest {
     @Mock private CmesSyncService cmesSyncService;
     @Mock private CicSyncService cicSyncService;
     @Mock private CorumSyncService corumSyncService;
+    @Mock private NatixisSyncService natixisSyncService;
     @Mock private LbpSyncService lbpSyncService;
     @Mock private FortuneoSyncService fortuneoSyncService;
     @Mock private AmexSyncService amexSyncService;
@@ -58,7 +59,9 @@ class MemberSyncServiceTest {
             bourseDirectSyncService, amundiSyncService, fortuneoSyncService, amexSyncService,
             ibkrSyncService, simplefinSyncService, wiseSyncService, cryptoExchangeSyncService, walletSyncService,
             finaryApiSyncService, degiroSyncService, new ReceivedDividendClassifier(dividendReceiptService), cmesSyncService, cicSyncService,
-            corumSyncService, lbpSyncService
+            corumSyncService,
+            natixisSyncService,
+            lbpSyncService
         );
         lenient().when(cmesSyncService.resyncReporting(anyLong())).thenReturn(
             new SourceSyncResult("cmes", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
@@ -68,6 +71,8 @@ class MemberSyncServiceTest {
             new SourceSyncResult("wise", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No connection"));
         lenient().when(corumSyncService.resyncReporting(anyLong())).thenReturn(
             new SourceSyncResult("corum", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
+        lenient().when(natixisSyncService.resyncReporting(anyLong())).thenReturn(
+            new SourceSyncResult("natixis", SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, "No active session"));
         lenient().when(lbpSyncService.getStatus(anyLong())).thenReturn(
             new LbpSyncService.SessionStatusResponse(false, LbpSyncStatus.IDLE, null, null, null, List.of(), null));
     }
@@ -92,16 +97,18 @@ class MemberSyncServiceTest {
 
         List<SourceSyncResult> results = memberSyncService.resyncScheduled(memberId);
 
-        assertEquals(20, results.size());
+        assertEquals(21, results.size());
         assertEquals("cmes", results.get(16).source());
         verify(cmesSyncService).resyncReporting(memberId);
         assertEquals("cic", results.get(17).source());
         // The daily 08:00 run includes CORUM, which logs in again with remembered credentials.
         assertEquals("corum", results.get(18).source());
         verify(corumSyncService).resyncReporting(memberId);
+        assertEquals("natixis", results.get(19).source());
+        verify(natixisSyncService).resyncReporting(memberId);
         // La Banque Postale syncs on demand only: without a live session the run reports it.
-        assertEquals("lbp", results.get(19).source());
-        assertEquals(SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, results.get(19).status());
+        assertEquals("lbp", results.get(20).source());
+        assertEquals(SourceSyncResult.Status.SKIPPED_NOT_CONNECTED, results.get(20).status());
         verify(lbpSyncService).getStatus(memberId);
         verify(lbpSyncService, never()).queueSync(memberId);
         assertEquals("revolut", results.get(0).source());

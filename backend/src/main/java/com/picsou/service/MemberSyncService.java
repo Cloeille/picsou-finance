@@ -45,6 +45,8 @@ public class MemberSyncService {
         "cic",
         // Same: re-logs in with credentials the member chose to store.
         "corum",
+        // Never logs in again by itself: an expired session waits for the saver.
+        "natixis",
         // On demand only: the session holds no credentials, so an expired one can only
         // be renewed by the user on the LBP tab and reads as needing reauthentication.
         "lbp"
@@ -69,6 +71,7 @@ public class MemberSyncService {
     private final CmesSyncService cmesSyncService;
     private final CicSyncService cicSyncService;
     private final CorumSyncService corumSyncService;
+    private final NatixisSyncService natixisSyncService;
     private final LbpSyncService lbpSyncService;
 
     public MemberSyncService(
@@ -91,6 +94,7 @@ public class MemberSyncService {
             CmesSyncService cmesSyncService,
             CicSyncService cicSyncService,
             CorumSyncService corumSyncService,
+            NatixisSyncService natixisSyncService,
             LbpSyncService lbpSyncService) {
         this.revolutSyncService = revolutSyncService;
         this.syncService = syncService;
@@ -111,6 +115,7 @@ public class MemberSyncService {
         this.cmesSyncService = cmesSyncService;
         this.cicSyncService = cicSyncService;
         this.corumSyncService = corumSyncService;
+        this.natixisSyncService = natixisSyncService;
         this.lbpSyncService = lbpSyncService;
     }
 
@@ -178,6 +183,8 @@ public class MemberSyncService {
                     return cicSyncService.resyncReporting(memberId);
                 case "corum":
                     return corumSyncService.resyncReporting(memberId);
+                case "natixis":
+                    return natixisSyncService.resyncReporting(memberId);
                 case "lbp":
                     return lbpResyncReporting(memberId);
                 case "fortuneo":
