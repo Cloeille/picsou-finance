@@ -138,7 +138,7 @@ services:
 
   sidecar-camoufox:
     image: ghcr.io/cloeille/picsou-finance/sidecar-camoufox:latest
-    profiles: ["amex", "revolut", "all-connectors"]
+    profiles: ["amex", "bnp", "revolut", "all-connectors"]
     build:
       context: ../services/base
       target: camoufox
@@ -204,6 +204,20 @@ services:
       # Diagnostics only, off unless set to 1: adds the bank's catalogue product name to the
       # log line of a contract Picsou does not import. See services/caisse-epargne-auth/README.md.
       CE_LOG_PRODUCT_DETAILS: ${CE_LOG_PRODUCT_DETAILS:-}
+
+  bnp-auth:
+    image: ghcr.io/cloeille/picsou-finance/bnp-auth:latest
+    profiles: ["bnp", "all-connectors"]
+    build:
+      context: ../services/bnp-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-camoufox
+      additional_contexts:
+        sidecar-camoufox: service:sidecar-camoufox
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
   lbp-auth:
     image: ghcr.io/cloeille/picsou-finance/lbp-auth:latest
