@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   capital and were added again quinzaine by quinzaine. The opening capital is now the snapshot
   minus the movements booked up to its date.
 - **HTTPS access by LAN IP.** The bundled Caddy proxy now uses `PICSOU_DOMAIN` as its default TLS SNI when a client omits SNI, allowing it to select the certificate for the configured site address.
+- **The dashboard showed the whole loan instalment to every co-owner.** `monthlyPayment` (and so
+  `totalMonthlyPayment`) was the full loan's instalment while the balance was weighed by the
+  member's share, so on a 50/50 loan each co-owner saw half the remaining capital but the full
+  monthly payment. The instalment is now weighed by the same share as the balance, on the
+  dashboard and on the property financing card; `percentPaid` stays the loan's own progress.
 
 ### Changed
 
