@@ -13,9 +13,8 @@ from unittest.mock import patch
 
 import httpx
 
-from bpce import per_client
-from bpce import replay
-import main
+import per_client
+import replay
 
 
 API_HOST = "www.rs-ext-bad-ce.caisse-epargne.fr"
@@ -94,7 +93,7 @@ class FakeInsurer:
 async def fetch(insurer: FakeInsurer, **override):
     args = {"access_token": TOKEN, "contract_id": CONTRACT_ID, "entity_code": ENTITY,
             "routing_token": MAIN_TOKEN, **override}
-    return await per_client.fetch_per_detail(main.SITE,
+    return await per_client.fetch_per_detail(
         args["access_token"], args["contract_id"], entity_code=args["entity_code"],
         routing_token=args["routing_token"], transport=insurer.transport(),
     )
@@ -143,25 +142,6 @@ class HappyPathTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(str(insurer.requests[1].url).endswith("/clientToken/PERIC0001"))
         self.assertTrue(str(insurer.requests[2].url).endswith("/load/PER/IC/0001"))
-
-    async def test_an_assurance_vie_goes_through_the_same_chain_with_its_own_codes(self):
-        insurer = FakeInsurer(routing=lambda _r: httpx.Response(201, json=routing_body(producer="ESSEN246810")))
-
-        result = await fetch(insurer, contract_id="00000     ESSEN12345678")
-
-        self.assertEqual(result, RAW_DETAIL)
-        self.assertTrue(str(insurer.requests[0].url).endswith("12345-00000%20%20%20%20%20ESSEN12345678/prepareRouting"))
-        self.assertTrue(str(insurer.requests[1].url).endswith("/clientToken/ESSEN246810"))
-        self.assertTrue(str(insurer.requests[2].url).endswith("/load/ESS/EN/246810"))
-        self.assertEqual(insurer.requests[2].headers["iw4-product-code"], "ESS")
-
-    async def test_a_routing_answer_for_another_product_is_refused(self):
-        for bank_id, producer in (("00000     ESSEN12345678", "PERIC876543"), ("00000     PERIC12345678", "ESSEN876543")):
-            with self.subTest(bank_id):
-                insurer = FakeInsurer(routing=lambda _r, p=producer: httpx.Response(201, json=routing_body(producer=p)))
-                with self.assertRaises(replay.UpstreamError):
-                    await fetch(insurer, contract_id=bank_id)
-                self.assertEqual(len(insurer.requests), 1)  # no token step, no detail
 
     async def test_wrapped_routing_answers_are_accepted(self):
         for wrapper in ("characteristics", "prepareRouting"):
@@ -276,23 +256,6 @@ class BodyTest(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(replay.UpstreamError):
                     await fetch(insurer)
 
-    async def test_a_valid_answer_without_the_detail_object_is_told_apart_from_a_broken_one(self):
-        for name, body in {
-            "no detail": b'{"donneesContrat": {}}',
-            "detail null": b'{"detailContratVie": null}',
-            "detail not object": b'{"detailContratVie": []}',
-        }.items():
-            with self.subTest(name):
-                insurer = FakeInsurer(detail=lambda _r, b=body: httpx.Response(200, content=b))
-                with self.assertRaises(per_client.IncompleteInsurerDetail):
-                    await fetch(insurer)
-        for name, body in {"invalid json": b"{", "array": b"[]"}.items():
-            with self.subTest(name):
-                insurer = FakeInsurer(detail=lambda _r, b=body: httpx.Response(200, content=b))
-                with self.assertRaises(replay.UpstreamError) as caught:
-                    await fetch(insurer)
-                self.assertNotIsInstance(caught.exception, per_client.IncompleteInsurerDetail)
-
     async def test_oversize_bodies_are_refused_on_both_steps(self):
         big = b"x" * (replay.MAX_RESPONSE_BYTES + 1)
         for step in ("token", "detail"):
@@ -311,7 +274,7 @@ class BodyTest(unittest.IsolatedAsyncioTestCase):
             raise httpx.ReadTimeout(f"synthetic timeout {request.headers['authorization']}")
 
         with self.assertRaises(replay.UpstreamError) as caught:
-            await per_client.fetch_per_detail(main.SITE,
+            await per_client.fetch_per_detail(
                 TOKEN, CONTRACT_ID, entity_code=ENTITY, routing_token=MAIN_TOKEN,
                 transport=httpx.MockTransport(boom),
             )
@@ -328,8 +291,6 @@ class InputTest(unittest.IsolatedAsyncioTestCase):
             "contract no bank prefix": {"contract_id": "PERIC12345678"},
             "contract no product": {"contract_id": "00000     12345678"},
             "contract other product": {"contract_id": "00000     PEAIC12345678"},
-            "contract unknown insurer product": {"contract_id": "00000     OTHER12345678"},
-            "contract essen wildcard": {"contract_id": "00000     ESSAB12345678"},
             "contract lowercase": {"contract_id": "00000     peric12345678"},
             "contract letters": {"contract_id": "00000     PERIC12AB"},
             "contract path": {"contract_id": "00000 PERIC12345678/../x"},
@@ -349,16 +310,9 @@ class InputTest(unittest.IsolatedAsyncioTestCase):
         for name, override in cases.items():
             with self.subTest(name):
                 insurer = FakeInsurer()
-                with self.assertRaises(per_client.InvalidPerRequest) as caught:
+                with self.assertRaises(per_client.InvalidPerRequest):
                     await fetch(insurer, **override)
                 self.assertEqual(insurer.requests, [])
-                # Only a bad contract id is "an unknown product": the diagnostic log
-                # keys on this subclass, so a bad token or entity code must not match.
-                self.assertEqual(
-                    isinstance(caught.exception, per_client.UnknownPerContract),
-                    name.startswith("contract"),
-                    name,
-                )
 
 
 class LifecycleTest(unittest.IsolatedAsyncioTestCase):
@@ -378,7 +332,7 @@ class LifecycleTest(unittest.IsolatedAsyncioTestCase):
 
         transport = BlockingTransport()
         task = asyncio.create_task(
-            per_client.fetch_per_detail(main.SITE, TOKEN, CONTRACT_ID, entity_code=ENTITY,
+            per_client.fetch_per_detail(TOKEN, CONTRACT_ID, entity_code=ENTITY,
                                         routing_token=MAIN_TOKEN, transport=transport)
         )
         await asyncio.wait_for(transport.entered.wait(), timeout=1)
@@ -426,9 +380,9 @@ class LogHygieneTest(unittest.IsolatedAsyncioTestCase):
 
 class AllowListTest(unittest.TestCase):
     def test_both_insurer_urls_pass_the_replay_allow_list(self):
-        self.assertTrue(replay.is_allowed_url(main.SITE, ROUTING_URL))
-        self.assertTrue(replay.is_allowed_url(main.SITE, TOKEN_URL))
-        self.assertTrue(replay.is_allowed_url(main.SITE, DETAIL_URL))
+        self.assertTrue(replay.is_allowed_url(ROUTING_URL))
+        self.assertTrue(replay.is_allowed_url(TOKEN_URL))
+        self.assertTrue(replay.is_allowed_url(DETAIL_URL))
 
 
 if __name__ == "__main__":

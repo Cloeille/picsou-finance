@@ -35,10 +35,6 @@ const LABEL_KEYS = [
   'capitalRepaid',
   'amortization', 'installmentNumber', 'installmentDate', 'capital', 'interest', 'insurance',
   'totalPayment',
-  'peerLoan', 'borrower', 'lentAt', 'expectedBack', 'ratePeriod', 'plannedMonthly',
-  'plannedMonths', 'plannedInterest', 'principal', 'principalRemaining', 'interestAccrued',
-  'interestReceived', 'writtenOff', 'closedAt', 'cashAccount', 'repaymentJournal',
-  'paidOn', 'amount', 'kind', 'note',
   'yes', 'no',
 ] as const
 

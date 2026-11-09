@@ -8,8 +8,7 @@ export interface PreciousMetalProduct {
 export type AccountType =
   | 'LEP' | 'LIVRET_A' | 'LDDS' | 'LIVRET_JEUNE' | 'PEL' | 'CEL'
   | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
-  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'PEER_LOAN' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'PER'
-  | 'PRECIOUS_METALS' | 'BROKERAGE' | 'OTHER'
+  | 'REAL_ESTATE' | 'SCPI' | 'LOAN' | 'CREDIT_CARD' | 'EMPLOYEE_SAVINGS' | 'ASSURANCE_VIE' | 'PER' | 'PRECIOUS_METALS' | 'OTHER'
 
 export type PropertyKind = 'HOUSE' | 'APARTMENT' | 'BUILDING' | 'LAND' | 'PARKING' | 'COMMERCIAL'
 
@@ -388,11 +387,6 @@ export interface Account {
   rewardPoints?: number
   /** Cards only: immediate debit, deferred debit or credit. Absent when the bank does not say. */
   cardNature?: CardNature | null
-  /**
-   * The bank behind an account an aggregator (SimpleFIN) delivered. Absent when `provider`
-   * already is the bank. `hasLogo` says only that a logo can be requested, never the domain.
-   */
-  institution?: { name: string; hasLogo: boolean } | null
   /** Display-only visibility flag; hidden account still syncs normally. */
   hidden: boolean
   /** Set only when the member owns less than all of it — the co-ownership badge signal. */
@@ -561,174 +555,6 @@ export interface LoanScheduleResponse {
   schedule: LoanInstallment[]
 }
 
-// ─── Peer loans (receivables between individuals) ─────────────────────────────
-
-export type PeerLoanRepaymentKind = 'PRINCIPAL' | 'INTEREST' | 'WRITE_OFF'
-
-export interface PeerLoanRepayment {
-  id: number
-  paidOn: string
-  amount: number
-  kind: PeerLoanRepaymentKind
-  note?: string | null
-  /** Interest applied by this row (interest first, then capital). */
-  interestPart?: number | null
-  capitalPart?: number | null
-  /** True when this row has a cash movement in a linked account. */
-  hasCashLeg?: boolean
-  /**
-   * True when Picsou wrote that movement and deletes it with the row; false when the row only
-   * links a transaction that stays in its account.
-   */
-  cashLegOwned?: boolean
-}
-
-export type PeerLoanRatePeriod = 'ANNUAL' | 'MONTHLY'
-
-export interface PeerLoanTermsRequest {
-  principal: number
-  lentAt: string
-  expectedBack?: string | null
-  /** Annual rate as a fraction (0.06 = 6 %), whatever the period it was entered in. */
-  annualRate?: number | null
-  /** How the member stated the rate; defaults to annual. */
-  ratePeriod?: PeerLoanRatePeriod | null
-  /** Forecast only: both fields go together, or neither. */
-  plannedMonthlyAmount?: number | null
-  plannedMonths?: number | null
-  /** Required: the receivable must balance a real cash movement. */
-  linkedAccountId: number
-  note?: string | null
-  /**
-   * Whether Picsou writes the lending outflow on a manual linked account. False is for a
-   * loan recorded after the fact, already reflected in the account's typed balance.
-   */
-  withCashLeg?: boolean | null
-}
-
-export interface PeerLoanFromTransactionRequest {
-  transactionId: number
-  /** Defaults to the transaction's merchant label or description. */
-  beneficiary?: string | null
-}
-
-export interface PeerLoanRepaymentFromTransactionRequest {
-  transactionId: number
-  /** Omitted: a payment, interest first then capital. */
-  kind?: Exclude<PeerLoanRepaymentKind, 'WRITE_OFF'> | null
-}
-
-/** An open loan a received transaction can be assigned to. */
-export interface PeerLoanOpen {
-  accountId: number
-  name: string
-  remaining: number
-}
-
-export interface PeerLoanRepaymentRequest {
-  paidOn: string
-  amount: number
-  /** Omitted: a payment, interest first then capital. */
-  kind?: PeerLoanRepaymentKind | null
-  note?: string | null
-  /**
-   * Whether Picsou writes the matching cash movement on a manual linked account.
-   * False records a compensation: the receivable falls, the cash account is untouched.
-   */
-  withCashLeg?: boolean | null
-}
-
-export interface PeerLoanSimulationRequest {
-  principal: number
-  annualRate?: number | null
-  months?: number | null
-  monthlyPayment?: number | null
-}
-
-export interface PeerLoanSimulationResponse {
-  monthlyPayment: number
-  months: number
-  totalInterest: number
-  totalCost: number
-}
-
-export interface PeerLoanCurvePoint {
-  date: string
-  actual: number
-  /** Null when the loan has no plan. */
-  scheduled?: number | null
-}
-
-/** Facts only: no score, no predicted risk. */
-export interface PeerLoanDetail {
-  accountId: number
-  /** The borrower: one account is one loan, so its own name identifies the debt. */
-  accountName: string
-  /** False while the account exists without terms yet. */
-  configured: boolean
-  principal: number
-  lentAt?: string | null
-  expectedBack?: string | null
-  annualRate?: number | null
-  /** How the rate was stated, so the page shows it as agreed. */
-  ratePeriod?: PeerLoanRatePeriod | null
-  plannedMonthlyAmount?: number | null
-  plannedMonths?: number | null
-  linkedAccountId?: number | null
-  linkedAccountName?: string | null
-  note?: string | null
-  closedAt?: string | null
-  principalRemaining: number
-  interestAccrued: number
-  interestReceived: number
-  principalRepaid: number
-  totalRepaid: number
-  writtenOff: number
-  repaidPct: number
-  /** Forecast only; null without a plan. */
-  scheduledRemaining?: number | null
-  installmentsBehind?: number | null
-  /** Total interest the plan implies over its whole duration; null without a plan. */
-  plannedInterest?: number | null
-  repayments: PeerLoanRepayment[]
-  /** Actual capital over time, plus the forecast when a plan exists. */
-  curve: PeerLoanCurvePoint[]
-}
-
-/** One row of the member-wide peer-loan view. */
-export interface PeerLoanOverviewEntry {
-  accountId: number
-  name: string
-  principal: number
-  principalRemaining: number
-  repaidPct: number
-  interestAccrued: number
-  interestReceived: number
-  lentAt?: string | null
-  expectedBack?: string | null
-  /** Null without a plan; 0 or negative means on or ahead of schedule. */
-  installmentsBehind?: number | null
-  lastPaymentDate?: string | null
-  lastPaymentAmount?: number | null
-  closedAt?: string | null
-}
-
-export interface PeerLoanOverviewPoint {
-  date: string
-  outstanding: number
-}
-
-/** The member's peer loans as one view: who owes what, and the total over time. */
-export interface PeerLoansOverview {
-  totalOutstanding: number
-  openCount: number
-  closedCount: number
-  interestAccrued: number
-  /** Open loans first, then by name. */
-  loans: PeerLoanOverviewEntry[]
-  history: PeerLoanOverviewPoint[]
-}
-
 export interface BalanceSnapshot {
   id: number
   date: string
@@ -878,25 +704,20 @@ export interface DashboardLiability {
   paymentDueDate?: string | null
 }
 
-export interface DashboardDistributionItem {
-  accountId: number
-  name: string
-  color: string
-  balanceEur: number
-  percentage: number
-  accountType: AccountType
-  hasHoldings: boolean
-}
-
 export interface DashboardData {
   totalNetWorth: number
   totalLiabilities: number
   totalMonthlyPayment?: number | null
   netWorthHistory: { date: string; total: number; invested: number | null; pnl: number | null }[]
-  /** The allocation donut: investments and cash, never a receivable. */
-  distribution: DashboardDistributionItem[]
-  /** Every asset, receivables included: the wealth modes and history build on it. */
-  assets: DashboardDistributionItem[]
+  distribution: {
+    accountId: number
+    name: string
+    color: string
+    balanceEur: number
+    percentage: number
+    accountType: AccountType
+    hasHoldings: boolean
+  }[]
   liabilities: DashboardLiability[]
   goalSummaries: GoalProgress[]
 }
@@ -1072,14 +893,6 @@ export interface SimplefinConnectionStatus {
   maskedToken: string | null
 }
 
-export interface WiseConnectionStatus {
-  connected: boolean
-  connectionId: number | null
-  status: string | null
-  lastSyncedAt: string | null
-  maskedToken: string | null
-}
-
 /**
  * Session status every browser-sidecar provider answers with: a failed sync
  * carries one of the provider's error codes, any other state carries none.
@@ -1161,14 +974,10 @@ export type BoursoErrorCode =
 /** `mfaType` is always `APP_PUSH` when a second factor is required. */
 export type BoursoAuthInitResponse = SidecarAuthInitResponse<'APP_PUSH'>
 
-/**
- * Contract the sidecar saw but Picsou does not import: shown by family and sub-family code only,
- * never by id. `subFamilyCode` is null when the bank sends none, or on a list stored before it.
- */
+/** Contract family the sidecar saw but Picsou does not import: family code only, never the id. */
 export interface CaisseEpargneUnsupportedContract {
   externalId: string
   familyCode: string
-  subFamilyCode?: string | null
 }
 
 export type CaisseEpargneErrorCode =
@@ -1193,8 +1002,6 @@ export interface CaisseEpargneSessionStatus {
   lastSyncError: CaisseEpargneErrorCode | null
   unsupported: CaisseEpargneUnsupportedContract[]
   unsupportedCount: number
-  /** An identifier is stored (encrypted): an empty one at initiate reuses it. Never the value. */
-  remembered?: boolean
 }
 
 /**
@@ -1225,98 +1032,6 @@ export interface CaisseEpargneAuthCompleteResponse {
 
 /** `bankSessionRevoked` is always false: only Picsou's stored copy is deleted. */
 export interface CaisseEpargneDeleteResponse {
-  removed: boolean
-  bankSessionRevoked: boolean
-  message: string
-}
-
-/**
- * Banque Populaire runs on the same BPCE platform as Caisse d'Epargne: same login,
- * keypad, Sécur'Pass, payloads and error codes. Only the login adds the regional bank.
- */
-export type BanquePopulaireRegion =
-  | 'ALSACE_LORRAINE_CHAMPAGNE'
-  | 'AQUITAINE_CENTRE_ATLANTIQUE'
-  | 'AUVERGNE_RHONE_ALPES'
-  | 'BOURGOGNE_FRANCHE_COMTE'
-  | 'BRED'
-  | 'GRAND_OUEST'
-  | 'MEDITERRANEE'
-  | 'NORD'
-  | 'OCCITANE'
-  | 'RIVES_DE_PARIS'
-  | 'SUD'
-  | 'VAL_DE_FRANCE'
-export type BanquePopulaireErrorCode = CaisseEpargneErrorCode
-export type BanquePopulaireSessionStatus = CaisseEpargneSessionStatus
-/** The BPCE platform's login and status payloads, shared by Caisse d'Epargne and Banque Populaire. */
-export type BpceAuthInitResponse = CaisseEpargneAuthInitResponse
-export type BpceSessionStatus = CaisseEpargneSessionStatus
-export type BanquePopulaireAuthInitResponse = CaisseEpargneAuthInitResponse
-export type BanquePopulaireAuthKeypadResponse = CaisseEpargneAuthKeypadResponse
-export type BanquePopulaireAuthCompleteResponse = CaisseEpargneAuthCompleteResponse
-export type BanquePopulaireDeleteResponse = CaisseEpargneDeleteResponse
-
-// --- La Banque Postale ---
-
-export type LbpErrorCode =
-  | 'INVALID_CREDENTIALS'
-  | 'KEYPAD_CHANGED'
-  | 'KEYPAD_EXPIRED'
-  | 'INVALID_POSITIONS'
-  | 'APP_VALIDATION_TIMEOUT'
-  | 'AUTH_ATTEMPT_EXPIRED'
-  | 'SESSION_EXPIRED'
-  | 'UPSTREAM_UNAVAILABLE'
-  | 'UPSTREAM_FORMAT_CHANGED'
-  | 'INVALID_SESSION_STATE'
-  | 'INTERNAL_ERROR'
-
-/** A product the sidecar saw but does not import: family code only, never the account id. */
-export interface LbpUnsupportedProduct {
-  externalId: string
-  familyCode: string
-}
-
-/** Mirrors `LbpSyncService.SessionStatusResponse`. */
-export interface LbpSessionStatus {
-  isActive: boolean
-  syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED'
-  lastSyncStartedAt: string | null
-  lastSyncCompletedAt: string | null
-  lastSyncError: LbpErrorCode | null
-  unsupported: LbpUnsupportedProduct[]
-  unsupportedCount: number
-  /** The identifier the user asked to remember, decrypted for the form. Never a password. */
-  savedIdentifier: string | null
-}
-
-/**
- * The bank's shuffled keypad: ten digit labels in DOM order. The user clicks his
- * own digits and only the clicked positions go back, never the digits.
- */
-export interface LbpKeypad {
-  keys: string[]
-  columns: number
-}
-
-export interface LbpAuthInitResponse {
-  processId: string
-  keypad: LbpKeypad
-  /** Lifetime of the keypad step, not of the mobile-approval wait. */
-  expiresInSeconds: number
-}
-
-/** The second factor is a notification in the bank's mobile app: a human approves it. */
-export interface LbpAuthKeypadResponse {
-  processId: string
-  status: 'APPROVAL_PENDING'
-}
-
-export type LbpAuthCompleteResponse = LbpSessionStatus
-
-/** `bankSessionRevoked` is always false: only Picsou's stored copy is deleted. */
-export interface LbpDeleteResponse {
   removed: boolean
   bankSessionRevoked: boolean
   message: string
@@ -1386,24 +1101,6 @@ export type AmundiErrorCode =
   | 'UPSTREAM_UNAVAILABLE'
   | 'INVALID_DATA'
   | 'INTERNAL_ERROR'
-
-export type NatixisSessionStatus = SidecarSessionStatusOf<NatixisErrorCode>
-
-export type NatixisErrorCode =
-  | 'INVALID_CREDENTIALS'
-  | 'MFA_TYPE_UNSUPPORTED'
-  | 'INVALID_OTP'
-  | 'RATE_LIMITED'
-  | 'AUTH_ATTEMPT_EXPIRED'
-  | 'SESSION_EXPIRED'
-  | 'PORTFOLIO_INCOMPLETE'
-  | 'UPSTREAM_FORMAT_CHANGED'
-  | 'UPSTREAM_UNAVAILABLE'
-  | 'INVALID_DATA'
-  | 'INTERNAL_ERROR'
-
-/** Natixis always asks for a code, typed from an SMS, a voice call or an e-mail. */
-export type NatixisAuthInitResponse = SidecarAuthInitResponse<'SMS' | 'VOICE' | 'EMAIL'>
 
 export type CmesSessionStatus = SidecarSessionStatusOf<CmesErrorCode>
 
@@ -1601,12 +1298,6 @@ export interface FinaryAutoSyncResponse {
   newAccountCount: number
 }
 
-export interface PeerLoanLink {
-  kind: 'LENDING' | 'REPAYMENT'
-  accountId: number
-  accountName: string
-}
-
 export interface Transaction {
   id: number
   date: string
@@ -1634,8 +1325,6 @@ export interface Transaction {
   fees: number | null
   /** True for CORUM Life contract operations: shown on the account, excluded from the budget. */
   budgetNeutral: boolean
-  /** The peer loan this row belongs to, if any: hides the link actions, links to the loan. */
-  peerLoanLink?: PeerLoanLink | null
 }
 
 export interface TransactionRequest {

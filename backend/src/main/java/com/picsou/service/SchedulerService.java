@@ -169,7 +169,7 @@ public class SchedulerService {
                 // losing the whole day's is not.
                 try {
                     Optional<BalanceSnapshot> existing = snapshotRepository.findByAccountIdAndDate(account.getId(), today);
-                    boolean refreshCaisseEpargnePer = CaisseEpargneSyncService.isInsurerContract(account) && existing.isPresent();
+                    boolean refreshCaisseEpargnePer = isCaisseEpargnePer(account) && existing.isPresent();
                     if (existing.isEmpty() || refreshCaisseEpargnePer) {
                         // One valuation, not two: liveBalanceEur and calculateInvestedAmount each
                         // run the whole pass, and two passes can straddle a price-cache change --
@@ -209,6 +209,11 @@ public class SchedulerService {
         }
 
         log.debug("Snapshots taken for all members");
+    }
+
+    private boolean isCaisseEpargnePer(Account account) {
+        return account.getType() == AccountType.PER
+            && CaisseEpargneSyncService.PROVIDER.equals(account.getProvider());
     }
 
     /**

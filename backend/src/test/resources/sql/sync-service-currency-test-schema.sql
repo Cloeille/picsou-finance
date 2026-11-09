@@ -35,8 +35,6 @@ CREATE TABLE account (
     ticker VARCHAR(20),
     logo_url VARCHAR(255),
     logo_key VARCHAR(32),
-    institution_name VARCHAR(100),
-    institution_domain VARCHAR(255),
     requisition_id BIGINT,
     opened_at DATE,
     provider_invested_eur DECIMAL(20, 8),

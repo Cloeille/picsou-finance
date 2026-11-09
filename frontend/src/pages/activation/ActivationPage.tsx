@@ -1,33 +1,18 @@
 import { useState } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router'
-import { useTranslation } from 'react-i18next'
-import { KeyRound } from 'lucide-react'
+import { useParams, useNavigate } from 'react-router'
 import { authApi } from '@/features/auth/api'
-import { ssoErrorMessage } from '@/features/sso/errors'
-import { useSsoInfo } from '@/features/sso/hooks'
-import { submitSsoStart } from '@/features/sso/start'
-import { formatApiError, getErrorStatus } from '@/lib/errors'
-import { AlertBanner } from '@/components/shared/AlertBanner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 export function ActivationPage() {
-  const { t } = useTranslation()
   const { token } = useParams<{ token: string }>()
-  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const ssoInfo = useSsoInfo()
-  const sso = ssoInfo.data?.enabled ? ssoInfo.data : null
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [acknowledged, setAcknowledged] = useState(false)
-  const [error, setError] = useState<string | null>(() => {
-    const ssoError = searchParams.get('ssoError')
-    return ssoError ? ssoErrorMessage(t, ssoError) : null
-  })
+  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
 
@@ -36,19 +21,19 @@ export function ActivationPage() {
     setError(null)
 
     if (!acknowledged) {
-      setError(t('activation.errors.acknowledgeRequired'))
+      setError('You must acknowledge the data access warning.')
       return
     }
     if (password.length < 8) {
-      setError(t('activation.errors.passwordTooShort'))
+      setError('Password must be at least 8 characters.')
       return
     }
     if (password !== confirmPassword) {
-      setError(t('activation.errors.passwordMismatch'))
+      setError('Passwords do not match.')
       return
     }
     if (!token) {
-      setError(t('activation.errors.invalidLink'))
+      setError('Invalid activation link.')
       return
     }
 
@@ -58,13 +43,8 @@ export function ActivationPage() {
       setSuccess(true)
       setTimeout(() => navigate('/login'), 2000)
     } catch (err: unknown) {
-      // An unknown token answers 401 and an expired one 400: a dead link, not an expired session.
-      const status = getErrorStatus(err)
-      setError(
-        status === 400 || status === 401
-          ? t('activation.errors.failed')
-          : formatApiError(err, t, 'activation.errors.failed'),
-      )
+      const message = err instanceof Error ? err.message : 'Activation failed. The link may have expired.'
+      setError(message)
     } finally {
       setLoading(false)
     }
@@ -75,8 +55,8 @@ export function ActivationPage() {
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>{t('activation.successTitle')}</CardTitle>
-            <CardDescription>{t('activation.successRedirect')}</CardDescription>
+            <CardTitle>Account activated!</CardTitle>
+            <CardDescription>Redirecting to login...</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -87,16 +67,18 @@ export function ActivationPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>{t('activation.title')}</CardTitle>
-          <CardDescription>
-            {sso ? t('activation.subtitleSso', { provider: sso.providerName }) : t('activation.subtitle')}
-          </CardDescription>
+          <CardTitle>Activate your account</CardTitle>
+          <CardDescription>Choose a password to complete your account setup.</CardDescription>
         </CardHeader>
         <CardContent>
           {/* Warning */}
-          <div className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-900 dark:text-yellow-200">
-            <p className="font-semibold mb-1">{t('activation.noticeTitle')}</p>
-            <p>{t('activation.noticeBody')}</p>
+          <div className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-200">
+            <p className="font-semibold mb-1">Data access notice</p>
+            <p>
+              The administrator of this Picsou instance has technical access to all data stored
+              here, including bank account details and API credentials. By activating your account,
+              you acknowledge this.
+            </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -109,75 +91,41 @@ export function ActivationPage() {
                 className="mt-1"
               />
               <Label htmlFor="acknowledge" className="text-sm">
-                {t('activation.acknowledge')}
+                I understand and acknowledge that the admin has access to all data on this instance.
               </Label>
             </div>
 
-            {ssoInfo.isError && (
-              <AlertBanner
-                variant="roomy"
-                role="alert"
-                action={
-                  <Button type="button" variant="outline" size="sm" onClick={() => void ssoInfo.refetch()}>
-                    {t('common.retry')}
-                  </Button>
-                }
-              >
-                {t('auth.sso.infoError')}
-              </AlertBanner>
-            )}
-
-            {sso && (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={!acknowledged}
-                  onClick={() => submitSsoStart({ intent: 'activate', token, ack: true })}
-                  className="h-auto min-h-10 w-full whitespace-normal py-2"
-                >
-                  <KeyRound aria-hidden="true" />
-                  {t('activation.ssoButton', { provider: sso.providerName })}
-                </Button>
-                <div className="flex items-center gap-3">
-                  <Separator className="h-px flex-1" />
-                  <span className="text-sm text-muted-foreground">{t('auth.sso.or')}</span>
-                  <Separator className="h-px flex-1" />
-                </div>
-              </>
-            )}
-
             <div className="space-y-2">
-              <Label htmlFor="password">{t('activation.password')}</Label>
+              <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={t('activation.passwordPlaceholder')}
+                placeholder="Min. 8 characters"
                 minLength={8}
                 required
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">{t('activation.confirmPassword')}</Label>
+              <Label htmlFor="confirmPassword">Confirm password</Label>
               <Input
                 id="confirmPassword"
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder={t('activation.confirmPlaceholder')}
+                placeholder="Repeat your password"
                 required
               />
             </div>
 
             {error && (
-              <p role="alert" className="text-sm text-destructive">{error}</p>
+              <p className="text-sm text-destructive">{error}</p>
             )}
 
             <Button type="submit" className="w-full" disabled={!acknowledged || loading}>
-              {loading ? t('activation.submitting') : t('activation.submit')}
+              {loading ? 'Activating...' : 'Activate account'}
             </Button>
           </form>
         </CardContent>

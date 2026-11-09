@@ -4,7 +4,6 @@ import com.picsou.dto.AiJobStatus;
 import com.picsou.dto.CategorizeRequest;
 import com.picsou.dto.TransactionResponse;
 import com.picsou.repository.TransactionRepository;
-import com.picsou.service.PeerLoanTransactionLinks;
 import com.picsou.service.UserContext;
 import com.picsou.service.budget.AiCategorizationJobService;
 import com.picsou.service.budget.CategorizationService;
@@ -31,19 +30,16 @@ public class TransactionCategorizationController {
     private final AiCategorizationJobService jobService;
     private final UserContext userContext;
     private final TransactionRepository transactionRepository;
-    private final PeerLoanTransactionLinks peerLoanTransactionLinks;
 
     public TransactionCategorizationController(
             CategorizationService categorizationService,
             AiCategorizationJobService jobService,
             UserContext userContext,
-            TransactionRepository transactionRepository,
-            PeerLoanTransactionLinks peerLoanTransactionLinks) {
+            TransactionRepository transactionRepository) {
         this.categorizationService = categorizationService;
         this.jobService = jobService;
         this.userContext = userContext;
         this.transactionRepository = transactionRepository;
-        this.peerLoanTransactionLinks = peerLoanTransactionLinks;
     }
 
     @GetMapping
@@ -52,8 +48,11 @@ public class TransactionCategorizationController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) Long accountId,
             @RequestParam(required = false) Long categoryId) {
-        return peerLoanTransactionLinks.annotate(transactionRepository
-                .searchByMember(userContext.currentMemberId(), from, to, accountId, categoryId));
+        return transactionRepository
+                .searchByMember(userContext.currentMemberId(), from, to, accountId, categoryId)
+                .stream()
+                .map(TransactionResponse::from)
+                .toList();
     }
 
     @GetMapping("/uncategorized")

@@ -7,8 +7,7 @@ FROM ${SIDECAR_BASE}
 
 RUN groupadd -r caisse && useradd -r -g caisse caisse
 
-# The login, replay and import code is the shared bpce package of the base image.
-COPY main.py ./
+COPY main.py replay.py fetcher.py accounts_parser.py per_parser.py per_client.py login.py keypad_table.py ./
 
 USER caisse
 EXPOSE 8001

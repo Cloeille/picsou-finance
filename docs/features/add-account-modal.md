@@ -10,7 +10,7 @@ Creating a new account or connecting a sync provider required two separate entry
 
 The `AddAccountModal` is a state-machine dialog with two levels:
 
-1. **Selector screen** — buttons in a grid (Banks, Exchanges, Wallets, Trade Republic, BoursoBank, Bourse Direct, DEGIRO, Interactive Brokers, SimpleFIN, Wise Jars, Amundi, Finary, Property, Manual). Each sync button enters its wizard or panel; the Manual button opens the existing `AccountForm` in a separate dialog.
+1. **Selector screen** — buttons in a grid (Banks, Exchanges, Wallets, Trade Republic, BoursoBank, Bourse Direct, DEGIRO, Interactive Brokers, SimpleFIN, Amundi, Finary, Property, Manual). Each sync button enters its wizard or panel; the Manual button opens the existing `AccountForm` in a separate dialog.
 2. **Wizard screens** — Each sync type has its own compact wizard with a back button. Each wizard manages its own loading and error state inline.
 
 ### Key files
@@ -27,7 +27,7 @@ The modal and the `/sync` tabs render the same components, so a fix lands on bot
 
 | Shared piece | Used by the modal in | Used by the Sync page in |
 |---|---|---|
-| `components/sync/*Panel.tsx` (IBKR, SimpleFIN, Wise, Bourso, Caisse d'Epargne, Banque Populaire, Bourse Direct, DEGIRO, Amundi, Fortuneo, Amex, CORUM, Sofidy) | `PANEL_STEPS` | the matching `*Tab` |
+| `components/sync/*Panel.tsx` (IBKR, SimpleFIN, Bourso, Caisse d'Epargne, Bourse Direct, DEGIRO, Amundi, Fortuneo, Amex, CORUM, Sofidy) | `PANEL_STEPS` | the matching `*Tab` |
 | `components/sync/InstitutionSearch.tsx` | `BankWizard` (`layout="modal"`) | `BankSyncTab` (`layout="page"`) |
 | `components/sync/CryptoExchangeForm.tsx` | `ExchangeWizard` | `CryptoExchangeTab` |
 | `components/sync/CryptoWalletForm.tsx` | `WalletWizard` | `CryptoWalletTab` |
@@ -51,7 +51,6 @@ AccountsPage → "Add account" button
        ├─ DEGIRO → DegiroPanel (onConnected → handleDone)
        ├─ Interactive Brokers → IbkrPanel (onConnected → handleDone)
        ├─ SimpleFIN → SimplefinPanel (onConnected → handleDone)
-       ├─ Wise Jars → WisePanel (onConnected → handleDone)
        ├─ Amundi → AmundiPanel (onConnected → handleDone)
        ├─ Fortuneo → FortuneoPanel (onConnected → handleDone)
        ├─ American Express → AmexPanel (onConnected → handleDone)
@@ -170,7 +169,7 @@ assurance-vie and carries an opening date.
 
 - `frontend/src/lib/utils.test.ts` — `formatCurrency` regression case: an invalid code does not throw
   and the raw code appears in the output (issue #9).
-- `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases; exchange, bank and Finary wizard cases; Bourse Direct, Amundi, IBKR, SimpleFIN, Wise, Amex, CORUM, and Sofidy wizard flow tests (mock panel → `onOpenChange(false)`).
+- `frontend/src/components/shared/AddAccountModal.test.tsx` — Trade Republic wizard regression cases; exchange, bank and Finary wizard cases; Bourse Direct, Amundi, IBKR, SimpleFIN, Amex, CORUM, and Sofidy wizard flow tests (mock panel → `onOpenChange(false)`).
 - `backend/src/test/java/com/picsou/validation/CurrencyValidatorTest.java` — accepts valid ISO 4217
   codes, rejects unknown ones, leaves null/blank to `@NotBlank`.
 
@@ -181,4 +180,4 @@ assurance-vie and carries an opening date.
 
 ### Sync all modal parity
 
-`SyncAllModal` lists the same sidecar connectors as the selector, including Amex, CORUM, Sofidy, Caisse d'Epargne, Banque Populaire and La Banque Postale. A session-based row is shown when its session is live or the member still has accounts whose `provider` matches. Caisse d'Epargne matches the `provider` its sync service stamps (`Caisse d'Epargne`); Banque Populaire matches `Banque Populaire`; La Banque Postale matches `La Banque Postale`. CORUM and Sofidy match the `provider` the SCPI reconciler stamps on the accounts it creates (`CORUM`, `Sofidy`), and also any SCPI account carrying their fund code (`scpi.corumFundCode` / `scpi.sofidyFundCode`), because an adopted manual SCPI keeps the provider the user typed. An expired session therefore stays listed; an inactive one routes to its Sync-page tab (`amex`/`corum`/`sofidy`/`caisse-epargne`/`banque-populaire`/`lbp`) for re-authentication, and the batch *Sync all* skips it. Caisse d'Epargne never stores the password (only the session cookies and the identifier) and Banque Populaire stores no credentials, only session cookies, so their keypad and Sécur'Pass login can run only on that tab; La Banque Postale likewise stores no credentials, and its mobile-app approval step can run only on that tab.
+`SyncAllModal` lists the same sidecar connectors as the selector, including Amex, CORUM, Sofidy and Caisse d'Epargne. A session-based row is shown when its session is live or the member still has accounts whose `provider` matches. Caisse d'Epargne matches the `provider` its sync service stamps (`Caisse d'Epargne`). CORUM and Sofidy match the `provider` the SCPI reconciler stamps on the accounts it creates (`CORUM`, `Sofidy`), and also any SCPI account carrying their fund code (`scpi.corumFundCode` / `scpi.sofidyFundCode`), because an adopted manual SCPI keeps the provider the user typed. An expired session therefore stays listed; an inactive one routes to its Sync-page tab (`amex`/`corum`/`sofidy`/`caisse-epargne`) for re-authentication, and the batch *Sync all* skips it. Caisse d'Epargne stores no credentials, only session cookies, so its keypad and Sécur'Pass login can run only on that tab.

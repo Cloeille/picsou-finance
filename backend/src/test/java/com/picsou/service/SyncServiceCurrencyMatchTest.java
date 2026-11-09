@@ -1,13 +1,12 @@
 package com.picsou.service;
 
-import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.dto.AccountResponse;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.BalanceSnapshot;
-import com.picsou.model.SidecarSession;
-import com.picsou.model.SidecarSyncStatus;
+import com.picsou.model.CaisseEpargneSession;
+import com.picsou.model.CaisseEpargneSyncStatus;
 import com.picsou.model.Debt;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Requisition;
@@ -20,13 +19,12 @@ import com.picsou.port.RevolutPort.RevolutAccountData;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
-import com.picsou.repository.SidecarSessionRepository;
+import com.picsou.repository.CaisseEpargneSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.RequisitionRepository;
 import com.picsou.repository.RevolutSessionRepository;
 import com.picsou.repository.TransactionRepository;
-import com.picsou.service.PeerLoanTransactionLinks;
 import com.picsou.service.budget.CategorizationService;
 import com.picsou.service.budget.CategoryService;
 import com.picsou.service.budget.RecurringDetectionService;
@@ -113,8 +111,7 @@ class SyncServiceCurrencyMatchTest {
         accountService = spy(new AccountService(
             accountRepository, snapshotRepository, mock(AccountHoldingRepository.class),
             null, null, null, debtRepository, null, new PriceService(priceProvider, null),
-            new LoanAmortizationService(), null, null, null, null, null, null, null, null,
-            mock(PeerLoanTransactionLinks.class)));
+            new LoanAmortizationService(), null, null, null, null, null, null));
         // Only response enrichment is stubbed; snapshot persistence and FX conversion run normally.
         doReturn(mock(AccountResponse.class)).when(accountService).toResponse(any(Account.class));
         bankTransactionImportService = mock(BankTransactionImportService.class);
@@ -528,14 +525,14 @@ class SyncServiceCurrencyMatchTest {
             List.of(new CaisseEpargnePort.AccountData("synthetic-loan", "LOAN", "Synthetic loan",
                 new BigDecimal("-9000"), "EUR", null, false, null, null, null, null, null, null, null,
                 List.of(), true, loan)), List.of()));
-        SidecarSession session = SidecarSession.builder().bank(SidecarBank.CAISSE_EPARGNE)
+        CaisseEpargneSession session = CaisseEpargneSession.builder()
             .id(1L).member(member).sessionState("synthetic-encrypted-state").active(true)
-            .syncStatus(SidecarSyncStatus.IDLE).build();
-        SidecarSessionRepository sessions = mock(SidecarSessionRepository.class);
-        when(sessions.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, member.getId())).thenReturn(Optional.of(session));
+            .syncStatus(CaisseEpargneSyncStatus.IDLE).build();
+        CaisseEpargneSessionRepository sessions = mock(CaisseEpargneSessionRepository.class);
+        when(sessions.findByMemberIdForUpdate(member.getId())).thenReturn(Optional.of(session));
         when(sessions.findByIdAndMemberIdForUpdate(session.getId(), member.getId()))
             .thenReturn(Optional.of(session));
-        when(sessions.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, member.getId())).thenReturn(Optional.of(session));
+        when(sessions.findByMemberId(member.getId())).thenReturn(Optional.of(session));
         CryptoEncryption encryption = mock(CryptoEncryption.class);
         when(encryption.decrypt(session.getSessionState())).thenReturn("synthetic-state");
         CaisseEpargneSyncService caisseEpargne = new CaisseEpargneSyncService(
@@ -543,7 +540,7 @@ class SyncServiceCurrencyMatchTest {
             debtRepository, accountService, mock(CategorizationService.class), mock(CategoryService.class),
             encryption, new TransactionTemplate(transactionManager), Runnable::run, null);
 
-        assertThat(caisseEpargne.queueSync(member.getId()).syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(caisseEpargne.queueSync(member.getId()).syncStatus()).isEqualTo(CaisseEpargneSyncStatus.SUCCESS);
         entityManager.flush();
         entityManager.clear();
 

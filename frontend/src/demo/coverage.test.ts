@@ -1,7 +1,7 @@
 import { AxiosHeaders } from 'axios'
 import { describe, expect, it, vi } from 'vitest'
 import { createDemoAdapter } from './index'
-import { mockAccounts, mockBanquePopulaireAccounts } from './data/accounts'
+import { mockAccounts } from './data/accounts'
 import { mockCategories } from './data/budget'
 import { mockGoals } from './data/goals'
 
@@ -22,10 +22,9 @@ const getTemplates = [...new Set(Object.values(sources).flatMap((source) =>
 
 // A path parameter takes every id the demo can show, keyed by the segment before it, so a
 // handler registered for some accounts but not others still fails.
-const demoAccountIds = [...mockAccounts, ...mockBanquePopulaireAccounts].map((a) => a.id)
 const SAMPLE_IDS: Record<string, (string | number)[]> = {
-  accounts: demoAccountIds,
-  'real-estate': demoAccountIds,
+  accounts: mockAccounts.map((a) => a.id),
+  'real-estate': mockAccounts.map((a) => a.id),
   goals: mockGoals.map((g) => g.id),
   category: mockCategories.map((c) => c.id),
 }

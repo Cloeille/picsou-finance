@@ -39,12 +39,6 @@ public class SyncExecutorConfig {
         return singleWorker("amundi-sync-");
     }
 
-    /** One worker: syncs are on demand and must never overlap on the bank's session. */
-    @Bean(name = "banquePopulaireSyncExecutor")
-    public Executor banquePopulaireSyncExecutor() {
-        return singleWorker("banque-populaire-sync-");
-    }
-
     @Bean(name = "bourseDirectSyncExecutor")
     public Executor bourseDirectSyncExecutor() {
         return singleWorker("bourse-direct-sync-");
@@ -61,12 +55,6 @@ public class SyncExecutorConfig {
         return singleWorker("caisse-epargne-sync-");
     }
 
-    /** One worker: syncs are on demand and must never overlap on the bank's session. */
-    @Bean(name = "lbpSyncExecutor")
-    public Executor lbpSyncExecutor() {
-        return singleWorker("lbp-sync-");
-    }
-
     @Bean(name = "cicSyncExecutor")
     public Executor cicSyncExecutor() {
         return singleWorker("cic-sync-");
@@ -81,11 +69,6 @@ public class SyncExecutorConfig {
      * One worker: a sync reads a browser-backed sidecar, and two concurrent
      * reads for the same member would contend on the same row lock anyway.
      */
-    @Bean(name = "natixisSyncExecutor")
-    public Executor natixisSyncExecutor() {
-        return singleWorker("natixis-sync-");
-    }
-
     @Bean(name = "corumSyncExecutor")
     public Executor corumSyncExecutor() {
         return singleWorker("corum-sync-");

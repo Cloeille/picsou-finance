@@ -1,6 +1,5 @@
 package com.picsou.service;
 
-import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.OpenFigiIsinConverter;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
@@ -13,8 +12,8 @@ import com.picsou.model.DividendEvent;
 import com.picsou.model.DividendSource;
 import com.picsou.model.DividendSourceStatus;
 import com.picsou.model.FamilyMember;
-import com.picsou.model.SidecarSession;
-import com.picsou.model.SidecarSyncStatus;
+import com.picsou.model.FortuneoSession;
+import com.picsou.model.FortuneoSyncStatus;
 import com.picsou.model.Transaction;
 import com.picsou.model.TransactionType;
 import com.picsou.port.SidecarErrorCode;
@@ -24,7 +23,7 @@ import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.DividendSourceRepository;
 import com.picsou.repository.FamilyMemberRepository;
-import com.picsou.repository.SidecarSessionRepository;
+import com.picsou.repository.FortuneoSessionRepository;
 import com.picsou.repository.TransactionRepository;
 import com.picsou.service.budget.CategorizationService;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,7 +71,7 @@ import static com.picsou.support.TestEntities.owner;
 @SuppressWarnings("unchecked")
 class FortuneoSyncServiceTest {
     @Mock FortuneoAdapter port;
-    @Mock SidecarSessionRepository sessionRepository;
+    @Mock FortuneoSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock AccountHoldingRepository holdingRepository;
     @Mock FortuneoTransactionWriter transactionWriter;
@@ -87,7 +86,7 @@ class FortuneoSyncServiceTest {
     @Mock TransactionStatus transactionStatus;
     @Mock DividendReceiptService dividendReceiptService;
     @Captor ArgumentCaptor<Account> accountCaptor;
-    @Captor ArgumentCaptor<SidecarSession> sessionCaptor;
+    @Captor ArgumentCaptor<FortuneoSession> sessionCaptor;
     @Captor ArgumentCaptor<List<AccountHolding>> holdingsCaptor;
     @Captor ArgumentCaptor<List<Transaction>> transactionsCaptor;
     @Captor ArgumentCaptor<List<Transaction>> obsoleteCaptor;
@@ -102,8 +101,8 @@ class FortuneoSyncServiceTest {
 
     @Test
     void clearSessionReportsTheSessionItDeleted() {
-        SidecarSession session = activeSession(owner());
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.FORTUNEO, 7L)).thenReturn(Optional.of(session));
+        FortuneoSession session = activeSession(owner());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
 
         assertThat(service.clearSession(7L)).isTrue();
         verify(sessionRepository).delete(session);
@@ -111,7 +110,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void clearSessionReportsNothingWhenNoSessionIsStored() {
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.FORTUNEO, 7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
 
         assertThat(service.clearSession(7L)).isFalse();
         verify(sessionRepository, never()).delete(any());
@@ -120,7 +119,7 @@ class FortuneoSyncServiceTest {
     @Test
     void queueSync_commitsCompletePortfolioThenWritesSnapshotFromCurrentPositions() {
         FamilyMember member = owner();
-        SidecarSession session = activeSession(member);
+        FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(completeAccount()));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
@@ -143,7 +142,7 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.SUCCESS);
         verify(accountRepository).save(accountCaptor.capture());
         Account savedAccount = accountCaptor.getValue();
         assertThat(savedAccount.getProvider()).isEqualTo("Fortuneo");
@@ -176,7 +175,7 @@ class FortuneoSyncServiceTest {
         // definition cannot know about an account connected afterwards. Without this the PEA's
         // chart stayed a single point until the app was restarted and the account synced again.
         FamilyMember member = owner();
-        SidecarSession session = activeSession(member);
+        FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(completeAccount()));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
@@ -196,7 +195,7 @@ class FortuneoSyncServiceTest {
         // Prices are what the chart is drawn from, not what the portfolio import is. Refusing a
         // good sync over them would trade a complete chart for no data whatsoever.
         FamilyMember member = owner();
-        SidecarSession session = activeSession(member);
+        FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(completeAccount()));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
@@ -206,14 +205,14 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.SUCCESS);
         verify(accountRepository).save(any(Account.class));
     }
 
     @Test
     void cashAccount_syncsBalanceWithoutPositionsOrReconciliation() {
         FamilyMember member = owner();
-        SidecarSession session = activeSession(member);
+        FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(cashAccount(
             "cc-1", AccountType.CHECKING, new BigDecimal("500"), List.of()
@@ -223,7 +222,7 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.SUCCESS);
         verify(accountRepository).save(accountCaptor.capture());
         assertThat(accountCaptor.getValue().getType()).isEqualTo(AccountType.CHECKING);
         verify(holdingRepository).saveAll(holdingsCaptor.capture());
@@ -233,7 +232,7 @@ class FortuneoSyncServiceTest {
     @Test
     void mixedPeaAndCheckingPortfolioCommitsBothAccounts() {
         FamilyMember member = owner();
-        SidecarSession session = activeSession(member);
+        FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         FortuneoAdapter.Position peaPosition = position(
             null, "PEA_ONE", BigDecimal.ONE, new BigDecimal("100"),
@@ -249,7 +248,7 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.SUCCESS);
         verify(accountRepository, times(2)).save(accountCaptor.capture());
         assertThat(accountCaptor.getAllValues())
             .extracting(Account::getType)
@@ -259,7 +258,7 @@ class FortuneoSyncServiceTest {
     @Test
     void mixedPeaCtoAndCheckingPortfolioPreservesEveryPosition() {
         FamilyMember member = owner();
-        SidecarSession session = activeSession(member);
+        FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         FortuneoAdapter.Position peaOne = position(
             null, "PEA_ONE", BigDecimal.ONE, new BigDecimal("100"),
@@ -289,7 +288,7 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.SUCCESS);
         verify(accountRepository, times(3)).save(accountCaptor.capture());
         assertThat(accountCaptor.getAllValues())
             .extracting(Account::getType)
@@ -302,7 +301,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void partialMixedPortfolioIsRejectedBeforeAnyPreviousDataIsReplaced() {
-        SidecarSession session = activeSession(owner());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
         FortuneoAdapter.AccountData validChecking = cashAccount(
             "checking-1", AccountType.CHECKING, new BigDecimal("700"), List.of()
@@ -315,7 +314,7 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).deleteByAccountId(any());
@@ -324,7 +323,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void cashAccountWithPositions_rejectsTheWholeSnapshot() {
-        SidecarSession session = activeSession(owner());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
         FortuneoAdapter.Position stray = position(
             "FR0000000001", "ACME", BigDecimal.ONE, new BigDecimal("100"),
@@ -337,14 +336,14 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
 
     @Test
     void cashAccountBalanceMismatch_rejectsTheWholeSnapshot() {
-        SidecarSession session = activeSession(owner());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(new FortuneoAdapter.AccountData(
             "cc-1", "Compte Courant", AccountType.CHECKING,
@@ -353,7 +352,7 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(accountRepository, never()).save(any());
     }
@@ -361,7 +360,7 @@ class FortuneoSyncServiceTest {
     @Test
     void transactionsWithoutIds_replaceTheTrailingNinetyDayWindow() {
         FamilyMember member = owner();
-        SidecarSession session = activeSession(member);
+        FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         FortuneoAdapter.Transaction incoming = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Virement recu", new BigDecimal("100"), "Virement", null, null, null, null, null, null, null
@@ -390,7 +389,7 @@ class FortuneoSyncServiceTest {
         // A member sync returns QUEUED before the job imports anything, and each window job
         // recreates its rows untyped: only the job itself can classify what it wrote.
         FamilyMember member = owner();
-        SidecarSession session = activeSession(member);
+        FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         FortuneoAdapter.Transaction dividend = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "DIVIDENDE TOTALENERGIES", new BigDecimal("59.50"),
@@ -401,7 +400,7 @@ class FortuneoSyncServiceTest {
         )));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
         arrangeNewAccountPersistence(20L);
-        List<SidecarSyncStatus> statusSeenByClassification = new ArrayList<>();
+        List<FortuneoSyncStatus> statusSeenByClassification = new ArrayList<>();
         when(dividendReceiptService.classifyRecent(eq(7L), eq(LocalDate.now()))).thenAnswer(invocation -> {
             statusSeenByClassification.add(session.getSyncStatus());
             return 1;
@@ -416,7 +415,7 @@ class FortuneoSyncServiceTest {
         order.verify(transactionWriter).replaceRecentTransactions(eq(20L), any(LocalDate.class), any());
         order.verify(dividendReceiptService).classifyRecent(7L, LocalDate.now());
         assertThat(statusSeenByClassification)
-            .containsExactly(SidecarSyncStatus.SUCCESS, SidecarSyncStatus.SUCCESS);
+            .containsExactly(FortuneoSyncStatus.SUCCESS, FortuneoSyncStatus.SUCCESS);
     }
 
     @Test
@@ -629,7 +628,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void aRejectedJobClassifiesNothing() {
-        SidecarSession session = activeSession(owner());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of());
 
@@ -641,7 +640,7 @@ class FortuneoSyncServiceTest {
     @Test
     void aDividendClassificationFailureLeavesTheSyncSuccessful() {
         FamilyMember member = owner();
-        SidecarSession session = activeSession(member);
+        FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(completeAccount()));
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
@@ -651,7 +650,7 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.SUCCESS);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.SUCCESS);
         assertThat(result.lastSyncError()).isNull();
     }
 
@@ -661,7 +660,7 @@ class FortuneoSyncServiceTest {
         // only inside the window while inserting everything appended a fresh copy of each
         // older row on every sync.
         FamilyMember member = owner();
-        SidecarSession session = activeSession(member);
+        FortuneoSession session = activeSession(member);
         arrangeQueuedSession(session);
         FortuneoAdapter.Transaction recent = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "Dans la fenetre", new BigDecimal("100"), "Virement", null, null, null, null, null, null, null
@@ -989,7 +988,7 @@ class FortuneoSyncServiceTest {
     void anUnknownTransactionType_failsTheSnapshotInsteadOfBeingDropped() {
         // A type Picsou does not define means the two sides disagree on the contract.
         // Dropping it silently would hide that while quietly changing what the ledger reports.
-        SidecarSession session = activeSession(owner());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
         FortuneoAdapter.Transaction bogus = new FortuneoAdapter.Transaction(
             LocalDate.now().minusDays(1), "ACME", BigDecimal.ONE, null,
@@ -1001,7 +1000,7 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(transactionWriter, never()).reconcileHistory(any(), any());
     }
@@ -1091,7 +1090,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void incompleteSnapshot_failsWithoutDeletingExistingHoldings() {
-        SidecarSession session = activeSession(owner());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
         FortuneoAdapter.AccountData incomplete = new FortuneoAdapter.AccountData(
             "pea-123", "PEA", AccountType.PEA,
@@ -1101,7 +1100,7 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(holdingRepository, never()).deleteByAccountId(any());
         verify(accountRepository, never()).save(any());
@@ -1109,7 +1108,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void nativeQuoteWithoutCurrency_rejectsTheWholeSnapshot() {
-        SidecarSession session = activeSession(owner());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
         FortuneoAdapter.Position ambiguous = new FortuneoAdapter.Position(
             null, "ACME", "Acme", BigDecimal.ONE, new BigDecimal("80"),
@@ -1122,14 +1121,14 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.INVALID_DATA);
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
 
     @Test
     void expiredSession_isInvalidatedInFollowUpTransactionAndRemainsObservable() {
-        SidecarSession session = activeSession(owner());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenThrow(new SyncException(
             "Session expired", null, SidecarErrorCode.SESSION_EXPIRED.name()
@@ -1138,7 +1137,7 @@ class FortuneoSyncServiceTest {
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
         assertThat(result.isActive()).isFalse();
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.SESSION_EXPIRED);
         verify(holdingRepository, never()).deleteByAccountId(any());
     }
@@ -1148,47 +1147,66 @@ class FortuneoSyncServiceTest {
         AtomicReference<Runnable> queuedTask = new AtomicReference<>();
         FortuneoSyncService delayedService = serviceWith(queuedTask::set);
         FamilyMember member = owner();
-        SidecarSession stored = SidecarSession.builder().bank(SidecarBank.FORTUNEO)
+        FortuneoSession stored = FortuneoSession.builder()
             .id(9L)
             .member(member)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(SidecarSyncStatus.QUEUED)
+            .syncStatus(FortuneoSyncStatus.QUEUED)
             .build();
         when(port.completeAuth("process", "123456")).thenReturn("plain-state");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.FORTUNEO, 7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
         when(encryption.encrypt("plain-state")).thenReturn("encrypted");
-        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenReturn(stored);
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.FORTUNEO, 7L)).thenReturn(Optional.of(stored));
+        when(sessionRepository.saveAndFlush(any(FortuneoSession.class))).thenReturn(stored);
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(stored));
 
         FortuneoSyncService.SessionStatusResponse result =
             delayedService.completeAuth("process", "123456", 7L);
 
         assertThat(result.isActive()).isTrue();
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.QUEUED);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.QUEUED);
         assertThat(queuedTask.get()).isNotNull();
         verify(port, never()).fetchAccounts(any());
     }
 
+    @Test
+    void queueSync_executorRejectionMarksTheQueuedSessionFailed() {
+        FortuneoSession session = activeSession(owner());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("encrypted")).thenReturn("plain-state");
+        RejectedExecutionException rejection = new RejectedExecutionException("queue full");
+        FortuneoSyncService rejectedService = serviceWith(task -> { throw rejection; });
+
+        assertThatThrownBy(() -> rejectedService.queueSync(7L))
+            .isInstanceOfSatisfying(SyncException.class, exception ->
+                assertThat(exception.getCode()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR.name()))
+            .hasCause(rejection);
+
+        assertThat(session.getSyncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
+        assertThat(session.getLastSyncError()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR);
+        assertThat(session.isSyncInFlight()).isFalse();
+        verify(port, never()).fetchAccounts(any());
+    }
 
     @Test
     void completeAuth_submissionFailureMarksTheNewSessionFailed() {
         IllegalStateException submissionFailure = new IllegalStateException("executor stopped");
         FortuneoSyncService rejectedService = serviceWith(task -> { throw submissionFailure; });
         FamilyMember member = owner();
-        SidecarSession stored = SidecarSession.builder().bank(SidecarBank.FORTUNEO)
+        FortuneoSession stored = FortuneoSession.builder()
             .id(9L)
             .member(member)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(SidecarSyncStatus.QUEUED)
+            .syncStatus(FortuneoSyncStatus.QUEUED)
             .build();
         when(port.completeAuth("process", "123456")).thenReturn("plain-state");
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.FORTUNEO, 7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
         when(encryption.encrypt("plain-state")).thenReturn("encrypted");
-        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenReturn(stored);
+        when(sessionRepository.saveAndFlush(any(FortuneoSession.class))).thenReturn(stored);
         when(sessionRepository.findByIdAndMemberIdForUpdate(9L, 7L)).thenReturn(Optional.of(stored));
 
         assertThatThrownBy(() -> rejectedService.completeAuth("process", "123456", 7L))
@@ -1196,7 +1214,7 @@ class FortuneoSyncServiceTest {
                 assertThat(exception.getCode()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR.name()))
             .hasCause(submissionFailure);
 
-        assertThat(stored.getSyncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(stored.getSyncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
         assertThat(stored.getLastSyncError()).isEqualTo(SidecarErrorCode.INTERNAL_ERROR);
         assertThat(stored.isSyncInFlight()).isFalse();
         verify(port, never()).fetchAccounts(any());
@@ -1207,21 +1225,21 @@ class FortuneoSyncServiceTest {
         AtomicReference<Runnable> queuedTask = new AtomicReference<>();
         FortuneoSyncService delayedService = serviceWith(queuedTask::set);
         FamilyMember member = owner();
-        SidecarSession stored = SidecarSession.builder().bank(SidecarBank.FORTUNEO)
+        FortuneoSession stored = FortuneoSession.builder()
             .id(9L)
             .member(member)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(SidecarSyncStatus.QUEUED)
+            .syncStatus(FortuneoSyncStatus.QUEUED)
             .build();
         when(port.initiateAuth("login", "password")).thenReturn(
             new SidecarInitiate(null, false, null, "plain-state")
         );
         when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.FORTUNEO, 7L)).thenReturn(Optional.empty());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
         when(encryption.encrypt("plain-state")).thenReturn("encrypted");
-        when(sessionRepository.saveAndFlush(any(SidecarSession.class))).thenReturn(stored);
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.FORTUNEO, 7L)).thenReturn(Optional.of(stored));
+        when(sessionRepository.saveAndFlush(any(FortuneoSession.class))).thenReturn(stored);
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(stored));
 
         FortuneoSyncService.AuthInitResponse response =
             delayedService.initiateAuth("login", "password", 7L);
@@ -1236,10 +1254,22 @@ class FortuneoSyncServiceTest {
         verify(port, never()).fetchAccounts(any());
     }
 
+    @Test
+    void queueSync_doesNotScheduleDuplicateWhileJobIsRunning() {
+        FortuneoSession session = activeSession(owner());
+        session.markQueued();
+        session.markRunning(Instant.now());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+
+        FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
+
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.RUNNING);
+        verify(port, never()).fetchAccounts(any());
+    }
 
     @Test
     void reconciliationMismatch_rejectsTheWholeSnapshot() {
-        SidecarSession session = activeSession(owner());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
         FortuneoAdapter.Position position = position(
             null, "ACME", BigDecimal.ONE, new BigDecimal("1000"),
@@ -1251,7 +1281,7 @@ class FortuneoSyncServiceTest {
 
         FortuneoSyncService.SessionStatusResponse result = service.queueSync(7L);
 
-        assertThat(result.syncStatus()).isEqualTo(SidecarSyncStatus.FAILED);
+        assertThat(result.syncStatus()).isEqualTo(FortuneoSyncStatus.FAILED);
         assertThat(result.lastSyncError()).isEqualTo(SidecarErrorCode.PORTFOLIO_INCOMPLETE);
         verify(accountRepository, never()).save(any());
         verify(holdingRepository, never()).deleteByAccountId(any());
@@ -1259,7 +1289,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void unsupportedAccountType_rejectsTheWholeSnapshot() {
-        SidecarSession session = activeSession(owner());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
         when(port.fetchAccounts("plain-state")).thenReturn(List.of(account(
             "other", AccountType.OTHER, BigDecimal.ZERO, BigDecimal.ZERO, List.of()
@@ -1273,7 +1303,7 @@ class FortuneoSyncServiceTest {
 
     @Test
     void duplicateExternalAccountId_rejectsTheWholeSnapshot() {
-        SidecarSession session = activeSession(owner());
+        FortuneoSession session = activeSession(owner());
         arrangeQueuedSession(session);
         FortuneoAdapter.AccountData account = account(
             "same", AccountType.PEA, BigDecimal.TEN, BigDecimal.TEN, List.of()
@@ -1290,9 +1320,9 @@ class FortuneoSyncServiceTest {
     void replacedSession_preventsAnOldJobFromCommittingItsPortfolio() {
         AtomicReference<Runnable> queuedTask = new AtomicReference<>();
         FortuneoSyncService delayedService = serviceWith(queuedTask::set);
-        SidecarSession session = activeSession(owner());
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.FORTUNEO, 7L)).thenReturn(Optional.of(session));
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.FORTUNEO, 7L)).thenReturn(Optional.of(session));
+        FortuneoSession session = activeSession(owner());
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
 
         delayedService.queueSync(7L);
@@ -1310,46 +1340,46 @@ class FortuneoSyncServiceTest {
     void applicationStart_marksInterruptedJobsAsRetryableFailures() {
         FamilyMember secondMember = FamilyMember.builder().id(8L).displayName("Second member").build();
         when(memberRepository.findAllByOrderByCreatedAtAsc()).thenReturn(List.of(owner(), secondMember));
-        when(sessionRepository.markInterruptedSyncsFailed(eq(SidecarBank.FORTUNEO),
+        when(sessionRepository.markInterruptedSyncsFailed(
             any(),
             any(),
-            eq(SidecarSyncStatus.FAILED),
+            eq(FortuneoSyncStatus.FAILED),
             any(),
             eq(SidecarErrorCode.INTERNAL_ERROR)
         )).thenReturn(1);
 
         service.recoverInterruptedSyncs();
 
-        verify(sessionRepository).markInterruptedSyncsFailed(eq(SidecarBank.FORTUNEO),
+        verify(sessionRepository).markInterruptedSyncsFailed(
             eq(7L),
-            eq(List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING)),
-            eq(SidecarSyncStatus.FAILED),
+            eq(List.of(FortuneoSyncStatus.QUEUED, FortuneoSyncStatus.RUNNING)),
+            eq(FortuneoSyncStatus.FAILED),
             any(),
             eq(SidecarErrorCode.INTERNAL_ERROR)
         );
-        verify(sessionRepository).markInterruptedSyncsFailed(eq(SidecarBank.FORTUNEO),
+        verify(sessionRepository).markInterruptedSyncsFailed(
             eq(8L),
-            eq(List.of(SidecarSyncStatus.QUEUED, SidecarSyncStatus.RUNNING)),
-            eq(SidecarSyncStatus.FAILED),
+            eq(List.of(FortuneoSyncStatus.QUEUED, FortuneoSyncStatus.RUNNING)),
+            eq(FortuneoSyncStatus.FAILED),
             any(),
             eq(SidecarErrorCode.INTERNAL_ERROR)
         );
     }
 
-    private void arrangeQueuedSession(SidecarSession session) {
-        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.FORTUNEO, 7L)).thenReturn(Optional.of(session));
+    private void arrangeQueuedSession(FortuneoSession session) {
+        when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.of(session));
         when(sessionRepository.findByIdAndMemberIdForUpdate(session.getId(), 7L)).thenReturn(Optional.of(session));
-        when(sessionRepository.findByBankAndMemberId(SidecarBank.FORTUNEO, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(session));
         when(encryption.decrypt("encrypted")).thenReturn("plain-state");
     }
 
-    private SidecarSession activeSession(FamilyMember member) {
-        return SidecarSession.builder().bank(SidecarBank.FORTUNEO)
+    private FortuneoSession activeSession(FamilyMember member) {
+        return FortuneoSession.builder()
             .id(3L)
             .member(member)
             .sessionState("encrypted")
             .active(true)
-            .syncStatus(SidecarSyncStatus.IDLE)
+            .syncStatus(FortuneoSyncStatus.IDLE)
             .build();
     }
 

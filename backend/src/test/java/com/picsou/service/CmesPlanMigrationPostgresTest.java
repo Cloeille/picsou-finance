@@ -1,14 +1,13 @@
 package com.picsou.service;
 
-import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
-import com.picsou.model.SidecarSession;
+import com.picsou.model.CmesSession;
 import com.picsou.model.FamilyMember;
 import com.picsou.adapter.CmesAdapter;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.SidecarSessionRepository;
+import com.picsou.repository.CmesSessionRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.support.PostgresContainers;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,7 +72,7 @@ class CmesPlanMigrationPostgresTest {
     @Autowired CmesSyncService service;
     @Autowired FamilyMemberRepository members;
     @Autowired AccountRepository accounts;
-    @Autowired SidecarSessionRepository sessions;
+    @Autowired CmesSessionRepository sessions;
     @Autowired JdbcTemplate jdbc;
     @MockitoBean CmesAdapter port;
     @MockitoBean CryptoEncryption encryption;
@@ -84,7 +83,7 @@ class CmesPlanMigrationPostgresTest {
     void seed() {
         when(encryption.decrypt(anyString())).thenAnswer(inv -> inv.getArgument(0));
         member = members.saveAndFlush(FamilyMember.builder().displayName("CMES upgrade").build());
-        sessions.saveAndFlush(SidecarSession.create(SidecarBank.CMES, member, "state", Instant.now()));
+        sessions.saveAndFlush(CmesSession.create(member, "state", Instant.now()));
     }
 
     @Test

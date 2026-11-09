@@ -21,11 +21,7 @@ no product classification and no interest data. Two concrete problems follow:
 - Products: `LIVRET_A`, `LDDS`, `LEP` (regulated French livrets, always net of tax, rates set by
   government decree) and `COMMERCIAL` (bank-specific livret; user-supplied rate, gross or net of
   the flat-rate PFU withholding tax).
-- Name-based detection with a *suggest, never auto-apply* rule for the heuristic
-  detector (the user always confirms a name-derived product). A connector that
-  reports the product explicitly (`kind` in its snapshot, e.g. La Banque Postale's
-  `LIVRET_A`/`LDDS`/`LEP`) may write the default config directly through
-  `SavingsAutoConfigService`; that exception is explicit and tested.
+- Name-based detection with a *suggest, never auto-apply* rule (user always confirms).
 - Annual interest **projection** computed via the French *règle de la quinzaine*, displayed on the
   account detail page.
 
@@ -52,13 +48,10 @@ production implementation is `NameBasedSavingsBookDetector`, which:
 3. Returns an `Optional<SavingsBookSuggestion>` with `(product, defaultAnnualRate, uncertain)`.
    `COMMERCIAL` matches carry `uncertain = true` and `defaultAnnualRate = null` (the user must
    supply their own rate). Regulated defaults come from `RegulatedRates` constants:
-   `LIVRET_A = LDDS = 2.40 %`, `LEP = 3.50 %`, with ceilings `22 950 €`, `12 000 €` and
-   `10 000 €` (rates as of 2025-02-01 per service-public.fr / Banque de France). They are defaults,
-   not a live feed: the user can edit the rate at any time.
+   `LIVRET_A = LDDS = 2.40 %`, `LEP = 3.50 %` (rates as of 2025-02-01 per service-public.fr /
+   Banque de France).
 4. **The detector never writes anything.** Classification is a suggestion only; the user confirms
-   before a `SavingsInterestConfig` row is persisted. A connector that supplies an explicit
-   `kind` is not detected: its default config is written by `SavingsAutoConfigService`, never by
-   this detector.
+   before a `SavingsInterestConfig` row is persisted.
 
 ### Suggestion flow (`SavingsService.getSuggestions`)
 
@@ -71,16 +64,6 @@ member. Eligible accounts must be:
 The frontend surfaces these as a green banner on `AccountsPage` that deep-links into the first
 suggested account. The `AccountDetailPage` also shows the `SavingsConfigSection` for any account
 flagged by the detector (see `isSavings` gate below).
-
-### Connector-provided explicit product (`SavingsAutoConfigService`)
-
-A connector that reports `LIVRET_A`, `LDDS` or `LEP` in its normalized `kind` may call
-`SavingsAutoConfigService.configureIfMissing` when it writes the account. It creates the product,
-the default rate and the legal ceiling only when no config exists, and never overwrites a config
-the user saved. This is not the name detector's auto-apply: the product is explicit, not guessed.
-Livret Jeune, PEL and CEL stay manual because `SavingsProduct` has no entry for
-them; Compte sur Livret stays manual because its rate is bank-specific
-(`COMMERCIAL`), not regulated.
 
 ### Data model (Flyway **V44**)
 
@@ -272,7 +255,7 @@ silently).
 | Side table `savings_interest_config` 1:1 on `account` | Same pattern as `real_estate_metadata` / `debt` (V19); extends `account` without schema churn | New `account_type` enum values per product (enum pollution, no room for per-account rate config) |
 | Reclassify `account.type` on config save | The config *is* the classification; downstream services (allocation, filters) immediately see the correct type | Separate explicit reclassification step (extra round-trip, inconsistent window) |
 | `SavingsBookDetector` interface + name-based impl | Swappable: a future ML-based detector can implement the same interface | Inline name-matching in the service (non-testable, non-swappable) |
-| Suggest-never-auto-apply for the name detector | Name matching is heuristic; uncertain matches (generic "Livret") must never auto-classify. A connector with an explicit `kind` is not a guess and may auto-configure (`SavingsAutoConfigService`) | Auto-apply on name detection (would mis-classify commercial livrets with wrong product and rate) |
+| Suggest-never-auto-apply | Name matching is heuristic; uncertain matches (generic "Livret") must never auto-classify | Auto-apply on detection (would mis-classify commercial livrets with wrong product and rate) |
 | Starting capital from earliest snapshot, fallback reverse-engineering | Snapshots exist when the account was imported before the current year; fallback handles new accounts | Require a manual opening-balance entry (bad UX, unnecessary if snapshot data is available) |
 
 ## Honest limit — projection accuracy
@@ -301,12 +284,9 @@ projection against it.
 - **No balance writes — hard rule.** `SavingsInterestService` is `@Transactional(readOnly = true)`.
   Any future change to that service must preserve the read-only guardrail. Writing projected
   interest to the balance would cause the real annual credit to be counted twice in net worth.
-- **Suggest-never-auto-apply is intentional for the name detector.** The detector is heuristic;
-  uncertain matches (generic "Livret", "CSL", "Compte sur Livret") must always be reviewed. Never
-  add auto-apply logic to `NameBasedSavingsBookDetector` or `SavingsService.getSuggestions`. The
-  only auto-apply path is `SavingsAutoConfigService`, used when a connector supplies an explicit
-  `kind` for a regulated product (`LIVRET_A`, `LDDS`, `LEP`); it still never overwrites a config
-  the user saved.
+- **Suggest-never-auto-apply is intentional.** The detector is heuristic; uncertain matches
+  (generic "Livret", "CSL", "Compte sur Livret") must always be reviewed. Never add auto-apply
+  logic to `NameBasedSavingsBookDetector` or `SavingsService.getSuggestions`.
 - **Regulated products reject GROSS rate basis.** `SavingsInterestService.validate` throws
   `IllegalArgumentException` (→ HTTP 400) if `LIVRET_A / LDDS / LEP` is combined with
   `RateBasis.GROSS`. These products are tax-exempt by law; a gross/net distinction does not apply.

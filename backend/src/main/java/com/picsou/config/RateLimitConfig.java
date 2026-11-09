@@ -124,41 +124,6 @@ public class RateLimitConfig {
     }
 
     /**
-     * Per-IP La Banque Postale login rate limiter: 3 attempts per 15 minutes. Stricter on
-     * purpose: a wrong password consumes a bank attempt and the bank can lock the account. Only
-     * {@code /auth/initiate} draws from it; the post-initiate steps have their own bucket.
-     */
-    @Bean("lbpAuthBuckets")
-    public Map<String, Bucket> lbpAuthBuckets() {
-        return boundedBucketStore();
-    }
-
-    /**
-     * Per-IP La Banque Postale keypad limiter: 5 per 15 minutes. Kept apart
-     * from the login bucket so a keypad call never eats one of the 3 login attempts.
-     */
-    @Bean("lbpKeypadBuckets")
-    public Map<String, Bucket> lbpKeypadBuckets() {
-        return boundedBucketStore();
-    }
-
-    /**
-     * Per-IP Banque Populaire login rate limiter: 3 attempts per 15 minutes, like Caisse
-     * d'Epargne's (same BPCE login, same risk of locking the account), in a store of its own so
-     * one bank's attempts never eat the other's. Only {@code /auth/initiate} draws from it.
-     */
-    @Bean("banquePopulaireAuthBuckets")
-    public Map<String, Bucket> banquePopulaireAuthBuckets() {
-        return boundedBucketStore();
-    }
-
-    /** Per-IP Banque Populaire keypad limiter, kept apart from the login bucket like Caisse d'Epargne's. */
-    @Bean("banquePopulaireKeypadBuckets")
-    public Map<String, Bucket> banquePopulaireKeypadBuckets() {
-        return boundedBucketStore();
-    }
-
-    /**
      * Per-IP Revolut enrolment rate limiter: 5 attempts per 15 minutes.
      * The sidecar's own login is already rate-limited by Revolut itself (spec §3.5: repeated
      * WEB logins trigger captchas/throttling within hours), but this endpoint just receives a
@@ -224,20 +189,6 @@ public class RateLimitConfig {
      */
     @Bean("cmesCompleteBuckets")
     public Map<String, Bucket> cmesCompleteBuckets() {
-        return boundedBucketStore();
-    }
-
-    @Bean("natixisAuthBuckets")
-    public Map<String, Bucket> natixisAuthBuckets() {
-        return boundedBucketStore();
-    }
-
-    /**
-     * Per-IP Natixis Interépargne second-factor rate limiter, kept apart from
-     * the login budget so a retyped code is never refused once it was sent.
-     */
-    @Bean("natixisCompleteBuckets")
-    public Map<String, Bucket> natixisCompleteBuckets() {
         return boundedBucketStore();
     }
 
@@ -316,15 +267,6 @@ public class RateLimitConfig {
      */
     @Bean("simplefinRequestBuckets")
     public Map<String, Bucket> simplefinRequestBuckets() {
-        return boundedBucketStore();
-    }
-
-    /**
-     * Per-IP Wise limiter: 6 requests per minute, shared by connect and sync. Each sync
-     * makes one request per Wise profile plus one for the profile list.
-     */
-    @Bean("wiseRequestBuckets")
-    public Map<String, Bucket> wiseRequestBuckets() {
         return boundedBucketStore();
     }
 
@@ -533,42 +475,6 @@ public class RateLimitConfig {
             .build();
     }
 
-    public static Bucket createLbpAuthBucket() {
-        return Bucket.builder()
-            .addLimit(Bandwidth.builder()
-                .capacity(3)
-                .refillIntervally(3, Duration.ofMinutes(15))
-                .build())
-            .build();
-    }
-
-    public static Bucket createBanquePopulaireAuthBucket() {
-        return Bucket.builder()
-            .addLimit(Bandwidth.builder()
-                .capacity(3)
-                .refillIntervally(3, Duration.ofMinutes(15))
-                .build())
-            .build();
-    }
-
-    public static Bucket createLbpKeypadBucket() {
-        return Bucket.builder()
-            .addLimit(Bandwidth.builder()
-                .capacity(5)
-                .refillIntervally(5, Duration.ofMinutes(15))
-                .build())
-            .build();
-    }
-
-    public static Bucket createBanquePopulaireKeypadBucket() {
-        return Bucket.builder()
-            .addLimit(Bandwidth.builder()
-                .capacity(5)
-                .refillIntervally(5, Duration.ofMinutes(15))
-                .build())
-            .build();
-    }
-
     public static Bucket createRevolutAuthBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
@@ -638,16 +544,6 @@ public class RateLimitConfig {
             .build();
     }
 
-    /** Natixis Interépargne: same budget as Épargne Salariale, only {@code /auth/initiate} sends the password. */
-    public static Bucket createNatixisAuthBucket() {
-        return createCmesAuthBucket();
-    }
-
-    /** Natixis Interépargne second factor: a wrong code can be typed again on the same attempt. */
-    public static Bucket createNatixisCompleteBucket() {
-        return createCmesCompleteBucket();
-    }
-
     public static Bucket createFortuneoAuthBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
@@ -706,15 +602,6 @@ public class RateLimitConfig {
     }
 
     public static Bucket createSimplefinRequestBucket() {
-        return Bucket.builder()
-            .addLimit(Bandwidth.builder()
-                .capacity(6)
-                .refillIntervally(6, Duration.ofMinutes(1))
-                .build())
-            .build();
-    }
-
-    public static Bucket createWiseRequestBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
                 .capacity(6)

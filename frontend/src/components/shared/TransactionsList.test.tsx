@@ -16,10 +16,6 @@ beforeAll(() => {
   })
 })
 
-// The sheet navigates to the linked loan; stub the router like the other
-// shared-component tests do.
-vi.mock('react-router', () => ({ useNavigate: () => vi.fn() }))
-
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) =>

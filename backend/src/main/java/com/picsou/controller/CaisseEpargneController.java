@@ -71,17 +71,14 @@ public class CaisseEpargneController {
     /**
      * Starts the login and answers with the bank's keypad for the user to click. Throttled at 3 per
      * 15 minutes per IP: a wrong pad costs a bank attempt. The body is validated first, so a
-     * malformed request spends neither an attempt nor a browser slot. Never retried here. An empty
-     * {@code customerId} reuses the identifier remembered from the last successful login.
+     * malformed request spends neither an attempt nor a browser slot. Never retried here.
      */
     @PostMapping("/auth/initiate")
     public ResponseEntity<?> initiate(@RequestBody JsonNode body, HttpServletRequest request) {
         // Read strictly: an unexpected field (a password, typically) is refused, never ignored.
         requireOnlyFields(body, "customerId");
         String customerId = text(body, "customerId");
-        if (customerId.isEmpty()) {
-            customerId = null;
-        } else if (!CUSTOMER_ID.matcher(customerId).matches()) {
+        if (!CUSTOMER_ID.matcher(customerId).matches()) {
             throw invalidBody();
         }
         ConsumptionProbe probe = consumeToken(authBuckets, RateLimitConfig::createCaisseEpargneAuthBucket, request);

@@ -248,7 +248,7 @@ public class SetupController {
         ));
     }
 
-    // ─── Integration acknowledgements (TR, Finary, Bourse Direct, Fortuneo, LBP) ──
+    // ─── Integration acknowledgements (TR, Finary) ──────────────────────────
 
     @PostMapping("/integrations/{key}/acknowledge")
     public ResponseEntity<?> acknowledge(@PathVariable String key, HttpServletRequest httpRequest) {
@@ -256,7 +256,7 @@ public class SetupController {
         requireNotComplete();
 
         if (!"traderepublic".equals(key) && !"finary".equals(key) && !"boursedirect".equals(key)
-            && !"fortuneo".equals(key) && !"lbp".equals(key)) {
+            && !"fortuneo".equals(key)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "This step only applies to integrations configured after signing in.");
         }

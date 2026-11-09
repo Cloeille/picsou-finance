@@ -8,7 +8,7 @@ import base64
 import hashlib
 import unittest
 
-from bpce import keypad_table
+import keypad_table
 
 DIGITS = "0123456789"
 

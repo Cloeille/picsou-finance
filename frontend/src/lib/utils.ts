@@ -93,7 +93,7 @@ export function formatCountryName(code: string, locale = getLocale()): string {
  * transaction dates and goal deadlines. Values that do carry a time are left to `Date` untouched:
  * there the offset is real information.
  */
-export function toDate(dateStr: string): Date {
+function toDate(dateStr: string): Date {
   return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? new Date(`${dateStr}T00:00:00`) : new Date(dateStr)
 }
 
@@ -327,10 +327,6 @@ export const FRESHNESS_TEXT_CLASS: Record<FreshnessLevel, string> = {
 
 export function safeRedirect(redirect: string | null, fallback = '/'): string {
   if (!redirect || !redirect.startsWith('/')) return fallback
-  // S10: `//host` is protocol-relative (open redirect), `/\host` is the same through
-  // backslash-tolerant parsers, and control characters smuggle header/script bytes.
-  if (redirect.startsWith('//') || redirect.startsWith('/\\')) return fallback
-  if (/\p{Cc}/u.test(redirect)) return fallback
   return redirect
 }
 
