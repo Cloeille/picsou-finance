@@ -190,8 +190,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   old app writing a session after the copy loses it), then use the
   [safe release deployment](docs/features/release-deployment.md), which takes a backup first.
   (#337)
+- **Banque Populaire sessions join the shared session table.** Migration V147 moves every
+  stored Banque Populaire session, regional bank included, into `sidecar_session`, so nobody
+  has to reconnect, then drops the old table. The same offline upgrade applies. (#478)
 
 ### Fixed
+
+- **American Express no longer says its site changed when the login page is just slow.** The
+  login form is drawn by a script American Express loads separately, which is sometimes slow or
+  fails. The connection now waits longer and reloads the page once; if the page still has no form,
+  you are asked to try again ("Impossible de joindre American Express") instead of being told the
+  site format changed. That message now only appears when the page loads twice without its fields (#482).
 
 - **Caisse d'Epargne remembers your identifier.** A reconnect after the bank session
   expired no longer asks for the identifier again: the one from the last successful login is

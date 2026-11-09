@@ -2,7 +2,6 @@ package com.picsou.service;
 
 import com.picsou.port.BanquePopulairePort;
 import com.picsou.port.CaisseEpargnePort;
-import com.picsou.repository.BanquePopulaireSessionRepository;
 import com.picsou.repository.SidecarSessionRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,7 +49,7 @@ class BpceProductionClockTest {
     @Test
     void banquePopulaireProductionClockUsesTheJvmDefaultZone() throws Exception {
         BanquePopulaireSyncService service = new BanquePopulaireSyncService(
-            mock(BanquePopulairePort.class), mock(BanquePopulaireSessionRepository.class),
+            mock(BanquePopulairePort.class), mock(SidecarSessionRepository.class),
             null, null, null, null, null, null, null, null, null, Runnable::run, null, null);
 
         assertThat(engineClock(service).getZone()).isEqualTo(PARIS);
