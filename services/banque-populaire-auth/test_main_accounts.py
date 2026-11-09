@@ -4,7 +4,8 @@ The bank is an `httpx.MockTransport` playing the hosts observed live (2026-11-05
 2026-11-08): the replay chain on `as-ext-bad-ib` and icgauth, the data API on
 `rs-ext-bad-ib`. Products are those seen on real accounts (current account with an
 immediate-debit card, which this site does not import, Livret A and Livret Jeune
-both `3/01`, LDDS `3/28`, Compte sur Livret `3/02` and PEL `3/04`, a revolving
+both `3/01`, LDDS `3/28`, Compte sur Livret `3/02`, PEL `3/04`, term deposit `4/09`,
+cooperative shares `4/10`, a revolving
 credit `2/11` with a null balance) plus the loan and PER families this site does
 not read. Every value is synthetic.
 """
@@ -77,6 +78,8 @@ SYNTHESIS = {"items": [
     contract(1005, "3", "02", "Compte Sur Livret", balance=250.0),
     contract(1006, "3", "04", "Plan Epargne Logement", balance=15000.0,
              authorizedCeilingAmount={"value": 61200.0, "currencyCode": "EUR"}),
+    contract(None, "4", "09", "Tip Top'P 3 Ans", balance=1234.56, contract_id="TD1"),
+    contract(None, "4", "10", "Part Sociale BP", balance=250.0, contract_id="CS1"),
     contract(None, "6", "12", "Pret Personnel", balance=-1000.0, contract_id="PRET1"),
     contract(None, "6", "13", "Credit Immobilier", balance=-90000.0, contract_id="IMMO1"),
     contract(None, "4", "05", "PER", balance=2500.0, contract_id="PER1"),
@@ -91,6 +94,7 @@ class FakeBank:
         self.requests: list[httpx.Request] = []
         self.authorize_action = f"https://{LOGIN_HOST}/dacsrest/api/v1u0/saml2/sso"
         self.authn_status = "AUTHENTICATION_SUCCESS"
+        self.failing_transactions: set[str] = set()
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -118,6 +122,8 @@ class FakeBank:
             return httpx.Response(200, json=SYNTHESIS)
         if (host, path) == (DATA_HOST, fetcher.TRANSACTIONS_PATH):
             account = request.url.params["accountIds"]
+            if account in self.failing_transactions:
+                return httpx.Response(500)
             row = {
                 "id": f"tx-{account}", "accountId": int(account), "date": "2026-11-02T00:00:00",
                 "dueDate": "2099-01-01" if account == "9001" else "2026-11-02",
@@ -166,7 +172,8 @@ class AccountsTest(unittest.TestCase):
             [(a["externalId"], a["kind"]) for a in body["accounts"]],
             [("1001", "CURRENT_ACCOUNT"), ("1002", "LIVRET_A"),
              ("1003", "LIVRET_JEUNE"), ("1004", "LDDS"),
-             ("1005", "SAVINGS"), ("1006", "PEL")],
+             ("1005", "SAVINGS"), ("1006", "PEL"),
+             ("contract:TD1", "TERM_DEPOSIT"), ("contract:CS1", "COOPERATIVE_SHARES")],
         )
         jeune = body["accounts"][2]
         self.assertEqual(jeune["name"], "Livret Pour La Jeunesse")
@@ -189,9 +196,46 @@ class AccountsTest(unittest.TestCase):
         self.assertIsNone(pel["iban"])
         self.assertFalse(pel["ibanAmbiguous"])
         self.assertEqual([t["externalId"] for t in pel["transactions"]], ["tx-1006"])
+
+        td = body["accounts"][6]
+        self.assertEqual(td["name"], "SYNTHETIC Tip Top'P 3 Ans")
+        self.assertEqual(td["kind"], "TERM_DEPOSIT")
+        self.assertEqual(td["balance"], "1234.56")
+        self.assertIsNone(td["iban"])
+        self.assertFalse(td["ibanAmbiguous"])
+        self.assertEqual(td["transactions"], [])
+
+        cs = body["accounts"][7]
+        self.assertEqual(cs["name"], "SYNTHETIC Part Sociale BP")
+        self.assertEqual(cs["kind"], "COOPERATIVE_SHARES")
+        self.assertEqual(cs["balance"], "250.0")
+        self.assertIsNone(cs["iban"])
+        self.assertFalse(cs["ibanAmbiguous"])
+        self.assertEqual(cs["transactions"], [])
+
         # The current account's card is not imported for this bank, and not listed either:
         # it is not a contract.
         self.assertNotIn("CARD", {a["kind"] for a in body["accounts"]})
+        self.assertEqual(body["unavailable"], [])
+
+    def test_a_provisional_account_whose_transactions_fail_is_imported_without_iban(self):
+        # Compte sur Livret and PEL are provisional here: a failed feed imports them from
+        # their synthesis entry, with no transaction and no IBAN, rather than dropping them.
+        self.bank.failing_transactions = {"1005", "1006"}
+        with self.assertLogs("bpce", "WARNING"):
+            response = self.post("/accounts")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        imported = {a["externalId"]: a for a in body["accounts"]}
+        for external_id, kind in (("1005", "SAVINGS"), ("1006", "PEL")):
+            with self.subTest(kind=kind):
+                account = imported[external_id]
+                self.assertEqual(account["kind"], kind)
+                self.assertEqual(account["transactions"], [])
+                self.assertIsNone(account["iban"])
+                self.assertFalse(account["ibanAmbiguous"])
+        self.assertEqual(imported["1004"]["iban"], "FR76SYNTHETIC1004")  # the others are untouched
         self.assertEqual(body["unavailable"], [])
 
     def test_loans_per_and_revolving_credit_are_unsupported_and_never_read(self):
@@ -207,7 +251,7 @@ class AccountsTest(unittest.TestCase):
         self.assertEqual(paths.count(fetcher.SYNTHESIS_PATH), 1)
         self.assertEqual(
             sorted(r.url.params["accountIds"] for r in self.bank.requests if r.url.path == fetcher.TRANSACTIONS_PATH),
-            ["1001", "1002", "1003", "1004", "1005", "1006"],  # never the card's operations
+            ["1001", "1002", "1003", "1004", "1005", "1006"],  # never term deposit, shares, or the card
         )
         # One token, the main one: no loan, home-loan or PER chain is ever minted.
         self.assertEqual([f["client_id"] for f in self.bank.token_forms()], [CLIENT_ID])
@@ -254,7 +298,7 @@ class SiteTest(unittest.TestCase):
         self.assertIsNone(main.SITE.home_loan)
         self.assertIsNone(main.SITE.per)
         self.assertEqual(main.SITE.unsupported_families, frozenset({("6", "12"), ("6", "13"), ("4", "05"), ("3", "27")}))
-        self.assertEqual(main.SITE.provisional_kinds, frozenset({"SAVINGS", "PEL"}))
+        self.assertEqual(main.SITE.provisional_kinds, frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES"}))
 
     def test_the_allow_list_is_banque_populaire_only(self):
         self.assertEqual(main.SITE.extra_hosts, frozenset())

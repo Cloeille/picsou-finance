@@ -930,7 +930,7 @@
       "revolut": "Phone + passcode, on-demand sync",
       "fortuneo": "Sincronizar tus cuentas Fortuneo",
       "caisseEpargne": "Cuenta corriente, Livret A, LDDS, PEL, LEP, PER, seguro de vida, préstamos y tarjetas en Caisse d'Epargne",
-      "banquePopulaire": "Cuenta corriente, Livret A, Livret Jeune, LDDS, Compte sur Livret y PEL en Banque Populaire",
+      "banquePopulaire": "Cuenta corriente, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, depósito a plazo y participaciones sociales en Banque Populaire",
       "lbp": "Cuenta corriente, Livret A y LEP en La Banque Postale"
     }
   },
@@ -1379,7 +1379,7 @@
       "disconnectConfirmAction": "Borrar la sesión guardada",
       "noSession": "Sin sesión activa",
       "sessionActive": "Sesión activa",
-      "scope": "Sincroniza bajo demanda tus cuentas corrientes, Livret A, Livret Jeune, LDDS, Compte sur Livret y PEL de Banque Populaire. Solo se guarda la sesión, cifrada. Los contratos que Picsou no puede importar se listan pero nunca se crean.",
+      "scope": "Sincroniza bajo demanda tus cuentas corrientes, Livret A, Livret Jeune, LDDS, Compte sur Livret, PEL, depósitos a plazo y participaciones sociales de Banque Populaire. Solo se guarda la sesión, cifrada. Los contratos que Picsou no puede importar se listan pero nunca se crean.",
       "notice": {
         "neverStored": "Picsou nunca ve ni guarda tu contraseña. La pulsas tú mismo en el teclado del banco; solo se envían las posiciones de las teclas, una única vez.",
         "noRetry": "Picsou nunca reintenta un inicio de sesión. Si falla, no se vuelve a enviar nada hasta que envíes el formulario tú mismo.",

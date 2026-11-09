@@ -65,7 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Banque Populaire sync.** A new Sync tab connects a Banque Populaire account: pick your
   regional bank, type your identifier, click your digits on the bank's keypad and approve in
   Sécur'Pass. Imports the current account, Livret A, Livret Jeune, LDDS, Compte sur Livret and PEL
-  with their transactions, on demand. It shares the Caisse d'Epargne code through the BPCE platform; cards,
+  with their transactions, and term deposits and cooperative shares with their synthesis
+  balance, on demand. It shares the Caisse d'Epargne code through the BPCE platform; cards,
   loans, PER and revolving credit are not imported. The accounts carry your regional bank's name
   (for example "Banque Populaire Rives de Paris") and, when Enable Banking is configured, its logo.
   Enable the `banque-populaire` Compose profile. The shared code also fixes Caisse d'Epargne: a

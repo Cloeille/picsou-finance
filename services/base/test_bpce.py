@@ -31,7 +31,7 @@ FULL_SITE = Site(
     token_url=SITE.token_url,
     data_base_url=SITE.data_base_url,
     extra_hosts=frozenset({"www.as.group.test"}),
-    provisional_kinds=frozenset({"SAVINGS", "PEL", "LEP", "ASSURANCE_VIE"}),
+    provisional_kinds=frozenset({"SAVINGS", "PEL", "LEP", "ASSURANCE_VIE", "TERM_DEPOSIT", "COOPERATIVE_SHARES"}),
     personal_loan=ChainProfile(name="personal-loan"),
     home_loan=HomeLoanApp(
         chain=ChainProfile(name="home-loan"),
@@ -74,7 +74,9 @@ class SiteTest(unittest.TestCase):
     def test_families_without_an_app_are_unsupported(self):
         self.assertEqual(
             SITE.unsupported_families,
-            frozenset({("6", "12"), ("6", "13"), ("4", "05"), ("3", "02"), ("3", "04"), ("3", "27")}),
+            frozenset(
+                {("6", "12"), ("6", "13"), ("4", "05"), ("3", "02"), ("3", "04"), ("3", "27"), ("4", "09"), ("4", "10")}
+            ),
         )
         self.assertEqual(FULL_SITE.unsupported_families, frozenset())
 
@@ -84,15 +86,30 @@ class SiteTest(unittest.TestCase):
             contract(5, "3", "02", "Compte Sur Livret"),
             contract(2, "3", "04", "PEL 99 9999"),
             contract(3, "3", "27", "LEP"),
+            contract(None, "4", "09", "Tip Top'P 3 Ans", balance=1234.56, contract_id="TD1"),
+            contract(None, "4", "10", "Part Sociale BP", balance=250.0, contract_id="CS1"),
         ]
         accounts, unsupported = kinds(items, skipped_families=SITE.unsupported_families,
                                       provisional_kinds=SITE.provisional_kinds)
         self.assertEqual(accounts, [("1", "CURRENT_ACCOUNT")])
-        self.assertEqual([u["subFamilyCode"] for u in unsupported], ["02", "04", "27"])
+        self.assertEqual([u["subFamilyCode"] for u in unsupported], ["02", "04", "27", "09", "10"])
         # A label-detected LEP (3/01) that cannot be read still fails loudly on such a site.
         broken = contract(4, "3", "01", "LEP", balance=None)
         with self.assertRaises(accounts_parser.ParseError):
             kinds([broken], skipped_families=SITE.unsupported_families, provisional_kinds=SITE.provisional_kinds)
+
+    def test_a_label_detected_lep_never_has_its_cards_checked_even_when_not_provisional(self):
+        lep = contract(4, "3", "01", "LEP")
+        del lep["identity"]["augmentedCards"]
+        self.assertEqual(
+            kinds([lep], skipped_families=SITE.unsupported_families, provisional_kinds=SITE.provisional_kinds),
+            ([("4", "LEP")], []),
+        )
+        # A Livret A on the same site still refuses a missing card list.
+        livret = contract(2, "3", "01", "Livret A")
+        del livret["identity"]["augmentedCards"]
+        with self.assertRaises(accounts_parser.ParseError):
+            kinds([livret], skipped_families=SITE.unsupported_families, provisional_kinds=SITE.provisional_kinds)
 
     def test_region_labels_are_exact_and_only_for_listed_codes(self):
         self.assertEqual(FULL_SITE.region_label("SOUTH"), "SOUTH BAY")
