@@ -152,9 +152,19 @@ public class RateLimitConfig {
         return boundedBucketStore();
     }
 
-    /** Per-IP BNP Paribas keypad and code limiter, kept apart from the login bucket. */
+    /** Per-IP BNP Paribas keypad limiter, kept apart from the login bucket. */
     @Bean("bnpKeypadBuckets")
     public Map<String, Bucket> bnpKeypadBuckets() {
+        return boundedBucketStore();
+    }
+
+    /**
+     * Per-IP BNP Paribas second-factor rate limiter, kept apart from the keypad budget so a
+     * retyped SMS code is never refused once the bank sent it: the keypad bucket is spent by
+     * the same login that triggered the code.
+     */
+    @Bean("bnpCompleteBuckets")
+    public Map<String, Bucket> bnpCompleteBuckets() {
         return boundedBucketStore();
     }
 
@@ -574,6 +584,11 @@ public class RateLimitConfig {
                 .refillIntervally(5, Duration.ofMinutes(15))
                 .build())
             .build();
+    }
+
+    /** BNP Paribas second factor: a wrong SMS code can be typed again on the same attempt. */
+    public static Bucket createBnpCompleteBucket() {
+        return createCmesCompleteBucket();
     }
 
     public static Bucket createBanquePopulaireAuthBucket() {

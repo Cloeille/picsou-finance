@@ -56,6 +56,7 @@ public class BnpController {
     private final UserContext userContext;
     private final Map<String, Bucket> authBuckets;
     private final Map<String, Bucket> stepBuckets;
+    private final Map<String, Bucket> completeBuckets;
     private final Map<String, Bucket> syncBuckets;
 
     public BnpController(
@@ -63,12 +64,14 @@ public class BnpController {
         UserContext userContext,
         @Qualifier("bnpAuthBuckets") Map<String, Bucket> authBuckets,
         @Qualifier("bnpKeypadBuckets") Map<String, Bucket> stepBuckets,
+        @Qualifier("bnpCompleteBuckets") Map<String, Bucket> completeBuckets,
         @Qualifier("syncBuckets") Map<String, Bucket> syncBuckets
     ) {
         this.service = service;
         this.userContext = userContext;
         this.authBuckets = authBuckets;
         this.stepBuckets = stepBuckets;
+        this.completeBuckets = completeBuckets;
         this.syncBuckets = syncBuckets;
     }
 
@@ -97,7 +100,7 @@ public class BnpController {
             .body(service.initiateAuth(customerId, brand, userContext.currentMemberId()));
     }
 
-    /** Sends the clicked tiles. Its own bucket, so it never eats one of the 3 login attempts. */
+    /** Sends the clicked tiles. Its own bucket, so it never eats one of the 3 login attempts or a code attempt. */
     @PostMapping("/auth/keypad")
     public ResponseEntity<?> keypad(@RequestBody JsonNode body, HttpServletRequest request) {
         requireOnlyFields(body, "processId", "positions");
@@ -115,7 +118,9 @@ public class BnpController {
     /**
      * Finishes the strong authentication, then stores the session. Without a {@code code} it waits
      * for the approval in the bank's app; with one it submits the SMS code. A wrong code can be
-     * typed again; the code bucket is the keypad one so a guessing loop is throttled.
+     * typed again; the code has its own bucket (10 per 15 minutes), apart from the keypad one,
+     * so a guessing loop is throttled and a login whose keypad budget is spent can still be
+     * completed once the bank sent the code.
      */
     @PostMapping("/auth/complete")
     public ResponseEntity<?> complete(@RequestBody JsonNode body, HttpServletRequest request) {
@@ -127,7 +132,7 @@ public class BnpController {
             if (!CODE.matcher(code).matches()) {
                 throw invalidBody();
             }
-            ConsumptionProbe probe = consumeToken(stepBuckets, RateLimitConfig::createBnpKeypadBucket, request);
+            ConsumptionProbe probe = consumeToken(completeBuckets, RateLimitConfig::createBnpCompleteBucket, request);
             if (!probe.isConsumed()) {
                 return tooMany(probe, "Too many BNP Paribas code attempts. Please wait before retrying.");
             }

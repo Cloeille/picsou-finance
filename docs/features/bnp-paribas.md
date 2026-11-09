@@ -35,7 +35,7 @@ lock-out limit.
 | `services/bnp-auth` (Camoufox base) | Drives the bank's login page, clicks the keys, reads the data with the page's own session. FastAPI: `/initiate`, `/keypad`, `/complete`, `/accounts`, `/health`. |
 | `BnpAdapter` | Typed client of the sidecar; maps sidecar HTTP errors to `SidecarErrorCode`. |
 | `BnpSyncService` | `SidecarSyncTemplate` job: queued -> running -> success/failed, startup recovery, IBAN adoption, balance and transaction import, fail-closed rules. |
-| `BnpController` | `/api/bnp/{auth/initiate,auth/keypad,auth/complete,sync,status,session}`, per-IP rate limits (3 logins / 15 min, 5 keypad or code steps / 15 min). |
+| `BnpController` | `/api/bnp/{auth/initiate,auth/keypad,auth/complete,sync,status,session}`, per-IP rate limits (3 logins / 15 min, 5 keypad steps / 15 min, 10 SMS codes / 15 min; each in its own bucket, so a spent keypad budget never refuses a code the bank already sent). |
 | Frontend | `BnpPanel` (Sync tab and Add account), keypad pop-up with ten key buttons, approval/code panel, `BnpTab`. |
 | Migration `V150` | Adds `BNP` and its error codes to the two CHECK constraints of `sidecar_session`, rebuilt from V149 (Banque Populaire and Trade Republic kept). |
 

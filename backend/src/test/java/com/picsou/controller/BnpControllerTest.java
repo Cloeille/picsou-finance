@@ -42,6 +42,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class BnpControllerTest {
     private static final Long MEMBER_ID = 7L;
     private static final String KEYPAD = "{\"processId\":\"process\",\"positions\":[0,1,2,3,4,5]}";
+    private static final String CODE = "{\"processId\":\"process\",\"code\":\"000000\"}";
 
     @Mock BnpSyncService service;
     @Mock UserContext userContext;
@@ -50,6 +51,7 @@ class BnpControllerTest {
     private BnpController controller;
     private ConcurrentHashMap<String, Bucket> authBuckets;
     private ConcurrentHashMap<String, Bucket> stepBuckets;
+    private ConcurrentHashMap<String, Bucket> completeBuckets;
     private ConcurrentHashMap<String, Bucket> syncBuckets;
     private MockMvc mockMvc;
 
@@ -57,8 +59,9 @@ class BnpControllerTest {
     void setUp() {
         authBuckets = new ConcurrentHashMap<>();
         stepBuckets = new ConcurrentHashMap<>();
+        completeBuckets = new ConcurrentHashMap<>();
         syncBuckets = new ConcurrentHashMap<>();
-        controller = new BnpController(service, userContext, authBuckets, stepBuckets, syncBuckets);
+        controller = new BnpController(service, userContext, authBuckets, stepBuckets, completeBuckets, syncBuckets);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
@@ -179,6 +182,38 @@ class BnpControllerTest {
         // The exhausted login budget never blocks the keypad of an attempt already started.
         assertThat(controller.keypad(node(json, KEYPAD), request).getStatusCode()).isEqualTo(HttpStatus.OK);
         verify(service, times(3)).initiateAuth("1234567890", "bnp", MEMBER_ID);
+    }
+
+    @Test
+    void aSpentKeypadBudgetNeverRefusesTheSmsCodeTheBankAlreadySent() {
+        when(service.submitKeypad("process", List.of(0, 1, 2, 3, 4, 5), MEMBER_ID))
+            .thenReturn(new BnpSyncService.KeypadResponse("process", "CODE_REQUIRED"));
+        when(service.completeAuth("process", "000000", MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
+        com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        for (int step = 0; step < 5; step++) {
+            assertThat(controller.keypad(node(json, KEYPAD), request).getStatusCode()).isEqualTo(HttpStatus.OK);
+        }
+        assertThat(controller.keypad(node(json, KEYPAD), request).getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+
+        // The code is throttled by its own bucket: ten tries, then 429, and the service never sees the eleventh.
+        for (int attempt = 0; attempt < 10; attempt++) {
+            assertThat(controller.complete(node(json, CODE), request).getStatusCode()).isEqualTo(HttpStatus.OK);
+        }
+        assertThat(controller.complete(node(json, CODE), request).getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        verify(service, times(10)).completeAuth("process", "000000", MEMBER_ID);
+    }
+
+    @Test
+    void waitingForTheAppApprovalDoesNotSpendTheCodeBudget() {
+        when(service.completeAuth("process", null, MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
+        com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        for (int poll = 0; poll < 12; poll++) {
+            assertThat(controller.complete(node(json, "{\"processId\":\"process\"}"), request).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        }
+        assertThat(completeBuckets).isEmpty();
     }
 
     @Test
