@@ -31,7 +31,9 @@ says which. Only the module's own files (`one-identity-login.*` under that
 path) count, and a request aborted by the reload itself is ignored. Trade-off:
 if AMEX renames or moves the module, `module_loaded` stays false and the error
 reads as an outage (503) rather than a format change; the warning line, with
-`module_loaded=False module_failed=False`, is the tell. The backend waits up to
+`module_loaded=False module_failed=False`, is the tell. The consent banner can
+appear after the form; a Playwright locator handler declines it whenever it shows, since its
+overlay otherwise swallows the submit click until the login times out. The backend waits up to
 90 s for `/initiate` to cover two form waits and the login outcome.
 
 **Previous session and unattended login (#537, sidecar side).** `/initiate` accepts an optional
