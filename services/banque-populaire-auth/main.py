@@ -71,7 +71,7 @@ REGION_CODES = tuple(code for code, _ in REGIONS)
 SITE = Site(
     # Seen in one live run (2026-11-08): Compte sur Livret 3/02, PEL 3/04,
     # term deposit 4/09 and cooperative shares 4/10.
-    provisional_kinds=frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES"}),
+    provisional_kinds=frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES", "PER"}),
     domain="banquepopulaire.fr",
     login_url="https://www.icgauth.banquepopulaire.fr/se-connecter/sso?service=cyber",
     client_host="www.banquepopulaire.fr",
@@ -88,9 +88,9 @@ SITE = Site(
     # The PER insurer app (espace-assurances-de-personnes) mints its own token: public
     # client and redirect of that app, an empty `scope` (the bank grants
     # `assuranceVieAuth_get_<id> readUser`, as on Caisse d'Epargne), no `claims`. Every
-    # other authorize parameter is the one the main chain sends. The OAuth exchange and
-    # `prepareRouting` (HTTP 201) answered live with this client (issue #524); the rest of
-    # the chain was not read yet, so a refusal logs a stage and a masked shape only.
+    # other authorize parameter is the one the main chain sends. The OAuth exchange,
+    # `prepareRouting` (HTTP 201), `clientToken` and `contratVie/load` answered live
+    # with this client (issue #524); positions and valuation parse from the insurer.
     per=PerApp(
         chain=ChainProfile(
             name="per",

@@ -27,8 +27,7 @@ Observed live on 2026-10-15 in the bank's own web front, for a Millevie PER:
 The gateway and insurer hosts are the site's (`Site.per`): Caisse d'Epargne
 `www.rs-ext-bad-ce.caisse-epargne.fr` and `www.espace-assurances-de-personnes.caisse-epargne.fr`
 (observed live), Banque Populaire `www.rs-ext-bad-ib.banquepopulaire.fr` and
-`www.espace-assurances-de-personnes.banquepopulaire.fr` (OAuth and routing answered
-201 live; the insurer id and detail were not read yet). No cookie is sent
+`www.espace-assurances-de-personnes.banquepopulaire.fr` (observed live, issue #524). No cookie is sent
 to either host, no redirect is followed, and nothing read from the insurer
 (tokens, JWT, amounts) is logged: failures log a stage name and an HTTP status.
 """
@@ -64,7 +63,7 @@ _ENTITY_CODE_RE = re.compile(r"[0-9]{5}\Z")
 # and starts with the same five letters. The `IB` code is Banque Populaire's (issue #524);
 # its number part is kept digits-only like `IC`'s because no live shape says otherwise yet,
 # and an id that differs is refused with a masked log (`reason=producer-id-format`).
-_CONTRACT_ID_RE = re.compile(r"(?:[0-9]{5} {1,16}|ASV|(?=PERIB))(?P<product>PERIC|PERIB|ESSEN)(?P<number>[0-9]{1,64})\Z")
+_CONTRACT_ID_RE = re.compile(r"(?:[0-9]{5} {1,16}|(?:ASV)?(?=PERIB))(?P<product>PERIC|PERIB|ESSEN)(?P<number>[0-9]{1,64})\Z")
 _PRODUCER_ID_RE = re.compile(r"(?P<product>PER|ESS)(?P<company>IC|IB|EN)(?P<number>[0-9]{1,32})\Z")
 _PRODUCER_PAIRS = frozenset({("PER", "IC"), ("PER", "IB"), ("ESS", "EN")})
 ROUTING_PATH = "/bapi/contract/v1/contracts"
@@ -222,14 +221,7 @@ def _check_status(status: int, *, stage: str) -> None:
     raise replay.UpstreamError("Insurer request failed")
 
 
-def _producer_id(
-    body: bytes,
-    *,
-    entity_code: str,
-    insurer_host: str,
-    product: str | None = None,
-    contract_id: str | None = None,
-) -> str:
+def _producer_id(body: bytes, *, entity_code: str, insurer_host: str, product: str | None = None) -> str:
     """The insurer contract id from a prepareRouting answer, bound to this contract.
 
     `product` is the five-letter product code of the bank contract id asked for; the
@@ -280,9 +272,10 @@ def _producer_id(
     # with us on the establishment and identify this contract.
     echoed = characteristics.get("contractId")
     echoed_id = echoed.get("id") if isinstance(echoed, dict) else None
+    valid_echoed_ids = {producer_id, f"ASV{producer_id}"} if product == "PERIB" else {producer_id}
     if (
         not isinstance(echoed, dict)
-        or echoed_id not in (producer_id, f"ASV{producer_id}")
+        or echoed_id not in valid_echoed_ids
         or echoed.get("entityCode") != entity_code
     ):
         log.warning("insurer detail refused: stage=routing reason=other-contract")
@@ -345,8 +338,7 @@ async def fetch_per_detail(
             log.warning("insurer detail refused: stage=routing status=%d", status)
             raise replay.UpstreamError("insurer routing request failed")
         producer_id = _producer_id(
-            body, entity_code=entity_code, insurer_host=insurer_host, product=product,
-            contract_id=contract_id,
+            body, entity_code=entity_code, insurer_host=insurer_host, product=product
         )
         match = _PRODUCER_ID_RE.fullmatch(producer_id)
         token_url = _guard_url(site, f"https://{gateway_host}{CLIENT_TOKEN_PATH}/{producer_id}", gateway_host)

@@ -15,7 +15,6 @@ import json
 import os
 import unittest
 import urllib.parse
-from datetime import datetime, timezone
 from unittest.mock import patch
 
 import httpx
@@ -23,28 +22,17 @@ from bpce import fetcher, replay
 from fastapi.testclient import TestClient
 
 import main
+from fixtures_per import (
+    INSURER_HOST, PER_ACCESS_TOKEN, PER_BANK_ID, PER_CLIENT_ID, PER_DETAIL,
+    PER_JWT, PER_PRODUCER_ID, PerFakeBank, make_bad_per_contracts,
+)
 
 TEST_KEY = "banque-populaire-sidecar-test-key"
 HEADERS = {"X-Picsou-Sidecar-Key": TEST_KEY}
 AS_HOST = "www.as-ext-bad-ib.banquepopulaire.fr"
 LOGIN_HOST = "www.icgauth.banquepopulaire.fr"
 DATA_HOST = "www.rs-ext-bad-ib.banquepopulaire.fr"
-INSURER_HOST = "www.espace-assurances-de-personnes.banquepopulaire.fr"
 ACCESS_TOKEN = "synthetic-access-token"
-PER_ACCESS_TOKEN = "synthetic-per-access-token"
-PER_CLIENT_ID = "dcd51401-debb-47e4-ad8d-12a72e529f08"
-PER_BANK_ID = "PERIB123456789"
-PER_PRODUCER_ID = "PERIB876543"
-PER_JWT = "eyJzeW50aGV0aWMi.eyJET05PVExFQUsi.c2lnbmF0dXJlLURPLU5PVC1MRUFL"
-_STAMP = int(datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp() * 1000)  # fixed, never today
-PER_DETAIL = {"detailContratVie": {"valorisation": {
-    "montant": 1700, "date": _STAMP,
-    "globalInvestCalcRest": {"globalAmountFondEuros": 1000, "globalAmountUnitesCompte": 700},
-    "supports": [{"nom": "Synthetic fund", "codeIsin": "XX0000000001",
-                  "nombreUnitesCompte": 10, "valeurUniteCompte": 70,
-                  "montant": 700, "dateValeurUniteCompte": _STAMP,
-                  "idCompartment": 1, "familleFondsGeneraux": False}],
-}}}
 CLIENT_ID = "00000000-0000-4000-8000-000000000001"
 SESSION_STATE = json.dumps({
     "cookies": [{"name": "SSO", "value": "BP-COOKIE-SECRET", "domain": ".banquepopulaire.fr", "path": "/"}],
@@ -104,27 +92,16 @@ SYNTHESIS = {"items": [
 ]}
 
 
-class FakeBank:
+class FakeBank(PerFakeBank):
     """The four-step chain and the two data paths; records every request."""
 
     def __init__(self):
+        super().__init__()
         self.requests: list[httpx.Request] = []
         self.authorize_action = f"https://{LOGIN_HOST}/dacsrest/api/v1u0/saml2/sso"
         self.authn_status = "AUTHENTICATION_SUCCESS"
         self.failing_transactions: set[str] = set()
-        self.routing_producer = PER_PRODUCER_ID
         self.synthesis = SYNTHESIS
-
-    def routing_answer(self, path: str) -> dict:
-        # The 201 body shape seen live on Caisse d'Epargne: the insurer's id, not the bank's.
-        query = {"codeTransaction": "synthetic", "cdEtab": "00000", "producerContratId": self.routing_producer,
-                 "urlRetour": "https://www.banquepopulaire.fr/synthetic"}
-        return {
-            "contractId": {"entityCode": "00000", "id": self.routing_producer},
-            "routingMode": {"code": "1", "label": "synthetic"},
-            "routingUrl": {"href": f"https://{INSURER_HOST}/"},
-            "routingContext": {"suppliedName": None, "value": {"queryParameters": query}},
-        }
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -148,21 +125,10 @@ class FakeBank:
             form = dict(urllib.parse.parse_qsl(request.content.decode()))
             token = PER_ACCESS_TOKEN if form.get("client_id") == PER_CLIENT_ID else ACCESS_TOKEN
             return httpx.Response(200, json={"access_token": token, "token_type": "Bearer", "expires_in": 267})
+        per = self.handle_per(request, ACCESS_TOKEN)
+        if per is not None:
+            return per
         authorization = request.headers.get("authorization")
-        if host == DATA_HOST and path.endswith("/prepareRouting"):
-            # The routing call carries the MAIN bearer; the producer id comes from its answer.
-            if authorization != f"Bearer {ACCESS_TOKEN}":
-                return httpx.Response(401)
-            return httpx.Response(201, json=self.routing_answer(path))
-        if host == DATA_HOST and "/clientToken/" in path:
-            if authorization != f"Bearer {PER_ACCESS_TOKEN}" or not path.endswith(f"/{PER_PRODUCER_ID}"):
-                return httpx.Response(401)
-            return httpx.Response(200, headers={"iw4-jwt-token": PER_JWT}, json={})
-        if host == INSURER_HOST:
-            if authorization != f"Bearer {PER_ACCESS_TOKEN}" or request.headers.get("iw4-jwt-token") != PER_JWT:
-                return httpx.Response(401)
-            assert path == "/etna-web/rest/v2/contratVie/load/PER/IB/876543", path
-            return httpx.Response(200, json=PER_DETAIL)
         if host == DATA_HOST and authorization != f"Bearer {ACCESS_TOKEN}":
             return httpx.Response(401)
         if (host, path) == (DATA_HOST, fetcher.SYNTHESIS_PATH):
@@ -306,26 +272,20 @@ class AccountsTest(unittest.TestCase):
 
     def test_a_perib_per_is_read_from_the_insurer_with_the_per_token_only(self):
         body = self.post("/accounts").json()
-
         per = {a["externalId"]: a for a in body["accounts"]}["contract:" + PER_BANK_ID]
-        self.assertEqual(per["kind"], "PER")
-        self.assertEqual(per["balance"], "1700")
-        self.assertEqual(per["per"]["euroFundBalance"], "1000")
-        self.assertEqual(per["per"]["valuationDate"], "2026-10-01")
-        self.assertEqual(per["per"]["positions"][0]["isin"], "XX0000000001")
-        self.assertEqual(per["per"]["positions"][0]["quantity"], "10")
-        self.assertEqual(per["transactions"], [])
+        self.assertEqual((per["kind"], per["balance"], per["per"]["euroFundBalance"], per["per"]["valuationDate"]),
+                         ("PER", "1700", "1000", "2026-10-01"))
+        self.assertEqual((per["per"]["positions"][0]["isin"], per["per"]["positions"][0]["quantity"], per["transactions"]),
+                         ("XX0000000001", "10", []))
         insurer_calls = [(r.url.host, r.method) for r in self.bank.requests
                          if r.url.host == INSURER_HOST or "/clientToken/" in r.url.path
                          or r.url.path.endswith("/prepareRouting")]
         self.assertEqual(insurer_calls, [(DATA_HOST, "POST"), (DATA_HOST, "GET"), (INSURER_HOST, "GET")])
         self.assertTrue(all("cookie" not in r.headers for r in self.bank.requests if r.url.host == INSURER_HOST))
-        # The PER token's authorize call is the app's own: its client and redirect, no claims.
-        authorizes = [r for r in self.bank.requests if r.url.path == "/api/oauth/v2/authorize"]
-        per_authorize = [r for r in authorizes if r.url.params.get("client_id") == PER_CLIENT_ID]
+        per_authorize = [r for r in self.bank.requests
+                         if r.url.path == "/api/oauth/v2/authorize" and r.url.params.get("client_id") == PER_CLIENT_ID]
         self.assertEqual(len(per_authorize), 1)
-        self.assertEqual(per_authorize[0].url.params["redirect_uri"],
-                         f"https://{INSURER_HOST}/postMessage/index.html")
+        self.assertEqual(per_authorize[0].url.params["redirect_uri"], f"https://{INSURER_HOST}/postMessage/index.html")
         self.assertNotIn("claims", per_authorize[0].url.params)
         self.assertNotIn(PER_ACCESS_TOKEN, json.dumps(body))
         self.assertNotIn(PER_JWT, json.dumps(body))
@@ -356,6 +316,40 @@ class AccountsTest(unittest.TestCase):
         self.assertFalse(any("PERIX" in line or "876543" in line for line in logs.output))
         self.assertFalse(any(r.url.host == INSURER_HOST or "/clientToken/" in r.url.path
                              for r in self.bank.requests))
+
+    def test_an_unreadable_per_contract_is_demoted_to_unsupported_and_never_fails_sync(self):
+        for name, bad_contract in make_bad_per_contracts(contract, PER_BANK_ID).items():
+            with self.subTest(name):
+                self.bank.synthesis = {
+                    "items": [
+                        *[i for i in SYNTHESIS["items"]
+                          if i["identity"]["productFamilyPFM"]["code"] != "4"
+                          or (i["identity"].get("subProductFamilyPFM") or {}).get("code") != "05"],
+                        bad_contract,
+                    ]
+                }
+                response = self.post("/accounts")
+                self.assertEqual(response.status_code, 200)
+                body = response.json()
+                self.assertNotIn("contract:" + PER_BANK_ID, {a["externalId"] for a in body["accounts"]})
+                self.assertEqual(len(body["accounts"]), 8)
+                self.assertTrue(any(u.get("familyCode") == "4" and u.get("subFamilyCode") == "05" for u in body["unsupported"]))
+
+
+    def test_per_chain_401_evicts_token_and_retries_once(self):
+        self.bank.client_token_401_count = 1
+        body = self.post("/accounts").json()
+        self.assertIn("contract:" + PER_BANK_ID, {a["externalId"] for a in body["accounts"]})
+        per_forms = [f for f in self.bank.token_forms() if f.get("client_id") == PER_CLIENT_ID]
+        self.assertEqual(len(per_forms), 2)
+
+    def test_per_chain_two_401s_leaves_per_unavailable_and_imports_other_accounts(self):
+        self.bank.client_token_401_count = 2
+        with self.assertLogs("bpce", "WARNING"):
+            body = self.post("/accounts").json()
+        self.assertNotIn("contract:" + PER_BANK_ID, {a["externalId"] for a in body["accounts"]})
+        self.assertEqual([u["kind"] for u in body["unavailable"]], ["PER"])
+        self.assertEqual(len(body["accounts"]), 8)
 
     def test_nothing_secret_is_returned(self):
         text = self.post("/accounts").text
@@ -398,7 +392,7 @@ class SiteTest(unittest.TestCase):
         self.assertIsNone(main.SITE.home_loan)
         self.assertIsNotNone(main.SITE.per)
         self.assertEqual(main.SITE.unsupported_families, frozenset({("6", "12"), ("6", "13"), ("3", "27")}))
-        self.assertEqual(main.SITE.provisional_kinds, frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES"}))
+        self.assertEqual(main.SITE.provisional_kinds, frozenset({"SAVINGS", "PEL", "TERM_DEPOSIT", "COOPERATIVE_SHARES", "PER"}))
 
     def test_the_allow_list_is_banque_populaire_only(self):
         self.assertEqual(main.SITE.extra_hosts, frozenset())

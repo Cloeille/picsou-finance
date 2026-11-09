@@ -57,10 +57,12 @@ public class CaisseEpargneSyncService {
      */
     static boolean isInsurerContract(Account account) {
         AccountType type = account.getType();
-        return (type == AccountType.PER || type == AccountType.ASSURANCE_VIE)
-            && !account.isManual()
-            && PROVIDER.equals(account.getProvider());
+        String p = account.getProvider(), id = account.getExternalAccountId();
+        return (type == AccountType.PER || type == AccountType.ASSURANCE_VIE) && !account.isManual()
+            && (PROVIDER.equals(p) || (p != null && p.startsWith(BanquePopulaireSyncService.PROVIDER))
+                || (id != null && id.startsWith(BanquePopulaireSyncService.BANK.externalIdPrefix())));
     }
+
 
     private final CaisseEpargnePort port;
     private final SidecarSessionRepository sessionRepository;

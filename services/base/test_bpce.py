@@ -323,7 +323,7 @@ class PerContractIdParsingTest(unittest.TestCase):
     def test_parse_contract_id_refuses_invalid_shapes(self):
         for raw in (
             "PERIC12345678", "ESSEN12345678", "PERIB", "PERIB12AB", "00000 PERIC123/../x", 123,
-            "PERIA12345678", "", "00000     PERIB",
+            "PERIA12345678", "ASVPERIC12345678", "ASVESSEN12345678", "", "00000     PERIB",
         ):
             with self.subTest(contract_id=raw):
                 with self.assertRaises(per_client.UnknownPerContract):
