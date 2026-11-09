@@ -14,11 +14,11 @@ from unittest.mock import AsyncMock, call, patch
 
 import httpx
 
-import accounts_parser
-import fetcher
+from bpce import accounts_parser
+from bpce import fetcher
 import main
-import replay
-from accounts_parser import ParseError, parse_home_loan_detail
+from bpce import replay
+from bpce.accounts_parser import ParseError, parse_home_loan_detail
 from test_fetcher import ALL_IDS, FIXTURES, LOAN_ID, SECRET_TOKEN, TODAY, FakeCE, loan_token_provider
 
 HOME_TOKEN = "home-loan-access-token-secret-HHHH"
@@ -265,7 +265,7 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
         return self.ce.handle(request)
 
     async def fetch(self, **kwargs) -> dict:
-        return await fetcher.fetch_import(
+        return await fetcher.fetch_import(main.SITE,
             SECRET_TOKEN, transport=httpx.MockTransport(self.handle), today=TODAY, **kwargs
         )
 
@@ -303,7 +303,7 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(401)
             return self.ce.handle(request)
 
-        result = await fetcher.fetch_import(
+        result = await fetcher.fetch_import(main.SITE,
             SECRET_TOKEN, transport=httpx.MockTransport(refuse), today=TODAY,
             loan_token=loan_token_provider([]), home_loan_token=self.home_token([]),
         )
@@ -326,7 +326,7 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(200, json=invalid)
             return self.ce.handle(request)
 
-        result = await fetcher.fetch_import(
+        result = await fetcher.fetch_import(main.SITE,
             SECRET_TOKEN, transport=httpx.MockTransport(answer), today=TODAY,
             loan_token=loan_token_provider([]), home_loan_token=self.home_token([]),
         )
@@ -351,7 +351,7 @@ class HomeLoanFetchTest(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(200, json=invalid)
             return self.ce.handle(request)
 
-        result = await fetcher.fetch_import(
+        result = await fetcher.fetch_import(main.SITE,
             SECRET_TOKEN, transport=httpx.MockTransport(answer), today=TODAY,
             loan_token=loan_token_provider([]), home_loan_token=self.home_token([]),
         )
@@ -393,14 +393,15 @@ class HomeLoanMainWiringTest(unittest.IsolatedAsyncioTestCase):
     async def run_fetch_once(self, awaits_home_token: bool):
         tokens = {
             replay.MAIN_CHAIN: "synthetic-main-token",
-            replay.HOME_LOAN_CHAIN: "synthetic-home-loan-token",
+            main.HOME_LOAN_CHAIN: "synthetic-home-loan-token",
         }
         seen: list = []
 
         async def get(_state, *, chain=replay.MAIN_CHAIN, **_kwargs):
             return SimpleNamespace(access_token=tokens[chain])
 
-        async def fetch(access_token, **kwargs):
+        async def fetch(site, access_token, **kwargs):
+            self.assertIs(site, main.SITE)
             self.assertEqual(access_token, "synthetic-main-token")
             if awaits_home_token:
                 seen.append(await kwargs["home_loan_token"]())
@@ -418,29 +419,29 @@ class HomeLoanMainWiringTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             call(
                 "synthetic-state",
-                authorize_url=replay.HOME_LOAN_AUTHORIZE_URL,
-                token_url=replay.HOME_LOAN_TOKEN_URL,
-                chain=replay.HOME_LOAN_CHAIN,
+                authorize_url=main.SITE.home_loan.authorize_url,
+                token_url=main.SITE.home_loan.token_url,
+                chain=main.HOME_LOAN_CHAIN,
                 transport=main._TRANSPORT,
             ),
             cache.await_args_list,
         )
-        for url in (replay.HOME_LOAN_AUTHORIZE_URL, replay.HOME_LOAN_TOKEN_URL):
+        for url in (main.SITE.home_loan.authorize_url, main.SITE.home_loan.token_url):
             with self.subTest(url=url):
-                self.assertTrue(replay.is_allowed_url(url))
-                self.assertIn(urllib.parse.urlsplit(url).hostname, replay.BPCE_HOSTS)
+                self.assertTrue(replay.is_allowed_url(main.SITE, url))
+                self.assertIn(urllib.parse.urlsplit(url).hostname, main.SITE.extra_hosts)
 
     async def test_no_home_loan_does_not_mint_a_home_loan_token(self):
         cache, _ = await self.run_fetch_once(awaits_home_token=False)
 
         self.assertEqual(cache.await_count, 1)
-        self.assertTrue(all(c.kwargs.get("chain") is not replay.HOME_LOAN_CHAIN for c in cache.await_args_list))
+        self.assertTrue(all(c.kwargs.get("chain") is not main.HOME_LOAN_CHAIN for c in cache.await_args_list))
 
 
 class BpceHostsTest(unittest.TestCase):
     def test_only_the_two_home_loan_hosts_of_bpce_are_allowed(self):
-        self.assertTrue(replay.is_allowed_url("https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/token"))
-        self.assertTrue(replay.is_allowed_url("https://www.rs-ext-bad-me.bpce.fr/bapi/loan/v1/loans/x"))
+        self.assertTrue(replay.is_allowed_url(main.SITE, "https://www.as-ext-bad-me.bpce.fr/api/oauth/v2/token"))
+        self.assertTrue(replay.is_allowed_url(main.SITE, "https://www.rs-ext-bad-me.bpce.fr/bapi/loan/v1/loans/x"))
         for url in (
             "https://www.bpce.fr/",
             "https://evil.rs-ext-bad-me.bpce.fr/",
@@ -448,7 +449,7 @@ class BpceHostsTest(unittest.TestCase):
             "https://www.rs-ext-bad-me.bpce.fr.evil.fr/",
         ):
             with self.subTest(url=url):
-                self.assertFalse(replay.is_allowed_url(url))
+                self.assertFalse(replay.is_allowed_url(main.SITE, url))
 
 
 if __name__ == "__main__":

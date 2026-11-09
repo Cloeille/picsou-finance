@@ -11,8 +11,8 @@ import httpx
 from fastapi.testclient import TestClient
 
 import main
-import per_client
-import replay
+from bpce import per_client
+from bpce import replay
 import test_fetcher
 from test_fetcher import FIXTURES, FakeCE
 from test_per_client import API_HOST, INSURER_HOST, JWT, routing_body
@@ -31,7 +31,8 @@ class PerMainWiringTest(unittest.IsolatedAsyncioTestCase):
         async def tokens(_state, *, transport, chain=replay.MAIN_CHAIN):
             return SimpleNamespace(access_token=f"synthetic-{chain.name}-token")
 
-        async def fetch(access_token, **kwargs):
+        async def fetch(site, access_token, **kwargs):
+            self.assertIs(site, main.SITE)
             self.assertEqual(access_token, "synthetic-main-token")
             self.assertIs(await kwargs["per_detail"](CONTRACT, "00000"), DETAIL)
             return result
@@ -41,10 +42,10 @@ class PerMainWiringTest(unittest.IsolatedAsyncioTestCase):
              patch.object(per_client, "fetch_per_detail", AsyncMock(return_value=DETAIL)) as insurer:
             self.assertIs(await main._fetch_once(state), result)
         insurer.assert_awaited_once_with(
-            "synthetic-per-token", CONTRACT, entity_code="00000",
+            main.SITE, "synthetic-per-token", CONTRACT, entity_code="00000",
             routing_token="synthetic-main-token", transport=main._TRANSPORT,
         )
-        self.assertIn(call(state, transport=main._TRANSPORT, chain=replay.PER_CHAIN), get.await_args_list)
+        self.assertIn(call(state, transport=main._TRANSPORT, chain=main.PER_CHAIN), get.await_args_list)
 
     async def test_no_per_account_does_not_mint_a_per_token_or_contact_the_insurer(self):
         get = AsyncMock(return_value=SimpleNamespace(access_token="synthetic"))
@@ -53,12 +54,12 @@ class PerMainWiringTest(unittest.IsolatedAsyncioTestCase):
              patch.object(per_client, "fetch_per_detail", AsyncMock()) as insurer:
             await main._fetch_once("synthetic-state")
         insurer.assert_not_awaited()
-        self.assertTrue(all(c.kwargs.get("chain") is not replay.PER_CHAIN for c in get.await_args_list))
+        self.assertTrue(all(c.kwargs.get("chain") is not main.PER_CHAIN for c in get.await_args_list))
 
     async def run_per_detail(self, insurer_side_effect):
         captured = {}
 
-        async def fetch(_access_token, **kwargs):
+        async def fetch(_site, _access_token, **kwargs):
             captured["per_detail"] = kwargs["per_detail"]
             return {"accounts": []}
 
@@ -81,7 +82,7 @@ class PerMainWiringTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIs(outcome, DETAIL)
         self.assertEqual(insurer.await_count, 2)
-        cache.evict.assert_called_once_with("synthetic-state", chain=replay.PER_CHAIN)
+        cache.evict.assert_called_once_with("synthetic-state", chain=main.PER_CHAIN)
 
     async def test_a_second_refusal_leaves_only_the_per_out(self):
         outcome, insurer, _ = await self.run_per_detail([replay.SessionExpired("x")] * 2)
@@ -127,7 +128,7 @@ class PerAccountsHttpTest(unittest.TestCase):
             return ce.handle(request)
 
         with patch.dict(os.environ, {"APP_SIDECAR_API_KEY": "synthetic-test-key"}), \
-             patch.object(main, "_token_cache", replay.TokenCache()), \
+             patch.object(main, "_token_cache", replay.TokenCache(main.SITE)), \
              patch.object(main, "_TRANSPORT", httpx.MockTransport(handle)), \
              TestClient(main.app) as client:
             response = client.post("/accounts", json={"sessionState": make_state()},
@@ -143,9 +144,9 @@ class PerAccountsHttpTest(unittest.TestCase):
         self.assertFalse(any(item["kind"] == "PER" for item in body["unavailable"]))
         self.assertEqual([r.url.host for r in insurer_requests], [API_HOST, API_HOST, INSURER_HOST])
         self.assertTrue(all("cookie" not in r.headers for r in insurer_requests))
-        per_forms = [f for f in token_forms if f.get("client_id") == replay.PER_CLIENT_ID]
+        per_forms = [f for f in token_forms if f.get("client_id") == dict(main.PER_CHAIN.overrides)["client_id"]]
         self.assertEqual(len(per_forms), 1)
-        self.assertEqual(per_forms[0]["redirect_uri"], replay.PER_REDIRECT_URI)
+        self.assertEqual(per_forms[0]["redirect_uri"], dict(main.PER_CHAIN.overrides)["redirect_uri"])
 
     def test_an_insurer_failure_leaves_only_the_per_unavailable(self):
         source = copy.deepcopy(FIXTURES["synthesis_products"])
@@ -163,7 +164,7 @@ class PerAccountsHttpTest(unittest.TestCase):
             return ce.handle(request)
 
         with patch.dict(os.environ, {"APP_SIDECAR_API_KEY": "synthetic-test-key"}), \
-             patch.object(main, "_token_cache", replay.TokenCache()), \
+             patch.object(main, "_token_cache", replay.TokenCache(main.SITE)), \
              patch.object(main, "_TRANSPORT", httpx.MockTransport(handle)), \
              TestClient(main.app) as client:
             response = client.post("/accounts", json={"sessionState": make_state()},

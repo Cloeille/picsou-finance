@@ -87,6 +87,13 @@
     "mfaTooManyAttempts": "Zu viele Versuche, versuche es in ein paar Minuten erneut",
     "mfaSessionExpired": "Verifizierungssitzung abgelaufen, melde dich erneut an",
     "mfaGenericError": "Der Code konnte nicht überprüft werden. Bitte versuche es erneut.",
+    "sso": {
+      "button": "Mit {{provider}} anmelden",
+      "or": "oder",
+      "redirecting": "Weiterleitung zu deinem Anmeldeanbieter...",
+      "completing": "Anmeldung wird abgeschlossen...",
+      "infoError": "Die Anmeldeoptionen konnten nicht geladen werden."
+    },
     "validation": {
       "usernameTooShort": "Der Benutzername muss mindestens 3 Zeichen enthalten.",
       "usernameTooLong": "Der Benutzername darf höchstens 50 Zeichen enthalten.",
@@ -182,6 +189,7 @@
     "balance": "Saldo",
     "lastSync": "Letzte Synchronisierung",
     "lastValuation": "Letzte Bewertung",
+    "viaProvider": "über {{provider}}",
     "holdings": "Bestände",
     "transactions": "Transaktionen",
     "noTransactions": "Keine Transaktionen auf diesem Konto.",
@@ -214,6 +222,9 @@
     "valueAndInvested": "Wert und investiertes Kapital",
     "manual": "Manuell",
     "accountName": "Kontoname",
+    "beneficiary": "Darlehensnehmer",
+    "beneficiaryPlaceholder": "Jean, Marie…",
+    "peerLoanSetupHint": "Der verliehene Betrag und das Girokonto werden im nächsten Schritt auf der Darlehensseite erfasst.",
     "accountType": "Kontotyp",
     "provider": "Anbieter",
     "bankPickerHint": "Wählen Sie Ihre Bank aus der Liste, um ihr Logo anzuzeigen.",
@@ -235,6 +246,7 @@
     },
     "cashBalance": "Bargeld im PEA/Wertpapierkonto",
     "perEuroFundBalance": "PER-Eurofonds (letzte Synchronisierung)",
+    "lifeEuroFundBalance": "Eurofonds (letzte Synchronisierung)",
     "dividends": {
       "title": "Bevorstehende Dividenden",
       "carousel": "Karussell der bevorstehenden Dividenden",
@@ -270,9 +282,12 @@
       "CHECKING": "Girokonten",
       "CRYPTO": "Krypto",
       "REAL_ESTATE": "Immobilien",
+      "RECEIVABLES": "Forderungen",
       "DEBTS": "Schulden",
       "OTHER": "Sonstiges"
     },
+    "showClosedLoans": "Geschlossene Darlehen anzeigen",
+    "hideClosedLoans": "Geschlossene Darlehen ausblenden",
     "fees": "Gebühren",
     "export": {
       "button": "Daten exportieren",
@@ -447,8 +462,168 @@
     "assuranceVie": "Lebensversicherung",
     "per": "PER (Altersvorsorge)",
     "preciousMetals": "Edelmetalle",
+    "brokerage": "Brokerage-Depot",
     "scpi": "SCPI",
-    "creditCard": "Kreditkarte"
+    "creditCard": "Kreditkarte",
+    "peerLoan": "Privatdarlehen"
+  },
+  "peerLoan": {
+    "termsDescription": "Der verliehene Betrag, das Datum und optional ein Zinssatz und eine Prognose.",
+    "borrowerHint": "Der Darlehensnehmer ist der Name des Kontos. Ein Konto, ein Darlehen.",
+    "linkedAccountHint": "Erforderlich: das Konto, das die Rückzahlungen erhält, damit das Vermögen korrekt bleibt.",
+    "termsHint": {
+      "noCashLeg": "Der Geldabfluss ist bereits im Saldo des Zahlungskontos enthalten: Es wird keine Buchung erstellt.",
+      "syncedAccount": "Synchronisiertes Konto: Picsou schreibt keine Zahlungsbewegung."
+    },
+    "setupHint": "Geben Sie den verliehenen Betrag und das Girokonto ein, um die Nachverfolgung zu starten.",
+    "saved": "Bedingungen gespeichert.",
+    "repaymentSaved": "Rückzahlung erfasst.",
+    "repaymentDeleted": "Rückzahlung gelöscht.",
+    "closed": "Darlehen geschlossen.",
+    "configure": "Darlehen einrichten",
+    "create": "Darlehen erstellen",
+    "editTerms": "Bedingungen bearbeiten",
+    "addRepayment": "Rückzahlung hinzufügen",
+    "editRepayment": "Rückzahlung bearbeiten",
+    "withCashLeg": "Zahlungsbewegung erstellen",
+    "repaymentsTitle": "Rückzahlungen",
+    "empty": "Noch keine Rückzahlung erfasst.",
+    "repaymentHint": {
+      "single": "Aufgelaufene Zinsen werden zuerst verrechnet, der Rest reduziert das Kapital.",
+      "noCashLeg": "Das Kapital sinkt ohne Bankeingang: für eine Verrechnung oder eine bereits erfasste Zahlung."
+    },
+    "ledger": {
+      "interestPart": "davon {{amount}} Zinsen",
+      "noCashLeg": "Ohne Zahlungsbewegung"
+    },
+    "noPlan": "Keine Prognose festgelegt. Fügen Sie eine Laufzeit oder eine Monatsrate hinzu.",
+    "closedHint": "Dieses Darlehen ist geschlossen. Löschen Sie den Forderungsverzicht, um es wieder zu öffnen.",
+    "cashflowHint": "Damit dieses Darlehen nicht als Ausgabe zählt, ordnen Sie die passende Banküberweisung der Kategorie „Interner Transfer“ zu.",
+    "fields": {
+      "beneficiary": "Darlehensnehmer",
+      "principal": "Verliehener Betrag",
+      "lentAt": "Datum des Darlehens",
+      "expectedBack": "Erwartete Rückzahlung",
+      "ratePct": "Zinssatz (%)",
+      "ratePeriod": "Zinszeitraum",
+      "rateAnnual": "Jahreszins",
+      "rateMonthly": "Monatszins",
+      "plannedMonths": "Geplante Laufzeit (Monate)",
+      "plannedMonthly": "Geplante Monatsrate",
+      "linkedAccount": "Verknüpftes Girokonto",
+      "outflowAlreadyBooked": "Der Geldabfluss ist bereits im Kontosaldo enthalten",
+      "selectLinkedAccount": "Konto auswählen",
+      "note": "Notiz",
+      "paidOn": "Datum",
+      "amount": "Betrag",
+      "kind": "Art"
+    },
+    "ratePeriod": {
+      "ANNUAL": "Jährlich",
+      "MONTHLY": "Monatlich"
+    },
+    "kinds": {
+      "PRINCIPAL": "Rückzahlung",
+      "INTEREST": "Zinsen",
+      "WRITE_OFF": "Forderungsverzicht"
+    },
+    "summary": {
+      "open": "Offen",
+      "closed": "Geschlossen",
+      "lent": "Verliehen",
+      "remaining": "Restschuld",
+      "repaid": "Zurückgezahlt",
+      "interestCalculated": "Berechnete Zinsen",
+      "interestDue": "Fällige Zinsen",
+      "principalRepaid": "Kapital zurückgezahlt",
+      "writtenOff": "Abgeschrieben"
+    },
+    "forecast": {
+      "title": "Prognose",
+      "planTitle": "Simulator",
+      "scheduled": "Geplant bis heute",
+      "actual": "Tatsächlich",
+      "plannedInterest": "Geplante Zinsen",
+      "behind": "{{count}} Rate im Rückstand",
+      "behind_other": "{{count}} Raten im Rückstand",
+      "ahead": "{{count}} Rate im Voraus",
+      "ahead_other": "{{count}} Raten im Voraus",
+      "onTrack": "Im Plan",
+      "disclaimer": "Unverbindliche Prognose.",
+      "simulationResult": "{{months}} Monate · {{monthlyPayment}}/Monat · {{interest}} Zinsen",
+      "accruedHint": "Bisher aufgelaufene Zinsen:",
+      "remainingHint": "Restschuld (Höchstbetrag pro Rückzahlung):"
+    },
+    "overview": {
+      "title": "Privatdarlehen",
+      "subtitle": "Wer was schuldet und wie es mit den Rückzahlungen steht.",
+      "totalOutstanding": "Offener Gesamtbetrag",
+      "openLoans": "Laufende Darlehen",
+      "interestAccrued": "Aufgelaufene Zinsen",
+      "curveTitle": "Offener Betrag über 12 Monate",
+      "columns": {
+        "borrower": "Kreditnehmer",
+        "remaining": "Offen",
+        "repaid": "Zurückgezahlt",
+        "status": "Status",
+        "lastPayment": "Letzte Zahlung",
+        "expectedBack": "Rückzahlung erwartet"
+      },
+      "status": {
+        "closed": "Geschlossen",
+        "behind_one": "{{count}} Rate im Rückstand",
+        "behind_other": "{{count}} Raten im Rückstand",
+        "onTime": "Aktuell",
+        "noPlan": "Kein Plan"
+      }
+    },
+    "fromTransaction": {
+      "action": "Privatdarlehen erstellen",
+      "title": "Darlehen aus dieser Buchung erstellen",
+      "description": "Das Geld ist bereits abgeflossen: Diese Buchung wird die Cash-Seite des Darlehens, ohne kopiert zu werden.",
+      "beneficiaryHint": "Dieser Name wird der Kontoname und identifiziert das Darlehen.",
+      "beneficiaryRequired": "Der Darlehensnehmer ist erforderlich.",
+      "confirm": "Darlehen erstellen",
+      "created": "Darlehen erstellt.",
+      "assignAction": "Einer Rückzahlung zuordnen"
+    },
+    "assignRepayment": {
+      "title": "Einer Rückzahlung zuordnen",
+      "description": "Die Buchung wird die Cash-Seite der Rückzahlung, ohne kopiert zu werden.",
+      "loan": "Darlehen",
+      "selectLoan": "Darlehen auswählen",
+      "loanRequired": "Wählen Sie ein Darlehen.",
+      "noLoans": "Kein offenes Darlehen.",
+      "confirm": "Zuordnen",
+      "created": "Rückzahlung erfasst."
+    },
+    "linkedTransaction": "Verknüpft mit dem Darlehen von {{name}}",
+    "actions": {
+      "close": "Darlehen schließen",
+      "simulate": "Berechnen"
+    },
+    "close": {
+      "title": "Darlehen schließen",
+      "description": "Der Restbetrag ({{amount}}) wird abgeschrieben und heute aus dem Vermögen entfernt.",
+      "confirm": "Schließen"
+    },
+    "deleteRepayment": {
+      "title": "Rückzahlung löschen",
+      "description": "Die Rückzahlung über {{amount}} wird samt Buchung gelöscht. Der Darlehenssaldo wird neu berechnet.",
+      "descriptionLinked": "Die Rückzahlung über {{amount}} wird vom Darlehen getrennt. Die verknüpfte Buchung bleibt in ihrem Konto bestehen. Der Darlehenssaldo wird neu berechnet.",
+      "descriptionNoCashLeg": "Die Rückzahlung über {{amount}} wird gelöscht. Der Darlehenssaldo wird neu berechnet.",
+      "confirm": "Löschen"
+    },
+    "validation": {
+      "principal": "Der verliehene Betrag muss größer als null sein.",
+      "rateNegative": "Der Zinssatz darf nicht negativ sein.",
+      "linkedAccount": "Das Girokonto ist erforderlich.",
+      "lentAt": "Das Datum des Darlehens ist erforderlich.",
+      "plan": "Geben Sie eine Laufzeit oder eine Monatsrate an, nicht beides.",
+      "simulation": "Diese Prognose konnte nicht berechnet werden.",
+      "amount": "Der Betrag muss größer als null sein.",
+      "paidOn": "Das Datum ist erforderlich."
+    }
   },
   "scpi": {
     "add": {
@@ -743,16 +918,20 @@
       "degiro": "DEGIRO-Wertpapierkonto synchronisieren",
       "ibkr": "Synchronisieren Sie Ihr Interactive-Brokers-Konto per Flex Query",
       "simplefin": "Bankkonten mit einem SimpleFIN-Setup-Token importieren",
+      "wise": "Ihre Wise Jars, die die Bankverbindung nicht sieht",
       "finary": "Aus Finary importieren",
       "manual": "Konto manuell erstellen",
       "amundi": "PEE, PEG, PERCO, PER bei Amundi",
+      "natixis": "PEE, PERCO, PER bei Natixis Interépargne",
       "amex": "American Express Kreditkarte: Kontostand und Transaktionen",
       "corum": "CORUM-SCPI und CORUM-Life-Lebensversicherung: Anteile, Bewertung und Umsätze",
       "sofidy": "Sofidy-SCPI-Anteile zum Rücknahmepreis",
       "property": "Haus, Wohnung, Grundstück…",
       "revolut": "Phone + passcode, on-demand sync",
       "fortuneo": "Fortuneo-Konten synchronisieren",
-      "caisseEpargne": "Girokonto, Livret A, LDDS, PER, Kredite und Karten bei der Caisse d'Epargne"
+      "caisseEpargne": "Girokonto, Livret A, LDDS, PEL, LEP, PER, Lebensversicherung, Kredite und Karten bei der Caisse d'Epargne",
+      "banquePopulaire": "Girokonto, Livret A, Livret Jeune und LDDS bei der Banque Populaire",
+      "lbp": "Girokonto, Livret A und LEP bei La Banque Postale"
     }
   },
   "sync": {
@@ -786,6 +965,11 @@
       "callbackError": "Synchronisierungsfehler",
       "initiateError": "Verbindung fehlgeschlagen",
       "psd2ScopeNote": "Enable Banking synchronisiert nur Girokonten (PSD2-Einschränkung). Für PEA, Lebensversicherung, Sparkonten: nutze Trade Republic, Boursobank, Finary oder füge sie manuell hinzu.",
+      "wiseJarsMissing": "Ihre Wise Jars kommen nicht über diese Verbindung.",
+      "wiseJarsConnect": "Jars verbinden",
+      "wiseJarsConnected": "Ihre Wise Jars werden über den Connector Wise Jars synchronisiert.",
+      "wiseJarsFailed": "Die letzte Synchronisierung Ihrer Wise Jars ist fehlgeschlagen.",
+      "wiseJarsOpen": "Wise Jars öffnen",
       "proBadge": "Pro",
       "proBadgeTitle": "Geschäftskonto — diese Bank richtet sich nur an Geschäftskunden"
     },
@@ -859,6 +1043,37 @@
         "connectFailed": "Verbindung zu SimpleFIN fehlgeschlagen. Prüfen Sie das Token und versuchen Sie es erneut.",
         "syncFailed": "SimpleFIN-Synchronisierung fehlgeschlagen. Versuchen Sie es erneut oder erstellen Sie ein neues Token, wenn der Zugriff widerrufen wurde.",
         "disconnectFailed": "Verbindung konnte nicht entfernt werden. Bitte versuchen Sie es erneut."
+      }
+    },
+    "wise": {
+      "title": "Wise Jars",
+      "intro": "Dieser Connector ist nur für Ihre Wise Jars: Die Wise-Bankverbindung im Tab Banken sieht sie nicht. Ihr Wise-Girokonto und seine Umsätze bleiben im Tab Banken.",
+      "setupHint": "Erstellen Sie auf wise.com ein persönliches API-Token mit Lesezugriff und fügen Sie es hier ein.",
+      "createToken": "Token erstellen",
+      "token": "Wise-API-Token",
+      "tokenPlaceholder": "Wise-Token einfügen",
+      "connect": "Verbinden",
+      "sync": "Synchronisieren",
+      "syncing": "Synchronisierung…",
+      "disconnect": "Trennen",
+      "disconnectConfirm": "Gespeichertes Wise-Token entfernen? Importierte Jars bleiben erhalten, werden aber nicht mehr aktualisiert.",
+      "connected": "Verbunden",
+      "statusError": "Letzte Synchronisierung fehlgeschlagen",
+      "lastSync": "Letzte Sync",
+      "neverSynced": "Nie synchronisiert",
+      "syncedToast": "Wise synchronisiert: {{count}} Jar",
+      "syncedToast_other": "Wise synchronisiert: {{count}} Jars",
+      "statusTokenRefused": "Token von Wise abgelehnt",
+      "replaceTokenHint": "Wise hat das gespeicherte Token abgelehnt. Erstellen Sie auf wise.com ein neues und fügen Sie es hier ein, um die Synchronisierung fortzusetzen.",
+      "replaceToken": "Token ersetzen",
+      "scopeNote": "Nur die Salden der Jars werden verfolgt: In Europa teilt Wise ihren Verlauf nicht mit einem persönlichen Token.",
+      "errors": {
+        "tokenRefused": "Wise hat dieses Token abgelehnt. Es wurde möglicherweise widerrufen: Erstellen Sie auf wise.com ein neues mit Lesezugriff.",
+        "invalidToken": "Das ist kein Wise-API-Token. Kopieren Sie es erneut von wise.com.",
+        "rateLimited": "Wise begrenzt gerade die Anfragen. Versuchen Sie es in ein paar Minuten erneut.",
+        "connectFailed": "Verbindung zu Wise fehlgeschlagen. Prüfen Sie das Token und versuchen Sie es erneut.",
+        "syncFailed": "Wise-Synchronisierung fehlgeschlagen. Versuchen Sie es erneut oder erstellen Sie ein neues Token, falls es widerrufen wurde.",
+        "disconnectFailed": "Verbindung konnte nicht entfernt werden. Versuchen Sie es erneut."
       }
     },
     "exchanges": {
@@ -1098,6 +1313,9 @@
     "caisseEpargne": {
       "title": "Caisse d'Epargne",
       "customerId": "Kennung",
+      "rememberedIdentifier": "Kennung gespeichert",
+      "useAnotherIdentifier": "Andere Kennung verwenden",
+      "backToRememberedIdentifier": "Gespeicherte Kennung verwenden",
       "connect": "Verbinden",
       "connecting": "Verbindung…",
       "sync": "Synchronisieren",
@@ -1109,7 +1327,7 @@
       "disconnectConfirmAction": "Gespeicherte Sitzung löschen",
       "noSession": "Keine aktive Sitzung",
       "sessionActive": "Sitzung aktiv",
-      "scope": "Synchronisiert Ihre Girokonten, Livret A, LDDS, PER (nur Saldo), Privatkredite und Karten bei der Caisse d'Epargne auf Abruf. Nur die Sitzung wird verschlüsselt gespeichert. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
+      "scope": "Synchronisiert Ihre Girokonten, Livret A, LDDS, PEL, LEP, PER (mit seinen Fonds, wenn die Versicherungsdetails verfügbar sind), Lebensversicherung, Privatkredite und Karten bei der Caisse d'Epargne auf Abruf. Nur die Sitzung und Ihre Kennung werden verschlüsselt gespeichert, nie Ihr Passwort. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
       "notice": {
         "neverStored": "Picsou sieht und speichert Ihr Passwort nie. Sie klicken es selbst auf der Tastatur der Bank; nur die Tastenpositionen werden einmalig gesendet.",
         "noRetry": "Picsou wiederholt eine Anmeldung nie. Schlägt sie fehl, wird nichts erneut gesendet, bis Sie das Formular selbst absenden.",
@@ -1119,7 +1337,7 @@
       "securPassHint": "Picsou greift nicht auf Ihr Telefon zu. Diese Seite geht von selbst weiter, sobald Sie bestätigen.",
       "countdownLabel": "Verbleibende Zeit zum Bestätigen:",
       "unsupportedTitle": "Nicht importierte Verträge",
-      "unsupportedHint": "Picsou unterstützt diese Vertragsfamilien noch nicht (Familiencode angezeigt).",
+      "unsupportedHint": "Picsou unterstützt diese Verträge noch nicht (Familien-/Unterfamiliencode angezeigt).",
       "errors": {
         "rateLimited": "Zu viele Anmeldeversuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
         "rateLimitedRetryAfter": "Zu viele Anmeldeversuche. Versuchen Sie es in {{minutes}} Min. erneut.",
@@ -1138,6 +1356,113 @@
         "title": "Passwort anklicken",
         "description": "Klicken Sie die Tasten Ihres Passworts der Reihe nach auf der Tastatur der Bank an. Die Ziffern werden nur auf den Tasten selbst angezeigt.",
         "key": "Taste {{n}}",
+        "entered": "{{count}} Tasten eingegeben",
+        "clear": "Löschen",
+        "cancel": "Abbrechen",
+        "validate": "Bestätigen",
+        "countdownLabel": "Verbleibende Zeit:"
+      }
+    },
+    "banquePopulaire": {
+      "title": "Banque Populaire",
+      "customerId": "Kennung",
+      "region": "Ihre Banque Populaire",
+      "regionPlaceholder": "Wählen Sie Ihre Bank",
+      "connect": "Verbinden",
+      "connecting": "Verbindung…",
+      "sync": "Synchronisieren",
+      "queued": "Synchronisierung in Warteschlange…",
+      "syncing": "Synchronisierung…",
+      "syncSuccess": "Banque-Populaire-Konten synchronisiert.",
+      "clearSession": "Trennen",
+      "disconnectConfirm": "Dies löscht die in Picsou gespeicherte Sitzung. Die Sitzung bei der Banque Populaire selbst wird nicht beendet und kann bis zu ihrem Ablauf aktiv bleiben.",
+      "disconnectConfirmAction": "Gespeicherte Sitzung löschen",
+      "noSession": "Keine aktive Sitzung",
+      "sessionActive": "Sitzung aktiv",
+      "scope": "Synchronisiert Ihre Girokonten, Livret A, Livret Jeune und LDDS bei der Banque Populaire auf Abruf. Nur die Sitzung wird verschlüsselt gespeichert. Verträge, die Picsou nicht importieren kann, werden aufgelistet, aber nie angelegt.",
+      "notice": {
+        "neverStored": "Picsou sieht und speichert Ihr Passwort nie. Sie klicken es selbst auf der Tastatur der Bank; nur die Tastenpositionen werden einmalig gesendet.",
+        "noRetry": "Picsou wiederholt eine Anmeldung nie. Schlägt sie fehl, wird nichts erneut gesendet, bis Sie das Formular selbst absenden.",
+        "lockRisk": "Falsche Versuche zählen bei Ihrer Bank und können Ihren Banque-Populaire-Zugang sperren. Prüfen Sie Ihre Kennung und die auf der Tastatur geklickten Ziffern vor dem Bestätigen."
+      },
+      "securPassPrompt": "Bestätigen Sie die Anmeldung in Ihrer Sécur'Pass-App.",
+      "securPassHint": "Picsou greift nicht auf Ihr Telefon zu. Diese Seite geht von selbst weiter, sobald Sie bestätigen.",
+      "countdownLabel": "Verbleibende Zeit zum Bestätigen:",
+      "unsupportedTitle": "Nicht importierte Verträge",
+      "unsupportedHint": "Picsou unterstützt diese Verträge noch nicht (Familien-/Unterfamiliencode angezeigt).",
+      "errors": {
+        "rateLimited": "Zu viele Anmeldeversuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
+        "rateLimitedRetryAfter": "Zu viele Anmeldeversuche. Versuchen Sie es in {{minutes}} Min. erneut.",
+        "invalidCredentials": "Die Bank hat Kennung oder Passwort abgelehnt. Prüfen Sie sie, bevor Sie es erneut versuchen: wiederholte Fehlversuche können Ihr Konto sperren.",
+        "keypadChanged": "Die Tastatur hat sich geändert, bitte neu beginnen. Es wurde nichts gesendet.",
+        "appValidationTimeout": "Die Anmeldung wurde nicht rechtzeitig in Sécur'Pass bestätigt. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "sessionExpired": "Die Banque-Populaire-Sitzung ist abgelaufen. Bitte neu verbinden.",
+        "formatChanged": "Das Format der Banque-Populaire-Website hat sich geändert. Ihre vorhandenen Daten wurden beibehalten.",
+        "invalidSessionState": "Die gespeicherte Sitzung ist nicht lesbar. Bitte neu verbinden.",
+        "serverError": "Die Banque Populaire ist nicht erreichbar. Bitte versuchen Sie es später erneut.",
+        "keypadExpired": "Die Tastatur ist vor Ihrer Bestätigung abgelaufen. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "invalidPositions": "Die Tastatureingabe wurde nicht akzeptiert. Beginnen Sie neu und geben Sie 6 bis 12 Tasten ein."
+      },
+      "keypad": {
+        "title": "Passwort anklicken",
+        "description": "Klicken Sie die Tasten Ihres Passworts der Reihe nach auf der Tastatur der Bank an. Die Ziffern werden nur auf den Tasten selbst angezeigt.",
+        "key": "Taste {{n}}",
+        "entered": "{{count}} Tasten eingegeben",
+        "clear": "Löschen",
+        "cancel": "Abbrechen",
+        "validate": "Bestätigen",
+        "sending": "Wird gesendet…",
+        "countdownLabel": "Verbleibende Zeit:"
+      }
+    },
+    "lbp": {
+      "title": "La Banque Postale",
+      "customerId": "Kennung",
+      "rememberIdentifier": "Kennung merken",
+      "rememberIdentifierHint": "Die Kennung wird verschlüsselt auf deinem Server gespeichert. Das Passwort wird nie gespeichert.",
+      "connect": "Verbinden",
+      "connecting": "Verbindung…",
+      "sync": "Synchronisieren",
+      "queued": "Synchronisierung in Warteschlange…",
+      "syncing": "Synchronisierung…",
+      "syncSuccess": "La-Banque-Postale-Konten synchronisiert.",
+      "clearSession": "Trennen",
+      "disconnectConfirm": "Dies löscht die in Picsou gespeicherte Sitzung und die gemerkte Kennung. Die Sitzung bei La Banque Postale selbst wird nicht beendet und kann bis zu ihrem Ablauf aktiv bleiben.",
+      "disconnectConfirmAction": "Gespeicherte Sitzung löschen",
+      "noSession": "Keine aktive Sitzung",
+      "sessionActive": "Sitzung aktiv",
+      "scope": "Synchronisiert auf Abruf Ihr Girokonto und Ihre Sparkonten (Livret A, LDDS, LEP, Compte sur livret) bei La Banque Postale. Nur die Sitzung wird verschlüsselt gespeichert.",
+      "notice": {
+        "neverStored": "Picsou sieht und speichert Ihr Passwort nie. Sie klicken Ihre sechs Ziffern selbst auf der gemischten Tastatur der Bank; nur die Tastenpositionen werden einmalig gesendet.",
+        "noRetry": "Picsou wiederholt eine Anmeldung nie. Schlägt sie fehl, wird nichts erneut gesendet, bis Sie das Formular selbst absenden.",
+        "lockRisk": "Falsche Versuche zählen bei Ihrer Bank und können Ihren La-Banque-Postale-Zugang sperren. Prüfen Sie Ihre Kennung und die sechs geklickten Ziffern vor dem Bestätigen."
+      },
+      "securPassPrompt": "Bestätigen Sie die Anmeldung in der La-Banque-Postale-App.",
+      "securPassHint": "Picsou greift nicht auf Ihr Telefon zu. Diese Seite geht von selbst weiter, sobald Sie bestätigen.",
+      "countdownLabel": "Verbleibende Zeit zum Bestätigen:",
+      "unsupportedTitle": "Nicht importierte Produkte",
+      "unsupportedHint": "Picsou unterstützt diese Produkte noch nicht (Familiencode angezeigt).",
+      "errors": {
+        "rateLimited": "Zu viele Anmeldeversuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
+        "rateLimitedRetryAfter": "Zu viele Anmeldeversuche. Versuchen Sie es in {{minutes}} Min. erneut.",
+        "invalidCredentials": "Die Bank hat Kennung oder Passwort abgelehnt. Prüfen Sie sie, bevor Sie es erneut versuchen: wiederholte Fehlversuche können Ihr Konto sperren.",
+        "tooManySyncs": "Zu viele Synchronisierungen. Bitte warten Sie, bevor Sie erneut synchronisieren.",
+        "tooManySyncsRetryAfter": "Zu viele Synchronisierungen. Versuchen Sie es in {{minutes}} Min. erneut.",
+        "invalidIdentifier": "Die Kennung muss aus 6 bis 12 Ziffern bestehen.",
+        "keypadChanged": "Die Tastatur hat sich geändert, bitte neu beginnen. Es wurde nichts gesendet.",
+        "appValidationTimeout": "Die Anmeldung wurde nicht rechtzeitig in der App bestätigt. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "sessionExpired": "Die La-Banque-Postale-Sitzung ist abgelaufen. Bitte neu verbinden.",
+        "formatChanged": "Das Format der La-Banque-Postale-Website hat sich geändert. Ihre vorhandenen Daten wurden beibehalten.",
+        "invalidSessionState": "Die gespeicherte Sitzung ist nicht lesbar. Bitte neu verbinden.",
+        "serverError": "La Banque Postale ist nicht erreichbar. Bitte versuchen Sie es später erneut.",
+        "keypadExpired": "Die Tastatur ist vor Ihrer Bestätigung abgelaufen. Beginnen Sie neu, wenn Sie es erneut versuchen möchten.",
+        "invalidPositions": "Die Tastatureingabe wurde nicht akzeptiert. Beginnen Sie neu und geben Sie sechs Tasten ein."
+      },
+      "keypad": {
+        "title": "Passwort anklicken",
+        "description": "Klicken Sie die sechs Ziffern Ihres Passworts der Reihe nach an. Die Ziffern werden auf den Tasten selbst angezeigt.",
         "entered": "{{count}} Tasten eingegeben",
         "clear": "Löschen",
         "cancel": "Abbrechen",
@@ -1228,6 +1553,37 @@
         "formatChanged": "Das Format der Amundi-Website hat sich geändert. Ihre vorhandenen Daten wurden beibehalten.",
         "invalidData": "Amundi hat inkonsistente Daten zurückgegeben. Ihre vorhandenen Daten wurden beibehalten.",
         "serverError": "Amundi ist nicht erreichbar. Bitte erneut versuchen."
+      }
+    },
+    "natixis": {
+      "title": "Natixis Interépargne",
+      "login": "E-Mail",
+      "password": "Passwort",
+      "otpCode": "Bestätigungscode",
+      "otpPrompt": "Gib den Code ein, den Natixis Interépargne dir per SMS, E-Mail oder Sprachanruf geschickt hat.",
+      "connect": "Verbinden",
+      "connecting": "Verbindung wird hergestellt…",
+      "validate": "Code bestätigen",
+      "validating": "Wird geprüft…",
+      "sync": "Synchronisieren",
+      "queued": "Synchronisierung in Warteschlange…",
+      "syncing": "Synchronisierung läuft…",
+      "syncSuccess": "Sparpläne synchronisiert.",
+      "clearSession": "Trennen",
+      "noSession": "Keine aktive Sitzung",
+      "sessionActive": "Sitzung aktiv",
+      "scope": "Synchronisiert deine Mitarbeitersparpläne bei Natixis Interépargne (PEE, PERCO, PER…) und die darin gehaltenen Fonds: Anteile, Anteilswert und Gewinn. Nach dieser ersten Anmeldung laufen Synchronisierungen von selbst, bis Natixis die Sitzung beendet; dann musst du dich erneut verbinden.",
+      "errors": {
+        "tooManyAttempts": "Natixis Interépargne hat weitere Versuche blockiert. Bitte versuche es später erneut.",
+        "invalidCredentials": "Natixis Interépargne hat die E-Mail oder das Passwort abgelehnt.",
+        "mfaTypeUnsupported": "Dieses Konto bietet nur die Anmeldung per Passkey oder einen zweiten Faktor, den Picsou nicht unterstützt. Picsou braucht die Anmeldung mit Passwort und Codes per SMS, E-Mail oder Sprachanruf: Aktiviere beides in den Sicherheitseinstellungen von Natixis Interépargne.",
+        "authAttemptExpired": "Der Anmeldeversuch ist abgelaufen. Bitte starte neu.",
+        "sessionExpired": "Die Natixis-Interépargne-Sitzung ist abgelaufen. Verbinde dich erneut, um die Synchronisierung fortzusetzen.",
+        "portfolioIncomplete": "Natixis Interépargne hat unvollständige Sparpläne geliefert. Deine bestehenden Daten wurden beibehalten.",
+        "formatChanged": "Das Format der Natixis-Interépargne-Website hat sich geändert. Deine bestehenden Daten wurden beibehalten.",
+        "invalidData": "Natixis Interépargne hat ungültige Sparplandaten geliefert. Deine bestehenden Daten wurden beibehalten.",
+        "serverError": "Natixis Interépargne ist vorübergehend nicht erreichbar. Bitte versuche es erneut.",
+        "invalidCode": "Falscher Bestätigungscode. Prüfe ihn und gib ihn erneut ein."
       }
     },
     "cmes": {
@@ -1489,6 +1845,8 @@
     "themeDark": "Dunkel",
     "themeSystem": "System",
     "currentPassword": "Aktuelles Passwort",
+    "newPassword": "Neues Passwort",
+    "confirmPassword": "Passwort bestätigen",
     "appearanceDescription": "Passe das Erscheinungsbild der App an",
     "dateFormat": "Datumsformat",
     "dateFormatLocale": "Lokalisiert",
@@ -1596,6 +1954,32 @@
         "AGGRESSIVE": "Offensiv"
       },
       "saved": "Profil gespeichert"
+    },
+    "signInMethods": {
+      "title": "Anmeldemethoden",
+      "password": "Passwort",
+      "passwordOn": "Du kannst dich mit deinem Benutzernamen und deinem Passwort anmelden.",
+      "passwordOff": "Kein Passwort: Du meldest dich mit {{provider}} an.",
+      "turnOff": "Passwort-Anmeldung deaktivieren",
+      "turnOffHint": "Melde dich einmal mit {{provider}} an, bevor du die Passwort-Anmeldung deaktivierst.",
+      "setPassword": "Passwort festlegen",
+      "identityFallback": "{{provider}}-Konto",
+      "lastSignIn": "Letzte Anmeldung",
+      "neverUsed": "Noch nicht zur Anmeldung verwendet",
+      "unlink": "Trennen",
+      "unlinkHint": "Lege ein Passwort fest, bevor du deine letzte Anmeldemethode trennst.",
+      "link": "{{provider}}-Konto verknüpfen",
+      "adminGroupNote": "Deine Administratorrechte richten sich nach deiner Gruppe in {{provider}}.",
+      "linked": "Konto verknüpft. Du kannst dich jetzt damit anmelden.",
+      "removePasswordTitle": "Passwort-Anmeldung deaktivieren?",
+      "removePasswordDesc": "Du meldest dich dann nur noch mit {{provider}} an. Deine anderen Geräte werden abgemeldet, und die Zwei-Faktor-Authentifizierung wird deaktiviert, falls sie aktiv ist.",
+      "setPasswordDesc": "Du kannst dich dann zusätzlich zu {{provider}} mit deinem Benutzernamen und diesem Passwort anmelden. Deine anderen Geräte werden abgemeldet.",
+      "passwordMismatch": "Die Passwörter stimmen nicht überein.",
+      "unlinkTitle": "Dieses Konto trennen?",
+      "unlinkDesc": "Du kannst dich dann nicht mehr mit diesem {{provider}}-Konto anmelden.",
+      "linkTitle": "{{provider}}-Konto verknüpfen",
+      "linkDesc": "Bestätige deine Identität und melde dich dann mit dem {{provider}}-Konto an, das du verknüpfen möchtest.",
+      "linkMfaNote": "Wenn du dich mit {{provider}} anmeldest, fragt Picsou nicht nach deinem Authenticator-Code: Für den zweiten Faktor ist dann der Anmeldeanbieter zuständig. Die Passwort-Anmeldung fragt weiterhin nach dem Code, außer auf einem vertrauenswürdigen Gerät."
     }
   },
   "accessKeys": {
@@ -1835,6 +2219,7 @@
       "corum": "CORUM-SCPI- und Lebensversicherungsbestände",
       "sofidy": "Sofidy-SCPI-Bestände",
       "traderepublic": "Trade Republic",
+      "lbp": "La Banque Postale",
       "finary": "Finary",
       "crypto": "Krypto"
     },
@@ -1857,6 +2242,12 @@
       "resetMfaConfirmTitle": "Zwei-Faktor-Authentifizierung zurücksetzen?",
       "resetMfaConfirmDesc": "Dadurch wird 2FA für das Konto des Mitglieds deaktiviert, seine Wiederherstellungscodes werden widerrufen und es wird überall abgemeldet. Nur verwenden, wenn der Zugriff auf die Authenticator-App verloren ging und kein Wiederherstellungscode mehr genutzt werden kann.",
       "mfaOn": "2FA aktiv",
+      "signInPassword": "Passwort",
+      "signInSso": "SSO",
+      "unlinkSso": "SSO trennen",
+      "unlinkSsoTitle": "SSO für {{name}} trennen?",
+      "unlinkSsoDescription": "Dieses Mitglied kann sich nicht mehr per SSO anmelden und wird überall abgemeldet. Bleibt kein Passwort, braucht es einen Link zum Zurücksetzen des Passworts, um sich wieder anzumelden.",
+      "unlinkSsoFailed": "Das Trennen von SSO für {{name}} ist fehlgeschlagen.",
       "delete": "Löschen",
       "deleteConfirmTitle": "Mitglied löschen",
       "deleteConfirmDesc": "Dadurch werden das Mitglied und alle seine Daten gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
@@ -2016,6 +2407,9 @@
       "submitError": "Das Konto konnte nicht erstellt werden. Versuche es erneut.",
       "showPassword": "Passwort anzeigen",
       "hidePassword": "Passwort verbergen",
+      "ssoHint": "Der Administrator von Picsou meldet sich mit {{provider}} an. Verwende ein Konto aus der Administratorengruppe.",
+      "ssoContinue": "Weiter mit {{provider}}",
+      "ssoMisconfigured": "Zum Anlegen des Administrators ist Single Sign-on erforderlich, aber seine Einstellungen sind ungültig. Prüfe die Serverprotokolle.",
       "strength": {
         "weak": "Schwach",
         "fair": "Ausreichend",
@@ -2059,6 +2453,10 @@
         "fortuneo": {
           "title": "Fortuneo",
           "description": "Synchronisiere dein PEA, Wertpapier- und Girokonto mit Zwei-Faktor-Authentifizierung."
+        },
+        "lbp": {
+          "title": "La Banque Postale",
+          "description": "Synchronisiere dein Girokonto und deine Sparbücher (Livret A, LEP) mit Tastatur und mobiler Bestätigung."
         },
         "traderepublic": {
           "title": "Trade Republic",
@@ -2240,6 +2638,13 @@
       "tip": "Picsou speichert nur eine verschlüsselte Sitzung. Passwort und 2FA-Code werden nie gespeichert. Importierte Konten bleiben ihrem PEA-, Wertpapier- oder Girokonto zugeordnet.",
       "cta": "Fortuneo aktivieren",
       "skip": "Fortuneo nicht aktivieren"
+    },
+    "lbp": {
+      "title": "La Banque Postale ist bereit.",
+      "body": "Verbinde dein Konto nach der Einrichtung über Konten → Konto hinzufügen. Du gibst deine Kennung ein und dann deine sechs Ziffern auf der Tastatur der Bank.",
+      "tip": "Picsou speichert nur eine verschlüsselte Sitzung und, wenn du es möchtest, deine Kennung. Passwort und Tastenpositionen werden nie gespeichert.",
+      "cta": "La Banque Postale aktivieren",
+      "skip": "La Banque Postale nicht aktivieren"
     }
   },
   "import": {
@@ -2574,6 +2979,26 @@
       "interest": "Zinsen",
       "insurance": "Versicherung",
       "totalPayment": "Rate",
+      "peerLoan": "Privatdarlehen",
+      "borrower": "Kreditnehmer",
+      "lentAt": "Verliehen am",
+      "expectedBack": "Rückzahlung erwartet",
+      "ratePeriod": "Zinsperiode",
+      "plannedMonthly": "Geplante Monatsrate",
+      "plannedMonths": "Geplante Laufzeit (Monate)",
+      "plannedInterest": "Geplante Zinsen",
+      "principal": "Verliehenes Kapital",
+      "principalRemaining": "Restkapital",
+      "interestAccrued": "Aufgelaufene Zinsen",
+      "interestReceived": "Erhaltene Zinsen",
+      "writtenOff": "Abgeschrieben",
+      "closedAt": "Geschlossen am",
+      "cashAccount": "Zahlungskonto",
+      "repaymentJournal": "Rückzahlungsjournal",
+      "paidOn": "Bezahlt am",
+      "amount": "Betrag",
+      "kind": "Art",
+      "note": "Notiz",
       "yes": "Ja",
       "no": "Nein"
     }
@@ -2911,5 +3336,60 @@
     "suggestionsBanner": "{{count}} savings account to configure",
     "suggestionsBanner_other": "{{count}} savings accounts to configure",
     "configureSavings": "Configure"
+  },
+  "activation": {
+    "title": "Aktiviere dein Konto",
+    "subtitle": "Wähle ein Passwort, um die Einrichtung deines Kontos abzuschließen.",
+    "subtitleSso": "Aktiviere es mit {{provider}} oder wähle ein Passwort, um die Einrichtung deines Kontos abzuschließen.",
+    "noticeTitle": "Hinweis zum Datenzugriff",
+    "noticeBody": "Der Administrator dieser Picsou-Instanz hat technischen Zugriff auf alle hier gespeicherten Daten, einschließlich Bankverbindungen und API-Zugangsdaten. Mit der Aktivierung deines Kontos bestätigst du dies.",
+    "acknowledge": "Ich verstehe und bestätige, dass der Administrator Zugriff auf alle Daten dieser Instanz hat.",
+    "ssoButton": "Mit {{provider}} aktivieren",
+    "password": "Passwort",
+    "passwordPlaceholder": "Mindestens 8 Zeichen",
+    "confirmPassword": "Passwort bestätigen",
+    "confirmPlaceholder": "Passwort wiederholen",
+    "submit": "Konto aktivieren",
+    "submitting": "Wird aktiviert...",
+    "successTitle": "Konto aktiviert!",
+    "successRedirect": "Weiterleitung zur Anmeldung...",
+    "errors": {
+      "acknowledgeRequired": "Du musst den Hinweis zum Datenzugriff bestätigen.",
+      "passwordTooShort": "Das Passwort muss mindestens 8 Zeichen lang sein.",
+      "passwordMismatch": "Die Passwörter stimmen nicht überein.",
+      "invalidLink": "Ungültiger Aktivierungslink.",
+      "failed": "Die Aktivierung ist fehlgeschlagen. Der Link ist möglicherweise abgelaufen."
+    }
+  },
+  "reauth": {
+    "confirm": "Bestätigen",
+    "confirmWith": "Mit {{provider}} bestätigen",
+    "ssoHint": "{{provider}} bittet dich, dich erneut anzumelden, und bringt dich dann hierher zurück.",
+    "expired": "Deine Bestätigung ist abgelaufen. Bitte bestätige deine Identität erneut."
+  },
+  "ssoErrors": {
+    "NOT_LINKED": "Dieses Konto ist nicht mit deinem Anmeldeanbieter verknüpft. Melde dich mit deinem Passwort an und verknüpfe es dann in den Einstellungen.",
+    "NOT_IN_ADMIN_GROUP": "Dein Konto gehört nicht zur Gruppe, die für die Verwaltung dieser Instanz erforderlich ist.",
+    "IDENTITY_IN_USE": "Diese Identität ist bereits mit einem anderen Konto verknüpft.",
+    "REAUTH_REQUIRED": "Bitte bestätige deine Identität erneut, um fortzufahren.",
+    "REAUTH_TOO_OLD": "Deine letzte Bestätigung ist zu alt. Bitte bestätige deine Identität erneut.",
+    "REAUTH_WRONG_ACCOUNT": "Du hast ein anderes Konto bestätigt als das, mit dem du angemeldet bist. Bitte verwende dasselbe Konto.",
+    "ACCOUNT_INACTIVE": "Dieses Konto ist inaktiv. Wende dich an deine Administratorin oder deinen Administrator.",
+    "ADMIN_RECOVERY_ACTIVE": "Für dieses Konto läuft eine Administrator-Wiederherstellung. Schließe sie ab, bevor du dich mit SSO anmeldest.",
+    "ACTIVATION_INVALID": "Mit diesem Link ist kein Single Sign-on möglich. Wenn es ein Link zum Zurücksetzen des Passworts ist, lege stattdessen im Formular ein neues Passwort fest. Andernfalls ist der Link ungültig, abgelaufen oder bereits verwendet worden: Bitte deine Administratorin oder deinen Administrator um einen neuen.",
+    "SETUP_ALREADY_CLAIMED": "Die Ersteinrichtung wurde bereits von einem anderen Administrator übernommen.",
+    "IDP_UNAVAILABLE": "Der Anmeldeanbieter ist nicht erreichbar. Bitte versuche es in einigen Minuten erneut.",
+    "IDP_ERROR": "Der Anmeldeanbieter hat einen Fehler gemeldet. Bitte versuche es erneut.",
+    "SESSION_EXPIRED": "Dein Anmeldeversuch ist abgelaufen. Bitte starte erneut.",
+    "RATE_LIMITED": "Zu viele Versuche. Bitte warte einen Moment und versuche es erneut.",
+    "SSO_ADMIN_REQUIRED": "Die Ersteinrichtung erfordert einen Administrator deines Anmeldeanbieters. Nutze SSO, um das Administratorkonto anzulegen.",
+    "IDENTITY_NOT_USED_YET": "Du hast dich noch nicht mit SSO angemeldet. Melde dich einmal damit an, bevor du die Passwort-Anmeldung abschaltest.",
+    "LAST_SIGN_IN_METHOD": "Das ist deine letzte Anmeldemethode. Füge eine weitere hinzu, bevor du sie entfernst.",
+    "PASSWORD_ALREADY_SET": "Für dieses Konto ist bereits ein Passwort festgelegt.",
+    "REAUTH_FAILED": "Die erneute Authentifizierung ist fehlgeschlagen. Prüfe deine Zugangsdaten und versuche es erneut.",
+    "SSO_REVALIDATE": "Deine Sitzung muss beim Anmeldeanbieter erneut bestätigt werden.",
+    "SSO_DISABLED": "Single Sign-on ist auf dieser Instanz nicht aktiviert.",
+    "SELF_UNLINK_FORBIDDEN": "Um deine eigenen SSO-Identitäten zu trennen, nutze Anmeldemethoden in den Einstellungen.",
+    "generic": "Die Single-Sign-on-Anmeldung ist fehlgeschlagen. Bitte versuche es erneut."
   }
 }

@@ -3,7 +3,7 @@ package com.picsou.adapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.adapter.sidecar.SidecarClient;
-import com.picsou.adapter.sidecar.SidecarSession;
+import com.picsou.adapter.sidecar.SidecarSessionState;
 import com.picsou.adapter.sidecar.SidecarWebClientFactory;
 import com.picsou.port.SidecarInitiate;
 import com.picsou.port.SidecarErrorCode;
@@ -95,7 +95,7 @@ public class SofidyAdapter {
         return sidecar.post(
             "/complete",
             Map.of("processId", processId, "code", code),
-            SidecarSession.class,
+            SidecarSessionState.class,
             validationTimeout,
             "Could not complete Sofidy authentication",
             SidecarErrorCode.MFA_INVALID

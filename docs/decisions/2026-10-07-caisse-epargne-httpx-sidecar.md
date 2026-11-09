@@ -3,6 +3,17 @@
 > Date: 2026-10-07
 > Status: ✅ Active
 
+> **Amended 2026-11-03: the identifier is remembered.** Point 3 no longer means
+> "cookies only". Typing the identifier at every reconnect was a chore, and the
+> session lives a few minutes, so reconnects are frequent. Like Bourso
+> (`bourso_session.encrypted_credentials`, `V103`), the identifier of the last
+> successful login is now stored encrypted in `caisse_epargne_session.encrypted_credentials`
+> (`V142`). It is personal data, hence encrypted, but not sufficient to log in alone:
+> it only fills the first login step. The password
+> (keypad positions) and the Sécur'Pass approval are still never stored, so the
+> rejected alternative "Store the credentials to log in again" still stands: no
+> unattended login is possible.
+
 ## Context
 
 Enable Banking reaches Caisse d'Epargne payment accounts, but the user wants the
@@ -38,7 +49,8 @@ our replays, the browser cookie rotation or an idle limit caused it.
 3. **Cookies-only session, encrypted.** The backend stores the session cookies
    (each with its domain and path) encrypted through `CryptoEncryption`, bound to
    the member (table `caisse_epargne_session`, migration `V109`). The password and
-   the Sécur'Pass approval are never stored. A session the bank rejects becomes
+   the Sécur'Pass approval are never stored. (Since 2026-11-03 the identifier is
+   stored too, encrypted: see the amendment above.) A session the bank rejects becomes
    inactive and must be reconnected, it is never renewed silently.
 4. **On-demand sync only.** `POST /api/caisse-epargne/sync` is the only trigger.
    Caisse d'Epargne is not part of the 08:00 member sync, the startup sync or the

@@ -12,3 +12,12 @@ describe('PER euro-fund pocket wording', () => {
     expect(accounts.perEuroFundBalance).not.toEqual(accounts.cashBalance)
   })
 })
+
+describe('assurance vie euro-fund pocket wording', () => {
+  it.each(Object.entries({ fr, en, de, es }))('%s has a label distinct from cash and from the PER one', (_, locale) => {
+    const accounts = locale.accounts as Record<string, unknown>
+    expect(accounts.lifeEuroFundBalance).toBeTypeOf('string')
+    expect(accounts.lifeEuroFundBalance).not.toEqual(accounts.cashBalance)
+    expect(accounts.lifeEuroFundBalance).not.toEqual(accounts.perEuroFundBalance)
+  })
+})

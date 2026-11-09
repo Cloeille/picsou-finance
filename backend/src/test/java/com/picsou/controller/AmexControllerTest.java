@@ -2,7 +2,7 @@ package com.picsou.controller;
 
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
-import com.picsou.model.AmexSyncStatus;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.AmexSyncService;
 import com.picsou.service.UserContext;
@@ -86,7 +86,7 @@ class AmexControllerTest {
     @Test
     void completeAuthEndpointScopesTheOtpToTheCurrentMember() throws Exception {
         when(service.completeAuth("process-123", "123456", MEMBER_ID))
-            .thenReturn(sessionStatus(AmexSyncStatus.QUEUED));
+            .thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
 
         mockMvc.perform(post("/api/amex/auth/complete")
                 .with(req -> {
@@ -154,7 +154,7 @@ class AmexControllerTest {
 
     @Test
     void statusAndClearUseOnlyTheCurrentMember() {
-        var success = sessionStatus(AmexSyncStatus.SUCCESS);
+        var success = sessionStatus(SidecarSyncStatus.SUCCESS);
         when(service.getStatus(MEMBER_ID)).thenReturn(success);
 
         assertThat(controller.status()).isSameAs(success);
@@ -163,7 +163,7 @@ class AmexControllerTest {
         verify(service).clearSession(MEMBER_ID);
     }
 
-    private AmexSyncService.SessionStatusResponse sessionStatus(AmexSyncStatus syncStatus) {
+    private AmexSyncService.SessionStatusResponse sessionStatus(SidecarSyncStatus syncStatus) {
         return new AmexSyncService.SessionStatusResponse(true, syncStatus, null, null, null);
     }
 }

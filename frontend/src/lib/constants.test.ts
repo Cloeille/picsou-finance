@@ -13,8 +13,8 @@ import es from '@/i18n/locales/es.json'
  */
 const EVERY_TYPE: AccountType[] = [
   'CHECKING', 'SAVINGS', 'LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL',
-  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS', 'REAL_ESTATE', 'SCPI',
-  'EMPLOYEE_SAVINGS', 'LOAN', 'CREDIT_CARD', 'OTHER',
+  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS', 'BROKERAGE', 'REAL_ESTATE', 'SCPI',
+  'EMPLOYEE_SAVINGS', 'LOAN', 'CREDIT_CARD', 'PEER_LOAN', 'OTHER',
 ]
 
 const LOCALES = { fr, en, de, es } as Record<string, { accountTypes: Record<string, string> }>
@@ -47,6 +47,17 @@ describe('PER account type', () => {
 
   it('has its own label rather than falling back to Other', () => {
     expect(accountTypeLabelKey('PER')).toBe('accountTypes.per')
+  })
+})
+
+describe('peer loan account type', () => {
+  it('is a receivable, never a liability', () => {
+    expect(LIABILITY_ACCOUNT_TYPES).not.toContain('PEER_LOAN')
+    expect(HOLDING_ACCOUNT_TYPES).not.toContain('PEER_LOAN')
+  })
+
+  it('has its own label rather than falling back to Other', () => {
+    expect(accountTypeLabelKey('PEER_LOAN')).toBe('accountTypes.peerLoan')
   })
 })
 
