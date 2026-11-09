@@ -393,15 +393,16 @@ class BanquePopulaireSyncServiceAuthTest {
     }
 
     @Test
-    void initiateAuth_withoutAnIdentifierCanOverrideTheRegion() {
+    void initiateAuth_withoutAnIdentifierAlwaysUsesTheRememberedRegion() {
         when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.of(storedSession("encrypted-id", BanquePopulaireRegion.SUD)));
         when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
-        when(port.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.VAL_DE_FRANCE))
+        when(port.initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.SUD))
             .thenReturn(new BanquePopulairePort.InitiateResult("proc-1", keypad(), 90));
 
         service.initiateAuth(null, BanquePopulaireRegion.VAL_DE_FRANCE, 7L);
 
-        verify(port).initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.VAL_DE_FRANCE);
+        verify(port).initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.SUD);
+        verify(port, never()).initiateAuth(CUSTOMER_ID, BanquePopulaireRegion.VAL_DE_FRANCE);
     }
 
     @Test

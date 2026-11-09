@@ -126,8 +126,9 @@ public class BanquePopulaireSyncService {
             ? storedLogin(memberId)
             : null;
         String identifier = stored != null ? stored.customerId() : customerId;
+        // A remembered identifier always goes back to the regional bank it logged in at.
         BanquePopulaireRegion effectiveRegion = stored != null
-            ? (region != null ? region : stored.region())
+            ? stored.region()
             : Objects.requireNonNull(region, "region");
         return engine.initiateAuth(() -> {
             try {
@@ -190,7 +191,7 @@ public class BanquePopulaireSyncService {
             String encrypted = session.getEncryptedCredentials();
             if (encrypted != null) {
                 Optional<String> customerId = readCustomerId(encrypted);
-                if (customerId.isPresent() && session.getRegion() != null) {
+                if (customerId.isPresent()) {
                     return new StoredLogin(customerId.get(), session.getRegion(), encrypted);
                 }
                 forgetStoredCustomerId(memberId, encrypted);

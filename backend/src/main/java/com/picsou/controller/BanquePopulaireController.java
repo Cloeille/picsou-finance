@@ -78,27 +78,25 @@ public class BanquePopulaireController {
      * body is validated first, so a malformed request spends neither an attempt nor a browser
      * slot. Never retried here. The region is passed to the sidecar and kept with the pending
      * login; {@code /auth/complete} stores it on the session row. An empty {@code customerId} reuses
-     * the identifier and region remembered from the last successful login.
+     * the identifier and region remembered from the last successful login; the request's region is
+     * then ignored, so the remembered identifier never goes to another regional bank.
      */
     @PostMapping("/auth/initiate")
     public ResponseEntity<?> initiate(@RequestBody JsonNode body, HttpServletRequest request) {
         // Read strictly: an unexpected field (a password, typically) is refused, never ignored.
-        requireAllowedFields(body, Set.of("customerId", "region"), Set.of("customerId"));
+        requireOnlyFields(body, "customerId", "region");
         String customerId = text(body, "customerId");
+        String rawRegion = text(body, "region");
         BanquePopulaireRegion region;
         if (customerId.isEmpty()) {
+            // The remembered login keeps its own region: whatever region came with it is ignored.
             customerId = null;
-            if (body.has("region")) {
-                String rawRegion = text(body, "region");
-                region = rawRegion.isEmpty() ? null : region(rawRegion);
-            } else {
-                region = null;
-            }
+            region = null;
         } else {
-            if (!CUSTOMER_ID.matcher(customerId).matches() || !body.has("region")) {
+            if (!CUSTOMER_ID.matcher(customerId).matches()) {
                 throw invalidBody();
             }
-            region = region(text(body, "region"));
+            region = region(rawRegion);
         }
         ConsumptionProbe probe = consumeToken(authBuckets, RateLimitConfig::createBanquePopulaireAuthBucket, request);
         if (!probe.isConsumed()) {
@@ -185,17 +183,6 @@ public class BanquePopulaireController {
         Set<String> names = new HashSet<>();
         body.fieldNames().forEachRemaining(names::add);
         if (!names.equals(Set.of(allowed))) {
-            throw invalidBody();
-        }
-    }
-
-    static void requireAllowedFields(JsonNode body, Set<String> allowed, Set<String> required) {
-        if (body == null || !body.isObject()) {
-            throw invalidBody();
-        }
-        Set<String> names = new HashSet<>();
-        body.fieldNames().forEachRemaining(names::add);
-        if (!allowed.containsAll(names) || !names.containsAll(required)) {
             throw invalidBody();
         }
     }

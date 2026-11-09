@@ -40,10 +40,13 @@ class BanquePopulaireSessionTest {
     }
 
     @Test
-    void neverStoresCredentials() {
-        // Decision D5: cookies only, never the password.
+    void neverStoresThePassword() {
+        // Decision D5: never the password. The only credential kept is the encrypted identifier.
         assertThat(Arrays.stream(BanquePopulaireSession.class.getDeclaredFields()).map(Field::getName))
-            .noneMatch(name -> name.toLowerCase().contains("credential") || name.toLowerCase().contains("password"));
+            .noneMatch(name -> name.toLowerCase().contains("password"));
+        assertThat(Arrays.stream(BanquePopulaireSession.class.getDeclaredFields()).map(Field::getName)
+            .filter(name -> name.toLowerCase().contains("credential")))
+            .containsExactly("encryptedCredentials");
     }
 
     @Test

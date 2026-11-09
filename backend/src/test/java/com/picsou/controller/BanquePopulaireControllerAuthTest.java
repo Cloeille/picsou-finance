@@ -131,7 +131,8 @@ class BanquePopulaireControllerAuthTest {
             "{\"customerId\":\"A123 4567\",\"region\":\"BRED\"}",
             "{\"customerId\":\"\u00c91234567\",\"region\":\"BRED\"}",
             "{\"customerId\":\"123456789012345678901\",\"region\":\"BRED\"}",
-            "{\"customerId\":\"\",\"region\":\"NOT_A_REGION\"}")) {
+            "{\"customerId\":\"\"}",
+            "{\"customerId\":\"\",\"region\":7}")) {
             initiate(body, "127.0.0.1").andExpect(status().is4xxClientError());
         }
 
@@ -144,18 +145,11 @@ class BanquePopulaireControllerAuthTest {
         when(service.initiateAuth(null, null, MEMBER_ID)).thenReturn(challenge("proc-1"));
 
         initiate("{\"customerId\":\"\",\"region\":\"\"}", "127.0.0.1").andExpect(status().isOk());
-        initiate("{\"customerId\":\"\"}", "127.0.0.1").andExpect(status().isOk());
-
-        verify(service, times(2)).initiateAuth(null, null, MEMBER_ID);
-    }
-
-    @Test
-    void initiateWithAnEmptyIdentifierAndRegionPassesRegionToService() throws Exception {
-        when(service.initiateAuth(null, BanquePopulaireRegion.BRED, MEMBER_ID)).thenReturn(challenge("proc-1"));
-
+        // A region sent along is ignored: the remembered identifier only goes back to its own bank.
         initiate("{\"customerId\":\"\",\"region\":\"BRED\"}", "127.0.0.1").andExpect(status().isOk());
+        initiate("{\"customerId\":\"\",\"region\":\"NOT_A_REGION\"}", "127.0.0.1").andExpect(status().isOk());
 
-        verify(service).initiateAuth(null, BanquePopulaireRegion.BRED, MEMBER_ID);
+        verify(service, times(3)).initiateAuth(null, null, MEMBER_ID);
     }
 
     @Test
