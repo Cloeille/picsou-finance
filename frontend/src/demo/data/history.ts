@@ -4,6 +4,7 @@ import { mockAccounts } from './accounts'
 import { daysBeforeToday, isoDate, monthStartFromToday } from './dates'
 import { holdingsCostBasis, holdingsValue, mockHoldings } from './holdings'
 import { demoLoanSchedule } from './loans'
+import { demoPeerLoanBalanceAt } from './peer-loans'
 
 /** An account's holdings repriced on each of the last twelve month starts. */
 function holdingsHistory(accountId: number): number[] {
@@ -38,6 +39,12 @@ export const mockBalanceHistory: Record<number, number[]> = {
   12: [-640, -910, -720, -1050, -830, -1180, -760, -990, -1120, -870, -1030.5, -1284.6],
   // SCPI: withdrawal price easing
   13: [9100, 9100, 9050, 9050, 9000, 9000, 8950, 8950, 8900, 8900, 8850, 8800],
+  // Peer loans: capital still owed, stepping down with each repayment.
+  16: Array.from({ length: 12 }, (_, i) => demoPeerLoanBalanceAt(16, monthStartFromToday(i - 11))),
+  17: Array.from({ length: 12 }, (_, i) => demoPeerLoanBalanceAt(17, monthStartFromToday(i - 11))),
+  // Banque Populaire checking and Livret A, added by the connector's demo sync
+  18: [980, 1420, 1100, 1530, 1190, 1380, 1050, 1470, 1160, 1340, 1210, 1250],
+  19: [3500, 3560, 3620, 3680, 3740, 3800, 3860, 3920, 3980, 4040, 4170, 4300],
   ...Object.fromEntries(mockAccounts.filter((account) => account.type === 'LOAN').map((account) => [
     account.id,
     Array.from({ length: 12 }, (_, i) =>
@@ -88,9 +95,11 @@ export function netWorthHistory(accountIds: number[], months: number, split: boo
     for (const { id, account, history } of rows) {
       const balance = history[first + i]?.balance ?? 0
       const liability = account != null && LIABILITY_ACCOUNT_TYPES.includes(account.type)
+      // A receivable is an asset but neither invested nor gain: HistoryService zeroes both.
+      const receivable = account?.type === 'PEER_LOAN'
       const total = account?.type === 'LOAN' ? -balance : balance
-      const invested = liability ? 0 : id in mockHoldings ? holdingsCostBasis(id) : balance
-      const pnl = liability ? 0 : total - invested
+      const invested = liability || receivable ? 0 : id in mockHoldings ? holdingsCostBasis(id) : balance
+      const pnl = liability || receivable ? 0 : total - invested
       sums.total += total
       sums.invested += invested
       sums.pnl += pnl

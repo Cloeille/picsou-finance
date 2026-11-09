@@ -10,7 +10,7 @@ import java.time.Instant;
  * Per-member Interactive Brokers Flex Web Service connection.
  *
  * <p>Holds the encrypted Flex token and query id used to pull Open Positions once
- * a day. Structurally identical to {@link FinarySession} / {@link BoursoSession}:
+ * a day. Structurally identical to {@link FinarySession} / {@link SidecarSession}:
  * a single row per {@link FamilyMember}, credentials encrypted at rest by
  * {@code CryptoEncryption}. No account balances live here — those become
  * {@link Account} + {@link AccountHolding} rows at sync time.

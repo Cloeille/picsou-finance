@@ -35,7 +35,7 @@
 
 ### AccountType
 
-`LEP` · `LIVRET_A` · `LDDS` · `LIVRET_JEUNE` · `PEL` · `CEL` · `PEA` · `COMPTE_TITRES` · `CRYPTO` · `CHECKING` · `SAVINGS` · `REAL_ESTATE` · `SCPI` · `LOAN` · `EMPLOYEE_SAVINGS` · `ASSURANCE_VIE` · `PER` · `CREDIT_CARD` · `PRECIOUS_METALS` · `OTHER`
+`LEP` · `LIVRET_A` · `LDDS` · `LIVRET_JEUNE` · `PEL` · `CEL` · `PEA` · `COMPTE_TITRES` · `CRYPTO` · `CHECKING` · `SAVINGS` · `REAL_ESTATE` · `SCPI` · `LOAN` · `EMPLOYEE_SAVINGS` · `ASSURANCE_VIE` · `PER` · `CREDIT_CARD` · `PRECIOUS_METALS` · `BROKERAGE` · `OTHER`
 
 ### WealthTier
 
@@ -2320,6 +2320,75 @@ row with no ticker is listed on the credited account with `ticker` null and the 
 is the account holding the line (a Trade Republic cash dividend reports the PEA); with no readable
 holder of that ticker, or several of the same provider, it stays the credited account. `amount` is
 the credit as booked, not weighted by the member's share.
+
+---
+
+### 16d. Wise jars — `/api/wise`
+
+One connection per member: a Wise personal API token, stored encrypted. Each sync reads the jars
+(`SAVINGS` balances) of every profile the token sees and keeps them as savings accounts, balance
+only. Only `https://api.wise.com` is contacted. Connect and sync share one per-IP limit of 6
+requests per minute; over it, both return `429`. See
+[`docs/features/wise-jars.md`](../../docs/features/wise-jars.md).
+
+#### `POST /api/wise/connect`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 6 / min, shared with `/sync`
+
+**Request body:**
+```json
+{ "token": "Wise personal API token (required, at most 512 characters)" }
+```
+
+**Response `200` — `AccountResponse[]`:** the imported jars. The token is stored only when Wise
+accepted it.
+
+**Errors:** 422 (blank or oversized token; malformed token, with `code: "INVALID_TOKEN"`; Wise
+refused it, with `code: "SESSION_EXPIRED"`; Wise rate limiting, with `code: "RATE_LIMITED"`; Wise
+unreachable), 404 (unknown member), 429
+
+---
+
+#### `GET /api/wise/status`
+
+- **Auth:** Required
+
+**Response `200` — `WiseConnectionStatusResponse`:**
+```json
+{
+  "connected": true,
+  "connectionId": 3,
+  "status": "CONNECTED",
+  "lastSyncedAt": "2026-11-03T08:00:00Z",
+  "maskedToken": "••••e1f0"
+}
+```
+
+Without a connection every field but `connected: false` is `null`. `status` is
+`REAUTH_REQUIRED` after Wise refused the stored token (connect again with a new one to replace it
+in place) and `ERROR` after any other failed sync.
+
+---
+
+#### `POST /api/wise/sync`
+
+- **Auth:** Required
+- **Rate limit:** Per IP — 6 / min, shared with `/connect`
+
+**Response `200` — `AccountResponse[]`:** the jars updated by this sync.
+
+**Errors:** 422 (no connection; Wise refused the token, with `code: "SESSION_EXPIRED"`, and the
+connection becomes `REAUTH_REQUIRED`; Wise rate limiting, with `code: "RATE_LIMITED"`; other
+Wise failures), 429
+
+---
+
+#### `DELETE /api/wise/connection`
+
+- **Auth:** Required
+
+**Response `204`.** The token is removed; imported jars and their history are kept.
 
 ---
 

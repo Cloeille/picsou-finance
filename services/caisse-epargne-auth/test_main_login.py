@@ -9,9 +9,9 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-import login
+from bpce import login
 import main
-from fake_browser import World
+from bpce.testing import World
 
 TEST_KEY = "caisse-epargne-sidecar-test-key"
 HEADERS = {"X-Picsou-Sidecar-Key": TEST_KEY}
@@ -68,7 +68,7 @@ class InitiateContractTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), OK_INITIATE)
-        fake.assert_awaited_once_with(CUSTOMER_ID)
+        fake.assert_awaited_once_with(main.SITE, CUSTOMER_ID)
 
     def test_keypad_success_shape(self):
         with patch.object(login, "keypad", AsyncMock(return_value=OK_KEYPAD)) as fake:

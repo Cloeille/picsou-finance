@@ -2,7 +2,7 @@ package com.picsou.controller;
 
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
-import com.picsou.model.BourseDirectSyncStatus;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.BourseDirectSyncService;
 import com.picsou.service.UserContext;
@@ -86,7 +86,7 @@ class BourseDirectControllerTest {
 
     @Test
     void completeAuthEndpointScopesOtpToTheCurrentMember() throws Exception {
-        var queued = sessionStatus(BourseDirectSyncStatus.QUEUED);
+        var queued = sessionStatus(SidecarSyncStatus.QUEUED);
         when(service.completeAuth("process-123", "123456", MEMBER_ID)).thenReturn(queued);
 
         mockMvc.perform(post("/api/bourse-direct/auth/complete")
@@ -164,7 +164,7 @@ class BourseDirectControllerTest {
 
     @Test
     void syncReturnsAcceptedAndTheObservableQueueStatus() {
-        var queued = sessionStatus(BourseDirectSyncStatus.QUEUED);
+        var queued = sessionStatus(SidecarSyncStatus.QUEUED);
         when(service.queueSync(MEMBER_ID)).thenReturn(queued);
 
         var response = controller.sync();
@@ -176,7 +176,7 @@ class BourseDirectControllerTest {
 
     @Test
     void statusAndClearUseOnlyTheCurrentMember() {
-        var success = sessionStatus(BourseDirectSyncStatus.SUCCESS);
+        var success = sessionStatus(SidecarSyncStatus.SUCCESS);
         when(service.getStatus(MEMBER_ID)).thenReturn(success);
 
         assertThat(controller.status()).isSameAs(success);
@@ -185,7 +185,7 @@ class BourseDirectControllerTest {
         verify(service).clearSession(MEMBER_ID);
     }
 
-    private BourseDirectSyncService.SessionStatusResponse sessionStatus(BourseDirectSyncStatus syncStatus) {
+    private BourseDirectSyncService.SessionStatusResponse sessionStatus(SidecarSyncStatus syncStatus) {
         return new BourseDirectSyncService.SessionStatusResponse(
             true, null, syncStatus, null, null, null
         );

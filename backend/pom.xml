@@ -197,14 +197,14 @@
         <dependency>
             <groupId>io.sentry</groupId>
             <artifactId>sentry</artifactId>
-            <version>8.63.0</version>
+            <version>8.62.0</version>
         </dependency>
 
         <!-- Apache POI - Excel file parsing -->
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
-            <version>5.4.0</version>
+            <version>6.0.0</version>
         </dependency>
 
         <!-- SQLite JDBC - reads Actual Budget exports (db.sqlite), read-only. Version managed by Spring Boot. -->
