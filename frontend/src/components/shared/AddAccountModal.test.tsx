@@ -182,8 +182,8 @@ describe('AddAccountModal Trade Republic wizard', () => {
   })
 
   it('moves focus to the TAN input once the PIN is accepted', async () => {
-    initiateTrAuth.mockImplementation((_params, options: { onSuccess: (data: { processId: string }) => void }) => {
-      options.onSuccess({ processId: 'process-123' })
+    initiateTrAuth.mockImplementation((_params, options: { onSuccess: (data: { processId: string; flow: string; countdownInSeconds: number }) => void }) => {
+      options.onSuccess({ processId: 'process-123', flow: 'otp', countdownInSeconds: 120 })
     })
 
     renderTradeRepublicWizard()
@@ -195,8 +195,8 @@ describe('AddAccountModal Trade Republic wizard', () => {
   })
 
   it('keeps the TAN form visible when completion fails', async () => {
-    initiateTrAuth.mockImplementation((_params, options: { onSuccess: (data: { processId: string }) => void }) => {
-      options.onSuccess({ processId: 'process-123' })
+    initiateTrAuth.mockImplementation((_params, options: { onSuccess: (data: { processId: string; flow: string; countdownInSeconds: number }) => void }) => {
+      options.onSuccess({ processId: 'process-123', flow: 'otp', countdownInSeconds: 120 })
     })
     completeTrAuth.mockImplementation((_params, options: { onError: (error: unknown) => void }) => {
       options.onError({ response: { status: 500, data: { detail: 'VALIDATION_CODE_INVALID' } } })

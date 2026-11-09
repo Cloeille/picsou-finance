@@ -19,9 +19,9 @@ com.picsou/
 ├── model/          JPA entities — financial: Account, AccountHolding, Transaction,
 │                   BalanceSnapshot, Goal, GoalManualContribution, GoalContributor,
 │                   Debt, RealEstateMetadata, PropertyValuation, AccountOwnership, WalletAddress;
-│                   integrations: Requisition, TradeRepublicSession, CryptoExchangeSession,
+│                   integrations: Requisition, CryptoExchangeSession,
 │                   FinarySession, DegiroSession, RevolutSession,
-│                   SidecarSession (one row per sidecar bank and member),
+│                   SidecarSession (one row per sidecar bank and member, Trade Republic included),
 │                   PriceSnapshot;
 │                   identity & sharing: AppUser, FamilyMember, UserRole, SharingSettings,
 │                   SharingLevel, SharedResource, UserMfa, UserMfaRecoveryCode,
@@ -137,7 +137,7 @@ After the prices, the same pass queues a background lookup of share and ETF logo
 Client → TradeRepublicController → TRSyncService → TRAdapter → tr-auth (Python) → TR WebSocket
 ```
 
-Broker sync via Python microservice (Playwright automation). Two modes: automatic WebSocket sync and CSV import fallback. Session persisted in `TradeRepublicSession` entity.
+Broker sync via the `tr-auth` Python sidecar (login confirmed in the Trade Republic app, session refresh); the backend reads the portfolio over the WebSocket. Two modes: automatic sync and CSV import fallback. The session is a `SidecarSession` row (bank `TRADE_REPUBLIC`), synced through `SidecarSyncTemplate` like the other sidecar banks.
 
 ### 4. Bourse Direct
 

@@ -74,7 +74,8 @@ class SidecarSyncContractTest {
         Map.entry(SidecarBank.CMES, CmesSyncService.class),
         Map.entry(SidecarBank.CORUM, CorumSyncService.class),
         Map.entry(SidecarBank.FORTUNEO, FortuneoSyncService.class),
-        Map.entry(SidecarBank.SOFIDY, SofidySyncService.class)
+        Map.entry(SidecarBank.SOFIDY, SofidySyncService.class),
+        Map.entry(SidecarBank.TRADE_REPUBLIC, TradeRepublicSyncService.class)
     );
 
     /** The banks SidecarSyncRecovery does not run at boot, as before this refactor. */
@@ -373,7 +374,8 @@ class SidecarSyncContractTest {
         if (type == TransactionTemplate.class) return inlineTransactions();
         if (adapter) {
             return mock(type, invocation -> {
-                if (invocation.getMethod().getName().startsWith("fetch")) {
+                String call = invocation.getMethod().getName();
+                if (call.startsWith("fetch") || call.equals("openSession")) {
                     onFetch.run();
                     throw new SyncException(bank.label() + " is down", null,
                         SidecarErrorCode.UPSTREAM_UNAVAILABLE.name());

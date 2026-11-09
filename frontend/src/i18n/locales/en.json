@@ -1260,7 +1260,6 @@
       "clearSession": "Disconnect",
       "noSession": "No active session",
       "sessionActive": "Active session",
-      "expiresAt": "Expires on",
       "errors": {
         "tooManyAttempts": "Too many attempts. Please wait a few minutes.",
         "invalidPhoneNumber": "Invalid phone number.",
@@ -1268,13 +1267,24 @@
         "invalidTan": "The verification code is incorrect or expired. Use the latest code you received, or restart the step to receive a new one.",
         "authenticationFailed": "Trade Republic authentication failed.",
         "serviceUnavailable": "The local Trade Republic service is unavailable. Restart the servers, then try again.",
-        "temporarilyBlocked": "Trade Republic blocked the request. Retry in a minute.",
         "serverError": "Trade Republic server error. Please try again.",
         "phoneNumberRequired": "Phone number is required.",
         "pinRequired": "PIN is required.",
         "validationFailed": "Invalid data.",
-        "unknownError": "An unexpected error occurred."
-      }
+        "unknownError": "An unexpected error occurred.",
+        "invalidCredentials": "Incorrect Trade Republic phone number or PIN.",
+        "appValidationTimeout": "The login was not confirmed in the app in time. Please start over.",
+        "appValidationCancelled": "The login was declined in the Trade Republic app. Please start over.",
+        "authAttemptExpired": "The authentication attempt expired. Please start over.",
+        "sessionExpired": "The Trade Republic session expired. Please reconnect."
+      },
+      "appConfirmPrompt": "Confirm the login in your Trade Republic app.",
+      "appConfirmHint": "This page updates as soon as you confirm.",
+      "countdownLabel": "Time left:",
+      "queued": "Sync queued…",
+      "syncing": "Syncing…",
+      "syncSuccess": "Last sync succeeded.",
+      "staleAccounts": "Your Trade Republic accounts are no longer updated: their session has ended. Sign in again below to resume the daily sync."
     },
     "revolut": {
       "title": "Revolut",

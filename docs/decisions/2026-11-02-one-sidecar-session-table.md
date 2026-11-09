@@ -37,8 +37,8 @@ existed for some banks and not others (issue #337, part of #326).
 - **One contract suite, `SidecarSyncContractTest`.** It runs the shared
   scenarios against every bank's real service.
 
-Degiro, Revolut and Trade Republic keep their own tables. Their schemas differ,
-and they are left to a follow-up.
+Degiro and Revolut keep their own tables. Their schemas differ, and they are
+left to a follow-up. Trade Republic joined `sidecar_session` later, in V149.
 
 **Banque Populaire joined in V147 (#478).** Its table (V134) is created after
 V142 on a fresh database, so V142 could not take it. V147 adds the bank to the
