@@ -39,11 +39,41 @@ lock-out limit.
 | Frontend | `BnpPanel` (Sync tab and Add account), keypad pop-up with ten key buttons, approval/code panel, `BnpTab`. |
 | Migration `V150` | Adds `BNP` and its error codes to the two CHECK constraints of `sidecar_session`, rebuilt from V149 (Banque Populaire and Trade Republic kept). |
 
-Security properties: strict host allow-list checked on every request and on every redirect hop (exact
-hosts, https only, no credentials in the URL, no suffix rule); analytics hosts (`assets.adobedtm.com`,
-`aa.online-metrix.net`) are refused quietly; any other host stops the login. The cookie jar only keeps the
-brand's own cookies. Sidecar error details never reach the UI: the frontend maps stable codes to
-translated messages.
+Security properties: strict host policy checked on every request and on every redirect hop (see
+"Host policy" below); the cookie jar only keeps the brand's own cookies. Sidecar error details never reach
+the UI: the frontend maps stable codes to translated messages.
+
+### Host policy
+
+The bank's login page loads ThreatMetrix (LexisNexis) fraud profiling from `h<n>.online-metrix.net` and from
+random-label hosts under `aa.online-metrix.net`, and Akamai Bot Manager from `/akam/...` on the bank's own
+hosts. The page fills `pf.idTMX` from that profiling, so the sidecar lets those requests load: blocking
+them would leave the profile empty and the bank would likely refuse or escalate the login (a blanket "any
+off-list host is a site change" rule would stop every login on these tags). The policy is decided per request (`verdict` in `services/bnp-auth/bank.py`), in this order:
+
+1. **Exact brand hosts** (`mabanque.bnpparibas`, `connexion.mabanque.bnpparibas`,
+   `content.connexion.mabanque.bnpparibas`, or the three Hello bank! ones; https, port 443, no credentials):
+   allowed. Akamai `/akam` scripts and pixels live on these hosts, so they are covered.
+2. **Main-frame navigation** to anything else, including every redirect hop and the login form post:
+   stops the attempt (`UPSTREAM_FORMAT_CHANGED`, the host name is logged, never the URL). Fail closed.
+3. **Known vendor sub-resources** (ThreatMetrix: any strict sub-domain of `online-metrix.net`, matched on a
+   dot boundary, https, port 443, no credentials; `evil-online-metrix.net`, `online-metrix.net.evil.example`
+   and the bare apex do not match): allowed, for sub-resources and sub-frames of the bank's page only. A
+   vendor host can never receive the main-frame navigation, so it never sees the form post.
+4. **Any other sub-frame or any request with a body or a write verb** to a third-party host (it could
+   carry the customer number or the code): aborted and stops the attempt.
+5. **Any other third-party sub-resource without a body** (for example the `assets.adobedtm.com` analytics
+   script, pixels, fonts): aborted silently; the login goes on. Its host name is logged once at INFO.
+
+The WebRTC beacon of ThreatMetrix stays off (`block_webrtc`), because it would go around this policy.
+Whether the bank accepts a login without it is unverified.
+
+Every stop logs a fixed stage name next to the stable code, for example
+`BNP attempt stopped: UPSTREAM_FORMAT_CHANGED (stage=page_load)`. Stages: `page_load`, `login_page`,
+`login_form`, `customer_number`, `keypad_read`, `keypad_press`, `submit`, `after_submit`,
+`after_submit_redirect`, `after_submit_timeout`, `login_error`, `second_factor`, `second_factor_wait`,
+`sms_code`, `approval_wait`, `session_cookies`, `snapshot_load`, `snapshot_fetch`, `snapshot_parse`,
+`snapshot`. A stage is a constant of the code, never page content, so it is safe to share.
 
 ## Product mapping and import rules
 
@@ -72,7 +102,8 @@ either checked on the **public** pages with a real browser (nothing typed), or *
 - The login runs on a PingFederate OIDC page: `connexion.mabanque.bnpparibas` (BNP Paribas) and
   `connexion.hellobank.fr` (Hello bank!), path `/as/authorization.oauth2`. The site hosts are
   `mabanque.bnpparibas` and `www.hellobank.fr`; ThreatMetrix first-party hosts are
-  `content.connexion.<domain>`. These six hosts are the whole allow-list.
+  `content.connexion.<domain>`. These six hosts are the whole exact allow-list; the ThreatMetrix vendor
+  domain is the only suffix rule (see "Host policy").
 - The form is `form#identForm` with `pf.username`, `pf.pass.positions` and `pf.idTMX`. The keypad is ten
   HTML `<button>` elements in a 5x2 grid, shuffled per page load; the value submitted for a key is its
   0-based DOM position. The login is one POST; a refusal comes back as a redirect carrying `error_code`.
@@ -85,8 +116,8 @@ public recon only, to be confirmed by the first real login:
 
 - **The second factor.** Both a Cle Digitale approval (app push, `APPROVAL_PENDING`) and an SMS code
   (`CODE_REQUIRED`) are implemented, because it is not known which one a given customer gets. Which page
-  and which host the second factor lives on is unknown: any host outside the allow-list stops the login
-  (`UPSTREAM_FORMAT_CHANGED`, the host name is logged, never the URL) rather than being followed. A second
+  and which host the second factor lives on is unknown: a navigation to a host outside the allow-list stops the login
+  (`UPSTREAM_FORMAT_CHANGED`, the host name and the stage are logged, never the URL) rather than being followed. A second
   factor the sidecar cannot classify stops with `MFA_TYPE_UNSUPPORTED`.
 - Every post-login JSON endpoint, verb, field name and the account-family / product-label mapping
   (`parsers.py`), the session cookies and lifetime, `codeRetour` `-30` as a second "session expired" value,

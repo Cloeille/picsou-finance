@@ -18,7 +18,10 @@ Verification status (docs/features/bnp-paribas.md, "Verification boundary"):
     endpoint, path, verb and schema below, `codeRetour` -30, session lifetime.
 Whenever the page does not look as expected the sidecar stops and says so (KEYPAD_CHANGED,
 MFA_TYPE_UNSUPPORTED, UPSTREAM_FORMAT_CHANGED); it never guesses, and any request to a host outside
-the brand's allow-list stops the login and logs the host name (host only).
+the brand's allow-list stops the login and logs the host name (host only), except the sub-resources
+the bank's own page loads from its known fraud vendor (ThreatMetrix, `*.online-metrix.net`), which load,
+and passive third-party sub-resources (analytics), which are dropped silently (see `verdict`). Every
+stop logs a fixed stage name (`stage=...`), never page content.
 """
 
 import asyncio
@@ -66,10 +69,17 @@ BRANDS = {
     "hellobank": _brand("hellobank", "www.hellobank.fr", "connexion.hellobank.fr",
                         "https://www.hellobank.fr/auth/login?requiredDAC=3", "hellobank.fr"),
 }
-# Exact hosts, no suffix rule. Everything the browser requests, document or not, must be one of the
-# brand's three hosts, except the analytics hosts below, which are refused without stopping the login.
+# Host policy (docs/features/bnp-paribas.md, "Host policy"). Exact hosts, https, default port, no
+# credentials: the brand's own three hosts. They are the only destination of a main-frame navigation
+# (the login form post included) and of any request that carries a body, unless the request is a
+# sub-resource of a known vendor below. Known vendors are matched by a dot-bounded suffix and only
+# for the sub-resources the bank's own page loads from them. Every other third-party sub-resource
+# without a body is aborted silently; anything else off-list stops the attempt.
 ALL_HOSTS = frozenset().union(*(brand.hosts for brand in BRANDS.values()))
-BLOCKED_HOSTS = frozenset({"assets.adobedtm.com", "aa.online-metrix.net"})
+VENDOR_DOMAINS = ("online-metrix.net",)  # ThreatMetrix (LexisNexis): `<n>.online-metrix.net`, `<id>.e.aa.online-metrix.net`
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+ALLOW, IGNORE, STOP = "allow", "ignore", "stop"
+MAX_LOGGED_HOSTS = 10
 
 PENDING_TTL_SECONDS = 300
 MAX_PENDING = 4
@@ -146,7 +156,10 @@ _FETCH_JS = """async ([method, path, body]) => {
 }"""
 
 
-def fail(status: int, detail: str) -> HTTPException:
+def fail(status: int, detail: str, stage: str | None = None) -> HTTPException:
+    """`stage` is a fixed step name (never page content): it is logged so a failure is diagnosable."""
+    if stage is not None:
+        log.warning("BNP attempt stopped: %s (stage=%s)", detail, stage)
     return HTTPException(status_code=status, detail=detail)
 
 
@@ -179,17 +192,76 @@ def is_allowed_url(url: Any, hosts: frozenset[str] = ALL_HOSTS) -> bool:
         return False
 
 
-class Guard:
-    """Request filter for one browser context.
+def vendor_of(url: Any) -> str | None:
+    """The known vendor domain a URL belongs to (https, default port, no credentials, a strict
+    sub-domain of it with a dot boundary: `evil-online-metrix.net` and the bare apex do not match)."""
+    if not isinstance(url, str):
+        return None
+    try:
+        parts = urlsplit(url)
+        if parts.scheme != "https" or parts.username is not None or parts.password is not None or parts.port not in (None, 443):
+            return None
+        host = parts.hostname or ""
+    except ValueError:
+        return None
+    return next((domain for domain in VENDOR_DOMAINS if host.endswith("." + domain)), None)
 
-    - an allowed URL goes through;
-    - a known analytics host (BLOCKED_HOSTS) is refused and ignored;
-    - any other host is refused AND stops the attempt (`tainted`), its host name is remembered and
-      logged, so an unexpected redirect (the second-factor page is on an unobserved host) is reported
-      instead of silently followed.
+
+def is_vendor_url(url: Any) -> bool:
+    return vendor_of(url) is not None
+
+
+def _is_main_frame_navigation(request: Any) -> bool:
+    """Unknown means yes: an unreadable request is judged by the strictest rule."""
+    try:
+        return bool(request.is_navigation_request()) and request.frame.parent_frame is None
+    except Exception:
+        return True
+
+
+def _is_navigation(request: Any) -> bool:
+    try:
+        return bool(request.is_navigation_request())
+    except Exception:
+        return True
+
+
+def _carries_data(request: Any) -> bool:
+    try:
+        return str(request.method).upper() not in SAFE_METHODS or request.post_data is not None
+    except Exception:
+        return True
+
+
+def verdict(request: Any, hosts: frozenset[str]) -> str:
+    """ALLOW (load it), IGNORE (abort silently) or STOP (abort and end the attempt) for one request."""
+    url = request.url
+    if is_allowed_url(url, hosts):
+        return ALLOW
+    # The login form post and every redirect of a page load are main-frame navigations: exact hosts only.
+    if _is_main_frame_navigation(request):
+        return STOP
+    # What the bank's own page loads from its known fraud vendor (scripts, pixels, beacons, its iframe).
+    if is_vendor_url(url):
+        return ALLOW
+    # A foreign frame or anything that sends a body or a write verb could carry the identifier or the code.
+    if _is_navigation(request) or _carries_data(request):
+        return STOP
+    # A passive third-party sub-resource (analytics script, pixel, font): dropped without a trace on the login.
+    return IGNORE
+
+
+class Guard:
+    """Request filter for one browser context (`verdict` holds the policy).
+
+    - ALLOW goes through;
+    - IGNORE is aborted and counted (`blocked`), its host name is logged once;
+    - STOP is aborted AND taints the attempt (`tainted`), its host name is remembered and logged, so
+      an unexpected redirect (the second-factor page is on an unobserved host) is reported instead
+      of silently followed.
     Playwright's Firefox routing may not report every redirect hop to a route handler, so every
-    finished request's redirect chain is checked again (`observe`); one off-list hop taints the
-    attempt and the caller drops the whole browser.
+    finished request's redirect chain is checked again (`observe`); one STOP hop taints the attempt
+    and the caller drops the whole browser.
     """
 
     def __init__(self, hosts: frozenset[str]) -> None:
@@ -197,6 +269,23 @@ class Guard:
         self.tainted = False
         self.blocked = 0
         self.unknown_hosts: list[str] = []
+        self.ignored_hosts: list[str] = []
+        self.vendors_seen: list[str] = []
+
+    def _note(self, request: Any) -> None:
+        """Host names only, once each (a vendor once per domain: its sub-domains are random)."""
+        vendor = vendor_of(request.url)
+        if is_allowed_url(request.url, self.hosts):
+            return
+        if vendor is not None:
+            if vendor not in self.vendors_seen and len(self.vendors_seen) < MAX_LOGGED_HOSTS:
+                self.vendors_seen.append(vendor)
+                log.info("BNP page loads sub-resources from the vendor %s", vendor)
+            return
+        host = (host_of(request.url) or "unparsable")[:100]
+        if host not in self.ignored_hosts and len(self.ignored_hosts) < MAX_LOGGED_HOSTS:
+            self.ignored_hosts.append(host)
+            log.info("BNP page sub-resource from a third-party host was dropped: %s", host)
 
     def _unknown(self, url: Any) -> None:
         self.tainted = True
@@ -207,13 +296,17 @@ class Guard:
             log.warning("BNP browser requested a host outside the allow-list: %s", host[:100])
 
     async def route(self, route: Any) -> None:
-        url = route.request.url
-        if is_allowed_url(url, self.hosts):
+        request = route.request
+        decision = verdict(request, self.hosts)
+        if decision == ALLOW:
+            self._note(request)
             await route.continue_()
             return
         self.blocked += 1
-        if host_of(url) not in BLOCKED_HOSTS:
-            self._unknown(url)
+        if decision == STOP:
+            self._unknown(request.url)
+        else:
+            self._note(request)
         await route.abort()
 
     def observe(self, request: Any) -> None:
@@ -224,7 +317,7 @@ class Guard:
             if hops > MAX_REDIRECTS:
                 self.tainted = True
                 return
-            if not is_allowed_url(hop.url, self.hosts) and host_of(hop.url) not in BLOCKED_HOSTS:
+            if verdict(hop, self.hosts) == STOP:
                 self._unknown(hop.url)
                 return
             hop = hop.redirected_from
@@ -257,7 +350,7 @@ async def launch(brand: Brand) -> dict[str, Any]:
     try:
         # Headful under the container's Xvfb: the edge (Akamai, ThreatMetrix) profiles the browser.
         # WebRTC stays off so the ThreatMetrix TURN beacon (aa.online-metrix.net) cannot go around
-        # the host allow-list. UNVERIFIED: whether the bank accepts a login without that beacon.
+        # the host policy. UNVERIFIED: whether the bank accepts a login without that beacon.
         camoufox = AsyncCamoufox(headless=False, humanize=True, os="linux", locale="fr-FR", block_webrtc=True)
         state["camoufox"] = camoufox
         state["browser"] = await camoufox.__aenter__()
@@ -276,10 +369,10 @@ async def launch(brand: Brand) -> dict[str, Any]:
         raise
 
 
-def require_clean(state: dict[str, Any]) -> None:
+def require_clean(state: dict[str, Any], stage: str) -> None:
     """The attempt stops as soon as the browser asked for a host outside the allow-list."""
     if state["guard"].tainted:
-        raise fail(502, "UPSTREAM_FORMAT_CHANGED")
+        raise fail(502, "UPSTREAM_FORMAT_CHANGED", stage=stage)
 
 
 def on_site(url: str, brand: Brand) -> bool:
@@ -327,7 +420,7 @@ def login_failure(url: str) -> HTTPException | None:
             (answer for needles, answer in ERROR_NAMES if any(needle in value for needle in needles)),
             (502, "UPSTREAM_FORMAT_CHANGED"),
         )
-    return fail(status, code)
+    return fail(status, code, stage="login_error")
 
 
 async def fetch_json(page: Any, key: str, body: dict | None = None) -> Any:
@@ -335,7 +428,7 @@ async def fetch_json(page: Any, key: str, body: dict | None = None) -> Any:
     method, path = ENDPOINTS[key] if key in ENDPOINTS else ("GET", key)
     result = await page.evaluate(_FETCH_JS, [method, path, body])
     if not isinstance(result, dict) or not isinstance(result.get("text"), str) or len(result["text"]) > 8_000_000:
-        raise fail(502, "UPSTREAM_FORMAT_CHANGED")
+        raise fail(502, "UPSTREAM_FORMAT_CHANGED", stage="snapshot_fetch")
     if result.get("status") in (401, 403):
         raise fail(401, "SESSION_EXPIRED")
     if result.get("status") != 200:
@@ -405,11 +498,11 @@ class BrowserBankClient:
             try:
                 await page.goto(brand.entry, wait_until="domcontentloaded", timeout=45_000)
             except Exception:
-                require_clean(state)
-                raise fail(502, "UPSTREAM_UNAVAILABLE") from None
-            require_clean(state)
+                require_clean(state, "page_load")
+                raise fail(502, "UPSTREAM_UNAVAILABLE", stage="page_load") from None
+            require_clean(state, "page_load")
             if not on_login(page.url, brand):
-                raise fail(409, "KEYPAD_CHANGED")
+                raise fail(409, "KEYPAD_CHANGED", stage="login_page")
             keys = await self._read_keypad(page, brand, customer_id, state)
             process_id = uuid.uuid4().hex
             state.update(stage="keypad", process_id=process_id, submit_url=page.url)
@@ -435,15 +528,15 @@ class BrowserBankClient:
             and (action.hostname or "") == brand.login and action.scheme == "https"
             and action.path.startswith("/as/") and action.path.endswith("/authorization.ping")
         ):
-            raise fail(409, "KEYPAD_CHANGED")
+            raise fail(409, "KEYPAD_CHANGED", stage="login_form")
         try:
             await page.fill(USER_INPUT, customer_id, timeout=10_000)
             await page.get_by_role("button", name=CONTINUE_BUTTON_NAME).click(timeout=10_000)
             await page.wait_for_selector(f"{STEP_PASSWORD}:not(.hidden) {KEY_BUTTONS}", state="visible", timeout=STEP_SECONDS * 1000)
         except Exception:
-            require_clean(state)
-            raise fail(409, "KEYPAD_CHANGED") from None
-        require_clean(state)
+            require_clean(state, "customer_number")
+            raise fail(409, "KEYPAD_CHANGED", stage="customer_number") from None
+        require_clean(state, "keypad_read")
         found = await page.evaluate(_INSPECT_JS, [FORM, USER_INPUT, GRID_INPUT, STEP_PASSWORD, KEY_BUTTONS, SUBMIT_BUTTON])
         keys = found.get("keys")
         if (
@@ -453,7 +546,7 @@ class BrowserBankClient:
             or any(not isinstance(key, str) or not re.fullmatch(r"[0-9]", key) for key in keys)
             or len(set(keys)) != KEY_COUNT
         ):
-            raise fail(409, "KEYPAD_CHANGED")
+            raise fail(409, "KEYPAD_CHANGED", stage="keypad_read")
         return keys
 
     async def keypad(self, process_id: str, positions: list[int]) -> str:
@@ -466,7 +559,7 @@ class BrowserBankClient:
         page = state["page"]
         keep = False
         try:
-            require_clean(state)
+            require_clean(state, "keypad_press")
             if len(positions) != POSITIONS or any(not 0 <= position < KEY_COUNT for position in positions):
                 raise fail(400, "INVALID_REQUEST")
             # The member's click order, replayed as real clicks on the real buttons.
@@ -476,18 +569,18 @@ class BrowserBankClient:
                     await keys.nth(position).click(timeout=10_000)
                 pressed = await page.evaluate(_PRESSED_JS, [GRID_INPUT, SUBMIT_BUTTON])
             except Exception:
-                require_clean(state)
-                raise fail(409, "KEYPAD_CHANGED") from None
+                require_clean(state, "keypad_press")
+                raise fail(409, "KEYPAD_CHANGED", stage="keypad_press") from None
             # The page's own field must hold exactly the clicked positions (verified live: one
             # character per press, the 0-based DOM index) and the submit must be enabled.
             if pressed.get("value") != "".join(str(position) for position in positions) or not pressed.get("enabled"):
-                raise fail(409, "KEYPAD_CHANGED")
+                raise fail(409, "KEYPAD_CHANGED", stage="keypad_press")
             # One submission, never retried: a wrong keypad counts against the bank's lockout.
             try:
                 await page.click(SUBMIT_BUTTON, timeout=10_000)
             except Exception:
-                require_clean(state)
-                raise fail(409, "KEYPAD_CHANGED") from None
+                require_clean(state, "submit")
+                raise fail(409, "KEYPAD_CHANGED", stage="submit") from None
             outcome = await self._settle(page, brand, state)
             if isinstance(outcome, HTTPException):
                 raise outcome
@@ -497,7 +590,7 @@ class BrowserBankClient:
             else:
                 kind = await self._second_factor_kind(page)
                 if kind is None:
-                    raise fail(422, "MFA_TYPE_UNSUPPORTED")
+                    raise fail(422, "MFA_TYPE_UNSUPPORTED", stage="second_factor")
                 state.update(stage="mfa", kind=kind)
                 status = "CODE_REQUIRED" if kind == "sms" else "APPROVAL_PENDING"
             state["created_at"] = time.time()
@@ -515,10 +608,10 @@ class BrowserBankClient:
         while time.monotonic() < deadline:
             await asyncio.sleep(0.5)
             if state["guard"].tainted:
-                return fail(502, "UPSTREAM_FORMAT_CHANGED")
+                return fail(502, "UPSTREAM_FORMAT_CHANGED", stage="after_submit")
             url = page.url
             if not is_allowed_url(url, brand.hosts):
-                return fail(502, "UPSTREAM_FORMAT_CHANGED")
+                return fail(502, "UPSTREAM_FORMAT_CHANGED", stage="after_submit_redirect")
             failure = login_failure(url)
             if failure is not None:
                 return failure
@@ -532,7 +625,7 @@ class BrowserBankClient:
             # A different page that stayed put without a session: the second-factor step (UNVERIFIED).
             if time.monotonic() - changed_at >= STABLE_SECONDS:
                 return "second_factor"
-        return fail(409, "KEYPAD_CHANGED")
+        return fail(409, "KEYPAD_CHANGED", stage="after_submit_timeout")
 
     async def _second_factor_kind(self, page: Any) -> str | None:
         try:
@@ -549,7 +642,7 @@ class BrowserBankClient:
         deadline = time.monotonic() + seconds
         while True:
             if state["guard"].tainted:
-                raise fail(502, "UPSTREAM_FORMAT_CHANGED")
+                raise fail(502, "UPSTREAM_FORMAT_CHANGED", stage="second_factor_wait")
             failure = login_failure(page.url)
             if failure is not None:
                 raise failure
@@ -578,8 +671,8 @@ class BrowserBankClient:
                     await field.fill(code, timeout=10_000)
                     await field.press("Enter")
                 except Exception:
-                    require_clean(state)
-                    raise fail(409, "MFA_TYPE_UNSUPPORTED") from None
+                    require_clean(state, "sms_code")
+                    raise fail(409, "MFA_TYPE_UNSUPPORTED", stage="sms_code") from None
                 if not await self._wait_logged_in(page, brand, state, SMS_SETTLE_SECONDS):
                     # Still on the code page: the member may retype once; the backend counts tries.
                     state["created_at"] = time.time()
@@ -591,8 +684,8 @@ class BrowserBankClient:
                     raise fail(400, "INVALID_REQUEST")
                 wait = 0 if kind == "none" else APP_APPROVAL_SECONDS
                 if not await self._wait_logged_in(page, brand, state, wait):
-                    raise fail(408, "APP_VALIDATION_TIMEOUT") if kind == "app" else fail(502, "UPSTREAM_FORMAT_CHANGED")
-            require_clean(state)
+                    raise fail(408, "APP_VALIDATION_TIMEOUT") if kind == "app" else fail(502, "UPSTREAM_FORMAT_CHANGED", stage="approval_wait")
+            require_clean(state, "session_cookies")
             return encode_session(brand, await state["context"].cookies())
         finally:
             if not keep:
@@ -610,9 +703,9 @@ class BrowserBankClient:
                 # The site's home: any page of the site host gives the API its origin and cookies.
                 await page.goto(brand.base + "/", wait_until="domcontentloaded", timeout=45_000)
             except Exception:
-                require_clean(state)
-                raise fail(502, "UPSTREAM_UNAVAILABLE") from None
-            require_clean(state)
+                require_clean(state, "snapshot_load")
+                raise fail(502, "UPSTREAM_UNAVAILABLE", stage="snapshot_load") from None
+            require_clean(state, "snapshot_load")
             try:
                 if not on_site(page.url, brand) or not session_alive(await fetch_json(page, INFOS_CLIENT)):
                     raise fail(401, "SESSION_EXPIRED")
@@ -620,8 +713,8 @@ class BrowserBankClient:
             except parsers.SessionExpired:
                 raise fail(401, "SESSION_EXPIRED") from None
             except parsers.ParseError as exc:
-                raise fail(502, exc.code) from None
-            require_clean(state)
+                raise fail(502, exc.code, stage="snapshot_parse") from None
+            require_clean(state, "snapshot")
             return {
                 "brand": brand.name,
                 "accounts": snapshot[0],
@@ -684,7 +777,7 @@ def encode_session(brand: Brand, cookies: list[dict]) -> str:
     kept = [{key: c[key] for key in COOKIE_KEYS if key in c} for c in cookies if cookie_in_scope(c, brand)]
     text = json.dumps({"v": 2, "brand": brand.name, "cookies": kept}, separators=(",", ":"))
     if not kept or len(text) > MAX_SESSION_STATE:
-        raise fail(502, "UPSTREAM_FORMAT_CHANGED")
+        raise fail(502, "UPSTREAM_FORMAT_CHANGED", stage="session_cookies")
     return base64.b64encode(text.encode()).decode("ascii")
 
 

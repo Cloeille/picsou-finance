@@ -28,6 +28,26 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def req(url, kind="script", method="GET", body=None, frame="main", redirected_from=None):
+    """A Playwright request, synthetic. `kind` is the resource type; a main-frame or sub-frame document is a navigation."""
+    request = MagicMock()
+    request.url = url
+    request.method = method
+    request.post_data = body
+    request.resource_type = kind
+    request.redirected_from = redirected_from
+    request.is_navigation_request.return_value = kind == "document"
+    request.frame.parent_frame = None if frame == "main" else MagicMock()
+    return request
+
+
+def routed(request):
+    route = MagicMock()
+    route.request = request
+    route.continue_, route.abort = AsyncMock(), AsyncMock()
+    return route
+
+
 class AllowListTest(unittest.TestCase):
     def test_only_exact_https_brand_hosts_pass(self):
         ok = [
@@ -50,6 +70,7 @@ class AllowListTest(unittest.TestCase):
             "https://hellobank.fr/",  # not an allow-listed host: only www.
             "https://assets.adobedtm.com/x.js",
             "https://aa.online-metrix.net/fp.js",
+            "https://h64.online-metrix.net/fp/tags.js",
             "https://169.254.169.254/",
             "https://localhost/",
             "ftp://mabanque.bnpparibas/",
@@ -71,41 +92,22 @@ class AllowListTest(unittest.TestCase):
 
     def test_every_hop_of_a_redirect_chain_is_checked(self):
         guard = bank.Guard(BNP.hosts)
-        clean = MagicMock(url=SECURE, redirected_from=MagicMock(url=LOGIN, redirected_from=None))
+        first = req(LOGIN, "document")
+        clean = req(SECURE, "document", redirected_from=first)
         guard.observe(clean)
         self.assertFalse(guard.tainted)
-        hijacked = MagicMock(url=SECURE, redirected_from=MagicMock(url="https://evil.example/x", redirected_from=None))
+        hijacked = req(SECURE, "document", redirected_from=req("https://evil.example/x", "document"))
         guard.observe(hijacked)
         self.assertTrue(guard.tainted)
         self.assertEqual(guard.unknown_hosts, ["evil.example"])
 
     def test_a_redirect_loop_is_cut_off(self):
-        hop = MagicMock(url=LOGIN, redirected_from=None)
+        hop = req(LOGIN, "document")
         for _ in range(bank.MAX_REDIRECTS + 1):
-            hop = MagicMock(url=LOGIN, redirected_from=hop)
+            hop = req(LOGIN, "document", redirected_from=hop)
         guard = bank.Guard(BNP.hosts)
         guard.observe(hop)
         self.assertTrue(guard.tainted)
-
-    def test_analytics_hosts_are_refused_quietly_and_any_other_unknown_host_stops_the_attempt(self):
-        guard = bank.Guard(BNP.hosts)
-        allowed, analytics, unknown = MagicMock(), MagicMock(), MagicMock()
-        allowed.request.url = LOGIN
-        analytics.request.url = "https://aa.online-metrix.net/fp/tags.js?org_id=x"
-        unknown.request.url = "https://secure-sms.example.net/otp?token=secret"
-        for route in (allowed, analytics, unknown):
-            route.continue_, route.abort = AsyncMock(), AsyncMock()
-        run(guard.route(allowed))
-        run(guard.route(analytics))
-        self.assertFalse(guard.tainted)
-        run(guard.route(unknown))
-        allowed.continue_.assert_awaited_once()
-        analytics.abort.assert_awaited_once()
-        unknown.abort.assert_awaited_once()
-        self.assertEqual(guard.blocked, 2)
-        self.assertTrue(guard.tainted)
-        # Only the host name is kept: never the path or query.
-        self.assertEqual(guard.unknown_hosts, ["secure-sms.example.net"])
 
     def test_the_unknown_host_log_line_names_the_host_only(self):
         guard = bank.Guard(BNP.hosts)
@@ -113,6 +115,147 @@ class AllowListTest(unittest.TestCase):
             guard._unknown("https://secure-sms.example.net/otp?token=secret")
         self.assertIn("secure-sms.example.net", logs.output[0])
         self.assertNotIn("secret", logs.output[0])
+
+
+class VendorPolicyTest(unittest.TestCase):
+    """ThreatMetrix loads from the bank's own login page; its sub-resources must load, nothing else may."""
+
+    TMX = (
+        "https://h64.online-metrix.net/fp/tags.js?org_id=x&session_id=y",
+        "https://cco37scfbztyhx63g3yuc3llnfycgs3blfvtrdnbf5131eafbf5fa653am1.e.aa.online-metrix.net/fp/clear.png",
+        "https://aa.online-metrix.net/fp/check.js",
+    )
+
+    def decide(self, request, brand=BNP):
+        guard = bank.Guard(brand.hosts)
+        route = routed(request)
+        run(guard.route(route))
+        return guard, route
+
+    def test_threatmetrix_sub_resources_of_the_page_load_without_stopping_the_login(self):
+        for url in self.TMX:
+            for kind in ("script", "image", "xhr", "fetch", "ping", "other"):
+                with self.subTest(url=url[:40], kind=kind):
+                    guard, route = self.decide(req(url, kind))
+                    route.continue_.assert_awaited_once()
+                    route.abort.assert_not_awaited()
+                    self.assertFalse(guard.tainted)
+                    self.assertEqual(guard.unknown_hosts, [])
+
+    def test_a_threatmetrix_iframe_loads_but_a_threatmetrix_page_never_replaces_the_bank_page(self):
+        guard, route = self.decide(req(self.TMX[0], "document", frame="child"))
+        route.continue_.assert_awaited_once()
+        self.assertFalse(guard.tainted)
+        guard, route = self.decide(req(self.TMX[0], "document", method="POST", frame="main"))
+        route.abort.assert_awaited_once()
+        route.continue_.assert_not_awaited()
+        self.assertTrue(guard.tainted)
+        self.assertEqual(guard.unknown_hosts, ["h64.online-metrix.net"])
+
+    def test_a_form_post_or_navigation_to_any_off_list_host_stops_the_attempt(self):
+        for url in ("https://evil.example/login", "https://adobedtm.example/x", self.TMX[1]):
+            with self.subTest(url=url[:40]):
+                guard, route = self.decide(req(url, "document", method="POST", body="pf.pass.positions=x"))
+                route.abort.assert_awaited_once()
+                self.assertTrue(guard.tainted)
+
+    def test_a_lookalike_vendor_host_is_not_the_vendor(self):
+        for url in (
+            "https://evil-online-metrix.net/fp/tags.js",
+            "https://online-metrix.net.evil.example/fp/tags.js",
+            "https://xonline-metrix.net/fp.js",
+            "https://online-metrix.net/fp.js",
+            "https://h64.online-metrix.net./fp.js",
+            "http://h64.online-metrix.net/fp.js",
+            "https://user@h64.online-metrix.net/fp.js",
+            "https://h64.online-metrix.net:8443/fp.js",
+        ):
+            with self.subTest(url=url):
+                self.assertFalse(bank.is_vendor_url(url))
+                guard, route = self.decide(req(url, "script"))
+                route.continue_.assert_not_awaited()
+                route.abort.assert_awaited_once()
+        self.assertTrue(bank.is_vendor_url(self.TMX[1]))
+
+    def test_other_third_party_scripts_and_images_are_aborted_silently(self):
+        guard = bank.Guard(BNP.hosts)
+        for url, kind in (
+            ("https://assets.adobedtm.com/launch.min.js", "script"),
+            ("https://stats.example.net/pixel.gif", "image"),
+            ("https://fonts.example.net/a.woff2", "font"),
+            ("https://stats.example.net/beat", "ping"),
+        ):
+            route = routed(req(url, kind))
+            run(guard.route(route))
+            route.abort.assert_awaited_once()
+            route.continue_.assert_not_awaited()
+        self.assertFalse(guard.tainted)
+        self.assertEqual(guard.unknown_hosts, [])
+        self.assertEqual(guard.blocked, 4)
+
+    def test_a_third_party_request_that_could_carry_the_identifier_or_the_code_stops_the_attempt(self):
+        cases = (
+            req("https://stats.example.net/c", "xhr", method="POST", body='{"a":1}'),
+            req("https://stats.example.net/c", "fetch", method="PUT"),
+            req("https://stats.example.net/c", "ping", method="POST", body="x"),
+            req("https://stats.example.net/frame", "document", frame="child"),
+        )
+        for request in cases:
+            with self.subTest(kind=request.resource_type, method=request.method):
+                guard, route = self.decide(request)
+                route.abort.assert_awaited_once()
+                self.assertTrue(guard.tainted)
+                self.assertEqual(guard.unknown_hosts, ["stats.example.net"])
+
+    def test_brand_hosts_and_exact_allow_listing_are_unchanged(self):
+        for url, kind in ((LOGIN, "document"), (STEP2, "document"), ("https://content.connexion.mabanque.bnpparibas/akam/13/x", "script")):
+            guard, route = self.decide(req(url, kind))
+            route.continue_.assert_awaited_once()
+            self.assertFalse(guard.tainted)
+        # The other brand's hosts are off-list for this brand, also as sub-resources with a body.
+        guard, route = self.decide(req("https://www.hellobank.fr/x", "xhr", method="POST", body="x"))
+        self.assertTrue(guard.tainted)
+
+    def test_observe_does_not_taint_for_vendor_or_ignored_hops_but_does_for_a_navigation_hop(self):
+        guard = bank.Guard(BNP.hosts)
+        guard.observe(req(self.TMX[0], "script"))
+        guard.observe(req("https://assets.adobedtm.com/x.js", "script"))
+        self.assertFalse(guard.tainted)
+        guard.observe(req(SECURE, "document", redirected_from=req(self.TMX[0], "document", method="GET")))
+        self.assertTrue(guard.tainted)
+
+    def test_each_vendor_and_ignored_host_is_logged_once_by_name_only(self):
+        guard = bank.Guard(BNP.hosts)
+        with self.assertLogs("bnp-auth", level="INFO") as logs:
+            for _ in range(3):
+                run(guard.route(routed(req(self.TMX[0] + "&secret=1", "script"))))
+                run(guard.route(routed(req("https://assets.adobedtm.com/x.js?token=secret", "script"))))
+        text = "\n".join(logs.output)
+        self.assertEqual(text.count("online-metrix.net"), 1)
+        self.assertEqual(text.count("assets.adobedtm.com"), 1)
+        self.assertNotIn("secret", text)
+        self.assertNotIn("h64", text)
+
+
+class StageLogTest(unittest.TestCase):
+    def test_a_site_changed_failure_names_its_stage_and_nothing_else(self):
+        with self.assertLogs("bnp-auth", level="WARNING") as logs:
+            exc = bank.fail(502, "UPSTREAM_FORMAT_CHANGED", stage="page_load")
+        self.assertEqual(exc.detail, "UPSTREAM_FORMAT_CHANGED")
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("stage=page_load", logs.output[0])
+        self.assertIn("UPSTREAM_FORMAT_CHANGED", logs.output[0])
+
+    def test_a_clean_attempt_is_silent_and_a_tainted_one_logs_the_stage(self):
+        state = {"guard": bank.Guard(BNP.hosts)}
+        bank.require_clean(state, "page_load")
+        state["guard"]._unknown = MagicMock()
+        state["guard"].tainted = True
+        with self.assertLogs("bnp-auth", level="WARNING") as logs:
+            with self.assertRaises(HTTPException) as caught:
+                bank.require_clean(state, "customer_number")
+        self.assertEqual(caught.exception.detail, "UPSTREAM_FORMAT_CHANGED")
+        self.assertIn("stage=customer_number", logs.output[0])
 
 
 class LoginOutcomeTest(unittest.TestCase):
