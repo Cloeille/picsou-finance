@@ -31,7 +31,9 @@ says which. Only the module's own files (`one-identity-login.*` under that
 path) count, and a request aborted by the reload itself is ignored. Trade-off:
 if AMEX renames or moves the module, `module_loaded` stays false and the error
 reads as an outage (503) rather than a format change; the warning line, with
-`module_loaded=False module_failed=False`, is the tell. The backend waits up to
+`module_loaded=False module_failed=False`, is the tell. The consent banner can
+appear after the form; a Playwright locator handler declines it whenever it shows, since its
+overlay otherwise swallows the submit click until the login times out. The backend waits up to
 90 s for `/initiate` to cover two form waits and the login outcome.
 
 The user selects SMS (default) or e-mail for AMEX's one-time code. On AMEX's verify page the channels are radio inputs labelled with the masked phone number and masked e-mail address; the sidecar picks the e-mail channel when the label contains `@`, otherwise the phone (SMS) channel, then clicks **Continuer**. The older option-button markup is still handled. Logs never include labels, ids, phone numbers or e-mail addresses. The browser completes login and OTP, then captures value-free JSON response diagnostics from American Express domains while the dashboard loads. Account discovery falls back to the servicing balances API; missing enrichments remain null and never fail a sync.
