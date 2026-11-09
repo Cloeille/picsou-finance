@@ -2,7 +2,7 @@ package com.picsou.controller;
 
 import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
-import com.picsou.model.CmesSyncStatus;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.service.CmesSyncService;
 import com.picsou.service.UserContext;
@@ -79,7 +79,7 @@ class CmesControllerTest {
 
     @Test
     void completeScopesTheSmsCodeToTheCurrentMember() throws Exception {
-        when(service.completeAuth("process", "123456", MEMBER_ID)).thenReturn(sessionStatus(CmesSyncStatus.QUEUED));
+        when(service.completeAuth("process", "123456", MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
 
         mockMvc.perform(post("/api/cmes/auth/complete")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -91,7 +91,7 @@ class CmesControllerTest {
     /** A mobile confirmation is approved in the bank's app: there is no code to send. */
     @Test
     void completeAcceptsAMobileConfirmationWithoutACode() throws Exception {
-        when(service.completeAuth("process", null, MEMBER_ID)).thenReturn(sessionStatus(CmesSyncStatus.QUEUED));
+        when(service.completeAuth("process", null, MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
 
         mockMvc.perform(post("/api/cmes/auth/complete")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -156,7 +156,7 @@ class CmesControllerTest {
 
     @Test
     void theEleventhCompletionFromTheSameIpIsRateLimited() {
-        when(service.completeAuth("process", "000000", MEMBER_ID)).thenReturn(sessionStatus(CmesSyncStatus.QUEUED));
+        when(service.completeAuth("process", "000000", MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
 
         for (int attempt = 0; attempt < 10; attempt++) {
             assertThat(complete().getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -174,7 +174,7 @@ class CmesControllerTest {
     void loginsAndCompletionsDrawOnIndependentBudgets() {
         when(service.initiateAuth("12345678", "secret", MEMBER_ID))
             .thenReturn(new CmesSyncService.AuthInitResponse("process", true, "SMS"));
-        when(service.completeAuth("process", "000000", MEMBER_ID)).thenReturn(sessionStatus(CmesSyncStatus.QUEUED));
+        when(service.completeAuth("process", "000000", MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
 
         for (int attempt = 0; attempt < 5; attempt++) {
             initiate();
@@ -192,7 +192,7 @@ class CmesControllerTest {
 
     @Test
     void syncIsQueuedForTheCurrentMemberAndThrottled() {
-        when(service.queueSync(MEMBER_ID)).thenReturn(sessionStatus(CmesSyncStatus.QUEUED));
+        when(service.queueSync(MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.QUEUED));
 
         for (int attempt = 0; attempt < 10; attempt++) {
             assertThat(controller.sync(request).getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
@@ -204,7 +204,7 @@ class CmesControllerTest {
 
     @Test
     void statusAndDisconnectTouchOnlyTheCurrentMember() throws Exception {
-        when(service.getStatus(MEMBER_ID)).thenReturn(sessionStatus(CmesSyncStatus.SUCCESS));
+        when(service.getStatus(MEMBER_ID)).thenReturn(sessionStatus(SidecarSyncStatus.SUCCESS));
 
         mockMvc.perform(get("/api/cmes/status"))
             .andExpect(status().isOk())
@@ -225,7 +225,7 @@ class CmesControllerTest {
         return controller.complete(new CmesController.CompleteRequest("process", "000000"), request);
     }
 
-    private CmesSyncService.SessionStatusResponse sessionStatus(CmesSyncStatus syncStatus) {
+    private CmesSyncService.SessionStatusResponse sessionStatus(SidecarSyncStatus syncStatus) {
         return new CmesSyncService.SessionStatusResponse(true, syncStatus, null, null, null);
     }
 }

@@ -1,14 +1,15 @@
 package com.picsou.service;
 
+import com.picsou.adapter.sidecar.SidecarBank;
 import com.picsou.config.CryptoEncryption;
 import com.picsou.exception.SyncException;
-import com.picsou.model.CaisseEpargneSession;
-import com.picsou.model.CaisseEpargneSyncStatus;
+import com.picsou.model.SidecarSession;
+import com.picsou.model.SidecarSyncStatus;
 import com.picsou.model.FamilyMember;
 import com.picsou.port.SidecarErrorCode;
 import com.picsou.port.CaisseEpargnePort;
 import com.picsou.repository.AccountRepository;
-import com.picsou.repository.CaisseEpargneSessionRepository;
+import com.picsou.repository.SidecarSessionRepository;
 import com.picsou.repository.DebtRepository;
 import com.picsou.repository.FamilyMemberRepository;
 import com.picsou.repository.TransactionRepository;
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /** initiateAuth / completeAuth: no password is kept, one attempt, member-scoped, session untouched on failure. */
@@ -51,7 +53,7 @@ class CaisseEpargneSyncServiceAuthTest {
     private static final Instant T0 = Instant.parse("2026-10-07T10:00:00Z");
 
     @Mock CaisseEpargnePort port;
-    @Mock CaisseEpargneSessionRepository sessionRepository;
+    @Mock SidecarSessionRepository sessionRepository;
     @Mock AccountRepository accountRepository;
     @Mock TransactionRepository transactionRepository;
     @Mock FamilyMemberRepository memberRepository;
@@ -98,11 +100,11 @@ class CaisseEpargneSyncServiceAuthTest {
     private void arrangeStore(String plainState) {
         FamilyMember member = FamilyMember.builder().id(7L).displayName("Owner").build();
         lenient().when(memberRepository.findById(7L)).thenReturn(Optional.of(member));
-        lenient().when(sessionRepository.findByMemberIdForUpdate(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.empty());
         lenient().when(encryption.encrypt(plainState)).thenReturn("encrypted-state");
-        lenient().when(sessionRepository.saveAndFlush(any(CaisseEpargneSession.class)))
+        lenient().when(sessionRepository.saveAndFlush(any(SidecarSession.class)))
             .thenAnswer(invocation -> invocation.getArgument(0));
-        lenient().when(sessionRepository.findByMemberId(7L)).thenReturn(Optional.empty());
+        lenient().when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.empty());
     }
 
     // -- initiate -----------------------------------------------------------
@@ -111,7 +113,7 @@ class CaisseEpargneSyncServiceAuthTest {
     void initiateAuth_returnsTheKeypadAndStoresNothing() {
         challenge("proc-1", 90);
 
-        CaisseEpargneSyncService.InitiateResponse response = service.initiateAuth(CUSTOMER_ID, 7L);
+        BpceSyncEngine.InitiateResponse response = service.initiateAuth(CUSTOMER_ID, 7L);
 
         assertThat(response.processId()).isEqualTo("proc-1");
         assertThat(response.keypad().images()).hasSize(10).allMatch(IMAGE::equals);
@@ -333,26 +335,263 @@ class CaisseEpargneSyncServiceAuthTest {
 
         service.completeAuth("proc-1", 7L);
 
-        ArgumentCaptor<CaisseEpargneSession> stored = ArgumentCaptor.forClass(CaisseEpargneSession.class);
+        ArgumentCaptor<SidecarSession> stored = ArgumentCaptor.forClass(SidecarSession.class);
         verify(sessionRepository).saveAndFlush(stored.capture());
         assertThat(stored.getValue().getSessionState()).isEqualTo("encrypted-state");
-        assertThat(stored.getValue().getSyncStatus()).isEqualTo(CaisseEpargneSyncStatus.IDLE);
+        assertThat(stored.getValue().getSyncStatus()).isEqualTo(SidecarSyncStatus.IDLE);
         assertThat(stored.getValue().isActive()).isTrue();
         verify(port, never()).fetchAccounts(any());
         verify(port, never()).checkSession(any());
     }
 
     @Test
-    void completeAuth_neverHandsAnythingButTheSessionStateToEncryption() {
+    void completeAuth_encryptsTheSessionAndTheIdentifierButNeverTheKeypadPositions() {
         pushPending("proc-1");
+        when(port.completeAuth("proc-1")).thenReturn("cookies-json");
+        arrangeStore("cookies-json");
+        when(encryption.encrypt("{\"customerId\":\"" + CUSTOMER_ID + "\"}")).thenReturn("encrypted-id");
+
+        service.completeAuth("proc-1", 7L);
+
+        ArgumentCaptor<String> encrypted = ArgumentCaptor.forClass(String.class);
+        verify(encryption, org.mockito.Mockito.times(2)).encrypt(encrypted.capture());
+        assertThat(encrypted.getAllValues())
+            .containsExactlyInAnyOrder("cookies-json", "{\"customerId\":\"" + CUSTOMER_ID + "\"}");
+        ArgumentCaptor<SidecarSession> stored = ArgumentCaptor.forClass(SidecarSession.class);
+        verify(sessionRepository).saveAndFlush(stored.capture());
+        assertThat(stored.getValue().getEncryptedCredentials()).isEqualTo("encrypted-id");
+    }
+
+    // -- remembered identifier ----------------------------------------------
+
+    private SidecarSession storedSession(String encryptedCredentials) {
+        SidecarSession session = SidecarSession.create(SidecarBank.CAISSE_EPARGNE, FamilyMember.builder().id(7L).displayName("Owner").build(), "encrypted-state", T0);
+        session.setEncryptedCredentials(encryptedCredentials);
+        return session;
+    }
+
+    @Test
+    void initiateAuth_withoutAnIdentifierReusesTheRememberedOne() {
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+        when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
+        challenge("proc-1", 90);
+
+        service.initiateAuth(null, 7L);
+
+        verify(port).initiateAuth(CUSTOMER_ID);
+    }
+
+    @Test
+    void initiateAuth_withoutAnIdentifierAndNoneRememberedRefusesWithoutCallingTheBank() {
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.initiateAuth(null, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.INVALID_CREDENTIALS.name()));
+        verify(port, never()).initiateAuth(any());
+    }
+
+    @Test
+    void initiateAuth_forgetsARememberedIdentifierTheBankRejects() {
+        SidecarSession session = storedSession("encrypted-id");
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
+        when(port.initiateAuth(CUSTOMER_ID)).thenThrow(new SyncException(
+            "The identifier was refused", null, SidecarErrorCode.INVALID_CREDENTIALS.name()));
+
+        assertThatThrownBy(() -> service.initiateAuth(null, 7L)).isInstanceOf(SyncException.class);
+
+        assertThat(session.getEncryptedCredentials()).isNull();
+        verify(sessionRepository).save(session);
+    }
+
+    @Test
+    void initiateAuth_aRejectionKeepsAnIdentifierAConcurrentLoginJustStored() {
+        SidecarSession session = storedSession("encrypted-id");
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
+        when(port.initiateAuth(CUSTOMER_ID)).thenAnswer(call -> {
+            // Another login succeeds while the bank answers this one: a new identifier is stored.
+            session.setEncryptedCredentials("encrypted-newer-id");
+            throw new SyncException("The identifier was refused", null,
+                SidecarErrorCode.INVALID_CREDENTIALS.name());
+        });
+
+        assertThatThrownBy(() -> service.initiateAuth(null, 7L)).isInstanceOf(SyncException.class);
+
+        assertThat(session.getEncryptedCredentials()).isEqualTo("encrypted-newer-id");
+        verify(sessionRepository, never()).save(any());
+        verify(sessionRepository).findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L);
+        verify(sessionRepository).findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L);
+        verifyNoMoreInteractions(sessionRepository);
+    }
+
+    @Test
+    void initiateAuth_keepsTheRememberedIdentifierOnATransientFailure() {
+        SidecarSession session = storedSession("encrypted-id");
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(session));
+        when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
+        when(port.initiateAuth(CUSTOMER_ID)).thenThrow(new SyncException(
+            "Sidecar down", null, SidecarErrorCode.UPSTREAM_UNAVAILABLE.name()));
+
+        assertThatThrownBy(() -> service.initiateAuth(null, 7L)).isInstanceOf(SyncException.class);
+
+        assertThat(session.getEncryptedCredentials()).isEqualTo("encrypted-id");
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void storeSession_withoutANewIdentifierKeepsTheRememberedOne() {
+        arrangeStore("cookies-json");
+        when(sessionRepository.findByBankAndMemberIdForUpdate(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+
+        service.storeSession("cookies-json", 7L);
+
+        ArgumentCaptor<SidecarSession> stored = ArgumentCaptor.forClass(SidecarSession.class);
+        verify(sessionRepository).saveAndFlush(stored.capture());
+        assertThat(stored.getValue().getEncryptedCredentials()).isEqualTo("encrypted-id");
+    }
+
+    @Test
+    void status_saysAnIdentifierIsRememberedWithoutExposingIt() {
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+        when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\"" + CUSTOMER_ID + "\"}");
+
+        CaisseEpargneSyncService.SessionStatusResponse status = service.getStatus(7L);
+
+        assertThat(status.remembered()).isTrue();
+        assertThat(status.toString()).doesNotContain("encrypted-id").doesNotContain(CUSTOMER_ID);
+        verify(sessionRepository).findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L);
+        verifyNoMoreInteractions(sessionRepository);
+    }
+
+    @Test
+    void status_doesNotRememberAnIdentifierThatCannotBeRead() {
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+        when(encryption.decrypt("encrypted-id")).thenThrow(new IllegalStateException("wrong key"));
+
+        assertThat(service.getStatus(7L).remembered()).isFalse();
+
+        // a GET never writes: the unreadable value is only forgotten by the next initiate
+        verify(sessionRepository).findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L);
+        verifyNoMoreInteractions(sessionRepository);
+        verifyNoInteractions(txTemplate);
+    }
+
+    @Test
+    void status_doesNotRememberAStoredValueWithoutAnIdentifier() {
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(storedSession("encrypted-id")));
+        when(encryption.decrypt("encrypted-id")).thenReturn("{\"customerId\":\" \"}");
+
+        assertThat(service.getStatus(7L).remembered()).isFalse();
+        verifyNoMoreInteractions(sessionRepository);
+    }
+
+    @Test
+    void status_doesNotRememberWhenNothingIsStored() {
+        when(sessionRepository.findByBankAndMemberId(SidecarBank.CAISSE_EPARGNE, 7L)).thenReturn(Optional.of(storedSession(null)));
+
+        assertThat(service.getStatus(7L).remembered()).isFalse();
+        verifyNoInteractions(encryption);
+    }
+
+    // -- disconnect while a login is in flight -------------------------------
+
+    @Test
+    void clearSession_cancelsALoginWaitingOnThePhoneApproval() {
+        pushPending("proc-1");
+
+        service.clearSession(7L);
+
+        assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        verify(port, never()).completeAuth(any());
+        verify(sessionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void clearSession_whileTheApprovalIsBeingAwaitedStoresNothing() {
+        pushPending("proc-1");
+        when(port.completeAuth("proc-1")).thenAnswer(call -> {
+            // The user disconnects while the sidecar waits on the phone, then approves.
+            service.clearSession(7L);
+            return "cookies-json";
+        });
+        arrangeStore("cookies-json");
+
+        assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+
+        verify(sessionRepository, never()).saveAndFlush(any());
+        verify(sessionRepository, never()).delete(any());
+        verifyNoInteractions(encryption);
+    }
+
+    @Test
+    void clearSession_whileTheKeypadIsBeingSubmittedLeavesNothingToComplete() {
+        challenge("proc-1", 90);
+        service.initiateAuth(CUSTOMER_ID, 7L);
+        org.mockito.Mockito.doAnswer(call -> {
+            service.clearSession(7L);
+            return null;
+        }).when(port).submitKeypad("proc-1", POSITIONS);
+
+        assertThatThrownBy(() -> service.submitKeypad("proc-1", POSITIONS, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        assertThatThrownBy(() -> service.completeAuth("proc-1", 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        verify(port, never()).completeAuth(any());
+    }
+
+    @Test
+    void clearSession_whileTheLoginIsBeingInitiatedRegistersNothing() {
+        when(port.initiateAuth(CUSTOMER_ID)).thenAnswer(call -> {
+            service.clearSession(7L);
+            return new CaisseEpargnePort.InitiateResult("proc-1", keypad(), 90);
+        });
+
+        assertThatThrownBy(() -> service.initiateAuth(CUSTOMER_ID, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        assertThatThrownBy(() -> service.submitKeypad("proc-1", POSITIONS, 7L))
+            .isInstanceOfSatisfying(SyncException.class, error ->
+                assertThat(error.getCode()).isEqualTo(SidecarErrorCode.AUTH_ATTEMPT_EXPIRED.name()));
+        verify(port, never()).submitKeypad(any(), any());
+    }
+
+    @Test
+    void clearSession_doesNotCancelAnotherMembersLoginNorTheNextOne() {
+        pushPending("proc-1");
+        service.clearSession(8L);
         when(port.completeAuth("proc-1")).thenReturn("cookies-json");
         arrangeStore("cookies-json");
 
         service.completeAuth("proc-1", 7L);
+        verify(sessionRepository).saveAndFlush(any(SidecarSession.class));
 
-        verify(encryption).encrypt("cookies-json");
-        verify(encryption, never()).encrypt(CUSTOMER_ID);
-        verify(encryption, never()).encrypt(org.mockito.ArgumentMatchers.contains(CUSTOMER_ID));
+        // a login started after the disconnect is a new attempt and can be stored
+        service.clearSession(7L);
+        pushPending("proc-2");
+        when(port.completeAuth("proc-2")).thenReturn("cookies-json");
+
+        service.completeAuth("proc-2", 7L);
+        verify(sessionRepository, org.mockito.Mockito.times(2)).saveAndFlush(any(SidecarSession.class));
+    }
+
+    @Test
+    void storeSession_withoutALoginInFlightIsNotCancelledByAnEarlierDisconnect() {
+        arrangeStore("cookies-json");
+        service.clearSession(7L);
+
+        service.storeSession("cookies-json", 7L);
+
+        verify(sessionRepository).saveAndFlush(any(SidecarSession.class));
     }
 
     @Test
@@ -434,16 +673,25 @@ class CaisseEpargneSyncServiceAuthTest {
     }
 
     @Test
-    void theServiceKeepsNoFieldThatCouldHoldACredential() {
-        for (var field : CaisseEpargneSyncService.class.getDeclaredFields()) {
-            assertThat(field.getName().toLowerCase()).doesNotContain("password").doesNotContain("credential")
-                .doesNotContain("customer").doesNotContain("positions");
-        }
-        for (var type : CaisseEpargneSyncService.class.getDeclaredClasses()) {
-            for (var component : type.getRecordComponents() == null
-                ? new java.lang.reflect.RecordComponent[0] : type.getRecordComponents()) {
-                assertThat(component.getName().toLowerCase()).doesNotContain("password")
+    void theServiceKeepsNoFieldThatCouldHoldThePassword() {
+        // The pending logins live in the shared engine, so it is checked too.
+        for (Class<?> owner : List.of(CaisseEpargneSyncService.class, BpceSyncEngine.class)) {
+            for (var field : owner.getDeclaredFields()) {
+                assertThat(field.getName().toLowerCase()).as(owner.getSimpleName() + "." + field.getName())
+                    .doesNotContain("password").doesNotContain("credential")
                     .doesNotContain("customer").doesNotContain("positions");
+            }
+            for (var type : owner.getDeclaredClasses()) {
+                for (var component : type.getRecordComponents() == null
+                    ? new java.lang.reflect.RecordComponent[0] : type.getRecordComponents()) {
+                    assertThat(component.getName().toLowerCase()).as(type.getSimpleName() + "." + component.getName())
+                        .doesNotContain("password").doesNotContain("positions");
+                    // Only the identifier read back from the session carries it: the pending
+                    // login keeps it inside the session factory, never in a field of its own.
+                    if (component.getName().toLowerCase().contains("customer")) {
+                        assertThat(type.getSimpleName()).isEqualTo("StoredIdentifier");
+                    }
+                }
             }
         }
     }

@@ -100,6 +100,22 @@ class HistoryServiceTest {
             .name("Retirement plan")
             .type(AccountType.PER)
             .provider(CaisseEpargneSyncService.PROVIDER)
+            .isManual(false)
+            .currency("EUR")
+            .currentBalance(new BigDecimal(balance))
+            .cashBalance(new BigDecimal("200"))
+            .color("#8b5cf6")
+            .member(MEMBER)
+            .build();
+    }
+
+    private static Account caisseEpargneAssuranceVie(long id, String balance) {
+        return Account.builder()
+            .id(id)
+            .name("Life insurance")
+            .type(AccountType.ASSURANCE_VIE)
+            .provider(CaisseEpargneSyncService.PROVIDER)
+            .isManual(false)
             .currency("EUR")
             .currentBalance(new BigDecimal(balance))
             .cashBalance(new BigDecimal("200"))
@@ -1236,5 +1252,110 @@ class HistoryServiceTest {
             assertThat(point.total()).isEqualByComparingTo("1000");
             assertThat(point.invested()).isEqualByComparingTo("500");
         });
+    }
+
+    @Test
+    void buildHistory_caisseEpargneAssuranceVieUsesLatestActualSnapshotBeforeRange() {
+        LocalDate today = LocalDate.now();
+        LocalDate from = today.minusMonths(1);
+        LocalDate rangeDate = today.minusDays(20);
+        Account per = caisseEpargneAssuranceVie(1L, "1200");
+        Account checking = checking(2L, "1000");
+        BalanceSnapshot priorPerSnapshot = BalanceSnapshot.builder()
+            .account(per).date(from.minusDays(1)).balance(new BigDecimal("700"))
+            .investedAmount(new BigDecimal("700")).build();
+
+        when(accountRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(per, checking));
+        when(snapshotRepository.findForwardFillDataByAccountIds(from, List.of(1L, 2L)))
+            .thenReturn(List.<Object[]>of(
+                new Object[]{2L, rangeDate, new BigDecimal("1000"), new BigDecimal("1000")}
+            ));
+        lenient().when(snapshotRepository.findFirstByAccountIdAndDateLessThanEqualOrderByDateDesc(
+            1L, from.minusDays(1))).thenReturn(Optional.of(priorPerSnapshot));
+        stubValuation(per, "1200", "1200");
+        stubValuation(checking, "1000", "1000");
+
+        List<NetWorthPoint> result = historyService.buildHistory(List.of(1L, 2L), 1, true, MEMBER_ID);
+
+        assertThat(result).anySatisfy(point -> {
+            assertThat(point.date()).isEqualTo(rangeDate);
+            assertThat(point.total()).isEqualByComparingTo("1700");
+            assertThat(point.invested()).isNull();
+            assertThat(point.pnl()).isNull();
+            assertThat(point.accounts().get(1L).invested()).isNull();
+            assertThat(point.accounts().get(1L).pnl()).isNull();
+            assertThat(point.accounts().get(2L).invested()).isEqualByComparingTo("1000");
+        });
+        NetWorthPoint live = result.get(result.size() - 1);
+        assertThat(live.date()).isEqualTo(today);
+        assertThat(live.total()).isEqualByComparingTo("2200");
+        assertThat(live.invested()).isNull();
+        assertThat(live.pnl()).isNull();
+        assertThat(live.accounts().get(1L).invested()).isNull();
+    }
+
+    @Test
+    void buildPnl_caisseEpargneAssuranceVieDoesNotReconstructHistoricalOwnershipFromCurrentUnits() {
+        LocalDate fromDate = LocalDate.now().minusDays(30);
+        Account per = caisseEpargneAssuranceVie(1L, "1200");
+        AccountHolding currentUnits = AccountHolding.builder()
+            .account(per).ticker("PER-UNIT").quantity(new BigDecimal("10"))
+            .providerValueEur(new BigDecimal("1000")).build();
+
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(per));
+        when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(currentUnits));
+        stubValuation(per, "1200", "1200");
+        lenient().when(priceSnapshotRepository.findLatestByTickerBeforeOrOnDate("PER-UNIT", fromDate))
+            .thenReturn(Optional.of(PriceSnapshot.builder()
+                .ticker("PER-UNIT").date(fromDate).priceEur(new BigDecimal("50")).build()));
+        lenient().when(priceService.getPriceEur("PER-UNIT")).thenReturn(new BigDecimal("100"));
+
+        PnlResponse result = historyService.buildPnl(List.of(1L), MEMBER_ID, fromDate);
+
+        assertThat(result.total()).isEqualByComparingTo("1200");
+        assertThat(result.invested()).isNull();
+        assertThat(result.pnl()).isNull();
+        assertThat(result.pnlPercent()).isNull();
+        assertThat(result.valueAtFrom()).isNull();
+        assertThat(result.rangePnl()).isNull();
+        assertThat(result.rangePnlPercent()).isNull();
+        verify(priceSnapshotRepository, never()).findLatestByTickerBeforeOrOnDate("PER-UNIT", fromDate);
+    }
+
+    @Test
+    void buildIntradayHistory_caisseEpargneAssuranceVieUsesDatedAccountSnapshotsAndLiveValueNow() {
+        LocalDate today = LocalDate.now();
+        LocalDate yesterday = today.minusDays(1);
+        Account per = caisseEpargneAssuranceVie(1L, "1200");
+        AccountHolding unresolved = AccountHolding.builder()
+            .account(per).ticker("UNPRICED-UNIT").quantity(new BigDecimal("10"))
+            .providerValueEur(new BigDecimal("1000")).build();
+        BalanceSnapshot yesterdaySnapshot = BalanceSnapshot.builder()
+            .account(per).date(yesterday).balance(new BigDecimal("900"))
+            .investedAmount(new BigDecimal("900")).build();
+        BalanceSnapshot todaySnapshot = BalanceSnapshot.builder()
+            .account(per).date(today).balance(new BigDecimal("1000"))
+            .investedAmount(new BigDecimal("1000")).build();
+
+        when(accountRepository.findAllById(List.of(1L))).thenReturn(List.of(per));
+        lenient().when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(unresolved));
+        lenient().when(snapshotRepository.findByAccountIdOrderByDateAsc(1L))
+            .thenReturn(List.of(yesterdaySnapshot, todaySnapshot));
+        stubValuationLenient(per, "1200", "1200");
+
+        List<NetWorthIntradayPoint> result = historyService.buildIntradayHistory(List.of(1L), MEMBER_ID);
+
+        NetWorthIntradayPoint latest = result.get(result.size() - 1);
+        assertThat(result.stream()
+            .filter(point -> point.timestamp().toLocalDate().equals(yesterday)))
+            .isNotEmpty()
+            .allSatisfy(point -> assertThat(point.total()).isEqualByComparingTo("900"));
+        assertThat(result.stream()
+            .filter(point -> point.timestamp().toLocalDate().equals(today))
+            .filter(point -> !point.equals(latest)))
+            .allSatisfy(point -> assertThat(point.total()).isEqualByComparingTo("1000"));
+        assertThat(latest.total()).isEqualByComparingTo("1200");
+        assertThat(result).allSatisfy(point -> assertThat(point.invested()).isNull());
+        verify(priceService, never()).getIntradayPricesEur(eq("UNPRICED-UNIT"), any(), any());
     }
 }

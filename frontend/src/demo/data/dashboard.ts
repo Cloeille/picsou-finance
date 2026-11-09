@@ -16,20 +16,28 @@ export function mockDashboard(accounts: Account[]): DashboardData {
   const totalAssets = round2(assets.reduce((sum, a) => sum + a.currentBalanceEur, 0))
   const totalLiabilities = round2(liabilities.reduce((sum, a) => sum + Math.abs(a.currentBalanceEur), 0))
 
+  const toItem = (a: Account, divisor: number) => ({
+    accountId: a.id,
+    name: a.name,
+    color: a.color,
+    balanceEur: a.currentBalanceEur,
+    percentage: divisor > 0 ? Math.round((a.currentBalanceEur / divisor) * 1000) / 10 : 0,
+    accountType: a.type,
+    hasHoldings: ['PEA', 'COMPTE_TITRES', 'CRYPTO'].includes(a.type),
+  })
+
+  // The donut excludes receivables, so its divisor is the included assets only; the wealth
+  // modes and the history curve use `assets`, which keeps the peer loans.
+  const distributable = assets.filter(a => a.type !== 'PEER_LOAN')
+  const distributableTotal = round2(distributable.reduce((sum, a) => sum + a.currentBalanceEur, 0))
+
   return {
     totalNetWorth: round2(totalAssets - totalLiabilities),
     totalLiabilities,
     totalMonthlyPayment: liabilities.reduce((sum, a) => sum + (a.debt?.monthlyPayment ?? 0), 0),
     netWorthHistory: netWorthHistory(topLevel.map(a => a.id), 12, false, accounts),
-    distribution: assets.map(a => ({
-      accountId: a.id,
-      name: a.name,
-      color: a.color,
-      balanceEur: a.currentBalanceEur,
-      percentage: Math.round((a.currentBalanceEur / totalAssets) * 1000) / 10,
-      accountType: a.type,
-      hasHoldings: ['PEA', 'COMPTE_TITRES', 'CRYPTO'].includes(a.type),
-    })),
+    distribution: distributable.map(a => toItem(a, distributableTotal)),
+    assets: assets.map(a => toItem(a, totalAssets)),
     // A configured loan and the demo card, so demo mode exercises both liability rows
     // (issues #18, #197). Optional fields are omitted, as the backend does for nulls.
     liabilities: liabilities.map(a => {

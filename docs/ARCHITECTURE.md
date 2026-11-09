@@ -20,8 +20,8 @@ com.picsou/
 │                   BalanceSnapshot, Goal, GoalManualContribution, GoalContributor,
 │                   Debt, RealEstateMetadata, PropertyValuation, AccountOwnership, WalletAddress;
 │                   integrations: Requisition, TradeRepublicSession, CryptoExchangeSession,
-│                   FinarySession, BoursoSession, BourseDirectSession, DegiroSession,
-│                   AmundiSession,
+│                   FinarySession, DegiroSession, RevolutSession,
+│                   SidecarSession (one row per sidecar bank and member),
 │                   PriceSnapshot;
 │                   identity & sharing: AppUser, FamilyMember, UserRole, SharingSettings,
 │                   SharingLevel, SharedResource, UserMfa, UserMfaRecoveryCode,
@@ -151,7 +151,7 @@ modern/legacy portfolio streams. It returns only strict, reconciled snapshots.
 The Java service queues imports, performs external calls outside database
 transactions, then atomically replaces holdings and writes the daily account
 snapshot. The encrypted browser state and observable job status live in
-`BourseDirectSession`. See the [Bourse Direct ADR](./decisions/2026-07-21-bourse-direct-isolated-atomic-sync.md).
+`SidecarSession`, shared with the other sidecar banks ([ADR](./decisions/2026-11-02-one-sidecar-session-table.md)). See the [Bourse Direct ADR](./decisions/2026-07-21-bourse-direct-isolated-atomic-sync.md).
 
 ### 5. Amundi Épargne Salariale
 
@@ -166,7 +166,7 @@ step, and normalization of the `dispositifsMulti` payload; it returns only stric
 reconciled snapshots. The Java service queues imports, calls upstream outside
 database transactions, then atomically replaces each plan's holdings and writes
 the daily snapshot. One Picsou account per *dispositif*, typed `EMPLOYEE_SAVINGS`.
-Encrypted session and job status live in `AmundiSession`. See the
+Encrypted session and job status live in `SidecarSession`. See the
 [Amundi ADR](./decisions/2026-08-09-amundi-epargne-salariale-sidecar.md).
 
 A SCPI share is not this, and it is not a house either. It is an `SCPI` account valued at
@@ -188,7 +188,7 @@ snapshots and follows securities-history pagination to the declared row count.
 The Java service performs upstream I/O before one atomic persistence phase,
 backfills market prices and reconstructs value and invested history from batched
 inputs. Encrypted browser state and observable job status live in
-`FortuneoSession`. See the
+`SidecarSession`. See the
 [Fortuneo ADR](./decisions/2026-07-26-fortuneo-isolated-atomic-history-sync.md).
 
 ### 7. Crypto exchange
@@ -313,6 +313,7 @@ and the [ADR](./decisions/2026-11-04-sso-login-alongside-passwords.md).
 | Flyway | Schema migrations | `db/migration/` |
 | Enable Banking | PSD2 bank sync (optional) | `ENABLEBANKING_*` |
 | SimpleFIN | Bank balances and posted transactions from a setup token (optional, no app credentials) | User-supplied token |
+| Wise API | Wise jar balances from a personal API token (optional, no app credentials) | User-supplied token |
 | Powens / Budget Insight | Scraping bank sync (**experimental, disabled in 1.0.0**) | `POWENS_*` |
 | Trade Republic | Broker sync via Python microservice | `TR_AUTH_URL` |
 | Bourse Direct | PEA/CTO sync via internal Python sidecar | `BOURSE_DIRECT_AUTH_URL` |
@@ -320,7 +321,10 @@ and the [ADR](./decisions/2026-11-04-sso-login-alongside-passwords.md).
 | Fortuneo | Current accounts, PEA/PEA-PME/CTO and transaction history via internal Python sidecar | `FORTUNEO_AUTH_URL` |
 | BoursoBank | Current accounts, livrets and PEA/CTO sync via internal Python sidecar | `BOURSO_AUTH_URL` |
 | CORUM | SCPI shares and CORUM Life (assurance-vie) contracts via internal Python sidecar (`corum-auth`) | `CORUM_AUTH_URL` |
-| Caisse d'Epargne | Current account, Livret A and deferred-debit card read via internal Python sidecar, on demand, no in-app login yet | `CAISSE_EPARGNE_AUTH_URL` |
+| Caisse d'Epargne | Current account, Livret A, Livret Jeune, LDDS, card, loans and PER via internal Python sidecar; browser-assisted login (keypad + Sécur'Pass), on demand | `CAISSE_EPARGNE_AUTH_URL` |
+| Banque Populaire | Current account, Livret A, Livret Jeune, LDDS, Compte sur Livret and PEL (no cards) via internal Python sidecar sharing the BPCE code with Caisse d'Epargne; region + keypad + Sécur'Pass login, on demand | `BANQUE_POPULAIRE_AUTH_URL` |
+| La Banque Postale | Current account and livrets (Livret A, LDDS, LEP) via internal Chromium login sidecar, on demand | `LBP_AUTH_URL` |
+| Natixis Interépargne | PEE and PER employee-savings plans and their operations history via internal Python sidecar (`natixis-auth`); SMS, voice or e-mail code once, then the refresh token | `NATIXIS_AUTH_URL` |
 | DEGIRO | Compte-titres sync via internal Python sidecar (`degiro-auth` in `docker/docker-compose.yml`) | `DEGIRO_AUTH_URL` |
 | Binance | Crypto exchange balances | Via CryptoExchangePort |
 | Meria | Crypto exchange balances (wallets + staking + lending) | Via CryptoExchangePort |

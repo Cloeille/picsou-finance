@@ -1,0 +1,68 @@
+# Isolated test stack for the peer-loans feature.
+#
+# It shares nothing with the production stack: its own Compose project, its own
+# image tag, its own volumes, its own database and its own host port. Starting or
+# destroying it can never touch a production container, volume or `.env`.
+#
+#   docker compose -f docker/docker-compose.peer-loans-test.yml up -d --build
+#   open http://localhost:18080          (first launch: the setup wizard)
+#
+#   docker compose -f docker/docker-compose.peer-loans-test.yml logs -f app
+#   docker compose -f docker/docker-compose.peer-loans-test.yml down
+#   docker compose -f docker/docker-compose.peer-loans-test.yml down -v   # wipe the test data
+#
+# No bank connector runs here, so the setup wizard's integration steps can be
+# skipped. Create a manual account of type "Peer loan" and enter its terms on the
+# account page.
+
+name: picsou-peer-loans-test
+
+services:
+  app:
+    # A local tag, never the published :latest image the production stack pulls.
+    image: picsou-peer-loans-test:local
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    # Loopback only, so the test instance is not exposed on the LAN. 18080 avoids
+    # the production 8080.
+    ports:
+      - "127.0.0.1:18080:8080"
+    volumes:
+      # /data holds the auto-generated JWT secret, encryption key and database
+      # password. A separate volume keeps the production secrets out of reach.
+      - peer_test_data:/data
+    environment:
+      # A dedicated database and password. The entrypoint persists the password
+      # in this stack's /data volume; the db service uses the same literal value.
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/picsou_peer_test?sslmode=prefer
+      SPRING_DATASOURCE_USERNAME: picsou
+      POSTGRES_PASSWORD: peer-test-only
+      SPRING_PROFILES_ACTIVE: prod
+      # Telemetry off: this is a throwaway instance.
+      APP_TELEMETRY_DSN: ""
+      APP_TELEMETRY_ENVIRONMENT: test
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: picsou_peer_test
+      POSTGRES_USER: picsou
+      POSTGRES_PASSWORD: peer-test-only
+    volumes:
+      - peer_test_pgdata:/var/lib/postgresql/data
+    # No host port: the database is reachable only by the test app.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U picsou -d picsou_peer_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  peer_test_data:
+  peer_test_pgdata:
