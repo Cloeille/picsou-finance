@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Long descriptions overflowed the rows of the "Add account" source list.** A description longer than the dialog (Caisse d'Epargne, German or Spanish copy, any row on a phone) kept its one-line width, ran past the card's right edge and pushed that row's arrow out of line with the others. A description now wraps inside its row, clamped to two lines with the full text as a tooltip, and every arrow keeps its size and position.
 - **Family dashboard and MCP history counted Revolut pockets twice.** A Revolut wallet's balance
   is the sum of its pockets, which is why the dashboard leaves pockets out of net worth. The
   family dashboard's shared net worth added each pocket on top of its wallet, and the MCP

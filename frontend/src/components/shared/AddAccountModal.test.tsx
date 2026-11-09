@@ -453,6 +453,24 @@ describe('AddAccountModal Caisse d\'Epargne wizard', () => {
   })
 })
 
+describe('AddAccountModal source rows', () => {
+  // jsdom does no layout, so the real geometry is covered by e2e/add-account-source-list.spec.ts;
+  // this pins the classes that keep a long description inside its row and the arrow in place.
+  it('lets a long description wrap in the row and keeps the arrow fixed-size', () => {
+    render(<AddAccountModal open onOpenChange={vi.fn()} />)
+
+    const description = screen.getByText('addAccount.desc.caisseEpargne')
+    expect(description).toHaveClass('line-clamp-2')
+    expect(description).toHaveAttribute('title', 'addAccount.desc.caisseEpargne')
+
+    const column = description.parentElement!
+    expect(column).toHaveClass('min-w-0', 'flex-1', 'whitespace-normal')
+
+    const row = column.parentElement!
+    expect(row.querySelector('svg.lucide-arrow-right')).toHaveClass('shrink-0')
+  })
+})
+
 describe('AddAccountModal SimpleFIN wizard', () => {
   it('opens the connector and closes after authentication', () => {
     const onOpenChange = vi.fn()
